@@ -15,6 +15,9 @@ import {
   STORY_BACKGROUND_CLASS,
   StoryElementBody,
   storyElementPlacement,
+  StoryInteractiveLayer,
+  type StoryMentionRef,
+  type StoryPoll,
 } from '../../../entities/story'
 import { Button } from '../../../shared/ui'
 import { placedTransform } from '../../../shared/lib'
@@ -82,6 +85,17 @@ function normalizeDeg(deg: number): number {
  * Пустой кадр — крупная зона загрузки: файл можно выбрать или бросить прямо в кадр, а
  * вместо медиа начать текстовую сторис.
  */
+// Доля кадра под кнопками зрителя внизу — та же, что у безопасной зоны при перетаскивании.
+const VIEWER_ZONE = 0.15
+
+function hasInteractive(i: {
+  poll: StoryPoll | null
+  linkUrl: string | null
+  mentions: readonly StoryMentionRef[]
+}): boolean {
+  return Boolean(i.poll || i.linkUrl || i.mentions.length >= 2)
+}
+
 export function StoryCanvas({
   stage,
   hasPhoto,
@@ -100,6 +114,7 @@ export function StoryCanvas({
   onPickMedia,
   onTextStory,
   onDropFile,
+  interactive,
 }: {
   stage: StoryStage
   hasPhoto: boolean
@@ -123,6 +138,16 @@ export function StoryCanvas({
   onPickMedia: () => void
   onTextStory: () => void
   onDropFile: (file: File) => void
+  /**
+   * Опрос, ссылка и отметки — превью тем же слоем, что у зрителя: автор сразу видит,
+   * сколько места они займут и как свернутся, если их много.
+   */
+  interactive?: {
+    poll: StoryPoll | null
+    linkUrl: string | null
+    linkLabel: string | null
+    mentions: StoryMentionRef[]
+  }
 }) {
   const t = useTranslations('Stories')
   const frameRef = useRef<HTMLDivElement>(null)
@@ -475,6 +500,32 @@ export function StoryCanvas({
             </button>
           )
         })}
+
+        {interactive && frameBox && hasInteractive(interactive) && (
+          // Нижняя зона — кнопки зрителя (реакции, ответ, просмотры), над ней интерактив:
+          // ровно так кадр разложится в просмотре. Слой не нажимается — это превью.
+          <div aria-hidden className="pointer-events-none absolute inset-0">
+            <div
+              className="absolute inset-x-3 flex flex-col"
+              style={{ bottom: `calc(${VIEWER_ZONE * 100}% + 0.5rem)` }}
+            >
+              <StoryInteractiveLayer
+                preview
+                poll={interactive.poll}
+                linkUrl={interactive.linkUrl}
+                linkLabel={interactive.linkLabel}
+                mentions={interactive.mentions}
+                frame={{ width: frameBox.width, height: frameBox.height }}
+              />
+            </div>
+            <div
+              className="absolute inset-x-0 bottom-0 flex items-center justify-center rounded-b-2xl border-t border-dashed border-white/40 bg-black/25 text-[10px] font-medium text-white/70"
+              style={{ height: `${VIEWER_ZONE * 100}%` }}
+            >
+              {t('viewerZone')}
+            </div>
+          </div>
+        )}
 
         {hasMedia && (
           <Button

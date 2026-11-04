@@ -448,6 +448,38 @@ export function CreateStoryForm({
     setView('general')
   }
 
+  // Превью интерактива на кадре — тем же слоем, что у зрителя. Незаполненные поля опроса
+  // показываются подсказками: раскладка видна сразу, а не после набора текста.
+  const linkUrlValue = form.watch('linkUrl')
+  const linkLabelValue = form.watch('linkLabel')
+  const interactivePreview = {
+    poll: poll
+      ? {
+          id: 'preview',
+          question: poll.question.trim() || t('pollQuestion'),
+          options: poll.options.map((text, i) => ({
+            id: `preview-${i}`,
+            text: text.trim() || t('pollOption', { n: i + 1 }),
+            order: i,
+            votes: 0,
+          })),
+          totalVotes: 0,
+          myOptionId: null,
+        }
+      : null,
+    linkUrl: linkOpen ? (linkUrlValue ?? null) : null,
+    linkLabel: linkOpen ? (linkLabelValue ?? null) : null,
+    mentions: [
+      ...new Map(
+        elements.flatMap((e) =>
+          e.type === 'mention'
+            ? [[e.userId, { userId: e.userId, name: e.name ?? '' }] as const]
+            : [],
+        ),
+      ).values(),
+    ],
+  }
+
   const activeTool: StoryTool | null = selected
     ? (TOOL_OF[selected.type] ?? null)
     : view === 'link' || view === 'poll'
@@ -675,6 +707,7 @@ export function CreateStoryForm({
             onPickMedia={() => fileRef.current?.click()}
             onTextStory={textStory}
             onDropFile={(file) => void pickFile(file)}
+            interactive={interactivePreview}
           />
           <div className="flex min-w-0 items-center justify-center">
             {/* Кадрирование фото: поворот · линейка угла · отражение */}

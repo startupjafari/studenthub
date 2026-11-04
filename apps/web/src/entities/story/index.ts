@@ -67,3 +67,15 @@ export {
 } from './ui/story-element'
 export { StoryThumb } from './ui/story-thumb'
 export { highlightRing } from './lib/highlight-ring'
+export {
+  StoryInteractiveLayer,
+  StoryInteractiveSheet,
+  type StoryExpanded,
+  type StoryMentionRef,
+} from './ui/story-interactive-layer'
+export {
+  POLL_HEIGHT_SHARE,
+  planInteractive,
+  pollPercents,
+  safeStoryLink,
+} from './model/interactive-layout'

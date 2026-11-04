@@ -20,7 +20,6 @@ import {
   Bookmark,
   ChevronLeft,
   ChevronRight,
-  ExternalLink,
   Eye,
   EyeOff,
   Flag,
@@ -79,12 +78,16 @@ import {
   updateStoryHighlightRequest,
   unmuteStoryAuthorRequest,
   StoryElementsLayer,
+  StoryInteractiveLayer,
+  StoryInteractiveSheet,
   StoryThumb,
   storyBackgroundClass,
   storyKeys,
   voteStoryRequest,
   type StoryCard,
   type StoryElement,
+  type StoryExpanded,
+  type StoryMentionRef,
   type StoryRing,
 } from '../../../entities/story'
 import { useAppSelector } from '../../../shared/store'
@@ -195,6 +198,65 @@ const OFFICIAL_ROLES: ReadonlySet<string> = new Set([
 ])
 // Длина ответа — как в схеме сервера (StoryReplySchema).
 const REPLY_MAX = 1000
+// Размер кадра до первого замера (и в тестах, где замерять нечем): колонка десктопа 9:16.
+const FALLBACK_FRAME = { w: 480, h: 853 }
+
+/** Размеры кадра и его системных зон — от них раскладывается интерактивный слой. */
+interface FrameBox {
+  w: number
+  h: number
+  /** Высота верхней полосы (прогресс, автор, кнопки) и нижней (интерактив + реакции). */
+  header: number
+  footer: number
+}
+
+/**
+ * Замер кадра одним ResizeObserver на кадр и две его системные зоны. Пересчёт — только когда
+ * размер правда поменялся: одинаковый объект не уходит в state, и цикла отрисовок нет.
+ */
+function useFrameBox(
+  frame: HTMLElement | null,
+  header: HTMLElement | null,
+  footer: HTMLElement | null,
+): FrameBox {
+  const [box, setBox] = useState<FrameBox>({ ...FALLBACK_FRAME, header: 0, footer: 0 })
+  useEffect(() => {
+    if (!frame) return
+    const measure = (): void => {
+      const next = {
+        w: frame.clientWidth || FALLBACK_FRAME.w,
+        h: frame.clientHeight || FALLBACK_FRAME.h,
+        header: header?.offsetHeight ?? 0,
+        footer: footer?.offsetHeight ?? 0,
+      }
+      setBox((prev) =>
+        prev.w === next.w &&
+        prev.h === next.h &&
+        prev.header === next.header &&
+        prev.footer === next.footer
+          ? prev
+          : next,
+      )
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    for (const el of [frame, header, footer]) if (el) observer.observe(el)
+    return () => observer.disconnect()
+  }, [frame, header, footer])
+  return box
+}
+
+/** Отмеченные в кадре люди — без повторов (одного человека можно отметить дважды). */
+function mentionsOf(elements: readonly StoryElement[]): StoryMentionRef[] {
+  const seen = new Map<string, StoryMentionRef>()
+  for (const e of elements) {
+    if (e.type === 'mention' && !seen.has(e.userId)) {
+      seen.set(e.userId, { userId: e.userId, name: e.name })
+    }
+  }
+  return [...seen.values()]
+}
 
 /**
  * Просмотр сторис: кадры одного автора идут подряд, по концу кольца — следующий автор.
@@ -256,6 +318,12 @@ export function StoryViewer({
   const [joining, setJoining] = useState<string | null>(null)
   // Жалоба на сторис (§3.4) — тем, чью жалобу сервер примет; кадр на это время стоит.
   const [reporting, setReporting] = useState<StoryCard | null>(null)
+  // Раскрытый интерактив поверх кадра: полный опрос или список отмеченных.
+  const [expanded, setExpanded] = useState<StoryExpanded | null>(null)
+  const [frameEl, setFrameEl] = useState<HTMLDivElement | null>(null)
+  const [headerEl, setHeaderEl] = useState<HTMLDivElement | null>(null)
+  const [footerEl, setFooterEl] = useState<HTMLElement | null>(null)
+  const box = useFrameBox(frameEl, headerEl, footerEl)
   // Окна автора поверх кадра: аудитория, «в актуальное», правка подборки.
   const [audienceOpen, setAudienceOpen] = useState(false)
   const [highlightPickOpen, setHighlightPickOpen] = useState(false)
@@ -282,7 +350,10 @@ export function StoryViewer({
   const reportOpen = reporting !== null
   const sheetOpen =
     viewersOpen || reportOpen || shareOpen || audienceOpen || highlightPickOpen || highlightEditOpen
-  const paused = holding || manualPause || menuOpen || sheetOpen || tabHidden || replying
+  // Пауза — это сумма причин. Ручная пауза (пробел, кнопка) живёт отдельно от остальных:
+  // закрыли панель опроса или меню — кадр продолжит, только если его не останавливали руками.
+  const paused =
+    holding || manualPause || menuOpen || sheetOpen || tabHidden || replying || expanded !== null
 
   // Закрытие обновляет кольца — и ленты, и профиля: пока шёл просмотр, сторисы стали
   // просмотренными.
@@ -376,6 +447,9 @@ export function StoryViewer({
     else setStoryIndex(ringLength - 1)
   }, [close, ring, ringLength, storyIndex])
 
+  // Раскрытый блок принадлежит кадру: перешли к другому — панель закрывается.
+  useEffect(() => setExpanded(null), [storyId])
+
   // Следующий кадр греем заранее — и в этом кольце, и первый у следующего автора.
   const nextCard = ring?.stories[storyIndex + 1] ?? rings[ringIndex + 1]?.stories[0]
   useEffect(() => warmStory(nextCard), [nextCard])
@@ -419,7 +493,7 @@ export function StoryViewer({
   // Клавиатура: стрелки — листание, пробел — пауза. Esc закрывает Radix. Пока открыто меню
   // или окно поверх и пока фокус в поле ввода, клавиши принадлежат им.
   useEffect(() => {
-    if (sheetOpen || menuOpen) return
+    if (sheetOpen || menuOpen || expanded) return
     function onKey(e: KeyboardEvent): void {
       if (isTyping(e.target)) return
       if (e.key === 'ArrowRight') goNext()
@@ -431,7 +505,7 @@ export function StoryViewer({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [goNext, goPrev, menuOpen, sheetOpen])
+  }, [expanded, goNext, goPrev, menuOpen, sheetOpen])
 
   // Жесты на кадре. Тап по краю листает (кнопки-зоны ниже), удержание ставит паузу, свайп
   // в сторону — к соседнему автору, вниз — закрыть. После удержания и свайпа тап по зоне
@@ -699,6 +773,14 @@ export function StoryViewer({
   const mine = story.author.id === myId
   const atStart = ringIndex === 0 && storyIndex === 0
   const iconButton = 'size-10 text-white hover:bg-white/15 hover:text-white sm:size-9'
+  const mentions = mentionsOf(story.elements ?? [])
+  // Пока раскрыта панель интерактива, всё под ней недоступно клавиатуре и читалке.
+  const covered = expanded !== null
+  const votingOptionId = vote.isPending ? (vote.variables?.optionId ?? null) : null
+  const castVote = (optionId: string): void => {
+    if (vote.isPending) return
+    vote.mutate({ id: story.id, optionId })
+  }
 
   // Лента колец: активное — кадром по центру, соседние — уменьшенными превью по бокам.
   // Каждая карточка позиционируется сдвигом от центра; при смене автора сдвиг и масштаб
@@ -709,10 +791,20 @@ export function StoryViewer({
     .filter(({ offset }) => Math.abs(offset) <= PREVIEW_RADIUS)
 
   const activeFrame = (
-    <div className="relative flex h-full w-full flex-col overflow-hidden bg-black sm:rounded-2xl">
+    <div
+      ref={setFrameEl}
+      className="relative flex h-full w-full flex-col overflow-hidden bg-black sm:rounded-2xl"
+    >
+      {/* Четыре слоя кадра: медиа, верхняя системная полоса, интерактив (опрос, ссылка,
+          «Упомянуты») и нижняя системная полоса. Интерактив стоит в потоке нижней зоны над
+          реакциями и просмотрами — пересечься с ними он не может по построению. */}
       {/* Верх: сегменты прогресса, автор и действия. Подложка-градиент — чтобы белый текст
           читался поверх светлого кадра. */}
-      <div className="absolute inset-x-0 top-0 z-20 bg-gradient-to-b from-black/60 to-transparent px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-8">
+      <div
+        ref={setHeaderEl}
+        inert={covered}
+        className="absolute inset-x-0 top-0 z-20 bg-gradient-to-b from-black/60 to-transparent px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-8"
+      >
         <div className="flex gap-1" aria-hidden>
           {segments.map((id, i) => (
             <span key={id} className="h-0.5 flex-1 overflow-hidden rounded-full bg-white/30">
@@ -900,6 +992,7 @@ export function StoryViewer({
       {/* Сам кадр. Удержание — пауза, свайп в сторону — соседний автор, вниз — закрыть.
           `touch-none`: жесты наши, браузер не должен прокручивать и обновлять страницу. */}
       <div
+        inert={covered}
         className={cn(
           'relative flex flex-1 touch-none items-center justify-center overflow-hidden select-none',
           !story.media && storyBackgroundClass(story.background),
@@ -970,8 +1063,16 @@ export function StoryViewer({
           <p
             className={cn(
               'pointer-events-none absolute inset-x-6 text-center text-lg leading-snug font-medium break-words text-white drop-shadow-lg',
-              story.media ? 'bottom-28' : 'top-1/2 -translate-y-1/2',
+              !story.media && '-translate-y-1/2',
             )}
+            // Подпись к фото — над нижней зоной, какой бы высоты ни был интерактив под ней.
+            // Текст на фоне — посередине свободной части кадра между верхом и низом: на низком
+            // экране центр кадра уже занят опросом.
+            style={
+              story.media
+                ? { bottom: box.footer + 12 }
+                : { top: (box.header + box.h - box.footer) / 2 }
+            }
           >
             {story.text}
           </p>
@@ -996,63 +1097,29 @@ export function StoryViewer({
             указателя, кликабельны только отметки людей (ведут в профиль). */}
         <StoryElementsLayer
           elements={story.elements ?? []}
+          // Отметки и карточки нажимают — они не уходят под верхнюю и нижнюю зоны кадра.
+          safeArea={{ top: box.header / box.h, bottom: box.footer / box.h }}
           onMention={openProfile}
           mentionLabel={(name) => t('openProfileOf', { name })}
           cardActions={(element) => cardActions(story, element)}
         />
-
-        {story.poll && (
-          <div className="absolute inset-x-4 bottom-28 z-10 rounded-2xl bg-black/55 p-3 text-white backdrop-blur">
-            <p className="mb-2 text-sm font-medium">{story.poll.question}</p>
-            <div className="flex flex-col gap-1.5">
-              {story.poll.options.map((option) => {
-                const total = story.poll?.totalVotes ?? 0
-                const share = total > 0 ? Math.round((option.votes / total) * 100) : 0
-                const chosen = story.poll?.myOptionId === option.id
-                const answered = story.poll?.myOptionId !== null
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    className={cn(
-                      'relative overflow-hidden rounded-lg px-3 py-2 text-left text-sm transition-colors duration-150',
-                      chosen ? 'bg-white/25 font-medium' : 'bg-white/10 hover:bg-white/20',
-                    )}
-                    onClick={() => vote.mutate({ id: story.id, optionId: option.id })}
-                  >
-                    {/* Доля голосов — заливкой самой кнопки: отдельная полоса в кадре
-                        этого размера читается хуже, чем закрашенная строка. */}
-                    {answered && (
-                      <span
-                        aria-hidden
-                        className="absolute inset-y-0 left-0 bg-white/20 transition-[width] duration-300 motion-reduce:transition-none"
-                        style={{ width: `${share}%` }}
-                      />
-                    )}
-                    <span className="relative flex justify-between gap-2">
-                      <span className="truncate">{option.text}</span>
-                      {answered && <span className="tabular-nums">{share}%</span>}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        )}
       </div>
 
-      <footer className="absolute inset-x-0 bottom-[var(--kb-inset,0px)] z-20 flex flex-col gap-2 bg-gradient-to-t from-black/70 to-transparent px-3 pt-8 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-white">
-        {story.linkUrl && (
-          <a
-            href={story.linkUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-center gap-1.5 rounded-full bg-white/15 px-4 py-2 text-sm font-medium backdrop-blur transition-colors duration-150 hover:bg-white/25"
-          >
-            <ExternalLink className="size-4" aria-hidden />
-            {story.linkLabel ?? t('openLink')}
-          </a>
-        )}
+      <footer
+        ref={setFooterEl}
+        inert={covered}
+        className="absolute inset-x-0 bottom-[var(--kb-inset,0px)] z-20 flex flex-col gap-3 bg-gradient-to-t from-black/70 to-transparent px-3 pt-8 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-white"
+      >
+        <StoryInteractiveLayer
+          poll={story.poll}
+          linkUrl={story.linkUrl}
+          linkLabel={story.linkLabel}
+          mentions={mentions}
+          frame={{ width: box.w, height: box.h }}
+          votingOptionId={votingOptionId}
+          onVote={castVote}
+          onExpand={setExpanded}
+        />
         {highlight ? null : mine ? (
           // Своя сторис: сводка реакций и просмотры. Реагировать на своё незачем.
           <div className="flex items-center gap-1.5">
@@ -1181,6 +1248,20 @@ export function StoryViewer({
           </>
         )}
       </footer>
+
+      {expanded && (
+        <div className="absolute inset-0 z-30">
+          <StoryInteractiveSheet
+            what={expanded}
+            poll={story.poll}
+            mentions={mentions}
+            votingOptionId={votingOptionId}
+            onVote={castVote}
+            onOpenProfile={openProfile}
+            onClose={() => setExpanded(null)}
+          />
+        </div>
+      )}
     </div>
   )
 
@@ -1194,6 +1275,12 @@ export function StoryViewer({
       <DialogPrimitive.Portal>
         <DialogPrimitive.Content
           aria-describedby={undefined}
+          // Esc сначала закрывает раскрытый опрос или список людей, а не весь просмотр.
+          onEscapeKeyDown={(e) => {
+            if (!expanded) return
+            e.preventDefault()
+            setExpanded(null)
+          }}
           className="fixed inset-0 z-50 overflow-hidden bg-black/95 outline-none"
           style={{ '--frame-w': FRAME_W } as CSSProperties}
         >
