@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
-import { Copy, Eye, Forward, ImageDown, MoreVertical, Trash2 } from 'lucide-react'
-import { MediaViewer as BaseMediaViewer, MenuSeparator } from '../../../shared/ui'
+import { Copy, Eye, Forward, ImageDown, Trash2 } from 'lucide-react'
+import { MediaViewer as BaseMediaViewer, VIEWER_ICON_BUTTON } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { srcSetOf, useBodyScrollLock } from '../../../shared/lib'
 import { useAttachmentLinkSource } from './attachment-link-source'
@@ -58,7 +58,7 @@ export interface MediaViewerActions {
 }
 
 // Просмотр медиа сообщений (Ф9+). Тонкая обёртка над общим shared/ui MediaViewer:
-// добавляет чат-контекст (отправитель, подпись) и меню действий (перейти/копировать/переслать/удалить).
+// добавляет чат-контекст (отправитель, подпись) и действия (перейти/копировать/переслать/удалить).
 export function MediaViewer({
   items,
   index,
@@ -79,7 +79,6 @@ export function MediaViewer({
   // Второй аргумент — запрет выделения на всей странице: оверлей перетаскивают,
   // и без него браузер выделяет текст, лежащий ПОД ним (см. хук).
   useBodyScrollLock(true, true)
-  const [menuOpen, setMenuOpen] = useState(false)
   const cur = items[index]
 
   const qc = useQueryClient()
@@ -158,86 +157,44 @@ export function MediaViewer({
     </p>
   ) : undefined
 
-  const trailing = actions ? (
-    <div
-      className="relative"
-      onMouseEnter={() => setMenuOpen(true)}
-      onMouseLeave={() => setMenuOpen(false)}
+  // Действия — иконками в верхней панели, слева от поворота, «скачать» и «закрыть»: без
+  // всплывающего меню, всё видно сразу (как в Telegram). Подпись — в title и aria-label.
+  const icon = (
+    label: string,
+    Icon: typeof Eye,
+    onClick: () => void,
+    tone?: 'danger',
+  ): ReactNode => (
+    <button
+      key={label}
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={cn(VIEWER_ICON_BUTTON, tone === 'danger' && 'text-red-400 hover:text-red-300')}
     >
-      <button
-        type="button"
-        aria-label={t('messageActions')}
-        className={cn(
-          'flex size-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white',
-          menuOpen && 'bg-white/10 text-white',
-        )}
-      >
-        <MoreVertical className="size-5" aria-hidden />
-      </button>
-      <div
-        className={cn(
-          'absolute bottom-full right-0 z-20 min-w-52 overflow-hidden rounded-xl border border-white/10 bg-zinc-800 py-1 text-white shadow-lg',
-          menuOpen ? 'block' : 'hidden',
-        )}
-      >
-        <button
-          type="button"
-          onClick={run(actions.onGoTo)}
-          className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-white/10"
-        >
-          <Eye className="size-4 shrink-0 opacity-80" aria-hidden />
-          {t('goToMessage')}
-        </button>
-        <button
-          type="button"
-          onClick={run(actions.onCopy)}
-          className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-white/10"
-        >
-          <Copy className="size-4 shrink-0 opacity-80" aria-hidden />
-          {t('copyText')}
-        </button>
-        {/* Копировать сам снимок — отдельным пунктом от «копировать текст»: в буфер кладут
-            либо подпись, либо картинку, и одна кнопка на оба случая всегда не та. */}
-        {cur.mime.startsWith('image/') && url && (
-          <button
-            type="button"
-            onClick={() => {
-              void copyImageToClipboard(url).then(
-                () => actions.onCopiedImage?.(true),
-                () => actions.onCopiedImage?.(false),
-              )
-              setMenuOpen(false)
-            }}
-            className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-white/10"
-          >
-            <ImageDown className="size-4 shrink-0 opacity-80" aria-hidden />
-            {t('copyImage')}
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={run(actions.onForward)}
-          className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-white/10"
-        >
-          <Forward className="size-4 shrink-0 opacity-80" aria-hidden />
-          {t('forward')}
-        </button>
-        {/* Удаление — красное, поэтому в самом конце и за линией (цвет линии — под тёмное меню). */}
-        {meta?.mine && (
-          <>
-            <MenuSeparator className="bg-white/10" />
-            <button
-              type="button"
-              onClick={run(actions.onDelete)}
-              className="flex h-9 w-full items-center gap-2 px-3 text-sm text-red-400 transition-colors hover:bg-white/10"
-            >
-              <Trash2 className="size-4 shrink-0" aria-hidden />
-              {t('delete')}
-            </button>
-          </>
-        )}
-      </div>
-    </div>
+      <Icon className="size-5" aria-hidden />
+    </button>
+  )
+  const topActions = actions ? (
+    <>
+      {icon(t('goToMessage'), Eye, run(actions.onGoTo))}
+      {icon(t('copyText'), Copy, run(actions.onCopy))}
+      {/* Копировать сам снимок — отдельно от «копировать текст»: в буфер кладут либо
+          подпись, либо картинку, и одна кнопка на оба случая всегда не та. */}
+      {cur.mime.startsWith('image/') &&
+        url &&
+        icon(t('copyImage'), ImageDown, () => {
+          void copyImageToClipboard(url).then(
+            () => actions.onCopiedImage?.(true),
+            () => actions.onCopiedImage?.(false),
+          )
+        })}
+      {icon(t('forward'), Forward, run(actions.onForward))}
+      {meta?.mine && icon(t('delete'), Trash2, run(actions.onDelete), 'danger')}
+      {/* Отбивка между действиями над сообщением и управлением просмотром. */}
+      <span className="mx-1 h-5 w-px bg-white/15" aria-hidden />
+    </>
   ) : undefined
 
   return (
@@ -258,7 +215,7 @@ export function MediaViewer({
       onClose={onClose}
       topLeft={topLeft}
       caption={caption}
-      trailing={trailing}
+      actions={topActions}
       downloadName={cur.name}
       downloadKey={cur.id ? `file:${cur.id}` : undefined}
     />

@@ -40,8 +40,8 @@ export interface MediaViewerMedia {
 // Жесты (shared/lib/use-media-gestures): щипок и двойной тап приближают снимок, увеличенный
 // возится пальцем, свайп поперёк листает. Видео играет наш VideoPlayer, а не системный
 // плеер телефона; зум ему выключен — касания нужны контролам.
-// Универсальный: URL текущего элемента резолвит вызывающий (src), слоты topLeft/caption/trailing
-// позволяют доклеить контекст (отправитель, подпись, меню действий) — используется и в чате, и в профиле.
+// Универсальный: URL текущего элемента резолвит вызывающий (src), слоты topLeft/caption/actions
+// позволяют доклеить контекст (отправитель, подпись, действия) — используется и в чате, и в профиле.
 export function MediaViewer({
   items,
   index,
@@ -51,7 +51,7 @@ export function MediaViewer({
   onClose,
   topLeft,
   caption,
-  trailing,
+  actions,
   downloadUrl,
   downloadName,
   downloadKey,
@@ -70,7 +70,11 @@ export function MediaViewer({
   onClose: () => void
   topLeft?: ReactNode
   caption?: ReactNode
-  trailing?: ReactNode
+  /**
+   * Действия над текущим элементом — иконками в верхней панели, слева от «скачать» и
+   * «закрыть», тем же шагом. Всплывающего меню нет: всё видно сразу, как в Telegram.
+   */
+  actions?: ReactNode
   downloadUrl?: string
   downloadName?: string | null
   /**
@@ -189,11 +193,25 @@ export function MediaViewer({
           <DialogPrimitive.Title className="sr-only">
             {cur.name || t('mediaViewer')}
           </DialogPrimitive.Title>
-          {/* Верхняя панель: скачать + закрыть */}
+          {/* Верхняя панель: действия, поворот, скачать, закрыть — одним рядом иконок
+              с одинаковым шагом. */}
           <div
             className="flex items-center justify-end gap-1 p-3"
             onClick={(e) => e.stopPropagation()}
           >
+            {actions}
+            <button
+              type="button"
+              aria-label={t('rotate')}
+              title={t('rotate')}
+              // Против часовой — как кнопка в Telegram и как rotate90 в кадрировании
+              // (image-crop-modal). Здесь крутило в обратную сторону: два одинаковых с
+              // виду поворота в одном продукте вели себя по-разному.
+              onClick={() => setRotation((r) => r - 90)}
+              className={VIEWER_ICON_BUTTON}
+            >
+              <RotateCcw className="size-5" aria-hidden />
+            </button>
             {dl && (
               <ViewerDownload
                 key={downloadKey ?? downloadKeyOf(dl)}
@@ -206,8 +224,9 @@ export function MediaViewer({
             <button
               type="button"
               aria-label={t('close')}
+              title={t('close')}
               onClick={onClose}
-              className="flex size-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+              className={VIEWER_ICON_BUTTON}
             >
               <X className="size-5" aria-hidden />
             </button>
@@ -323,35 +342,20 @@ export function MediaViewer({
             )}
           </div>
 
-          {/* Нижняя панель: слева — контекст; по центру — подпись; справа — счётчик + поворот + доп.действия */}
+          {/* Нижняя панель: слева — контекст, по центру — подпись, справа — счётчик. Три
+              колонки, крайние равной ширины: подпись стоит ровно по центру экрана. */}
           <div
-            className="flex items-center gap-3 px-4 pb-4 pt-1"
+            className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 pt-1 pb-4"
             onClick={(e) => e.stopPropagation()}
           >
-            {topLeft ?? <span />}
-
-            <div className="flex min-w-0 flex-1 justify-center">{caption}</div>
-
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="min-w-0">{topLeft}</div>
+            <div className="flex min-w-0 justify-center">{caption}</div>
+            <div className="flex justify-end">
               {items.length > 1 && (
                 <span className="text-xs text-white/60 tabular-nums">
                   {index + 1} / {items.length}
                 </span>
               )}
-
-              <button
-                type="button"
-                aria-label={t('rotate')}
-                // Против часовой — как кнопка в Telegram и как rotate90 в кадрировании
-                // (image-crop-modal). Здесь крутило в обратную сторону: два одинаковых с
-                // виду поворота в одном продукте вели себя по-разному.
-                onClick={() => setRotation((r) => r - 90)}
-                className="flex size-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white"
-              >
-                <RotateCcw className="size-5" aria-hidden />
-              </button>
-
-              {trailing}
             </div>
           </div>
         </DialogPrimitive.Content>
@@ -359,6 +363,10 @@ export function MediaViewer({
     </DialogPrimitive.Root>
   )
 }
+
+/** Иконочная кнопка верхней панели: один размер и одни состояния у всех действий. */
+export const VIEWER_ICON_BUTTON =
+  'flex size-9 shrink-0 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:outline-none'
 
 /**
  * «Скачать» в просмотрщике — как у файла в Telegram Web: нажатие скачивает в приложение
@@ -391,9 +399,17 @@ function ViewerDownload({
             ? t('save')
             : t('download')
       }
-      title={state.status === 'error' ? t('downloadFailed') : undefined}
+      title={
+        state.status === 'error'
+          ? t('downloadFailed')
+          : state.status === 'loading'
+            ? t('downloadCancel')
+            : state.status === 'ready'
+              ? t('save')
+              : t('download')
+      }
       className={cn(
-        'relative flex size-9 items-center justify-center rounded-full transition-colors hover:bg-white/10',
+        'relative flex size-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:outline-none',
         state.status === 'ready' ? 'text-white' : 'text-white/80 hover:text-white',
         state.status === 'error' && 'text-red-400',
       )}
