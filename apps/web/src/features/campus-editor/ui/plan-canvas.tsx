@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { useTranslations } from 'next-intl'
+import type { UnderlayStore } from '../../../entities/campus'
 import { hitTest } from '../lib/hit'
 import { drawPlan, readPalette, type Palette } from '../lib/draw'
 import type { EditorStore, Selection } from '../model/store'
@@ -21,6 +22,8 @@ interface Props {
   /** Просмотр карты: без сетки, узлов и подсветки стен под курсором. */
   viewOnly?: boolean
   label?: string
+  /** Подложка: пока у неё включён масштаб или сдвиг, клики идут ей, а не инструменту. */
+  underlay?: UnderlayStore
 }
 
 /**
@@ -30,7 +33,14 @@ interface Props {
  * касания ладони рядом с ним только двигают план; под пальцем и пером — лупа с точкой
  * привязки, иначе её закрывает рука (§12.11).
  */
-export function PlanCanvas({ store, tools, problemsShown, viewOnly = false, label }: Props) {
+export function PlanCanvas({
+  store,
+  tools,
+  problemsShown,
+  viewOnly = false,
+  label,
+  underlay,
+}: Props) {
   const t = useTranslations('CampusEditor')
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -68,6 +78,7 @@ export function PlanCanvas({ store, tools, problemsShown, viewOnly = false, labe
         showGrid: !viewOnly,
         problemsShown: problemsRef.current,
         kindLabel: kindLabelRef.current,
+        underlay: underlay?.getState(),
       }
       drawPlan(g, state, palette, width, height, opts)
       if (loupe) {
@@ -89,7 +100,11 @@ export function PlanCanvas({ store, tools, problemsShown, viewOnly = false, labe
         g.beginPath()
         g.arc(cx, cy, r, 0, Math.PI * 2)
         g.clip()
-        drawPlan(g, zoomed, palette, width, height, { ...opts, hoverSelection: undefined })
+        drawPlan(g, zoomed, palette, width, height, {
+          ...opts,
+          hoverSelection: undefined,
+          underlay: undefined,
+        })
         g.restore()
         g.beginPath()
         g.arc(cx, cy, r, 0, Math.PI * 2)
@@ -121,6 +136,7 @@ export function PlanCanvas({ store, tools, problemsShown, viewOnly = false, labe
     ro.observe(wrap)
     resize()
     const unsubscribe = store.subscribe(schedule)
+    const unsubscribeUnderlay = underlay?.subscribe(schedule)
 
     // Тема сменилась — цвета холста перечитываются.
     const themeObserver = new MutationObserver(() => {
@@ -139,6 +155,7 @@ export function PlanCanvas({ store, tools, problemsShown, viewOnly = false, labe
     let drawingPointer: number | null = null
     let penAt = 0
     let spaceHeld = false
+    let underlayPointer: number | null = null
 
     const local = (e: PointerEvent | MouseEvent | WheelEvent) => {
       const rect = canvas.getBoundingClientRect()
@@ -181,6 +198,10 @@ export function PlanCanvas({ store, tools, problemsShown, viewOnly = false, labe
         return
       }
       if (e.button !== 0) return
+      if (underlay?.pointer('down', store.toPlan(p.x, p.y))) {
+        underlayPointer = e.pointerId
+        return
+      }
       drawingPointer = e.pointerId
       if (e.pointerType !== 'mouse' && tool !== 'select') loupe = p
       tools.down(input(e, e.pointerType))
@@ -204,6 +225,10 @@ export function PlanCanvas({ store, tools, problemsShown, viewOnly = false, labe
       if (panning) {
         store.pan(p.x - panning.x, p.y - panning.y)
         panning = p
+        return
+      }
+      if (underlayPointer === e.pointerId) {
+        underlay?.pointer('move', store.toPlan(p.x, p.y))
         return
       }
       if (drawingPointer !== null && drawingPointer !== e.pointerId) return
@@ -232,6 +257,12 @@ export function PlanCanvas({ store, tools, problemsShown, viewOnly = false, labe
       if (panning) {
         panning = null
         canvas.style.cursor = ''
+        return
+      }
+      if (underlayPointer === e.pointerId) {
+        underlayPointer = null
+        const p = local(e)
+        underlay?.pointer('up', store.toPlan(p.x, p.y))
         return
       }
       if (drawingPointer === e.pointerId) {
@@ -303,6 +334,7 @@ export function PlanCanvas({ store, tools, problemsShown, viewOnly = false, labe
       ro.disconnect()
       themeObserver.disconnect()
       unsubscribe()
+      unsubscribeUnderlay?.()
       if (frame) cancelAnimationFrame(frame)
       canvas.removeEventListener('pointerdown', onDown)
       canvas.removeEventListener('pointermove', onMove)
@@ -314,7 +346,7 @@ export function PlanCanvas({ store, tools, problemsShown, viewOnly = false, labe
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('keyup', onKey)
     }
-  }, [store, tools, viewOnly])
+  }, [store, tools, viewOnly, underlay])
 
   return (
     <div ref={wrapRef} className="relative h-full w-full overflow-hidden bg-background">

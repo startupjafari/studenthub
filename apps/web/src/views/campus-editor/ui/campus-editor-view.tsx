@@ -8,6 +8,8 @@ import { Role } from '@studenthub/shared-types'
 import { CircleAlert, Cloud, LayoutTemplate, Lock } from 'lucide-react'
 import {
   CampusEditorHeader,
+  UnderlayPanel,
+  UnderlayStore,
   campusKeys,
   fetchCampusPlan,
   fetchCampusTree,
@@ -17,6 +19,7 @@ import { fetchAllRooms, roomKeys } from '../../../entities/room'
 import { fetchMe, userKeys } from '../../../entities/user'
 import {
   EditorStore,
+  LinkRoomsButton,
   PlanCanvas,
   ProblemsPanel,
   PropertiesPanel,
@@ -93,11 +96,24 @@ function Editor({ plan }: { plan: CampusPlan }) {
   const [templateOpen, setTemplateOpen] = useState(false)
   const [mode, setMode] = useState<'2d' | '3d'>('2d')
   const [draft, setDraft] = useState<FloorDraft | null>(null)
+  const [underlay] = useState(() => new UnderlayStore(`floor:${plan.floorId}`))
   const canvasBox = useRef<HTMLDivElement>(null)
   const viewport = () => ({
     width: canvasBox.current?.clientWidth ?? 800,
     height: canvasBox.current?.clientHeight ?? 600,
   })
+  /** Видимая часть плана в мм — туда вписывается новая подложка. */
+  const visibleRect = () => {
+    const { width, height } = viewport()
+    const a = store.toPlan(0, height)
+    const b = store.toPlan(width, 0)
+    return { x0: a.x, y0: a.y, x1: b.x, y1: b.y }
+  }
+
+  useEffect(() => {
+    void underlay.load()
+    return () => underlay.dispose()
+  }, [underlay])
 
   useValidation(store)
   const autosave = useAutosave(store, plan.floorId)
@@ -118,6 +134,12 @@ function Editor({ plan }: { plan: CampusPlan }) {
   )
   const building = tree.data?.buildings.find((b) => b.id === plan.buildingId)
   const floor = building?.floors.find((f) => f.id === plan.floorId)
+  const floorContext = {
+    buildingName: building?.name ?? '',
+    buildingCode: building?.code ?? null,
+    level: floor?.level ?? 0,
+  }
+  const roomRequired = useEditor(store, (s) => s.problems.some((p) => p.code === 'ROOM_REQUIRED'))
 
   const saveState = useEditor(store, (s) => s.saveState)
   const canUndo = useEditor(store, (s) => s.canUndo)
@@ -161,6 +183,7 @@ function Editor({ plan }: { plan: CampusPlan }) {
       if (key === 'escape') {
         // Esc в редакторе — отмена жеста и выделения, а не «назад» (useEscapeBack).
         e.preventDefault()
+        underlay.setMode('idle')
         tools.cancel()
         store.set({ selection: { kind: 'none' } })
         return
@@ -196,7 +219,7 @@ function Editor({ plan }: { plan: CampusPlan }) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [store, tools, autosave])
+  }, [store, tools, autosave, underlay])
 
   const restoreDraft = (): void => {
     if (!draft) return
@@ -328,7 +351,12 @@ function Editor({ plan }: { plan: CampusPlan }) {
         <div ref={canvasBox} className="relative min-h-0 flex-1 overflow-hidden">
           {mode === '2d' ? (
             <>
-              <PlanCanvas store={store} tools={tools} problemsShown={tab === 'problems'} />
+              <PlanCanvas
+                store={store}
+                tools={tools}
+                underlay={underlay}
+                problemsShown={tab === 'problems'}
+              />
               <div className="absolute top-3 left-3">
                 <Toolbar store={store} tools={tools} />
               </div>
@@ -365,12 +393,21 @@ function Editor({ plan }: { plan: CampusPlan }) {
               store={store}
               tools={tools}
               rooms={rooms}
-              context={{ buildingName: building?.name ?? '', level: floor?.level ?? 0 }}
+              context={floorContext}
+              idleExtras={<UnderlayPanel store={underlay} visibleRect={visibleRect} />}
             />
           )}
-          {tab === 'spaces' && <SpacesPanel store={store} viewport={viewport} />}
+          {tab === 'spaces' && (
+            <>
+              <LinkRoomsButton store={store} rooms={roomsQuery.data} context={floorContext} />
+              <SpacesPanel store={store} viewport={viewport} />
+            </>
+          )}
           {tab === 'problems' && (
             <>
+              {roomRequired && (
+                <LinkRoomsButton store={store} rooms={roomsQuery.data} context={floorContext} />
+              )}
               <ProblemsPanel store={store} viewport={viewport} />
               <RouteCheckPanel store={store} />
             </>
