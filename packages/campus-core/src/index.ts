@@ -17,6 +17,12 @@ export {
   type GenerateFloorOptions,
   type GeneratedCampus,
 } from './fixtures/generate.js'
+export {
+  testCampus,
+  type TestCampus,
+  type TestCampusBuilding,
+  type TestCampusFloor,
+} from './fixtures/test-campus.js'
 export * from './format/site.js'
 export * from './topology/building.js'
 export * from './publish/publish.js'
