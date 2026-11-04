@@ -282,12 +282,17 @@ export function StoryViewer({
   rings,
   startIndex,
   onClose,
-  highlight,
+  highlights,
 }: {
   rings: StoryRing[]
   startIndex: number
   onClose: () => void
-  highlight?: ViewerHighlight
+  /**
+   * «Актуальное»: подборка на каждое кольцо, по порядку. Кольца подборок — один автор,
+   * поэтому различаем их по id подборки, а не по автору; кончилась подборка — следующая,
+   * как в ленте колец.
+   */
+  highlights?: ViewerHighlight[]
 }) {
   const t = useTranslations('Stories')
   const tCommon = useTranslations('Common')
@@ -345,6 +350,12 @@ export function StoryViewer({
   useBackClose(onClose)
 
   const ring = rings[ringIndex]
+  const highlight = highlights?.[ringIndex]
+  // Чем кольцо отличается от соседей: в ленте — автор, в «Актуальном» — подборка.
+  const ringKey = useCallback(
+    (index: number): string => highlights?.[index]?.id ?? rings[index]?.author.id ?? '',
+    [highlights, rings],
+  )
   const raw = ring?.stories[storyIndex]
   const story = raw ? (patched[raw.id] ?? raw) : undefined
   const reportOpen = reporting !== null
@@ -366,15 +377,14 @@ export function StoryViewer({
   // сохранённый кадр или первый непросмотренный.
   const openRing = useCallback(
     (index: number) => {
-      const current = rings[ringIndex]
       const target = rings[index]
       if (!target) return
-      if (current) positions.current[current.author.id] = storyIndex
+      if (rings[ringIndex]) positions.current[ringKey(ringIndex)] = storyIndex
       setProgress(0)
       setRingIndex(index)
-      setStoryIndex(positions.current[target.author.id] ?? firstUnseen(target))
+      setStoryIndex(positions.current[ringKey(index)] ?? firstUnseen(target))
     },
-    [ringIndex, rings, storyIndex],
+    [ringIndex, ringKey, rings, storyIndex],
   )
 
   const goNextRing = useCallback(() => {
@@ -1293,7 +1303,7 @@ export function StoryViewer({
             const active = offset === 0
             return (
               <div
-                key={r.author.id}
+                key={ringKey(index)}
                 className={cn(
                   'absolute sm:inset-auto sm:top-1/2 sm:left-1/2 sm:h-[calc(var(--frame-w)*16/9)] sm:w-(--frame-w)',
                   'sm:[transform:translate(-50%,-50%)_translateX(var(--story-x))_scale(var(--story-s))]',
@@ -1307,7 +1317,15 @@ export function StoryViewer({
                   } as CSSProperties
                 }
               >
-                {active ? activeFrame : <RingPreview ring={r} onOpen={() => openRing(index)} />}
+                {active ? (
+                  activeFrame
+                ) : (
+                  <RingPreview
+                    ring={r}
+                    highlightTitle={highlights?.[index]?.title}
+                    onOpen={() => openRing(index)}
+                  />
+                )}
               </div>
             )
           })}
@@ -1389,17 +1407,28 @@ export function StoryViewer({
  * аватаром и именем по центру. Карточка рисуется в размере кадра и уменьшается
  * трансформацией вместе с лентой, поэтому шрифт и аватар здесь крупнее обычного.
  */
-function RingPreview({ ring, onOpen }: { ring: StoryRing; onOpen: () => void }) {
+function RingPreview({
+  ring,
+  highlightTitle,
+  onOpen,
+}: {
+  ring: StoryRing
+  /** Превью соседней подборки «Актуального»: её название и обложка вместо автора. */
+  highlightTitle?: string
+  onOpen: () => void
+}) {
   const t = useTranslations('Stories')
   const card = ring.stories.find((s) => !s.seen) ?? ring.stories[0]
   if (!card) return null
-  const name = `${ring.author.firstName} ${ring.author.lastName}`
+  const name = highlightTitle ?? `${ring.author.firstName} ${ring.author.lastName}`
 
   return (
     <button
       type="button"
       onClick={onOpen}
-      aria-label={t('openStoryOf', { name })}
+      aria-label={
+        highlightTitle ? t('openHighlight', { title: highlightTitle }) : t('openStoryOf', { name })
+      }
       className="relative block size-full cursor-pointer overflow-hidden rounded-2xl outline-none focus-visible:ring-8 focus-visible:ring-white/50"
     >
       {/* Фото, постер или первый кадр видео; текст кадра под затемнением не нужен. */}
@@ -1420,13 +1449,24 @@ function RingPreview({ ring, onOpen }: { ring: StoryRing; onOpen: () => void }) 
               : 'bg-white/40',
           )}
         >
-          <Avatar className="size-full border-4 border-black">
-            {ring.author.avatarUrl && <AvatarImage src={ring.author.avatarUrl} alt="" />}
-            <AvatarFallback className="text-4xl">
-              {ring.author.firstName.charAt(0)}
-              {ring.author.lastName.charAt(0)}
-            </AvatarFallback>
-          </Avatar>
+          {highlightTitle ? (
+            // У подборки в кружке — её кадр, как в ряду «Актуального» в профиле.
+            <StoryThumb
+              media={card.media}
+              text={card.text}
+              background={card.background}
+              sizes="128px"
+              className="size-full rounded-full border-4 border-black"
+            />
+          ) : (
+            <Avatar className="size-full border-4 border-black">
+              {ring.author.avatarUrl && <AvatarImage src={ring.author.avatarUrl} alt="" />}
+              <AvatarFallback className="text-4xl">
+                {ring.author.firstName.charAt(0)}
+                {ring.author.lastName.charAt(0)}
+              </AvatarFallback>
+            </Avatar>
+          )}
         </span>
         <span className="max-w-full text-center text-4xl leading-tight font-semibold break-words">
           {name}
