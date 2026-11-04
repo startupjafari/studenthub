@@ -1,24 +1,13 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { Role } from '@studenthub/shared-types'
+import { CircleAlert, Cloud, LayoutTemplate, Lock } from 'lucide-react'
 import {
-  ArrowLeft,
-  CircleAlert,
-  Cloud,
-  CloudOff,
-  LayoutTemplate,
-  Loader2,
-  Lock,
-  Maximize,
-  Redo2,
-  Undo2,
-} from 'lucide-react'
-import {
+  CampusEditorHeader,
   campusKeys,
   fetchCampusPlan,
   fetchCampusTree,
@@ -236,71 +225,39 @@ function Editor({ plan }: { plan: CampusPlan }) {
 
   return (
     <div className="flex h-dvh flex-col bg-background">
-      <header className="flex min-h-14 flex-wrap items-center gap-2 border-b border-border px-3 py-2">
-        <Button asChild variant="ghost" size="md" icon aria-label={t('back')}>
-          <Link href={backHref(me.data?.role as Role | undefined, plan.campusId)}>
-            <ArrowLeft aria-hidden />
-          </Link>
-        </Button>
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold">
-            {building
-              ? `${building.code ? `${building.code} · ` : ''}${building.name}`
-              : (tree.data?.name ?? '')}
-          </p>
-          <p className="text-xs text-muted-foreground">{tc('floorN', { label: plan.label })}</p>
-        </div>
-        {building && building.floors.length > 1 && (
-          <Select value={plan.floorId} onValueChange={goFloor}>
-            <SelectTrigger size="md" className="w-auto min-w-32" aria-label={t('floor')}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {[...building.floors].reverse().map((f) => (
-                <SelectItem key={f.id} value={f.id}>
-                  {tc('floorN', { label: f.label })}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-        <SaveChip state={saveState} />
-        <div className="ml-auto flex items-center gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="md"
-            icon
-            aria-label={t('undo')}
-            title={`${t('undo')} (Ctrl+Z)`}
-            disabled={!canUndo}
-            onClick={() => store.undo()}
-          >
-            <Undo2 aria-hidden />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="md"
-            icon
-            aria-label={t('redo')}
-            title={`${t('redo')} (Ctrl+Shift+Z)`}
-            disabled={!canRedo}
-            onClick={() => store.redo()}
-          >
-            <Redo2 aria-hidden />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="md"
-            icon
-            aria-label={t('fit')}
-            title={`${t('fit')} (F)`}
-            onClick={() => store.fit(viewport().width, viewport().height)}
-          >
-            <Maximize aria-hidden />
-          </Button>
+      <CampusEditorHeader
+        backHref={backHref(me.data?.role as Role | undefined, plan.campusId)}
+        title={
+          building
+            ? `${building.code ? `${building.code} · ` : ''}${building.name}`
+            : (tree.data?.name ?? '')
+        }
+        subtitle={tc('floorN', { label: plan.label })}
+        saveState={saveState}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={() => store.undo()}
+        onRedo={() => store.redo()}
+        onFit={() => store.fit(viewport().width, viewport().height)}
+        mode={mode}
+        onModeChange={setMode}
+        leading={
+          building && building.floors.length > 1 ? (
+            <Select value={plan.floorId} onValueChange={goFloor}>
+              <SelectTrigger size="md" className="w-auto min-w-32" aria-label={t('floor')}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[...building.floors].reverse().map((f) => (
+                  <SelectItem key={f.id} value={f.id}>
+                    {tc('floorN', { label: f.label })}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null
+        }
+        trailing={
           <Button
             type="button"
             variant="outline"
@@ -311,19 +268,8 @@ function Editor({ plan }: { plan: CampusPlan }) {
             <LayoutTemplate aria-hidden />
             <span className="hidden sm:inline">{t('templates')}</span>
           </Button>
-          <SegmentedTabs
-            aria-label={t('viewMode')}
-            compact
-            collapsible={false}
-            value={mode}
-            onChange={setMode}
-            items={[
-              { value: '2d', label: '2D' },
-              { value: '3d', label: '3D' },
-            ]}
-          />
-        </div>
-      </header>
+        }
+      />
 
       {saveState === 'readonly' && autosave.holder && (
         <Banner
@@ -379,7 +325,7 @@ function Editor({ plan }: { plan: CampusPlan }) {
       )}
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <div ref={canvasBox} className="relative min-h-0 flex-1">
+        <div ref={canvasBox} className="relative min-h-0 flex-1 overflow-hidden">
           {mode === '2d' ? (
             <>
               <PlanCanvas store={store} tools={tools} problemsShown={tab === 'problems'} />
@@ -393,6 +339,7 @@ function Editor({ plan }: { plan: CampusPlan }) {
         </div>
         <aside className="flex max-h-[45dvh] min-h-0 w-full flex-col gap-3 overflow-y-auto border-t border-border p-3 lg:max-h-none lg:w-80 lg:border-t-0 lg:border-l">
           <SegmentedTabs
+            className="shrink-0"
             aria-label={t('panels')}
             stretch
             compact
@@ -435,36 +382,6 @@ function Editor({ plan }: { plan: CampusPlan }) {
         <TemplateModal store={store} tools={tools} onClose={() => setTemplateOpen(false)} />
       )}
     </div>
-  )
-}
-
-function SaveChip({ state }: { state: ReturnType<EditorStore['getState']>['saveState'] }) {
-  const t = useTranslations('CampusEditor')
-  const icon =
-    state === 'saving' ? (
-      <Loader2 className="size-3.5 animate-spin" aria-hidden />
-    ) : state === 'offline' ? (
-      <CloudOff className="size-3.5" aria-hidden />
-    ) : state === 'readonly' ? (
-      <Lock className="size-3.5" aria-hidden />
-    ) : state === 'conflict' ? (
-      <CircleAlert className="size-3.5" aria-hidden />
-    ) : (
-      <Cloud className="size-3.5" aria-hidden />
-    )
-  return (
-    <span
-      role="status"
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium',
-        state === 'conflict' || state === 'offline'
-          ? 'bg-destructive/10 text-destructive'
-          : 'bg-muted text-muted-foreground',
-      )}
-    >
-      {icon}
-      {t(`save_${state}`)}
-    </span>
   )
 }
 

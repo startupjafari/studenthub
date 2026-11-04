@@ -1,14 +1,14 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Role } from '@studenthub/shared-types'
-import { ArrowLeft, CircleAlert, Cloud, CloudOff, Loader2, Redo2, Undo2 } from 'lucide-react'
+import { CircleAlert } from 'lucide-react'
 import { emptyFloorPlan, type BuildingTransform } from '@studenthub/campus-core'
 import {
+  CampusEditorHeader,
   campusKeys,
   fetchCampusSite,
   fetchCampusTree,
@@ -21,15 +21,15 @@ import { fetchMe, userKeys } from '../../../entities/user'
 import {
   SITE_TOOLS,
   SiteCanvas,
+  SiteObjectsList,
   SiteProperties,
   SiteStore,
   SiteToolbar,
   useSite,
-  type SiteSaveState,
 } from '../../../features/campus-site-editor'
 import { CampusScene3D, type SceneFloor } from '../../../widgets/campus-3d'
 import { Button, EmptyState, PageLoader, SegmentedTabs } from '../../../shared/ui'
-import { cn, toApiError } from '../../../shared/lib'
+import { toApiError } from '../../../shared/lib'
 
 const SAVE_DELAY_MS = 1500
 const RETRY_MS = 5000
@@ -89,6 +89,7 @@ function Editor({ tree, site }: { tree: CampusTree; site: CampusSite }) {
       ),
   )
   const [mode, setMode] = useState<'2d' | '3d'>('2d')
+  const [tab, setTab] = useState<'props' | 'objects'>('props')
   const saveState = useSite(store, (s) => s.saveState)
   const canUndo = useSite(store, (s) => s.canUndo)
   const canRedo = useSite(store, (s) => s.canRedo)
@@ -214,53 +215,19 @@ function Editor({ tree, site }: { tree: CampusTree; site: CampusSite }) {
 
   return (
     <div className="flex h-dvh flex-col bg-background">
-      <header className="flex min-h-14 flex-wrap items-center gap-2 border-b border-border px-3 py-2">
-        <Button asChild variant="ghost" size="md" icon aria-label={t('back')}>
-          <Link href={backHref(me.data?.role as Role | undefined, tree.id)}>
-            <ArrowLeft aria-hidden />
-          </Link>
-        </Button>
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold">{tree.name}</p>
-          <p className="text-xs text-muted-foreground">{t('title')}</p>
-        </div>
-        <SaveChip state={saveState} />
-        <div className="ml-auto flex items-center gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="md"
-            icon
-            aria-label={t('undo')}
-            disabled={!canUndo}
-            onClick={() => store.undo()}
-          >
-            <Undo2 aria-hidden />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="md"
-            icon
-            aria-label={t('redo')}
-            disabled={!canRedo}
-            onClick={() => store.redo()}
-          >
-            <Redo2 aria-hidden />
-          </Button>
-          <SegmentedTabs
-            aria-label={t('viewMode')}
-            compact
-            collapsible={false}
-            value={mode}
-            onChange={setMode}
-            items={[
-              { value: '2d', label: '2D' },
-              { value: '3d', label: '3D' },
-            ]}
-          />
-        </div>
-      </header>
+      <CampusEditorHeader
+        backHref={backHref(me.data?.role as Role | undefined, tree.id)}
+        title={tree.name}
+        subtitle={t('title')}
+        saveState={saveState}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={() => store.undo()}
+        onRedo={() => store.redo()}
+        onFit={() => store.requestFit()}
+        mode={mode}
+        onModeChange={setMode}
+      />
       {saveState === 'conflict' && (
         <div
           role="alert"
@@ -283,7 +250,7 @@ function Editor({ tree, site }: { tree: CampusTree; site: CampusSite }) {
         </div>
       )}
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <div className="relative min-h-0 flex-1">
+        <div className="relative min-h-0 flex-1 overflow-hidden">
           {mode === '2d' ? (
             <>
               <SiteCanvas store={store} onBuildingMoved={moveBuilding} />
@@ -303,34 +270,27 @@ function Editor({ tree, site }: { tree: CampusTree; site: CampusSite }) {
             />
           )}
         </div>
-        <aside className="flex max-h-[40dvh] min-h-0 w-full flex-col gap-3 overflow-y-auto border-t border-border p-3 lg:max-h-none lg:w-80 lg:border-t-0 lg:border-l">
-          <SiteProperties store={store} onBuildingChange={moveBuilding} />
+        <aside className="flex max-h-[45dvh] min-h-0 w-full flex-col gap-3 overflow-y-auto border-t border-border p-3 lg:max-h-none lg:w-80 lg:border-t-0 lg:border-l">
+          <SegmentedTabs
+            className="shrink-0"
+            aria-label={t('panels')}
+            stretch
+            compact
+            collapsible={false}
+            value={tab}
+            onChange={setTab}
+            items={[
+              { value: 'props', label: t('properties') },
+              { value: 'objects', label: t('objects') },
+            ]}
+          />
+          {tab === 'props' ? (
+            <SiteProperties store={store} onBuildingChange={moveBuilding} />
+          ) : (
+            <SiteObjectsList store={store} />
+          )}
         </aside>
       </div>
     </div>
-  )
-}
-
-function SaveChip({ state }: { state: SiteSaveState }) {
-  const t = useTranslations('CampusEditor')
-  return (
-    <span
-      role="status"
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium',
-        state === 'conflict' || state === 'offline'
-          ? 'bg-destructive/10 text-destructive'
-          : 'bg-muted text-muted-foreground',
-      )}
-    >
-      {state === 'saving' ? (
-        <Loader2 className="size-3.5 animate-spin" aria-hidden />
-      ) : state === 'offline' ? (
-        <CloudOff className="size-3.5" aria-hidden />
-      ) : (
-        <Cloud className="size-3.5" aria-hidden />
-      )}
-      {t(`save_${state}`)}
-    </span>
   )
 }

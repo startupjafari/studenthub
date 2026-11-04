@@ -96,21 +96,33 @@ export function SiteCanvas({
       canvas.style.height = `${height}px`
       if (!fitted && width > 0) {
         fitted = true
-        const s = store.getState()
-        store.fit(width, height, [
-          ...s.doc.boundary,
-          ...s.buildings.flatMap(buildingOutline),
-          ...Object.values(s.doc.features).flatMap((f) =>
-            'polygon' in f ? f.polygon : 'line' in f ? f.line : [{ x: f.x, y: f.y }],
-          ),
-        ])
+        fitAll()
       }
       schedule()
+    }
+    // Вписать границу, корпуса и все объекты — при открытии и по кнопке «весь план».
+    function fitAll(): void {
+      const s = store.getState()
+      store.fit(width, height, [
+        ...s.doc.boundary,
+        ...s.buildings.flatMap(buildingOutline),
+        ...Object.values(s.doc.features).flatMap((f) =>
+          'polygon' in f ? f.polygon : 'line' in f ? f.line : [{ x: f.x, y: f.y }],
+        ),
+      ])
     }
     const ro = new ResizeObserver(resize)
     ro.observe(wrap)
     resize()
-    const unsubscribe = store.subscribe(schedule)
+    let fitNonce = store.getState().fitNonce
+    const unsubscribe = store.subscribe(() => {
+      const n = store.getState().fitNonce
+      if (n !== fitNonce) {
+        fitNonce = n
+        fitAll()
+      }
+      schedule()
+    })
     const mo = new MutationObserver(() => {
       palette = readPalette(canvas)
       schedule()

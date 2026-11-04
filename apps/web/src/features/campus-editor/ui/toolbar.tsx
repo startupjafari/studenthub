@@ -39,9 +39,10 @@ export function Toolbar({ store, tools }: { store: EditorStore; tools: ToolContr
   return (
     <div
       role="toolbar"
-      aria-orientation="vertical"
       aria-label={t('tools')}
-      className="flex flex-col gap-1 rounded-2xl border border-border bg-card p-1 shadow-sm"
+      // На телефоне — строкой с прокруткой (столбец из 10+ кнопок не влезает в холст), с md —
+      // столбцом слева, как в редакторах на десктопе. Поверхность — как у карточек системы.
+      className="flex max-w-[calc(100vw-1.5rem)] flex-row gap-1 overflow-x-auto rounded-xl bg-card p-1 shadow-sm ring-1 ring-foreground/10 md:max-w-none md:flex-col md:overflow-visible"
     >
       {TOOLS.map(({ id, icon: Icon, key }) => {
         const disabled = readonly && id !== 'select' && id !== 'pan' && id !== 'measure'
@@ -59,7 +60,7 @@ export function Toolbar({ store, tools }: { store: EditorStore; tools: ToolContr
             }}
             // 44 px на тач-экранах, 36 px мышью (§12.11).
             className={cn(
-              'flex size-11 items-center justify-center rounded-xl text-muted-foreground transition-colors md:size-9',
+              'flex size-11 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors md:size-9',
               'hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40',
               'focus-visible:ring-4 focus-visible:ring-ring/20 focus-visible:outline-none',
               active === id &&
