@@ -4316,9 +4316,14 @@ export function ChatWindow() {
             {/* §50: непринятый входящий запрос — вместо поля ввода решение адресата.
                 Инициатору вместо этого показываем, что его сообщение ещё не принято. */}
             {activeChat?.requestIncoming && (
-              <div className="flex flex-col gap-3 border-t border-border p-4">
-                <p className="text-center text-sm text-muted-foreground">{t('requestPrompt')}</p>
-                <div className="flex items-center justify-center gap-2">
+              // На десктопе — одной строкой: вопрос слева, кнопки справа, py-2 вокруг 44-px
+              // ряда, как у поля ввода. Тогда верхняя граница идёт одной линией с плашкой
+              // профиля внизу сайдбара. На телефоне вопрос длинный — кнопки под ним.
+              <div className="flex flex-col gap-3 border-t border-border p-4 lg:flex-row lg:items-center lg:gap-4 lg:py-2">
+                <p className="text-center text-sm text-muted-foreground lg:min-w-0 lg:flex-1 lg:text-left">
+                  {t('requestPrompt')}
+                </p>
+                <div className="flex shrink-0 items-center justify-center gap-2 lg:h-11">
                   <Button
                     size="sm"
                     loading={acceptRequest.isPending}

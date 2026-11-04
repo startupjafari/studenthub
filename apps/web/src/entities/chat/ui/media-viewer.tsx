@@ -201,7 +201,9 @@ export function MediaViewer({
             () => actions.onCopiedImage?.(false),
           )
         })}
-      {icon(t('forward'), Forward, run(actions.onForward))}
+      {/* Пересылка — поверх просмотрщика, как в Telegram: закрыли окно пересылки или
+          отправили — снова смотрим тот же снимок, а не ленту. */}
+      {icon(t('forward'), Forward, actions.onForward)}
       {meta?.mine && icon(t('delete'), Trash2, run(actions.onDelete), 'danger')}
       {/* Отбивка между действиями над сообщением и управлением просмотром. */}
       <span className="mx-1 h-5 w-px bg-white/15" aria-hidden />
