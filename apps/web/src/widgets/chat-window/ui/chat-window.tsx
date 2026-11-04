@@ -163,6 +163,7 @@ import {
   useSwipeRows,
 } from '../../../shared/lib'
 
+import { ChatCalendarModal } from './chat-calendar-modal'
 import { ConversationList } from './conversation-list'
 import {
   avatarColor,
@@ -483,6 +484,8 @@ export function ChatWindow() {
   // Дата перехода по истории: хранится, чтобы поле показывало выбранное значение, а не
   // возвращалось к плейсхолдеру — иначе непонятно, к какому дню прокручен чат.
   const [jumpDate, setJumpDate] = useState('')
+  // День, на пилюлю которого нажали: открыт календарь переписки (Telegram-стиль).
+  const [calendarDay, setCalendarDay] = useState<string | null>(null)
   const [chatSearchRaw, setChatSearchRaw] = useState('')
   const [chatSearchTerm, setChatSearchTerm] = useState('')
   const [searchIdx, setSearchIdx] = useState(0)
@@ -507,6 +510,8 @@ export function ChatWindow() {
   const readTimerRef = useRef<number | null>(null)
   // Плавающий заголовок даты (Telegram-стиль §6): дата верхнего видимого сообщения, гаснет вне скролла.
   const [floatingDay, setFloatingDay] = useState<string | null>(null)
+  // Дата прилипшей пилюли — для календаря по нажатию на неё.
+  const [floatingDayAt, setFloatingDayAt] = useState<string | null>(null)
   const [floatingDayShown, setFloatingDayShown] = useState(false)
   // Режим множественного выбора сообщений (Telegram-стиль): чекбоксы + массовые действия.
   const [selectMode, setSelectMode] = useState(false)
@@ -2104,7 +2109,10 @@ export function ChatWindow() {
       // вторую такую же дату. Ошибиться в эту сторону дешевле: промах здесь стоит
       // одного кадра до первой прокрутки, промах в другую — видимого дубля.
       const last = data[data.length - 1]
-      if (last) setFloatingDay(dayLabel(last.createdAt))
+      if (last) {
+        setFloatingDay(dayLabel(last.createdAt))
+        setFloatingDayAt(last.createdAt)
+      }
       setFloatingDayShown(false)
       return
     }
@@ -2112,6 +2120,7 @@ export function ChatWindow() {
     const top = data[topIdx]
     if (!top) return
     setFloatingDay(dayLabel(top.createdAt))
+    setFloatingDayAt(top.createdAt)
     const prev = data[topIdx - 1]
     const startsDay =
       !prev || new Date(prev.createdAt).toDateString() !== new Date(top.createdAt).toDateString()
@@ -3253,6 +3262,7 @@ export function ChatWindow() {
       touchStart: (e, m) => msgHandlersRef.current.onMsgTouchStart(e, m),
       touchMove: (e) => msgHandlersRef.current.onMsgTouchMove(e),
       touchEnd: (e) => msgHandlersRef.current.onMsgTouchEnd(e),
+      openCalendar: (ymd) => setCalendarDay(ymd),
     }),
     [],
   )
@@ -4049,14 +4059,21 @@ export function ChatWindow() {
               {/* Прилипшая дата: видна, только когда пометка дня уехала под верх ленты. */}
               {floatingDay && !loadingOlder && (
                 <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center">
-                  <span
+                  {/* Нажатие на дату — календарь переписки (Telegram). */}
+                  <button
+                    type="button"
+                    tabIndex={floatingDayShown ? 0 : -1}
+                    aria-label={t('openCalendar', { date: floatingDay })}
+                    onClick={() =>
+                      floatingDayAt && setCalendarDay(formatYmd(new Date(floatingDayAt)))
+                    }
                     className={cn(
-                      'rounded-full bg-muted/90 px-3 py-0.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition-opacity duration-200',
-                      floatingDayShown ? 'opacity-100' : 'opacity-0',
+                      'rounded-full bg-muted/90 px-3 py-0.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition-[opacity,background-color] duration-200 hover:bg-muted hover:text-foreground',
+                      floatingDayShown ? 'pointer-events-auto opacity-100' : 'opacity-0',
                     )}
                   >
                     {floatingDay}
-                  </span>
+                  </button>
                 </div>
               )}
               <div
@@ -4413,6 +4430,37 @@ export function ChatWindow() {
         />
       )}
 
+      {calendarDay && (
+        <ChatCalendarModal
+          initialDay={calendarDay}
+          dayThumbs={dayThumbs}
+          onMonthChange={setCalendarMonth}
+          onClose={() => setCalendarDay(null)}
+          onJump={(ymd) => {
+            setCalendarDay(null)
+            setJumpDate(ymd)
+            void jumpToDate(ymd)
+          }}
+          onClear={(from, to) => {
+            // В вопросе — даты словами («4 сентября 2026 г.»), а не ISO из календаря.
+            const long = (ymd: string) =>
+              new Intl.DateTimeFormat(locale, { dateStyle: 'long' }).format(
+                new Date(`${ymd}T00:00:00`),
+              )
+            void confirm({
+              title:
+                from === to
+                  ? t('clearDayConfirm', { day: long(from) })
+                  : t('clearPeriodConfirm', { from: long(from), to: long(to) }),
+              destructive: true,
+            }).then((ok) => {
+              if (!ok) return
+              setCalendarDay(null)
+              clearPeriod.mutate({ from, to })
+            })
+          }}
+        />
+      )}
       {forwardMsg && (
         <ForwardDialog
           chats={list}

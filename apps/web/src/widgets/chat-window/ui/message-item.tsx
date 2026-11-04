@@ -51,6 +51,8 @@ export type MessageReadState = 'pending' | 'failed' | 'read' | 'delivered' | 'se
 // пропускал перерисовку невизуально-изменившихся пузырей (#57).
 export type MessageActions = {
   reply: (m: ChatMessage) => void
+  /** Нажали на пилюлю даты — календарь переписки на этом дне ("YYYY-MM-DD"). */
+  openCalendar: (ymd: string) => void
   openMenu: (m: ChatMessage, x: number, y: number) => void
   focus: (id: string) => void
   copy: (m: ChatMessage) => void
@@ -150,9 +152,20 @@ function MessageItemInner({
           когда она уезжает под верх (chat-window) — так дата видна и на месте, и всегда. */}
       {showDay && dayText && (
         <div className="my-2 flex justify-center">
-          <span className="rounded-full bg-muted/90 px-3 py-0.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur">
+          {/* Нажатие на дату — календарь переписки на этом дне, как в Telegram. */}
+          <button
+            type="button"
+            onClick={() => {
+              const d = new Date(m.createdAt)
+              actions.openCalendar(
+                `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+              )
+            }}
+            aria-label={t('openCalendar', { date: dayText })}
+            className="rounded-full bg-muted/90 px-3 py-0.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+          >
             {dayText}
-          </span>
+          </button>
         </div>
       )}
       {isUnreadDivider && (

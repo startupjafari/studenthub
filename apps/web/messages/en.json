@@ -2759,7 +2759,15 @@
     "joinUnavailable": "Employer accounts have no chats, so you can't join this group",
     "inviteLinkResetAction": "Reset invite link",
     "inviteLinkReset": "New link copied — the old one no longer works",
-    "replyDeleted": "Message deleted"
+    "replyDeleted": "Message deleted",
+    "daysSelected": "{count, plural, one {# day selected} other {# days selected}}",
+    "selectDays": "Select days",
+    "goToDate": "Go to date",
+    "prevMonth": "Previous month",
+    "nextMonth": "Next month",
+    "close": "Close",
+    "openCalendar": "Open calendar: {date}",
+    "clearDayConfirm": "Clear messages from {day}? Only for you — others keep the conversation."
   },
   "Events": {
     "title": "Events",
