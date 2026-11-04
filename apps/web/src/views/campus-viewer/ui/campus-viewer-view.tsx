@@ -498,7 +498,10 @@ function Viewer({
               {route && (
                 <RouteSteps
                   steps={steps}
-                  floorLabel={floorLabel}
+                  floorLabel={(fid) => {
+                    const f = fid ? floorIndex.get(fid) : undefined
+                    return f ? t('floorN', { label: f.floor.label }) : ''
+                  }}
                   placeLabel={(spaceId) =>
                     spaceId === from?.spaceId ? from.label : spaceId === to?.spaceId ? to.label : ''
                   }

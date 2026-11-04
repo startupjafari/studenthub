@@ -6164,7 +6164,7 @@
     "stepVertical_elevator": "Take the elevator {up, select, up {up} other {down}} to {floor}",
     "stepVertical_ramp": "Take the ramp {up, select, up {up} other {down}} to {floor}",
     "stepExit": "Exit building {building}",
-    "stepEnter": "Enter building {building}: {floor}",
+    "stepEnter": "Enter building {building}, {floor}",
     "stepArrive": "{place} — ≈ {meters} m, ≈ {minutes} min",
     "timeAssumption": "Time assumes 1.2 m/s walking, no elevator wait.",
     "noRoute_NO_GRAPH": "Routes aren't available for this map version — ask the administration to republish it.",
