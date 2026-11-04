@@ -25,7 +25,7 @@ import { Button, Checkbox, Label } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
 import { useEditor, type EditorStore } from '../model/store'
 import type { ToolController } from '../model/tools'
-import { ChoiceField, Field, NumberField, TextField } from './fields'
+import { ChoiceField, Field, NumberField, TextField } from '../../../entities/campus'
 
 /** Назначение на карте → тип помещения вуза для «Создать аудиторию». */
 const ROOM_KIND_BY_SPACE: Partial<Record<SpaceKind, RoomKind>> = {

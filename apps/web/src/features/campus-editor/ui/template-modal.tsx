@@ -6,7 +6,7 @@ import { addCorridorWithRooms } from '@studenthub/campus-core'
 import { Button, Modal } from '../../../shared/ui'
 import type { EditorStore } from '../model/store'
 import type { ToolController } from '../model/tools'
-import { ChoiceField, NumberField } from './fields'
+import { ChoiceField, NumberField } from '../../../entities/campus'
 
 /**
  * Шаблон «Коридор с комнатами» (§12.9): самая частая схема учебного корпуса одним действием
