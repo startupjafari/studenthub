@@ -149,3 +149,14 @@ describe('публикация', () => {
     expect(SitePlanSchema.safeParse(emptySitePlan()).success).toBe(true)
   })
 })
+
+describe('контуры-шаблоны корпуса', () => {
+  it('все шаблоны — корректные многоугольники против часовой', async () => {
+    const { outlineFromShape, signedArea2 } = await import('../src/index.js')
+    for (const shape of ['rect', 'L', 'U', 'T'] as const) {
+      const o = outlineFromShape(shape, 60000, 40000, 15000)
+      expect(checkOutline(o), shape).toBeNull()
+      expect(signedArea2(o), shape).toBeGreaterThan(0)
+    }
+  })
+})
