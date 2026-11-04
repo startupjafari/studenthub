@@ -11,3 +11,9 @@ export * from './topology/faces.js'
 export * from './topology/match-spaces.js'
 export * from './validate/floor.js'
 export { PlanBuilder, WALL, edgeCaseFixtures } from './fixtures/edge-cases.js'
+export {
+  generateCampus,
+  generateFloor,
+  type GenerateFloorOptions,
+  type GeneratedCampus,
+} from './fixtures/generate.js'
