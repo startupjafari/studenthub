@@ -34,6 +34,7 @@ import {
   Card,
   EmptyState,
   PageHeader,
+  SectionPanel,
   Skeleton,
   useConfirm,
 } from '../../../shared/ui'
@@ -102,25 +103,37 @@ export function CampusDetailView({ campusId, basePath }: { campusId: string; bas
     onError: fail,
   })
 
+  const back = () => router.push(basePath)
+
   if (tree.isPending) {
     return (
-      <div className="flex w-full flex-col gap-4">
-        <Skeleton className="h-12 w-1/2" />
-        <Skeleton className="h-48 rounded-2xl" />
+      <div className="flex w-full flex-1 flex-col gap-4">
+        <PageHeader title={t('adminTitle')} onBack={back} backLabel={t('back')} />
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Skeleton className="h-64 rounded-xl" />
+          <Skeleton className="h-64 rounded-xl" />
+        </div>
       </div>
     )
   }
   if (!tree.data) {
-    return <EmptyState icon={<Building2 className="size-6" aria-hidden />} title={t('notFound')} />
+    return (
+      <div className="flex w-full flex-1 flex-col gap-4">
+        <PageHeader title={t('adminTitle')} onBack={back} backLabel={t('back')} />
+        <EmptyState icon={<Building2 className="size-6" aria-hidden />} title={t('notFound')} />
+      </div>
+    )
   }
   const c = tree.data
   const date = (iso: string) =>
     new Date(iso).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })
 
   return (
-    <div className="flex w-full flex-col gap-4">
+    <div className="flex w-full flex-1 flex-col gap-4">
       <PageHeader
         title={c.name}
+        onBack={back}
+        backLabel={t('back')}
         subtitle={
           c.publishedVersion
             ? t('publishedVersion', {
@@ -130,158 +143,172 @@ export function CampusDetailView({ campusId, basePath }: { campusId: string; bas
             : t('notPublished')
         }
         actions={
-          <div className="flex flex-wrap gap-2">
-            <Button asChild variant="outline">
-              <Link href={`/campus-editor/site/${c.id}`}>
+          <>
+            <Button asChild variant="outline" size="md">
+              <Link href={`/campus-editor/site/${c.id}`} aria-label={t('site')}>
                 <Trees aria-hidden />
-                {t('site')}
+                <span className="hidden sm:inline">{t('site')}</span>
               </Link>
             </Button>
             {c.publishedVersion && (
-              <Button asChild variant="outline">
-                <Link href={`/campus/${c.id}`}>
+              <Button asChild variant="outline" size="md">
+                <Link href={`/campus/${c.id}`} aria-label={t('openViewer')}>
                   <ExternalLink aria-hidden />
-                  {t('openViewer')}
+                  <span className="hidden sm:inline">{t('openViewer')}</span>
                 </Link>
               </Button>
             )}
             <Button
               type="button"
+              size="md"
               onClick={() => setPublishing(true)}
               disabled={c.buildings.length === 0}
             >
               <Send aria-hidden />
               {t('publish')}
             </Button>
-          </div>
+          </>
         }
       />
 
-      <section className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-base font-semibold">{t('buildings')}</h2>
-          <Button
-            type="button"
-            variant="outline"
-            size="md"
-            onClick={() => setCreatingBuilding(true)}
-          >
-            <Plus aria-hidden />
-            {t('addBuilding')}
-          </Button>
-        </div>
-        {c.buildings.length === 0 ? (
-          <EmptyState
-            icon={<Building2 className="size-6" aria-hidden />}
-            title={t('noBuildings')}
-            description={t('noBuildingsText')}
-          />
-        ) : (
-          <ul className="grid gap-3 lg:grid-cols-2">
-            {c.buildings.map((b) => (
-              <li key={b.id}>
-                <Card className="flex flex-col gap-3 p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <h3 className="truncate text-base font-semibold">
-                        {b.code ? `${b.code} · ` : ''}
-                        {b.name}
-                      </h3>
-                      <p className="text-sm text-muted-foreground">
-                        {t('floorsCountLabel', { count: b.floors.length })}
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      icon
-                      aria-label={t('deleteBuilding')}
-                      onClick={() =>
-                        void confirm({
-                          title: t('deleteBuildingConfirm', { name: b.name }),
-                          destructive: true,
-                        }).then((ok) => ok && removeBuilding.mutate(b.id))
-                      }
-                    >
-                      <Trash2 className="text-destructive" aria-hidden />
-                    </Button>
-                  </div>
-                  <ul className="flex flex-col divide-y divide-border rounded-xl border border-border">
-                    {[...b.floors].reverse().map((f) => (
-                      <li key={f.id} className="flex items-center gap-3 px-3 py-2">
-                        <Layers className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                        <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                          {t('floorN', { label: f.label })}
-                          {f.kind === 'technical' && (
-                            <Badge variant="secondary" className="ml-2">
-                              {t('technical')}
-                            </Badge>
-                          )}
-                        </span>
-                        <span className="hidden text-xs text-muted-foreground tabular-nums sm:inline">
-                          {t('revision', { n: f.plan?.revision ?? 0 })}
-                        </span>
-                        <Button asChild size="sm" variant="secondary">
-                          <Link href={`/campus-editor/${f.id}`}>
-                            <Pencil aria-hidden />
-                            {t('edit')}
-                          </Link>
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          icon
-                          aria-label={t('deleteFloor')}
-                          onClick={() =>
-                            void confirm({
-                              title: t('deleteFloorConfirm', { label: f.label }),
-                              destructive: true,
-                            }).then((ok) => ok && removeFloor.mutate(f.id))
-                          }
-                        >
-                          <Trash2 className="text-muted-foreground" aria-hidden />
-                        </Button>
-                      </li>
-                    ))}
-                  </ul>
+      {/* Корпуса — ровной сеткой: карточки одной строки одной высоты, «Добавить этаж» прижат
+          к низу, последняя ячейка — «Добавить корпус», чтобы сетка не оставалась с дырой. */}
+      {c.buildings.length === 0 ? (
+        <EmptyState
+          icon={<Building2 className="size-6" aria-hidden />}
+          title={t('noBuildings')}
+          description={t('noBuildingsText')}
+          action={
+            <Button type="button" onClick={() => setCreatingBuilding(true)}>
+              <Plus aria-hidden />
+              {t('addBuilding')}
+            </Button>
+          }
+        />
+      ) : (
+        <ul className="grid items-stretch gap-4 lg:grid-cols-2">
+          {c.buildings.map((b) => (
+            <li key={b.id} className="flex">
+              <SectionPanel
+                className="flex-1"
+                bodyClassName="flex flex-1 flex-col gap-3"
+                title={`${b.code ? `${b.code} · ` : ''}${b.name}`}
+                subtitle={t('floorsCountLabel', { count: b.floors.length })}
+                actions={
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
-                    className="self-start"
-                    onClick={() => setAddingFloorTo(b)}
+                    icon
+                    aria-label={t('deleteBuilding')}
+                    className="text-muted-foreground hover:text-destructive"
+                    onClick={() =>
+                      void confirm({
+                        title: t('deleteBuildingConfirm', { name: b.name }),
+                        destructive: true,
+                      }).then((ok) => ok && removeBuilding.mutate(b.id))
+                    }
                   >
-                    <Plus aria-hidden />
-                    {t('addFloor')}
+                    <Trash2 aria-hidden />
                   </Button>
-                </Card>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+                }
+              >
+                <ul className="flex flex-col">
+                  {[...b.floors].reverse().map((f) => (
+                    <li
+                      key={f.id}
+                      className="flex items-center gap-3 border-b border-border py-2 last:border-b-0"
+                    >
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                        <Layers className="size-4" aria-hidden />
+                      </span>
+                      <span className="flex min-w-0 flex-1 items-center gap-2">
+                        <span className="truncate text-sm font-medium">
+                          {t('floorN', { label: f.label })}
+                        </span>
+                        {f.kind === 'technical' && (
+                          <Badge variant="secondary">{t('technical')}</Badge>
+                        )}
+                      </span>
+                      <span className="hidden text-xs text-muted-foreground tabular-nums sm:inline">
+                        {t('revision', { n: f.plan?.revision ?? 0 })}
+                      </span>
+                      <Button asChild size="sm" variant="secondary">
+                        <Link href={`/campus-editor/${f.id}`}>
+                          <Pencil aria-hidden />
+                          {t('edit')}
+                        </Link>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        icon
+                        aria-label={t('deleteFloor')}
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={() =>
+                          void confirm({
+                            title: t('deleteFloorConfirm', { label: f.label }),
+                            destructive: true,
+                          }).then((ok) => ok && removeFloor.mutate(f.id))
+                        }
+                      >
+                        <Trash2 aria-hidden />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-auto self-start"
+                  onClick={() => setAddingFloorTo(b)}
+                >
+                  <Plus aria-hidden />
+                  {t('addFloor')}
+                </Button>
+              </SectionPanel>
+            </li>
+          ))}
+          <li className="flex">
+            <button
+              type="button"
+              onClick={() => setCreatingBuilding(true)}
+              className="flex min-h-40 flex-1 flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border text-sm font-medium text-muted-foreground transition-colors hover:border-ring/50 hover:bg-muted/40 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+            >
+              <Plus className="size-5" aria-hidden />
+              {t('addBuilding')}
+            </button>
+          </li>
+        </ul>
+      )}
 
-      <section className="flex flex-col gap-3">
-        <h2 className="flex items-center gap-2 text-base font-semibold">
-          <History className="size-4 text-muted-foreground" aria-hidden />
-          {t('versions')}
-        </h2>
+      <SectionPanel title={t('versions')} subtitle={t('versionsHint')} bodyClassName="py-0">
         {(versions.data ?? []).length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t('noVersions')}</p>
+          <p className="py-3 text-sm text-muted-foreground">{t('noVersions')}</p>
         ) : (
-          <ul className="flex flex-col divide-y divide-border rounded-2xl border border-border">
+          <ul className="flex flex-col">
             {(versions.data ?? []).map((v) => (
-              <li key={v.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-                <span className="text-sm font-semibold tabular-nums">№{v.number}</span>
-                {v.current && <Badge variant="success">{t('current')}</Badge>}
-                <span className="text-sm text-muted-foreground">{date(v.publishedAt)}</span>
-                <span className="text-sm text-muted-foreground">
-                  {t('spacesCount', { count: v.spaces })}
+              <li
+                key={v.id}
+                className="flex flex-wrap items-center gap-3 border-b border-border py-3 last:border-b-0"
+              >
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <History className="size-4" aria-hidden />
                 </span>
-                {v.note && <span className="min-w-0 flex-1 truncate text-sm">{v.note}</span>}
-                <span className="ml-auto flex gap-2">
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="flex items-center gap-2 text-sm font-medium tabular-nums">
+                    №{v.number}
+                    {v.current && <Badge variant="success">{t('current')}</Badge>}
+                  </span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {[date(v.publishedAt), t('spacesCount', { count: v.spaces }), v.note]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </span>
+                </div>
+                <span className="flex gap-2">
                   {!v.current && (
                     <Button
                       type="button"
@@ -310,13 +337,18 @@ export function CampusDetailView({ campusId, basePath }: { campusId: string; bas
             ))}
           </ul>
         )}
-      </section>
+      </SectionPanel>
 
-      <div>
+      {/* Удаление кампуса — строкой-карточкой внизу, как опасные действия в настройках. */}
+      <Card className="flex-row items-center gap-3 p-4">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="text-sm font-semibold">{t('dangerZone')}</span>
+          <span className="text-xs text-muted-foreground">{t('dangerZoneHint')}</span>
+        </div>
         <Button
           type="button"
-          variant="ghost"
-          className="text-destructive hover:text-destructive"
+          variant="destructive"
+          size="sm"
           onClick={() =>
             void confirm({
               title: t('deleteCampusConfirm', { name: c.name }),
@@ -327,7 +359,7 @@ export function CampusDetailView({ campusId, basePath }: { campusId: string; bas
           <Trash2 aria-hidden />
           {t('deleteCampus')}
         </Button>
-      </div>
+      </Card>
 
       {creatingBuilding && (
         <CreateBuildingModal campusId={campusId} onClose={() => setCreatingBuilding(false)} />

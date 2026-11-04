@@ -1,12 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { Building2, Map, Plus } from 'lucide-react'
-import { campusKeys, fetchCampuses } from '../../../entities/campus'
-import { Badge, Button, Card, EmptyState, PageHeader, Skeleton } from '../../../shared/ui'
+import { Map as MapIcon, Plus } from 'lucide-react'
+import { CampusRow, campusKeys, fetchCampuses } from '../../../entities/campus'
+import { Badge, Button, EmptyState, PageHeader, Skeleton } from '../../../shared/ui'
 import { CreateCampusModal } from './create-campus-modal'
 
 /**
@@ -19,26 +18,26 @@ export function CampusListView({ basePath }: { basePath: string }) {
   const q = useQuery({ queryKey: campusKeys.list(), queryFn: fetchCampuses })
 
   return (
-    <div className="flex w-full flex-col gap-4">
+    <div className="flex w-full flex-1 flex-col gap-4">
       <PageHeader
         title={t('adminTitle')}
         subtitle={t('adminSubtitle')}
         actions={
-          <Button type="button" onClick={() => setCreating(true)}>
+          <Button type="button" size="md" onClick={() => setCreating(true)}>
             <Plus aria-hidden />
             {t('createCampus')}
           </Button>
         }
       />
       {q.isPending ? (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="flex flex-col gap-2">
           {Array.from({ length: 3 }, (_, i) => (
-            <Skeleton key={i} className="h-32 rounded-2xl" />
+            <Skeleton key={i} fill className="min-h-18" />
           ))}
         </div>
       ) : (q.data ?? []).length === 0 ? (
         <EmptyState
-          icon={<Map className="size-6" aria-hidden />}
+          icon={<MapIcon className="size-6" aria-hidden />}
           title={t('emptyTitle')}
           description={t('emptyText')}
           action={
@@ -49,31 +48,23 @@ export function CampusListView({ basePath }: { basePath: string }) {
           }
         />
       ) : (
-        <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <ul className="flex flex-col gap-2">
           {(q.data ?? []).map((c) => (
             <li key={c.id}>
-              <Link
+              <CampusRow
                 href={`${basePath}/${c.id}`}
-                className="block rounded-2xl outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
-              >
-                <Card className="flex h-full flex-col gap-2 p-4 transition-colors duration-150 hover:bg-muted/40">
-                  <div className="flex items-start justify-between gap-2">
-                    <h2 className="text-base font-semibold">{c.name}</h2>
-                    {c.publishedVersionId ? (
-                      <Badge variant="success">{t('published')}</Badge>
-                    ) : (
-                      <Badge variant="secondary">{t('draft')}</Badge>
-                    )}
-                  </div>
-                  {c.description && (
-                    <p className="line-clamp-2 text-sm text-muted-foreground">{c.description}</p>
-                  )}
-                  <p className="mt-auto flex items-center gap-1.5 text-sm text-muted-foreground">
-                    <Building2 className="size-4" aria-hidden />
-                    {t('buildingsCount', { count: c.buildingsCount })}
-                  </p>
-                </Card>
-              </Link>
+                name={c.name}
+                meta={[t('buildingsCount', { count: c.buildingsCount }), c.description]
+                  .filter(Boolean)
+                  .join(' · ')}
+                badge={
+                  c.publishedVersionId ? (
+                    <Badge variant="success">{t('published')}</Badge>
+                  ) : (
+                    <Badge variant="secondary">{t('draft')}</Badge>
+                  )
+                }
+              />
             </li>
           ))}
         </ul>

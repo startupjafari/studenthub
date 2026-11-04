@@ -33,7 +33,16 @@ import {
 } from '../../../entities/campus'
 import { EditorStore, PlanCanvas, ToolController, useEditor } from '../../../features/campus-editor'
 import { CampusScene3D, type SceneFloor } from '../../../widgets/campus-3d'
-import { Button, Checkbox, EmptyState, Label, PageLoader, SegmentedTabs } from '../../../shared/ui'
+import {
+  Button,
+  Card,
+  Checkbox,
+  EmptyState,
+  Label,
+  PageHeader,
+  PageLoader,
+  SegmentedTabs,
+} from '../../../shared/ui'
 import { cn } from '../../../shared/lib'
 import { routeInScene, routeOnFloor, type Place } from '../lib/places'
 import { SpaceSearch } from './space-search'
@@ -59,11 +68,14 @@ export function CampusViewerView({ campusId }: { campusId: string }) {
   if (published.isPending) return <PageLoader label={t('loading')} />
   if (!published.data) {
     return (
-      <EmptyState
-        icon={<MapIcon className="size-6" aria-hidden />}
-        title={t('notPublished')}
-        description={t('notPublishedText')}
-      />
+      <div className="flex w-full flex-1 flex-col gap-4">
+        <PageHeader title={t('title')} subtitle={t('subtitle')} />
+        <EmptyState
+          icon={<MapIcon className="size-6" aria-hidden />}
+          title={t('notPublished')}
+          description={t('notPublishedText')}
+        />
+      </div>
     )
   }
   return <Viewer campusId={campusId} data={published.data} />
@@ -321,7 +333,12 @@ function Viewer({
   const onPick3d = useCallback((fid: string, spaceId: string) => goTo(fid, spaceId), [goTo])
 
   if (!current || !floorId) {
-    return <EmptyState icon={<MapIcon className="size-6" aria-hidden />} title={t('noFloors')} />
+    return (
+      <div className="flex w-full flex-1 flex-col gap-4">
+        <PageHeader title={data.campus.name} subtitle={t('subtitle')} />
+        <EmptyState icon={<MapIcon className="size-6" aria-hidden />} title={t('noFloors')} />
+      </div>
+    )
   }
 
   const floorLabel = (fid: string | null) => {
@@ -332,29 +349,33 @@ function Viewer({
   }
 
   return (
-    <div className="flex h-[calc(100dvh-7rem)] min-h-[32rem] w-full flex-col gap-3 lg:h-[calc(100dvh-5rem)]">
-      <header className="flex flex-wrap items-center gap-2">
-        <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">{data.campus.name}</h1>
-        <div className="w-full sm:w-80">
-          <SpaceSearch
-            campusId={campusId}
-            placeholder={t('searchPlaceholder')}
-            onPick={(hit) => hit.floor && goTo(hit.floor.id, hit.spaceId)}
+    <div className="flex w-full flex-1 flex-col gap-4">
+      <PageHeader
+        title={data.campus.name}
+        subtitle={t('subtitle')}
+        tabs={
+          <SegmentedTabs
+            aria-label={t('viewMode')}
+            collapsible={false}
+            value={mode}
+            onChange={setMode}
+            items={[
+              { value: '2d', label: t('mode2d') },
+              { value: '3d', label: '3D' },
+              { value: 'campus', label: t('modeCampus') },
+            ]}
           />
-        </div>
-        <SegmentedTabs
-          aria-label={t('viewMode')}
-          compact
-          collapsible={false}
-          value={mode}
-          onChange={setMode}
-          items={[
-            { value: '2d', label: t('mode2d') },
-            { value: '3d', label: '3D' },
-            { value: 'campus', label: t('modeCampus') },
-          ]}
-        />
-      </header>
+        }
+        actions={
+          <div className="w-full sm:w-72">
+            <SpaceSearch
+              campusId={campusId}
+              placeholder={t('searchPlaceholder')}
+              onPick={(hit) => hit.floor && goTo(hit.floor.id, hit.spaceId)}
+            />
+          </div>
+        }
+      />
 
       {/* Холст читалке не виден: что выбрано и на каком этаже — вслух (§22.33). */}
       <p className="sr-only" aria-live="polite">
@@ -362,8 +383,10 @@ function Viewer({
           ? t('selectedAnnounce', { place: selectedPlace.label, floor: floorLabel(floorId) })
           : floorLabel(floorId)}
       </p>
-      <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row">
-        <div className="relative min-h-[18rem] flex-1 overflow-hidden rounded-2xl border border-border">
+      {/* Карта и панель — одной высоты: панель на десктопе той же высоты, что карта, и
+          прокручивается сама; на телефоне карта сверху, панель под ней. */}
+      <div className="flex flex-col gap-4 lg:h-[calc(100dvh-6.25rem)] lg:min-h-[32rem] lg:flex-row">
+        <div className="relative h-[60dvh] min-h-[18rem] overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10 lg:h-auto lg:flex-1">
           <div ref={canvasBox} className={cn('absolute inset-0', mode !== '2d' && 'invisible')}>
             <PlanCanvas
               store={store}
@@ -390,7 +413,7 @@ function Viewer({
           {/* Этажи — справа, как кнопки лифта: сверху вниз. */}
           <nav
             aria-label={t('floors')}
-            className="absolute top-3 right-3 flex flex-col gap-1 rounded-2xl border border-border bg-card/95 p-1 shadow-sm backdrop-blur"
+            className="absolute top-3 right-3 flex flex-col gap-1 rounded-xl bg-card/95 p-1 shadow-sm ring-1 ring-foreground/10 backdrop-blur"
           >
             {[...current.building.floors].reverse().map((f) => (
               <button
@@ -410,7 +433,7 @@ function Viewer({
             ))}
           </nav>
           {buildings.length > 1 && (
-            <div className="absolute bottom-3 left-3 flex max-w-[calc(100%-6rem)] gap-1 overflow-x-auto rounded-2xl border border-border bg-card/95 p-1 shadow-sm backdrop-blur">
+            <div className="absolute bottom-3 left-3 flex max-w-[calc(100%-6rem)] gap-1 overflow-x-auto rounded-xl bg-card/95 p-1 shadow-sm ring-1 ring-foreground/10 backdrop-blur">
               {buildings.map((b) => (
                 <button
                   key={b.id}
@@ -436,7 +459,7 @@ function Viewer({
           )}
         </div>
 
-        <aside className="flex max-h-[45dvh] min-h-0 w-full flex-col gap-4 overflow-y-auto lg:max-h-none lg:w-80">
+        <aside className="flex min-h-0 w-full flex-col gap-4 lg:w-80 lg:overflow-y-auto">
           {selectedPlace && !routing && (
             <SpaceCard
               place={selectedPlace}
@@ -457,10 +480,7 @@ function Viewer({
             />
           )}
           {routing ? (
-            <section
-              className="flex flex-col gap-3 rounded-2xl border border-border p-4"
-              aria-label={t('route')}
-            >
+            <Card className="gap-3 p-4" role="region" aria-label={t('route')}>
               <div className="flex items-center justify-between">
                 <h2 className="flex items-center gap-2 text-sm font-semibold">
                   <Navigation className="size-4 text-primary" aria-hidden />
@@ -569,16 +589,16 @@ function Viewer({
                   {t(`noRoute_${reason}`)}
                 </p>
               )}
-            </section>
+            </Card>
           ) : (
             !selectedPlace && (
-              <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-border p-4 text-sm text-muted-foreground">
-                <p>{t('hint')}</p>
+              <Card className="gap-3 p-4">
+                <p className="text-sm text-muted-foreground">{t('hint')}</p>
                 <Button type="button" variant="outline" size="md" onClick={() => setRouting(true)}>
                   <Footprints aria-hidden />
                   {t('buildRoute')}
                 </Button>
-              </div>
+              </Card>
             )
           )}
         </aside>
@@ -611,10 +631,7 @@ function SpaceCard({
   const t = useTranslations('CampusMap')
   const tk = useTranslations('CampusEditor')
   return (
-    <section
-      className="flex flex-col gap-3 rounded-2xl border border-border p-4"
-      aria-label={place.label}
-    >
+    <Card className="gap-3 p-4" role="region" aria-label={place.label}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <h2 className="truncate text-base font-semibold tabular-nums">
@@ -648,7 +665,7 @@ function SpaceCard({
           {t('routeFromHere')}
         </Button>
       </div>
-    </section>
+    </Card>
   )
 }
 
