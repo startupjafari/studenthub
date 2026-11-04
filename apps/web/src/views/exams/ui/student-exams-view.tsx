@@ -22,6 +22,7 @@ import {
   TableText,
   useTableSort,
 } from '../../../shared/ui'
+import { ShowOnMapLink } from '../../../entities/campus'
 import { cn } from '../../../shared/lib/utils'
 import { examKeys, fetchExams, type ExamItem } from '../../../entities/exam'
 import { EXAM_STATUS_BADGE, EXAM_STATUS_KEY, examFormatKey } from '../lib/visuals'
@@ -190,7 +191,14 @@ export function StudentExamsView() {
                       })}
                     </TableCell>
                     <TableCell className={cn(HIDE.room, 'text-muted-foreground')}>
-                      <TableText value={e.room?.name} />
+                      {e.room ? (
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <TableText value={e.room.name} />
+                          <ShowOnMapLink roomId={e.room.id} variant="icon" />
+                        </span>
+                      ) : (
+                        <TableText value={null} />
+                      )}
                     </TableCell>
                     <TableCell className={cn(HIDE.examiner, 'text-muted-foreground')}>
                       <TableText

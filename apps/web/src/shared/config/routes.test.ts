@@ -40,6 +40,9 @@ describe('isRestrictedRolePath', () => {
   it('охране закрыта библиотека', () => {
     expect(isRestrictedRolePath(Role.SECURITY_GUARD, '/library')).toBe(false)
     expect(isRestrictedRolePath(Role.SECURITY_GUARD, '/security/cameras')).toBe(true)
+    // Карта кампуса — охрана подсказывает дорогу (Ф22); библиотекарю её нет.
+    expect(isRestrictedRolePath(Role.SECURITY_GUARD, '/campus/c-1')).toBe(true)
+    expect(isRestrictedRolePath(Role.LIBRARIAN, '/campus')).toBe(false)
   })
 
   it('префикс сравнивается по сегменту, а не по строке', () => {

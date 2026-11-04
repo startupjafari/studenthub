@@ -64,6 +64,8 @@ export function drawPlan(
     problemsShown: boolean
     /** Подпись помещения без номера и названия — по типу («Аудитория»). */
     kindLabel?: (kind: SpaceKind) => string
+    /** Сетка нужна при рисовании; в просмотре карты она только шумит. */
+    showGrid?: boolean
   },
 ): void {
   const { scale, ox, oy } = s.view
@@ -71,7 +73,7 @@ export function drawPlan(
   g.clearRect(0, 0, width, height)
   g.fillStyle = p.background
   g.fillRect(0, 0, width, height)
-  drawGrid(c, width, height)
+  if (options.showGrid !== false) drawGrid(c, width, height)
   drawFaces(c)
   drawWalls(c)
   drawOpenings(c)
@@ -82,6 +84,7 @@ export function drawPlan(
   drawSelection(c, s.selection, false)
   if (options.problemsShown) drawProblems(c, s.problems)
   drawPreview(c)
+  drawRoute(c)
 }
 
 function drawGrid({ g, s, p, sx, sy }: Ctx, width: number, height: number): void {
@@ -609,4 +612,40 @@ function dimension({ g, p, sx, sy }: Ctx, a: Pt, b: Pt): void {
   g.textAlign = 'center'
   g.textBaseline = 'middle'
   g.fillText(text, x, y)
+}
+
+/** Маршрут: линия с подложкой цвета фона, точки начала и конца участка этажа. */
+function drawRoute({ g, s, p, sx, sy }: Ctx): void {
+  if (s.route.length === 0) return
+  g.lineJoin = 'round'
+  g.lineCap = 'round'
+  for (const [width, color] of [
+    [9, p.background],
+    [5, p.primary],
+  ] as const) {
+    g.strokeStyle = color
+    g.lineWidth = width
+    for (const line of s.route) {
+      if (line.length < 2) continue
+      g.beginPath()
+      line.forEach((pt, i) =>
+        i === 0 ? g.moveTo(sx(pt.x), sy(pt.y)) : g.lineTo(sx(pt.x), sy(pt.y)),
+      )
+      g.stroke()
+    }
+  }
+  g.lineCap = 'butt'
+  g.lineJoin = 'miter'
+  for (const line of s.route) {
+    for (const pt of [line[0], line.at(-1)]) {
+      if (!pt) continue
+      g.beginPath()
+      g.arc(sx(pt.x), sy(pt.y), 7, 0, Math.PI * 2)
+      g.fillStyle = p.background
+      g.fill()
+      g.lineWidth = 3
+      g.strokeStyle = p.primary
+      g.stroke()
+    }
+  }
 }

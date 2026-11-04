@@ -6,6 +6,7 @@ import { useLocale, useTranslations } from 'next-intl'
 import { ArrowRight, Clock, MapPin, User, type LucideIcon } from 'lucide-react'
 import { Badge, Button, Modal } from '../../../shared/ui'
 import { ProfileLink } from '../../../entities/user'
+import { ShowOnMapLink } from '../../../entities/campus'
 import { useAppSelector } from '../../../shared/store'
 import { cn } from '../../../shared/lib/utils'
 import type { Pair, ScheduleChange } from '../../../entities/schedule'
@@ -136,7 +137,14 @@ export function PairDetailModal({
                 <span className="capitalize">{dateLabel}</span> · {minToLabel(startMin)}–
                 {minToLabel(endMin)}
               </DetailRow>
-              {room && <DetailRow icon={MapPin}>{room.name}</DetailRow>}
+              {room && (
+                <DetailRow icon={MapPin}>
+                  <span className="flex flex-wrap items-center gap-x-3">
+                    {room.name}
+                    <ShowOnMapLink roomId={room.id} />
+                  </span>
+                </DetailRow>
+              )}
               {teacher && (
                 <DetailRow icon={User}>
                   {teacher.id ? (

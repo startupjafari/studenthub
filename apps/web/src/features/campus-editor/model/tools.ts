@@ -63,7 +63,11 @@ export class ToolController {
   private gesture: Gesture = { kind: 'idle' }
   settings: ToolSettings = { ...DEFAULT_TOOL_SETTINGS }
 
-  constructor(private readonly store: EditorStore) {}
+  /** `viewOnly` — просмотр карты: клик выбирает помещение, ничего не перетаскивается. */
+  constructor(
+    private readonly store: EditorStore,
+    private readonly viewOnly = false,
+  ) {}
 
   private get s() {
     return this.store.getState()
@@ -229,6 +233,7 @@ export class ToolController {
 
   /** Двойной клик: в стене — закончить цепочку, на пустой грани — создать помещение. */
   doubleClick(input: PointerInput): void {
+    if (this.viewOnly) return
     if (this.s.tool === 'wall') {
       this.cancel()
       return
@@ -243,6 +248,12 @@ export class ToolController {
 
   private selectDown(input: PointerInput): void {
     const s = this.s
+    if (this.viewOnly) {
+      // Зрителю стены и узлы не нужны: выбор — только помещения под курсором.
+      const hit = hitTest(s.doc, s.faces, s.faceSpace, input.plan, 0)
+      this.store.set({ selection: hit.kind === 'space' ? hit : { kind: 'none' } })
+      return
+    }
     const hit = hitTest(s.doc, s.faces, s.faceSpace, input.plan, input.radiusMm)
     // Подпись помещения тянется за метку: попадание рядом с ней важнее грани.
     if (hit.kind === 'space' || hit.kind === 'face' || hit.kind === 'none') {

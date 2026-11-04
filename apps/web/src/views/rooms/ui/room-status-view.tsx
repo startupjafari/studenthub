@@ -27,6 +27,7 @@ import {
   type RoomStatus,
   type RoomStatusResponse,
 } from '../../../entities/room'
+import { ShowOnMapLink } from '../../../entities/campus'
 import type { DayPair } from '../../../entities/schedule'
 import {
   Badge,
@@ -117,6 +118,7 @@ export function RoomStatusView({ code }: { code: string }) {
         subtitle={`${t(`kind.${room.kind}`)} · ${room.universityShort ?? room.university}`}
         actions={
           <div className="flex items-center gap-2">
+            <ShowOnMapLink roomId={room.id} variant="icon" className="size-9 justify-center" />
             <span className="text-xs text-muted-foreground tabular-nums">
               {t('updatedAt', { time: data.now.time })}
             </span>

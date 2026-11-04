@@ -13,27 +13,35 @@ export interface CampusSceneProps extends SceneInput {
   label: string
 }
 
+/**
+ * Цвет CSS (в том числе oklch из темы) → `#rrggbb` для three: браузер сам переводит цвет,
+ * если закрасить им пиксель и прочитать его обратно. Строку `fillStyle` three не разберёт.
+ */
+function toHex(ctx: CanvasRenderingContext2D | null, color: string, fallback: string): string {
+  if (!ctx || !color) return fallback
+  ctx.clearRect(0, 0, 1, 1)
+  ctx.fillStyle = fallback
+  ctx.fillStyle = color
+  ctx.fillRect(0, 0, 1, 1)
+  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data
+  return `#${[r, g, b].map((v) => (v ?? 0).toString(16).padStart(2, '0')).join('')}`
+}
+
 function readPalette(el: Element): ScenePalette {
   const css = getComputedStyle(el)
-  const v = (name: string, fallback: string): string =>
-    css.getPropertyValue(name).trim() || fallback
-  // three понимает oklch только через CSS-парсер браузера: переводим в rgb через canvas.
-  const ctx = document.createElement('canvas').getContext('2d')
-  const rgb = (c: string, fallback: string): string => {
-    if (!ctx) return fallback
-    ctx.fillStyle = fallback
-    ctx.fillStyle = c
-    return ctx.fillStyle
-  }
-  const bg = rgb(v('--background', '#ffffff'), '#ffffff')
-  const hex = /^#([0-9a-f]{6})$/i.exec(bg)?.[1]
-  const n = hex ? parseInt(hex, 16) : 0xffffff
+  const v = (name: string): string => css.getPropertyValue(name).trim()
+  const canvas = document.createElement('canvas')
+  canvas.width = 1
+  canvas.height = 1
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  const bg = toHex(ctx, v('--background'), '#ffffff')
+  const n = parseInt(bg.slice(1), 16)
   const dark = 0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255) < 128
   return {
     background: bg,
     wall: dark ? '#cbd5e1' : '#e5e7eb',
     slab: dark ? '#334155' : '#cbd5e1',
-    primary: rgb(v('--primary', '#2563eb'), '#2563eb'),
+    primary: toHex(ctx, v('--primary'), '#2563eb'),
     ground: dark ? '#1e293b' : '#e2e8f0',
   }
 }

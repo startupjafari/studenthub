@@ -61,13 +61,15 @@ export interface ScenePalette {
   ground: string
 }
 
+// Территория — приглушённо: она фон для корпусов и маршрута, а не главное на карте.
 const SITE_COLORS: Record<string, string> = {
-  lawn: '#4ade80',
-  parking: '#94a3b8',
-  sport: '#f97316',
-  rest: '#a3e635',
-  path: '#d6d3d1',
-  road: '#64748b',
+  lawn: '#bbf7d0',
+  parking: '#e2e8f0',
+  sport: '#fed7aa',
+  rest: '#d9f99d',
+  path: '#e7e5e4',
+  road: '#cbd5e1',
+  tree: '#4ade80',
 }
 
 export class CampusSceneController {
@@ -171,7 +173,7 @@ export class CampusSceneController {
     this.camera.near = Math.max(0.1, r / 500)
     this.camera.far = r * 20
     this.camera.updateProjectionMatrix()
-    this.camera.position.set(center.x + r * 0.55, center.y + r * 0.75, center.z + r * 0.75)
+    this.camera.position.set(center.x + r * 0.7, center.y + r * 0.9, center.z + r * 0.95)
     this.controls.target.copy(center)
     this.controls.update()
     this.fitted = true
@@ -414,7 +416,7 @@ export class CampusSceneController {
         const g = new THREE.ConeGeometry(1.4, 4, 7)
         g.translate(f.x / 1000, 2, -f.y / 1000)
         this.disposables.push(g)
-        this.content.add(new THREE.Mesh(g, mat('lawn')))
+        this.content.add(new THREE.Mesh(g, mat('tree')))
       }
     }
   }
