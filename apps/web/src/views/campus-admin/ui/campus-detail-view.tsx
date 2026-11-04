@@ -6,7 +6,17 @@ import { useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Building2, ExternalLink, History, Layers, Pencil, Plus, Send, Trash2 } from 'lucide-react'
+import {
+  Building2,
+  ExternalLink,
+  History,
+  Layers,
+  Pencil,
+  Plus,
+  Send,
+  Trash2,
+  Trees,
+} from 'lucide-react'
 import {
   activateCampusVersion,
   campusKeys,
@@ -121,6 +131,12 @@ export function CampusDetailView({ campusId, basePath }: { campusId: string; bas
         }
         actions={
           <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline">
+              <Link href={`/campus-editor/site/${c.id}`}>
+                <Trees aria-hidden />
+                {t('site')}
+              </Link>
+            </Button>
             {c.publishedVersion && (
               <Button asChild variant="outline">
                 <Link href={`/campus/${c.id}`}>

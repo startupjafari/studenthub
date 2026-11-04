@@ -13,6 +13,7 @@ const SHELL_FREE_PAGES = [
   '/_dev/design-system',
   '/c/[code]',
   '/campus-editor/[floorId]',
+  '/campus-editor/site/[campusId]',
   '/demo',
   '/demo/verify',
   '/employer/signup',
