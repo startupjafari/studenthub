@@ -89,6 +89,7 @@ export {
   useFileDownload,
   saveBlob,
   downloadKeyOf,
+  downloadedUrl,
   type DownloadState,
   type DownloadSource,
   type FileDownload,

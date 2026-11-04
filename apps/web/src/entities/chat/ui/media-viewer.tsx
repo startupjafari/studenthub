@@ -6,7 +6,7 @@ import { useLocale, useTranslations } from 'next-intl'
 import { Copy, Eye, Forward, ImageDown, Trash2 } from 'lucide-react'
 import { MediaViewer as BaseMediaViewer, VIEWER_ICON_BUTTON } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { srcSetOf, useBodyScrollLock } from '../../../shared/lib'
+import { downloadedUrl, srcSetOf, useBodyScrollLock, useFileDownload } from '../../../shared/lib'
 import { useAttachmentLinkSource } from './attachment-link-source'
 import type { MessageAttachment } from '../model/types'
 
@@ -127,9 +127,20 @@ export function MediaViewer({
     }
   }, [items, index, qc, source])
 
+  // Ролик, скачанный заранее при прокрутке ленты (автозагрузка), играет из памяти: открытие
+  // мгновенное, без второй загрузки и без потокового HLS.
+  const dlKey = `file:${cur?.id ?? 'pending'}`
+  const dl = useFileDownload(dlKey, {
+    url: link?.url ?? '',
+    name: cur?.name ?? '',
+    mime: cur?.mime ?? '',
+  })
+  const local =
+    cur?.mime.startsWith('video/') && dl.state.status === 'ready' ? downloadedUrl(dlKey) : null
+
   if (!cur) return null
   // Оптимистичное вложение играет из локального файла; у отправленного — подписанная ссылка.
-  const url = cur.localUrl ?? link?.url
+  const url = cur.localUrl ?? local ?? link?.url
 
   const run =
     (fn?: () => void): (() => void) =>
@@ -209,7 +220,7 @@ export function MediaViewer({
         height: link?.height ?? cur.height,
         sources: link?.sources,
         poster: link?.poster,
-        hls: link?.hls,
+        hls: local ? null : link?.hls,
       }}
       onIndexChange={onIndexChange}
       onClose={onClose}
