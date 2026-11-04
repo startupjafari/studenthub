@@ -74,8 +74,8 @@ export function toBuilding(p: Pt, t: BuildingTransform): Pt {
 export const OUTER_WALL: WallSpec = { thicknessMm: 400, kind: 'wall' }
 
 /**
- * Новый этаж начинается с наружных стен по контуру корпуса: подложки нет (решение владельца,
- * §27.1), и каркас этажа берётся из корпуса — остаётся нарисовать перегородки.
+ * Новый этаж начинается с наружных стен по контуру корпуса: каркас этажа берётся из корпуса
+ * — остаётся нарисовать перегородки.
  */
 export function floorFromOutline(outline: readonly Pt[], ids: IdGen = randomIds): FloorPlanDoc {
   let doc = emptyFloorPlan()
