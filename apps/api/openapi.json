@@ -8184,6 +8184,35 @@
         ]
       }
     },
+    "/campus/{id}/published/nav": {
+      "get": {
+        "operationId": "CampusController_publishedNav",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Навигационный граф текущей версии под уровень зрителя",
+        "tags": [
+          "Кампус"
+        ]
+      }
+    },
     "/campus/{id}": {
       "get": {
         "operationId": "CampusController_tree",
