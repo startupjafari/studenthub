@@ -42,6 +42,8 @@ type ViewMode = '2d' | '3d' | 'campus'
 
 /** Скорость пешехода для оценки времени (§15.5) — допущение пишем рядом с цифрой. */
 const WALK_MM_PER_MIN = 72_000
+/** До стольких этажей режим «Кампус» грузит планы и рисует фасады; больше — коробки. */
+const CAMPUS_DETAIL_FLOORS = 40
 
 /**
  * Карта кампуса для членов вуза (docs/CAMPUS_BUILDER.md §16.1): поиск помещения, этажи,
@@ -256,7 +258,11 @@ function Viewer({
   }, [nav.data, route, floorId, current, store])
 
   // ── 3D ────────────────────────────────────────────────────────────────────────────
-  const buildingFloors = mode === '3d' && current ? current.building.floors : []
+  // Небольшой кампус в режиме «Кампус» — все этажи с планами: фасады с окнами вместо коробок.
+  const allFloors = buildings.flatMap((b) => b.floors)
+  const campusDetailed = mode === 'campus' && allFloors.length <= CAMPUS_DETAIL_FLOORS
+  const buildingFloors =
+    mode === '3d' && current ? current.building.floors : campusDetailed ? allFloors : []
   const floorDocs = useQueries({
     queries: buildingFloors.map((f) => ({
       queryKey: campusKeys.publishedFloor(campusId, f.id, versionId),
@@ -267,12 +273,16 @@ function Viewer({
   const docsKey = floorDocs.map((q) => (q.data ? 1 : 0)).join('')
   const sceneFloors = useMemo<SceneFloor[]>(() => {
     if (mode === 'campus') {
+      const docs = new Map(
+        floorDocs.flatMap((q) => (q.data ? [[q.data.floorId, q.data.document] as const] : [])),
+      )
       return buildings.flatMap((b) =>
         b.floors.map((f) => ({
           id: f.id,
           buildingId: b.id,
           level: f.level,
-          doc: f.id === floorId ? doc : emptyFloorPlan(),
+          // Пока не догрузились все этажи корпуса, он остаётся коробкой (см. scene.ts).
+          doc: docs.get(f.id) ?? (f.id === floorId ? doc : emptyFloorPlan()),
           elevationMm: f.elevationMm,
           heightMm: f.heightMm,
           transform: b.transform,

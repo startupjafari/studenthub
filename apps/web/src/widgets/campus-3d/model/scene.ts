@@ -335,8 +335,17 @@ export class CampusSceneController {
     }
 
     const focus = input.floors.find((f) => f.id === input.focusFloorId) ?? null
+    // Кампус: корпус, у которого пришли планы всех этажей, рисуется настоящими фасадами (стены,
+    // окна, крыша); остальные — коробкой. Зритель решает, грузить ли планы (небольшой кампус).
+    const detailed = new Set<string>()
+    if (input.mode === 'campus') {
+      const byB = new Map<string, SceneFloor[]>()
+      for (const f of input.floors) byB.set(f.buildingId, [...(byB.get(f.buildingId) ?? []), f])
+      for (const [id, fs] of byB)
+        if (fs.every((f) => Object.keys(f.doc.walls).length > 0)) detailed.add(id)
+    }
     const visible = input.floors.filter((f) => {
-      if (input.mode === 'campus') return false
+      if (input.mode === 'campus') return detailed.has(f.buildingId)
       if (input.mode === 'floor') return f.id === focus?.id
       // Корпус: этажи того же корпуса до выбранного включительно.
       return !focus || (f.buildingId === focus.buildingId && f.level <= focus.level)
@@ -380,11 +389,21 @@ export class CampusSceneController {
         if (list) list.push(f)
         else byBuilding.set(f.buildingId, [f])
       }
-      for (const floors of byBuilding.values()) {
+      for (const [buildingId, floors] of byBuilding) {
         const outline = floors[0]?.outline
         if (!outline?.length) continue
         const bottom = Math.min(...floors.map((f) => f.elevationMm))
         const top = Math.max(...floors.map((f) => f.elevationMm + f.heightMm))
+        if (detailed.has(buildingId)) {
+          // Фасады уже нарисованы этажами — сверху только крыша.
+          this.content.add(
+            new THREE.Mesh(
+              this.geometry(slabMesh(outline, top + 200, 200, floors[0]!.transform)),
+              slabMat,
+            ),
+          )
+          continue
+        }
         this.content.add(
           new THREE.Mesh(
             this.geometry(slabMesh(outline, top, top - bottom, floors[0]!.transform)),
