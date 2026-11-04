@@ -57,6 +57,13 @@ describe('тестовый кампус (§22.1)', () => {
     expect(vertical).toMatchObject({ via: 'elevator', toFloor: 'А3' })
   })
 
+  it('от главных ворот — по аллее в корпус и на этаж', () => {
+    const route = routeBetweenSpaces(index, 'gate:gate', 's_А305')
+    expect(route).not.toBeNull()
+    const kinds = routeSteps(index, route!).map((s) => s.type)
+    expect(kinds).toEqual(['start', 'enter', 'vertical', 'arrive'])
+  })
+
   it('в Б без лифта без ступеней не подняться', () => {
     expect(routeBetweenSpaces(index, 's_Б103', 's_Б303', { stepFree: true })).toBeNull()
     expect(explainNoRoute(index, 's_Б103', 's_Б303', { stepFree: true })).toBe(

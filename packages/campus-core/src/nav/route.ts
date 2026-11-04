@@ -286,7 +286,8 @@ export function routeSteps(index: NavIndex, route: RouteResult): RouteStep[] {
     }
     return best ? decodeFlags(best.f).kind : 'walk'
   }
-  let outside = false
+  // Старт на улице (у ворот) — первый шаг «войдите», а не «выйдите».
+  let outside = nodePoint(graph, route.nodes[0]!).floor === null
   for (let i = 1; i < route.nodes.length; i++) {
     const a = route.nodes[i - 1]!
     const b = route.nodes[i]!
@@ -336,7 +337,9 @@ export function graphForViewer(
     }
   }
   const spaces: Record<string, string> = {}
-  for (const [node, space] of Object.entries(graph.spaces))
-    if (visibleSpaces.has(space)) spaces[node] = space
+  for (const [node, space] of Object.entries(graph.spaces)) {
+    // Ворота — адреса территории, видны всем.
+    if (visibleSpaces.has(space) || space.startsWith('gate:')) spaces[node] = space
+  }
   return { ...graph, edges, spaces }
 }

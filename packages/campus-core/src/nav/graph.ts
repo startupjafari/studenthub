@@ -398,6 +398,23 @@ function connectOutdoors(
       for (const { o, d } of near) g.edge(e.id, o.id, d * OUTDOOR_FACTOR, 'outdoor')
     }
   }
+  // Ворота — адрес «откуда»: посетитель начинает путь у ворот. Ключ `gate:<id>` в `spaces`.
+  if (site) {
+    for (const [id, f] of Object.entries(site.features)) {
+      if (f.type !== 'gate') continue
+      const gate = g.node({ x: f.x, y: f.y }, 0, -1, 'outdoor')
+      g.spaces[gate] = `gate:${id}`
+      const targets =
+        outdoorNodes.length > 0
+          ? outdoorNodes
+          : entrances.map((e) => ({ id: e.id, p: g.point(e.id) }))
+      const near = targets
+        .map((o) => ({ o, d: Math.hypot(o.p.x - f.x, o.p.y - f.y) }))
+        .sort((a, b) => a.d - b.d)
+        .slice(0, 2)
+      for (const { o, d } of near) g.edge(gate, o.id, d * OUTDOOR_FACTOR, 'outdoor')
+    }
+  }
   // Входы одного корпуса — всегда в обход по улице; разных корпусов — напрямую, только если
   // дорожек нет совсем (иначе путь обязан идти по дорожкам).
   for (let i = 0; i < entrances.length; i++) {

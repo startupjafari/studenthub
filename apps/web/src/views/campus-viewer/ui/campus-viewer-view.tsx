@@ -6,6 +6,7 @@ import { useQueries, useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import {
   Accessibility,
+  DoorOpen,
   ArrowDownUp,
   CircleAlert,
   Footprints,
@@ -185,6 +186,17 @@ function Viewer({
       setFloorId(fid)
     },
     [floorId, store],
+  )
+
+  // Ворота территории — готовые точки «откуда» для посетителей (граф знает их как `gate:<id>`).
+  const gates = useMemo<Place[]>(
+    () =>
+      Object.entries(data.manifest.site?.features ?? {}).flatMap(([id, f]) =>
+        f.type === 'gate'
+          ? [{ spaceId: `gate:${id}`, floorId: '', buildingId: '', label: f.name ?? t('gate') }]
+          : [],
+      ),
+    [data.manifest.site, t],
   )
 
   const placeOf = (hit: CampusSpaceHit): Place | null =>
@@ -459,6 +471,22 @@ function Viewer({
                 onPick={(h) => setFrom(placeOf(h))}
                 onClear={() => setFrom(null)}
               />
+              {!from && gates.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {gates.map((g) => (
+                    <Button
+                      key={g.spaceId}
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setFrom(g)}
+                    >
+                      <DoorOpen aria-hidden />
+                      {g.label}
+                    </Button>
+                  ))}
+                </div>
+              )}
               <div className="flex justify-center">
                 <Button
                   type="button"
@@ -660,7 +688,9 @@ function RouteSteps({
   const text = (s: RouteStep): string => {
     switch (s.type) {
       case 'start':
-        return t('stepStart', { place: placeLabel(s.spaceId) })
+        return s.spaceId?.startsWith('gate:')
+          ? t('stepStartGate', { place: placeLabel(s.spaceId) })
+          : t('stepStart', { place: placeLabel(s.spaceId) })
       case 'vertical':
         return t(`stepVertical_${s.via}`, {
           up: s.up ? 'up' : 'down',

@@ -6179,7 +6179,9 @@
     "roomNotOnMap": "This room isn't on the map yet",
     "roomNotOnMapText": "The administration hasn't placed it on the campus map yet.",
     "showOnMap": "Show on map",
-    "onMap": "On map"
+    "onMap": "On map",
+    "gate": "Gate",
+    "stepStartGate": "Start at {place}"
   },
   "CampusSite": {
     "loading": "Loading the grounds",
