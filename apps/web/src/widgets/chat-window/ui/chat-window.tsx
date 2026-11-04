@@ -4074,6 +4074,7 @@ export function ChatWindow() {
                           key={m.id}
                           m={m}
                           mine={mine}
+                          isGroup={activeIsGroup}
                           firstOfRun={firstOfRun}
                           showDay={showDay}
                           dayText={showDay ? dayLabel(m.createdAt) : null}
