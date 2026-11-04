@@ -9,7 +9,7 @@ import type {
   UpdateCampusFloorInput,
   UpdateCampusInput,
 } from '@studenthub/shared-schemas'
-import type { FloorPlanDoc } from '@studenthub/campus-core'
+import type { FloorPlanDoc, NavGraph } from '@studenthub/campus-core'
 import { api } from '../../../shared/api'
 import type {
   CampusBuildingRow,
@@ -36,6 +36,7 @@ export const campusKeys = {
     ['campus', 'published', id, 'floor', floorId, versionId] as const,
   search: (q: string, campusId?: string) => ['campus', 'search', q, campusId ?? ''] as const,
   roomLocation: (roomId: string) => ['campus', 'room', roomId] as const,
+  nav: (id: string, versionId: string) => ['campus', 'published', id, 'nav', versionId] as const,
 }
 
 export async function fetchCampuses(): Promise<CampusSummary[]> {
@@ -166,4 +167,13 @@ export async function searchCampus(q: string, campusId?: string): Promise<Campus
 
 export async function fetchRoomLocation(roomId: string): Promise<CampusSpaceHit> {
   return (await api.get<CampusSpaceHit>(`/campus/rooms/${roomId}/location`)).data
+}
+
+/** Навигационный граф текущей версии под уровень зрителя; null — версия без графа. */
+export async function fetchCampusNav(
+  id: string,
+): Promise<{ versionId: string; graph: NavGraph | null }> {
+  return (
+    await api.get<{ versionId: string; graph: NavGraph | null }>(`/campus/${id}/published/nav`)
+  ).data
 }

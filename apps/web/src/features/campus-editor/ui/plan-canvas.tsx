@@ -18,6 +18,9 @@ interface Props {
   store: EditorStore
   tools: ToolController
   problemsShown: boolean
+  /** Просмотр карты: без сетки, узлов и подсветки стен под курсором. */
+  viewOnly?: boolean
+  label?: string
 }
 
 /**
@@ -27,7 +30,7 @@ interface Props {
  * касания ладони рядом с ним только двигают план; под пальцем и пером — лупа с точкой
  * привязки, иначе её закрывает рука (§12.11).
  */
-export function PlanCanvas({ store, tools, problemsShown }: Props) {
+export function PlanCanvas({ store, tools, problemsShown, viewOnly = false, label }: Props) {
   const t = useTranslations('CampusEditor')
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -61,7 +64,8 @@ export function PlanCanvas({ store, tools, problemsShown }: Props) {
       const state = store.getState()
       const opts = {
         hoverSelection: hover,
-        showNodes: state.tool === 'select' || state.tool === 'wall',
+        showNodes: !viewOnly && (state.tool === 'select' || state.tool === 'wall'),
+        showGrid: !viewOnly,
         problemsShown: problemsRef.current,
         kindLabel: kindLabelRef.current,
       }
@@ -206,7 +210,12 @@ export function PlanCanvas({ store, tools, problemsShown }: Props) {
       if (loupe) loupe = p
       tools.move(input(e, e.pointerType))
       const s = store.getState()
-      if (s.tool === 'select' && drawingPointer === null && e.pointerType === 'mouse') {
+      if (
+        !viewOnly &&
+        s.tool === 'select' &&
+        drawingPointer === null &&
+        e.pointerType === 'mouse'
+      ) {
         const i = input(e, 'mouse')
         const next = hitTest(s.doc, s.faces, s.faceSpace, i.plan, i.radiusMm)
         if (JSON.stringify(next) !== JSON.stringify(hover)) {
@@ -305,14 +314,14 @@ export function PlanCanvas({ store, tools, problemsShown }: Props) {
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('keyup', onKey)
     }
-  }, [store, tools])
+  }, [store, tools, viewOnly])
 
   return (
     <div ref={wrapRef} className="relative h-full w-full overflow-hidden bg-background">
       <canvas
         ref={canvasRef}
         role="img"
-        aria-label={t('canvasLabel')}
+        aria-label={label ?? t('canvasLabel')}
         className="block touch-none select-none"
       />
     </div>

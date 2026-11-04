@@ -79,6 +79,8 @@ export interface EditorState {
   /** Метка шага для подсказки «Отменить: …». */
   undoLabel: string | null
   floorHeightMm: number
+  /** Маршрут на этом этаже (просмотр карты): ломаные в координатах корпуса. */
+  route: Pt[][]
 }
 
 interface HistoryEntry {
@@ -119,6 +121,7 @@ export class EditorStore {
       canRedo: false,
       undoLabel: null,
       floorHeightMm,
+      route: [],
     }
   }
 
