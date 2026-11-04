@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { getVoiceRate, useVoiceRate } from '../lib/voice-rate'
+import { VoiceRateButton } from './voice-rate-button'
 import { Pause, Play } from 'lucide-react'
 import { cn } from '../../../shared/lib/utils'
 import { BAR_FLOOR, resampleEnvelope, useVoiceProfile, voiceBarCount } from '../lib/voice-profile'
@@ -126,6 +128,8 @@ export function VoiceMessage({
     const onPlay = (): void => {
       if (activeAudio && activeAudio !== audio) activeAudio.pause()
       activeAudio = audio
+      // Скорость — запомненная общая (lib/voice-rate): следующее голосовое на той же.
+      audio.playbackRate = getVoiceRate()
       setPlaying(true)
     }
     const onPause = (): void => setPlaying(false)
@@ -171,6 +175,13 @@ export function VoiceMessage({
     rafRef.current = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(rafRef.current)
   }, [playing])
+
+  // Сменили скорость, пока это голосовое играет, — сразу на нём.
+  const rate = useVoiceRate()
+  useEffect(() => {
+    const audio = audioRef.current
+    if (audio) audio.playbackRate = rate
+  }, [rate])
 
   function toggle(): void {
     const audio = audioRef.current
@@ -263,6 +274,10 @@ export function VoiceMessage({
           {mmss(playing || current > 0 ? current : duration)}
         </span>
       </div>
+      {/* Скорость — только у начатого голосового, справа, как в Telegram. */}
+      {(playing || current > 0) && (
+        <VoiceRateButton tone={mine ? 'onPrimary' : 'default'} className="self-start" />
+      )}
     </div>
   )
 }

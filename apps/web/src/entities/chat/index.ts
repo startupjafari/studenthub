@@ -119,3 +119,5 @@ export { compressImage, compressImages, convertUnsupportedImages } from './lib/c
 export { sortChats } from './lib/sort-chats'
 export { useChatsUnread, scheduleChatsUnreadRefresh } from './lib/use-chats-unread'
 export { createRefreshCoalescer, type RefreshCoalescer } from './lib/refresh-coalescer'
+export { VoiceRateButton } from './ui/voice-rate-button'
+export { VOICE_RATES, cycleVoiceRate, getVoiceRate, useVoiceRate } from './lib/voice-rate'

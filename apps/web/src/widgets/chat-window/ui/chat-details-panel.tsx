@@ -64,6 +64,8 @@ import {
   type ChatListItem,
   type ChatMediaItem,
   type ChatMemberInfo,
+  useVoiceRate,
+  VoiceRateButton,
 } from '../../../entities/chat'
 import { ProfileLink, UserPicker } from '../../../entities/user'
 import {
@@ -445,7 +447,8 @@ function VoicePlaylist({
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [currentId, setCurrentId] = useState<string | null>(null)
   const [playing, setPlaying] = useState(false)
-  const [rate, setRate] = useState(1)
+  // Скорость — общая запомненная (как у голосовых в ленте): выбрали раз — держится дальше.
+  const rate = useVoiceRate()
   const [progress, setProgress] = useState(0)
 
   // Presigned-ссылку берём только для играющей записи: тянуть URL для всего списка — это
@@ -504,26 +507,6 @@ function VoicePlaylist({
         onEnded={onEnded}
         className="hidden"
       />
-      {/* Скорость — общая для всей очереди: переключать её на каждой записи было бы мучением. */}
-      <div className="flex items-center justify-end gap-1 px-3 pb-1 pt-2">
-        <span className="text-xs text-muted-foreground">{t('playbackSpeed')}</span>
-        {[1, 1.5, 2].map((r) => (
-          <button
-            key={r}
-            type="button"
-            onClick={() => setRate(r)}
-            aria-pressed={rate === r}
-            className={cn(
-              'rounded-full px-2 py-0.5 text-xs font-medium transition-colors',
-              rate === r
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:bg-muted',
-            )}
-          >
-            {r}×
-          </button>
-        ))}
-      </div>
       {items.map((it) => {
         const active = currentId === it.id
         const date = new Date(it.createdAt).toLocaleDateString(locale, {
@@ -570,6 +553,8 @@ function VoicePlaylist({
                 </span>
               )}
             </button>
+            {/* Скорость — справа у играющей записи; выбор держится для следующих. */}
+            {active && <VoiceRateButton />}
           </div>
         )
       })}
