@@ -43,30 +43,35 @@ model Post {
   publishedAt DateTime? @map("published_at")
 
   // Закрепление (задача 8.6): только роль выше автора. Репост — ссылка на оригинал.
-  pinnedAt       DateTime? @map("pinned_at")
-  pinnedById     String?   @map("pinned_by_id")
-  originalPostId String?   @map("original_post_id")
+  pinnedAt        DateTime? @map("pinned_at")
+  pinnedById      String?   @map("pinned_by_id")
+  originalPostId  String?   @map("original_post_id")
+  // Репост статьи профиля или страницы организации: пост ссылается на статью, текст поста —
+  // необязательная подпись репостнувшего. Статья удаляется насовсем (у неё нет soft delete),
+  // и вместе с ней уходят её репосты: пустой пост-указатель в ленте не нужен никому.
+  sharedArticleId String?   @map("shared_article_id")
 
   deletedAt DateTime? @map("deleted_at")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
-  author           User           @relation("PostAuthor", fields: [authorId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  targetUser       User?          @relation("PostTarget", fields: [targetUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  pinnedBy         User?          @relation("PostPinnedBy", fields: [pinnedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  university       University?    @relation(fields: [universityId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  faculty          Faculty?       @relation(fields: [facultyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  group            Group?         @relation(fields: [groupId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  company          Company?       @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  universityPage   University?    @relation("UniversityPagePosts", fields: [universityPageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  original         Post?          @relation("PostRepost", fields: [originalPostId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  reposts          Post[]         @relation("PostRepost")
+  author           User            @relation("PostAuthor", fields: [authorId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  targetUser       User?           @relation("PostTarget", fields: [targetUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  pinnedBy         User?           @relation("PostPinnedBy", fields: [pinnedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  university       University?     @relation(fields: [universityId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  faculty          Faculty?        @relation(fields: [facultyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  group            Group?          @relation(fields: [groupId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  company          Company?        @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  universityPage   University?     @relation("UniversityPagePosts", fields: [universityPageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  original         Post?           @relation("PostRepost", fields: [originalPostId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  reposts          Post[]          @relation("PostRepost")
+  sharedArticle    ProfileArticle? @relation("PostSharedArticle", fields: [sharedArticleId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   media            File[]
   reactions        Reaction[]
   comments         Comment[]
   bookmarks        PostBookmark[]
   // Сообщения, в которых этот пост расшарен превью-карточкой (Ф9+ share-to-chat).
-  sharedInMessages Message[]      @relation("MessageSharedPost")
+  sharedInMessages Message[]       @relation("MessageSharedPost")
 
   // Фильтр видимости по audience-скоупу + cursor-пагинация по времени (docs/PROJECT.md §6.2).
   @@index([audience])
@@ -78,6 +83,7 @@ model Post {
   @@index([companyId])
   @@index([universityPageId])
   @@index([originalPostId])
+  @@index([sharedArticleId])
   @@index([pinnedById])
   @@index([deletedAt])
   @@index([createdAt])

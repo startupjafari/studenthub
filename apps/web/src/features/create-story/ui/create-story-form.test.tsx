@@ -12,22 +12,6 @@ const auth = { user: { id: 'me' }, role: 'STUDENT' }
 vi.mock('../../../shared/store', () => ({
   useAppSelector: (pick: (s: { auth: typeof auth }) => unknown) => pick({ auth }),
 }))
-vi.mock('../../../entities/event/api/event-api', async (orig) => {
-  const actual = await orig<typeof import('../../../entities/event/api/event-api')>()
-  return {
-    ...actual,
-    fetchEvents: vi.fn().mockResolvedValue([
-      {
-        id: 'e-1',
-        title: 'Хакатон ИТ',
-        startsAt: '2026-11-05T09:00:00.000Z',
-        endsAt: null,
-        location: 'Ауд. 101',
-        isOnline: false,
-      },
-    ]),
-  }
-})
 vi.mock('../../../entities/story/api/story-api', async (orig) => {
   const actual = await orig<typeof import('../../../entities/story/api/story-api')>()
   return {
@@ -125,17 +109,5 @@ describe('Редактор сторис', () => {
     screen.getByRole('button', { name: /на кадре/ }).focus()
     await user.click(screen.getByRole('button', { name: ru.Stories.duplicate }))
     expect(screen.getAllByRole('button', { name: /на кадре/ })).toHaveLength(2)
-  })
-
-  it('событие из окна выбора уходит в публикацию только ссылкой на событие', async () => {
-    const user = setup()
-    await user.click(screen.getByRole('button', { name: ru.Stories.toolEvent }))
-    await user.click(await screen.findByRole('button', { name: /Хакатон ИТ/ }))
-    expect(screen.getByText('Хакатон ИТ')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Опубликовать' }))
-    await waitFor(() => expect(createStoryRequest).toHaveBeenCalled())
-    const sent = vi.mocked(createStoryRequest).mock.calls[0]![0].elements?.[0]
-    expect(sent).toEqual(expect.objectContaining({ type: 'event', eventId: 'e-1' }))
-    expect(sent).not.toHaveProperty('event')
   })
 })

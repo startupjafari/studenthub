@@ -95,7 +95,7 @@ const ARTICLE_CARD_SELECT = {
   publishedAt: true,
   createdAt: true,
   updatedAt: true,
-  _count: { select: { comments: true, bookmarks: true } },
+  _count: { select: { comments: true, bookmarks: true, likes: true } },
 } satisfies Prisma.ProfileArticleSelect
 
 const ARTICLE_SELECT = {
@@ -745,30 +745,46 @@ export class ProfileContentService {
     return (await this.decorateArticles([row], actor.sub))[0]
   }
 
-  // Добавляет к статьям число комментариев/закладок и флаг «в закладках у смотрящего»;
-  // прячет сырой _count.
+  // Добавляет к статьям число комментариев/закладок/лайков и флаги «в закладках» и «лайкнул»
+  // у смотрящего; прячет сырой _count.
   private async decorateArticles<
-    T extends { id: string; _count: { comments: number; bookmarks: number } },
+    T extends { id: string; _count: { comments: number; bookmarks: number; likes: number } },
   >(
     rows: T[],
     viewerId: string,
   ): Promise<
-    (Omit<T, '_count'> & { commentCount: number; bookmarksCount: number; bookmarked: boolean })[]
+    (Omit<T, '_count'> & {
+      commentCount: number
+      bookmarksCount: number
+      bookmarked: boolean
+      likesCount: number
+      liked: boolean
+    })[]
   > {
     const ids = rows.map((r) => r.id)
-    const marks = ids.length
-      ? await this.prisma.bookmark.findMany({
-          take: ids.length,
-          where: { userId: viewerId, articleId: { in: ids } },
-          select: { articleId: true },
-        })
-      : []
+    const [marks, likes] = ids.length
+      ? await Promise.all([
+          this.prisma.bookmark.findMany({
+            take: ids.length,
+            where: { userId: viewerId, articleId: { in: ids } },
+            select: { articleId: true },
+          }),
+          this.prisma.articleLike.findMany({
+            take: ids.length,
+            where: { userId: viewerId, articleId: { in: ids } },
+            select: { articleId: true },
+          }),
+        ])
+      : [[], []]
     const marked = new Set(marks.map((m) => m.articleId))
+    const liked = new Set(likes.map((m) => m.articleId))
     return rows.map(({ _count, ...rest }) => ({
       ...(rest as Omit<T, '_count'>),
       commentCount: _count.comments,
       bookmarksCount: _count.bookmarks,
       bookmarked: marked.has(rest.id as string),
+      likesCount: _count.likes,
+      liked: liked.has(rest.id as string),
     }))
   }
 
@@ -1212,6 +1228,100 @@ export class ProfileContentService {
 
   // ── Закладки на статьи ─────────────────────────────────────────────────────────
 
+  // ── Лайки статей ──────────────────────────────────────────────────────────────
+
+  /**
+   * Лайк статьи — идемпотентно: повторный не создаёт второй строки (уникальный индекс), снятие
+   * несуществующего ничего не ломает. Ставить — только на опубликованную: черновик видит один
+   * автор, и его счётчик ни о чём не говорит. Ответ — итоговое состояние и число лайков.
+   */
+  async setArticleLike(
+    viewer: JwtPayload,
+    articleId: string,
+    liked: boolean,
+  ): Promise<{ liked: boolean; likesCount: number }> {
+    await this.assertArticleVisible(viewer, articleId)
+    if (liked) {
+      const article = await this.prisma.profileArticle.findUnique({
+        where: { id: articleId },
+        select: { status: true },
+      })
+      if (article?.status !== 'PUBLISHED') {
+        throw new AppException('BAD_REQUEST', 'Черновик лайкнуть нельзя')
+      }
+      try {
+        await this.prisma.articleLike.create({ data: { articleId, userId: viewer.sub } })
+      } catch (error) {
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) {
+          throw error
+        }
+      }
+    } else {
+      await this.prisma.articleLike.deleteMany({ where: { articleId, userId: viewer.sub } })
+    }
+    const likesCount = await this.prisma.articleLike.count({ where: { articleId } })
+    return { liked, likesCount }
+  }
+
+  /**
+   * Какие из статей зритель вправе читать сейчас — пачкой: профиль автора (закрытый,
+   * удалённый), статус и visibility статьи, допуск к странице организации. Нужна ленте:
+   * репост статьи показывает её карточку только тем, кто открыл бы саму статью.
+   */
+  async visibleArticleIds(viewer: JwtPayload, ids: readonly string[]): Promise<Set<string>> {
+    const unique = [...new Set(ids)]
+    if (unique.length === 0) return new Set()
+    const rows = await this.prisma.profileArticle.findMany({
+      where: { id: { in: unique } },
+      select: {
+        id: true,
+        userId: true,
+        companyId: true,
+        universityPageId: true,
+        status: true,
+        visibility: true,
+        user: { select: PROFILE_CONTENT_OWNER_SELECT },
+      },
+      take: unique.length,
+    })
+    return new Set((await this.visibleOf(viewer, rows)).map((a) => a.id))
+  }
+
+  /** Отбор видимых зрителю статей; профили авторов и страницы проверяются пачкой. */
+  private async visibleOf<
+    T extends {
+      userId: string
+      companyId: string | null
+      universityPageId: string | null
+      status: string
+      visibility: string
+      user: ProfileContentOwner
+    },
+  >(viewer: JwtPayload, rows: T[]): Promise<T[]> {
+    const personal = rows.filter((a) => !pageOf(a))
+    const viewable = await this.users.viewableProfileContentOwners(
+      viewer,
+      personal.map((a) => a.user),
+    )
+    // Статьи страниц — по видимости страницы (допуск вуза мог закончиться), пачкой.
+    const [companies, universities] = await Promise.all([
+      this.careerAccess.visibleCompanyIds(
+        viewer,
+        rows.flatMap((a) => (a.companyId ? [a.companyId] : [])),
+      ),
+      this.careerAccess.visibleUniversityPageIds(
+        viewer,
+        rows.flatMap((a) => (a.universityPageId ? [a.universityPageId] : [])),
+      ),
+    ])
+    return rows.filter((a) => {
+      const page = pageOf(a)
+      if (!page) return viewable.has(a.userId) && this.articleScopeOk(viewer, a, a.user)
+      const seen = page.kind === 'company' ? companies : universities
+      return seen.has(page.id) && (a.status === 'PUBLISHED' || this.isPageEditor(viewer, page))
+    })
+  }
+
   /**
    * Переключатель закладки без чтения перед записью — как у постов: при двойном нажатии
    * «найти → создать» пускало оба запроса в create, и второй отвечал 409/500 уникальностью.
@@ -1247,30 +1357,12 @@ export class ProfileContentService {
       orderBy: { createdAt: 'desc' },
       take: 100,
     })
-    const personal = marks.filter((m) => !pageOf(m.article))
-    const viewable = await this.users.viewableProfileContentOwners(
-      viewer,
-      personal.map((m) => m.article.user),
+    const visible = (
+      await this.visibleOf(
+        viewer,
+        marks.map((m) => m.article),
+      )
     )
-    // Статьи страниц — по видимости страницы (допуск вуза мог закончиться), пачкой.
-    const [companies, universities] = await Promise.all([
-      this.careerAccess.visibleCompanyIds(
-        viewer,
-        marks.flatMap((m) => (m.article.companyId ? [m.article.companyId] : [])),
-      ),
-      this.careerAccess.visibleUniversityPageIds(
-        viewer,
-        marks.flatMap((m) => (m.article.universityPageId ? [m.article.universityPageId] : [])),
-      ),
-    ])
-    const visible = marks
-      .map((m) => m.article)
-      .filter((a) => {
-        const page = pageOf(a)
-        if (!page) return viewable.has(a.userId) && this.articleScopeOk(viewer, a, a.user)
-        const seen = page.kind === 'company' ? companies : universities
-        return seen.has(page.id) && (a.status === 'PUBLISHED' || this.isPageEditor(viewer, page))
-      })
       // Поля автора нужны только для проверки — наружу уходит прежняя форма статьи.
       .map(({ user, ...article }) => article)
     return this.decorateArticles(visible, viewer.sub)

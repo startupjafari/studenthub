@@ -31,6 +31,7 @@ import { SharePostMenu } from '../../../features/share-post'
 import { useBookmark } from '../../../features/bookmark-post'
 import { MediaFrame } from './media-frame'
 import { PostTileMenu } from './post-tile-menu'
+import { SharedArticleCard } from './shared-article-card'
 import { RepostBanner, RepostUnavailable } from './repost-banner'
 import { useRepostSource } from '../lib/use-repost-source'
 
@@ -207,6 +208,9 @@ function PostCardView({
       {(post.title || post.content) && <PostBody title={post.title} text={post.content} />}
 
       {originalUnavailable && <RepostUnavailable className="mx-4 mt-3 sm:mx-5" />}
+
+      {/* Репост статьи — карточкой под подписью репостнувшего. */}
+      <SharedArticleCard post={post} className="mx-4 mt-3 sm:mx-5" />
 
       {/* Панель действий — как во «ВКонтакте»: лайк, комментарии, репост и «поделиться»
           слева, просмотры справа. Подписи видны с `sm`: голые иконки читаются

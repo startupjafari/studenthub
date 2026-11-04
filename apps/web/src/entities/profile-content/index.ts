@@ -30,6 +30,7 @@ export {
   addArticleComment,
   deleteArticleComment,
   toggleArticleBookmark,
+  setArticleLike,
   type ContentOwner,
   type ContentCompany,
   type ProfileMedia,
@@ -39,3 +40,5 @@ export {
   type Album,
   type ContentComment,
 } from './api/profile-content-api'
+export { ArticleCover, ARTICLE_GRADIENTS } from './ui/article-cover'
+export { extractToc, nodeText, slugify, type TocItem } from './lib/article-toc'

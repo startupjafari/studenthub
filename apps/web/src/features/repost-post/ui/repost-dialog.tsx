@@ -15,6 +15,7 @@ import {
   GROUP_PICKER_ROLES,
   REPOST_AUDIENCES_BY_ROLE,
   postKeys,
+  repostArticleRequest,
   repostRequest,
   type FeedPost,
 } from '../../../entities/post'
@@ -37,9 +38,14 @@ import {
 // Какая цель не выбрана — ошибка показывается под соответствующим полем (FRONTEND_RULES §7).
 type Missing = 'user' | 'group' | 'faculty' | null
 
-// Репост поста со своим комментарием: POST /posts/:id/repost. Аудиторию выбирает репостящий —
-// от аудитории оригинала она не наследуется (её считает сервер по роли).
-export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () => void }) {
+/** Что репостят: пост ленты или статью (тогда в ленту уходит пост со ссылкой на неё). */
+type RepostSource =
+  { post: FeedPost; article?: never } | { article: { id: string; title: string }; post?: never }
+
+// Репост поста или статьи со своим комментарием: POST /posts/:id/repost или
+// /posts/articles/:id/repost. Аудиторию выбирает репостящий — от аудитории оригинала она не
+// наследуется (её считает сервер по роли).
+export function RepostDialog({ post, article, onClose }: RepostSource & { onClose: () => void }) {
   const t = useTranslations('Feed')
   const tCommon = useTranslations('Common')
   const tPeople = useTranslations('People')
@@ -68,7 +74,8 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
   })
 
   const mutation = useMutation({
-    mutationFn: (input: RepostInput) => repostRequest(post.id, input),
+    mutationFn: (input: RepostInput) =>
+      article ? repostArticleRequest(article.id, input) : repostRequest(post.id, input),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: postKeys.all })
       toast.success(t('reposted'))
@@ -78,7 +85,7 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
   })
 
   // Пост-первоисточник для цитаты: репост репоста ссылается на оригинал (так же считает сервер).
-  const source = post.original ?? { author: post.author, content: post.content }
+  const source = post ? (post.original ?? { author: post.author, content: post.content }) : null
 
   const submit = form.handleSubmit((v) => {
     if (showPersonal && !target) return setMissing('user')
@@ -107,9 +114,11 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
         <div className="rounded-xl border border-border bg-muted/30 p-3 text-sm">
           <p className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
             <Repeat2 className="size-3.5" aria-hidden />
-            {source.author.lastName} {source.author.firstName}
+            {source ? `${source.author.lastName} ${source.author.firstName}` : t('articleRepost')}
           </p>
-          <p className="line-clamp-4 whitespace-pre-wrap">{source.content || t('mediaPost')}</p>
+          <p className="line-clamp-4 whitespace-pre-wrap">
+            {source ? source.content || t('mediaPost') : article?.title}
+          </p>
         </div>
 
         <div className="flex flex-col gap-1.5">

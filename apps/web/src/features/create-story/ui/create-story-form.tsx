@@ -9,7 +9,6 @@ import { useTranslations } from 'next-intl'
 import { Pause, Play, Redo2, Send, Undo2, Users, Volume2, VolumeX } from 'lucide-react'
 import {
   CreateStorySchema,
-  STORY_CARDS_MAX,
   STORY_ELEMENTS_MAX,
   STORY_IMAGE_MIMES,
   STORY_MEDIA_DEFAULTS,
@@ -32,19 +31,14 @@ import {
 } from '../../../shared/ui'
 import {
   clamp01,
-  isCard,
   newEmojiElement,
-  newEventElement,
   newMentionElement,
-  newPostElement,
-  newScheduleElement,
   newTextElement,
   toStoryElements,
   type EditorElement,
 } from '../model/editor-element'
 import { useEditorHistory } from '../model/use-editor-history'
 import { canvasFilterSupported, useStoryStage } from '../model/use-story-stage'
-import { CardPicker, type CardKind, type PickedCard } from './card-picker'
 import { StoryCanvas } from './story-canvas'
 import { MentionPicker } from './mention-picker'
 import {
@@ -92,13 +86,10 @@ interface PickedVideo {
 }
 
 /** Инструмент, чей элемент выбран на кадре: его кнопка слева подсвечивается. */
-const TOOL_OF: Record<EditorElement['type'], StoryTool> = {
+const TOOL_OF: Partial<Record<EditorElement['type'], StoryTool>> = {
   text: 'text',
   emoji: 'emoji',
   mention: 'mention',
-  event: 'event',
-  post: 'post',
-  schedule: 'schedule',
 }
 
 /** Длительность видео в секундах по метаданным; не удалось прочитать — 0 (решит сервер). */
@@ -171,9 +162,6 @@ export function CreateStoryForm({
   const [sheetOpen, setSheetOpen] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [mentionOpen, setMentionOpen] = useState(false)
-  const [cardKind, setCardKind] = useState<CardKind | null>(null)
-  // Карточка, которую меняют на другую запись (а не добавляют новую).
-  const [replacingId, setReplacingId] = useState<string | null>(null)
   // Ссылка добавлена — отдельное состояние, а не «linkUrl !== undefined»: пустое поле
   // уходит в форму как undefined (OPTIONAL_TEXT), и ссылка пропадала бы на стёртом адресе.
   const [linkOpen, setLinkOpen] = useState(false)
@@ -217,7 +205,6 @@ export function CreateStoryForm({
   const selected = elements.find((e) => e.id === selectedId) ?? null
   const selectedIndex = selected ? elements.indexOf(selected) : -1
   const full = elements.length >= STORY_ELEMENTS_MAX
-  const cardsFull = elements.filter(isCard).length >= STORY_CARDS_MAX
   const mentionCount = new Set(elements.flatMap((e) => (e.type === 'mention' ? [e.userId] : [])))
     .size
 
@@ -278,29 +265,6 @@ export function CreateStoryForm({
     // Пустой текст схема не примет — такой элемент просто убирается.
     const element = elements.find((e) => e.id === id)
     if (element?.type === 'text' && element.text.trim() === '') removeElement(id)
-  }
-
-  function addCard(card: PickedCard): void {
-    const replacing = replacingId ? elements.find((e) => e.id === replacingId) : undefined
-    const fresh =
-      card.kind === 'event'
-        ? newEventElement(card.event)
-        : card.kind === 'post'
-          ? newPostElement(card.post)
-          : newScheduleElement(card.pair, card.date)
-    if (replacing) {
-      // Другая запись на месте прежней карточки: положение, размер и поворот — те же.
-      const { x, y, scale, rotation } = replacing
-      updateElements((list) =>
-        list.map((e) =>
-          e.id === replacing.id ? { ...fresh, id: e.id, x, y, scale, rotation } : e,
-        ),
-      )
-    } else {
-      addElement(fresh)
-    }
-    setCardKind(null)
-    setReplacingId(null)
   }
 
   /** Текстовая сторис: фон и текст на нём — одним шагом истории, текст сразу в наборе. */
@@ -466,12 +430,9 @@ export function CreateStoryForm({
     } else if (tool === 'link') {
       setLinkOpen(true)
       openView('link')
-    } else if (tool === 'poll') {
+    } else {
       if (!poll) form.setValue('poll', { question: '', options: ['', ''] })
       openView('poll')
-    } else {
-      setReplacingId(null)
-      setCardKind(tool)
     }
   }
 
@@ -488,7 +449,7 @@ export function CreateStoryForm({
   }
 
   const activeTool: StoryTool | null = selected
-    ? TOOL_OF[selected.type]
+    ? (TOOL_OF[selected.type] ?? null)
     : view === 'link' || view === 'poll'
       ? view
       : null
@@ -571,17 +532,9 @@ export function CreateStoryForm({
         onBackward={() => moveLayer(selected.id, -1)}
         onDuplicate={() => duplicate(selected)}
         onRemove={() => removeElement(selected.id)}
-        onReplaceCard={
-          isCard(selected)
-            ? () => {
-                setReplacingId(selected.id)
-                setCardKind(selected.type as CardKind)
-              }
-            : undefined
-        }
         canForward={selectedIndex < elements.length - 1}
         canBackward={selectedIndex > 0}
-        canDuplicate={!full && !(isCard(selected) && cardsFull) && selected.type !== 'mention'}
+        canDuplicate={!full && selected.type !== 'mention'}
         onClose={closePanel}
       />
     )
@@ -685,9 +638,6 @@ export function CreateStoryForm({
               text: full,
               emoji: full,
               mention: full || mentionCount >= STORY_MENTIONS_MAX,
-              event: full || cardsFull,
-              schedule: full || cardsFull,
-              post: full || cardsFull,
             }}
           />
         </div>
@@ -885,17 +835,6 @@ export function CreateStoryForm({
             }}
           />
         </Modal>
-      )}
-
-      {cardKind && (
-        <CardPicker
-          kind={cardKind}
-          onPick={addCard}
-          onClose={() => {
-            setCardKind(null)
-            setReplacingId(null)
-          }}
-        />
       )}
 
       {mentionOpen && (

@@ -403,6 +403,22 @@ export class ProfileContentController {
     return this.content.toggleBookmark(user, id)
   }
 
+  @Post('articles/:id/like')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Лайкнуть статью (идемпотентно)' })
+  @ApiResponse({ status: 200, description: '{ liked: true, likesCount }' })
+  @ApiResponse({ status: 400, description: 'Статья — черновик' })
+  likeArticle(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.content.setArticleLike(user, id, true)
+  }
+
+  @Delete('articles/:id/like')
+  @ApiOperation({ summary: 'Снять лайк со статьи (идемпотентно)' })
+  @ApiResponse({ status: 200, description: '{ liked: false, likesCount }' })
+  unlikeArticle(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.content.setArticleLike(user, id, false)
+  }
+
   @Get('bookmarks')
   @ApiOperation({ summary: 'Мои закладки (статьи)' })
   listBookmarks(@CurrentUser() user: CurrentUserData) {
