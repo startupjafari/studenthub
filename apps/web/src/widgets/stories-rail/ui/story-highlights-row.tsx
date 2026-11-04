@@ -95,9 +95,14 @@ export function StoryHighlightsRow({ ownerId }: { ownerId: string }) {
             onClick={() => row.scrollPage(side === 'left' ? -1 : 1)}
             className={cn(
               // По центру кружка: поле ряда (0.25rem) + половина кружка с рамкой (2.25rem).
-              'absolute top-10 z-10 hidden size-8 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card/95 text-foreground shadow-sm transition-[opacity,background-color] duration-150 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none sm:flex',
-              'opacity-0 group-hover/highlights:opacity-100 focus-visible:opacity-100',
-              side === 'left' ? 'left-0' : 'right-0',
+              'absolute top-10 z-10 flex size-8 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card/95 text-foreground shadow-sm transition-colors duration-150 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none',
+              // Видны всегда, а не по наведению: по стрелке сразу понятно, что ряд длиннее
+              // экрана и в какую сторону листать. Стрелка есть только у той стороны, где ещё
+              // есть подборки; появляется плавно, когда ряд докрутили от края.
+              'animate-in fade-in-0 duration-150 motion-reduce:animate-none',
+              // Наполовину за краем ряда (кружок 2rem — сдвиг на 1rem): стрелка не закрывает
+              // крайнюю подборку и читается как управление рядом, а не его часть.
+              side === 'left' ? '-left-4' : '-right-4',
             )}
           >
             {side === 'left' ? (
