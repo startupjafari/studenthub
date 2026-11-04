@@ -9,7 +9,8 @@ import type { StoryElement, StoryEventCard, StoryPairCard, StoryPostCard } from 
 
 // Размер шрифта — в процентах ширины кадра (`cqw`, контейнер — слой элементов): одна и та
 // же сторис одинаково выглядит в превью редактора, на телефоне и в колонке на десктопе.
-const BASE_CQW = { text: 6, emoji: 14, mention: 5, event: 3.6, post: 3.6, schedule: 3.6 } as const
+// Отметка — мельче текста: это подпись «кто здесь», а не заголовок кадра.
+const BASE_CQW = { text: 6, emoji: 14, mention: 3.6, event: 3.6, post: 3.6, schedule: 3.6 } as const
 
 /**
  * Элемент в любом виде: из запроса, из выдачи (с данными карточки) или из редактора (с
@@ -221,11 +222,16 @@ export function StoryElementBody({
   if (element.type === 'mention') {
     const name = mentionName ?? ('name' in element ? element.name : '')
     return (
+      // Тёмная полупрозрачная плашка с «@» в фирменном цвете: отметка отличается от светлого
+      // стикера ссылки и не спорит с текстом кадра. Длинное имя — многоточием.
       <span
-        className="block rounded-full bg-white/90 px-[0.6em] py-[0.25em] font-semibold whitespace-nowrap text-black shadow-sm"
+        className="flex max-w-[60cqw] items-center gap-[0.2em] rounded-[0.6em] bg-black/55 px-[0.55em] py-[0.25em] font-medium whitespace-nowrap text-white ring-1 ring-white/15"
         style={{ fontSize }}
       >
-        @{name}
+        <span className="font-semibold text-primary" aria-hidden>
+          @
+        </span>
+        <span className="truncate">{name}</span>
       </span>
     )
   }
@@ -247,6 +253,18 @@ export function StoryElementBody({
       {element.text}
     </span>
   )
+}
+
+// Отступ от системной зоны — чтобы плашка не касалась её края.
+const SAFE_MARGIN = 0.04
+
+/** Центр нажимаемого элемента — между верхней и нижней системными зонами кадра. */
+export function clampToSafe(y: number, safe: { top: number; bottom: number }): number {
+  const min = safe.top + SAFE_MARGIN
+  const max = 1 - safe.bottom - SAFE_MARGIN
+  // Зоны заняли почти весь кадр (низкое окно) — оставляем как поставил автор.
+  if (min >= max) return y
+  return Math.min(Math.max(y, min), max)
 }
 
 /** Текст с курсора: у поля с переносами `innerText` отдаёт и их (в jsdom его нет). */
@@ -334,11 +352,18 @@ function EditableText({
  */
 export function StoryElementsLayer({
   elements,
+  safeArea,
   onMention,
   mentionLabel,
   cardActions,
 }: {
   elements: StoryElement[]
+  /**
+   * Системные зоны кадра долями высоты (верх — прогресс и автор, низ — интерактив и
+   * реакции). Нажимаемые элементы — отметки и карточки — сдвигаются из-под них: иначе
+   * отметка, поставленная у края, ложилась под кнопки и не нажималась.
+   */
+  safeArea?: { top: number; bottom: number }
   onMention?: (userId: string) => void
   /** Подпись отметки для читалки: «Открыть профиль {name}». */
   mentionLabel?: (name: string) => string
@@ -349,7 +374,10 @@ export function StoryElementsLayer({
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden @container">
       {elements.map((element, i) => {
-        const style = storyElementPlacement(element)
+        const tappable = element.type !== 'text' && element.type !== 'emoji'
+        const style = storyElementPlacement(
+          tappable && safeArea ? { ...element, y: clampToSafe(element.y, safeArea) } : element,
+        )
         // Порядок элементов не меняется за время показа кадра — индекс здесь стабилен.
         const key = `${element.type}-${i}`
         if (element.type === 'mention' && onMention) {
