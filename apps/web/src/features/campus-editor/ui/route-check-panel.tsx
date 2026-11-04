@@ -13,7 +13,7 @@ import {
 } from '@studenthub/campus-core'
 import { Button } from '../../../shared/ui'
 import { useEditor, type EditorStore } from '../model/store'
-import { ChoiceField } from './fields'
+import { ChoiceField } from '../../../entities/campus'
 
 const IDENTITY = { x: 0, y: 0, rotationDeg: 0 }
 
