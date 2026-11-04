@@ -377,6 +377,11 @@ export class CampusService {
     const plan = await this.prisma.campusFloorPlan.findUnique({ where: { floorId } })
     return {
       floorId,
+      // Контекст этажа для редактора: переключатель этажей и высота для проверки окон.
+      campusId: floor.building.campus.id,
+      buildingId: floor.building.id,
+      label: floor.label,
+      heightMm: floor.heightMm,
       format: plan?.format ?? FLOOR_PLAN_FORMAT,
       revision: plan?.revision ?? 0,
       document: plan
