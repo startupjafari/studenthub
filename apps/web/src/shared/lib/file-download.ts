@@ -99,7 +99,32 @@ function trimCache(keep: string): void {
     if (entry.status !== 'ready' || key === keep) continue
     total -= entry.size
     set(key, { status: 'idle' })
+    revokeLocalUrl(key)
   }
+}
+
+// Локальные адреса скачанных файлов (blob:) — для просмотрщика: ролик, скачанный заранее
+// при прокрутке ленты, открывается мгновенно, без второй загрузки по сети.
+const localUrls = new Map<string, string>()
+
+function revokeLocalUrl(key: string): void {
+  const url = localUrls.get(key)
+  if (!url) return
+  URL.revokeObjectURL(url)
+  localUrls.delete(key)
+}
+
+/** `blob:`-адрес уже скачанного файла или null, если файла в памяти нет. */
+export function downloadedUrl(key: string): string | null {
+  const entry = entries.get(key)
+  if (entry?.status !== 'ready') return null
+  touch(key)
+  let url = localUrls.get(key)
+  if (!url) {
+    url = URL.createObjectURL(entry.blob)
+    localUrls.set(key, url)
+  }
+  return url
 }
 
 export interface DownloadSource {
