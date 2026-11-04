@@ -816,7 +816,8 @@ id — `WRONG_SCOPE`.
   контуру) · `PATCH|DELETE /campus/buildings/:buildingId` · `POST /campus/buildings/:buildingId/floors`
   (`copyFromFloorId` — копия этажа с новыми id и сброшенной связью с Room, `renumber` сдвигает
   номера; уровень занят — `409`) · `PATCH|DELETE /campus/floors/:floorId`.
-- `GET|PUT /campus/floors/:floorId/plan` — черновик этажа; `PUT` с `baseRevision`, до 2 МиБ (лимит
+- `GET|PUT /campus/floors/:floorId/plan` — черновик этажа (`GET` отдаёт и контекст: `campusId`,
+  `buildingId`, `label`, `heightMm`); `PUT` с `baseRevision`, до 2 МиБ (лимит
   тела только на этом маршруте); чужая правка — `409 CONFLICT`, `details[0].message` — текущая
   ревизия; повреждённый документ (висячие ссылки, дубли) — `422`. Раз в 10 минут правки прежний
   документ уходит в снимок (последние 30 на этаж).

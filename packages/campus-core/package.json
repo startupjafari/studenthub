@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./mesh": {
+      "types": "./dist/mesh/index.d.ts",
+      "default": "./dist/mesh/index.js"
     }
   },
   "scripts": {
@@ -19,6 +23,7 @@
     "clean": "rm -rf dist .turbo *.tsbuildinfo coverage"
   },
   "dependencies": {
+    "earcut": "3.2.4",
     "zod": "^3.25.76"
   },
   "devDependencies": {

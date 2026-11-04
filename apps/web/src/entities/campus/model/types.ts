@@ -59,6 +59,10 @@ export interface CampusTree {
 
 export interface CampusPlan {
   floorId: string
+  campusId: string
+  buildingId: string
+  label: string
+  heightMm: number
   format: number
   revision: number
   document: FloorPlanDoc

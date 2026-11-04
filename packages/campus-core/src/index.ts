@@ -20,3 +20,5 @@ export {
 export * from './format/site.js'
 export * from './topology/building.js'
 export * from './publish/publish.js'
+export * from './geom/project.js'
+export * from './topology/templates.js'
