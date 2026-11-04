@@ -6118,7 +6118,15 @@
     "kind_storage": "Storage",
     "kind_technical": "Technical",
     "kind_other": "Other",
-    "loading": "Loading floor plan"
+    "loading": "Loading floor plan",
+    "routeCheck": "Route check",
+    "routeCheckHint": "The graph is built exactly as on publish: find rooms with no way in and try a route.",
+    "routeCheckRun": "Check floor",
+    "routeCheckAgain": "Check again",
+    "routeCheckStale": "The plan changed since the check.",
+    "allReachable": "Every room is reachable.",
+    "unreachable": "Unreachable: {count}",
+    "tryRoute": "Show route"
   },
   "CampusMap": {
     "title": "Campus map",

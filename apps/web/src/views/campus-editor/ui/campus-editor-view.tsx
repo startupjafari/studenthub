@@ -31,6 +31,7 @@ import {
   PlanCanvas,
   ProblemsPanel,
   PropertiesPanel,
+  RouteCheckPanel,
   SpacesPanel,
   TemplateModal,
   ToolController,
@@ -408,7 +409,12 @@ function Editor({ plan }: { plan: CampusPlan }) {
             />
           )}
           {tab === 'spaces' && <SpacesPanel store={store} viewport={viewport} />}
-          {tab === 'problems' && <ProblemsPanel store={store} viewport={viewport} />}
+          {tab === 'problems' && (
+            <>
+              <ProblemsPanel store={store} viewport={viewport} />
+              <RouteCheckPanel store={store} />
+            </>
+          )}
         </aside>
       </div>
 
