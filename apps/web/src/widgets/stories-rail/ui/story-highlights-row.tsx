@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useState } from 'react'
+import { useQueries, useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
@@ -13,8 +13,25 @@ import {
   fetchStoryHighlights,
   highlightRing,
   storyKeys,
+  type StoryHighlightDetail,
 } from '../../../entities/story'
 import { StoryViewer } from './story-viewer'
+
+/**
+ * Ответы по подборкам — одним значением: `combine` вне компонента, поэтому результат
+ * стабилен между рендерами и меняется, только когда ответил какой-то запрос.
+ */
+function combineDetails(results: UseQueryResult<StoryHighlightDetail>[]): {
+  settled: boolean
+  data: (StoryHighlightDetail | undefined)[]
+  errors: (Error | null)[]
+} {
+  return {
+    settled: results.every((r) => !r.isPending),
+    data: results.map((r) => r.data),
+    errors: results.map((r) => r.error),
+  }
+}
 
 /**
  * «Актуальное» в профиле: ряд кружков-подборок под шапкой, как в Instagram. Чужому
@@ -34,22 +51,46 @@ export function StoryHighlightsRow({ ownerId }: { ownerId: string }) {
     queryKey: storyKeys.highlights(ownerId),
     queryFn: () => fetchStoryHighlights(ownerId),
   })
-  // Подборка открывается по клику: сторис-снимки грузятся только тогда, когда их смотрят.
-  const detail = useQuery({
-    queryKey: storyKeys.highlight(openId ?? ''),
-    queryFn: () => fetchStoryHighlight(openId ?? ''),
-    enabled: !!openId,
+  const highlights = useMemo(() => list.data ?? [], [list.data])
+  // Подборки открываются по клику: снимки грузятся только тогда, когда их смотрят, — зато
+  // сразу все, разом. Кончилась одна подборка — просмотр идёт в следующую, как в ленте колец,
+  // и соседние видны превью по бокам; ждать каждую на переходе было бы заметно.
+  const details = useQueries({
+    queries: highlights.map((h) => ({
+      queryKey: storyKeys.highlight(h.id),
+      queryFn: () => fetchStoryHighlight(h.id),
+      enabled: !!openId,
+    })),
+    combine: combineDetails,
   })
+  const opened = highlights.findIndex((h) => h.id === openId)
+  const openedError = opened >= 0 ? details.errors[opened] : null
   // Подборку удалили или скрыли блокировкой между выдачами — говорим и закрываем.
-  const failure = openId && detail.isError ? toApiError(detail.error).code : null
+  const failure = openedError ? toApiError(openedError).code : null
   useEffect(() => {
     if (!failure) return
     toast.error(tErr(failure))
     setOpenId(null)
   }, [failure, tErr])
 
+  // Цепочка для просмотра — когда ответили все: пока список дозревает, номера колец
+  // съезжали бы под открытым кадром. Недоступные и пустые подборки в цепочку не входят.
+  const chain = useMemo(() => {
+    if (!openId || !details.settled) return []
+    return details.data.flatMap((d) =>
+      d && d.items.length > 0
+        ? [
+            {
+              ring: highlightRing(d),
+              highlight: { id: d.id, title: d.title, canEdit: d.canEdit },
+            },
+          ]
+        : [],
+    )
+  }, [details, openId])
+  const startIndex = chain.findIndex((c) => c.highlight.id === openId)
+
   // Пока грузится — ничего: у большинства подборок нет, и заглушка мигала бы впустую.
-  const highlights = list.data ?? []
   if (highlights.length === 0) return null
 
   return (
@@ -114,12 +155,12 @@ export function StoryHighlightsRow({ ownerId }: { ownerId: string }) {
         ) : null,
       )}
 
-      {openId && detail.data && detail.data.items.length > 0 && (
+      {openId && startIndex >= 0 && (
         <StoryViewer
           key={openId}
-          rings={[highlightRing(detail.data)]}
-          startIndex={0}
-          highlight={{ id: detail.data.id, title: detail.data.title, canEdit: detail.data.canEdit }}
+          rings={chain.map((c) => c.ring)}
+          startIndex={startIndex}
+          highlights={chain.map((c) => c.highlight)}
           onClose={() => setOpenId(null)}
         />
       )}

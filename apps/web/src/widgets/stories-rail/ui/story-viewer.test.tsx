@@ -87,9 +87,15 @@ function setup(rings: StoryRing[], highlight?: ViewerHighlight) {
       </QueryClientProvider>
     </NextIntlClientProvider>
   )
-  render(<StoryViewer rings={rings} startIndex={0} onClose={onClose} highlight={highlight} />, {
-    wrapper,
-  })
+  render(
+    <StoryViewer
+      rings={rings}
+      startIndex={0}
+      onClose={onClose}
+      highlights={highlight ? [highlight] : undefined}
+    />,
+    { wrapper },
+  )
   return { onClose, user: userEvent.setup() }
 }
 
