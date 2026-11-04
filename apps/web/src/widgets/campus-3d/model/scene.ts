@@ -412,12 +412,26 @@ export class CampusSceneController {
           this.disposables.push(g)
           this.content.add(new THREE.Mesh(g, mat(f.type)))
         }
-      } else if (f.type === 'tree') {
-        const g = new THREE.ConeGeometry(1.4, 4, 7)
-        g.translate(f.x / 1000, 2, -f.y / 1000)
-        this.disposables.push(g)
-        this.content.add(new THREE.Mesh(g, mat('tree')))
       }
+    }
+    // Деревья — по одному инстансу на дерево: сотни деревьев остаются одним draw call.
+    const trees = Object.values(site.features).filter((f) => f.type === 'tree')
+    if (trees.length > 0) {
+      const cone = new THREE.ConeGeometry(1.4, 4, 7)
+      cone.translate(0, 2, 0)
+      this.disposables.push(cone)
+      const mesh = new THREE.InstancedMesh(cone, mat('tree'), trees.length)
+      const m = new THREE.Matrix4()
+      trees.forEach((f, i) => {
+        if (f.type !== 'tree') return
+        // Хвойные выше и уже лиственных.
+        const k = f.variant === 'conifer' ? 1.3 : 1
+        m.makeScale(1 / k, k, 1 / k).setPosition(f.x / 1000, 0, -f.y / 1000)
+        mesh.setMatrixAt(i, m)
+      })
+      mesh.instanceMatrix.needsUpdate = true
+      this.disposables.push({ dispose: () => mesh.dispose() })
+      this.content.add(mesh)
     }
   }
 
