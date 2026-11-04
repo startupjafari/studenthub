@@ -33,6 +33,7 @@ model University {
   faculties        Faculty[]
   specialties      Specialty[]
   rooms            Room[]
+  campuses         Campus[]
   users            User[]
   posts            Post[]
   stories          Story[]
@@ -60,6 +61,7 @@ model University {
   onboarding       UniversityOnboarding? @relation("UniversityOnboarding")
   cameraAgents     CameraAgent[]
   cameras          Camera[]
+  campusSpaces     CampusSpaceIndex[]
   cameraSettings   CameraSettings?
   cameraViews      CameraViewSession[]
   librarySettings  LibrarySettings?
@@ -163,11 +165,12 @@ model Room {
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  university      University       @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  pairs           Pair[]
-  scheduleChanges ScheduleChange[] @relation("ScheduleChangeNewRoom")
-  exams           Exam[]           @relation("ExamRoom")
-  cameras         Camera[]
+  university         University         @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pairs              Pair[]
+  scheduleChanges    ScheduleChange[]   @relation("ScheduleChangeNewRoom")
+  exams              Exam[]             @relation("ExamRoom")
+  cameras            Camera[]
+  campusSpaceIndexes CampusSpaceIndex[]
 
   @@index([universityId])
   @@map("rooms")
