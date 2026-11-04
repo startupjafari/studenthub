@@ -151,6 +151,10 @@ export function MediaViewer({
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       // Esc обрабатывает сам Radix Dialog (onOpenChange): так закрывается только верхний слой.
+      // Стрелки в поле ввода окна поверх (пересылка: поиск, подпись) двигают курсор, а не
+      // листают снимки под окном.
+      const el = e.target as HTMLElement | null
+      if (el?.closest('input, textarea, [contenteditable="true"]')) return
       if (e.key === 'ArrowLeft' && index > 0) onIndexChange(index - 1)
       else if (e.key === 'ArrowRight' && index < items.length - 1) onIndexChange(index + 1)
     }
