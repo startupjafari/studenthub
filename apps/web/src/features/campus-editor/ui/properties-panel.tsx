@@ -1,10 +1,10 @@
 'use client'
 
-import { useId } from 'react'
+import { useId, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Link2, Plus, Trash2 } from 'lucide-react'
+import { Columns3, Link2, Plus, Trash2 } from 'lucide-react'
 import {
   ACADEMIC_SPACE_KINDS,
   DOOR_ACCESS,
@@ -13,45 +13,34 @@ import {
   SPACE_VISIBILITY,
   VERTICAL_TYPES,
   WALL_KINDS,
+  splitSpaceIntoRooms,
   wallLength,
   type FloorPlanDoc,
   type PlanOpening,
   type PlanSpace,
-  type SpaceKind,
 } from '@studenthub/campus-core'
-import type { RoomKind } from '@studenthub/shared-schemas'
 import { createRoomRequest, roomKeys, RoomSelect, type Room } from '../../../entities/room'
 import { Button, Checkbox, Label } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
 import { useEditor, type EditorStore } from '../model/store'
 import type { ToolController } from '../model/tools'
 import { ChoiceField, Field, NumberField, TextField } from '../../../entities/campus'
-
-/** Назначение на карте → тип помещения вуза для «Создать аудиторию». */
-const ROOM_KIND_BY_SPACE: Partial<Record<SpaceKind, RoomKind>> = {
-  auditorium: 'AUDITORIUM',
-  lecture_hall: 'AUDITORIUM',
-  computer_lab: 'AUDITORIUM',
-  lab: 'LAB',
-  sport_hall: 'SPORT_HALL',
-  library: 'LIBRARY',
-  dean_office: 'DEAN_OFFICE',
-  office: 'ADMIN_OFFICE',
-  canteen: 'CANTEEN',
-}
+import { ROOM_KIND_BY_SPACE } from '../model/link-rooms'
 
 interface Props {
   store: EditorStore
   tools: ToolController
   rooms: Map<string, Room>
   context: { buildingName: string; level: number }
+  /** Без выделения, под настройками инструментов — подложка. */
+  idleExtras?: React.ReactNode
 }
 
 /**
  * Свойства выделенного (§12.8). Без выделения — настройки инструментов: толщина новых стен,
  * ширина дверей, тип новой комнаты.
  */
-export function PropertiesPanel({ store, tools, rooms, context }: Props) {
+export function PropertiesPanel({ store, tools, rooms, context, idleExtras }: Props) {
   const t = useTranslations('CampusEditor')
   const sel = useEditor(store, (s) => s.selection)
   const doc = useEditor(store, (s) => s.doc)
@@ -229,6 +218,7 @@ export function PropertiesPanel({ store, tools, rooms, context }: Props) {
         context={context}
         readonly={readonly}
         footer={del}
+        wallThicknessMm={tools.settings.wallThicknessMm}
       />
     )
   }
@@ -318,7 +308,12 @@ export function PropertiesPanel({ store, tools, rooms, context }: Props) {
     )
   }
 
-  return <ToolSettingsPanel store={store} tools={tools} readonly={readonly} />
+  return (
+    <>
+      <ToolSettingsPanel store={store} tools={tools} readonly={readonly} />
+      {idleExtras}
+    </>
+  )
 }
 
 function SpaceProps({
@@ -329,6 +324,7 @@ function SpaceProps({
   context,
   readonly,
   footer,
+  wallThicknessMm,
 }: {
   id: string
   space: PlanSpace
@@ -337,6 +333,8 @@ function SpaceProps({
   context: Props['context']
   readonly: boolean
   footer: React.ReactNode
+  /** Толщина перегородок «Разбить на комнаты» — та же, что у новых стен. */
+  wallThicknessMm: number
 }) {
   const t = useTranslations('CampusEditor')
   const tErr = useTranslations('Errors')
@@ -359,6 +357,25 @@ function SpaceProps({
     })
   const academic = ACADEMIC_SPACE_KINDS.includes(space.kind)
   const linked = space.roomId ? rooms.get(space.roomId) : undefined
+  const [parts, setParts] = useState(4)
+
+  // «Разбить на комнаты»: равные части поперёк длинной стороны, номера по порядку, двери в
+  // коридор. Одним шагом истории — Ctrl+Z вернёт помещение целым.
+  const split = (): void => {
+    const result = splitSpaceIntoRooms(
+      store.getState().doc,
+      id,
+      { count: parts },
+      { thicknessMm: wallThicknessMm, kind: 'wall' },
+      store.ids,
+    )
+    if (!result) {
+      toast.error(t('splitTooNarrow'))
+      return
+    }
+    store.apply('splitRooms', () => result)
+    toast.success(t('splitDone', { count: parts }))
+  }
 
   const createRoom = useMutation({
     mutationFn: () =>
@@ -443,6 +460,33 @@ function SpaceProps({
       {!space.roomId && !(space.number || space.name) && (
         <p className="text-xs text-muted-foreground">{t('createRoomHint')}</p>
       )}
+      <div className="flex flex-col gap-1.5 border-t border-border pt-3">
+        <span className="text-xs text-muted-foreground">{t('splitRooms')}</span>
+        <div className="flex items-end gap-2">
+          <div className="w-24 shrink-0">
+            <NumberField
+              label={t('splitCount')}
+              value={parts}
+              min={2}
+              max={50}
+              disabled={readonly}
+              onCommit={setParts}
+            />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="md"
+            className="flex-1"
+            disabled={readonly}
+            onClick={split}
+          >
+            <Columns3 aria-hidden />
+            {t('splitApply')}
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">{t('splitHint')}</p>
+      </div>
       {footer}
     </Section>
   )

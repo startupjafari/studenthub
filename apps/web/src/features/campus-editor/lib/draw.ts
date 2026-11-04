@@ -1,5 +1,5 @@
 import type { Face, FloorPlanDoc, Problem, Pt, SpaceKind } from '@studenthub/campus-core'
-import { SPACE_KIND_COLOR } from '../../../entities/campus'
+import { SPACE_KIND_COLOR, drawUnderlay, type UnderlayState } from '../../../entities/campus'
 import type { EditorState, Selection } from '../model/store'
 import { wallPoints } from './hit'
 
@@ -66,6 +66,8 @@ export function drawPlan(
     kindLabel?: (kind: SpaceKind) => string
     /** Сетка нужна при рисовании; в просмотре карты она только шумит. */
     showGrid?: boolean
+    /** Снимок или план под чертежом — только в редакторе. */
+    underlay?: UnderlayState
   },
 ): void {
   const { scale, ox, oy } = s.view
@@ -73,6 +75,7 @@ export function drawPlan(
   g.clearRect(0, 0, width, height)
   g.fillStyle = p.background
   g.fillRect(0, 0, width, height)
+  if (options.underlay) drawUnderlay(g, options.underlay, s.view, p.primary)
   if (options.showGrid !== false) drawGrid(c, width, height)
   drawFaces(c)
   drawWalls(c)

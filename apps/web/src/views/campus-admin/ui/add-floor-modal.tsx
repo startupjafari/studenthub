@@ -88,7 +88,11 @@ export function AddFloorModal({
               id="f-level"
               inputMode="numeric"
               value={level}
-              onChange={(e) => setLevel(e.target.value)}
+              onChange={(e) => {
+                setLevel(e.target.value)
+                // Номера копии идут за уровнем: этаж 4 — «1» → «4».
+                setRenumberTo(e.target.value)
+              }}
               aria-invalid={!valid}
             />
             {!valid && <p className="text-xs text-destructive">{t('levelTaken')}</p>}

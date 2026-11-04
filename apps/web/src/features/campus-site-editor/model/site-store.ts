@@ -21,6 +21,7 @@ export type SiteTool =
   | 'tree'
   | 'gate'
   | 'label'
+  | 'building'
   | 'pan'
 
 export type SiteSelection =
@@ -51,6 +52,12 @@ export interface SiteState {
   cursor: Pt | null
   /** Перетаскивание: сдвиг выделенного объекта в мм. */
   drag: Pt | null
+  /** Длина следующего отрезка, набранная с клавиатуры, в метрах («24», «12.5»). */
+  typed: string
+  /** Угол корпуса, который тянут: новое положение в мм кампуса. */
+  vertexDrag: { id: string; index: number; to: Pt } | null
+  /** Корпус прямоугольником: протянули мышью от угла до угла. */
+  rect: { a: Pt; b: Pt } | null
   saveState: SiteSaveState
   canUndo: boolean
   canRedo: boolean
@@ -77,6 +84,9 @@ export class SiteStore {
       draft: [],
       cursor: null,
       drag: null,
+      typed: '',
+      vertexDrag: null,
+      rect: null,
       saveState: 'saved',
       canUndo: false,
       canRedo: false,
@@ -160,6 +170,17 @@ export class SiteStore {
     this.set({
       buildings: this.state.buildings.map((b) => (b.id === id ? { ...b, transform } : b)),
     })
+  }
+
+  /** Новый контур корпуса (мм корпуса) — после правки углов; сохраняет вид экран. */
+  setBuildingOutline(id: string, outline: Pt[]): void {
+    this.set({
+      buildings: this.state.buildings.map((b) => (b.id === id ? { ...b, outline } : b)),
+    })
+  }
+
+  addBuilding(b: SiteBuilding): void {
+    this.set({ buildings: [...this.state.buildings, b] })
   }
 
   requestFit(): void {

@@ -5,15 +5,29 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Role } from '@studenthub/shared-types'
-import { CircleAlert } from 'lucide-react'
-import { emptyFloorPlan, type BuildingTransform } from '@studenthub/campus-core'
+import Link from 'next/link'
+import { CircleAlert, Layers, Pencil } from 'lucide-react'
+import {
+  checkOutline,
+  emptyFloorPlan,
+  floorFromOutline,
+  isBareOutlineFloor,
+  normalizeOutline,
+  type BuildingTransform,
+  type Pt,
+} from '@studenthub/campus-core'
 import {
   CampusEditorHeader,
+  UnderlayPanel,
+  UnderlayStore,
   campusKeys,
+  fetchCampusPlan,
   fetchCampusSite,
   fetchCampusTree,
+  saveCampusPlan,
   saveCampusSite,
   updateCampusBuilding,
+  type CampusBuildingRow,
   type CampusSite,
   type CampusTree,
 } from '../../../entities/campus'
@@ -30,6 +44,7 @@ import {
 import { CampusScene3D, type SceneFloor } from '../../../widgets/campus-3d'
 import { Button, EmptyState, PageLoader, SegmentedTabs } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
+import { NewBuildingDialog } from './new-building-dialog'
 
 const SAVE_DELAY_MS = 1500
 const RETRY_MS = 5000
@@ -42,9 +57,10 @@ function backHref(role: Role | undefined, campusId: string): string {
 
 /**
  * Редактор территории (docs/CAMPUS_BUILDER.md §14): граница, дорожки, дороги, газоны,
- * парковки, площадки, деревья, ворота, надписи и расстановка корпусов. Территорию рисуют с
- * нуля (подложек нет — решение владельца). Документ сохраняется сам с ревизией, корпус —
- * своим запросом при переносе.
+ * парковки, площадки, деревья, ворота, надписи и корпуса. Корпус любой формы обводят прямо
+ * здесь — он сразу создаётся с этажами; углы потом правят мышью. Под чертёж можно положить
+ * снимок со спутника (подложка живёт только в этом браузере). Документ территории
+ * сохраняется сам с ревизией, корпус — своими запросами.
  */
 export function SiteEditorView({ campusId }: { campusId: string }) {
   const t = useTranslations('CampusSite')
@@ -74,6 +90,15 @@ function Editor({ tree, site }: { tree: CampusTree; site: CampusSite }) {
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
+  // Живое дерево: после нового корпуса и правки контура этажи и контуры перечитываются.
+  const live = useQuery({
+    queryKey: campusKeys.tree(tree.id),
+    queryFn: () => fetchCampusTree(tree.id),
+    initialData: tree,
+  }).data
+  const [underlay] = useState(() => new UnderlayStore(`site:${tree.id}`))
+  const [drawn, setDrawn] = useState<Pt[] | null>(null)
+  const canvasBox = useRef<HTMLDivElement>(null)
   const [store] = useState(
     () =>
       new SiteStore(
@@ -154,6 +179,126 @@ function Editor({ tree, site }: { tree: CampusTree; site: CampusSite }) {
     [qc, tree.id, tErr],
   )
 
+  useEffect(() => {
+    void underlay.load()
+    return () => underlay.dispose()
+  }, [underlay])
+
+  /** Видимая часть плана в мм — туда вписывается новая подложка. */
+  const visibleRect = useCallback(() => {
+    const w = canvasBox.current?.clientWidth ?? 800
+    const h = canvasBox.current?.clientHeight ?? 600
+    const a = store.toPlan(0, h)
+    const b = store.toPlan(w, 0)
+    return { x0: a.x, y0: a.y, x1: b.x, y1: b.y }
+  }, [store])
+
+  const onBuildingDrawn = useCallback(
+    (outline: Pt[]) => {
+      if (checkOutline(outline)) {
+        toast.error(t('outlineInvalid'))
+        return
+      }
+      setDrawn(outline)
+    },
+    [t],
+  )
+
+  const onBuildingCreated = (b: CampusBuildingRow, floors: number): void => {
+    setDrawn(null)
+    store.addBuilding({
+      id: b.id,
+      name: b.name,
+      code: b.code,
+      outline: b.outline,
+      transform: b.transform,
+    })
+    store.set({ tool: 'select', selection: { kind: 'building', id: b.id } })
+    setTab('props')
+    void qc.invalidateQueries({ queryKey: campusKeys.tree(tree.id) })
+    toast.success(t('buildingDrawn', { name: b.name, count: floors }))
+  }
+
+  /**
+   * Новый контур корпуса. Этажи, где только наружные стены по старому контуру, пересобираются
+   * по новому; нарисованные не трогаем — стены этажа работа автора, о них только предупреждаем.
+   */
+  const onBuildingOutline = useCallback(
+    (id: string, outline: Pt[]) => {
+      if (checkOutline(outline)) {
+        toast.error(t('outlineInvalid'))
+        return
+      }
+      const before = store.getState().buildings.find((b) => b.id === id)?.outline
+      if (!before) return
+      const next = normalizeOutline(outline)
+      store.setBuildingOutline(id, next)
+      void (async () => {
+        try {
+          await updateCampusBuilding(id, { outline: next })
+          const fresh = await qc.fetchQuery({
+            queryKey: campusKeys.tree(tree.id),
+            queryFn: () => fetchCampusTree(tree.id),
+            staleTime: 0,
+          })
+          const floors = fresh.buildings.find((b) => b.id === id)?.floors ?? []
+          let rebuilt = 0
+          let kept = 0
+          for (const f of floors) {
+            const plan = await fetchCampusPlan(f.id)
+            if (!isBareOutlineFloor(plan.document, before)) {
+              kept++
+              continue
+            }
+            await saveCampusPlan(f.id, {
+              baseRevision: plan.revision,
+              document: floorFromOutline(next),
+            })
+            void qc.invalidateQueries({ queryKey: campusKeys.plan(f.id) })
+            rebuilt++
+          }
+          void qc.invalidateQueries({ queryKey: campusKeys.tree(tree.id) })
+          if (kept > 0) toast.warning(t('outlineKept', { rebuilt, kept }))
+          else toast.success(t('outlineRebuilt', { count: rebuilt }))
+        } catch (e) {
+          store.setBuildingOutline(id, before)
+          toast.error(tErr(toApiError(e).code))
+        }
+      })()
+    },
+    [qc, store, t, tErr, tree.id],
+  )
+
+  /** Этажи выделенного корпуса — сразу из территории в редактор этажа. */
+  const buildingFloors = (id: string) => {
+    const floors = live.buildings.find((b) => b.id === id)?.floors ?? []
+    if (floors.length === 0) return null
+    return (
+      <div className="flex flex-col gap-1">
+        <h3 className="text-xs font-medium text-muted-foreground">{t('floors')}</h3>
+        <ul className="flex flex-col">
+          {[...floors].reverse().map((f) => (
+            <li
+              key={f.id}
+              className="flex items-center gap-2 border-b border-border py-1.5 last:border-b-0"
+            >
+              <Layers className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+              <span className="min-w-0 flex-1 truncate text-sm">
+                {t('floorN', { label: f.label })}
+              </span>
+              <Button asChild size="sm" variant="secondary">
+                <Link href={`/campus-editor/${f.id}`}>
+                  <Pencil aria-hidden />
+                  {t('editFloor')}
+                </Link>
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
+
   // Клавиши инструментов, отмена, удаление. Esc помечаем — иначе useEscapeBack уведёт назад.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -171,7 +316,9 @@ function Editor({ tree, site }: { tree: CampusTree; site: CampusSite }) {
       if (key === 'escape') {
         e.preventDefault()
         const s = store.getState()
-        if (s.draft.length > 0) store.set({ draft: [], cursor: null })
+        if (s.draft.length > 0 || s.rect)
+          store.set({ draft: [], cursor: null, typed: '', rect: null })
+        else if (underlay.getState().mode !== 'idle') underlay.setMode('idle')
         else store.set({ selection: { kind: 'none' } })
         return
       }
@@ -185,11 +332,11 @@ function Editor({ tree, site }: { tree: CampusTree; site: CampusSite }) {
         return
       }
       const tool = SITE_TOOLS.find((x) => x.key.toLowerCase() === key)
-      if (tool) store.set({ tool: tool.id, draft: [], cursor: null })
+      if (tool) store.set({ tool: tool.id, draft: [], cursor: null, typed: '', rect: null })
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [store])
+  }, [store, underlay])
 
   const doc = useSite(store, (s) => s.doc)
   const buildings = useSite(store, (s) => s.buildings)
@@ -197,7 +344,7 @@ function Editor({ tree, site }: { tree: CampusTree; site: CampusSite }) {
     () =>
       mode !== '3d'
         ? []
-        : tree.buildings.flatMap((b) => {
+        : live.buildings.flatMap((b) => {
             const placed = buildings.find((x) => x.id === b.id)
             return b.floors.map((f) => ({
               id: f.id,
@@ -210,7 +357,7 @@ function Editor({ tree, site }: { tree: CampusTree; site: CampusSite }) {
               outline: b.outline,
             }))
           }),
-    [mode, tree.buildings, buildings],
+    [mode, live.buildings, buildings],
   )
 
   return (
@@ -250,10 +397,16 @@ function Editor({ tree, site }: { tree: CampusTree; site: CampusSite }) {
         </div>
       )}
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <div className="relative min-h-0 flex-1 overflow-hidden">
+        <div ref={canvasBox} className="relative min-h-0 flex-1 overflow-hidden">
           {mode === '2d' ? (
             <>
-              <SiteCanvas store={store} onBuildingMoved={moveBuilding} />
+              <SiteCanvas
+                store={store}
+                underlay={underlay}
+                onBuildingMoved={moveBuilding}
+                onBuildingDrawn={onBuildingDrawn}
+                onBuildingOutline={onBuildingOutline}
+              />
               <div className="absolute top-3 left-3">
                 <SiteToolbar store={store} />
               </div>
@@ -285,12 +438,26 @@ function Editor({ tree, site }: { tree: CampusTree; site: CampusSite }) {
             ]}
           />
           {tab === 'props' ? (
-            <SiteProperties store={store} onBuildingChange={moveBuilding} />
+            <SiteProperties
+              store={store}
+              onBuildingChange={moveBuilding}
+              buildingExtras={buildingFloors}
+              idleExtras={<UnderlayPanel store={underlay} visibleRect={visibleRect} />}
+            />
           ) : (
             <SiteObjectsList store={store} />
           )}
         </aside>
       </div>
+      {drawn && (
+        <NewBuildingDialog
+          campusId={tree.id}
+          outline={drawn}
+          takenCodes={buildings.map((b) => b.code)}
+          onCreated={onBuildingCreated}
+          onClose={() => setDrawn(null)}
+        />
+      )}
     </div>
   )
 }

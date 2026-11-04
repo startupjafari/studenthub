@@ -74,8 +74,8 @@ export function toBuilding(p: Pt, t: BuildingTransform): Pt {
 export const OUTER_WALL: WallSpec = { thicknessMm: 400, kind: 'wall' }
 
 /**
- * Новый этаж начинается с наружных стен по контуру корпуса: подложки нет (решение владельца,
- * §27.1), и каркас этажа берётся из корпуса — остаётся нарисовать перегородки.
+ * Новый этаж начинается с наружных стен по контуру корпуса: каркас этажа берётся из корпуса
+ * — остаётся нарисовать перегородки.
  */
 export function floorFromOutline(outline: readonly Pt[], ids: IdGen = randomIds): FloorPlanDoc {
   let doc = emptyFloorPlan()
@@ -84,6 +84,32 @@ export function floorFromOutline(outline: readonly Pt[], ids: IdGen = randomIds)
     doc = addWall(doc, p, ring[(i + 1) % ring.length]!, OUTER_WALL, ids).doc
   })
   return doc
+}
+
+/**
+ * Этаж ещё не тронут: на нём только наружные стены по контуру корпуса, как их поставил
+ * `floorFromOutline`, — ни перегородок, ни проёмов, ни помещений. Такой этаж можно молча
+ * пересобрать по новому контуру или перезаписать копией: терять на нём нечего.
+ */
+export function isBareOutlineFloor(doc: FloorPlanDoc, outline: readonly Pt[]): boolean {
+  if (
+    Object.keys(doc.openings).length > 0 ||
+    Object.keys(doc.spaces).length > 0 ||
+    Object.keys(doc.verticals).length > 0 ||
+    Object.keys(doc.labels).length > 0
+  )
+    return false
+  const walls = Object.values(doc.walls)
+  if (walls.length === 0) return true
+  if (walls.length !== outline.length) return false
+  const keyOf = (p: Pt): string => `${p.x},${p.y}`
+  const edge = (p: Pt, q: Pt): string => [keyOf(p), keyOf(q)].sort().join('|')
+  const ring = new Set(outline.map((p, i) => edge(p, outline[(i + 1) % outline.length]!)))
+  return walls.every((w) => {
+    const a = doc.nodes[w.a]
+    const b = doc.nodes[w.b]
+    return !!a && !!b && ring.has(edge(a, b))
+  })
 }
 
 export interface CloneOptions {
@@ -148,6 +174,18 @@ export function cloneFloorPlan(
     spaces[k] = next
   }
   return { ...doc, nodes, walls, openings, spaces, verticals, labels }
+}
+
+/**
+ * Перенумерация копии этажа по уровням: с 1-го на 3-й — «1» → «3», «А105» станет «А305».
+ * Подвалы и цоколь номеров «по этажу» обычно не носят — с ними номера не трогаем.
+ */
+export function levelRenumber(
+  fromLevel: number,
+  toLevel: number,
+): { from: string; to: string } | undefined {
+  if (fromLevel <= 0 || toLevel <= 0 || fromLevel === toLevel) return undefined
+  return { from: String(fromLevel), to: String(toLevel) }
 }
 
 function renumber(number: string, { from, to }: { from: string; to: string }): string {

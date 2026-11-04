@@ -1,6 +1,6 @@
 'use client'
 
-import type { ComponentType } from 'react'
+import type { ComponentType, ReactNode } from 'react'
 import { useTranslations } from 'next-intl'
 import {
   Building2,
@@ -31,6 +31,7 @@ export const SITE_TOOLS: {
   key: string
 }[] = [
   { id: 'select', icon: MousePointer2, key: 'V' },
+  { id: 'building', icon: Building2, key: 'C' },
   { id: 'boundary', icon: SquareDashed, key: 'B' },
   { id: 'path', icon: Spline, key: 'P' },
   { id: 'road', icon: Route, key: 'R' },
@@ -81,9 +82,15 @@ export function SiteToolbar({ store }: { store: SiteStore }) {
 export function SiteProperties({
   store,
   onBuildingChange,
+  buildingExtras,
+  idleExtras,
 }: {
   store: SiteStore
   onBuildingChange: (id: string, transform: BuildingTransform) => void
+  /** Под свойствами корпуса — его этажи со ссылками в редактор (их знает экран). */
+  buildingExtras?: (id: string) => ReactNode
+  /** Без выделения, под подсказкой — подложка. */
+  idleExtras?: ReactNode
 }) {
   const t = useTranslations('CampusSite')
   const sel = useSite(store, (s) => s.selection)
@@ -122,6 +129,8 @@ export function SiteProperties({
           max={180}
           onCommit={(v) => set({ rotationDeg: v })}
         />
+        <p className="text-xs leading-relaxed text-muted-foreground">{t('buildingShapeHint')}</p>
+        {buildingExtras?.(b.id)}
       </Section>
     )
   }
@@ -243,9 +252,12 @@ export function SiteProperties({
   }
 
   return (
-    <Section title={t('hintTitle')}>
-      <p className="text-sm leading-relaxed text-muted-foreground">{t('hint')}</p>
-    </Section>
+    <>
+      <Section title={t('hintTitle')}>
+        <p className="text-sm leading-relaxed text-muted-foreground">{t('hint')}</p>
+      </Section>
+      {idleExtras}
+    </>
   )
 }
 

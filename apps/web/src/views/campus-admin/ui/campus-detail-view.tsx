@@ -8,6 +8,7 @@ import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import {
   Building2,
+  Copy,
   ExternalLink,
   History,
   Layers,
@@ -27,6 +28,7 @@ import {
   fetchCampusVersions,
   restoreCampusVersion,
   type CampusBuildingRow,
+  type CampusFloorRow,
 } from '../../../entities/campus'
 import {
   Badge,
@@ -41,6 +43,7 @@ import {
 import { toApiError } from '../../../shared/lib'
 import { CreateBuildingModal } from './create-building-modal'
 import { AddFloorModal } from './add-floor-modal'
+import { CopyFloorModal } from './copy-floor-modal'
 import { PublishModal } from './publish-modal'
 
 /**
@@ -56,6 +59,10 @@ export function CampusDetailView({ campusId, basePath }: { campusId: string; bas
   const confirm = useConfirm()
   const [creatingBuilding, setCreatingBuilding] = useState(false)
   const [addingFloorTo, setAddingFloorTo] = useState<CampusBuildingRow | null>(null)
+  const [copying, setCopying] = useState<{
+    building: CampusBuildingRow
+    floor: CampusFloorRow
+  } | null>(null)
   const [publishing, setPublishing] = useState(false)
   const tree = useQuery({
     queryKey: campusKeys.tree(campusId),
@@ -239,6 +246,20 @@ export function CampusDetailView({ campusId, basePath }: { campusId: string; bas
                           {t('edit')}
                         </Link>
                       </Button>
+                      {b.floors.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          icon
+                          aria-label={t('copyFloorTo')}
+                          title={t('copyFloorTo')}
+                          className="text-muted-foreground"
+                          onClick={() => setCopying({ building: b, floor: f })}
+                        >
+                          <Copy aria-hidden />
+                        </Button>
+                      )}
                       <Button
                         type="button"
                         variant="ghost"
@@ -369,6 +390,13 @@ export function CampusDetailView({ campusId, basePath }: { campusId: string; bas
           campusId={campusId}
           building={addingFloorTo}
           onClose={() => setAddingFloorTo(null)}
+        />
+      )}
+      {copying && (
+        <CopyFloorModal
+          building={copying.building}
+          source={copying.floor}
+          onClose={() => setCopying(null)}
         />
       )}
       {publishing && <PublishModal tree={c} onClose={() => setPublishing(false)} />}

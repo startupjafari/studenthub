@@ -1,4 +1,5 @@
-import type { Pt, SiteFeature } from '@studenthub/campus-core'
+import { interiorPoint, type Pt, type SiteFeature } from '@studenthub/campus-core'
+import { drawUnderlay, type UnderlayState } from '../../../entities/campus'
 import type { SiteSelection, SiteState } from '../model/site-store'
 import { buildingOutline, moveFeature } from './site-geometry'
 
@@ -30,6 +31,7 @@ export function drawSite(
   width: number,
   height: number,
   hover: SiteSelection | null,
+  extra: { underlay?: UnderlayState; metres?: string } = {},
 ): void {
   const { scale, ox, oy } = s.view
   const sx = (x: number): number => ox + x * scale
@@ -45,6 +47,24 @@ export function drawSite(
   g.clearRect(0, 0, width, height)
   g.fillStyle = p.background
   g.fillRect(0, 0, width, height)
+  if (extra.underlay) drawUnderlay(g, extra.underlay, s.view, p.primary)
+  const tracing = !!extra.underlay?.image && !!extra.underlay.placement?.visible
+  const unit = extra.metres ?? 'm'
+  /** Подпись длины в метрах на плашке цвета фона — читается поверх линий и подложки. */
+  const tag = (text: string, x: number, y: number): void => {
+    g.font = '600 12px system-ui, sans-serif'
+    g.textAlign = 'center'
+    g.textBaseline = 'middle'
+    const w = g.measureText(text).width + 10
+    g.fillStyle = p.background
+    g.globalAlpha = 0.9
+    g.fillRect(x - w / 2, y - 9, w, 18)
+    g.globalAlpha = 1
+    g.fillStyle = p.foreground
+    g.fillText(text, x, y)
+  }
+  const metres = (a: Pt, b: Pt): string =>
+    `${(Math.hypot(b.x - a.x, b.y - a.y) / 1000).toFixed(1)} ${unit}`
 
   // Граница территории — пунктир.
   if (s.doc.boundary.length >= 3) {
@@ -81,17 +101,23 @@ export function drawSite(
   // Корпуса — контур с кодом в середине.
   for (const b of s.buildings) {
     const moving = s.drag && s.selection.kind === 'building' && s.selection.id === b.id
-    const outline = buildingOutline(b).map((q) =>
-      moving ? { x: q.x + s.drag!.x, y: q.y + s.drag!.y } : q,
+    const vd = s.vertexDrag?.id === b.id ? s.vertexDrag : null
+    const outline = buildingOutline(b).map((q, i) =>
+      vd && i === vd.index ? vd.to : moving ? { x: q.x + s.drag!.x, y: q.y + s.drag!.y } : q,
     )
     path(outline, true)
     g.fillStyle = p.border
+    // Поверх подложки корпус полупрозрачный: обводят по снимку, и он должен просвечивать.
+    g.globalAlpha = tracing ? 0.45 : 1
     g.fill()
+    g.globalAlpha = 1
     g.lineWidth = 2
     g.strokeStyle = p.foreground
     g.stroke()
-    const cx = outline.reduce((a, q) => a + q.x, 0) / outline.length
-    const cy = outline.reduce((a, q) => a + q.y, 0) / outline.length
+    // Подпись — внутри контура: у «Г» и «П» среднее вершин лежит снаружи.
+    const at = interiorPoint(outline) ?? outline[0]!
+    const cx = at.x
+    const cy = at.y
     g.fillStyle = p.foreground
     g.font = '600 13px system-ui, sans-serif'
     g.textAlign = 'center'
@@ -160,7 +186,48 @@ export function drawSite(
     g.globalAlpha = 1
   }
 
-  // Рисуемая линия.
+  // Углы выделенного корпуса — ручки: их тянут, по стороне двойным кликом добавляют угол.
+  if (s.selection.kind === 'building' && !s.drag) {
+    const sel = s.selection
+    const b = s.buildings.find((x) => x.id === sel.id)
+    if (b) {
+      const ring = buildingOutline(b).map((q, i) =>
+        s.vertexDrag?.id === b.id && s.vertexDrag.index === i ? s.vertexDrag.to : q,
+      )
+      ring.forEach((q, i) => {
+        g.fillStyle = p.background
+        g.strokeStyle = p.primary
+        g.lineWidth = 2
+        g.fillRect(sx(q.x) - 4, sy(q.y) - 4, 8, 8)
+        g.strokeRect(sx(q.x) - 4, sy(q.y) - 4, 8, 8)
+        // Длины сторон, пока тянут угол: видно, во что превращается корпус.
+        if (s.vertexDrag?.id === b.id) {
+          const r = ring[(i + 1) % ring.length]!
+          tag(metres(q, r), sx((q.x + r.x) / 2), sy((q.y + r.y) / 2))
+        }
+      })
+    }
+  }
+
+  // Корпус прямоугольником — с размерами сторон.
+  if (s.rect) {
+    const { a, b } = s.rect
+    const corners = [a, { x: b.x, y: a.y }, b, { x: a.x, y: b.y }]
+    path(corners, true)
+    g.fillStyle = p.primary
+    g.globalAlpha = 0.12
+    g.fill()
+    g.globalAlpha = 1
+    g.lineWidth = 2
+    g.strokeStyle = p.primary
+    g.setLineDash([6, 4])
+    g.stroke()
+    g.setLineDash([])
+    tag(metres(a, { x: b.x, y: a.y }), sx((a.x + b.x) / 2), sy(a.y))
+    tag(metres({ x: b.x, y: a.y }, b), sx(b.x), sy((a.y + b.y) / 2))
+  }
+
+  // Рисуемая линия: длина текущего отрезка у курсора, набранная длина — рядом.
   if (s.draft.length > 0) {
     const pts = s.cursor ? [...s.draft, s.cursor] : s.draft
     path(pts, false)
@@ -174,6 +241,23 @@ export function drawSite(
       g.beginPath()
       g.arc(sx(q.x), sy(q.y), 4, 0, Math.PI * 2)
       g.fill()
+    }
+    // Первая точка крупнее: в неё кликают, чтобы замкнуть контур.
+    const first = s.draft[0]!
+    if (s.draft.length >= 3) {
+      g.beginPath()
+      g.arc(sx(first.x), sy(first.y), 7, 0, Math.PI * 2)
+      g.lineWidth = 2
+      g.strokeStyle = p.primary
+      g.stroke()
+    }
+    const last = s.draft.at(-1)!
+    if (s.cursor && (s.cursor.x !== last.x || s.cursor.y !== last.y)) {
+      tag(
+        s.typed ? `${s.typed} ${unit} ↵` : metres(last, s.cursor),
+        sx((last.x + s.cursor.x) / 2),
+        sy((last.y + s.cursor.y) / 2) - 14,
+      )
     }
   }
 }
