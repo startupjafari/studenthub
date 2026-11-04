@@ -789,6 +789,50 @@ X25519 → HKDF-SHA256 → AES-256-GCM, id камеры в AAD) и лежат к
 
 День журнала и сводки — по часам вуза (`University.timezone`).
 
+### 3.13 Кампус: цифровая карта вуза (Фаза 22)
+
+Полный план — `docs/CAMPUS_BUILDER.md`. Администратор или модератор вуза рисует 2D-планы этажей
+(стены, помещения, двери, лестницы) — подложек нет, план рисуют с нуля; 3D строится из плана
+автоматически. После публикации карту видят все члены вуза: поиск помещения, этаж, «Показать на
+карте» из расписания.
+
+**Данные.** Кампус → корпуса (контур, положение) → этажи (уровень, отметка, высота) — таблицами;
+геометрия этажа и территории — JSONB-документом с ревизией (формат — `packages/campus-core`,
+целые миллиметры). Публикация — неизменяемая версия: снимки этажей и индекс помещений
+`campus_space_index` (поиск, ссылки, связь `roomId → rooms`). Помещение карты ссылается на
+существующую `Room`; для учебных типов (аудитория, лекционная, лаборатория, компьютерный класс,
+спортзал) связь обязательна — без неё публикация блокируется.
+
+**Права.** Правят и публикуют `UNIVERSITY_ADMIN`, `UNIVERSITY_MODERATOR` своего вуза и
+`PLATFORM_ADMIN`. Смотрят опубликованную карту все роли своего вуза и охрана; `EMPLOYER` — нет.
+Видимость помещения: `public` — всем, `staff` — сотрудникам (преподаватель, декан, модераторы,
+админы, охрана), `hidden` — только редакторам (в опубликованную выдачу не попадает). Чужой вуз по
+id — `WRONG_SCOPE`.
+
+**API (`/campus`):**
+- `POST /campus` · `GET /campus` (редактору — все кампусы вуза, зрителю — опубликованные) ·
+  `GET|PATCH|DELETE /campus/:id` (дерево для редактора; удаление мягкое).
+- `POST /campus/:id/buildings` (корпус с этажами; каждый этаж стартует с наружных стен по
+  контуру) · `PATCH|DELETE /campus/buildings/:buildingId` · `POST /campus/buildings/:buildingId/floors`
+  (`copyFromFloorId` — копия этажа с новыми id и сброшенной связью с Room, `renumber` сдвигает
+  номера; уровень занят — `409`) · `PATCH|DELETE /campus/floors/:floorId`.
+- `GET|PUT /campus/floors/:floorId/plan` — черновик этажа; `PUT` с `baseRevision`, до 2 МиБ (лимит
+  тела только на этом маршруте); чужая правка — `409 CONFLICT`, `details[0].message` — текущая
+  ревизия; повреждённый документ (висячие ссылки, дубли) — `422`. Раз в 10 минут правки прежний
+  документ уходит в снимок (последние 30 на этаж).
+- `POST /campus/floors/:floorId/presence` — мягкая блокировка «этаж правит …» (Redis, 60 с; `force`
+  — забрать правку).
+- `GET|PUT /campus/:id/site` — территория, та же схема ревизий.
+- `POST /campus/:id/publish` (`note`, `floorRevisions`) — проверка всех этажей той же функцией,
+  что в редакторе; ошибки — `422 VALIDATION_ERROR` со списком `details[].field = floors.<id>.<путь>`;
+  ревизия разошлась — `409`; не чаще 2 раз в 30 с. `GET /campus/:id/versions` ·
+  `POST /campus/:id/versions/:versionId/activate` (откат публикации) ·
+  `POST /campus/:id/versions/:versionId/restore` (черновики из версии, прежние — в снимки).
+- Зрителю: `GET /campus/:id/published` (манифест текущей версии; технические этажи — только
+  сотрудникам) · `GET /campus/:id/published/floors/:floorId` (этаж, очищенный под уровень зрителя)
+  · `GET /campus/search?q=&campusId=` (номер — с начала, название — вхождение; до 20) ·
+  `GET /campus/rooms/:roomId/location` (мост из расписания и QR-страницы помещения).
+
 ## 4. MVP и порядок
 
 ### v1.0 — Ядро
@@ -899,6 +943,7 @@ Redis обязателен: без него не работают очереди
 **Документы (§3.8):** `Document`, `DocumentAccess`, `DocumentEvent`, `DocumentType`, `DocumentRequest`, `DocumentRequestItem`, `DocumentRequestTarget`, `DocumentSubmission`, `DocumentSubmissionItem`
 **Контент:** `Post`, `Reaction`, `PostBookmark`, `Comment`, `Story`, `StoryPoll`, `StoryPollOption`, `StoryPollVote`, `StoryView`, `StoryReaction`, `StoryMute`, `StoryHighlight`, `StoryHighlightItem`
 **Контент профиля и страниц организаций (§3.7):** `ProfileArticle`, `ArticleLike`, `ContentComment`, `Bookmark`, `Album`, `Poll`, `PollOption`, `PollVote`
+**Кампус (§3.13):** `Campus`, `CampusBuilding`, `CampusFloor`, `CampusFloorPlan`, `CampusFloorPlanSnapshot`, `CampusSitePlan`, `CampusVersion`, `CampusVersionFloor`, `CampusSpaceIndex`
 **События:** `Event`, `EventParticipant`, `EventComment`, `EventCommentReaction`
 **Общение:** `Chat`, `ChatMember`, `Message`, `MessageReaction`, `ChatFolder`, `ChatFolderItem`, `ChatPoll`, `ChatPollOption`, `ChatPollVote`, `ScheduledMessage`
 **Карьера (Ф18):** `Company`, `CompanyMember`, `CompanyUniversityAccess`, `CareerProfile`, `CareerConsent`, `Vacancy`, `VacancyUniversityReview`, `CareerApplication`, `CareerApplicationEvent`, `Resume`
