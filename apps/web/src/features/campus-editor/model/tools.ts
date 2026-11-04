@@ -457,6 +457,90 @@ export class ToolController {
     this.store.set({ selection: { kind: 'space', id } })
   }
 
+  /**
+   * Сдвиг выделенного стрелками (§16.3, доступность без мыши): узел, надпись, подпись
+   * помещения, лестница или лифт — на вектор; проём — вдоль своей стены.
+   */
+  nudge(dx: number, dy: number): void {
+    const sel = this.s.selection
+    const doc = this.s.doc
+    const key = `nudge:${sel.kind}:${'id' in sel ? sel.id : ''}`
+    if (sel.kind === 'node') {
+      const n = doc.nodes[sel.id]
+      if (n)
+        this.store.apply(
+          'moveNode',
+          (d) => moveNode(d, sel.id, { x: n.x + dx, y: n.y + dy }, this.store.ids),
+          key,
+        )
+    } else if (sel.kind === 'label') {
+      this.store.apply(
+        'moveLabel',
+        (d) => {
+          const l = d.labels[sel.id]
+          return l
+            ? { ...d, labels: { ...d.labels, [sel.id]: { ...l, x: l.x + dx, y: l.y + dy } } }
+            : d
+        },
+        key,
+      )
+    } else if (sel.kind === 'space') {
+      this.store.apply(
+        'moveLabel',
+        (d) => {
+          const sp = d.spaces[sel.id]
+          return sp
+            ? {
+                ...d,
+                spaces: {
+                  ...d.spaces,
+                  [sel.id]: { ...sp, label: { x: sp.label.x + dx, y: sp.label.y + dy } },
+                },
+              }
+            : d
+        },
+        key,
+      )
+    } else if (sel.kind === 'vertical') {
+      this.store.apply(
+        'moveVertical',
+        (d) => {
+          const v = d.verticals[sel.id]
+          if (!v) return d
+          return {
+            ...d,
+            verticals: {
+              ...d.verticals,
+              [sel.id]: {
+                ...v,
+                outline: v.outline.map(([x, y]) => [x + dx, y + dy] as [number, number]),
+                landing: { x: v.landing.x + dx, y: v.landing.y + dy },
+              },
+            },
+          }
+        },
+        key,
+      )
+    } else if (sel.kind === 'opening') {
+      const o = doc.openings[sel.id]
+      const pts = o?.wallId ? wallPoints(doc, o.wallId) : null
+      if (!o || !pts) return
+      const len = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y) || 1
+      // Проекция вектора на ось стены: «вправо» по стене, куда бы она ни смотрела.
+      const along = ((pts[1].x - pts[0].x) * dx + (pts[1].y - pts[0].y) * dy) / len
+      const offsetMm = clamp(
+        Math.round(o.offsetMm + along),
+        0,
+        Math.max(0, Math.round(len - o.widthMm)),
+      )
+      this.store.apply(
+        'moveOpening',
+        (d) => ({ ...d, openings: { ...d.openings, [sel.id]: { ...o, offsetMm } } }),
+        key,
+      )
+    }
+  }
+
   /** Точный перенос узла из панели свойств. */
   moveNodeTo(nodeId: string, to: Pt): void {
     this.store.apply('moveNode', (doc) => moveNode(doc, nodeId, roundPt(to), this.store.ids))

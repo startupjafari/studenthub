@@ -181,6 +181,19 @@ function Editor({ plan }: { plan: CampusPlan }) {
         tools.deleteSelection()
         return
       }
+      const arrows: Record<string, [number, number]> = {
+        arrowleft: [-1, 0],
+        arrowright: [1, 0],
+        arrowup: [0, 1],
+        arrowdown: [0, -1],
+      }
+      if (arrows[key]) {
+        // Стрелки двигают выделенное: 10 мм, с Shift — 100 мм.
+        e.preventDefault()
+        const step = e.shiftKey ? 100 : 10
+        tools.nudge(arrows[key]![0] * step, arrows[key]![1] * step)
+        return
+      }
       if (key === 'f') {
         const { width, height } = viewport()
         store.fit(width, height)

@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import * as Sentry from '@sentry/nextjs'
 import { campusPresence, saveCampusPlan, type CampusPresence } from '../../../entities/campus'
 import { toApiError } from '../../../shared/lib'
 import { dropDraft, saveDraft } from '../lib/draft-db'
@@ -51,6 +52,7 @@ export function useAutosave(store: EditorStore, floorId: string): AutosaveApi {
     saving.current = true
     const doc = state.doc
     store.set({ saveState: 'saving' })
+    reportLargePlan(floorId, doc)
     try {
       const { revision } = await saveCampusPlan(floorId, {
         baseRevision: state.revision,
@@ -173,4 +175,21 @@ export function useAutosave(store: EditorStore, floorId: string): AutosaveApi {
   }, [save])
 
   return { holder, flush, takeOver, conflictRevision }
+}
+
+/** Порог «план крупный» — половина лимита тела запроса (2 МиБ): пора смотреть, что раздуло. */
+const LARGE_PLAN_BYTES = 1024 * 1024
+const reported = new Set<string>()
+
+/** Метрика размера документа (§22.34): раз за сессию на этаж, когда план перевалил за 1 МиБ. */
+function reportLargePlan(floorId: string, doc: unknown): void {
+  if (reported.has(floorId)) return
+  const bytes = JSON.stringify(doc).length
+  if (bytes < LARGE_PLAN_BYTES) return
+  reported.add(floorId)
+  Sentry.captureMessage('campus.large_floor_plan', {
+    level: 'warning',
+    tags: { area: 'campus-editor' },
+    extra: { floorId, bytes },
+  })
 }
