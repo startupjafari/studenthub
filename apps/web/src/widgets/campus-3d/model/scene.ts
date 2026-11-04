@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import * as Sentry from '@sentry/nextjs'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import {
   buildFaces,
@@ -15,6 +16,7 @@ import {
   floorMesh,
   slabMesh,
   spaceHighlightMesh,
+  type FloorMesh,
   type MeshBuffers,
 } from '@studenthub/campus-core/mesh'
 import { SPACE_KIND_COLOR } from '../../../entities/campus'
@@ -62,6 +64,46 @@ export interface ScenePalette {
 }
 
 // Территория — приглушённо: она фон для корпусов и маршрута, а не главное на карте.
+/**
+ * Кэш геометрии этажей (§21, задача 22.31): документ неизменяемый, поэтому ключ — сама ссылка
+ * на него (WeakMap — память освобождается вместе с документом). Подсветка помещения, маршрут
+ * и смена режима пересобирают сцену, но не пересчитывают стены и полы.
+ */
+const meshCache = new WeakMap<FloorPlanDoc, Map<string, FloorMesh>>()
+
+function cachedFloorMesh(
+  doc: FloorPlanDoc,
+  opts: { elevationMm: number; heightMm: number; transform?: BuildingTransform },
+): FloorMesh {
+  const t = opts.transform
+  const key = `${opts.elevationMm}|${opts.heightMm}|${t ? `${t.x},${t.y},${t.rotationDeg}` : ''}`
+  let byKey = meshCache.get(doc)
+  if (!byKey) meshCache.set(doc, (byKey = new Map()))
+  let mesh = byKey.get(key)
+  if (!mesh) {
+    const started = performance.now()
+    mesh = floorMesh(doc, opts)
+    reportSlowMesh(performance.now() - started, Object.keys(doc.walls).length)
+    byKey.set(key, mesh)
+  }
+  return mesh
+}
+
+/** Медленная сборка этажа — метка в Sentry, раз за сессию (§22.34). */
+let slowReported = false
+function reportSlowMesh(ms: number, walls: number): void {
+  if (ms < 500 || slowReported) return
+  slowReported = true
+  Sentry.captureMessage('campus.slow_floor_mesh', {
+    level: 'info',
+    tags: { area: 'campus-3d' },
+    extra: { ms: Math.round(ms), walls },
+  })
+}
+
+/** Кадр дольше — снижаем плотность пикселей (адаптивное качество, §21). */
+const SLOW_FRAME_MS = 28
+
 const SITE_COLORS: Record<string, string> = {
   lawn: '#bbf7d0',
   parking: '#e2e8f0',
@@ -194,8 +236,35 @@ export class CampusSceneController {
     if (!this.frame)
       this.frame = requestAnimationFrame(() => {
         this.frame = 0
+        const started = performance.now()
         this.renderer.render(this.scene, this.camera)
+        this.adapt(performance.now() - started)
       })
+  }
+
+  private slowFrames = 0
+
+  /**
+   * Слабое устройство: несколько медленных кадров подряд — плотность пикселей вниз (1,5 → 1 →
+   * 0,75). Вверх не возвращаем: качание качества заметнее, чем чуть менее чёткая картинка.
+   */
+  private adapt(ms: number): void {
+    if (ms < SLOW_FRAME_MS) {
+      this.slowFrames = 0
+      return
+    }
+    this.slowFrames += 1
+    const ratio = this.renderer.getPixelRatio()
+    if (this.slowFrames < 5 || ratio <= 0.75) return
+    this.slowFrames = 0
+    this.renderer.setPixelRatio(ratio > 1 ? 1 : 0.75)
+    this.renderer.setSize(this.host.clientWidth, this.host.clientHeight)
+    Sentry.addBreadcrumb({
+      category: 'campus-3d',
+      message: `pixel ratio ${ratio} → ${this.renderer.getPixelRatio()}`,
+      data: { ms: Math.round(ms) },
+    })
+    this.requestRender()
   }
 
   dispose(): void {
@@ -275,7 +344,7 @@ export class CampusSceneController {
 
     for (const f of visible) {
       const opts = { elevationMm: f.elevationMm, heightMm: f.heightMm, transform: f.transform }
-      const mesh = floorMesh(f.doc, opts)
+      const mesh = cachedFloorMesh(f.doc, opts)
       const walls = new THREE.Mesh(this.geometry(mesh.walls), wallMat)
       this.content.add(walls)
       if (mesh.glass.indices.length)
@@ -487,6 +556,11 @@ export class CampusSceneController {
     // Без preventDefault браузер не вернёт контекст.
     e.preventDefault()
     this.onContextLost?.(true)
+    Sentry.captureMessage('campus.webgl_context_lost', {
+      level: 'warning',
+      tags: { area: 'campus-3d', mode: this.input?.mode ?? 'none' },
+      extra: { floors: this.input?.floors.length ?? 0, pixelRatio: this.renderer.getPixelRatio() },
+    })
   }
 
   private readonly restored = (): void => {
