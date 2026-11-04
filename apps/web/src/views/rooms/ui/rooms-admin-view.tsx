@@ -37,6 +37,7 @@ import {
   type Room,
   type RoomQr,
 } from '../../../entities/room'
+import { ShowOnMapLink } from '../../../entities/campus'
 import { RoomQrSheet, type QrSheetLayout } from './room-qr-sheet'
 import { PrintBatchModal } from './print-batch-modal'
 import { formatRoomCode } from '../lib/format-code'
@@ -272,7 +273,10 @@ export function RoomsAdminView() {
                 {sorted.map((room) => (
                   <TableRow key={room.id} className="hover:bg-muted/40">
                     <TableCell className="font-medium">
-                      <TableText value={room.name} />
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <TableText value={room.name} />
+                        <ShowOnMapLink roomId={room.id} variant="icon" />
+                      </span>
                     </TableCell>
                     <TableCell className={cn(HIDE.kind, 'text-muted-foreground')}>
                       <TableText value={t(`kind.${room.kind}`)} />

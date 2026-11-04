@@ -13,6 +13,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../../../shared/ui'
+import { ShowOnMapLink } from '../../../entities/campus'
 import type { DayPair } from '../lib/schedule-day'
 import { PAIR_BADGE, PAIR_STATE_KEY } from './pair-visuals'
 
@@ -94,6 +95,7 @@ export function NextPairCard({
               <span className="inline-flex items-center gap-1.5">
                 <MapPin className="size-4" aria-hidden />
                 {room.name}
+                <ShowOnMapLink roomId={room.id} variant="icon" className="ml-0.5" />
               </span>
             )}
             {showTeacher && teacher && (
