@@ -95,6 +95,13 @@ export class CampusController {
     return this.publishing.publishedFloor(user, id, floorId)
   }
 
+  @RestrictedAllowed(Role.SECURITY_GUARD)
+  @Get(':id/published/nav')
+  @ApiOperation({ summary: 'Навигационный граф текущей версии под уровень зрителя' })
+  publishedNav(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.publishing.publishedNav(user, id)
+  }
+
   // ── Кампус ────────────────────────────────────────────────────────────────────────
 
   @Post()

@@ -2,12 +2,16 @@ import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import {
+  buildNavGraph,
   canSeeSpace,
   floorForViewer,
+  graphForViewer,
+  SitePlanSchema,
   spaceIndex,
   validateFloor,
   type BuildingTransform,
   type FloorPlanDoc,
+  type NavGraph,
 } from '@studenthub/campus-core'
 import type { CampusSearchInput, PublishCampusInput } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
@@ -84,6 +88,7 @@ export class CampusPublishService {
     const floors: {
       floorId: string
       buildingId: string
+      elevationMm: number
       doc: FloorPlanDoc
       transform: BuildingTransform
     }[] = []
@@ -104,6 +109,7 @@ export class CampusPublishService {
         floors.push({
           floorId: f.id,
           buildingId: b.id,
+          elevationMm: f.elevationMm,
           doc,
           transform: b.transform as unknown as BuildingTransform,
         })
@@ -165,6 +171,10 @@ export class CampusPublishService {
     const index = floors.flatMap(({ floorId, buildingId, doc, transform }) =>
       spaceIndex(doc, transform).map((e) => ({ ...e, floorId, buildingId })),
     )
+    // Навигационный граф (§15.2) — производный, считается один раз здесь, а не у каждого
+    // зрителя: десятки этажей — секунды на слабом телефоне, на сервере — доли секунды.
+    const siteDoc = SitePlanSchema.safeParse(site?.document)
+    const navGraph = buildNavGraph(floors, siteDoc.success ? siteDoc.data : null)
 
     const version = await this.prisma.$transaction(
       async (tx) => {
@@ -180,6 +190,7 @@ export class CampusPublishService {
             number: (last?.number ?? 0) + 1,
             note: input.note ?? null,
             manifest: json(manifest),
+            navGraph: json(navGraph),
             publishedById: viewer.sub,
           },
         })
@@ -380,6 +391,33 @@ export class CampusPublishService {
     const level = viewerLevel(viewer)
     const doc = this.campus.parsePlan(row.document)
     return { floorId, versionId: campus.publishedVersionId, document: floorForViewer(doc, level) }
+  }
+
+  /**
+   * Навигационный граф текущей версии под уровень зрителя (§15.4): маршрут считает клиент.
+   * Помещения, которых зритель не видит, — не адреса; служебные двери обычному зрителю
+   * закрыты. Версии, опубликованные до появления графа, отдают `graph: null`.
+   */
+  async publishedNav(viewer: JwtPayload, campusId: string) {
+    const campus = await this.campus.loadForView(viewer, campusId)
+    if (!campus.publishedVersionId) throw new AppException('NOT_FOUND', 'Карта ещё не опубликована')
+    const version = await this.prisma.campusVersion.findUnique({
+      where: { id: campus.publishedVersionId },
+      select: { id: true, navGraph: true },
+    })
+    if (!version) throw new AppException('NOT_FOUND', 'Карта ещё не опубликована')
+    if (!version.navGraph) return { versionId: version.id, graph: null }
+    const level = viewerLevel(viewer)
+    const visible = await this.prisma.campusSpaceIndex.findMany({
+      where: { versionId: version.id, ...(level === 'public' ? { visibility: 'public' } : {}) },
+      select: { spaceId: true },
+      take: 100_000,
+    })
+    const graph = version.navGraph as unknown as NavGraph
+    return {
+      versionId: version.id,
+      graph: graphForViewer(graph, new Set(visible.map((v) => v.spaceId)), level !== 'public'),
+    }
   }
 
   /**

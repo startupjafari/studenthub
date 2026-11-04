@@ -322,6 +322,10 @@ describe('CampusPublishService — публикация', () => {
       number: 5,
       note: 'весна',
     })
+    // Навигационный граф собран вместе с версией: помещения этажа — адреса маршрутов.
+    const nav = prisma.campusVersion.create.mock.calls[0][0].data.navGraph
+    expect(nav.version).toBe(1)
+    expect(Object.keys(nav.spaces).length).toBe(Object.keys(doc.spaces).length)
     expect(prisma.campusVersionFloor.createMany.mock.calls[0][0].data).toHaveLength(1)
     const indexed = prisma.campusSpaceIndex.createMany.mock.calls[0][0].data
     expect(indexed).toHaveLength(Object.keys(doc.spaces).length)
@@ -361,6 +365,36 @@ describe('CampusPublishService — зрителю', () => {
     const teacher = await publishing.publishedFloor(viewer(Role.TEACHER), 'c-1', 'f-1')
     expect(teacher.document.spaces[a!]).toBeDefined()
     expect(teacher.document.spaces[b!]).toBeUndefined()
+  })
+
+  it('граф студенту: служебные двери закрыты, служебные помещения — не адреса', async () => {
+    const { publishing, prisma } = setup()
+    prisma.campus.findFirst.mockResolvedValue({ ...CAMPUS, publishedVersionId: 'v-1' })
+    const graph = {
+      version: 1,
+      floors: ['f-1'],
+      nodes: [0, 0, 0, 0, 0, 1000, 0, 0, 0, 1, 2000, 0, 0, 0, 0],
+      // flags: door (1) | stepFree (8) | staff (1 << 4)
+      edges: [0, 1, 1000, 1 | 8 | 16, 1, 2, 1000, 8],
+      spaces: { '0': 's-public', '2': 's-staff' },
+    }
+    prisma.campusVersion.findUnique.mockResolvedValue({ id: 'v-1', navGraph: graph })
+    prisma.campusSpaceIndex.findMany.mockResolvedValue([{ spaceId: 's-public' }])
+    const student = await publishing.publishedNav(viewer(Role.STUDENT), 'c-1')
+    expect(prisma.campusSpaceIndex.findMany.mock.calls[0][0].where).toMatchObject({
+      versionId: 'v-1',
+      visibility: 'public',
+    })
+    expect(student.graph!.spaces).toEqual({ '0': 's-public' })
+    expect((student.graph!.edges[3]! >> 4) & 3).toBe(2) // staff → closed
+    prisma.campusSpaceIndex.findMany.mockResolvedValue([
+      { spaceId: 's-public' },
+      { spaceId: 's-staff' },
+    ])
+    const teacher = await publishing.publishedNav(viewer(Role.TEACHER), 'c-1')
+    expect((teacher.graph!.edges[3]! >> 4) & 3).toBe(1)
+    prisma.campusVersion.findUnique.mockResolvedValue({ id: 'v-1', navGraph: null })
+    expect((await publishing.publishedNav(viewer(Role.STUDENT), 'c-1')).graph).toBeNull()
   })
 
   it('поиск: студенту — только публичные помещения текущих версий своего вуза', async () => {
