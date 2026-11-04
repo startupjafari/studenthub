@@ -5978,7 +5978,11 @@
     "problem_ROOM_NOT_FOUND": "University room not found",
     "problem_VERTICAL_DEGENERATE": "Stairs or elevator with no area",
     "problem_EMPTY": "Campus has no buildings",
-    "site": "Grounds"
+    "site": "Grounds",
+    "back": "Back to campuses",
+    "versionsHint": "What users see now, rollback and draft restore",
+    "dangerZone": "Delete campus",
+    "dangerZoneHint": "The map disappears for everyone, with all buildings and floors"
   },
   "CampusEditor": {
     "floorNotFound": "Floor not found or no access",
@@ -6225,6 +6229,11 @@
     "hintTitle": "How to draw",
     "hint": "Boundary, lawns and grounds: click the corners, double-click or press Enter to close. Paths and roads: point by point. Trees, gates and labels: one click. Drag buildings to place them; paths from gates to building entrances power routes between buildings. Hold Alt to skip the 0.5 m grid.",
     "conflict": "The grounds were changed in another tab or by another editor.",
-    "loadLatest": "Load latest"
+    "loadLatest": "Load latest",
+    "panels": "Editor panels",
+    "properties": "Properties",
+    "objects": "Objects",
+    "building": "Building",
+    "noObjects": "Nothing on the grounds yet"
   }
 }

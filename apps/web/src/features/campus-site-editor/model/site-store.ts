@@ -54,6 +54,8 @@ export interface SiteState {
   saveState: SiteSaveState
   canUndo: boolean
   canRedo: boolean
+  /** Запрос «вписать всё»: холст знает свой размер и пересчитывает вид, когда число растёт. */
+  fitNonce: number
 }
 
 const HISTORY_LIMIT = 100
@@ -78,6 +80,7 @@ export class SiteStore {
       saveState: 'saved',
       canUndo: false,
       canRedo: false,
+      fitNonce: 0,
     }
   }
 
@@ -157,6 +160,10 @@ export class SiteStore {
     this.set({
       buildings: this.state.buildings.map((b) => (b.id === id ? { ...b, transform } : b)),
     })
+  }
+
+  requestFit(): void {
+    this.set({ fitNonce: this.state.fitNonce + 1 })
   }
 
   // ── Вид ────────────────────────────────────────────────────────────────────────────
