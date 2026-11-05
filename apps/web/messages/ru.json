@@ -6248,6 +6248,7 @@
     "routeBuildings": "{count, plural, one {# корпус} few {# корпуса} many {# корпусов} other {# корпуса}}",
     "tourStart": "Пройти маршрут",
     "tourStop": "Остановить",
+    "stepPassage": "Перейдите в корпус {building}, {floor}",
     "stepPass": "Пройдите через корпус {building}",
     "stepArriveHere": "Вы на месте: «{place}»",
     "hintsTitle": "Управление",

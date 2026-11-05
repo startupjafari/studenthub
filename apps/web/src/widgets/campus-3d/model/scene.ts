@@ -16,6 +16,7 @@ import {
   floorMesh,
   slabMesh,
   spaceHighlightMesh,
+  verticalOpening,
   type FloorMesh,
   type MeshBuffers,
 } from '@studenthub/campus-core/mesh'
@@ -1119,9 +1120,7 @@ export class CampusSceneController {
     this.shaftMeshes.length = 0
     for (const f of visible) {
       const under = below(f)
-      const openings = under
-        ? Object.values(under.doc.verticals).map((v) => v.outline.map(([x, y]) => ({ x, y })))
-        : []
+      const openings = under ? Object.values(under.doc.verticals).map(verticalOpening) : []
       const opts = {
         elevationMm: f.elevationMm,
         heightMm: f.heightMm,

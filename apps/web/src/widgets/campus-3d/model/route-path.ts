@@ -145,36 +145,18 @@ export function routePath(route: RoutePoint[], floors: readonly SceneFloor[]): R
       return
     }
 
-    // Лестница — по ступеням двухмаршевой лестницы, как её рисует floorMesh: первый марш,
-    // промежуточная площадка, второй марш обратно; линия идёт по кромкам ступеней.
+    // Лестница — по ступеням двухмаршевой лестницы, как её рисует floorMesh: от двери клетки
+    // по этажной площадке, первый марш, промежуточная площадка, второй марш, снова к двери.
     const found = verticalAt(byId.get((up ? prev.floor : r.floor) ?? ''), low, [r.via])
     const rise = high.y - low.y
     if (!found || rise <= 0) {
       push(p)
       return
     }
-    const { box, landing } = found
-    const geo = stairGeometry(box, landing, rise)
-    const at = (s: number, t: number, y: number): THREE.Vector3 =>
-      new THREE.Vector3(box.u[0] * s + box.w[0] * t, low.y + y, box.u[1] * s + box.w[1] * t)
-    const flight = (f: (typeof geo.flights)[number]): THREE.Vector3[] => {
-      const step = (f.y1 - f.y0) / f.steps
-      const last = f.s0 + (f.s1 - f.s0) * (1 - 1 / f.steps)
-      return [
-        at(f.s0, f.t, f.y0),
-        at(f.s0, f.t, f.y0 + step),
-        at(last, f.t, f.y1),
-        at(f.s1, f.t, f.y1),
-      ]
-    }
-    const [f1, f2] = geo.flights
-    const sMid = (geo.platform.s0 + geo.platform.s1) / 2
-    const climb = [
-      ...flight(f1),
-      at(sMid, f1.t, geo.platform.y),
-      at(sMid, f2.t, geo.platform.y),
-      ...flight(f2),
-    ]
+    // Путь по ступеням считает сама лестница — тот же расчёт, что рисует её в 3D.
+    const climb = stairGeometry(found.box, found.landing, rise).path.map(
+      ({ p: [x, z], y }) => new THREE.Vector3(x, low.y + y, z),
+    )
     for (const q of up ? climb : climb.reverse()) push(q)
     push(p)
   })

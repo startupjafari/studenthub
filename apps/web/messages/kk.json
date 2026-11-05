@@ -6248,6 +6248,7 @@
     "routeBuildings": "{count} корпус",
     "tourStart": "Маршрутпен өту",
     "tourStop": "Тоқтату",
+    "stepPassage": "{building} корпусына өтіңіз, {floor}",
     "stepPass": "{building} корпусы арқылы өтіңіз",
     "stepArriveHere": "Сіз келдіңіз: «{place}»",
     "hintsTitle": "Басқару",

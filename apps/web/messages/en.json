@@ -6248,6 +6248,7 @@
     "routeBuildings": "{count, plural, one {# building} other {# buildings}}",
     "tourStart": "Walk the route",
     "tourStop": "Stop",
+    "stepPassage": "Go through to building {building}, {floor}",
     "stepPass": "Walk through building {building}",
     "stepArriveHere": "You have arrived: “{place}”",
     "hintsTitle": "Controls",
