@@ -4,6 +4,7 @@ import type { ComponentType } from 'react'
 import { useTranslations } from 'next-intl'
 import {
   ArrowDown,
+  ArrowRightLeft,
   ArrowUp,
   CircleAlert,
   Footprints,
@@ -46,6 +47,7 @@ function floorOf(s: ListStep): string | null {
   switch (s.type) {
     case 'vertical':
     case 'enter':
+    case 'passage':
       return s.toFloor
     case 'exit':
       return s.fromFloor
@@ -108,6 +110,11 @@ export function RouteSummary({
         return t('stepEnter', { building: buildingOf(s.toFloor), floor: floorLabel(s.toFloor) })
       case 'pass':
         return t('stepPass', { building: buildingOf(s.floor) })
+      case 'passage':
+        return t('stepPassage', {
+          building: buildingOf(s.toFloor),
+          floor: floorLabel(s.toFloor),
+        })
       case 'arrive':
         return t('stepArriveHere', { place: placeLabel(s.spaceId) })
     }
@@ -122,6 +129,8 @@ export function RouteSummary({
         return LogOut
       case 'pass':
         return Footprints
+      case 'passage':
+        return ArrowRightLeft
       default:
         return null
     }

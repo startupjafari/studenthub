@@ -1,5 +1,5 @@
 import earcut from 'earcut'
-import type { FloorPlanDoc, PlanOpening, SpaceKind } from '../format/schema.js'
+import type { FloorPlanDoc, PlanOpening, PlanVertical, SpaceKind } from '../format/schema.js'
 import type { Pt } from '../geom/int.js'
 import { pointInPolygon } from '../geom/polygon.js'
 import { buildFaces } from '../topology/faces.js'
@@ -289,21 +289,21 @@ export function floorMesh(doc: FloorPlanDoc, options: FloorMeshOptions): FloorMe
       prism(elevators, at(s0, mid), at(s1, mid), half, y0, y0 + top)
       continue
     }
-    // Двухмаршевая лестница: первый марш — от края у площадки к дальнему краю по одной
-    // половине ширины, там промежуточная площадка во всю ширину, второй марш — обратно по
-    // другой половине. Наверх приходят к тому же краю, где площадка следующего этажа.
+    // Двухмаршевая лестница с этажной площадкой у входа (см. stairGeometry).
     const geo = stairGeometry(box, scene(v.landing), Math.min(top, options.heightMm / 1000))
     for (const f of geo.flights) {
       for (let i = 0; i < f.steps; i++) {
         const k0 = i / f.steps
         const k1 = (i + 1) / f.steps
-        const a = f.s0 + (f.s1 - f.s0) * k0
-        const b = f.s0 + (f.s1 - f.s0) * k1
-        prism(stairs, at(a, f.t), at(b, f.t), f.half, y0, y0 + f.y0 + (f.y1 - f.y0) * k1)
+        const p = (k: number): Pt3 => [
+          f.from[0] + (f.to[0] - f.from[0]) * k,
+          f.from[1] + (f.to[1] - f.from[1]) * k,
+        ]
+        prism(stairs, p(k0), p(k1), f.half, y0, y0 + f.y0 + (f.y1 - f.y0) * k1)
       }
     }
     const pl = geo.platform
-    prism(stairs, at(pl.s0, mid), at(pl.s1, mid), half, y0, y0 + pl.y)
+    prism(stairs, pl.from, pl.to, pl.half, y0, y0 + pl.y)
   }
 
   return {
@@ -319,44 +319,181 @@ export function floorMesh(doc: FloorPlanDoc, options: FloorMeshOptions): FloorMe
 const STEP_RISE_M = 0.17
 
 export interface StairFlight {
-  /** Вдоль длинной оси: откуда и куда идёт марш (по `u`), ось марша и полуширина (по `w`). */
-  s0: number
-  s1: number
-  t: number
+  /** Ось марша по земле: откуда (низ) и куда (верх), полуширина. */
+  from: Pt3
+  to: Pt3
   half: number
-  /** Высота над полом этажа в начале и в конце марша, м. */
+  /** Высота над полом этажа внизу и вверху марша, м. */
   y0: number
   y1: number
   steps: number
 }
 
+export interface StairLayout {
+  flights: [StairFlight, StairFlight]
+  /** Промежуточная площадка на половине высоты: ось, полуширина, высота. */
+  platform: { from: Pt3; to: Pt3; half: number; y: number }
+  /** Проём над маршами и площадкой — без этажной площадки у входа (она пол). */
+  well: Pt3[]
+  /** Путь по лестнице снизу вверх: от двери клетки по этажной площадке, маршам — к той же двери этажом выше. */
+  path: { p: Pt3; y: number }[]
+}
+
+/** Уклон круче этого (проступь короче) — марши кладём вдоль стены с дверью. */
+const MIN_TREAD_M = 0.22
+
 /**
- * Геометрия двухмаршевой лестницы в повёрнутом прямоугольнике фигуры (метры сцены, оси
- * `u`/`w` из orientedBox): два марша и промежуточная площадка на половине высоты. Общая для
- * 3D и пути по лестнице — путь идёт ровно по ступеням, а не сквозь них.
+ * Двухмаршевая лестница в повёрнутом прямоугольнике фигуры (оси `u`/`w` из orientedBox,
+ * метры). Вход — со стороны площадки этажа (за стеной клетки, там дверь): у входа этажная
+ * площадка на уровне пола, первый марш по одной полосе до промежуточной площадки на
+ * полвысоты, второй — обратно по другой полосе к этажной площадке этажом выше. Марши идут
+ * вглубь от входа, если клетка для этого достаточно длинная; иначе — вдоль стены с дверью,
+ * а этажная площадка тянется вдоль неё. Общая для 3D, проёмов в перекрытиях и пути.
  */
 export function stairGeometry(
   box: { u: Pt3; w: Pt3; s0: number; s1: number; t0: number; t1: number },
   landing: Pt3,
   rise: number,
-): { flights: [StairFlight, StairFlight]; platform: { s0: number; s1: number; y: number } } {
-  const { u, s0, s1, t0, t1 } = box
-  const ls = landing[0] * u[0] + landing[1] * u[1]
-  const fromStart = Math.abs(ls - s0) <= Math.abs(ls - s1)
-  const near = fromStart ? s0 : s1
-  const far = fromStart ? s1 : s0
-  const dir = fromStart ? 1 : -1
-  const platformLen = Math.min(1.4, (s1 - s0) * 0.3)
-  const edge = far - dir * platformLen
-  const quarter = (t1 - t0) / 4
+): StairLayout {
   const steps = Math.max(3, Math.round(rise / 2 / STEP_RISE_M))
-  return {
-    flights: [
-      { s0: near, s1: edge, t: t0 + quarter, half: quarter, y0: 0, y1: rise / 2, steps },
-      { s0: edge, s1: near, t: t1 - quarter, half: quarter, y0: rise / 2, y1: rise, steps },
-    ],
-    platform: { s0: Math.min(edge, far), s1: Math.max(edge, far), y: rise / 2 },
+  const ls = landing[0] * box.u[0] + landing[1] * box.u[1]
+  const lt = landing[0] * box.w[0] + landing[1] * box.w[1]
+  const outside = (v: number, lo: number, hi: number): number => Math.max(lo - v, v - hi, 0)
+  // Ось «вглубь от входа» (A) и ось «вдоль стены с дверью» (B).
+  const entryOnU = outside(ls, box.s0, box.s1) >= outside(lt, box.t0, box.t1)
+  const A = entryOnU ? box.u : box.w
+  const B = entryOnU ? box.w : box.u
+  const [a0, a1, la] = entryOnU ? [box.s0, box.s1, ls] : [box.t0, box.t1, lt]
+  const [b0, b1, lb] = entryOnU ? [box.t0, box.t1, lt] : [box.s0, box.s1, ls]
+  const near = Math.abs(la - a0) <= Math.abs(la - a1) ? a0 : a1
+  const far = near === a0 ? a1 : a0
+  const dirA = near === a0 ? 1 : -1
+  const lenA = a1 - a0
+  const lenB = b1 - b0
+  const P = (a: number, b: number): Pt3 => [A[0] * a + B[0] * b, A[1] * a + B[1] * b]
+  const door = Math.min(Math.max(lb, b0 + 0.3), b1 - 0.3)
+  const nosing = (f: StairFlight): { p: Pt3; y: number }[] => {
+    const k = 1 - 1 / f.steps
+    const lerp = (q: number): Pt3 => [
+      f.from[0] + (f.to[0] - f.from[0]) * q,
+      f.from[1] + (f.to[1] - f.from[1]) * q,
+    ]
+    return [
+      { p: f.from, y: f.y0 },
+      { p: f.from, y: f.y0 + (f.y1 - f.y0) / f.steps },
+      { p: lerp(k), y: f.y1 },
+      { p: f.to, y: f.y1 },
+    ]
   }
+
+  // Вариант «вглубь»: этажная площадка у входа во всю ширину, марши — по полосам ширины.
+  const stripA = Math.min(1.2, lenA * 0.2)
+  const platA = Math.min(1.4, lenA * 0.25)
+  const treadA = (lenA - stripA - platA) / steps
+  // Вариант «вдоль»: этажная площадка вдоль стены с дверью, марши — по полосам глубины.
+  const stripB = Math.min(1.2, lenA * 0.3)
+  const platB = Math.min(1.4, lenB * 0.25)
+  const treadB = (lenB - platB - 0.3) / steps
+
+  if (treadA >= MIN_TREAD_M || treadA >= treadB) {
+    const start = near + dirA * stripA
+    const edge = far - dirA * platA
+    const q = lenB / 4
+    const [bl, br] = [b0 + q, b1 - q]
+    const f1: StairFlight = {
+      from: P(start, bl),
+      to: P(edge, bl),
+      half: q,
+      y0: 0,
+      y1: rise / 2,
+      steps,
+    }
+    const f2: StairFlight = {
+      from: P(edge, br),
+      to: P(start, br),
+      half: q,
+      y0: rise / 2,
+      y1: rise,
+      steps,
+    }
+    const stripMid = (near + start) / 2
+    const platMid = (edge + far) / 2
+    return {
+      flights: [f1, f2],
+      platform: {
+        from: P(edge, (b0 + b1) / 2),
+        to: P(far, (b0 + b1) / 2),
+        half: lenB / 2,
+        y: rise / 2,
+      },
+      well: [P(start, b0), P(far, b0), P(far, b1), P(start, b1)],
+      path: [
+        { p: P(stripMid, door), y: 0 },
+        { p: P(stripMid, bl), y: 0 },
+        ...nosing(f1),
+        { p: P(platMid, bl), y: rise / 2 },
+        { p: P(platMid, br), y: rise / 2 },
+        ...nosing(f2),
+        { p: P(stripMid, br), y: rise },
+        { p: P(stripMid, door), y: rise },
+      ],
+    }
+  }
+
+  const stripEnd = near + dirA * stripB
+  const q = (lenA - stripB) / 4
+  const [an, af] = [stripEnd + dirA * q, far - dirA * q]
+  const start = Math.abs(lb - b0) <= Math.abs(lb - b1) ? b0 : b1
+  const end = start === b0 ? b1 : b0
+  const dirB = start === b0 ? 1 : -1
+  const bs = start + dirB * 0.3
+  const edge = end - dirB * platB
+  const f1: StairFlight = { from: P(an, bs), to: P(an, edge), half: q, y0: 0, y1: rise / 2, steps }
+  const f2: StairFlight = {
+    from: P(af, edge),
+    to: P(af, bs),
+    half: q,
+    y0: rise / 2,
+    y1: rise,
+    steps,
+  }
+  const stripMid = (near + stripEnd) / 2
+  const bandsMid = (stripEnd + far) / 2
+  const platMid = (edge + end) / 2
+  return {
+    flights: [f1, f2],
+    platform: {
+      from: P(bandsMid, edge),
+      to: P(bandsMid, end),
+      half: (lenA - stripB) / 2,
+      y: rise / 2,
+    },
+    well: [P(stripEnd, b0), P(far, b0), P(far, b1), P(stripEnd, b1)],
+    path: [
+      { p: P(stripMid, door), y: 0 },
+      { p: P(stripMid, bs), y: 0 },
+      { p: P(an, bs), y: 0 },
+      ...nosing(f1),
+      { p: P(an, platMid), y: rise / 2 },
+      { p: P(af, platMid), y: rise / 2 },
+      ...nosing(f2),
+      { p: P(an, bs), y: rise },
+      { p: P(stripMid, bs), y: rise },
+      { p: P(stripMid, door), y: rise },
+    ],
+  }
+}
+
+/**
+ * Проём, который вертикаль этажа оставляет в полу и плите этажа выше, в мм корпуса: шахта
+ * лифта — целиком, лестница — над маршами (этажная площадка остаётся полом).
+ */
+export function verticalOpening(v: PlanVertical): Pt[] {
+  const pts = v.outline.map(([x, y]) => [x / 1000, y / 1000] as Pt3)
+  const box = v.type === 'elevator' ? null : orientedBox(pts)
+  if (!box) return v.outline.map(([x, y]) => ({ x, y }))
+  const { well } = stairGeometry(box, [v.landing.x / 1000, v.landing.y / 1000], 3)
+  return well.map(([x, y]) => ({ x: Math.round(x * 1000), y: Math.round(y * 1000) }))
 }
 
 /**
