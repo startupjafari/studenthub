@@ -28,6 +28,7 @@ import {
   fetchCampusNav,
   fetchCampusPublished,
   fetchCampusPublishedFloor,
+  FloorSwitcher,
   type CampusManifestBuilding,
   type CampusSpaceHit,
 } from '../../../entities/campus'
@@ -524,29 +525,17 @@ function Viewer({
               />
             </div>
           )}
-          {/* Этажи — справа, как кнопки лифта: сверху вниз. */}
-          <nav
-            aria-label={t('floors')}
-            className="absolute top-3 right-3 flex flex-col gap-1 rounded-xl bg-card/95 p-1 shadow-sm ring-1 ring-foreground/10 backdrop-blur"
-          >
-            {/* Уровни всего кампуса: и план, и 3D показывают все корпуса разом. */}
-            {levels.map(([lv, lb]) => (
-              <button
-                key={lv}
-                type="button"
-                aria-current={lv === level}
-                aria-label={t('floorN', { label: lb })}
-                onClick={() => goToLevel(lv)}
-                className={cn(
-                  'flex size-11 items-center justify-center rounded-xl text-sm font-semibold tabular-nums md:size-9',
-                  'hover:bg-muted focus-visible:ring-4 focus-visible:ring-ring/20 focus-visible:outline-none',
-                  lv === level && 'bg-primary text-primary-foreground hover:bg-primary',
-                )}
-              >
-                {lb}
-              </button>
-            ))}
-          </nav>
+          {/* Уровни всего кампуса: и план, и 3D показывают все корпуса разом. */}
+          <FloorSwitcher
+            label={t('floors')}
+            items={levels.map(([lv, lb]) => ({
+              key: String(lv),
+              label: lb,
+              ariaLabel: t('floorN', { label: lb }),
+              active: lv === level,
+              onSelect: () => goToLevel(lv),
+            }))}
+          />
           <MapHints mode={mode} />
         </div>
 
