@@ -9,6 +9,12 @@ export interface CampusSceneProps extends SceneInput {
   onPick?: (floorId: string, spaceId: string) => void
   /** Точка, к которой подвести камеру (метры сцены). */
   focusPoint?: { x: number; y: number; z: number } | null
+  /** Идёт проход камерой по маршруту: true — начать, false — остановить. */
+  tour?: boolean
+  /** Проход дошёл до этажа. */
+  onTourFloor?: (floorId: string) => void
+  /** Проход закончился сам или его прервали мышью/клавишами. */
+  onTourEnd?: () => void
   className?: string
   label: string
 }
@@ -50,7 +56,16 @@ function readPalette(el: Element): ScenePalette {
  * 3D-сцена кампуса. Модуль тянет three — подключать только через `CampusScene3D`
  * (ленивый импорт), чтобы ~140 КБ движка не попадали в общий бандл.
  */
-export function CampusScene({ onPick, focusPoint, className, label, ...input }: CampusSceneProps) {
+export function CampusScene({
+  onPick,
+  focusPoint,
+  tour = false,
+  onTourFloor,
+  onTourEnd,
+  className,
+  label,
+  ...input
+}: CampusSceneProps) {
   const t = useTranslations('CampusEditor')
   const host = useRef<HTMLDivElement>(null)
   const ctrl = useRef<CampusSceneController | null>(null)
@@ -88,6 +103,13 @@ export function CampusScene({ onPick, focusPoint, className, label, ...input }: 
     if (ctrl.current) ctrl.current.onPick = onPick ?? null
   }, [onPick])
 
+  useEffect(() => {
+    const c = ctrl.current
+    if (!c) return
+    c.onTourFloor = onTourFloor ?? null
+    c.onTourEnd = onTourEnd ?? null
+  }, [onTourFloor, onTourEnd])
+
   const { floors, mode, focusFloorId, highlight, route, site } = input
   useEffect(() => {
     ctrl.current?.update({ floors, mode, focusFloorId, highlight, route, site })
@@ -96,6 +118,15 @@ export function CampusScene({ onPick, focusPoint, className, label, ...input }: 
   useEffect(() => {
     if (focusPoint) ctrl.current?.focusOn(focusPoint.x, focusPoint.y, focusPoint.z)
   }, [focusPoint])
+
+  // После `update`: проходу нужен уже переданный маршрут. Не вышло (маршрута нет) — сразу конец.
+  useEffect(() => {
+    const c = ctrl.current
+    if (!c) return
+    if (!tour) c.stopTour()
+    else if (!c.startTour()) onTourEnd?.()
+    // onTourEnd читаем на момент старта; смена колбэка проход не перезапускает.
+  }, [tour])
 
   return (
     <div className={className ?? 'relative h-full w-full'}>

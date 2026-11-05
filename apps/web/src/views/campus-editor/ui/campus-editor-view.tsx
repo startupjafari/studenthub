@@ -343,7 +343,7 @@ function Editor({ plan }: { plan: CampusPlan }) {
           {building && (
             <FloorSwitcher
               label={t('floor')}
-              items={[...building.floors].reverse().map((f) => ({
+              items={building.floors.map((f) => ({
                 key: f.id,
                 label: f.label,
                 ariaLabel: tc('floorN', { label: f.label }),

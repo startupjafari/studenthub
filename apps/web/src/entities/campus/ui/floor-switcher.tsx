@@ -15,9 +15,9 @@ export interface FloorSwitcherItem {
 
 /**
  * Переключатель этажей — одинаковый на всех экранах кампуса (зритель: план, 3D, кампус;
- * редактор этажа): колонка кнопок «как в лифте» у правого края холста, по центру высоты —
- * там, где её ищут на картах (2ГИС), и под рукой при любой высоте окна. Этажей больше, чем
- * влезает, — колонка прокручивается, выбранный этаж держится в поле зрения.
+ * редактор этажа): строка кнопок в правом нижнем углу холста, нижние этажи слева. Не спорит
+ * с панелью справа от карты и не закрывает середину плана. Этажей больше, чем влезает, —
+ * строка прокручивается, выбранный этаж держится в поле зрения. `items` — снизу вверх.
  * Кладётся прямо в холст с `position: relative`.
  */
 export function FloorSwitcher({
@@ -34,7 +34,7 @@ export function FloorSwitcher({
   useEffect(() => {
     list.current
       ?.querySelector<HTMLElement>('[aria-current="true"]')
-      ?.scrollIntoView({ block: 'nearest' })
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [activeKey])
 
   if (items.length < 2) return null
@@ -42,11 +42,14 @@ export function FloorSwitcher({
     <nav
       aria-label={label}
       className={cn(
-        'absolute top-1/2 right-3 z-10 flex max-h-[calc(100%-1.5rem)] -translate-y-1/2 flex-col rounded-xl bg-card/95 p-1 shadow-sm ring-1 ring-foreground/10 backdrop-blur',
+        'absolute right-3 bottom-3 z-10 flex max-w-[min(calc(100%-1.5rem),28rem)] rounded-xl bg-card/95 p-1 shadow-sm ring-1 ring-foreground/10 backdrop-blur',
         className,
       )}
     >
-      <div ref={list} className="flex min-h-0 flex-col gap-1 overflow-y-auto overscroll-contain">
+      <div
+        ref={list}
+        className="flex min-w-0 flex-row gap-1 overflow-x-auto overscroll-contain [scrollbar-width:none]"
+      >
         {items.map((x) => (
           <button
             key={x.key}

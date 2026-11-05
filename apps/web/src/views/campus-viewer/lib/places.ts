@@ -42,15 +42,24 @@ export function routeOnFloor(
   return lines.filter((l) => l.length > 1)
 }
 
-/** Маршрут в метрах сцены three: (x, высота, −y). */
+/** Маршрут в метрах сцены three: (x, высота, −y) и этаж точки (на улице — null). */
 export function routeInScene(
   graph: NavGraph,
   route: RouteResult,
-): { x: number; y: number; z: number }[] {
+): { x: number; y: number; z: number; floor: string | null }[] {
   return route.nodes.map((n) => {
     const p = nodePoint(graph, n)
-    return { x: p.x / 1000, y: p.z / 1000, z: -p.y / 1000 }
+    return { x: p.x / 1000, y: p.z / 1000, z: -p.y / 1000, floor: p.floor ?? null }
   })
+}
+
+/** Первый этаж маршрута (старт у ворот — на улице, тогда этаж входа). */
+export function routeStartFloor(graph: NavGraph, route: RouteResult): string | null {
+  for (const n of route.nodes) {
+    const f = nodePoint(graph, n).floor
+    if (f) return f
+  }
+  return null
 }
 
 /**

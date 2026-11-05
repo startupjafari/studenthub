@@ -30,6 +30,13 @@ export interface MapBuildingInput {
 const FOCUS_SCALE = 0.03
 /** Сдвиг дальше этого — перетаскивание, а не клик. */
 const CLICK_PX = 5
+/**
+ * Колесо: мелкий шаг (щелчок ≈ 10 %), сам зум доезжает плавно — накопленное гасится по
+ * экспоненте за ~0,2 с. Щипок тачпада (wheel + ctrl) идёт мелкими порциями — коэффициент больше.
+ */
+const WHEEL_STEP = 0.001
+const WHEEL_PINCH = 0.01
+const WHEEL_SMOOTH = 14
 /** Шаг клавиш: сдвиг в пикселях экрана и множитель масштаба. */
 const KEY_PAN_PX = 80
 const KEY_ZOOM = 1.25
@@ -202,6 +209,7 @@ export function CampusMapCanvas({
     }
 
     const onDown = (e: PointerEvent): void => {
+      stopWheel()
       const l = local(e)
       pointers.set(e.pointerId, l)
       canvas.setPointerCapture(e.pointerId)
@@ -244,11 +252,46 @@ export function CampusMapCanvas({
       if (down && !down.moved) pickRef.current(hit(local(e)))
       down = null
     }
+    // Плавный зум колесом: событие копит сдвиг, кадры отдают его частями к точке под курсором.
+    let wheelPending = 0
+    let wheelAt = { x: 0, y: 0 }
+    let wheelFrame = 0
+    let wheelLast = 0
+    const wheelStep = (now: number): void => {
+      const dt = wheelLast ? Math.min(0.05, (now - wheelLast) / 1000) : 1 / 60
+      wheelLast = now
+      const take =
+        Math.abs(wheelPending) < 1e-3
+          ? wheelPending
+          : wheelPending * (1 - Math.exp(-dt * WHEEL_SMOOTH))
+      wheelPending -= take
+      zoomAt(wheelAt.x, wheelAt.y, Math.exp(take))
+      if (Math.abs(wheelPending) < 1e-4) {
+        wheelPending = 0
+        wheelFrame = 0
+        wheelLast = 0
+      } else wheelFrame = requestAnimationFrame(wheelStep)
+    }
+    const stopWheel = (): void => {
+      if (wheelFrame) cancelAnimationFrame(wheelFrame)
+      wheelFrame = 0
+      wheelLast = 0
+      wheelPending = 0
+    }
     const onWheel = (e: WheelEvent): void => {
       e.preventDefault()
       const l = local(e)
-      if (e.shiftKey && !e.ctrlKey) pan(-e.deltaY, 0)
-      else zoomAt(l.x, l.y, Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)))
+      if (e.shiftKey && !e.ctrlKey) {
+        pan(-e.deltaY, 0)
+        return
+      }
+      const unit = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1
+      wheelPending = Math.max(
+        -2,
+        Math.min(2, wheelPending - e.deltaY * unit * (e.ctrlKey ? WHEEL_PINCH : WHEEL_STEP)),
+      )
+      wheelAt = l
+      if (!wheelFrame) wheelFrame = requestAnimationFrame(wheelStep)
     }
     const onDblClick = (e: MouseEvent): void => {
       const l = local(e)
@@ -293,6 +336,7 @@ export function CampusMapCanvas({
       // от первого прогона навсегда блокировал бы перерисовку.
       if (frameRef.current) cancelAnimationFrame(frameRef.current)
       frameRef.current = 0
+      stopWheel()
       canvas.removeEventListener('pointerdown', onDown)
       canvas.removeEventListener('pointermove', onMove)
       canvas.removeEventListener('pointerup', onUp)
