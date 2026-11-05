@@ -206,11 +206,14 @@ function norm(v: Pt): Pt {
 
 /**
  * Граф всего кампуса. `site` — территория: её дорожки связывают входы корпусов; без дорожек
- * входы соединяются напрямую (с наценкой за улицу).
+ * входы соединяются напрямую (с наценкой за улицу). `obstacles` — контуры корпусов в мм
+ * кампуса: уличные связи (вход → дорожка, ворота → дорожка, вход ↔ вход) их не пересекают,
+ * иначе линия маршрута шла бы сквозь стены.
  */
 export function buildNavGraph(
   floors: readonly NavFloorInput[],
   site: SitePlanDoc | null = null,
+  obstacles: readonly (readonly Pt[])[] = [],
 ): NavGraph {
   const g = new GraphBuilder()
   const entrances: { id: number; buildingId: string; z: number }[] = []
@@ -330,7 +333,7 @@ export function buildNavGraph(
     }
   }
 
-  connectOutdoors(g, entrances, site)
+  connectOutdoors(g, entrances, site, obstacles)
   return g.build()
 }
 
@@ -356,10 +359,38 @@ function connectVisible(g: GraphBuilder, fn: FaceNodes): void {
   }
 }
 
+/** Пересекает ли отрезок p–q контур какого-нибудь корпуса (кроме касаний в концах). */
+function crossesObstacle(obstacles: readonly (readonly Pt[])[], p: Pt, q: Pt): boolean {
+  for (const ring of obstacles) {
+    for (let i = 0; i < ring.length; i++) {
+      if (properIntersect(p, q, ring[i]!, ring[(i + 1) % ring.length]!)) return true
+    }
+  }
+  return false
+}
+
+/**
+ * Ближайшие `count` целей, до которых можно дойти по прямой, не пересекая корпусов. Таких
+ * нет — просто ближайшие: лучше путь сквозь угол, чем вход, отрезанный от улицы.
+ */
+function nearestReachable<T extends { p: Pt }>(
+  from: Pt,
+  targets: readonly T[],
+  count: number,
+  obstacles: readonly (readonly Pt[])[],
+): { o: T; d: number }[] {
+  const sorted = targets
+    .map((o) => ({ o, d: Math.hypot(o.p.x - from.x, o.p.y - from.y) }))
+    .sort((a, b) => a.d - b.d)
+  const clear = sorted.filter(({ o }) => !crossesObstacle(obstacles, from, o.p)).slice(0, count)
+  return clear.length > 0 ? clear : sorted.slice(0, count)
+}
+
 function connectOutdoors(
   g: GraphBuilder,
   entrances: { id: number; buildingId: string; z: number }[],
   site: SitePlanDoc | null,
+  obstacles: readonly (readonly Pt[])[],
 ): void {
   const paths = site
     ? Object.values(site.features).filter((f) => f.type === 'path' || f.type === 'road')
@@ -390,12 +421,9 @@ function connectOutdoors(
   for (const e of entrances) {
     const p = g.point(e.id)
     if (outdoorNodes.length > 0) {
-      // Вход — к двум ближайшим точкам дорожек.
-      const near = outdoorNodes
-        .map((o) => ({ o, d: Math.hypot(o.p.x - p.x, o.p.y - p.y) }))
-        .sort((a, b) => a.d - b.d)
-        .slice(0, 2)
-      for (const { o, d } of near) g.edge(e.id, o.id, d * OUTDOOR_FACTOR, 'outdoor')
+      // Вход — к двум ближайшим точкам дорожек, до которых не мешает корпус.
+      for (const { o, d } of nearestReachable(p, outdoorNodes, 2, obstacles))
+        g.edge(e.id, o.id, d * OUTDOOR_FACTOR, 'outdoor')
     }
   }
   // Ворота — адрес «откуда»: посетитель начинает путь у ворот. Ключ `gate:<id>` в `spaces`.
@@ -408,11 +436,8 @@ function connectOutdoors(
         outdoorNodes.length > 0
           ? outdoorNodes
           : entrances.map((e) => ({ id: e.id, p: g.point(e.id) }))
-      const near = targets
-        .map((o) => ({ o, d: Math.hypot(o.p.x - f.x, o.p.y - f.y) }))
-        .sort((a, b) => a.d - b.d)
-        .slice(0, 2)
-      for (const { o, d } of near) g.edge(gate, o.id, d * OUTDOOR_FACTOR, 'outdoor')
+      for (const { o, d } of nearestReachable({ x: f.x, y: f.y }, targets, 2, obstacles))
+        g.edge(gate, o.id, d * OUTDOOR_FACTOR, 'outdoor')
     }
   }
   // Входы одного корпуса — всегда в обход по улице; разных корпусов — напрямую, только если
@@ -424,7 +449,8 @@ function connectOutdoors(
       const a = g.point(entrances[i]!.id)
       const b = g.point(entrances[j]!.id)
       const d = Math.hypot(a.x - b.x, a.y - b.y)
-      if (d <= OUTDOOR_MAX_MM)
+      // Напрямую сквозь корпус не ходим: такие входы свяжет дорожка или сам корпус изнутри.
+      if (d <= OUTDOOR_MAX_MM && !crossesObstacle(obstacles, a, b))
         g.edge(entrances[i]!.id, entrances[j]!.id, d * OUTDOOR_FACTOR, 'outdoor')
     }
   }

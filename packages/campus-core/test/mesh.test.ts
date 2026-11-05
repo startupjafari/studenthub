@@ -146,12 +146,47 @@ describe('floorMesh — лестницы и лифты', () => {
       i % 3 === 0 && Math.abs(all[i + 1]! - y) < 1e-6 ? [v] : [],
     )
 
-  it('марш — ступени до высоты этажа, низ у площадки', () => {
+  it('лестница двухмаршевая — площадка на полвысоты у дальнего края, верх у площадки', () => {
     expect(m.stairs.indices.length).toBeGreaterThan(0)
     expect(facingOk(m.stairs)).toBe(true)
     expect(Math.max(...ys(m.stairs))).toBeCloseTo(3, 5)
-    // Верх марша — у дальнего от площадки края (x = 4,5 м), а не у площадки (x = 0,5 м).
-    expect(Math.min(...xsAtTop(m.stairs, 3))).toBeGreaterThan(4)
+    // Промежуточная площадка — на половине высоты, у дальнего от площадки края (x = 4,5 м).
+    expect(Math.max(...xsAtTop(m.stairs, 1.5))).toBeCloseTo(4.5, 5)
+    // Второй марш приходит обратно к краю у площадки (x = 0,5 м): там площадка этажа выше.
+    expect(Math.max(...xsAtTop(m.stairs, 3))).toBeLessThan(1.5)
+  })
+
+  it('проём в полу — над лестницей с этажа ниже пола нет', () => {
+    const hall = new PlanBuilder().rect(0, 0, 6000, 4000).doc
+    const area = (b: MeshBuffers): number => {
+      let sum = 0
+      const p = b.positions
+      for (let i = 0; i < b.indices.length; i += 3) {
+        const [a, c, d] = [b.indices[i]!, b.indices[i + 1]!, b.indices[i + 2]!]
+        const ux = p[c * 3]! - p[a * 3]!
+        const uz = p[c * 3 + 2]! - p[a * 3 + 2]!
+        const vx = p[d * 3]! - p[a * 3]!
+        const vz = p[d * 3 + 2]! - p[a * 3 + 2]!
+        sum += Math.abs(ux * vz - uz * vx) / 2
+      }
+      return sum
+    }
+    const floorArea = (o: Parameters<typeof floorMesh>[1]): number =>
+      Object.values(floorMesh(hall, o).floors).reduce((s, b) => s + area(b!), 0)
+    const whole = floorArea({ elevationMm: 0, heightMm: 3000 })
+    const cut = floorArea({
+      elevationMm: 0,
+      heightMm: 3000,
+      openings: [
+        [
+          { x: 1000, y: 1000 },
+          { x: 3000, y: 1000 },
+          { x: 3000, y: 2000 },
+          { x: 1000, y: 2000 },
+        ],
+      ],
+    })
+    expect(whole - cut).toBeCloseTo(2, 3)
   })
 
   it('лифт — шахта на всю высоту этажа', () => {
@@ -180,6 +215,26 @@ describe('slabMesh', () => {
       200,
     )
     expect(facingOk(m)).toBe(true)
+  })
+
+  it('проём в плите — дыра и торцы, смотрящие в проём', () => {
+    const outline = [
+      { x: 0, y: 0 },
+      { x: 10_000, y: 0 },
+      { x: 10_000, y: 5_000 },
+      { x: 0, y: 5_000 },
+    ]
+    const hole = [
+      { x: 2_000, y: 1_000 },
+      { x: 4_000, y: 1_000 },
+      { x: 4_000, y: 3_000 },
+      { x: 2_000, y: 3_000 },
+    ]
+    const plain = slabMesh(outline, 0, 200)
+    const m = slabMesh(outline, 0, 200, undefined, [hole])
+    expect(facingOk(m)).toBe(true)
+    // Четыре торца проёма — по два треугольника; плюс сам верх стал сложнее.
+    expect(m.indices.length).toBeGreaterThan(plain.indices.length + 4 * 6)
   })
 })
 
