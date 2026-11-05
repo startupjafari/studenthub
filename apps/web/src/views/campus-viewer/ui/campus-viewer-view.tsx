@@ -30,8 +30,10 @@ import { cn } from '../../../shared/lib'
 import {
   routeInScene,
   routeOnFloor,
+  routeEndsOnLevel,
   routeOnLevel,
   routeStartFloor,
+  routeTopFloor,
   type Place,
 } from '../lib/places'
 import { MapHints } from './map-hints'
@@ -357,6 +359,19 @@ function Viewer({
         : [],
     [nav.data, route, levelFloors],
   )
+  const markerFrom = t('markerFrom')
+  const markerTo = t('markerTo')
+  const mapRouteEnds = useMemo(
+    () =>
+      nav.data?.graph && route
+        ? {
+            ...routeEndsOnLevel(nav.data.graph, route, new Set(levelFloors.map(({ f }) => f.id))),
+            labels: { a: markerFrom, b: markerTo },
+          }
+        : undefined,
+    [nav.data, route, levelFloors, markerFrom, markerTo],
+  )
+  const sceneMarkers = useMemo(() => ({ from: markerFrom, to: markerTo }), [markerFrom, markerTo])
 
   useEffect(() => {
     const graph = nav.data?.graph
@@ -439,15 +454,18 @@ function Viewer({
     },
     [goTo],
   )
-  const onTourFloor = useCallback((fid: string) => goTo(fid, null), [goTo])
   const onTourEnd = useCallback(() => setTouring(false), [])
   const toggleTour = (): void => {
     if (touring) {
       setTouring(false)
       return
     }
-    // Проход — камерой в 3D: с плана переключаемся сами.
+    // Проход — камерой в 3D: с плана переключаемся сами. Уровень — самый высокий этаж
+    // маршрута: все его этажи видны, и за проход уровень не меняется — ничего не мигает.
     if (mode === '2d') setMode('3d')
+    const graph = nav.data?.graph
+    const top = graph && route ? routeTopFloor(graph, route, floorIndex) : null
+    if (top) goTo(top, null)
     setTouring(true)
   }
   useEffect(() => {
@@ -542,6 +560,7 @@ function Viewer({
               site={data.manifest.site ?? null}
               selected={selectedSpace ? { floorId, spaceId: selectedSpace } : null}
               route={mapRoute}
+              routeEnds={mapRouteEnds}
               focus={focusReq}
               onPick={onMapPick}
               label={t('planLabel', { floor: floorLabel(floorId) })}
@@ -559,7 +578,7 @@ function Viewer({
                 site={mode === 'campus' ? (data.manifest.site ?? null) : null}
                 onPick={onPick3d}
                 tour={touring}
-                onTourFloor={onTourFloor}
+                routeMarkers={sceneMarkers}
                 onTourEnd={onTourEnd}
               />
             </div>

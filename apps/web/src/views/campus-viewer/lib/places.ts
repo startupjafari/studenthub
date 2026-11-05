@@ -63,15 +63,38 @@ export function routeStartFloor(graph: NavGraph, route: RouteResult): string | n
 }
 
 /**
+ * Этаж каждой точки маршрута для карты уровня. Улица своего этажа не имеет — её показываем
+ * на уровне, где из корпуса вышли (или куда войдут, если путь начался у ворот): иначе на
+ * плане вместо пути между корпусами был бы разрыв.
+ */
+function levelFloors(graph: NavGraph, route: RouteResult): (string | null)[] {
+  const own = route.nodes.map((n) => nodePoint(graph, n).floor ?? null)
+  const out = [...own]
+  let last: string | null = null
+  for (let i = 0; i < own.length; i++) {
+    if (own[i]) last = own[i]!
+    else out[i] = last
+  }
+  let next: string | null = null
+  for (let i = own.length - 1; i >= 0; i--) {
+    if (own[i]) next = own[i]!
+    else if (!out[i]) out[i] = next
+  }
+  return out
+}
+
+/**
  * Участки маршрута на уровне — по всем этажам этого уровня сразу (карта показывает все
- * корпуса уровня), в мм кампуса.
+ * корпуса уровня) и улица между ними, в мм кампуса.
  */
 export function routeOnLevel(graph: NavGraph, route: RouteResult, floorIds: Set<string>): Pt[][] {
+  const floors = levelFloors(graph, route)
   const lines: Pt[][] = []
   let cur: Pt[] | null = null
-  for (const n of route.nodes) {
-    const p = nodePoint(graph, n)
-    if (p.floor && floorIds.has(p.floor)) {
+  route.nodes.forEach((n, i) => {
+    const f = floors[i]
+    if (f && floorIds.has(f)) {
+      const p = nodePoint(graph, n)
       if (!cur) {
         cur = []
         lines.push(cur)
@@ -80,6 +103,38 @@ export function routeOnLevel(graph: NavGraph, route: RouteResult, floorIds: Set<
     } else {
       cur = null
     }
-  }
+  })
   return lines.filter((l) => l.length > 1)
+}
+
+/** Начало и конец маршрута, если они на этом уровне (для булавок А и Б). */
+export function routeEndsOnLevel(
+  graph: NavGraph,
+  route: RouteResult,
+  floorIds: Set<string>,
+): { a: Pt | null; b: Pt | null } {
+  const floors = levelFloors(graph, route)
+  const at = (i: number): Pt | null => {
+    const f = floors[i]
+    const n = route.nodes[i]
+    if (!f || n === undefined || !floorIds.has(f)) return null
+    const p = nodePoint(graph, n)
+    return { x: p.x, y: p.y }
+  }
+  return { a: at(0), b: at(route.nodes.length - 1) }
+}
+
+/** Этаж маршрута на самом высоком уровне: выше него в проходе показывать нечего. */
+export function routeTopFloor(
+  graph: NavGraph,
+  route: RouteResult,
+  floors: Map<string, { floor: { level: number } }>,
+): string | null {
+  let best: { id: string; level: number } | null = null
+  for (const n of route.nodes) {
+    const id = nodePoint(graph, n).floor
+    const level = id ? floors.get(id)?.floor.level : undefined
+    if (id && level !== undefined && (!best || level > best.level)) best = { id, level }
+  }
+  return best?.id ?? null
 }
