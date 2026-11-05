@@ -421,6 +421,42 @@ function crossesObstacle(obstacles: readonly (readonly Pt[])[], p: Pt, q: Pt): b
   return false
 }
 
+/** Части отрезка a–b вне корпусов: режем по контурам, выбрасываем куски внутри. */
+function piecesOutside(a: Pt, b: Pt, obstacles: readonly (readonly Pt[])[]): [Pt, Pt][] {
+  const ts = [0, 1]
+  for (const ring of obstacles) {
+    for (let i = 0; i < ring.length; i++) {
+      const c = ring[i]!
+      const d = ring[(i + 1) % ring.length]!
+      const d1 = cross(c, d, a)
+      const d2 = cross(c, d, b)
+      const d3 = cross(a, b, c)
+      const d4 = cross(a, b, d)
+      if (d1 * d2 < 0 && d3 * d4 <= 0) ts.push(d1 / (d1 - d2))
+    }
+  }
+  ts.sort((x, y) => x - y)
+  const at = (t: number): Pt => ({
+    x: Math.round(a.x + (b.x - a.x) * t),
+    y: Math.round(a.y + (b.y - a.y) * t),
+  })
+  const out: [Pt, Pt][] = []
+  for (let i = 0; i + 1 < ts.length; i++) {
+    const t0 = ts[i]!
+    const t1 = ts[i + 1]!
+    if (t1 - t0 < 1e-9) continue
+    const mid = at((t0 + t1) / 2)
+    if (obstacles.some((ring) => pointInPolygon(mid, ring) === 'inside')) continue
+    const p = at(t0)
+    const q = at(t1)
+    const last = out.at(-1)
+    // Соседние куски снаружи — один отрезок: лишние узлы на контурах ни к чему.
+    if (last && last[1].x === p.x && last[1].y === p.y) last[1] = q
+    else out.push([p, q])
+  }
+  return out
+}
+
 /**
  * Ближайшие `count` целей, до которых можно дойти по прямой, не пересекая корпусов. Таких
  * нет — просто ближайшие: лучше путь сквозь угол, чем вход, отрезанный от улицы.
@@ -450,15 +486,22 @@ function connectOutdoors(
   const outdoorNodes: { id: number; p: Pt }[] = []
   for (const f of paths) {
     if (f.type !== 'path' && f.type !== 'road') continue
-    let prev: number | null = null
-    let prevP: Pt | null = null
-    for (const p of f.line) {
+    let prev: { id: number; p: Pt } | null = null
+    const node = (p: Pt): { id: number; p: Pt } => {
+      if (prev && prev.p.x === p.x && prev.p.y === p.y) return prev
       const id = g.node(p, 0, -1, 'outdoor')
       outdoorNodes.push({ id, p })
-      if (prev !== null && prevP)
-        g.edge(prev, id, Math.hypot(p.x - prevP.x, p.y - prevP.y), 'outdoor')
-      prev = id
-      prevP = p
+      return { id, p }
+    }
+    // Куски дорожки внутри корпуса выбрасываем: дорожку могли нарисовать заходящей на
+    // корпус, и путь по ней шёл бы сквозь его стены.
+    for (let i = 0; i + 1 < f.line.length; i++) {
+      for (const [p, q] of piecesOutside(f.line[i]!, f.line[i + 1]!, obstacles)) {
+        const a = node(p)
+        const b = node(q)
+        g.edge(a.id, b.id, Math.hypot(q.x - p.x, q.y - p.y), 'outdoor')
+        prev = b
+      }
     }
   }
   // Пересечения дорожек: вершины ближе 2 м считаются одним перекрёстком.
