@@ -108,6 +108,65 @@ describe('floorMesh', () => {
   })
 })
 
+describe('floorMesh — лестницы и лифты', () => {
+  const room = new PlanBuilder().rect(0, 0, 6000, 4000).doc
+  const doc = {
+    ...room,
+    verticals: {
+      st: {
+        type: 'stairs' as const,
+        groupId: 'g1',
+        outline: [
+          [500, 500],
+          [4500, 500],
+          [4500, 1700],
+          [500, 1700],
+        ] as [number, number][],
+        stepFree: false,
+        landing: { x: 300, y: 1100 },
+      },
+      el: {
+        type: 'elevator' as const,
+        groupId: 'g2',
+        outline: [
+          [4800, 2500],
+          [5800, 2500],
+          [5800, 3800],
+          [4800, 3800],
+        ] as [number, number][],
+        stepFree: true,
+        landing: { x: 5300, y: 2300 },
+      },
+    },
+  }
+  const m = floorMesh(doc, { elevationMm: 0, heightMm: 3000 })
+  const ys = (b: MeshBuffers): number[] => [...b.positions].filter((_, i) => i % 3 === 1)
+  const xsAtTop = (b: MeshBuffers, y: number): number[] =>
+    [...b.positions].flatMap((v, i, all) =>
+      i % 3 === 0 && Math.abs(all[i + 1]! - y) < 1e-6 ? [v] : [],
+    )
+
+  it('марш — ступени до высоты этажа, низ у площадки', () => {
+    expect(m.stairs.indices.length).toBeGreaterThan(0)
+    expect(facingOk(m.stairs)).toBe(true)
+    expect(Math.max(...ys(m.stairs))).toBeCloseTo(3, 5)
+    // Верх марша — у дальнего от площадки края (x = 4,5 м), а не у площадки (x = 0,5 м).
+    expect(Math.min(...xsAtTop(m.stairs, 3))).toBeGreaterThan(4)
+  })
+
+  it('лифт — шахта на всю высоту этажа', () => {
+    expect(facingOk(m.elevators)).toBe(true)
+    expect(Math.min(...ys(m.elevators))).toBeCloseTo(0, 5)
+    expect(Math.max(...ys(m.elevators))).toBeCloseTo(3, 5)
+  })
+
+  it('разрез этажа срезает и лестницы с лифтами', () => {
+    const cut = floorMesh(doc, { elevationMm: 0, heightMm: 3000, cutHeightMm: 1200 })
+    expect(Math.max(...ys(cut.stairs))).toBeCloseTo(1.2, 5)
+    expect(Math.max(...ys(cut.elevators))).toBeCloseTo(1.2, 5)
+  })
+})
+
 describe('slabMesh', () => {
   it('плита смотрит вверх и наружу', () => {
     const m = slabMesh(

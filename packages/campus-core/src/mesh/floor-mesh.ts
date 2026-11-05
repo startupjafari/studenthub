@@ -31,6 +31,10 @@ export interface FloorMesh {
   glass: MeshBuffers
   /** Пол помещений по типам: цвет типа — материал, геометрия — одна на тип. */
   floors: Partial<Record<SpaceKind | 'none', MeshBuffers>>
+  /** Лестницы и пандусы — марши ступенями от площадки вверх. */
+  stairs: MeshBuffers
+  /** Лифты — шахты на высоту этажа. */
+  elevators: MeshBuffers
 }
 
 export interface FloorMeshOptions {
@@ -245,7 +249,73 @@ export function floorMesh(doc: FloorPlanDoc, options: FloorMeshOptions): FloorMe
   const floors: FloorMesh['floors'] = {}
   for (const [k, b] of floorBuilders) if (!b.empty) floors[k] = b.build()
 
-  return { walls: walls.build(), glass: glass.build(), floors }
+  // Лестницы, пандусы и лифты. Фигура — повёрнутый прямоугольник по её длинной стороне:
+  // так любая нарисованная форма читается маршем или шахтой.
+  const stairs = new Builder()
+  const elevators = new Builder()
+  for (const v of Object.values(doc.verticals)) {
+    const pts = v.outline.map(([x, y]) => scene({ x, y }))
+    const box = orientedBox(pts)
+    if (!box) continue
+    const { u, w, s0, s1, t0, t1 } = box
+    const at = (s: number, t: number): Pt3 => [u[0] * s + w[0] * t, u[1] * s + w[1] * t]
+    const half = (t1 - t0) / 2
+    const mid = (t0 + t1) / 2
+    if (v.type === 'elevator') {
+      prism(elevators, at(s0, mid), at(s1, mid), half, y0, y0 + top)
+      continue
+    }
+    // Марш поднимается от того края, где площадка: туда приходят с этажа.
+    const land = scene(v.landing)
+    const ls = land[0] * u[0] + land[1] * u[1]
+    const fromStart = Math.abs(ls - s0) <= Math.abs(ls - s1)
+    const rise = Math.min(top, options.heightMm / 1000)
+    const steps = Math.max(4, Math.round(rise / 0.3))
+    for (let i = 0; i < steps; i++) {
+      const k0 = i / steps
+      const k1 = (i + 1) / steps
+      const a = fromStart ? s0 + (s1 - s0) * k0 : s1 - (s1 - s0) * k0
+      const b = fromStart ? s0 + (s1 - s0) * k1 : s1 - (s1 - s0) * k1
+      prism(stairs, at(a, mid), at(b, mid), half, y0, y0 + rise * k1)
+    }
+  }
+
+  return {
+    walls: walls.build(),
+    glass: glass.build(),
+    floors,
+    stairs: stairs.build(),
+    elevators: elevators.build(),
+  }
+}
+
+/**
+ * Прямоугольник вокруг фигуры, повёрнутый по её самой длинной стороне: оси `u` (вдоль) и
+ * `w` (поперёк) и границы проекций точек на них.
+ */
+function orientedBox(
+  pts: Pt3[],
+): { u: Pt3; w: Pt3; s0: number; s1: number; t0: number; t1: number } | null {
+  let best = { len: 0, u: [1, 0] as Pt3 }
+  pts.forEach((a, i) => {
+    const b = pts[(i + 1) % pts.length]!
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1])
+    if (len > best.len) best = { len, u: [(b[0] - a[0]) / len, (b[1] - a[1]) / len] }
+  })
+  if (best.len < 1e-6) return null
+  const u = best.u
+  const w: Pt3 = [-u[1], u[0]]
+  const s = pts.map((p) => p[0] * u[0] + p[1] * u[1])
+  const t = pts.map((p) => p[0] * w[0] + p[1] * w[1])
+  const box = {
+    u,
+    w,
+    s0: Math.min(...s),
+    s1: Math.max(...s),
+    t0: Math.min(...t),
+    t1: Math.max(...t),
+  }
+  return box.s1 - box.s0 < 1e-6 || box.t1 - box.t0 < 1e-6 ? null : box
 }
 
 /** Перекрытие по контуру корпуса — плита под этажом. */
