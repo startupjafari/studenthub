@@ -99,7 +99,12 @@ export function CampusScene({ onPick, focusPoint, className, label, ...input }: 
 
   return (
     <div className={className ?? 'relative h-full w-full'}>
-      <div ref={host} role="img" aria-label={label} className="absolute inset-0" />
+      <div
+        ref={host}
+        role="img"
+        aria-label={label}
+        className="absolute inset-0 rounded-[inherit] has-[canvas:focus-visible]:ring-4 has-[canvas:focus-visible]:ring-ring/30 has-[canvas:focus-visible]:ring-inset"
+      />
       {(lost || unsupported) && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/80 p-6 text-center text-sm">
           <p className="flex items-center gap-2">
