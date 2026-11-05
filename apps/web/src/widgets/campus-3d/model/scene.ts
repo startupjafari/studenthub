@@ -52,8 +52,8 @@ export interface SceneInput {
   mode: SceneMode
   focusFloorId: string | null
   highlight: { floorId: string; spaceId: string } | null
-  /** Маршрут в метрах сцены (x, y, z). */
-  route: { x: number; y: number; z: number }[] | null
+  /** Маршрут в метрах сцены (x, y, z); `floor` — этаж точки (на улице — null). */
+  route: { x: number; y: number; z: number; floor?: string | null }[] | null
   site: SitePlanDoc | null
 }
 
@@ -135,6 +135,27 @@ const CAMERA_KEYS = new Set([
 /** Перелёт камеры: двойной клик, «общий вид», подвод к помещению. */
 const FLIGHT_MS = MOTION.large * 1.5
 
+/**
+ * Колесо: шаг мелкий (щелчок колеса ≈ 10 %), а сам зум доезжает плавно — накопленный сдвиг
+ * гасится по экспоненте за ~0,2 с. Щипок тачпада (wheel + ctrl) приходит мелкими порциями —
+ * у него свой, больший коэффициент.
+ */
+const WHEEL_STEP = 0.001
+const WHEEL_PINCH = 0.01
+const WHEEL_SMOOTH = 14
+
+/**
+ * Проход по маршруту: камера идёт следом за точкой «как в навигаторе» — сзади и сверху,
+ * с запаздыванием, чтобы повороты не дёргали картинку. Длительность — от длины пути,
+ * в разумных пределах: короткий маршрут не мелькает, длинный не тянется минутами.
+ */
+const TOUR_MIN_S = 8
+const TOUR_MAX_S = 30
+const TOUR_M_PER_S = 8
+const TOUR_BEHIND_M = 16
+const TOUR_ABOVE_M = 12
+const TOUR_AHEAD_M = 8
+
 const SITE_COLORS: Record<string, string> = {
   lawn: '#bbf7d0',
   parking: '#e2e8f0',
@@ -168,6 +189,10 @@ export class CampusSceneController {
   >()
   onPick: ((floorId: string, spaceId: string) => void) | null = null
   onContextLost: ((lost: boolean) => void) | null = null
+  /** Проход по маршруту дошёл до этажа (экран переключает уровень, чтобы верх не мешал). */
+  onTourFloor: ((floorId: string) => void) | null = null
+  /** Проход закончился: дошли до конца или человек взял камеру в руки. */
+  onTourEnd: (() => void) | null = null
 
   constructor(
     private readonly host: HTMLElement,
@@ -198,12 +223,14 @@ export class CampusSceneController {
       5000,
     )
     this.camera.position.set(40, 50, 40)
-    // ЛКМ — вращать, ПКМ / Shift+ЛКМ — сдвиг, колесо — к курсору; инерция гасится сама
-    // за несколько кадров (кадры идут, только пока камера движется — см. `tick`).
+    // Колесо — своё, плавное (см. `wheel`): слушатель вешаем ДО OrbitControls, чтобы
+    // остановить событие раньше его обработчика. Щипок на сенсоре остаётся за ним.
+    this.renderer.domElement.addEventListener('wheel', this.wheel, { passive: false })
+    // ЛКМ — вращать, ПКМ / Shift+ЛКМ — сдвиг; инерция гасится сама за несколько кадров
+    // (кадры идут, только пока камера движется — см. `tick`).
     this.controls = new OrbitControls(this.camera, this.renderer.domElement)
     this.controls.enableDamping = true
     this.controls.dampingFactor = 0.15
-    this.controls.zoomToCursor = true
     this.controls.maxPolarAngle = Math.PI * 0.49
     this.controls.screenSpacePanning = true
     this.controls.addEventListener('change', () => this.requestRender())
@@ -221,16 +248,28 @@ export class CampusSceneController {
     el.addEventListener('keydown', this.keyDown)
     el.addEventListener('keyup', this.keyUp)
     el.addEventListener('blur', this.releaseKeys)
+
+    // Идущая по маршруту точка — вне `content`: пересборка сцены её не трогает.
+    this.walker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.6, 16, 12),
+      new THREE.MeshBasicMaterial({ color: palette.primary, depthTest: false, transparent: true }),
+    )
+    this.walker.renderOrder = 11
+    this.walker.visible = false
+    this.scene.add(this.walker)
   }
 
   setPalette(p: ScenePalette): void {
     this.palette = p
+    ;(this.walker.material as THREE.MeshBasicMaterial).color.set(p.primary)
     this.scene.background = new THREE.Color(p.background)
     if (this.input) this.rebuild()
   }
 
   update(input: SceneInput): void {
     const modeChanged = !!this.input && this.input.mode !== input.mode
+    // Маршрут сменился — старый проход больше ни к чему.
+    if (this.tour && this.input?.route !== input.route) this.stopTour()
     this.input = input
     this.rebuild()
     // Пока человек не трогал камеру, вид следует за догружающимися этажами; потом — только
@@ -310,6 +349,14 @@ export class CampusSceneController {
     if (this.flight) busy = this.stepFlight(now)
     if (this.keys.size) {
       this.stepKeys(dt)
+      busy = true
+    }
+    if (this.zoomPending !== 0) {
+      this.stepWheel(dt)
+      busy = true
+    }
+    if (this.tour) {
+      this.stepTour(dt)
       busy = true
     }
     // Инерция: пока она гасится, `update` шлёт `change` и сам просит следующий кадр.
@@ -404,6 +451,161 @@ export class CampusSceneController {
   private readonly grab = (): void => {
     this.touched = true
     this.flight = null
+    if (this.tour) this.stopTour()
+  }
+
+  // ── Колесо ───────────────────────────────────────────────────────────────────────
+
+  /** Ещё не применённый зум (логарифм множителя; > 0 — ближе) и точка, к которой зумим. */
+  private zoomPending = 0
+  private zoomAnchor: THREE.Vector3 | null = null
+  private lastWheel: { x: number; y: number } | null = null
+
+  private readonly wheel = (e: WheelEvent): void => {
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    const unit = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1
+    const k = e.ctrlKey ? WHEEL_PINCH : WHEEL_STEP
+    this.zoomPending = THREE.MathUtils.clamp(this.zoomPending - e.deltaY * unit * k, -2, 2)
+    // Луч к курсору — только когда курсор сдвинулся: тачпад шлёт десятки событий в секунду.
+    const last = this.lastWheel
+    if (!this.zoomAnchor || !last || Math.hypot(e.clientX - last.x, e.clientY - last.y) > 4) {
+      const hit = this.raycast(e.clientX, e.clientY, this.content.children)
+      this.zoomAnchor = hit?.point.clone() ?? this.groundAt(e.clientX, e.clientY)
+      this.lastWheel = { x: e.clientX, y: e.clientY }
+    }
+    this.grab()
+    this.requestRender()
+  }
+
+  /** Точка земли (y = 0) под курсором; мимо земли — текущая цель камеры. */
+  private groundAt(clientX: number, clientY: number): THREE.Vector3 {
+    const rect = this.renderer.domElement.getBoundingClientRect()
+    const ray = new THREE.Raycaster()
+    ray.setFromCamera(
+      new THREE.Vector2(
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        -((clientY - rect.top) / rect.height) * 2 + 1,
+      ),
+      this.camera,
+    )
+    const p = new THREE.Vector3()
+    return ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), p)
+      ? p
+      : this.controls.target.clone()
+  }
+
+  /** Доля накопленного зума за кадр: камера и цель едут к точке под курсором. */
+  private stepWheel(dt: number): void {
+    const take =
+      Math.abs(this.zoomPending) < 1e-3
+        ? this.zoomPending
+        : this.zoomPending * (1 - Math.exp(-dt * WHEEL_SMOOTH))
+    this.zoomPending -= take
+    if (Math.abs(this.zoomPending) < 1e-4) this.zoomPending = 0
+    const anchor = this.zoomAnchor ?? this.controls.target
+    const dist = this.camera.position.distanceTo(this.controls.target)
+    const next = THREE.MathUtils.clamp(
+      dist * Math.exp(-take),
+      this.controls.minDistance,
+      this.controls.maxDistance,
+    )
+    if (dist <= 0 || next === dist) {
+      this.zoomPending = 0
+      return
+    }
+    const f = next / dist
+    this.camera.position.sub(anchor).multiplyScalar(f).add(anchor)
+    this.controls.target.sub(anchor).multiplyScalar(f).add(anchor)
+  }
+
+  // ── Проход по маршруту ───────────────────────────────────────────────────────────
+
+  private readonly walker: THREE.Mesh
+  private tour: {
+    pts: THREE.Vector3[]
+    floors: (string | null)[]
+    /** Пройденная длина до каждой точки, м. */
+    cum: number[]
+    length: number
+    speed: number
+    s: number
+    heading: THREE.Vector3
+    floor: string | null
+  } | null = null
+
+  /** Пройти по маршруту камерой. Нет маршрута — `false`. */
+  startTour(): boolean {
+    const route = this.input?.route
+    if (!route || route.length < 2) return false
+    const pts = route.map((p) => new THREE.Vector3(p.x, p.y + 0.3, p.z))
+    const cum = [0]
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1]! + pts[i]!.distanceTo(pts[i - 1]!))
+    const length = cum[cum.length - 1]!
+    if (length < 1) return false
+    // Перезапуск — тихо, без onTourEnd: экран уже считает, что проход идёт.
+    this.tour = null
+    this.grab()
+    const seconds = THREE.MathUtils.clamp(length / TOUR_M_PER_S, TOUR_MIN_S, TOUR_MAX_S)
+    const heading = pts[1]!.clone().sub(pts[0]!).setY(0)
+    if (heading.lengthSq() < 1e-6) heading.set(0, 0, -1)
+    this.tour = {
+      pts,
+      floors: route.map((p) => p.floor ?? null),
+      cum,
+      length,
+      speed: length / seconds,
+      s: 0,
+      heading: heading.normalize(),
+      floor: null,
+    }
+    this.walker.visible = true
+    this.requestRender()
+    return true
+  }
+
+  /** Остановить проход; камера остаётся, где была. */
+  stopTour(): void {
+    if (!this.tour) return
+    this.tour = null
+    this.walker.visible = false
+    this.requestRender()
+    this.onTourEnd?.()
+  }
+
+  /** Точка пути на расстоянии `s` от начала и индекс участка. */
+  private tourAt(s: number): { p: THREE.Vector3; i: number } {
+    const t = this.tour!
+    let i = 0
+    while (i < t.cum.length - 2 && t.cum[i + 1]! < s) i++
+    const seg = t.cum[i + 1]! - t.cum[i]!
+    const k = seg > 0 ? (s - t.cum[i]!) / seg : 0
+    return { p: t.pts[i]!.clone().lerp(t.pts[i + 1]!, THREE.MathUtils.clamp(k, 0, 1)), i }
+  }
+
+  private stepTour(dt: number): void {
+    const t = this.tour!
+    t.s = Math.min(t.length, t.s + t.speed * dt)
+    const { p, i } = this.tourAt(t.s)
+    const ahead = this.tourAt(Math.min(t.length, t.s + TOUR_AHEAD_M))
+      .p.sub(p)
+      .setY(0)
+    // На лестнице направление по земле почти нулевое — держим прежнее.
+    if (ahead.lengthSq() > 0.04)
+      t.heading.lerp(ahead.normalize(), 1 - Math.exp(-dt * 3)).normalize()
+    const want = p
+      .clone()
+      .addScaledVector(t.heading, -TOUR_BEHIND_M)
+      .add(new THREE.Vector3(0, TOUR_ABOVE_M, 0))
+    this.camera.position.lerp(want, 1 - Math.exp(-dt * 4))
+    this.controls.target.lerp(p, 1 - Math.exp(-dt * 6))
+    this.walker.position.copy(p)
+    const floor = t.floors[i] ?? t.floors[i + 1] ?? null
+    if (floor && floor !== t.floor) {
+      t.floor = floor
+      this.onTourFloor?.(floor)
+    }
+    if (t.s >= t.length) this.stopTour()
   }
 
   private readonly keyDown = (e: KeyboardEvent): void => {
@@ -489,6 +691,9 @@ export class CampusSceneController {
   dispose(): void {
     if (this.frame) cancelAnimationFrame(this.frame)
     this.clear()
+    this.tour = null
+    this.walker.geometry.dispose()
+    ;(this.walker.material as THREE.Material).dispose()
     this.controls.removeEventListener('start', this.grab)
     this.controls.dispose()
     const el = this.renderer.domElement
@@ -497,6 +702,7 @@ export class CampusSceneController {
     el.removeEventListener('pointerdown', this.pointerDown)
     el.removeEventListener('pointerup', this.pointerUp)
     el.removeEventListener('dblclick', this.dblClick)
+    el.removeEventListener('wheel', this.wheel)
     el.removeEventListener('keydown', this.keyDown)
     el.removeEventListener('keyup', this.keyUp)
     el.removeEventListener('blur', this.releaseKeys)
