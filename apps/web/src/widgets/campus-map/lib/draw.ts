@@ -18,6 +18,8 @@ export interface MapScene {
   selected: { floorId: string; spaceId: string } | null
   /** Маршрут на этом уровне — ломаные в мм кампуса. */
   route: Pt[][]
+  /** Настоящие начало и конец маршрута, если они на этом уровне, и буквы булавок. */
+  routeEnds?: { a: Pt | null; b: Pt | null; labels: { a: string; b: string } }
   kindLabel: (kind: SpaceKind) => string
 }
 
@@ -29,6 +31,8 @@ export interface MapView {
 }
 
 const ICON_PX = 18
+/** Шаг стрелок по линии маршрута, px экрана. */
+const ROUTE_ARROW_PX = 56
 /** Номера кабинетов — только когда помещение на экране не меньше этого. */
 const NUMBER_MIN_PX = 26
 /** Ниже этого масштаба вместо плана — подписи корпусов. */
@@ -180,30 +184,66 @@ export function drawMap(
     }
   }
 
-  // Маршрут — с белой обводкой, чтобы читался поверх любой заливки.
+  // Маршрут в духе 2ГИС: светлый ореол, тёмная кайма, яркая линия, белые стрелки по ходу.
+  // Концы участков, которые не начало и не конец пути, — переходы на другой этаж: кружок.
+  g.save()
+  g.lineCap = 'round'
+  g.lineJoin = 'round'
+  for (const [w, color] of [
+    [11, p.halo],
+    [8, p.routeCasing],
+    [5, p.primary],
+  ] as const) {
+    for (const r of scene.route) {
+      if (r.length < 2) continue
+      line(r)
+      g.lineWidth = w
+      g.strokeStyle = color
+      g.stroke()
+    }
+  }
+  g.strokeStyle = '#ffffff'
+  g.lineWidth = 1.75
   for (const r of scene.route) {
-    if (r.length < 2) continue
-    line(r)
-    g.lineWidth = 7
-    g.strokeStyle = p.halo
-    g.stroke()
-    line(r)
-    g.lineWidth = 4
-    g.strokeStyle = p.primary
-    g.stroke()
+    let carry = ROUTE_ARROW_PX / 2
+    for (let i = 0; i + 1 < r.length; i++) {
+      const ax = sx(r[i]!.x)
+      const ay = sy(r[i]!.y)
+      const bx = sx(r[i + 1]!.x)
+      const by = sy(r[i + 1]!.y)
+      const len = Math.hypot(bx - ax, by - ay)
+      if (len < 1e-3) continue
+      const ux = (bx - ax) / len
+      const uy = (by - ay) / len
+      let d = carry
+      for (; d < len; d += ROUTE_ARROW_PX) {
+        const cx = ax + ux * d
+        const cy = ay + uy * d
+        g.beginPath()
+        g.moveTo(cx - ux * 2.5 - uy * 2.5, cy - uy * 2.5 + ux * 2.5)
+        g.lineTo(cx + ux * 1.5, cy + uy * 1.5)
+        g.lineTo(cx - ux * 2.5 + uy * 2.5, cy - uy * 2.5 - ux * 2.5)
+        g.stroke()
+      }
+      carry = d - len
+    }
   }
-  const firstRoute = scene.route[0]
-  const lastRoute = scene.route.at(-1)
-  for (const q of [firstRoute?.[0], lastRoute?.at(-1)]) {
-    if (!q) continue
-    g.beginPath()
-    g.arc(sx(q.x), sy(q.y), 6, 0, Math.PI * 2)
-    g.fillStyle = p.primary
-    g.fill()
-    g.lineWidth = 2
-    g.strokeStyle = p.halo
-    g.stroke()
+  const ends = scene.routeEnds
+  const same = (a: Pt | null | undefined, b: Pt | null | undefined): boolean =>
+    !!a && !!b && Math.abs(a.x - b.x) < 1 && Math.abs(a.y - b.y) < 1
+  for (const r of scene.route) {
+    for (const q of [r[0], r.at(-1)]) {
+      if (!q || same(q, ends?.a) || same(q, ends?.b)) continue
+      g.beginPath()
+      g.arc(sx(q.x), sy(q.y), 4.5, 0, Math.PI * 2)
+      g.fillStyle = p.halo
+      g.fill()
+      g.lineWidth = 2.5
+      g.strokeStyle = p.primary
+      g.stroke()
+    }
   }
+  g.restore()
 
   // ── Иконки и подписи — без наложений: что не влезло, то не рисуем ──────────────────
   const placed: Box[] = []
@@ -213,6 +253,40 @@ export function drawMap(
     bx.x0 < width &&
     bx.y0 < height &&
     !placed.some((o) => bx.x0 < o.x1 && bx.x1 > o.x0 && bx.y0 < o.y1 && bx.y1 > o.y0)
+
+  // Булавки А и Б — поверх линии; их место занято, подписи помещений его обходят.
+  if (ends) {
+    for (const [q, letter, color] of [
+      [ends.a, ends.labels.a, p.routeStart],
+      [ends.b, ends.labels.b, p.routeEnd],
+    ] as const) {
+      if (!q) continue
+      const x = sx(q.x)
+      const y = sy(q.y)
+      const r = 11
+      const cy = y - r - 6
+      g.beginPath()
+      g.moveTo(x - 5, cy + r - 2)
+      g.lineTo(x, y)
+      g.lineTo(x + 5, cy + r - 2)
+      g.closePath()
+      g.fillStyle = '#ffffff'
+      g.fill()
+      g.beginPath()
+      g.arc(x, cy, r + 2.5, 0, Math.PI * 2)
+      g.fill()
+      g.beginPath()
+      g.arc(x, cy, r, 0, Math.PI * 2)
+      g.fillStyle = color
+      g.fill()
+      g.fillStyle = '#ffffff'
+      g.font = '700 12px system-ui, sans-serif'
+      g.textAlign = 'center'
+      g.textBaseline = 'middle'
+      g.fillText(letter, x, cy + 0.5)
+      placed.push({ x0: x - r - 3, y0: cy - r - 3, x1: x + r + 3, y1: y })
+    }
+  }
 
   if (!detailed) {
     // Издалека — подписи корпусов.

@@ -33,6 +33,10 @@ export interface MapPalette {
   badge: string
   entrance: string
   primary: string
+  /** Маршрут: тёмная кайма под линией и булавки начала и конца. */
+  routeCasing: string
+  routeStart: string
+  routeEnd: string
 }
 
 const LIGHT: MapPalette = {
@@ -63,6 +67,9 @@ const LIGHT: MapPalette = {
   badge: '#2f80ed',
   entrance: '#16a34a',
   primary: '#2563eb',
+  routeCasing: '#1e3a8a',
+  routeStart: '#16a34a',
+  routeEnd: '#dc2626',
 }
 
 const DARK: MapPalette = {
@@ -93,6 +100,9 @@ const DARK: MapPalette = {
   badge: '#3b82f6',
   entrance: '#22c55e',
   primary: '#3b82f6',
+  routeCasing: '#1e3a8a',
+  routeStart: '#22c55e',
+  routeEnd: '#ef4444',
 }
 
 export function mapPalette(dark: boolean): MapPalette {

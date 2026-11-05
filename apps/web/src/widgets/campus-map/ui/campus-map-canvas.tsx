@@ -54,6 +54,7 @@ export function CampusMapCanvas({
   site,
   selected,
   route,
+  routeEnds,
   focus,
   onPick,
   label,
@@ -62,6 +63,8 @@ export function CampusMapCanvas({
   site: SitePlanDoc | null
   selected: { floorId: string; spaceId: string } | null
   route: Pt[][]
+  /** Начало и конец маршрута на этом уровне — булавки А и Б. */
+  routeEnds?: { a: Pt | null; b: Pt | null; labels: { a: string; b: string } }
   /** Подвести карту к помещению: меняется `nonce` — карта едет к нему. */
   focus: { floorId: string; spaceId: string; nonce: number } | null
   /** Клик по помещению; по пустому месту — `null`: снять выделение. */
@@ -76,8 +79,8 @@ export function CampusMapCanvas({
   const frameRef = useRef(0)
   const darkRef = useRef(false)
   // Сцена — в ref: холст перерисовывается по кадру, а не через ререндер React.
-  const sceneRef = useRef({ buildings, site, selected, route })
-  sceneRef.current = { buildings, site, selected, route }
+  const sceneRef = useRef({ buildings, site, selected, route, routeEnds })
+  sceneRef.current = { buildings, site, selected, route, routeEnds }
   const pickRef = useRef(onPick)
   pickRef.current = onPick
   const kindLabelRef = useRef((k: SpaceKind) => t(`kind_${k}`))
@@ -109,6 +112,7 @@ export function CampusMapCanvas({
         buildings: mapBuildings(),
         selected: s.selected,
         route: s.route,
+        routeEnds: s.routeEnds,
         kindLabel: kindLabelRef.current,
       },
       view,
@@ -352,7 +356,7 @@ export function CampusMapCanvas({
   useEffect(() => {
     if (!viewRef.current) fitAll()
     schedule()
-  }, [buildings, site, selected, route])
+  }, [buildings, site, selected, route, routeEnds])
 
   // Подвести к помещению (поиск, шаг маршрута, ссылка): по центру, крупно. Один раз на
   // запрос — пока план нужного корпуса не пришёл, ждём его, а потом карту двигает человек.
