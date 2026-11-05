@@ -14,3 +14,4 @@ export {
   type UnderlayState,
 } from './lib/underlay'
 export { UnderlayPanel } from './ui/underlay-panel'
+export { autoLayoutFloors, type AutoLayoutFloorsResult } from './lib/auto-layout-floors'

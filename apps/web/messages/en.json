@@ -5888,6 +5888,8 @@
     "commentHint": "Enter to send, Shift+Enter for a new line"
   },
   "Campus": {
+    "autoLayoutNew": "Lay out rooms right away",
+    "autoLayoutNewHint": "Corridors, rooms, stairs, restrooms and lifts on every floor from the outline — edit later in the editor.",
     "adminTitle": "Campus map",
     "adminSubtitle": "Buildings, floors and plans — students can find any room",
     "createCampus": "Create campus",
@@ -6018,6 +6020,15 @@
     "copyFloorDone": "Copied to {count, plural, one {# floor} other {# floors}}"
   },
   "CampusEditor": {
+    "templateAuto": "Auto layout",
+    "templateAutoHint": "The whole floor from the building outline: corridors, rooms, stairs and restrooms at the ends, lifts, doors and windows. Edit with the usual tools afterwards; Ctrl+Z undoes it.",
+    "templateNeedsBuilding": "The building outline is still loading.",
+    "autoError_NOT_ORTHOGONAL": "Auto layout works for buildings with right angles. Adjust the outline on the site or draw the floor by hand.",
+    "autoError_TOO_SMALL": "The building is too small to lay out.",
+    "autoReplaceConfirm": "Replace the floor plan with an auto layout?",
+    "autoReplaceHint": "What is drawn on this floor will be replaced. Ctrl+Z undoes it.",
+    "autoRoomKind": "Room type",
+    "autoLifts": "Lifts",
     "floorNotFound": "Floor not found or no access",
     "back": "Back to campus",
     "floor": "Floor",
@@ -6233,6 +6244,7 @@
     "selectedAnnounce": "Selected: {place}, {floor}"
   },
   "CampusSite": {
+    "autoLayoutSkipped": "Rooms were not laid out: the building has non-right angles. Draw the floors in the editor.",
     "loading": "Loading the grounds",
     "notFound": "Campus not found or no access",
     "title": "Grounds",
