@@ -3,50 +3,13 @@ import * as THREE from 'three'
 /**
  * Маршрут в 3D «как в 2ГИС» (docs/CAMPUS_BUILDER.md §15): плоская лента по полу с тёмной
  * каймой и белыми стрелками по ходу движения, А и Б — булавки постоянного экранного размера.
- * Тот же сглаженный путь ведёт камеру при проходе от первого лица — поэтому он здесь.
+ * Сам путь (марши, шахты, углы) собирает `route-path.ts`.
  */
 
-/** Радиус скругления углов пути, м: граф даёт ломаную с углами 90°. */
-const CORNER_M = 1.6
-/** Точек на дугу угла: больше — глаже, но длиннее буфер. */
-const CORNER_STEPS = 6
 /** Ширина ленты, м. */
-export const RIBBON_WIDTH_M = 0.9
+export const RIBBON_WIDTH_M = 0.6
 /** Шаг стрелок вдоль ленты, м (одна плитка текстуры). */
 export const ARROW_STEP_M = 2.4
-
-/**
- * Скруглить углы ломаной: вместо вершины — квадратичная дуга между точками, отступившими
- * от неё на `CORNER_M` (не дальше половины соседних отрезков). Камера на таком пути не
- * поворачивает рывком, лента не ломается на стыках.
- */
-export function roundPath(pts: THREE.Vector3[]): THREE.Vector3[] {
-  const clean = pts.filter((p, i) => i === 0 || p.distanceToSquared(pts[i - 1]!) > 1e-4)
-  if (clean.length < 3) return clean
-  const out: THREE.Vector3[] = [clean[0]!]
-  for (let i = 1; i < clean.length - 1; i++) {
-    const a = clean[i - 1]!
-    const b = clean[i]!
-    const c = clean[i + 1]!
-    const ab = b.distanceTo(a)
-    const bc = c.distanceTo(b)
-    const r = Math.min(CORNER_M, ab / 2, bc / 2)
-    const p0 = b.clone().addScaledVector(a.clone().sub(b).normalize(), r)
-    const p1 = b.clone().addScaledVector(c.clone().sub(b).normalize(), r)
-    for (let k = 0; k <= CORNER_STEPS; k++) {
-      const t = k / CORNER_STEPS
-      const u = 1 - t
-      out.push(
-        new THREE.Vector3()
-          .addScaledVector(p0, u * u)
-          .addScaledVector(b, 2 * u * t)
-          .addScaledVector(p1, t * t),
-      )
-    }
-  }
-  out.push(clean[clean.length - 1]!)
-  return out
-}
 
 /** Накопленная длина по точкам пути, м. */
 export function pathLengths(pts: THREE.Vector3[]): number[] {

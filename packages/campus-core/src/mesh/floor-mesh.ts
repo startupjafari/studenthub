@@ -1,6 +1,7 @@
 import earcut from 'earcut'
 import type { FloorPlanDoc, PlanOpening, SpaceKind } from '../format/schema.js'
 import type { Pt } from '../geom/int.js'
+import { pointInPolygon } from '../geom/polygon.js'
 import { buildFaces } from '../topology/faces.js'
 import { matchSpaces } from '../topology/match-spaces.js'
 import { toCampus, type BuildingTransform } from '../topology/building.js'
@@ -44,6 +45,21 @@ export interface FloorMeshOptions {
   transform?: BuildingTransform
   /** Высота стен ниже потолка — разрез для вида «этаж сверху». */
   cutHeightMm?: number
+  /**
+   * Проёмы в полу — контуры в мм корпуса: лестничные клетки и шахты, что поднимаются с этажа
+   * ниже. Там пола нет, иначе путь по лестнице или в лифте шёл бы сквозь него.
+   */
+  openings?: readonly (readonly Pt[])[]
+}
+
+/** Все точки `inner` строго внутри `outer` (касание контура — уже не дыра для earcut). */
+function insidePoly(inner: readonly Pt[], outer: readonly Pt[]): boolean {
+  return inner.every((p) => pointInPolygon(p, outer) === 'inside')
+}
+
+/** Все точки `inner` внутри `outer` или на его контуре: грань целиком в проёме. */
+function coveredBy(inner: readonly Pt[], outer: readonly Pt[]): boolean {
+  return inner.every((p) => pointInPolygon(p, outer) !== 'outside')
 }
 
 class Builder {
@@ -113,8 +129,8 @@ const cross = (a: V3, b: V3): V3 => [
   a[0] * b[1] - a[1] * b[0],
 ]
 const dot = (a: V3, b: V3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-/** Точка сцены в плоскости пола: [x, z]. */
-type Pt3 = [number, number]
+/** Точка сцены в плоскости пола: [x, z], метры. */
+export type Pt3 = [number, number]
 
 /**
  * Прямоугольная призма вдоль оси a→b (в плоскости пола), полутолщина t, по высоте y0..y1.
@@ -235,14 +251,22 @@ export function floorMesh(doc: FloorPlanDoc, options: FloorMeshOptions): FloorMe
   const spaceByFace = new Map(Object.entries(assignments).map(([s, f]) => [f, s]))
   const floorBuilders = new Map<SpaceKind | 'none', Builder>()
   const floorY = y0 + 0.02
+  const openings = options.openings ?? []
   for (const face of faces) {
+    // Грань целиком в проёме (лестничная клетка обнесена стенами) — пола нет вовсе;
+    // проём внутри грани — дыра в её полу.
+    if (openings.some((o) => coveredBy(face.outer.points, o))) continue
+    const holes = face.holes.filter((h) => h.points.length >= 3).map((h) => h.points)
+    const cut = openings.filter(
+      (o) => insidePoly(o, face.outer.points) && !holes.some((h) => coveredBy(o, h)),
+    )
     const spaceId = spaceByFace.get(face.id)
     const kind: SpaceKind | 'none' = spaceId ? (doc.spaces[spaceId]?.kind ?? 'none') : 'none'
     let b = floorBuilders.get(kind)
     if (!b) floorBuilders.set(kind, (b = new Builder()))
     b.polygon(
       face.outer.points.map(scene),
-      face.holes.filter((h) => h.points.length >= 3).map((h) => h.points.map(scene)),
+      [...holes, ...cut].map((h) => h.map(scene)),
       floorY,
     )
   }
@@ -265,19 +289,21 @@ export function floorMesh(doc: FloorPlanDoc, options: FloorMeshOptions): FloorMe
       prism(elevators, at(s0, mid), at(s1, mid), half, y0, y0 + top)
       continue
     }
-    // Марш поднимается от того края, где площадка: туда приходят с этажа.
-    const land = scene(v.landing)
-    const ls = land[0] * u[0] + land[1] * u[1]
-    const fromStart = Math.abs(ls - s0) <= Math.abs(ls - s1)
-    const rise = Math.min(top, options.heightMm / 1000)
-    const steps = Math.max(4, Math.round(rise / 0.3))
-    for (let i = 0; i < steps; i++) {
-      const k0 = i / steps
-      const k1 = (i + 1) / steps
-      const a = fromStart ? s0 + (s1 - s0) * k0 : s1 - (s1 - s0) * k0
-      const b = fromStart ? s0 + (s1 - s0) * k1 : s1 - (s1 - s0) * k1
-      prism(stairs, at(a, mid), at(b, mid), half, y0, y0 + rise * k1)
+    // Двухмаршевая лестница: первый марш — от края у площадки к дальнему краю по одной
+    // половине ширины, там промежуточная площадка во всю ширину, второй марш — обратно по
+    // другой половине. Наверх приходят к тому же краю, где площадка следующего этажа.
+    const geo = stairGeometry(box, scene(v.landing), Math.min(top, options.heightMm / 1000))
+    for (const f of geo.flights) {
+      for (let i = 0; i < f.steps; i++) {
+        const k0 = i / f.steps
+        const k1 = (i + 1) / f.steps
+        const a = f.s0 + (f.s1 - f.s0) * k0
+        const b = f.s0 + (f.s1 - f.s0) * k1
+        prism(stairs, at(a, f.t), at(b, f.t), f.half, y0, y0 + f.y0 + (f.y1 - f.y0) * k1)
+      }
     }
+    const pl = geo.platform
+    prism(stairs, at(pl.s0, mid), at(pl.s1, mid), half, y0, y0 + pl.y)
   }
 
   return {
@@ -289,11 +315,55 @@ export function floorMesh(doc: FloorPlanDoc, options: FloorMeshOptions): FloorMe
   }
 }
 
+/** Шаг ступени по высоте, м. */
+const STEP_RISE_M = 0.17
+
+export interface StairFlight {
+  /** Вдоль длинной оси: откуда и куда идёт марш (по `u`), ось марша и полуширина (по `w`). */
+  s0: number
+  s1: number
+  t: number
+  half: number
+  /** Высота над полом этажа в начале и в конце марша, м. */
+  y0: number
+  y1: number
+  steps: number
+}
+
+/**
+ * Геометрия двухмаршевой лестницы в повёрнутом прямоугольнике фигуры (метры сцены, оси
+ * `u`/`w` из orientedBox): два марша и промежуточная площадка на половине высоты. Общая для
+ * 3D и пути по лестнице — путь идёт ровно по ступеням, а не сквозь них.
+ */
+export function stairGeometry(
+  box: { u: Pt3; w: Pt3; s0: number; s1: number; t0: number; t1: number },
+  landing: Pt3,
+  rise: number,
+): { flights: [StairFlight, StairFlight]; platform: { s0: number; s1: number; y: number } } {
+  const { u, s0, s1, t0, t1 } = box
+  const ls = landing[0] * u[0] + landing[1] * u[1]
+  const fromStart = Math.abs(ls - s0) <= Math.abs(ls - s1)
+  const near = fromStart ? s0 : s1
+  const far = fromStart ? s1 : s0
+  const dir = fromStart ? 1 : -1
+  const platformLen = Math.min(1.4, (s1 - s0) * 0.3)
+  const edge = far - dir * platformLen
+  const quarter = (t1 - t0) / 4
+  const steps = Math.max(3, Math.round(rise / 2 / STEP_RISE_M))
+  return {
+    flights: [
+      { s0: near, s1: edge, t: t0 + quarter, half: quarter, y0: 0, y1: rise / 2, steps },
+      { s0: edge, s1: near, t: t1 - quarter, half: quarter, y0: rise / 2, y1: rise, steps },
+    ],
+    platform: { s0: Math.min(edge, far), s1: Math.max(edge, far), y: rise / 2 },
+  }
+}
+
 /**
  * Прямоугольник вокруг фигуры, повёрнутый по её самой длинной стороне: оси `u` (вдоль) и
  * `w` (поперёк) и границы проекций точек на них.
  */
-function orientedBox(
+export function orientedBox(
   pts: Pt3[],
 ): { u: Pt3; w: Pt3; s0: number; s1: number; t0: number; t1: number } | null {
   let best = { len: 0, u: [1, 0] as Pt3 }
@@ -318,12 +388,16 @@ function orientedBox(
   return box.s1 - box.s0 < 1e-6 || box.t1 - box.t0 < 1e-6 ? null : box
 }
 
-/** Перекрытие по контуру корпуса — плита под этажом. */
+/**
+ * Перекрытие по контуру корпуса — плита под этажом. `holes` — проёмы в мм корпуса
+ * (лестничные клетки, шахты): в плите дыра, по её краю — торец плиты.
+ */
 export function slabMesh(
   outline: readonly Pt[],
   elevationMm: number,
   thicknessMm: number,
   transform?: BuildingTransform,
+  holes: readonly (readonly Pt[])[] = [],
 ): MeshBuffers {
   const tr = transform ?? { x: 0, y: 0, rotationDeg: 0 }
   const pts = outline.map((p) => {
@@ -333,22 +407,35 @@ export function slabMesh(
   const m = new Builder()
   const yTop = elevationMm / 1000
   const yBot = yTop - thicknessMm / 1000
-  m.polygon(pts, [], yTop)
-  // Знак площади в (x, z): от него зависит, какая из двух нормалей ребра — наружная.
-  let area2 = 0
-  for (let i = 0; i < pts.length; i++) {
-    const a = pts[i]!
-    const b = pts[(i + 1) % pts.length]!
-    area2 += a[0] * b[1] - b[0] * a[1]
+  const inner = holes
+    .filter((h) => h.length >= 3 && insidePoly(h, outline))
+    .map((h) =>
+      h.map((p) => {
+        const c = toCampus(p, tr)
+        return [c.x / 1000, -c.y / 1000] as Pt3
+      }),
+    )
+  m.polygon(pts, inner, yTop)
+  // Торцы: у внешнего контура нормаль наружу, у проёма — внутрь проёма (тоже «из плиты»).
+  const edges = (ring: Pt3[], outward: boolean): void => {
+    // Знак площади в (x, z): от него зависит, какая из двух нормалей ребра — наружная.
+    let area2 = 0
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i]!
+      const b = ring[(i + 1) % ring.length]!
+      area2 += a[0] * b[1] - b[0] * a[1]
+    }
+    const s = (area2 > 0 ? 1 : -1) * (outward ? 1 : -1)
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i]!
+      const b = ring[(i + 1) % ring.length]!
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1
+      const n: V3 = [(s * (b[1] - a[1])) / len, 0, (-s * (b[0] - a[0])) / len]
+      m.quad([a[0], yBot, a[1]], [b[0], yBot, b[1]], [b[0], yTop, b[1]], [a[0], yTop, a[1]], n)
+    }
   }
-  const s = area2 > 0 ? 1 : -1
-  for (let i = 0; i < pts.length; i++) {
-    const a = pts[i]!
-    const b = pts[(i + 1) % pts.length]!
-    const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1
-    const n: V3 = [(s * (b[1] - a[1])) / len, 0, (-s * (b[0] - a[0])) / len]
-    m.quad([a[0], yBot, a[1]], [b[0], yBot, b[1]], [b[0], yTop, b[1]], [a[0], yTop, a[1]], n)
-  }
+  edges(pts, true)
+  for (const h of inner) edges(h, false)
   return m.build()
 }
 

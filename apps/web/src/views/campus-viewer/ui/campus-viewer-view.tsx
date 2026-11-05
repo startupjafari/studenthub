@@ -371,6 +371,19 @@ function Viewer({
     [nav.data, route, levelFloors, markerFrom, markerTo],
   )
   const sceneMarkers = useMemo(() => ({ from: markerFrom, to: markerTo }), [markerFrom, markerTo])
+  // Все этажи корпусов — для кнопок в кабине лифта при проходе по маршруту.
+  const sceneFloorIndex = useMemo(
+    () =>
+      buildings.flatMap((b) =>
+        b.floors.map((f) => ({
+          id: f.id,
+          buildingId: b.id,
+          label: f.label,
+          elevationMm: f.elevationMm,
+        })),
+      ),
+    [buildings],
+  )
 
   useEffect(() => {
     const graph = nav.data?.graph
@@ -439,8 +452,8 @@ function Viewer({
     // docsKey: пересобрать, когда догрузился очередной этаж.
   }, [mode, buildings, level, docsKey, floorId, doc])
   const sceneRoute = useMemo(
-    () => (nav.data?.graph && route ? routeInScene(nav.data.graph, route) : null),
-    [nav.data, route],
+    () => (index && route ? routeInScene(index, route) : null),
+    [index, route],
   )
   const highlight = useMemo(
     () => (selectedSpace && floorId ? { floorId, spaceId: selectedSpace } : null),
@@ -578,6 +591,7 @@ function Viewer({
                 onPick={onPick3d}
                 tour={touring}
                 routeMarkers={sceneMarkers}
+                floorIndex={sceneFloorIndex}
                 onTourEnd={onTourEnd}
               />
             </div>

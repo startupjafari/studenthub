@@ -8,6 +8,7 @@ import {
   graphForViewer,
   SitePlanSchema,
   spaceIndex,
+  toCampus,
   validateFloor,
   type BuildingTransform,
   type FloorPlanDoc,
@@ -174,7 +175,13 @@ export class CampusPublishService {
     // Навигационный граф (§15.2) — производный, считается один раз здесь, а не у каждого
     // зрителя: десятки этажей — секунды на слабом телефоне, на сервере — доли секунды.
     const siteDoc = SitePlanSchema.safeParse(site?.document)
-    const navGraph = buildNavGraph(floors, siteDoc.success ? siteDoc.data : null)
+    // Контуры корпусов — препятствия для уличных связей: путь по двору их обходит.
+    const obstacles = buildings.map((b) =>
+      (b.outline as unknown as { x: number; y: number }[]).map((p) =>
+        toCampus(p, b.transform as unknown as BuildingTransform),
+      ),
+    )
+    const navGraph = buildNavGraph(floors, siteDoc.success ? siteDoc.data : null, obstacles)
 
     const version = await this.prisma.$transaction(
       async (tx) => {
