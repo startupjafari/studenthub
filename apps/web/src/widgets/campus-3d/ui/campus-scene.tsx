@@ -11,8 +11,6 @@ export interface CampusSceneProps extends SceneInput {
   focusPoint?: { x: number; y: number; z: number } | null
   /** Идёт проход камерой по маршруту: true — начать, false — остановить. */
   tour?: boolean
-  /** Проход дошёл до этажа. */
-  onTourFloor?: (floorId: string) => void
   /** Проход закончился сам или его прервали мышью/клавишами. */
   onTourEnd?: () => void
   className?: string
@@ -44,6 +42,8 @@ function readPalette(el: Element): ScenePalette {
   const n = parseInt(bg.slice(1), 16)
   const dark = 0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255) < 128
   return {
+    start: toHex(ctx, v('--success'), '#16a34a'),
+    end: toHex(ctx, v('--destructive'), '#ef4444'),
     background: bg,
     wall: dark ? '#cbd5e1' : '#e5e7eb',
     slab: dark ? '#334155' : '#cbd5e1',
@@ -60,7 +60,6 @@ export function CampusScene({
   onPick,
   focusPoint,
   tour = false,
-  onTourFloor,
   onTourEnd,
   className,
   label,
@@ -106,14 +105,23 @@ export function CampusScene({
   useEffect(() => {
     const c = ctrl.current
     if (!c) return
-    c.onTourFloor = onTourFloor ?? null
     c.onTourEnd = onTourEnd ?? null
-  }, [onTourFloor, onTourEnd])
+  }, [onTourEnd])
 
-  const { floors, mode, focusFloorId, highlight, route, site } = input
+  const { floors, mode, focusFloorId, highlight, route, site, routeMarkers } = input
+  const markerFrom = routeMarkers?.from
+  const markerTo = routeMarkers?.to
   useEffect(() => {
-    ctrl.current?.update({ floors, mode, focusFloorId, highlight, route, site })
-  }, [floors, mode, focusFloorId, highlight, route, site])
+    ctrl.current?.update({
+      floors,
+      mode,
+      focusFloorId,
+      highlight,
+      route,
+      site,
+      routeMarkers: markerFrom && markerTo ? { from: markerFrom, to: markerTo } : undefined,
+    })
+  }, [floors, mode, focusFloorId, highlight, route, site, markerFrom, markerTo])
 
   useEffect(() => {
     if (focusPoint) ctrl.current?.focusOn(focusPoint.x, focusPoint.y, focusPoint.z)

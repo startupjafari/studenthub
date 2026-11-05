@@ -21,6 +21,16 @@ import {
 } from '@studenthub/campus-core/mesh'
 import { SPACE_KIND_COLOR } from '../../../entities/campus'
 import { MOTION, prefersReducedMotion } from '../../../shared/lib'
+import {
+  ARROW_STEP_M,
+  RIBBON_WIDTH_M,
+  pathLengths,
+  pinTexture,
+  pointAt,
+  ribbonGeometry,
+  ribbonTexture,
+  roundPath,
+} from './route-visual'
 
 /**
  * Сцена кампуса на three (docs/CAMPUS_BUILDER.md §13). Императивный класс: React только
@@ -54,10 +64,15 @@ export interface SceneInput {
   highlight: { floorId: string; spaceId: string } | null
   /** Маршрут в метрах сцены (x, y, z); `floor` — этаж точки (на улице — null). */
   route: { x: number; y: number; z: number; floor?: string | null }[] | null
+  /** Буквы булавок начала и конца маршрута (по умолчанию A и B). */
+  routeMarkers?: { from: string; to: string }
   site: SitePlanDoc | null
 }
 
 export interface ScenePalette {
+  /** Булавки маршрута: начало и конец. */
+  start: string
+  end: string
   background: string
   wall: string
   slab: string
@@ -145,16 +160,25 @@ const WHEEL_PINCH = 0.01
 const WHEEL_SMOOTH = 14
 
 /**
- * Проход по маршруту: камера идёт следом за точкой «как в навигаторе» — сзади и сверху,
- * с запаздыванием, чтобы повороты не дёргали картинку. Длительность — от длины пути,
- * в разумных пределах: короткий маршрут не мелькает, длинный не тянется минутами.
+ * Проход по маршруту от первого лица: глаза на высоте человека, шаг быстрой ходьбы, путь
+ * со скруглёнными углами (`roundPath`), а взгляд догоняет направление пути с запаздыванием —
+ * поворот растягивается на полсекунды, а не щёлкает. Скорость плавно набирается на старте и
+ * гаснет у цели; перед ходьбой — перелёт из текущего вида к точке старта.
  */
-const TOUR_MIN_S = 8
-const TOUR_MAX_S = 30
-const TOUR_M_PER_S = 8
-const TOUR_BEHIND_M = 16
-const TOUR_ABOVE_M = 12
-const TOUR_AHEAD_M = 8
+const TOUR_EYE_M = 1.6
+const TOUR_SPEED_M_S = 4.5
+const TOUR_ACCEL_S = 1.2
+const TOUR_BRAKE_M = 5
+const TOUR_LOOK_AHEAD_M = 4
+const TOUR_TURN_RATE = 3.5
+const TOUR_INTRO_S = 1.8
+const TOUR_FOV = 65
+/** Взгляд чуть вниз — лента маршрута на полу видна. */
+const TOUR_PITCH_DOWN = 0.14
+const TOUR_PITCH_MAX = 0.35
+const ORBIT_FOV = 45
+/** Лента маршрута над полом, м: выше пола помещений (+2 см) и подсветки (+4 см). */
+const RIBBON_LIFT_M = 0.07
 
 const SITE_COLORS: Record<string, string> = {
   lawn: '#bbf7d0',
@@ -189,8 +213,6 @@ export class CampusSceneController {
   >()
   onPick: ((floorId: string, spaceId: string) => void) | null = null
   onContextLost: ((lost: boolean) => void) | null = null
-  /** Проход по маршруту дошёл до этажа (экран переключает уровень, чтобы верх не мешал). */
-  onTourFloor: ((floorId: string) => void) | null = null
   /** Проход закончился: дошли до конца или человек взял камеру в руки. */
   onTourEnd: (() => void) | null = null
 
@@ -201,6 +223,9 @@ export class CampusSceneController {
     this.palette = palette
     this.renderer = new THREE.WebGLRenderer({
       antialias: true,
+      // Полы, перекрытия и торцы стен лежат в сантиметрах друг от друга: с обычным буфером
+      // глубины издалека они «мерцают» при каждом сдвиге камеры (z-fighting).
+      logarithmicDepthBuffer: true,
       powerPreference: 'high-performance',
     })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5))
@@ -248,20 +273,11 @@ export class CampusSceneController {
     el.addEventListener('keydown', this.keyDown)
     el.addEventListener('keyup', this.keyUp)
     el.addEventListener('blur', this.releaseKeys)
-
-    // Идущая по маршруту точка — вне `content`: пересборка сцены её не трогает.
-    this.walker = new THREE.Mesh(
-      new THREE.SphereGeometry(0.6, 16, 12),
-      new THREE.MeshBasicMaterial({ color: palette.primary, depthTest: false, transparent: true }),
-    )
-    this.walker.renderOrder = 11
-    this.walker.visible = false
-    this.scene.add(this.walker)
   }
 
   setPalette(p: ScenePalette): void {
     this.palette = p
-    ;(this.walker.material as THREE.MeshBasicMaterial).color.set(p.primary)
+    this.disposeRouteTextures()
     this.scene.background = new THREE.Color(p.background)
     if (this.input) this.rebuild()
   }
@@ -295,7 +311,9 @@ export class CampusSceneController {
     const center = box.getCenter(new THREE.Vector3())
     const size = box.getSize(new THREE.Vector3())
     const r = Math.max(size.x, size.z, size.y * 2, 5)
-    this.camera.near = Math.max(0.1, r / 500)
+    // Буфер глубины логарифмический — ближнюю плоскость можно держать близко всегда.
+    this.camera.near = 0.05
+    this.camera.fov = ORBIT_FOV
     this.camera.far = r * 20
     this.camera.updateProjectionMatrix()
     this.controls.minDistance = 2
@@ -360,7 +378,8 @@ export class CampusSceneController {
       busy = true
     }
     // Инерция: пока она гасится, `update` шлёт `change` и сам просит следующий кадр.
-    this.controls.update()
+    // В проходе камерой правит он сам — OrbitControls развернул бы её к своей цели.
+    else this.controls.update()
     const started = performance.now()
     this.renderer.render(this.scene, this.camera)
     this.adapt(performance.now() - started)
@@ -521,91 +540,209 @@ export class CampusSceneController {
 
   // ── Проход по маршруту ───────────────────────────────────────────────────────────
 
-  private readonly walker: THREE.Mesh
   private tour: {
-    pts: THREE.Vector3[]
-    floors: (string | null)[]
-    /** Пройденная длина до каждой точки, м. */
+    path: THREE.Vector3[]
     cum: number[]
     length: number
-    speed: number
+    /** Пройдено, м, и текущая скорость, м/с. */
     s: number
-    heading: THREE.Vector3
-    floor: string | null
+    v: number
+    yaw: number
+    pitch: number
+    /** Перелёт к старту: откуда, сколько прошло. */
+    intro: { pos: THREE.Vector3; quat: THREE.Quaternion; fov: number; t: number } | null
   } | null = null
 
-  /** Пройти по маршруту камерой. Нет маршрута — `false`. */
+  /** Пройти по маршруту от первого лица. Нет маршрута — `false`. */
   startTour(): boolean {
     const route = this.input?.route
     if (!route || route.length < 2) return false
-    const pts = route.map((p) => new THREE.Vector3(p.x, p.y + 0.3, p.z))
-    const cum = [0]
-    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1]! + pts[i]!.distanceTo(pts[i - 1]!))
+    const path = roundPath(route.map((p) => new THREE.Vector3(p.x, p.y, p.z)))
+    const cum = pathLengths(path)
     const length = cum[cum.length - 1]!
     if (length < 1) return false
     // Перезапуск — тихо, без onTourEnd: экран уже считает, что проход идёт.
     this.tour = null
     this.grab()
-    const seconds = THREE.MathUtils.clamp(length / TOUR_M_PER_S, TOUR_MIN_S, TOUR_MAX_S)
-    const heading = pts[1]!.clone().sub(pts[0]!).setY(0)
-    if (heading.lengthSq() < 1e-6) heading.set(0, 0, -1)
+    const { yaw, pitch } = this.lookAlong(path, cum, 0)
     this.tour = {
-      pts,
-      floors: route.map((p) => p.floor ?? null),
+      path,
       cum,
       length,
-      speed: length / seconds,
       s: 0,
-      heading: heading.normalize(),
-      floor: null,
+      v: 0,
+      yaw,
+      pitch,
+      intro: prefersReducedMotion()
+        ? null
+        : {
+            pos: this.camera.position.clone(),
+            quat: this.camera.quaternion.clone(),
+            fov: this.camera.fov,
+            t: 0,
+          },
     }
-    this.walker.visible = true
     this.requestRender()
     return true
   }
 
-  /** Остановить проход; камера остаётся, где была. */
+  /**
+   * Остановить проход. Камера остаётся, где стоит, а цель орбиты ставим перед глазами —
+   * дальше мышь вращает вокруг того, на что человек смотрит, без рывка.
+   */
   stopTour(): void {
     if (!this.tour) return
     this.tour = null
-    this.walker.visible = false
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion)
+    this.controls.target.copy(this.camera.position).addScaledVector(forward, 6)
+    this.controls.update()
     this.requestRender()
     this.onTourEnd?.()
   }
 
-  /** Точка пути на расстоянии `s` от начала и индекс участка. */
-  private tourAt(s: number): { p: THREE.Vector3; i: number } {
-    const t = this.tour!
-    let i = 0
-    while (i < t.cum.length - 2 && t.cum[i + 1]! < s) i++
-    const seg = t.cum[i + 1]! - t.cum[i]!
-    const k = seg > 0 ? (s - t.cum[i]!) / seg : 0
-    return { p: t.pts[i]!.clone().lerp(t.pts[i + 1]!, THREE.MathUtils.clamp(k, 0, 1)), i }
+  /** Куда смотреть с точки `s`: на путь впереди, по высоте — сдержанно. */
+  private lookAlong(
+    path: THREE.Vector3[],
+    cum: number[],
+    s: number,
+  ): { yaw: number; pitch: number } {
+    const length = cum[cum.length - 1]!
+    const here = pointAt(path, cum, s)
+    let ahead = pointAt(path, cum, Math.min(length, s + TOUR_LOOK_AHEAD_M)).sub(here)
+    // У самой цели вперёд смотреть некуда — берём последний отрезок.
+    if (ahead.lengthSq() < 0.01) ahead = path[path.length - 1]!.clone().sub(path[path.length - 2]!)
+    const flat = Math.hypot(ahead.x, ahead.z)
+    return {
+      yaw: Math.atan2(-ahead.x, -ahead.z),
+      pitch:
+        THREE.MathUtils.clamp(
+          Math.atan2(ahead.y, Math.max(flat, 0.5)),
+          -TOUR_PITCH_MAX,
+          TOUR_PITCH_MAX,
+        ) - TOUR_PITCH_DOWN,
+    }
   }
 
   private stepTour(dt: number): void {
     const t = this.tour!
-    t.s = Math.min(t.length, t.s + t.speed * dt)
-    const { p, i } = this.tourAt(t.s)
-    const ahead = this.tourAt(Math.min(t.length, t.s + TOUR_AHEAD_M))
-      .p.sub(p)
-      .setY(0)
-    // На лестнице направление по земле почти нулевое — держим прежнее.
-    if (ahead.lengthSq() > 0.04)
-      t.heading.lerp(ahead.normalize(), 1 - Math.exp(-dt * 3)).normalize()
-    const want = p
-      .clone()
-      .addScaledVector(t.heading, -TOUR_BEHIND_M)
-      .add(new THREE.Vector3(0, TOUR_ABOVE_M, 0))
-    this.camera.position.lerp(want, 1 - Math.exp(-dt * 4))
-    this.controls.target.lerp(p, 1 - Math.exp(-dt * 6))
-    this.walker.position.copy(p)
-    const floor = t.floors[i] ?? t.floors[i + 1] ?? null
-    if (floor && floor !== t.floor) {
-      t.floor = floor
-      this.onTourFloor?.(floor)
+    // Скорость: разгон за TOUR_ACCEL_S, торможение на последних метрах, без рывков.
+    const remain = t.length - t.s
+    const want = TOUR_SPEED_M_S * Math.min(1, Math.sqrt(Math.max(0, remain) / TOUR_BRAKE_M))
+    t.v += (want - t.v) * (1 - Math.exp((-dt * 3) / TOUR_ACCEL_S))
+    if (!t.intro) t.s = Math.min(t.length, t.s + Math.max(0.15, t.v) * dt)
+
+    const look = this.lookAlong(t.path, t.cum, t.s)
+    // Поворот головы — по кратчайшей дуге и с запаздыванием.
+    const dYaw = Math.atan2(Math.sin(look.yaw - t.yaw), Math.cos(look.yaw - t.yaw))
+    const k = 1 - Math.exp(-dt * TOUR_TURN_RATE)
+    t.yaw += dYaw * k
+    t.pitch += (look.pitch - t.pitch) * k
+
+    const eye = pointAt(t.path, t.cum, t.s).add(new THREE.Vector3(0, TOUR_EYE_M, 0))
+    const quat = new THREE.Quaternion().setFromEuler(new THREE.Euler(t.pitch, t.yaw, 0, 'YXZ'))
+    if (t.intro) {
+      t.intro.t = Math.min(1, t.intro.t + dt / TOUR_INTRO_S)
+      const e = t.intro.t < 0.5 ? 4 * t.intro.t ** 3 : 1 - (-2 * t.intro.t + 2) ** 3 / 2
+      this.camera.position.lerpVectors(t.intro.pos, eye, e)
+      this.camera.quaternion.slerpQuaternions(t.intro.quat, quat, e)
+      this.camera.fov = THREE.MathUtils.lerp(t.intro.fov, TOUR_FOV, e)
+      if (t.intro.t >= 1) t.intro = null
+    } else {
+      this.camera.position.copy(eye)
+      this.camera.quaternion.copy(quat)
+      this.camera.fov = TOUR_FOV
     }
-    if (t.s >= t.length) this.stopTour()
+    this.camera.updateProjectionMatrix()
+    // Стрелки на ленте бегут вперёд в темпе шага.
+    if (this.routeTex) this.routeTex.offset.x -= (Math.max(0.15, t.v) * dt) / ARROW_STEP_M
+    if (!t.intro && t.s >= t.length && t.v < 0.3) this.stopTour()
+  }
+
+  // ── Оформление маршрута ──────────────────────────────────────────────────────────
+
+  private routeTex: THREE.CanvasTexture | null = null
+  private pinTex: { from: THREE.CanvasTexture; to: THREE.CanvasTexture; key: string } | null = null
+
+  private disposeRouteTextures(): void {
+    this.routeTex?.dispose()
+    this.routeTex = null
+    this.pinTex?.from.dispose()
+    this.pinTex?.to.dispose()
+    this.pinTex = null
+  }
+
+  /**
+   * Лента по полу (видна только там, где её не закрывают стены), под ней — бледный след
+   * сквозь стены, чтобы путь не терялся за углом; на концах — булавки А и Б. Текстуры живут
+   * между пересборками: иначе бегущие стрелки прыгали бы на каждой догрузке этажа.
+   */
+  private buildRoute(
+    route: NonNullable<SceneInput['route']>,
+    labels: { from: string; to: string },
+  ): void {
+    const path = roundPath(route.map((p) => new THREE.Vector3(p.x, p.y + RIBBON_LIFT_M, p.z)))
+    if (path.length < 2) return
+    if (!this.routeTex) this.routeTex = ribbonTexture(this.palette.primary)
+    const key = `${labels.from}|${labels.to}`
+    if (this.pinTex?.key !== key) {
+      this.pinTex?.from.dispose()
+      this.pinTex?.to.dispose()
+      this.pinTex = {
+        from: pinTexture(labels.from, this.palette.start),
+        to: pinTexture(labels.to, this.palette.end),
+        key,
+      }
+    }
+    const geo = this.geometryRaw(ribbonGeometry(path, RIBBON_WIDTH_M))
+    const ghost = new THREE.Mesh(
+      geo,
+      this.material(
+        new THREE.MeshBasicMaterial({
+          color: this.palette.primary,
+          transparent: true,
+          opacity: 0.22,
+          depthTest: false,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        }),
+      ),
+    )
+    ghost.renderOrder = 9
+    const ribbon = new THREE.Mesh(
+      geo,
+      this.material(
+        new THREE.MeshBasicMaterial({
+          map: this.routeTex,
+          side: THREE.DoubleSide,
+          polygonOffset: true,
+          polygonOffsetFactor: -2,
+          polygonOffsetUnits: -2,
+        }),
+      ),
+    )
+    ribbon.renderOrder = 10
+    this.content.add(ghost, ribbon)
+    for (const [p, tex] of [
+      [path[0]!, this.pinTex.from],
+      [path[path.length - 1]!, this.pinTex.to],
+    ] as const) {
+      const pin = new THREE.Sprite(
+        this.material(
+          new THREE.SpriteMaterial({
+            map: tex,
+            depthTest: false,
+            depthWrite: false,
+            sizeAttenuation: false,
+          }),
+        ),
+      )
+      // Постоянный экранный размер; остриё хвостика — ровно в точке.
+      pin.center.set(0.5, 0)
+      pin.scale.set(0.045, 0.045 * 1.35, 1)
+      pin.position.copy(p)
+      pin.renderOrder = 12
+      this.content.add(pin)
+    }
   }
 
   private readonly keyDown = (e: KeyboardEvent): void => {
@@ -692,8 +829,7 @@ export class CampusSceneController {
     if (this.frame) cancelAnimationFrame(this.frame)
     this.clear()
     this.tour = null
-    this.walker.geometry.dispose()
-    ;(this.walker.material as THREE.Material).dispose()
+    this.disposeRouteTextures()
     this.controls.removeEventListener('start', this.grab)
     this.controls.dispose()
     const el = this.renderer.domElement
@@ -730,6 +866,12 @@ export class CampusSceneController {
     return g
   }
 
+  /** Готовая геометрия — в список на удаление при пересборке. */
+  private geometryRaw(g: THREE.BufferGeometry): THREE.BufferGeometry {
+    this.disposables.push(g)
+    return g
+  }
+
   private material<T extends THREE.Material>(m: T): T {
     this.disposables.push(m)
     return m
@@ -748,7 +890,15 @@ export class CampusSceneController {
         depthWrite: false,
       }),
     )
-    const slabMat = this.material(new THREE.MeshLambertMaterial({ color: this.palette.slab }))
+    // Перекрытие чуть «отодвинуто» в глубину: пол помещений и торцы стен над ним всегда сверху.
+    const slabMat = this.material(
+      new THREE.MeshLambertMaterial({
+        color: this.palette.slab,
+        polygonOffset: true,
+        polygonOffsetFactor: 1,
+        polygonOffsetUnits: 2,
+      }),
+    )
     // Лестницы — светлым камнем, шахты лифтов — тёмным металлом: видно сквозь окна и сверху.
     const stairsMat = this.material(new THREE.MeshLambertMaterial({ color: '#d6d3d1' }))
     const liftMat = this.material(new THREE.MeshLambertMaterial({ color: '#475569' }))
@@ -879,22 +1029,8 @@ export class CampusSceneController {
       }
     }
 
-    if (input.route && input.route.length > 1) {
-      const pts = input.route.map((p) => new THREE.Vector3(p.x, p.y + 0.3, p.z))
-      const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.05)
-      const tube = new THREE.TubeGeometry(curve, Math.min(800, pts.length * 8), 0.18, 6, false)
-      this.disposables.push(tube)
-      const mat = this.material(
-        new THREE.MeshBasicMaterial({
-          color: this.palette.primary,
-          depthTest: false,
-          transparent: true,
-        }),
-      )
-      const route = new THREE.Mesh(tube, mat)
-      route.renderOrder = 10
-      this.content.add(route)
-    }
+    if (input.route && input.route.length > 1)
+      this.buildRoute(input.route, input.routeMarkers ?? { from: 'A', to: 'B' })
 
     if (input.site) this.buildSite(input.site)
     this.requestRender()
