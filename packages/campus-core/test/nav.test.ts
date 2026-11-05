@@ -13,6 +13,7 @@ import { generateCampus, generateFloor } from '../src/fixtures/generate.js'
 import { PlanBuilder } from '../src/fixtures/edge-cases.js'
 import { decodeFlags } from '../src/nav/graph.js'
 import type { FloorPlanDoc } from '../src/format/schema.js'
+import { emptySitePlan, type SitePlanDoc } from '../src/format/site.js'
 
 const T0 = { x: 0, y: 0, rotationDeg: 0 }
 
@@ -303,5 +304,44 @@ describe('навигация: примыкающие корпуса', () => {
     // Путь короткий — через двери, а не вокруг корпусов по улице.
     expect(route!.distanceMm).toBeLessThan(3_000)
     expect(routeSteps(index, route!).map((s) => s.type)).toEqual(['start', 'passage', 'arrive'])
+  })
+})
+
+describe('навигация: дорожки и корпуса', () => {
+  it('кусок дорожки внутри корпуса выбрасывается — путь не идёт сквозь стены', () => {
+    const doc = new PlanBuilder().rect(0, 0, 6000, 4000).doc
+    const inputs: NavFloorInput[] = [
+      { floorId: 'A-1', buildingId: 'A', elevationMm: 0, doc, transform: T0 },
+    ]
+    const outline = [
+      { x: -100, y: -100 },
+      { x: 6100, y: -100 },
+      { x: 6100, y: 4100 },
+      { x: -100, y: 4100 },
+    ]
+    // Тротуар нарисован с заходом в корпус: на 0,5 м внутрь от южной стены.
+    const site: SitePlanDoc = {
+      ...emptySitePlan(),
+      features: {
+        walk: {
+          type: 'path',
+          widthMm: 2000,
+          covered: false,
+          line: [
+            { x: -20_000, y: 400 },
+            { x: 26_000, y: 400 },
+          ],
+        },
+      },
+    }
+    const graph = buildNavGraph(inputs, site, [outline])
+    for (let e = 0; e < graph.edges.length; e += 4) {
+      if (decodeFlags(graph.edges[e + 3]!).kind !== 'outdoor') continue
+      const a = nodePoint(graph, graph.edges[e]!)
+      const b = nodePoint(graph, graph.edges[e + 1]!)
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+      const inside = mid.x > -100 && mid.x < 6100 && mid.y > -100 && mid.y < 4100
+      expect(inside).toBe(false)
+    }
   })
 })
