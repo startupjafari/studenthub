@@ -20,6 +20,7 @@ import {
   type MeshBuffers,
 } from '@studenthub/campus-core/mesh'
 import { SPACE_KIND_COLOR } from '../../../entities/campus'
+import { MOTION, prefersReducedMotion } from '../../../shared/lib'
 
 /**
  * Сцена кампуса на three (docs/CAMPUS_BUILDER.md §13). Императивный класс: React только
@@ -39,9 +40,10 @@ export interface SceneFloor {
 }
 
 /**
- * Режимы обзора (§13.4): этаж — только выбранный, без потолка; корпус — этажи до выбранного
- * включительно, выше — скрыты («кукольный домик»); кампус — корпуса коробками по контуру,
- * без внутренних стен: на 20 корпусах это десятки draw calls вместо сотен.
+ * Режимы обзора (§13.4): этаж — только выбранный, без потолка; корпус — этажи всех корпусов
+ * до уровня выбранного включительно, выше — скрыты («кукольный домик» по всему кампусу);
+ * кампус — корпуса коробками по контуру, без внутренних стен: на 20 корпусах это десятки
+ * draw calls вместо сотен.
  */
 export type SceneMode = 'floor' | 'building' | 'campus'
 
@@ -103,6 +105,35 @@ function reportSlowMesh(ms: number, walls: number): void {
 
 /** Кадр дольше — снижаем плотность пикселей (адаптивное качество, §21). */
 const SLOW_FRAME_MS = 28
+
+/**
+ * Клавиши камеры (по `code` — не зависят от раскладки): держишь — движется, отпустил — стоит.
+ * Скорости — в долях расстояния до цели в секунду, чтобы и вблизи, и издали шаг был соразмерен.
+ */
+const KEY_PAN = 0.9
+const KEY_ROTATE = Math.PI / 2
+const KEY_TILT = Math.PI / 3
+const KEY_ZOOM = 1.6
+const CAMERA_KEYS = new Set([
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'KeyW',
+  'KeyA',
+  'KeyS',
+  'KeyD',
+  'KeyQ',
+  'KeyE',
+  'KeyR',
+  'KeyF',
+  'Equal',
+  'Minus',
+  'NumpadAdd',
+  'NumpadSubtract',
+])
+/** Перелёт камеры: двойной клик, «общий вид», подвод к помещению. */
+const FLIGHT_MS = MOTION.large * 1.5
 
 const SITE_COLORS: Record<string, string> = {
   lawn: '#bbf7d0',
@@ -167,16 +198,29 @@ export class CampusSceneController {
       5000,
     )
     this.camera.position.set(40, 50, 40)
+    // ЛКМ — вращать, ПКМ / Shift+ЛКМ — сдвиг, колесо — к курсору; инерция гасится сама
+    // за несколько кадров (кадры идут, только пока камера движется — см. `tick`).
     this.controls = new OrbitControls(this.camera, this.renderer.domElement)
-    this.controls.enableDamping = false
+    this.controls.enableDamping = true
+    this.controls.dampingFactor = 0.15
+    this.controls.zoomToCursor = true
     this.controls.maxPolarAngle = Math.PI * 0.49
     this.controls.screenSpacePanning = true
     this.controls.addEventListener('change', () => this.requestRender())
+    this.controls.addEventListener('start', this.grab)
 
-    this.renderer.domElement.addEventListener('webglcontextlost', this.lost)
-    this.renderer.domElement.addEventListener('webglcontextrestored', this.restored)
-    this.renderer.domElement.addEventListener('pointerdown', this.pointerDown)
-    this.renderer.domElement.addEventListener('pointerup', this.pointerUp)
+    const el = this.renderer.domElement
+    // Холст в порядке Tab: клавиши камеры работают, когда он в фокусе.
+    el.tabIndex = 0
+    el.style.outline = 'none'
+    el.addEventListener('webglcontextlost', this.lost)
+    el.addEventListener('webglcontextrestored', this.restored)
+    el.addEventListener('pointerdown', this.pointerDown)
+    el.addEventListener('pointerup', this.pointerUp)
+    el.addEventListener('dblclick', this.dblClick)
+    el.addEventListener('keydown', this.keyDown)
+    el.addEventListener('keyup', this.keyUp)
+    el.addEventListener('blur', this.releaseKeys)
   }
 
   setPalette(p: ScenePalette): void {
@@ -186,13 +230,13 @@ export class CampusSceneController {
   }
 
   update(input: SceneInput): void {
-    const refit =
-      !this.input ||
-      this.input.mode !== input.mode ||
-      this.input.focusFloorId !== input.focusFloorId
+    const modeChanged = !!this.input && this.input.mode !== input.mode
     this.input = input
     this.rebuild()
-    if (refit || !this.fitted) this.fit()
+    // Пока человек не трогал камеру, вид следует за догружающимися этажами; потом — только
+    // при смене режима. Смена этажа камеру не двигает: он рядом с тем, что уже на экране.
+    if (modeChanged) this.touched = false
+    if (!this.touched || !this.fitted) this.fit(modeChanged && this.fitted)
   }
 
   resize(): void {
@@ -205,8 +249,8 @@ export class CampusSceneController {
     this.requestRender()
   }
 
-  /** Камера на всё содержимое сцены сверху-сбоку. */
-  fit(): void {
+  /** Камера на всё содержимое сцены сверху-сбоку; `animate` — перелётом. */
+  fit(animate = false): void {
     const box = new THREE.Box3().setFromObject(this.content)
     if (box.isEmpty()) return
     const center = box.getCenter(new THREE.Vector3())
@@ -215,31 +259,206 @@ export class CampusSceneController {
     this.camera.near = Math.max(0.1, r / 500)
     this.camera.far = r * 20
     this.camera.updateProjectionMatrix()
-    this.camera.position.set(center.x + r * 0.7, center.y + r * 0.9, center.z + r * 0.95)
-    this.controls.target.copy(center)
-    this.controls.update()
+    this.controls.minDistance = 2
+    this.controls.maxDistance = r * 4
+    const position = new THREE.Vector3(center.x + r * 0.7, center.y + r * 0.9, center.z + r * 0.95)
     this.fitted = true
-    this.requestRender()
+    this.flyTo(position, center, animate)
+  }
+
+  /** Общий вид — по кнопке или клавише: перелётом, и дальше камера снова «своя». */
+  resetView(): void {
+    this.fit(true)
+    this.touched = true
   }
 
   /** Подвести камеру к точке (найденное помещение, начало маршрута). */
   focusOn(x: number, y: number, z: number, distance = 25): void {
     const target = new THREE.Vector3(x, y, z)
     const dir = this.camera.position.clone().sub(this.controls.target).normalize()
-    this.controls.target.copy(target)
-    this.camera.position.copy(target.clone().add(dir.multiplyScalar(distance)))
-    this.controls.update()
-    this.requestRender()
+    this.touched = true
+    this.flyTo(target.clone().add(dir.multiplyScalar(distance)), target, this.fitted)
   }
 
   requestRender(): void {
-    if (!this.frame)
-      this.frame = requestAnimationFrame(() => {
-        this.frame = 0
-        const started = performance.now()
-        this.renderer.render(this.scene, this.camera)
-        this.adapt(performance.now() - started)
-      })
+    if (!this.frame) this.frame = requestAnimationFrame(this.tick)
+  }
+
+  // ── Движение камеры ──────────────────────────────────────────────────────────────
+
+  /** Человек взял камеру в свои руки: вид больше не подстраивается сам, перелёт прерван. */
+  private touched = false
+  private flight: {
+    fromPos: THREE.Vector3
+    fromTarget: THREE.Vector3
+    toPos: THREE.Vector3
+    toTarget: THREE.Vector3
+    start: number
+  } | null = null
+  private readonly keys = new Set<string>()
+  private shift = false
+  private lastTick = 0
+
+  /**
+   * Кадр по требованию: перелёт, удерживаемые клавиши и инерция мыши просят следующий кадр,
+   * пока движутся; встали — цикл останавливается.
+   */
+  private readonly tick = (now: number): void => {
+    this.frame = 0
+    const dt = this.lastTick ? Math.min(0.05, (now - this.lastTick) / 1000) : 1 / 60
+    let busy = false
+    if (this.flight) busy = this.stepFlight(now)
+    if (this.keys.size) {
+      this.stepKeys(dt)
+      busy = true
+    }
+    // Инерция: пока она гасится, `update` шлёт `change` и сам просит следующий кадр.
+    this.controls.update()
+    const started = performance.now()
+    this.renderer.render(this.scene, this.camera)
+    this.adapt(performance.now() - started)
+    this.lastTick = busy ? now : 0
+    if (busy) this.requestRender()
+  }
+
+  private flyTo(position: THREE.Vector3, target: THREE.Vector3, animate: boolean): void {
+    if (!animate || prefersReducedMotion()) {
+      this.flight = null
+      this.camera.position.copy(position)
+      this.controls.target.copy(target)
+      this.controls.update()
+      this.requestRender()
+      return
+    }
+    this.flight = {
+      fromPos: this.camera.position.clone(),
+      fromTarget: this.controls.target.clone(),
+      toPos: position.clone(),
+      toTarget: target.clone(),
+      start: performance.now(),
+    }
+    this.requestRender()
+  }
+
+  /** Шаг перелёта: быстрый старт, мягкая остановка (кривая MOTION.ease, приближённо). */
+  private stepFlight(now: number): boolean {
+    const f = this.flight!
+    const t = Math.min(1, (now - f.start) / FLIGHT_MS)
+    const k = 1 - Math.pow(1 - t, 4)
+    this.camera.position.lerpVectors(f.fromPos, f.toPos, k)
+    this.controls.target.lerpVectors(f.fromTarget, f.toTarget, k)
+    if (t >= 1) this.flight = null
+    return t < 1
+  }
+
+  private stepKeys(dt: number): void {
+    const has = (...codes: string[]): boolean => codes.some((c) => this.keys.has(c))
+    // Shift + стрелки — поворот и наклон, без Shift — сдвиг; WASD — всегда сдвиг.
+    const arrowsTurn = this.shift
+    const axis = (plus: boolean, minus: boolean): number => (plus ? 1 : 0) - (minus ? 1 : 0)
+    const fwd = axis(
+      has('KeyW') || (!arrowsTurn && has('ArrowUp')),
+      has('KeyS') || (!arrowsTurn && has('ArrowDown')),
+    )
+    const right = axis(
+      has('KeyD') || (!arrowsTurn && has('ArrowRight')),
+      has('KeyA') || (!arrowsTurn && has('ArrowLeft')),
+    )
+    const rot = axis(
+      has('KeyE') || (arrowsTurn && has('ArrowRight')),
+      has('KeyQ') || (arrowsTurn && has('ArrowLeft')),
+    )
+    const tilt = axis(
+      has('KeyF') || (arrowsTurn && has('ArrowDown')),
+      has('KeyR') || (arrowsTurn && has('ArrowUp')),
+    )
+    const zoom = axis(has('Equal', 'NumpadAdd'), has('Minus', 'NumpadSubtract'))
+
+    const target = this.controls.target
+    const offset = this.camera.position.clone().sub(target)
+    const dist = offset.length()
+    if (fwd || right) {
+      // Вперёд — по направлению взгляда, но по земле: камера не ныряет в пол.
+      const forward = offset.clone().negate().setY(0)
+      if (forward.lengthSq() < 1e-9) forward.set(0, 0, -1)
+      forward.normalize()
+      const side = new THREE.Vector3().crossVectors(forward, this.camera.up).normalize()
+      const step = dist * KEY_PAN * dt
+      const move = forward.multiplyScalar(fwd * step).add(side.multiplyScalar(right * step))
+      target.add(move)
+      this.camera.position.add(move)
+    }
+    if (rot || tilt || zoom) {
+      const s = new THREE.Spherical().setFromVector3(offset)
+      s.theta += rot * KEY_ROTATE * dt
+      s.phi = THREE.MathUtils.clamp(s.phi + tilt * KEY_TILT * dt, 0.05, this.controls.maxPolarAngle)
+      s.radius = THREE.MathUtils.clamp(
+        s.radius * Math.exp(-zoom * KEY_ZOOM * dt),
+        this.controls.minDistance,
+        this.controls.maxDistance,
+      )
+      this.camera.position.copy(target).add(offset.setFromSpherical(s))
+    }
+  }
+
+  private readonly grab = (): void => {
+    this.touched = true
+    this.flight = null
+  }
+
+  private readonly keyDown = (e: KeyboardEvent): void => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return
+    this.shift = e.shiftKey
+    if (e.code === 'Home' || e.code === 'Digit0' || e.code === 'Numpad0') {
+      e.preventDefault()
+      this.resetView()
+      return
+    }
+    if (!CAMERA_KEYS.has(e.code)) return
+    e.preventDefault()
+    this.grab()
+    this.keys.add(e.code)
+    this.requestRender()
+  }
+
+  private readonly keyUp = (e: KeyboardEvent): void => {
+    this.shift = e.shiftKey
+    this.keys.delete(e.code)
+  }
+
+  private readonly releaseKeys = (): void => {
+    this.keys.clear()
+    this.shift = false
+  }
+
+  /** Двойной клик — подлететь к точке под курсором вдвое ближе. */
+  private readonly dblClick = (e: MouseEvent): void => {
+    const hit = this.raycast(e.clientX, e.clientY, this.content.children)
+    if (!hit) return
+    const target = hit.point.clone()
+    const dir = this.camera.position.clone().sub(this.controls.target)
+    const dist = THREE.MathUtils.clamp(
+      dir.length() * 0.45,
+      this.controls.minDistance,
+      this.controls.maxDistance,
+    )
+    this.grab()
+    this.flyTo(target.clone().add(dir.normalize().multiplyScalar(dist)), target, true)
+  }
+
+  private raycast(
+    clientX: number,
+    clientY: number,
+    objects: THREE.Object3D[],
+  ): THREE.Intersection | undefined {
+    const rect = this.renderer.domElement.getBoundingClientRect()
+    const ndc = new THREE.Vector2(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
+    )
+    const ray = new THREE.Raycaster()
+    ray.setFromCamera(ndc, this.camera)
+    return ray.intersectObjects(objects, false)[0]
   }
 
   private slowFrames = 0
@@ -270,12 +489,17 @@ export class CampusSceneController {
   dispose(): void {
     if (this.frame) cancelAnimationFrame(this.frame)
     this.clear()
+    this.controls.removeEventListener('start', this.grab)
     this.controls.dispose()
     const el = this.renderer.domElement
     el.removeEventListener('webglcontextlost', this.lost)
     el.removeEventListener('webglcontextrestored', this.restored)
     el.removeEventListener('pointerdown', this.pointerDown)
     el.removeEventListener('pointerup', this.pointerUp)
+    el.removeEventListener('dblclick', this.dblClick)
+    el.removeEventListener('keydown', this.keyDown)
+    el.removeEventListener('keyup', this.keyUp)
+    el.removeEventListener('blur', this.releaseKeys)
     this.renderer.dispose()
     this.renderer.forceContextLoss()
     el.remove()
@@ -350,8 +574,8 @@ export class CampusSceneController {
     const visible = input.floors.filter((f) => {
       if (input.mode === 'campus') return detailed.has(f.buildingId)
       if (input.mode === 'floor') return f.id === focus?.id
-      // Корпус: этажи того же корпуса до выбранного включительно.
-      return !focus || (f.buildingId === focus.buildingId && f.level <= focus.level)
+      // Корпус: этажи всех корпусов до уровня выбранного включительно.
+      return !focus || f.level <= focus.level
     })
 
     for (const f of visible) {
@@ -536,22 +760,17 @@ export class CampusSceneController {
 
   private readonly pointerDown = (e: PointerEvent): void => {
     this.down = { x: e.clientX, y: e.clientY }
+    this.renderer.domElement.style.cursor = 'grabbing'
   }
 
   /** Клик без перетаскивания — выбор помещения под курсором. */
   private readonly pointerUp = (e: PointerEvent): void => {
     const d = this.down
     this.down = null
+    this.renderer.domElement.style.cursor = ''
     if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5 || !this.onPick || !this.input)
       return
-    const rect = this.renderer.domElement.getBoundingClientRect()
-    const ndc = new THREE.Vector2(
-      ((e.clientX - rect.left) / rect.width) * 2 - 1,
-      -((e.clientY - rect.top) / rect.height) * 2 + 1,
-    )
-    const ray = new THREE.Raycaster()
-    ray.setFromCamera(ndc, this.camera)
-    const hit = ray.intersectObjects(this.pickables, false)[0]
+    const hit = this.raycast(e.clientX, e.clientY, this.pickables)
     if (!hit) return
     const floorId = hit.object.userData.floorId as string
     const floor = this.input.floors.find((f) => f.id === floorId)

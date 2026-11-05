@@ -30,12 +30,17 @@ export interface MapBuildingInput {
 const FOCUS_SCALE = 0.03
 /** Сдвиг дальше этого — перетаскивание, а не клик. */
 const CLICK_PX = 5
+/** Шаг клавиш: сдвиг в пикселях экрана и множитель масштаба. */
+const KEY_PAN_PX = 80
+const KEY_ZOOM = 1.25
 
 /**
  * Карта кампуса в духе 2ГИС: на выбранном уровне видны все корпуса сразу — у кого этот этаж
  * есть, тот нарисован планом (помещения цветом, разделители, иконки лестниц, лифтов, входов и
  * туалетов, подписи по масштабу), у кого нет — силуэтом. Под корпусами — территория.
- * Клик выбирает помещение в любом корпусе; перетаскивание, колесо и щипок двигают карту.
+ * Клик выбирает помещение в любом корпусе; перетаскивание, колесо и щипок двигают карту,
+ * двойной клик приближает. С клавиатуры (холст в фокусе): стрелки / WASD — сдвиг, + и − —
+ * масштаб, 0 / Home — показать всё.
  */
 export function CampusMapCanvas({
   buildings,
@@ -245,11 +250,42 @@ export function CampusMapCanvas({
       if (e.shiftKey && !e.ctrlKey) pan(-e.deltaY, 0)
       else zoomAt(l.x, l.y, Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)))
     }
+    const onDblClick = (e: MouseEvent): void => {
+      const l = local(e)
+      zoomAt(l.x, l.y, 2)
+    }
+    // По `code` — не зависит от раскладки: WASD работает и на русской.
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      const { width, height } = sizeRef.current
+      const moves: Record<string, [number, number]> = {
+        ArrowUp: [0, KEY_PAN_PX],
+        KeyW: [0, KEY_PAN_PX],
+        ArrowDown: [0, -KEY_PAN_PX],
+        KeyS: [0, -KEY_PAN_PX],
+        ArrowLeft: [KEY_PAN_PX, 0],
+        KeyA: [KEY_PAN_PX, 0],
+        ArrowRight: [-KEY_PAN_PX, 0],
+        KeyD: [-KEY_PAN_PX, 0],
+      }
+      const move = moves[e.code]
+      if (move) pan(move[0], move[1])
+      else if (e.code === 'Equal' || e.code === 'NumpadAdd') zoomAt(width / 2, height / 2, KEY_ZOOM)
+      else if (e.code === 'Minus' || e.code === 'NumpadSubtract')
+        zoomAt(width / 2, height / 2, 1 / KEY_ZOOM)
+      else if (e.code === 'Home' || e.code === 'Digit0' || e.code === 'Numpad0') {
+        fitAll()
+        schedule()
+      } else return
+      e.preventDefault()
+    }
     canvas.addEventListener('pointerdown', onDown)
     canvas.addEventListener('pointermove', onMove)
     canvas.addEventListener('pointerup', onUp)
     canvas.addEventListener('pointercancel', onUp)
     canvas.addEventListener('wheel', onWheel, { passive: false })
+    canvas.addEventListener('dblclick', onDblClick)
+    canvas.addEventListener('keydown', onKey)
     return () => {
       ro.disconnect()
       mo.disconnect()
@@ -262,6 +298,8 @@ export function CampusMapCanvas({
       canvas.removeEventListener('pointerup', onUp)
       canvas.removeEventListener('pointercancel', onUp)
       canvas.removeEventListener('wheel', onWheel)
+      canvas.removeEventListener('dblclick', onDblClick)
+      canvas.removeEventListener('keydown', onKey)
     }
     // Жесты и размеры — на всё время жизни холста; данные читаются из ref.
   }, [])
@@ -294,12 +332,17 @@ export function CampusMapCanvas({
   }, [focus, buildings])
 
   return (
-    <div ref={wrapRef} className="relative h-full w-full overflow-hidden">
+    // Рамка фокуса — у обёртки, внутрь: клавиши карты работают, пока холст в фокусе.
+    <div
+      ref={wrapRef}
+      className="relative h-full w-full overflow-hidden has-[canvas:focus-visible]:ring-4 has-[canvas:focus-visible]:ring-ring/30 has-[canvas:focus-visible]:ring-inset"
+    >
       <canvas
         ref={canvasRef}
         role="img"
+        tabIndex={0}
         aria-label={label}
-        className="block touch-none select-none"
+        className="block touch-none select-none focus-visible:outline-none"
       />
     </div>
   )
