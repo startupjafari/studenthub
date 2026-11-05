@@ -4,16 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import {
-  Accessibility,
-  DoorOpen,
-  ArrowDownUp,
-  CircleAlert,
-  Footprints,
-  Map as MapIcon,
-  Navigation,
-  X,
-} from 'lucide-react'
+import { CircleAlert, Footprints, Map as MapIcon, Navigation, X } from 'lucide-react'
 import {
   emptyFloorPlan,
   explainNoRoute,
@@ -28,25 +19,18 @@ import {
   fetchCampusNav,
   fetchCampusPublished,
   fetchCampusPublishedFloor,
+  FloorSwitcher,
   type CampusManifestBuilding,
   type CampusSpaceHit,
 } from '../../../entities/campus'
 import { EditorStore, useEditor } from '../../../features/campus-editor'
 import { CampusScene3D, type SceneFloor } from '../../../widgets/campus-3d'
 import { CampusMapCanvas, type MapBuildingInput } from '../../../widgets/campus-map'
-import {
-  Button,
-  Card,
-  Checkbox,
-  EmptyState,
-  Label,
-  PageHeader,
-  PageLoader,
-  SegmentedTabs,
-} from '../../../shared/ui'
+import { Button, Card, EmptyState, PageHeader, PageLoader, SegmentedTabs } from '../../../shared/ui'
 import { cn } from '../../../shared/lib'
 import { routeInScene, routeOnFloor, routeOnLevel, type Place } from '../lib/places'
 import { MapHints } from './map-hints'
+import { RouteForm } from './route-form'
 import { SpaceSearch } from './space-search'
 
 type ViewMode = '2d' | '3d' | 'campus'
@@ -524,29 +508,17 @@ function Viewer({
               />
             </div>
           )}
-          {/* Этажи — справа, как кнопки лифта: сверху вниз. */}
-          <nav
-            aria-label={t('floors')}
-            className="absolute top-3 right-3 flex flex-col gap-1 rounded-xl bg-card/95 p-1 shadow-sm ring-1 ring-foreground/10 backdrop-blur"
-          >
-            {/* Уровни всего кампуса: и план, и 3D показывают все корпуса разом. */}
-            {levels.map(([lv, lb]) => (
-              <button
-                key={lv}
-                type="button"
-                aria-current={lv === level}
-                aria-label={t('floorN', { label: lb })}
-                onClick={() => goToLevel(lv)}
-                className={cn(
-                  'flex size-11 items-center justify-center rounded-xl text-sm font-semibold tabular-nums md:size-9',
-                  'hover:bg-muted focus-visible:ring-4 focus-visible:ring-ring/20 focus-visible:outline-none',
-                  lv === level && 'bg-primary text-primary-foreground hover:bg-primary',
-                )}
-              >
-                {lb}
-              </button>
-            ))}
-          </nav>
+          {/* Уровни всего кампуса: и план, и 3D показывают все корпуса разом. */}
+          <FloorSwitcher
+            label={t('floors')}
+            items={levels.map(([lv, lb]) => ({
+              key: String(lv),
+              label: lb,
+              ariaLabel: t('floorN', { label: lb }),
+              active: lv === level,
+              onSelect: () => goToLevel(lv),
+            }))}
+          />
           <MapHints mode={mode} />
         </div>
 
@@ -592,62 +564,27 @@ function Viewer({
                   <X aria-hidden />
                 </Button>
               </div>
-              <PlacePicker
+              <RouteForm
                 campusId={campusId}
-                label={t('from')}
-                value={from}
-                onPick={(h) => setFrom(placeOf(h))}
-                onClear={() => setFrom(null)}
+                from={from}
+                to={to}
+                onPick={(end, v) => {
+                  const place = 'buildingId' in v ? v : placeOf(v)
+                  if (end === 'from') setFrom(place)
+                  else setTo(place)
+                }}
+                onClear={(end) => (end === 'from' ? setFrom(null) : setTo(null))}
+                onSwap={() => {
+                  setFrom(to)
+                  setTo(from)
+                }}
+                stepFree={stepFree}
+                onStepFree={setStepFree}
+                suggestions={[
+                  ...(selectedPlace ? [{ place: selectedPlace, kind: 'selected' as const }] : []),
+                  ...gates.map((place) => ({ place, kind: 'gate' as const })),
+                ]}
               />
-              {!from && gates.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {gates.map((g) => (
-                    <Button
-                      key={g.spaceId}
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => setFrom(g)}
-                    >
-                      <DoorOpen aria-hidden />
-                      {g.label}
-                    </Button>
-                  ))}
-                </div>
-              )}
-              <div className="flex justify-center">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  icon
-                  aria-label={t('swap')}
-                  onClick={() => {
-                    setFrom(to)
-                    setTo(from)
-                  }}
-                >
-                  <ArrowDownUp aria-hidden />
-                </Button>
-              </div>
-              <PlacePicker
-                campusId={campusId}
-                label={t('to')}
-                value={to}
-                onPick={(h) => setTo(placeOf(h))}
-                onClear={() => setTo(null)}
-              />
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="step-free"
-                  checked={stepFree}
-                  onCheckedChange={(v) => setStepFree(v === true)}
-                />
-                <Label htmlFor="step-free" className="flex items-center gap-1.5 text-sm">
-                  <Accessibility className="size-4" aria-hidden />
-                  {t('stepFree')}
-                </Label>
-              </div>
               {nav.isFetching && (
                 <p className="text-sm text-muted-foreground">{t('routeLoading')}</p>
               )}
@@ -757,42 +694,6 @@ function SpaceCard({
         </Button>
       </div>
     </Card>
-  )
-}
-
-function PlacePicker({
-  campusId,
-  label,
-  value,
-  onPick,
-  onClear,
-}: {
-  campusId: string
-  label: string
-  value: Place | null
-  onPick: (hit: CampusSpaceHit) => void
-  onClear: () => void
-}) {
-  const t = useTranslations('CampusMap')
-  return (
-    <div className="flex flex-col gap-1.5">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      {value ? (
-        <div className="flex h-9 items-center justify-between gap-2 rounded-xl border border-border px-3 text-sm">
-          <span className="truncate font-medium">{value.label}</span>
-          <button
-            type="button"
-            onClick={onClear}
-            aria-label={t('clear')}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <X className="size-4" aria-hidden />
-          </button>
-        </div>
-      ) : (
-        <SpaceSearch campusId={campusId} placeholder={t('pickPlace')} onPick={onPick} />
-      )}
-    </div>
   )
 }
 

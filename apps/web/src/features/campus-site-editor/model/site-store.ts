@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from 'react'
 import type { BuildingTransform, Pt, SiteFeature, SitePlanDoc } from '@studenthub/campus-core'
+import { MOTION, prefersReducedMotion } from '../../../shared/lib'
 
 /**
  * Состояние редактора территории (docs/CAMPUS_BUILDER.md §14.1). Устроено как у редактора
@@ -63,9 +64,26 @@ export interface SiteState {
   canRedo: boolean
   /** Запрос «вписать всё»: холст знает свой размер и пересчитывает вид, когда число растёт. */
   fitNonce: number
+  /** Запрос «показать объект»: точки его контура в мм; холст подводит к ним вид. */
+  focusReq: { points: Pt[]; nonce: number } | null
+}
+
+/** Свободная от плавающих панелей часть холста — отступы от краёв в пикселях. */
+export interface ViewInsets {
+  left: number
+  top: number
+  right: number
+  bottom: number
 }
 
 const HISTORY_LIMIT = 100
+const MIN_SCALE = 0.0002
+const MAX_SCALE = 0.5
+/** Точечный объект (дерево, ворота) показываем с округой не меньше этой, мм. */
+const MIN_FOCUS_MM = 20_000
+/** Отступ от границ объекта до края свободной области, px. */
+const FOCUS_PAD = 32
+const FLIGHT_MS = MOTION.large * 1.5
 
 export class SiteStore {
   private state: SiteState
@@ -91,6 +109,7 @@ export class SiteStore {
       canUndo: false,
       canRedo: false,
       fitNonce: 0,
+      focusReq: null,
     }
   }
 
@@ -187,6 +206,12 @@ export class SiteStore {
     this.set({ fitNonce: this.state.fitNonce + 1 })
   }
 
+  /** Попросить холст показать объект целиком (выбор в списке объектов). */
+  requestFocus(points: Pt[]): void {
+    if (points.length === 0) return
+    this.set({ focusReq: { points, nonce: (this.state.focusReq?.nonce ?? 0) + 1 } })
+  }
+
   // ── Вид ────────────────────────────────────────────────────────────────────────────
 
   toPlan(px: number, py: number): Pt {
@@ -195,19 +220,22 @@ export class SiteStore {
   }
 
   zoomAt(px: number, py: number, factor: number): void {
+    this.stopFlight()
     const { scale, ox, oy } = this.state.view
-    const next = Math.min(0.5, Math.max(0.0002, scale * factor))
+    const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale * factor))
     const k = next / scale
     this.set({ view: { scale: next, ox: px - (px - ox) * k, oy: py - (py - oy) * k } })
   }
 
   pan(dx: number, dy: number): void {
+    this.stopFlight()
     const v = this.state.view
     this.set({ view: { ...v, ox: v.ox + dx, oy: v.oy + dy } })
   }
 
   /** Вписать территорию и корпуса в холст. */
   fit(width: number, height: number, points: Pt[]): void {
+    this.stopFlight()
     if (points.length === 0) {
       this.set({ view: { scale: 0.005, ox: width / 2, oy: height / 2 } })
       return
@@ -225,7 +253,7 @@ export class SiteStore {
       (width - pad * 2) / Math.max(1, maxX - minX),
       (height - pad * 2) / Math.max(1, maxY - minY),
     )
-    const scale = Math.min(0.5, Math.max(0.0002, s))
+    const scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, s))
     this.set({
       view: {
         scale,
@@ -233,6 +261,66 @@ export class SiteStore {
         oy: (height + (maxY - minY) * scale) / 2 + minY * scale,
       },
     })
+  }
+
+  /**
+   * Подвести вид к объекту: его рамка целиком (с отступом) в свободной части холста — не под
+   * панелью инструментов. Перелётом: центр едет, масштаб меняется по логарифму — так глаз
+   * не теряет, откуда и куда сдвинулась карта. Сдвиг или масштаб рукой перелёт прерывают.
+   */
+  focus(width: number, height: number, points: Pt[], insets: ViewInsets): void {
+    if (points.length === 0 || width <= 0 || height <= 0) return
+    const xs = points.map((p) => p.x)
+    const ys = points.map((p) => p.y)
+    const [minX, maxX, minY, maxY] = [
+      Math.min(...xs),
+      Math.max(...xs),
+      Math.min(...ys),
+      Math.max(...ys),
+    ]
+    const aw = Math.max(1, width - insets.left - insets.right - FOCUS_PAD * 2)
+    const ah = Math.max(1, height - insets.top - insets.bottom - FOCUS_PAD * 2)
+    const scale = Math.min(
+      MAX_SCALE,
+      Math.max(
+        MIN_SCALE,
+        Math.min(
+          aw / Math.max(MIN_FOCUS_MM, maxX - minX),
+          ah / Math.max(MIN_FOCUS_MM, maxY - minY),
+        ),
+      ),
+    )
+    // Центр свободной области на экране и центр объекта на плане.
+    const sx = insets.left + (width - insets.left - insets.right) / 2
+    const sy = insets.top + (height - insets.top - insets.bottom) / 2
+    const to = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }
+    const viewAt = (p: Pt, k: number) => ({ scale: k, ox: sx - p.x * k, oy: sy + p.y * k })
+
+    this.stopFlight()
+    if (prefersReducedMotion()) {
+      this.set({ view: viewAt(to, scale) })
+      return
+    }
+    const from = this.toPlan(sx, sy)
+    const s0 = this.state.view.scale
+    const start = performance.now()
+    const step = (now: number): void => {
+      const t = Math.min(1, (now - start) / FLIGHT_MS)
+      const e = 1 - Math.pow(1 - t, 4)
+      const k = s0 * Math.pow(scale / s0, e)
+      this.set({
+        view: viewAt({ x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e }, k),
+      })
+      this.flight = t < 1 ? requestAnimationFrame(step) : 0
+    }
+    this.flight = requestAnimationFrame(step)
+  }
+
+  private flight = 0
+
+  private stopFlight(): void {
+    if (this.flight) cancelAnimationFrame(this.flight)
+    this.flight = 0
   }
 }
 

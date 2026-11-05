@@ -4,6 +4,7 @@ export { SPACE_KIND_COLOR } from './lib/kind-colors'
 export { ShowOnMapLink } from './ui/show-on-map-link'
 export { ChoiceField, Field, NumberField, TextField } from './ui/fields'
 export { CampusRow } from './ui/campus-row'
+export { FloorSwitcher, type FloorSwitcherItem } from './ui/floor-switcher'
 export { CampusEditorHeader, type EditorSaveState } from './ui/editor-header'
 export {
   UnderlayStore,
