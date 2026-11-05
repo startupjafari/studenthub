@@ -31,8 +31,9 @@ import {
   type CampusManifestBuilding,
   type CampusSpaceHit,
 } from '../../../entities/campus'
-import { EditorStore, PlanCanvas, ToolController, useEditor } from '../../../features/campus-editor'
+import { EditorStore, useEditor } from '../../../features/campus-editor'
 import { CampusScene3D, type SceneFloor } from '../../../widgets/campus-3d'
+import { CampusMapCanvas, type MapBuildingInput } from '../../../widgets/campus-map'
 import {
   Button,
   Card,
@@ -44,7 +45,7 @@ import {
   SegmentedTabs,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib'
-import { routeInScene, routeOnFloor, type Place } from '../lib/places'
+import { routeInScene, routeOnFloor, routeOnLevel, type Place } from '../lib/places'
 import { SpaceSearch } from './space-search'
 
 type ViewMode = '2d' | '3d' | 'campus'
@@ -121,6 +122,15 @@ function Viewer({
   const [routing, setRouting] = useState(false)
   const pendingSpace = useRef<string | null>(params.get('space'))
   const canvasBox = useRef<HTMLDivElement>(null)
+  // Подвести карту к помещению: ссылка, поиск, шаг маршрута. Клик по карте — не подводит.
+  const [focusReq, setFocusReq] = useState<{
+    floorId: string
+    spaceId: string
+    nonce: number
+  } | null>(() => {
+    const space = params.get('space')
+    return space && floorId ? { floorId, spaceId: space, nonce: 1 } : null
+  })
 
   const current = floorId ? floorIndex.get(floorId) : undefined
   const [store] = useState(() => {
@@ -128,7 +138,6 @@ function Viewer({
     s.set({ saveState: 'readonly' })
     return s
   })
-  const [tools] = useState(() => new ToolController(store, true))
 
   const floorDoc = useQuery({
     queryKey: campusKeys.publishedFloor(campusId, floorId ?? '', versionId),
@@ -202,6 +211,71 @@ function Viewer({
     [floorId, store],
   )
 
+  /** Перейти к помещению с подводом карты: поиск, шаг маршрута. */
+  const focusOn = useCallback(
+    (fid: string, spaceId: string | null) => {
+      goTo(fid, spaceId)
+      if (spaceId) setFocusReq({ floorId: fid, spaceId, nonce: Date.now() })
+    },
+    [goTo],
+  )
+
+  // ── Карта уровня: все корпуса на этаже текущего уровня ────────────────────────────
+  const level = current?.floor.level ?? 1
+  const levels = useMemo(() => {
+    const byLevel = new Map<number, string>()
+    for (const b of buildings)
+      for (const f of b.floors) if (!byLevel.has(f.level)) byLevel.set(f.level, f.label)
+    return [...byLevel.entries()].sort((a, b) => b[0] - a[0])
+  }, [buildings])
+  const levelFloors = useMemo(
+    () =>
+      buildings.flatMap((b) => {
+        const f = b.floors.find((x) => x.level === level)
+        return f ? [{ b, f }] : []
+      }),
+    [buildings, level],
+  )
+  const levelDocs = useQueries({
+    queries: levelFloors.map(({ f }) => ({
+      queryKey: campusKeys.publishedFloor(campusId, f.id, versionId),
+      queryFn: () => fetchCampusPublishedFloor(campusId, f.id),
+      staleTime: Infinity,
+    })),
+  })
+  const levelDocsKey = levelDocs.map((q) => (q.data ? 1 : 0)).join('')
+  const mapBuildings = useMemo<MapBuildingInput[]>(() => {
+    const docs = new Map(
+      levelDocs.flatMap((q) => (q.data ? [[q.data.floorId, q.data.document] as const] : [])),
+    )
+    return buildings.map((b) => {
+      const f = b.floors.find((x) => x.level === level)
+      return {
+        id: b.id,
+        code: b.code,
+        name: b.name,
+        outline: b.outline,
+        transform: b.transform,
+        floorId: f?.id ?? null,
+        doc: f ? (docs.get(f.id) ?? null) : null,
+      }
+    })
+    // levelDocsKey: пересобрать, когда догрузился план очередного корпуса.
+  }, [buildings, level, levelDocsKey])
+  const goToLevel = (lv: number): void => {
+    const f =
+      current?.building.floors.find((x) => x.level === lv) ??
+      buildings.flatMap((b) => b.floors).find((x) => x.level === lv)
+    if (f) goTo(f.id, null)
+  }
+  const onMapPick = useCallback(
+    (hit: { floorId: string; spaceId: string } | null) => {
+      if (!hit) store.set({ selection: { kind: 'none' } })
+      else goTo(hit.floorId, hit.spaceId)
+    },
+    [goTo, store],
+  )
+
   // Ворота территории — готовые точки «откуда» для посетителей (граф знает их как `gate:<id>`).
   const gates = useMemo<Place[]>(
     () =>
@@ -258,6 +332,13 @@ function Viewer({
     [nav.data, index, from, to, route, stepFree, staff],
   )
   const steps = useMemo(() => (index && route ? routeSteps(index, route) : []), [index, route])
+  const mapRoute = useMemo(
+    () =>
+      nav.data?.graph && route
+        ? routeOnLevel(nav.data.graph, route, new Set(levelFloors.map(({ f }) => f.id)))
+        : [],
+    [nav.data, route, levelFloors],
+  )
 
   useEffect(() => {
     const graph = nav.data?.graph
@@ -371,7 +452,7 @@ function Viewer({
             <SpaceSearch
               campusId={campusId}
               placeholder={t('searchPlaceholder')}
-              onPick={(hit) => hit.floor && goTo(hit.floor.id, hit.spaceId)}
+              onPick={(hit) => hit.floor && focusOn(hit.floor.id, hit.spaceId)}
             />
           </div>
         }
@@ -388,11 +469,13 @@ function Viewer({
       <div className="flex flex-col gap-4 lg:h-[calc(100dvh-6.25rem)] lg:min-h-[32rem] lg:flex-row">
         <div className="relative h-[60dvh] min-h-[18rem] overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10 lg:h-auto lg:flex-1">
           <div ref={canvasBox} className={cn('absolute inset-0', mode !== '2d' && 'invisible')}>
-            <PlanCanvas
-              store={store}
-              tools={tools}
-              problemsShown={false}
-              viewOnly
+            <CampusMapCanvas
+              buildings={mapBuildings}
+              site={data.manifest.site ?? null}
+              selected={selectedSpace ? { floorId, spaceId: selectedSpace } : null}
+              route={mapRoute}
+              focus={focusReq}
+              onPick={onMapPick}
               label={t('planLabel', { floor: floorLabel(floorId) })}
             />
           </div>
@@ -415,24 +498,38 @@ function Viewer({
             aria-label={t('floors')}
             className="absolute top-3 right-3 flex flex-col gap-1 rounded-xl bg-card/95 p-1 shadow-sm ring-1 ring-foreground/10 backdrop-blur"
           >
-            {[...current.building.floors].reverse().map((f) => (
+            {/* План — уровни всего кампуса (все корпуса разом), 3D — этажи корпуса. */}
+            {(mode === '3d'
+              ? [...current.building.floors].reverse().map((f) => ({
+                  key: f.id,
+                  label: f.label,
+                  active: f.id === floorId,
+                  go: () => goTo(f.id, null),
+                }))
+              : levels.map(([lv, lb]) => ({
+                  key: String(lv),
+                  label: lb,
+                  active: lv === level,
+                  go: () => goToLevel(lv),
+                }))
+            ).map((x) => (
               <button
-                key={f.id}
+                key={x.key}
                 type="button"
-                aria-current={f.id === floorId}
-                aria-label={t('floorN', { label: f.label })}
-                onClick={() => goTo(f.id, null)}
+                aria-current={x.active}
+                aria-label={t('floorN', { label: x.label })}
+                onClick={x.go}
                 className={cn(
                   'flex size-11 items-center justify-center rounded-xl text-sm font-semibold tabular-nums md:size-9',
                   'hover:bg-muted focus-visible:ring-4 focus-visible:ring-ring/20 focus-visible:outline-none',
-                  f.id === floorId && 'bg-primary text-primary-foreground hover:bg-primary',
+                  x.active && 'bg-primary text-primary-foreground hover:bg-primary',
                 )}
               >
-                {f.label}
+                {x.label}
               </button>
             ))}
           </nav>
-          {buildings.length > 1 && (
+          {buildings.length > 1 && mode === '3d' && (
             <div className="absolute bottom-3 left-3 flex max-w-[calc(100%-6rem)] gap-1 overflow-x-auto rounded-xl bg-card/95 p-1 shadow-sm ring-1 ring-foreground/10 backdrop-blur">
               {buildings.map((b) => (
                 <button

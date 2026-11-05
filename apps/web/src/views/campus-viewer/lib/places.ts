@@ -52,3 +52,25 @@ export function routeInScene(
     return { x: p.x / 1000, y: p.z / 1000, z: -p.y / 1000 }
   })
 }
+
+/**
+ * Участки маршрута на уровне — по всем этажам этого уровня сразу (карта показывает все
+ * корпуса уровня), в мм кампуса.
+ */
+export function routeOnLevel(graph: NavGraph, route: RouteResult, floorIds: Set<string>): Pt[][] {
+  const lines: Pt[][] = []
+  let cur: Pt[] | null = null
+  for (const n of route.nodes) {
+    const p = nodePoint(graph, n)
+    if (p.floor && floorIds.has(p.floor)) {
+      if (!cur) {
+        cur = []
+        lines.push(cur)
+      }
+      cur.push({ x: p.x, y: p.y })
+    } else {
+      cur = null
+    }
+  }
+  return lines.filter((l) => l.length > 1)
+}
