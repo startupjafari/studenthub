@@ -109,7 +109,6 @@ function Viewer({
   const [mode, setMode] = useState<ViewMode>('2d')
   const [from, setFrom] = useState<Place | null>(null)
   const [to, setTo] = useState<Place | null>(null)
-  const [stepFree, setStepFree] = useState(false)
   const [routing, setRouting] = useState(false)
   // Проход камерой по маршруту (3D): кнопка в сводке маршрута, прерывается мышью и клавишами.
   const [touring, setTouring] = useState(false)
@@ -320,16 +319,16 @@ function Viewer({
   const route = useMemo(
     () =>
       index && from && to
-        ? routeBetweenSpaces(index, from.spaceId, to.spaceId, { stepFree, staff })
+        ? routeBetweenSpaces(index, from.spaceId, to.spaceId, { stepFree: false, staff })
         : null,
-    [index, from, to, stepFree, staff],
+    [index, from, to, staff],
   )
   const reason = useMemo(
     () =>
       nav.data && from && to && !route
-        ? explainNoRoute(index, from.spaceId, to.spaceId, { stepFree, staff })
+        ? explainNoRoute(index, from.spaceId, to.spaceId, { stepFree: false, staff })
         : null,
-    [nav.data, index, from, to, route, stepFree, staff],
+    [nav.data, index, from, to, route, staff],
   )
   const steps = useMemo(() => (index && route ? routeSteps(index, route) : []), [index, route])
 
@@ -654,8 +653,6 @@ function Viewer({
                   setFrom(to)
                   setTo(from)
                 }}
-                stepFree={stepFree}
-                onStepFree={setStepFree}
                 suggestions={[
                   ...(selectedPlace ? [{ place: selectedPlace, kind: 'selected' as const }] : []),
                   ...gates.map((place) => ({ place, kind: 'gate' as const })),
@@ -667,8 +664,6 @@ function Viewer({
                 loading={nav.isFetching}
                 hasRoute={!!route}
                 reason={reason}
-                stepFree={stepFree}
-                onAllowStairs={() => setStepFree(false)}
               />
               {route && (
                 <RouteSummary

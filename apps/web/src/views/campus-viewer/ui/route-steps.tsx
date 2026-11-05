@@ -10,7 +10,6 @@ import {
   Loader2,
   LogIn,
   LogOut,
-  MousePointerClick,
   Play,
   Square,
 } from 'lucide-react'
@@ -210,8 +209,8 @@ export function RouteSummary({
 }
 
 /**
- * Что сейчас с маршрутом, одной строкой: чего не хватает (и как это указать), строим,
- * почему не вышло — и что сделать, если причина в «без лестниц».
+ * Что сейчас с маршрутом, одной строкой: точки совпали, строим, почему не вышло. Пока
+ * точки не заданы — ничего: поля «Откуда/Куда» говорят сами за себя.
  */
 export function RouteStatus({
   from,
@@ -219,26 +218,15 @@ export function RouteStatus({
   loading,
   hasRoute,
   reason,
-  stepFree,
-  onAllowStairs,
 }: {
   from: { spaceId: string } | null
   to: { spaceId: string } | null
   loading: boolean
   hasRoute: boolean
   reason: string | null
-  stepFree: boolean
-  onAllowStairs: () => void
 }) {
   const t = useTranslations('CampusMap')
-  if (!from || !to) {
-    return (
-      <p className="flex items-start gap-2 rounded-xl bg-muted/60 p-3 text-sm text-muted-foreground">
-        <MousePointerClick className="mt-0.5 size-4 shrink-0" aria-hidden />
-        {!from ? t('routeHintFrom') : t('routeHintTo')}
-      </p>
-    )
-  }
+  if (!from || !to) return null
   if (from.spaceId === to.spaceId) {
     return (
       <p className="flex items-start gap-2 rounded-xl bg-muted/60 p-3 text-sm text-muted-foreground">
@@ -257,20 +245,13 @@ export function RouteStatus({
   }
   if (reason) {
     return (
-      <div
+      <p
         role="alert"
-        className="flex flex-col items-start gap-2 rounded-xl bg-destructive/5 p-3 text-sm text-destructive"
+        className="flex items-start gap-2 rounded-xl bg-destructive/5 p-3 text-sm text-destructive"
       >
-        <p className="flex items-start gap-2">
-          <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
-          {t(`noRoute_${reason}`)}
-        </p>
-        {reason === 'STEP_FREE_UNAVAILABLE' && stepFree && (
-          <Button type="button" size="sm" variant="outline" onClick={onAllowStairs}>
-            {t('routeAllowStairs')}
-          </Button>
-        )}
-      </div>
+        <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+        {t(`noRoute_${reason}`)}
+      </p>
     )
   }
   return null
