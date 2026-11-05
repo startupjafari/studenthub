@@ -1,6 +1,7 @@
 import type { FloorPlanDoc, PlanSpace } from '../format/schema.js'
 import type { SitePlanDoc } from '../format/site.js'
 import type { Pt } from '../geom/int.js'
+import { pointInPolygon } from '../geom/polygon.js'
 import { buildFaces, faceContains, type Face } from '../topology/faces.js'
 import { matchSpaces } from '../topology/match-spaces.js'
 import { toCampus, type BuildingTransform } from '../topology/building.js'
@@ -62,6 +63,11 @@ const VIRTUAL_STEP_MM = 1500
 const NEAREST = 8
 /** Улица дороже коридора: перейти двор — не то же, что пройти по зданию. */
 const OUTDOOR_FACTOR = 1.2
+/**
+ * Дверь в стене, общей с соседним корпусом, ведёт не на улицу, а в него: её внешняя точка
+ * лежит у двери соседа. Ближе этого — одна и та же дверь в общей стене (переход).
+ */
+const PASSAGE_MM = 700
 /** Входы разных корпусов без дорожек соединяются напрямую, если ближе. */
 const OUTDOOR_MAX_MM = 2_000_000
 
@@ -217,6 +223,8 @@ export function buildNavGraph(
 ): NavGraph {
   const g = new GraphBuilder()
   const entrances: { id: number; buildingId: string; z: number }[] = []
+  // Все «наружные» точки дверей, на любом этаже: часть из них — переходы в соседний корпус.
+  const doorOuts: { id: number; buildingId: string; z: number }[] = []
   // Уровень земли корпуса — самый низкий этаж с отметкой ≥ 0: двери наружу выше — балконы и
   // террасы, а не входы, через них на улицу не выходят.
   const ground = new Map<string, number>()
@@ -272,6 +280,8 @@ export function buildNavGraph(
       if (!f1 && !f2) continue
       const n1 = add(p1, f1 ? 'portal' : 'entrance', f1)
       const n2 = add(p2, f2 ? 'portal' : 'entrance', f2)
+      if (!f1) doorOuts.push({ id: n1, buildingId: f.buildingId, z })
+      if (!f2) doorOuts.push({ id: n2, buildingId: f.buildingId, z })
       if (z === ground.get(f.buildingId)) {
         if (!f1) entrances.push({ id: n1, buildingId: f.buildingId, z })
         if (!f2) entrances.push({ id: n2, buildingId: f.buildingId, z })
@@ -333,8 +343,50 @@ export function buildNavGraph(
     }
   }
 
-  connectOutdoors(g, entrances, site, obstacles)
+  const passages = connectPassages(g, doorOuts, floors)
+  // На улицу выходят только настоящие входы: не переход и не точка внутри другого корпуса
+  // (дверь в общей стене без двери у соседа — тупик, а не выход во двор).
+  const street = entrances.filter((e) => {
+    if (passages.has(e.id)) return false
+    const p = g.point(e.id)
+    return !obstacles.some((ring) => pointInPolygon(p, ring) === 'inside')
+  })
+  connectOutdoors(g, street, site, obstacles)
   return g.build()
+}
+
+/**
+ * Переходы между примыкающими корпусами: внешняя точка двери одного корпуса стоит у
+ * внутренней точки двери соседа на той же высоте — соединяем их проходом. Возвращает
+ * внешние точки, ставшие переходами: на улицу через них не выходят.
+ */
+function connectPassages(
+  g: GraphBuilder,
+  doorOuts: { id: number; buildingId: string; z: number }[],
+  floors: readonly NavFloorInput[],
+): Set<number> {
+  const buildingOfFloor = new Map(floors.map((f) => [f.floorId, f.buildingId]))
+  const portal = NAV_NODE_KINDS.indexOf('portal')
+  const entrance = NAV_NODE_KINDS.indexOf('entrance')
+  const linked = new Set<number>()
+  const count = g.nodes.length / 5
+  for (const e of doorOuts) {
+    const p = g.point(e.id)
+    let best: { j: number; d: number } | null = null
+    for (let j = 0; j < count; j++) {
+      const kind = g.nodes[j * 5 + 4]
+      const fi = g.nodes[j * 5 + 3]!
+      if ((kind !== portal && kind !== entrance) || fi < 0) continue
+      if (buildingOfFloor.get(g.floors[fi]!) === e.buildingId) continue
+      if (Math.abs(g.nodes[j * 5 + 2]! - p.z) > 1) continue
+      const d = Math.hypot(g.nodes[j * 5]! - p.x, g.nodes[j * 5 + 1]! - p.y)
+      if (d <= PASSAGE_MM && (!best || d < best.d)) best = { j, d }
+    }
+    if (!best) continue
+    g.edge(e.id, best.j, best.d, 'walk')
+    linked.add(e.id)
+  }
+  return linked
 }
 
 function connectVisible(g: GraphBuilder, fn: FaceNodes): void {

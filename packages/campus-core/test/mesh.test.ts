@@ -152,8 +152,11 @@ describe('floorMesh — лестницы и лифты', () => {
     expect(Math.max(...ys(m.stairs))).toBeCloseTo(3, 5)
     // Промежуточная площадка — на половине высоты, у дальнего от площадки края (x = 4,5 м).
     expect(Math.max(...xsAtTop(m.stairs, 1.5))).toBeCloseTo(4.5, 5)
-    // Второй марш приходит обратно к краю у площадки (x = 0,5 м): там площадка этажа выше.
-    expect(Math.max(...xsAtTop(m.stairs, 3))).toBeLessThan(1.5)
+    // Второй марш приходит обратно к краю у площадки (x = 0,5 м) — к этажной площадке.
+    expect(Math.max(...xsAtTop(m.stairs, 3))).toBeLessThan(2)
+    // Этажная площадка у входа (0,5…1,3 м) — пол, ступеней на ней нет.
+    const xs = [...m.stairs.positions].filter((_, i) => i % 3 === 0)
+    expect(Math.min(...xs)).toBeGreaterThan(1.25)
   })
 
   it('проём в полу — над лестницей с этажа ниже пола нет', () => {
