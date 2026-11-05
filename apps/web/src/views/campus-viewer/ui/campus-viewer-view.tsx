@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { CircleAlert, Footprints, Map as MapIcon, Navigation, X } from 'lucide-react'
+import { Footprints, Map as MapIcon, Navigation, X } from 'lucide-react'
 import {
   emptyFloorPlan,
   explainNoRoute,
@@ -12,7 +12,6 @@ import {
   routeBetweenSpaces,
   routeSteps,
   type FloorPlanDoc,
-  type RouteStep,
 } from '@studenthub/campus-core'
 import {
   campusKeys,
@@ -28,15 +27,20 @@ import { CampusScene3D, type SceneFloor } from '../../../widgets/campus-3d'
 import { CampusMapCanvas, type MapBuildingInput } from '../../../widgets/campus-map'
 import { Button, Card, EmptyState, PageHeader, PageLoader, SegmentedTabs } from '../../../shared/ui'
 import { cn } from '../../../shared/lib'
-import { routeInScene, routeOnFloor, routeOnLevel, type Place } from '../lib/places'
+import {
+  routeInScene,
+  routeOnFloor,
+  routeOnLevel,
+  routeStartFloor,
+  type Place,
+} from '../lib/places'
 import { MapHints } from './map-hints'
 import { RouteForm } from './route-form'
+import { RouteStatus, RouteSummary } from './route-steps'
 import { SpaceSearch } from './space-search'
 
 type ViewMode = '2d' | '3d' | 'campus'
 
-/** Скорость пешехода для оценки времени (§15.5) — допущение пишем рядом с цифрой. */
-const WALK_MM_PER_MIN = 72_000
 /** До стольких этажей режим «Кампус» грузит планы и рисует фасады; больше — коробки. */
 const CAMPUS_DETAIL_FLOORS = 40
 
@@ -105,6 +109,10 @@ function Viewer({
   const [to, setTo] = useState<Place | null>(null)
   const [stepFree, setStepFree] = useState(false)
   const [routing, setRouting] = useState(false)
+  // Проход камерой по маршруту (3D): кнопка в сводке маршрута, прерывается мышью и клавишами.
+  const [touring, setTouring] = useState(false)
+  // Клик по помещению на карте в режиме маршрута — кандидат в «Откуда/Куда» (см. ниже).
+  const mapPicked = useRef(false)
   const pendingSpace = useRef<string | null>(params.get('space'))
   const canvasBox = useRef<HTMLDivElement>(null)
   // Подвести карту к помещению: ссылка, поиск, шаг маршрута. Клик по карте — не подводит.
@@ -199,6 +207,8 @@ function Viewer({
   /** Перейти к помещению с подводом карты: поиск, шаг маршрута. */
   const focusOn = useCallback(
     (fid: string, spaceId: string | null) => {
+      // Выбор поиском или шагом маршрута — не клик по карте: поля маршрута им не заполняем.
+      mapPicked.current = false
       goTo(fid, spaceId)
       if (spaceId) setFocusReq({ floorId: fid, spaceId, nonce: Date.now() })
     },
@@ -256,7 +266,10 @@ function Viewer({
   const onMapPick = useCallback(
     (hit: { floorId: string; spaceId: string } | null) => {
       if (!hit) store.set({ selection: { kind: 'none' } })
-      else goTo(hit.floorId, hit.spaceId)
+      else {
+        mapPicked.current = true
+        goTo(hit.floorId, hit.spaceId)
+      }
     },
     [goTo, store],
   )
@@ -317,6 +330,26 @@ function Viewer({
     [nav.data, index, from, to, route, stepFree, staff],
   )
   const steps = useMemo(() => (index && route ? routeSteps(index, route) : []), [index, route])
+
+  // Как в 2ГИС: в режиме маршрута клик по помещению на карте ставит его в первое пустое
+  // поле — сначала «Откуда», потом «Куда». Оба заполнены — клик просто выбирает помещение.
+  useEffect(() => {
+    if (!mapPicked.current || !selectedPlace) return
+    mapPicked.current = false
+    if (!routing) return
+    if (!from) setFrom(selectedPlace)
+    else if (!to && selectedPlace.spaceId !== from.spaceId) setTo(selectedPlace)
+    // selectedPlace — новый объект на каждый рендер; меняется он вместе с этими полями.
+  }, [selectedSpace, floorId, routing])
+
+  // Маршрут построен — показать его с начала: этаж, с которого идти.
+  useEffect(() => {
+    const graph = nav.data?.graph
+    if (!graph || !route) return
+    const start = routeStartFloor(graph, route)
+    if (start) goTo(start, null)
+    // Только на новый маршрут: смена этажа во время прохода сюда не относится.
+  }, [route])
   const mapRoute = useMemo(
     () =>
       nav.data?.graph && route
@@ -399,7 +432,27 @@ function Viewer({
     () => (selectedSpace && floorId ? { floorId, spaceId: selectedSpace } : null),
     [selectedSpace, floorId],
   )
-  const onPick3d = useCallback((fid: string, spaceId: string) => goTo(fid, spaceId), [goTo])
+  const onPick3d = useCallback(
+    (fid: string, spaceId: string) => {
+      mapPicked.current = true
+      goTo(fid, spaceId)
+    },
+    [goTo],
+  )
+  const onTourFloor = useCallback((fid: string) => goTo(fid, null), [goTo])
+  const onTourEnd = useCallback(() => setTouring(false), [])
+  const toggleTour = (): void => {
+    if (touring) {
+      setTouring(false)
+      return
+    }
+    // Проход — камерой в 3D: с плана переключаемся сами.
+    if (mode === '2d') setMode('3d')
+    setTouring(true)
+  }
+  useEffect(() => {
+    if (mode === '2d') setTouring(false)
+  }, [mode])
 
   /** Клавиши карты, общие для плана и 3D: PgUp/PgDn — этаж, Esc — снять выбор. */
   const onMapKey = (e: KeyboardEvent<HTMLDivElement>): void => {
@@ -505,13 +558,16 @@ function Viewer({
                 route={sceneRoute}
                 site={mode === 'campus' ? (data.manifest.site ?? null) : null}
                 onPick={onPick3d}
+                tour={touring}
+                onTourFloor={onTourFloor}
+                onTourEnd={onTourEnd}
               />
             </div>
           )}
           {/* Уровни всего кампуса: и план, и 3D показывают все корпуса разом. */}
           <FloorSwitcher
             label={t('floors')}
-            items={levels.map(([lv, lb]) => ({
+            items={[...levels].reverse().map(([lv, lb]) => ({
               key: String(lv),
               label: lb,
               ariaLabel: t('floorN', { label: lb }),
@@ -557,6 +613,7 @@ function Viewer({
                   aria-label={t('closeRoute')}
                   onClick={() => {
                     setRouting(false)
+                    setTouring(false)
                     setFrom(null)
                     setTo(null)
                   }}
@@ -585,12 +642,19 @@ function Viewer({
                   ...gates.map((place) => ({ place, kind: 'gate' as const })),
                 ]}
               />
-              {nav.isFetching && (
-                <p className="text-sm text-muted-foreground">{t('routeLoading')}</p>
-              )}
+              <RouteStatus
+                from={from}
+                to={to}
+                loading={nav.isFetching}
+                hasRoute={!!route}
+                reason={reason}
+                stepFree={stepFree}
+                onAllowStairs={() => setStepFree(false)}
+              />
               {route && (
-                <RouteSteps
+                <RouteSummary
                   steps={steps}
+                  currentFloor={floorId}
                   floorLabel={(fid) => {
                     const f = fid ? floorIndex.get(fid) : undefined
                     return f ? t('floorN', { label: f.floor.label }) : ''
@@ -598,7 +662,6 @@ function Viewer({
                   placeLabel={(spaceId) =>
                     spaceId === from?.spaceId ? from.label : spaceId === to?.spaceId ? to.label : ''
                   }
-                  onStep={(fid) => fid && goTo(fid, null)}
                   buildingOf={(fid) =>
                     fid
                       ? (floorIndex.get(fid)?.building.code ??
@@ -606,16 +669,14 @@ function Viewer({
                         '')
                       : ''
                   }
+                  onStep={(fid, spaceId) => {
+                    const end = [from, to].find((p) => p && p.spaceId === spaceId)
+                    if (end?.floorId) focusOn(end.floorId, end.spaceId)
+                    else if (fid) goTo(fid, null)
+                  }}
+                  touring={touring}
+                  onTour={toggleTour}
                 />
-              )}
-              {reason && (
-                <p
-                  role="alert"
-                  className="flex items-start gap-2 rounded-xl bg-destructive/5 p-3 text-sm text-destructive"
-                >
-                  <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
-                  {t(`noRoute_${reason}`)}
-                </p>
               )}
             </Card>
           ) : (
@@ -694,72 +755,5 @@ function SpaceCard({
         </Button>
       </div>
     </Card>
-  )
-}
-
-function RouteSteps({
-  steps,
-  floorLabel,
-  placeLabel,
-  onStep,
-  buildingOf,
-}: {
-  steps: RouteStep[]
-  floorLabel: (floorId: string | null) => string
-  placeLabel: (spaceId: string | null) => string
-  onStep: (floorId: string | null) => void
-  buildingOf: (floorId: string | null) => string
-}) {
-  const t = useTranslations('CampusMap')
-  const text = (s: RouteStep): string => {
-    switch (s.type) {
-      case 'start':
-        return s.spaceId?.startsWith('gate:')
-          ? t('stepStartGate', { place: placeLabel(s.spaceId) })
-          : t('stepStart', { place: placeLabel(s.spaceId) })
-      case 'vertical':
-        return t(`stepVertical_${s.via}`, {
-          up: s.up ? 'up' : 'down',
-          floor: floorLabel(s.toFloor),
-        })
-      case 'exit':
-        return t('stepExit', { building: buildingOf(s.fromFloor) })
-      case 'enter':
-        return t('stepEnter', { building: buildingOf(s.toFloor), floor: floorLabel(s.toFloor) })
-      case 'arrive':
-        return t('stepArrive', {
-          place: placeLabel(s.spaceId),
-          meters: Math.round(s.distanceMm / 1000),
-          minutes: Math.max(1, Math.round(s.distanceMm / WALK_MM_PER_MIN)),
-        })
-    }
-  }
-  const floorOf = (s: RouteStep): string | null =>
-    s.type === 'vertical'
-      ? s.toFloor
-      : s.type === 'enter'
-        ? s.toFloor
-        : s.type === 'exit'
-          ? s.fromFloor
-          : null
-  return (
-    <ol className="flex flex-col gap-1">
-      {steps.map((s, i) => (
-        <li key={i}>
-          <button
-            type="button"
-            disabled={!floorOf(s)}
-            onClick={() => onStep(floorOf(s))}
-            className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left text-sm enabled:hover:bg-muted"
-          >
-            <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary tabular-nums">
-              {i + 1}
-            </span>
-            <span>{text(s)}</span>
-          </button>
-        </li>
-      ))}
-      <li className="px-2 text-xs text-muted-foreground">{t('timeAssumption')}</li>
-    </ol>
   )
 }
