@@ -319,6 +319,9 @@ export class CampusSceneController {
       }),
     )
     const slabMat = this.material(new THREE.MeshLambertMaterial({ color: this.palette.slab }))
+    // Лестницы — светлым камнем, шахты лифтов — тёмным металлом: видно сквозь окна и сверху.
+    const stairsMat = this.material(new THREE.MeshLambertMaterial({ color: '#d6d3d1' }))
+    const liftMat = this.material(new THREE.MeshLambertMaterial({ color: '#475569' }))
     const kindMats = new Map<SpaceKind | 'none', THREE.Material>()
     const kindMat = (k: SpaceKind | 'none'): THREE.Material => {
       let m = kindMats.get(k)
@@ -358,6 +361,10 @@ export class CampusSceneController {
       this.content.add(walls)
       if (mesh.glass.indices.length)
         this.content.add(new THREE.Mesh(this.geometry(mesh.glass), glassMat))
+      if (mesh.stairs.indices.length)
+        this.content.add(new THREE.Mesh(this.geometry(mesh.stairs), stairsMat))
+      if (mesh.elevators.indices.length)
+        this.content.add(new THREE.Mesh(this.geometry(mesh.elevators), liftMat))
       for (const [kind, buf] of Object.entries(mesh.floors)) {
         const floor = new THREE.Mesh(this.geometry(buf!), kindMat(kind as SpaceKind | 'none'))
         floor.userData.floorId = f.id
