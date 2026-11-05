@@ -21,6 +21,8 @@ import {
 } from '@studenthub/campus-core/mesh'
 import { SPACE_KIND_COLOR } from '../../../entities/campus'
 import { MOTION, prefersReducedMotion } from '../../../shared/lib'
+import { ElevatorCabin } from './elevator-cabin'
+import { routePath, type RouteElevator, type RoutePath, type RoutePoint } from './route-path'
 import {
   ARROW_STEP_M,
   RIBBON_WIDTH_M,
@@ -29,7 +31,6 @@ import {
   pointAt,
   ribbonGeometry,
   ribbonTexture,
-  roundPath,
 } from './route-visual'
 
 /**
@@ -62,8 +63,13 @@ export interface SceneInput {
   mode: SceneMode
   focusFloorId: string | null
   highlight: { floorId: string; spaceId: string } | null
-  /** Маршрут в метрах сцены (x, y, z); `floor` — этаж точки (на улице — null). */
-  route: { x: number; y: number; z: number; floor?: string | null }[] | null
+  /**
+   * Маршрут в метрах сцены (x, y, z); `floor` — этаж точки (на улице — null), `via` — тип
+   * ребра графа, которым к точке пришли: лестница разворачивается в марш, лифт — в поездку.
+   */
+  route: RoutePoint[] | null
+  /** Все этажи корпусов (и выше видимых) — кнопки в кабине лифта. */
+  floorIndex?: { id: string; buildingId: string; label: string; elevationMm: number }[]
   /** Буквы булавок начала и конца маршрута (по умолчанию A и B). */
   routeMarkers?: { from: string; to: string }
   site: SitePlanDoc | null
@@ -90,10 +96,16 @@ const meshCache = new WeakMap<FloorPlanDoc, Map<string, FloorMesh>>()
 
 function cachedFloorMesh(
   doc: FloorPlanDoc,
-  opts: { elevationMm: number; heightMm: number; transform?: BuildingTransform },
+  opts: {
+    elevationMm: number
+    heightMm: number
+    transform?: BuildingTransform
+    openings?: Pt[][]
+  },
 ): FloorMesh {
   const t = opts.transform
-  const key = `${opts.elevationMm}|${opts.heightMm}|${t ? `${t.x},${t.y},${t.rotationDeg}` : ''}`
+  const holes = (opts.openings ?? []).map((o) => o.map((p) => `${p.x},${p.y}`).join(';')).join('/')
+  const key = `${opts.elevationMm}|${opts.heightMm}|${t ? `${t.x},${t.y},${t.rotationDeg}` : ''}|${holes}`
   let byKey = meshCache.get(doc)
   if (!byKey) meshCache.set(doc, (byKey = new Map()))
   let mesh = byKey.get(key)
@@ -161,7 +173,7 @@ const WHEEL_SMOOTH = 14
 
 /**
  * Проход по маршруту от первого лица: глаза на высоте человека, шаг быстрой ходьбы, путь
- * со скруглёнными углами (`roundPath`), а взгляд догоняет направление пути с запаздыванием —
+ * без срезанных углов (`routePath`: марши лестниц, поездки в лифте), а взгляд догоняет направление пути с запаздыванием —
  * поворот растягивается на полсекунды, а не щёлкает. Скорость плавно набирается на старте и
  * гаснет у цели; перед ходьбой — перелёт из текущего вида к точке старта.
  */
@@ -188,6 +200,39 @@ const SITE_COLORS: Record<string, string> = {
   path: '#e7e5e4',
   road: '#cbd5e1',
   tree: '#4ade80',
+}
+
+/** Плавный старт и остановка (кубическая), для перелёта и стадий лифта. */
+function easeInOut(t: number): number {
+  return t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2
+}
+
+/** Проход по маршруту: путь, где идём и куда смотрим, поездки на лифте по ходу. */
+interface TourState {
+  path: RoutePath
+  cum: number[]
+  length: number
+  /** Пройдено, м, и текущая скорость, м/с. */
+  s: number
+  v: number
+  yaw: number
+  pitch: number
+  /** Поездки на лифте по ходу: где начинаются (м пути) и где выходим. */
+  rides: { e: RouteElevator; sFrom: number; sTo: number }[]
+  ride: Ride | null
+  /** Перелёт к старту: откуда, сколько прошло. */
+  intro: { pos: THREE.Vector3; quat: THREE.Quaternion; fov: number; t: number } | null
+}
+
+/** Поездка на лифте: стадия, время в ней, положение глаз и откуда шли/куда смотрели. */
+interface Ride {
+  r: { e: RouteElevator; sFrom: number; sTo: number }
+  stage: number
+  time: number
+  eye: THREE.Vector3
+  from: THREE.Vector3
+  yawFrom: number
+  rideS: number
 }
 
 export class CampusSceneController {
@@ -540,31 +585,30 @@ export class CampusSceneController {
 
   // ── Проход по маршруту ───────────────────────────────────────────────────────────
 
-  private tour: {
-    path: THREE.Vector3[]
-    cum: number[]
-    length: number
-    /** Пройдено, м, и текущая скорость, м/с. */
-    s: number
-    v: number
-    yaw: number
-    pitch: number
-    /** Перелёт к старту: откуда, сколько прошло. */
-    intro: { pos: THREE.Vector3; quat: THREE.Quaternion; fov: number; t: number } | null
-  } | null = null
+  private tour: TourState | null = null
+  /** Кабина текущей поездки; пока она есть, глухие шахты лифтов спрятаны. */
+  private cabin: ElevatorCabin | null = null
+  private readonly shaftMeshes: THREE.Mesh[] = []
 
   /** Пройти по маршруту от первого лица. Нет маршрута — `false`. */
   startTour(): boolean {
-    const route = this.input?.route
-    if (!route || route.length < 2) return false
-    const path = roundPath(route.map((p) => new THREE.Vector3(p.x, p.y, p.z)))
-    const cum = pathLengths(path)
+    const input = this.input
+    if (!input?.route || input.route.length < 2) return false
+    const path = routePath(input.route, input.floors)
+    const cum = pathLengths(path.pts)
     const length = cum[cum.length - 1]!
     if (length < 1) return false
     // Перезапуск — тихо, без onTourEnd: экран уже считает, что проход идёт.
+    this.endRide()
     this.tour = null
     this.grab()
-    const { yaw, pitch } = this.lookAlong(path, cum, 0)
+    const rides = path.elevators.map((e) => {
+      // Выход из лифта — первая точка после цепочки отрезков в шахте.
+      let j = e.at
+      while (path.inShaft[j]) j++
+      return { e, sFrom: cum[e.at]!, sTo: cum[j]! }
+    })
+    const { yaw, pitch } = this.lookAlong(path.pts, cum, 0, rides)
     this.tour = {
       path,
       cum,
@@ -573,6 +617,8 @@ export class CampusSceneController {
       v: 0,
       yaw,
       pitch,
+      rides,
+      ride: null,
       intro: prefersReducedMotion()
         ? null
         : {
@@ -593,6 +639,7 @@ export class CampusSceneController {
   stopTour(): void {
     if (!this.tour) return
     this.tour = null
+    this.endRide()
     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion)
     this.controls.target.copy(this.camera.position).addScaledVector(forward, 6)
     this.controls.update()
@@ -600,20 +647,35 @@ export class CampusSceneController {
     this.onTourEnd?.()
   }
 
-  /** Куда смотреть с точки `s`: на путь впереди, по высоте — сдержанно. */
+  private endRide(): void {
+    this.cabin?.dispose()
+    this.cabin = null
+    for (const m of this.shaftMeshes) m.visible = true
+  }
+
+  /**
+   * Куда смотреть с точки `s`: на путь впереди, по высоте — сдержанно. Отвес шахты лифта
+   * «впереди» не считается: в него не смотрят, в него входят.
+   */
   private lookAlong(
-    path: THREE.Vector3[],
+    pts: THREE.Vector3[],
     cum: number[],
     s: number,
+    rides: { sFrom: number }[],
   ): { yaw: number; pitch: number } {
     const length = cum[cum.length - 1]!
-    const here = pointAt(path, cum, s)
-    let ahead = pointAt(path, cum, Math.min(length, s + TOUR_LOOK_AHEAD_M)).sub(here)
-    // У самой цели вперёд смотреть некуда — берём последний отрезок.
-    if (ahead.lengthSq() < 0.01) ahead = path[path.length - 1]!.clone().sub(path[path.length - 2]!)
+    const stop = rides.find((r) => r.sFrom > s + 1e-3)?.sFrom ?? length
+    const here = pointAt(pts, cum, s)
+    let ahead = pointAt(pts, cum, Math.min(stop, s + TOUR_LOOK_AHEAD_M)).sub(here)
+    if (ahead.lengthSq() < 0.01) {
+      // У цели или перед лифтом смотреть вперёд некуда — берём последний отрезок до точки.
+      let i = 0
+      while (i < cum.length - 1 && cum[i + 1]! <= s) i++
+      ahead = pts[i]!.clone().sub(pts[Math.max(0, i - 1)]!)
+    }
     const flat = Math.hypot(ahead.x, ahead.z)
     return {
-      yaw: Math.atan2(-ahead.x, -ahead.z),
+      yaw: flat > 1e-4 ? Math.atan2(-ahead.x, -ahead.z) : (this.tour?.yaw ?? 0),
       pitch:
         THREE.MathUtils.clamp(
           Math.atan2(ahead.y, Math.max(flat, 0.5)),
@@ -625,24 +687,44 @@ export class CampusSceneController {
 
   private stepTour(dt: number): void {
     const t = this.tour!
-    // Скорость: разгон за TOUR_ACCEL_S, торможение на последних метрах, без рывков.
-    const remain = t.length - t.s
-    const want = TOUR_SPEED_M_S * Math.min(1, Math.sqrt(Math.max(0, remain) / TOUR_BRAKE_M))
-    t.v += (want - t.v) * (1 - Math.exp((-dt * 3) / TOUR_ACCEL_S))
-    if (!t.intro) t.s = Math.min(t.length, t.s + Math.max(0.15, t.v) * dt)
-
-    const look = this.lookAlong(t.path, t.cum, t.s)
-    // Поворот головы — по кратчайшей дуге и с запаздыванием.
+    if (t.ride) {
+      this.stepRide(dt)
+      this.placeCamera(t, dt)
+      return
+    }
+    const look = this.lookAlong(t.path.pts, t.cum, t.s, t.rides)
+    // Поворот головы — по кратчайшей дуге и с запаздыванием; на крутом повороте шаг тише.
     const dYaw = Math.atan2(Math.sin(look.yaw - t.yaw), Math.cos(look.yaw - t.yaw))
     const k = 1 - Math.exp(-dt * TOUR_TURN_RATE)
     t.yaw += dYaw * k
     t.pitch += (look.pitch - t.pitch) * k
 
-    const eye = pointAt(t.path, t.cum, t.s).add(new THREE.Vector3(0, TOUR_EYE_M, 0))
+    // Скорость: разгон, торможение у цели и перед лифтом, тише на поворотах.
+    const next = t.rides.find((r) => r.sFrom >= t.s - 1e-3)
+    const stop = next ? next.sFrom : t.length
+    const remain = stop - t.s
+    const turn = 1 - 0.55 * Math.min(1, Math.abs(dYaw) / (Math.PI / 2))
+    const want = TOUR_SPEED_M_S * turn * Math.min(1, Math.sqrt(Math.max(0, remain) / TOUR_BRAKE_M))
+    t.v += (want - t.v) * (1 - Math.exp((-dt * 3) / TOUR_ACCEL_S))
+    if (!t.intro) t.s = Math.min(stop, t.s + Math.max(0.15, t.v) * dt)
+
+    this.placeCamera(t, dt)
+    // Стрелки на ленте бегут вперёд в темпе шага.
+    if (this.routeTex) this.routeTex.offset.x -= (Math.max(0.15, t.v) * dt) / ARROW_STEP_M
+    if (t.intro) return
+    if (next && t.s >= next.sFrom - 1e-3 && t.v < 0.5) this.beginRide(next)
+    else if (!next && t.s >= t.length && t.v < 0.3) this.stopTour()
+  }
+
+  /** Глаза на высоте человека над точкой пути (или над полом кабины в поездке). */
+  private placeCamera(t: TourState, dt: number): void {
+    const eye = t.ride
+      ? t.ride.eye.clone()
+      : pointAt(t.path.pts, t.cum, t.s).add(new THREE.Vector3(0, TOUR_EYE_M, 0))
     const quat = new THREE.Quaternion().setFromEuler(new THREE.Euler(t.pitch, t.yaw, 0, 'YXZ'))
     if (t.intro) {
       t.intro.t = Math.min(1, t.intro.t + dt / TOUR_INTRO_S)
-      const e = t.intro.t < 0.5 ? 4 * t.intro.t ** 3 : 1 - (-2 * t.intro.t + 2) ** 3 / 2
+      const e = easeInOut(t.intro.t)
       this.camera.position.lerpVectors(t.intro.pos, eye, e)
       this.camera.quaternion.slerpQuaternions(t.intro.quat, quat, e)
       this.camera.fov = THREE.MathUtils.lerp(t.intro.fov, TOUR_FOV, e)
@@ -653,9 +735,101 @@ export class CampusSceneController {
       this.camera.fov = TOUR_FOV
     }
     this.camera.updateProjectionMatrix()
-    // Стрелки на ленте бегут вперёд в темпе шага.
-    if (this.routeTex) this.routeTex.offset.x -= (Math.max(0.15, t.v) * dt) / ARROW_STEP_M
-    if (!t.intro && t.s >= t.length && t.v < 0.3) this.stopTour()
+  }
+
+  // ── Поездка на лифте ─────────────────────────────────────────────────────────────
+
+  /**
+   * Лифт как в жизни: повернуться к дверям, двери открываются, войти, развернуться к
+   * дверям, двери закрываются, кабина едет (табло считает этажи, кнопка назначения горит),
+   * двери открываются, выйти. Камера всё время на высоте глаз, без скачков.
+   */
+  private beginRide(r: { e: RouteElevator; sFrom: number; sTo: number }): void {
+    const t = this.tour!
+    const input = this.input!
+    const floors = (input.floorIndex ?? [])
+      .filter((f) => f.buildingId === r.e.buildingId)
+      .map((f) => ({ id: f.id, label: f.label, y: f.elevationMm / 1000 }))
+    this.endRide()
+    this.cabin = new ElevatorCabin(r.e, floors, r.e.toFloor, this.palette.primary)
+    this.scene.add(this.cabin.group)
+    for (const m of this.shaftMeshes) m.visible = false
+    const eye = pointAt(t.path.pts, t.cum, t.s).add(new THREE.Vector3(0, TOUR_EYE_M, 0))
+    t.ride = {
+      r,
+      stage: 0,
+      time: 0,
+      eye,
+      from: eye.clone(),
+      yawFrom: t.yaw,
+      rideS: Math.max(3, 1.6 + (1.1 * Math.abs(r.e.toY - r.e.fromY)) / 3.3),
+    }
+    t.v = 0
+  }
+
+  private stepRide(dt: number): void {
+    const t = this.tour!
+    const ride = t.ride!
+    const cabin = this.cabin!
+    const e = ride.r.e
+    // Внутри кабины: шаг от двери вглубь; снаружи — площадка у двери.
+    const inside = cabin.local(0, 0, -0.15)
+    const yawIn = Math.atan2(e.door.x, e.door.z) // смотреть внутрь кабины (на заднюю стенку)
+    const yawOut = Math.atan2(-e.door.x, -e.door.z) // смотреть на двери изнутри
+    const STAGES = [0.7, 0.9, 1.3, 1.0, 0.9, ride.rideS, 0.9, 1.3]
+    ride.time += dt
+    const dur = STAGES[ride.stage]!
+    const k = Math.min(1, ride.time / dur)
+    const ek = easeInOut(k)
+    const turnTo = (target: number): void => {
+      const d = Math.atan2(Math.sin(target - ride.yawFrom), Math.cos(target - ride.yawFrom))
+      t.yaw = ride.yawFrom + d * ek
+    }
+    t.pitch += (-TOUR_PITCH_DOWN * 0.5 - t.pitch) * (1 - Math.exp(-dt * 4))
+    switch (ride.stage) {
+      case 0: // повернуться к дверям лифта
+        turnTo(yawIn)
+        break
+      case 1: // двери открываются
+        cabin.setDoors(ek)
+        break
+      case 2: // войти
+        ride.eye.lerpVectors(ride.from, inside.clone().setY(ride.from.y), ek)
+        break
+      case 3: // развернуться к дверям
+        turnTo(yawOut)
+        break
+      case 4: // двери закрываются
+        cabin.setDoors(1 - ek)
+        break
+      case 5: {
+        // поездка
+        const y = THREE.MathUtils.lerp(e.fromY, e.toY, ek)
+        cabin.setY(y)
+        ride.eye.y = y + TOUR_EYE_M
+        break
+      }
+      case 6: // двери открываются на этаже назначения
+        cabin.setDoors(ek)
+        break
+      case 7: {
+        // выйти на площадку
+        const exit = pointAt(t.path.pts, t.cum, ride.r.sTo).add(new THREE.Vector3(0, TOUR_EYE_M, 0))
+        ride.eye.lerpVectors(ride.from, exit, ek)
+        break
+      }
+    }
+    if (k < 1) return
+    ride.stage += 1
+    ride.time = 0
+    ride.from = ride.eye.clone()
+    ride.yawFrom = t.yaw
+    if (ride.stage < STAGES.length) return
+    // Вышли: дальше пешком с площадки; кабину и шахты возвращаем, как были.
+    t.s = ride.r.sTo
+    t.ride = null
+    t.rides = t.rides.filter((x) => x !== ride.r)
+    this.endRide()
   }
 
   // ── Оформление маршрута ──────────────────────────────────────────────────────────
@@ -672,16 +846,18 @@ export class CampusSceneController {
   }
 
   /**
-   * Лента по полу (видна только там, где её не закрывают стены), под ней — бледный след
-   * сквозь стены, чтобы путь не терялся за углом; на концах — булавки А и Б. Текстуры живут
-   * между пересборками: иначе бегущие стрелки прыгали бы на каждой догрузке этажа.
+   * Лента по полу (там, где её закрывают стены, — закрыта: путь идёт по коридорам и дверям,
+   * а не сквозь них), по лестнице — вдоль марша; в шахте лифта ленты нет. На концах —
+   * булавки А и Б. Текстуры живут между пересборками: иначе бегущие стрелки прыгали бы на
+   * каждой догрузке этажа.
    */
   private buildRoute(
-    route: NonNullable<SceneInput['route']>,
+    route: RoutePoint[],
+    floors: readonly SceneFloor[],
     labels: { from: string; to: string },
   ): void {
-    const path = roundPath(route.map((p) => new THREE.Vector3(p.x, p.y + RIBBON_LIFT_M, p.z)))
-    if (path.length < 2) return
+    const { pts, inShaft } = routePath(route, floors)
+    if (pts.length < 2) return
     if (!this.routeTex) this.routeTex = ribbonTexture(this.palette.primary)
     const key = `${labels.from}|${labels.to}`
     if (this.pinTex?.key !== key) {
@@ -693,38 +869,31 @@ export class CampusSceneController {
         key,
       }
     }
-    const geo = this.geometryRaw(ribbonGeometry(path, RIBBON_WIDTH_M))
-    const ghost = new THREE.Mesh(
-      geo,
-      this.material(
-        new THREE.MeshBasicMaterial({
-          color: this.palette.primary,
-          transparent: true,
-          opacity: 0.22,
-          depthTest: false,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-        }),
-      ),
+    const lifted = pts.map((p) => p.clone().setY(p.y + RIBBON_LIFT_M))
+    const mat = this.material(
+      new THREE.MeshBasicMaterial({
+        map: this.routeTex,
+        side: THREE.DoubleSide,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+      }),
     )
-    ghost.renderOrder = 9
-    const ribbon = new THREE.Mesh(
-      geo,
-      this.material(
-        new THREE.MeshBasicMaterial({
-          map: this.routeTex,
-          side: THREE.DoubleSide,
-          polygonOffset: true,
-          polygonOffsetFactor: -2,
-          polygonOffsetUnits: -2,
-        }),
-      ),
-    )
-    ribbon.renderOrder = 10
-    this.content.add(ghost, ribbon)
+    // Куски ленты между шахтами: в шахте лифта ленты нет.
+    let start = 0
+    for (let i = 0; i <= inShaft.length; i++) {
+      if (i < inShaft.length && !inShaft[i]) continue
+      const part = lifted.slice(start, i + 1)
+      if (part.length >= 2) {
+        const ribbon = new THREE.Mesh(this.geometryRaw(ribbonGeometry(part, RIBBON_WIDTH_M)), mat)
+        ribbon.renderOrder = 10
+        this.content.add(ribbon)
+      }
+      start = i + 1
+    }
     for (const [p, tex] of [
-      [path[0]!, this.pinTex.from],
-      [path[path.length - 1]!, this.pinTex.to],
+      [lifted[0]!, this.pinTex.from],
+      [lifted[lifted.length - 1]!, this.pinTex.to],
     ] as const) {
       const pin = new THREE.Sprite(
         this.material(
@@ -829,6 +998,7 @@ export class CampusSceneController {
     if (this.frame) cancelAnimationFrame(this.frame)
     this.clear()
     this.tour = null
+    this.endRide()
     this.disposeRouteTextures()
     this.controls.removeEventListener('start', this.grab)
     this.controls.dispose()
@@ -934,8 +1104,30 @@ export class CampusSceneController {
       return !focus || f.level <= focus.level
     })
 
+    // Проёмы: лестницы и шахты этажа ниже того же корпуса поднимаются сюда — в полу и плите
+    // над ними дыра, иначе путь по лестнице и в лифте упирался бы в потолок.
+    const below = (f: SceneFloor): SceneFloor | null =>
+      input.floors.reduce<SceneFloor | null>(
+        (best, x) =>
+          x.buildingId === f.buildingId &&
+          x.elevationMm < f.elevationMm &&
+          (!best || x.elevationMm > best.elevationMm)
+            ? x
+            : best,
+        null,
+      )
+    this.shaftMeshes.length = 0
     for (const f of visible) {
-      const opts = { elevationMm: f.elevationMm, heightMm: f.heightMm, transform: f.transform }
+      const under = below(f)
+      const openings = under
+        ? Object.values(under.doc.verticals).map((v) => v.outline.map(([x, y]) => ({ x, y })))
+        : []
+      const opts = {
+        elevationMm: f.elevationMm,
+        heightMm: f.heightMm,
+        transform: f.transform,
+        openings,
+      }
       const mesh = cachedFloorMesh(f.doc, opts)
       const walls = new THREE.Mesh(this.geometry(mesh.walls), wallMat)
       this.content.add(walls)
@@ -943,8 +1135,13 @@ export class CampusSceneController {
         this.content.add(new THREE.Mesh(this.geometry(mesh.glass), glassMat))
       if (mesh.stairs.indices.length)
         this.content.add(new THREE.Mesh(this.geometry(mesh.stairs), stairsMat))
-      if (mesh.elevators.indices.length)
-        this.content.add(new THREE.Mesh(this.geometry(mesh.elevators), liftMat))
+      if (mesh.elevators.indices.length) {
+        const shaft = new THREE.Mesh(this.geometry(mesh.elevators), liftMat)
+        // В поездке шахты прячутся: кабина стоит на их месте, а глухая коробка заслонила бы её.
+        shaft.visible = !this.cabin
+        this.shaftMeshes.push(shaft)
+        this.content.add(shaft)
+      }
       for (const [kind, buf] of Object.entries(mesh.floors)) {
         const floor = new THREE.Mesh(this.geometry(buf!), kindMat(kind as SpaceKind | 'none'))
         floor.userData.floorId = f.id
@@ -954,7 +1151,7 @@ export class CampusSceneController {
       if (f.outline?.length) {
         this.content.add(
           new THREE.Mesh(
-            this.geometry(slabMesh(f.outline, f.elevationMm, 150, f.transform)),
+            this.geometry(slabMesh(f.outline, f.elevationMm, 150, f.transform, openings)),
             slabMat,
           ),
         )
@@ -1030,7 +1227,7 @@ export class CampusSceneController {
     }
 
     if (input.route && input.route.length > 1)
-      this.buildRoute(input.route, input.routeMarkers ?? { from: 'A', to: 'B' })
+      this.buildRoute(input.route, input.floors, input.routeMarkers ?? { from: 'A', to: 'B' })
 
     if (input.site) this.buildSite(input.site)
     this.requestRender()

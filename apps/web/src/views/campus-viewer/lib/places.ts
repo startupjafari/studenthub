@@ -1,8 +1,11 @@
 import {
+  decodeFlags,
   nodePoint,
   toBuilding,
   type BuildingTransform,
+  type NavEdgeKind,
   type NavGraph,
+  type NavIndex,
   type Pt,
   type RouteResult,
 } from '@studenthub/campus-core'
@@ -42,14 +45,34 @@ export function routeOnFloor(
   return lines.filter((l) => l.length > 1)
 }
 
-/** Маршрут в метрах сцены three: (x, высота, −y) и этаж точки (на улице — null). */
+/** Тип ребра a→b (самого лёгкого, если их несколько). */
+function edgeKind(index: NavIndex, a: number, b: number): NavEdgeKind {
+  const list = index.adj[a] ?? []
+  let best: { w: number; f: number } | null = null
+  for (let k = 0; k < list.length; k += 3) {
+    if (list[k] === b && (!best || list[k + 1]! < best.w))
+      best = { w: list[k + 1]!, f: list[k + 2]! }
+  }
+  return best ? decodeFlags(best.f).kind : 'walk'
+}
+
+/**
+ * Маршрут в метрах сцены three: (x, высота, −y), этаж точки (на улице — null) и чем к ней
+ * пришли (`via`): сцена разворачивает лестницу в марш, а лифт — в поездку в кабине.
+ */
 export function routeInScene(
-  graph: NavGraph,
+  index: NavIndex,
   route: RouteResult,
-): { x: number; y: number; z: number; floor: string | null }[] {
-  return route.nodes.map((n) => {
-    const p = nodePoint(graph, n)
-    return { x: p.x / 1000, y: p.z / 1000, z: -p.y / 1000, floor: p.floor ?? null }
+): { x: number; y: number; z: number; floor: string | null; via: NavEdgeKind | null }[] {
+  return route.nodes.map((n, i) => {
+    const p = nodePoint(index.graph, n)
+    return {
+      x: p.x / 1000,
+      y: p.z / 1000,
+      z: -p.y / 1000,
+      floor: p.floor ?? null,
+      via: i > 0 ? edgeKind(index, route.nodes[i - 1]!, n) : null,
+    }
   })
 }
 
