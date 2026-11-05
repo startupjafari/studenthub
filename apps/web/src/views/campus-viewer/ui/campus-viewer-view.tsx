@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
@@ -46,6 +46,7 @@ import {
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib'
 import { routeInScene, routeOnFloor, routeOnLevel, type Place } from '../lib/places'
+import { MapHints } from './map-hints'
 import { SpaceSearch } from './space-search'
 
 type ViewMode = '2d' | '3d' | 'campus'
@@ -351,11 +352,12 @@ function Viewer({
   }, [nav.data, route, floorId, current, store])
 
   // ── 3D ────────────────────────────────────────────────────────────────────────────
+  // 3D — все корпуса до текущего уровня включительно, как план: уровень общий для кампуса.
   // Небольшой кампус в режиме «Кампус» — все этажи с планами: фасады с окнами вместо коробок.
   const allFloors = buildings.flatMap((b) => b.floors)
   const campusDetailed = mode === 'campus' && allFloors.length <= CAMPUS_DETAIL_FLOORS
   const buildingFloors =
-    mode === '3d' && current ? current.building.floors : campusDetailed ? allFloors : []
+    mode === '3d' ? allFloors.filter((f) => f.level <= level) : campusDetailed ? allFloors : []
   const floorDocs = useQueries({
     queries: buildingFloors.map((f) => ({
       queryKey: campusKeys.publishedFloor(campusId, f.id, versionId),
@@ -365,10 +367,10 @@ function Viewer({
   })
   const docsKey = floorDocs.map((q) => (q.data ? 1 : 0)).join('')
   const sceneFloors = useMemo<SceneFloor[]>(() => {
+    const docs = new Map(
+      floorDocs.flatMap((q) => (q.data ? [[q.data.floorId, q.data.document] as const] : [])),
+    )
     if (mode === 'campus') {
-      const docs = new Map(
-        floorDocs.flatMap((q) => (q.data ? [[q.data.floorId, q.data.document] as const] : [])),
-      )
       return buildings.flatMap((b) =>
         b.floors.map((f) => ({
           id: f.id,
@@ -383,26 +385,28 @@ function Viewer({
         })),
       )
     }
-    if (mode !== '3d' || !current) return []
-    return current.building.floors.flatMap((f, i) => {
-      const d: FloorPlanDoc | undefined = floorDocs[i]?.data?.document
-      return d
-        ? [
-            {
-              id: f.id,
-              buildingId: current.building.id,
-              level: f.level,
-              doc: d,
-              elevationMm: f.elevationMm,
-              heightMm: f.heightMm,
-              transform: current.building.transform,
-              outline: current.building.outline,
-            },
-          ]
-        : []
-    })
+    if (mode !== '3d') return []
+    return buildings.flatMap((b) =>
+      b.floors.flatMap((f) => {
+        const d: FloorPlanDoc | undefined = f.level <= level ? docs.get(f.id) : undefined
+        return d
+          ? [
+              {
+                id: f.id,
+                buildingId: b.id,
+                level: f.level,
+                doc: d,
+                elevationMm: f.elevationMm,
+                heightMm: f.heightMm,
+                transform: b.transform,
+                outline: b.outline,
+              },
+            ]
+          : []
+      }),
+    )
     // docsKey: пересобрать, когда догрузился очередной этаж.
-  }, [mode, current, buildings, docsKey, floorId, doc])
+  }, [mode, buildings, level, docsKey, floorId, doc])
   const sceneRoute = useMemo(
     () => (nav.data?.graph && route ? routeInScene(nav.data.graph, route) : null),
     [nav.data, route],
@@ -413,6 +417,21 @@ function Viewer({
   )
   const onPick3d = useCallback((fid: string, spaceId: string) => goTo(fid, spaceId), [goTo])
 
+  /** Клавиши карты, общие для плана и 3D: PgUp/PgDn — этаж, Esc — снять выбор. */
+  const onMapKey = (e: KeyboardEvent<HTMLDivElement>): void => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return
+    if (e.key === 'PageUp' || e.key === 'PageDown') {
+      // `levels` — сверху вниз: выше — к началу списка.
+      const i = levels.findIndex(([lv]) => lv === level)
+      const next = levels[e.key === 'PageUp' ? i - 1 : i + 1]
+      e.preventDefault()
+      if (next) goToLevel(next[0])
+    } else if (e.key === 'Escape' && selectedSpace) {
+      e.preventDefault()
+      store.set({ selection: { kind: 'none' } })
+    }
+  }
+
   if (!current || !floorId) {
     return (
       <div className="flex w-full flex-1 flex-col gap-4">
@@ -420,6 +439,13 @@ function Viewer({
         <EmptyState icon={<MapIcon className="size-6" aria-hidden />} title={t('noFloors')} />
       </div>
     )
+  }
+
+  // Пришли по прямой ссылке — истории нет: «назад» ведёт на главную. Список кампусов не годится:
+  // при одном кампусе он сразу открывает карту обратно.
+  const goBack = (): void => {
+    if (window.history.length > 1) router.back()
+    else router.push('/')
   }
 
   const floorLabel = (fid: string | null) => {
@@ -434,6 +460,8 @@ function Viewer({
       <PageHeader
         title={data.campus.name}
         subtitle={t('subtitle')}
+        onBack={goBack}
+        backLabel={t('back')}
         tabs={
           <SegmentedTabs
             aria-label={t('viewMode')}
@@ -464,10 +492,13 @@ function Viewer({
           ? t('selectedAnnounce', { place: selectedPlace.label, floor: floorLabel(floorId) })
           : floorLabel(floorId)}
       </p>
-      {/* Карта и панель — одной высоты: панель на десктопе той же высоты, что карта, и
-          прокручивается сама; на телефоне карта сверху, панель под ней. */}
+      {/* Карта и панель — одной высоты: на десктопе карточка панели тянется до низа карты,
+          длинное содержимое прокручивается в панели; на телефоне карта сверху, панель под ней. */}
       <div className="flex flex-col gap-4 lg:h-[calc(100dvh-6.25rem)] lg:min-h-[32rem] lg:flex-row">
-        <div className="relative h-[60dvh] min-h-[18rem] overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10 lg:h-auto lg:flex-1">
+        <div
+          onKeyDown={onMapKey}
+          className="relative h-[60dvh] min-h-[18rem] overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10 lg:h-auto lg:flex-1"
+        >
           <div ref={canvasBox} className={cn('absolute inset-0', mode !== '2d' && 'invisible')}>
             <CampusMapCanvas
               buildings={mapBuildings}
@@ -498,62 +529,25 @@ function Viewer({
             aria-label={t('floors')}
             className="absolute top-3 right-3 flex flex-col gap-1 rounded-xl bg-card/95 p-1 shadow-sm ring-1 ring-foreground/10 backdrop-blur"
           >
-            {/* План — уровни всего кампуса (все корпуса разом), 3D — этажи корпуса. */}
-            {(mode === '3d'
-              ? [...current.building.floors].reverse().map((f) => ({
-                  key: f.id,
-                  label: f.label,
-                  active: f.id === floorId,
-                  go: () => goTo(f.id, null),
-                }))
-              : levels.map(([lv, lb]) => ({
-                  key: String(lv),
-                  label: lb,
-                  active: lv === level,
-                  go: () => goToLevel(lv),
-                }))
-            ).map((x) => (
+            {/* Уровни всего кампуса: и план, и 3D показывают все корпуса разом. */}
+            {levels.map(([lv, lb]) => (
               <button
-                key={x.key}
+                key={lv}
                 type="button"
-                aria-current={x.active}
-                aria-label={t('floorN', { label: x.label })}
-                onClick={x.go}
+                aria-current={lv === level}
+                aria-label={t('floorN', { label: lb })}
+                onClick={() => goToLevel(lv)}
                 className={cn(
                   'flex size-11 items-center justify-center rounded-xl text-sm font-semibold tabular-nums md:size-9',
                   'hover:bg-muted focus-visible:ring-4 focus-visible:ring-ring/20 focus-visible:outline-none',
-                  x.active && 'bg-primary text-primary-foreground hover:bg-primary',
+                  lv === level && 'bg-primary text-primary-foreground hover:bg-primary',
                 )}
               >
-                {x.label}
+                {lb}
               </button>
             ))}
           </nav>
-          {buildings.length > 1 && mode === '3d' && (
-            <div className="absolute bottom-3 left-3 flex max-w-[calc(100%-6rem)] gap-1 overflow-x-auto rounded-xl bg-card/95 p-1 shadow-sm ring-1 ring-foreground/10 backdrop-blur">
-              {buildings.map((b) => (
-                <button
-                  key={b.id}
-                  type="button"
-                  aria-pressed={b.id === current.building.id}
-                  onClick={() => {
-                    const f =
-                      b.floors.find((x) => x.level === current.floor.level) ??
-                      b.floors.find((x) => x.level === 1) ??
-                      b.floors[0]
-                    if (f) goTo(f.id, null)
-                  }}
-                  className={cn(
-                    'h-9 shrink-0 rounded-xl px-3 text-sm font-medium hover:bg-muted',
-                    b.id === current.building.id &&
-                      'bg-primary text-primary-foreground hover:bg-primary',
-                  )}
-                >
-                  {b.code ?? b.name}
-                </button>
-              ))}
-            </div>
-          )}
+          <MapHints mode={mode} />
         </div>
 
         <aside className="flex min-h-0 w-full flex-col gap-4 lg:w-80 lg:overflow-y-auto">
@@ -577,7 +571,7 @@ function Viewer({
             />
           )}
           {routing ? (
-            <Card className="gap-3 p-4" role="region" aria-label={t('route')}>
+            <Card className="gap-3 p-4 lg:flex-1" role="region" aria-label={t('route')}>
               <div className="flex items-center justify-between">
                 <h2 className="flex items-center gap-2 text-sm font-semibold">
                   <Navigation className="size-4 text-primary" aria-hidden />
@@ -689,7 +683,7 @@ function Viewer({
             </Card>
           ) : (
             !selectedPlace && (
-              <Card className="gap-3 p-4">
+              <Card className="gap-3 p-4 lg:flex-1">
                 <p className="text-sm text-muted-foreground">{t('hint')}</p>
                 <Button type="button" variant="outline" size="md" onClick={() => setRouting(true)}>
                   <Footprints aria-hidden />
@@ -728,7 +722,7 @@ function SpaceCard({
   const t = useTranslations('CampusMap')
   const tk = useTranslations('CampusEditor')
   return (
-    <Card className="gap-3 p-4" role="region" aria-label={place.label}>
+    <Card className="gap-3 p-4 lg:flex-1" role="region" aria-label={place.label}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <h2 className="truncate text-base font-semibold tabular-nums">
