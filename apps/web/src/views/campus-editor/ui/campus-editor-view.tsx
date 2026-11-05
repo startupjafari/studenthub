@@ -416,7 +416,13 @@ function Editor({ plan }: { plan: CampusPlan }) {
       </div>
 
       {templateOpen && (
-        <TemplateModal store={store} tools={tools} onClose={() => setTemplateOpen(false)} />
+        <TemplateModal
+          store={store}
+          tools={tools}
+          outline={building?.outline ?? null}
+          level={floor?.level ?? 1}
+          onClose={() => setTemplateOpen(false)}
+        />
       )}
     </div>
   )

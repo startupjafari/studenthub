@@ -27,6 +27,7 @@ import {
   saveCampusPlan,
   saveCampusSite,
   updateCampusBuilding,
+  type AutoLayoutFloorsResult,
   type CampusBuildingRow,
   type CampusSite,
   type CampusTree,
@@ -204,7 +205,11 @@ function Editor({ tree, site }: { tree: CampusTree; site: CampusSite }) {
     [t],
   )
 
-  const onBuildingCreated = (b: CampusBuildingRow, floors: number): void => {
+  const onBuildingCreated = (
+    b: CampusBuildingRow,
+    floors: number,
+    layout: AutoLayoutFloorsResult | null,
+  ): void => {
     setDrawn(null)
     store.addBuilding({
       id: b.id,
@@ -217,6 +222,8 @@ function Editor({ tree, site }: { tree: CampusTree; site: CampusSite }) {
     setTab('props')
     void qc.invalidateQueries({ queryKey: campusKeys.tree(tree.id) })
     toast.success(t('buildingDrawn', { name: b.name, count: floors }))
+    // Не прямые углы — автопланировка не сработала: этажи остались с наружными стенами.
+    if (layout?.error) toast.info(t('autoLayoutSkipped'))
   }
 
   /**
