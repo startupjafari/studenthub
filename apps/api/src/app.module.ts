@@ -31,6 +31,7 @@ import { FacultiesModule } from './modules/faculties/faculties.module'
 import { SpecialtiesModule } from './modules/specialties/specialties.module'
 import { GroupsModule } from './modules/groups/groups.module'
 import { RoomsModule } from './modules/rooms/rooms.module'
+import { CampusModule } from './modules/campus/campus.module'
 import { CamerasModule } from './modules/cameras/cameras.module'
 import { LibraryModule } from './modules/library/library.module'
 import { SecurityJournalModule } from './modules/security-journal/security-journal.module'
@@ -138,6 +139,7 @@ import { AppController } from './app.controller'
     SpecialtiesModule,
     GroupsModule,
     RoomsModule,
+    CampusModule,
     CamerasModule,
     LibraryModule,
     SecurityJournalModule,

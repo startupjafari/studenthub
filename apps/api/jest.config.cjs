@@ -20,6 +20,7 @@ module.exports = {
     '^@studenthub/shared-types$': '<rootDir>/../../../packages/shared-types/src/index.ts',
     '^@studenthub/shared-config$': '<rootDir>/../../../packages/shared-config/src/index.ts',
     '^@studenthub/shared-schemas$': '<rootDir>/../../../packages/shared-schemas/src/index.ts',
+    '^@studenthub/campus-core$': '<rootDir>/../../../packages/campus-core/src/index.ts',
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
 }

@@ -50,6 +50,9 @@ function trustProxySetting(): string | boolean {
   return raw === 'false' ? false : raw
 }
 
+/** Предел тела запроса сохранения плана этажа кампуса (см. хук onRoute ниже). */
+const CAMPUS_PLAN_BODY_LIMIT = 2 * 1024 * 1024
+
 async function bootstrap(): Promise<void> {
   // requestId: берём входящий x-request-id или генерируем uuid (docs/BACKEND_RULES.md §13).
   const adapter = new FastifyAdapter({
@@ -92,6 +95,16 @@ async function bootstrap(): Promise<void> {
   fastify.addHook('onRequest', (req, reply, done) => {
     void reply.header('x-request-id', req.id)
     done()
+  })
+
+  // План этажа кампуса — до 2 МиБ (docs/CAMPUS_BUILDER.md §18, решение владельца), и только
+  // на маршруте его сохранения: общий предел тела (1 МиБ по умолчанию Fastify) не растёт.
+  // Хук ставится до регистрации маршрутов (она происходит в app.init/listen).
+  fastify.addHook('onRoute', (route) => {
+    const methods = Array.isArray(route.method) ? route.method : [route.method]
+    if (methods.includes('PUT') && /\/campus\/floors\/:floorId\/plan$/.test(route.url)) {
+      route.bodyLimit = CAMPUS_PLAN_BODY_LIMIT
+    }
   })
 
   // Строка на каждый запрос с настоящим статусом ответа (§13), в том числе на отказы guard'ов.

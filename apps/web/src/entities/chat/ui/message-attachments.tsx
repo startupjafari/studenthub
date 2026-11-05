@@ -1,6 +1,12 @@
 'use client'
 
-import { useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+} from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { ArrowDown, Check, FileText, Loader2, Play, RotateCw, X } from 'lucide-react'
@@ -18,6 +24,7 @@ import { fileKind } from '../lib/file-kind'
 // Те же признаки вида, что у превью в списке чатов, — один источник на оба места.
 import { isViewable, isVoice } from '../lib/attachment-kind'
 import type { MessageAttachment } from '../model/types'
+import type { MediaLink } from '../../../shared/api'
 import { VoiceMessage } from './voice-message'
 import { MediaViewer, type MediaViewerActions, type MediaViewerMeta } from './media-viewer'
 
@@ -43,6 +50,58 @@ function DurationBadge({ seconds }: { seconds: number | null }) {
 }
 
 /**
+ * Автозагрузка медиа, как в Telegram: ролик до этого веса скачивается сам, как только
+ * долистали до него, — и просмотрщик открывает его мгновенно из памяти. Крупнее — по кнопке,
+ * чтобы не съедать трафик за человека. В режиме экономии трафика автозагрузки нет.
+ */
+const AUTO_VIDEO_BYTES = 20 * 1024 * 1024
+
+function saveData(): boolean {
+  const c = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection
+  return c?.saveData === true
+}
+
+/** Элемент подошёл к экрану (с запасом в полэкрана) — один раз, дальше не следим. */
+function useNearViewport<T extends Element>(): [React.RefObject<T | null>, boolean] {
+  const ref = useRef<T | null>(null)
+  const [near, setNear] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!el || near) return
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setNear(true)
+          io.disconnect()
+        }
+      },
+      { rootMargin: '50% 0px' },
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [near])
+  return [ref, near]
+}
+
+/**
+ * Снимок у экрана — заранее грузим ту копию, которую возьмёт просмотрщик (srcset под всю
+ * ширину экрана): открытие тогда мгновенное, без размытой заглушки и ожидания. Кнопки
+ * «скачать» у снимков в ленте нет — сохранить можно из просмотрщика.
+ */
+function ImagePrewarm({ url, link }: { url: string; link: MediaLink | undefined }) {
+  const [ref, near] = useNearViewport<HTMLSpanElement>()
+  useEffect(() => {
+    if (!near) return
+    const img = new Image()
+    img.sizes = '100vw'
+    const srcset = srcSetOf(link?.sources, { url, width: link?.width })
+    if (srcset) img.srcset = srcset
+    img.src = url
+  }, [near, url, link])
+  return <span ref={ref} className="pointer-events-none absolute inset-0" aria-hidden />
+}
+
+/**
  * Скачать снимок в приложение — кругом посреди кадра, как в Telegram: «↓» с весом под ним →
  * кольцо с «×» и мегабайтами → «✓ Сохранить». Нажатие на сам кадр по-прежнему открывает
  * просмотрщик; круг — отдельная кнопка и клик до кадра не пропускает.
@@ -62,12 +121,18 @@ function MediaDownloadPill({
   url,
   compact = false,
   corner = false,
+  auto = false,
 }: {
   att: MessageAttachment
   url: string
   compact?: boolean
   /** Середина кадра занята (ролик) — кнопка встаёт плашкой в правый верхний угол. */
   corner?: boolean
+  /**
+   * Скачать само, когда долистали (AUTO_VIDEO_BYTES): кнопки «↓» нет, виден только прогресс,
+   * а готовое — без плашки вовсе (сохранить можно из просмотрщика).
+   */
+  auto?: boolean
 }) {
   const t = useTranslations('Chats')
   const unit = useByteUnitLabel()
@@ -77,6 +142,12 @@ function MediaDownloadPill({
     mime: att.mime,
   })
   const dl = download.state
+  const [nearRef, near] = useNearViewport<HTMLSpanElement>()
+  const startDownload = download.start
+  useEffect(() => {
+    if (auto && near && dl.status === 'idle' && !saveData()) startDownload()
+    // startDownload пересоздаётся каждым рендером; запуск нужен по факту «подошли к экрану».
+  }, [auto, near, dl.status])
   const loading = dl.status === 'loading'
   const label = loading
     ? formatBytesProgress(dl.loaded, dl.total ?? att.size, unit)
@@ -106,6 +177,11 @@ function MediaDownloadPill({
     e.preventDefault()
     e.stopPropagation()
     download.toggle()
+  }
+
+  // Автозагрузка: в покое и готовым — только невидимый датчик «подошли к экрану».
+  if (auto && (dl.status === 'idle' || dl.status === 'ready')) {
+    return <span ref={nearRef} className="pointer-events-none absolute inset-0" aria-hidden />
   }
 
   if (corner) {
@@ -496,7 +572,7 @@ function Single({
             GIF
           </span>
         )}
-        {painted && !uploading && !blurred && <MediaDownloadPill att={att} url={url} />}
+        {painted && !uploading && !blurred && !isGif && <ImagePrewarm url={url} link={link} />}
         {uploading && <MediaUploadOverlay progress={att.progress} onCancel={onCancel} />}
       </span>
     )
@@ -591,7 +667,9 @@ function Single({
             </span>
           </button>
         )}
-        {painted && !uploading && !blurred && <MediaDownloadPill att={att} url={url} corner />}
+        {painted && !uploading && !blurred && (
+          <MediaDownloadPill att={att} url={url} corner auto={att.size <= AUTO_VIDEO_BYTES} />
+        )}
       </div>
     )
   }
@@ -844,9 +922,22 @@ function GridTile({
           className="absolute inset-0 z-[1] cursor-pointer"
         />
       )}
-      {url && painted && !uploading && !blurred && !failed && (
-        <MediaDownloadPill att={att} url={url} compact corner={isVid} />
-      )}
+      {url &&
+        painted &&
+        !uploading &&
+        !blurred &&
+        !failed &&
+        (isVid ? (
+          <MediaDownloadPill
+            att={att}
+            url={url}
+            compact
+            corner
+            auto={att.size <= AUTO_VIDEO_BYTES}
+          />
+        ) : (
+          <ImagePrewarm url={url} link={link} />
+        ))}
       {uploading && <MediaUploadOverlay progress={att.progress} onCancel={onCancel} />}
     </div>
   )

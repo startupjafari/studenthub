@@ -76,6 +76,7 @@ import {
   maxUploadBytes,
   toApiError,
   useByteUnitLabel,
+  scrollToAndFlash,
 } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
 
@@ -174,10 +175,8 @@ export function EventDiscussion({
   function jumpTo(commentId: string): void {
     const el = document.getElementById(`event-comment-${commentId}`)
     if (!el) return
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    // Подсветка, чтобы глаз нашёл оригинал среди соседей, — как переход к цитате в чате.
-    el.dataset.flash = 'true'
-    window.setTimeout(() => delete el.dataset.flash, 1200)
+    // Подсветка — после приезда, чтобы глаз нашёл оригинал среди соседей (как в чате).
+    scrollToAndFlash(el)
   }
 
   function deleteComment(c: EventComment, own: boolean): void {

@@ -18,7 +18,7 @@ import {
   ChatSharedStory,
   parseProfileShare,
 } from './shared-cards'
-import { Avatar, AvatarFallback } from '../../../shared/ui'
+import { Avatar, AvatarFallback, AvatarImage } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
 // Эмодзи быстрой реакции в углу пузыря. Один на весь продукт: кнопка одна, и выбирать
@@ -51,6 +51,8 @@ export type MessageReadState = 'pending' | 'failed' | 'read' | 'delivered' | 'se
 // пропускал перерисовку невизуально-изменившихся пузырей (#57).
 export type MessageActions = {
   reply: (m: ChatMessage) => void
+  /** Нажали на пилюлю даты — календарь переписки на этом дне ("YYYY-MM-DD"). */
+  openCalendar: (ymd: string) => void
   openMenu: (m: ChatMessage, x: number, y: number) => void
   focus: (id: string) => void
   copy: (m: ChatMessage) => void
@@ -73,6 +75,11 @@ export type MessageActions = {
 export type MessageItemProps = {
   m: ChatMessage
   mine: boolean
+  /**
+   * Группа или канал: у чужих сообщений аватар и имя автора. В личном чате их нет — собеседник
+   * один и так в шапке, как в Telegram.
+   */
+  isGroup: boolean
   firstOfRun: boolean
   // Первое сообщение в списке — без верхнего отступа серии.
   /** Первое сообщение календарного дня — перед ним идёт пометка даты. */
@@ -105,6 +112,7 @@ export type MessageItemProps = {
 function MessageItemInner({
   m,
   mine,
+  isGroup,
   firstOfRun,
   showDay,
   dayText,
@@ -144,9 +152,20 @@ function MessageItemInner({
           когда она уезжает под верх (chat-window) — так дата видна и на месте, и всегда. */}
       {showDay && dayText && (
         <div className="my-2 flex justify-center">
-          <span className="rounded-full bg-muted/90 px-3 py-0.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur">
+          {/* Нажатие на дату — календарь переписки на этом дне, как в Telegram. */}
+          <button
+            type="button"
+            onClick={() => {
+              const d = new Date(m.createdAt)
+              actions.openCalendar(
+                `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+              )
+            }}
+            aria-label={t('openCalendar', { date: dayText })}
+            className="rounded-full bg-muted/90 px-3 py-0.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+          >
             {dayText}
-          </span>
+          </button>
         </div>
       )}
       {isUnreadDivider && (
@@ -220,9 +239,11 @@ function MessageItemInner({
             </>
           )}
           {!mine &&
+            isGroup &&
             (firstOfRun ? (
               <ProfileLink userId={m.senderId} className="shrink-0 self-end">
                 <Avatar className="size-7">
+                  {m.sender.avatarUrl && <AvatarImage src={m.sender.avatarUrl} alt="" />}
                   <AvatarFallback>
                     {(m.sender.lastName[0] ?? '') + (m.sender.firstName[0] ?? '')}
                   </AvatarFallback>
@@ -275,7 +296,7 @@ function MessageItemInner({
             >
               <ChevronDown className="size-4" aria-hidden />
             </button>
-            {!mine && firstOfRun && (
+            {!mine && isGroup && firstOfRun && (
               <p className="mb-0.5 flex items-center gap-1.5 text-xs">
                 <ProfileLink
                   userId={m.senderId}

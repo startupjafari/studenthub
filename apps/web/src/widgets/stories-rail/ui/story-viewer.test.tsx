@@ -26,6 +26,7 @@ vi.mock('../../../entities/story/api/story-api', async (orig) => {
     muteStoryAuthorRequest: vi.fn().mockResolvedValue(undefined),
     removeStoryHighlightItemRequest: vi.fn().mockResolvedValue({ deleted: false }),
     updateStoryHighlightRequest: vi.fn().mockResolvedValue({}),
+    voteStoryRequest: vi.fn(),
   }
 })
 
@@ -36,6 +37,7 @@ import {
   removeStoryHighlightItemRequest,
   replyToStoryRequest,
   updateStoryHighlightRequest,
+  voteStoryRequest,
   type StoryCard,
   type StoryRing,
 } from '../../../entities/story'
@@ -85,9 +87,15 @@ function setup(rings: StoryRing[], highlight?: ViewerHighlight) {
       </QueryClientProvider>
     </NextIntlClientProvider>
   )
-  render(<StoryViewer rings={rings} startIndex={0} onClose={onClose} highlight={highlight} />, {
-    wrapper,
-  })
+  render(
+    <StoryViewer
+      rings={rings}
+      startIndex={0}
+      onClose={onClose}
+      highlights={highlight ? [highlight] : undefined}
+    />,
+    { wrapper },
+  )
   return { onClose, user: userEvent.setup() }
 }
 
@@ -264,5 +272,107 @@ describe('StoryViewer — «Актуальное»', () => {
     const dialog = await screen.findByRole('alertdialog')
     await user.click(within(dialog).getAllByRole('button').at(-1)!)
     await waitFor(() => expect(removeStoryHighlightItemRequest).toHaveBeenCalledWith('h-1', 'i1'))
+  })
+
+  describe('интерактивный слой', () => {
+    const poll = (n: number, votes = 0) => ({
+      id: 'p1',
+      question: 'Куда идём после пар?',
+      options: Array.from({ length: n }, (_, i) => ({
+        id: `o${i}`,
+        text: `Вариант ${i + 1}`,
+        order: i,
+        votes: i === 0 ? votes : 0,
+      })),
+      totalVotes: votes,
+      myOptionId: null as string | null,
+    })
+    const mention = (userId: string, name: string) => ({
+      type: 'mention' as const,
+      x: 0.5,
+      y: 0.95,
+      scale: 1,
+      rotation: 0,
+      userId,
+      name,
+    })
+
+    it('ссылка — компактный стикер: открывается в новой вкладке без доступа к окну', () => {
+      setup([
+        ring('anna', [
+          card('s1', 'anna', { linkUrl: 'https://kremlin.ru/x', linkLabel: 'Кремль' }),
+        ]),
+      ])
+      const link = screen.getByRole('link', { name: /Кремль/ })
+      expect(link).toHaveAttribute('href', 'https://kremlin.ru/x')
+      expect(link).toHaveAttribute('target', '_blank')
+      expect(link.getAttribute('rel')).toContain('noopener')
+    })
+
+    it('ссылка с небезопасной схемой не рисуется вовсе', () => {
+      setup([ring('anna', [card('s1', 'anna', { linkUrl: 'javascript:alert(1)' })])])
+      expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    })
+
+    it('голос: пока запрос идёт, варианты ждут, повторный не уходит; после — проценты', async () => {
+      let resolve: (v: StoryCard) => void = () => undefined
+      vi.mocked(voteStoryRequest).mockReturnValue(new Promise((r) => (resolve = r)))
+      const s1 = card('s1', 'anna', { poll: poll(2) })
+      const { user } = setup([ring('anna', [s1])])
+      await user.click(screen.getByRole('button', { name: 'Вариант 1' }))
+      expect(screen.getByRole('button', { name: 'Вариант 2' })).toBeDisabled()
+      await user.click(screen.getByRole('button', { name: 'Вариант 2' }))
+      expect(voteStoryRequest).toHaveBeenCalledTimes(1)
+      resolve({ ...s1, poll: { ...poll(2, 3), myOptionId: 'o0' } })
+      expect(await screen.findByRole('button', { name: 'Вариант 1: 100%' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      )
+    })
+
+    it('опрос, ссылка и люди — вкладками; «Упомянуты» открывает список, Esc закрывает его, а не сторис', async () => {
+      const { user, onClose } = setup([
+        ring('anna', [
+          card('s1', 'anna', {
+            poll: poll(2),
+            linkUrl: 'https://example.com',
+            linkLabel: 'Сайт',
+            elements: [mention('u1', 'Аня Ким'), mention('u2', 'Ержан Абишев')],
+          }),
+        ]),
+      ])
+      const tabs = screen.getAllByRole('tab')
+      expect(tabs.map((t) => t.textContent)).toEqual(['Опрос', 'Ссылка', 'Люди · 2'])
+      expect(screen.getByRole('button', { name: 'Вариант 1' })).toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: /Сайт/ })).not.toBeInTheDocument()
+
+      await user.click(screen.getByRole('tab', { name: /Люди/ }))
+      await user.click(screen.getByRole('button', { name: 'Упомянуты · 2' }))
+      const sheet = screen.getByRole('dialog', { name: 'Отмечены в сторис' })
+      expect(within(sheet).getByRole('button', { name: /Ержан Абишев/ })).toBeInTheDocument()
+
+      await user.keyboard('{Escape}')
+      expect(screen.queryByRole('dialog', { name: 'Отмечены в сторис' })).not.toBeInTheDocument()
+      expect(onClose).not.toHaveBeenCalled()
+    })
+
+    it('раскрытая панель ставит сторис на паузу: кадр не листается', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      try {
+        const { user } = setup([
+          ring('anna', [
+            card('s1', 'anna', {
+              elements: [mention('u1', 'Аня Ким'), mention('u2', 'Ержан Абишев')],
+            }),
+            card('s2', 'anna'),
+          ]),
+        ])
+        await user.click(screen.getByRole('button', { name: 'Упомянуты · 2' }))
+        vi.advanceTimersByTime(8000)
+        expect(screen.getByText('Текст s1')).toBeInTheDocument()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
   })
 })

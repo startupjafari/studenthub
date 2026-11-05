@@ -1,6 +1,7 @@
 import { Role, isRestrictedRole } from '@studenthub/shared-types'
 import {
   Award,
+  Map as MapIcon,
   BarChart3,
   BookDown,
   BookOpen,
@@ -117,6 +118,8 @@ export const STUDENT_NAV: NavItem[] = [
   { key: 'consultations', href: '/consultations', icon: Handshake, group: 'services' },
   { key: 'appointments', href: '/appointments', icon: CalendarClock, group: 'services' },
   { key: 'portfolio', href: '/portfolio', icon: BriefcaseBusiness, group: 'services' },
+  // Карта кампуса (Ф22): поиск аудитории и маршрут.
+  { key: 'campusMap', href: '/campus', icon: MapIcon, group: 'services' },
   // Библиотека вуза (Фаза 20): пункт прячется, пока админ вуза не включил модуль (AppShell).
   {
     key: 'books',
@@ -172,6 +175,8 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
     children: [
       // Ф16: помещения и печатные QR над дверью.
       { key: 'rooms', href: '/university-admin/rooms' },
+      // Ф22: цифровая карта кампуса — корпуса, этажи, публикация.
+      { key: 'campus', href: '/university-admin/campus' },
       { key: 'cameras', href: '/university-admin/cameras' },
     ],
   },
@@ -285,6 +290,7 @@ export const DEAN_NAV: NavItem[] = [
   // и попадают они в эту же группу.
   { key: 'appointments', href: '/dean/appointments', icon: CalendarClock, group: 'services' },
   { key: 'applications', href: '/dean/applications', icon: FileText, group: 'services' },
+  { key: 'campusMap', href: '/campus', icon: MapIcon, group: 'services' },
 
   { key: 'posts', href: '/dean/posts', icon: Newspaper, group: 'communication' },
   { key: 'chats', href: '/dean/chats', icon: MessagesSquare, group: 'communication' },
@@ -309,6 +315,7 @@ export const TEACHER_NAV: NavItem[] = [
 
   // Приём студентов. «Документы» подставляет withCommon — в эту же группу.
   { key: 'consultations', href: '/teacher/consultations', icon: Handshake, group: 'services' },
+  { key: 'campusMap', href: '/campus', icon: MapIcon, group: 'services' },
 
   { key: 'posts', href: '/teacher/posts', icon: Newspaper, group: 'communication' },
   { key: 'chats', href: '/teacher/chats', icon: MessagesSquare, group: 'communication' },
@@ -394,6 +401,8 @@ export const UNIVERSITY_MODERATOR_NAV: NavItem[] = [
   { key: 'applications', href: '/moderator/university/applications', icon: FileText },
   { key: 'posts', href: '/moderator/university/posts', icon: Newspaper },
   { key: 'users', href: '/moderator/university/users', icon: Users },
+  // Ф22: модератор правит карту кампуса наравне с админом (решение владельца).
+  { key: 'campus', href: '/moderator/university/campus', icon: MapIcon },
   { key: 'audit', href: '/moderator/university/audit', icon: ScrollText },
   { key: 'chats', href: '/moderator/university/chats', icon: MessagesSquare },
 ]
@@ -405,6 +414,7 @@ export const SECURITY_GUARD_NAV: NavItem[] = [
   { key: 'cameras', href: '/security/cameras', icon: Cctv },
   // Своя подпись: «Помещения и QR» — раздел админа с печатью наклеек, у охраны её нет.
   { key: 'securityRooms', href: '/security/rooms', icon: DoorClosed },
+  { key: 'campusMap', href: '/campus', icon: MapIcon },
 ]
 
 // Библиотекарь вуза (docs/PROJECT.md §2, Фаза 20). Каталог, выдачи и брони добавят задачи

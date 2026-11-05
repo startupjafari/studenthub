@@ -147,6 +147,7 @@ import {
 import { Virtualizer, type VirtualizerHandle } from 'virtua'
 import { cn } from '../../../shared/lib/utils'
 import {
+  afterScrollSettles,
   createSpring,
   formatBytes,
   hapticTick,
@@ -162,6 +163,7 @@ import {
   useSwipeRows,
 } from '../../../shared/lib'
 
+import { ChatCalendarModal } from './chat-calendar-modal'
 import { ConversationList } from './conversation-list'
 import {
   avatarColor,
@@ -450,6 +452,11 @@ export function ChatWindow() {
   const [pinnedMenu, setPinnedMenu] = useState<{ x: number; y: number } | null>(null)
   const [pinnedListOpen, setPinnedListOpen] = useState(false)
   const [highlightId, setHighlightId] = useState<string | null>(null)
+  // Сообщение, к которому сейчас едем (ссылка, ответ, поиск, дата). Пока оно задано, начальная
+  // прокрутка открытого чата («к непрочитанным / вниз») и удержание низа не вмешиваются —
+  // иначе вторым проходом они уводили ленту от цели, и ссылка на сообщение открывала низ чата.
+  const focusTargetRef = useRef<string | null>(null)
+  const highlightTimerRef = useRef<number | null>(null)
   // Время, до которого другие участники прочитали чат — для статусов ✓/✓✓ своих сообщений.
   const [readWatermark, setReadWatermark] = useState<string | null>(null)
   const [forwardMsg, setForwardMsg] = useState<ChatMessage | null>(null)
@@ -477,6 +484,8 @@ export function ChatWindow() {
   // Дата перехода по истории: хранится, чтобы поле показывало выбранное значение, а не
   // возвращалось к плейсхолдеру — иначе непонятно, к какому дню прокручен чат.
   const [jumpDate, setJumpDate] = useState('')
+  // День, на пилюлю которого нажали: открыт календарь переписки (Telegram-стиль).
+  const [calendarDay, setCalendarDay] = useState<string | null>(null)
   const [chatSearchRaw, setChatSearchRaw] = useState('')
   const [chatSearchTerm, setChatSearchTerm] = useState('')
   const [searchIdx, setSearchIdx] = useState(0)
@@ -501,6 +510,8 @@ export function ChatWindow() {
   const readTimerRef = useRef<number | null>(null)
   // Плавающий заголовок даты (Telegram-стиль §6): дата верхнего видимого сообщения, гаснет вне скролла.
   const [floatingDay, setFloatingDay] = useState<string | null>(null)
+  // Дата прилипшей пилюли — для календаря по нажатию на неё.
+  const [floatingDayAt, setFloatingDayAt] = useState<string | null>(null)
   const [floatingDayShown, setFloatingDayShown] = useState(false)
   // Режим множественного выбора сообщений (Telegram-стиль): чекбоксы + массовые действия.
   const [selectMode, setSelectMode] = useState(false)
@@ -624,6 +635,9 @@ export function ChatWindow() {
       return
     }
     if (deepMsgId) {
+      // Цель — сразу, ещё до загрузки истории: эффект начальной прокрутки увидит её и не
+      // поедет к непрочитанным или вниз.
+      focusTargetRef.current = deepMsgId
       if (!messages.isSuccess) return
       appliedDeeplink.current = key
       void jumpToMessage(deepMsgId)
@@ -2010,6 +2024,8 @@ export function ChatWindow() {
             : ''
       setReadUpTo(readUpToRef.current)
       const position = (): void => {
+        // Едем к конкретному сообщению (открыли по ссылке) — начальная позиция не нужна.
+        if (focusTargetRef.current) return
         if (firstUnread === null) toBottom('auto')
         else virtualizerRef.current?.scrollToIndex(firstUnread, { align: 'start' })
       }
@@ -2022,7 +2038,7 @@ export function ChatWindow() {
           openTimeoutRef.current = null
           position()
           // Открыт в самом низу — держимся низа, пока догружаются снимки и карточки.
-          wasAtBottomRef.current = firstUnread === null
+          wasAtBottomRef.current = firstUnread === null && !focusTargetRef.current
           markVisibleReadRef.current()
         }, 120)
       })
@@ -2093,7 +2109,10 @@ export function ChatWindow() {
       // вторую такую же дату. Ошибиться в эту сторону дешевле: промах здесь стоит
       // одного кадра до первой прокрутки, промах в другую — видимого дубля.
       const last = data[data.length - 1]
-      if (last) setFloatingDay(dayLabel(last.createdAt))
+      if (last) {
+        setFloatingDay(dayLabel(last.createdAt))
+        setFloatingDayAt(last.createdAt)
+      }
       setFloatingDayShown(false)
       return
     }
@@ -2101,6 +2120,7 @@ export function ChatWindow() {
     const top = data[topIdx]
     if (!top) return
     setFloatingDay(dayLabel(top.createdAt))
+    setFloatingDayAt(top.createdAt)
     const prev = data[topIdx - 1]
     const startsDay =
       !prev || new Date(prev.createdAt).toDateString() !== new Date(top.createdAt).toDateString()
@@ -2558,9 +2578,32 @@ export function ChatWindow() {
       void jumpToMessage(messageId)
       return
     }
-    virtualizerRef.current?.scrollToIndex(idx, { align: 'center', smooth: true })
-    setHighlightId(messageId)
-    window.setTimeout(() => setHighlightId((cur) => (cur === messageId ? null : cur)), 1400)
+    scrollToAndHighlight(idx, messageId, 'center')
+  }
+
+  /**
+   * Прокрутить к строке и только ПОТОМ подсветить — как в Telegram: подсветка, вспыхнувшая в
+   * начале плавной прокрутки, к приезду уже гасла, и человек не видел, куда его привезли.
+   * Ждём остановки прокрутки, доводим строку на место без анимации (virtua к этому моменту
+   * измерила настоящие высоты, первая прокрутка шла по оценке) и тогда подсвечиваем.
+   */
+  function scrollToAndHighlight(idx: number, id: string, align: 'center' | 'start'): void {
+    focusTargetRef.current = id
+    wasAtBottomRef.current = false
+    if (highlightTimerRef.current) window.clearTimeout(highlightTimerRef.current)
+    setHighlightId(null)
+    virtualizerRef.current?.scrollToIndex(idx, { align, smooth: true })
+    afterScrollSettles(() => {
+      virtualizerRef.current?.scrollToIndex(idx, { align })
+      requestAnimationFrame(() => {
+        if (focusTargetRef.current === id) focusTargetRef.current = null
+        setHighlightId(id)
+        highlightTimerRef.current = window.setTimeout(
+          () => setHighlightId((cur) => (cur === id ? null : cur)),
+          1600,
+        )
+      })
+    })
   }
 
   // ── Тач-жесты по сообщению (мобильный) ──────────────────────────────────────
@@ -2887,12 +2930,12 @@ export function ChatWindow() {
 
   async function jumpToMessage(messageId: string): Promise<void> {
     if (!activeId) return
+    focusTargetRef.current = messageId
     const win = applyMessageWindow(await fetchMessages(activeId, { limit: 30, around: messageId }))
     requestAnimationFrame(() => {
       const idx = win.findIndex((x) => x.id === messageId)
-      if (idx >= 0) virtualizerRef.current?.scrollToIndex(idx, { align: 'center', smooth: true })
-      setHighlightId(messageId)
-      window.setTimeout(() => setHighlightId((cur) => (cur === messageId ? null : cur)), 1400)
+      if (idx >= 0) scrollToAndHighlight(idx, messageId, 'center')
+      else focusTargetRef.current = null
     })
   }
 
@@ -2907,12 +2950,10 @@ export function ChatWindow() {
       // Первое сообщение дня — наверх (align:start); если на/после даты ничего нет — к низу.
       const at = win.findIndex((m) => new Date(m.createdAt).getTime() >= from.getTime())
       const idx = at >= 0 ? at : win.length - 1
-      if (idx >= 0) virtualizerRef.current?.scrollToIndex(idx, { align: 'start', smooth: true })
       const hit = at >= 0 ? win[at] : undefined
-      if (hit) {
-        setHighlightId(hit.id)
-        window.setTimeout(() => setHighlightId((cur) => (cur === hit.id ? null : cur)), 1400)
-      }
+      if (hit) scrollToAndHighlight(at, hit.id, 'start')
+      else if (idx >= 0)
+        virtualizerRef.current?.scrollToIndex(idx, { align: 'start', smooth: true })
     })
   }
 
@@ -3221,6 +3262,7 @@ export function ChatWindow() {
       touchStart: (e, m) => msgHandlersRef.current.onMsgTouchStart(e, m),
       touchMove: (e) => msgHandlersRef.current.onMsgTouchMove(e),
       touchEnd: (e) => msgHandlersRef.current.onMsgTouchEnd(e),
+      openCalendar: (ymd) => setCalendarDay(ymd),
     }),
     [],
   )
@@ -4017,14 +4059,21 @@ export function ChatWindow() {
               {/* Прилипшая дата: видна, только когда пометка дня уехала под верх ленты. */}
               {floatingDay && !loadingOlder && (
                 <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center">
-                  <span
+                  {/* Нажатие на дату — календарь переписки (Telegram). */}
+                  <button
+                    type="button"
+                    tabIndex={floatingDayShown ? 0 : -1}
+                    aria-label={t('openCalendar', { date: floatingDay })}
+                    onClick={() =>
+                      floatingDayAt && setCalendarDay(formatYmd(new Date(floatingDayAt)))
+                    }
                     className={cn(
-                      'rounded-full bg-muted/90 px-3 py-0.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition-opacity duration-200',
-                      floatingDayShown ? 'opacity-100' : 'opacity-0',
+                      'rounded-full bg-muted/90 px-3 py-0.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition-[opacity,background-color] duration-200 hover:bg-muted hover:text-foreground',
+                      floatingDayShown ? 'pointer-events-auto opacity-100' : 'opacity-0',
                     )}
                   >
                     {floatingDay}
-                  </span>
+                  </button>
                 </div>
               )}
               <div
@@ -4074,6 +4123,7 @@ export function ChatWindow() {
                           key={m.id}
                           m={m}
                           mine={mine}
+                          isGroup={activeIsGroup}
                           firstOfRun={firstOfRun}
                           showDay={showDay}
                           dayText={showDay ? dayLabel(m.createdAt) : null}
@@ -4266,9 +4316,14 @@ export function ChatWindow() {
             {/* §50: непринятый входящий запрос — вместо поля ввода решение адресата.
                 Инициатору вместо этого показываем, что его сообщение ещё не принято. */}
             {activeChat?.requestIncoming && (
-              <div className="flex flex-col gap-3 border-t border-border p-4">
-                <p className="text-center text-sm text-muted-foreground">{t('requestPrompt')}</p>
-                <div className="flex items-center justify-center gap-2">
+              // На десктопе — одной строкой: вопрос слева, кнопки справа, py-2 вокруг 44-px
+              // ряда, как у поля ввода. Тогда верхняя граница идёт одной линией с плашкой
+              // профиля внизу сайдбара. На телефоне вопрос длинный — кнопки под ним.
+              <div className="flex flex-col gap-3 border-t border-border p-4 lg:flex-row lg:items-center lg:gap-4 lg:py-2">
+                <p className="text-center text-sm text-muted-foreground lg:min-w-0 lg:flex-1 lg:text-left">
+                  {t('requestPrompt')}
+                </p>
+                <div className="flex shrink-0 items-center justify-center gap-2 lg:h-11">
                   <Button
                     size="sm"
                     loading={acceptRequest.isPending}
@@ -4380,6 +4435,37 @@ export function ChatWindow() {
         />
       )}
 
+      {calendarDay && (
+        <ChatCalendarModal
+          initialDay={calendarDay}
+          dayThumbs={dayThumbs}
+          onMonthChange={setCalendarMonth}
+          onClose={() => setCalendarDay(null)}
+          onJump={(ymd) => {
+            setCalendarDay(null)
+            setJumpDate(ymd)
+            void jumpToDate(ymd)
+          }}
+          onClear={(from, to) => {
+            // В вопросе — даты словами («4 сентября 2026 г.»), а не ISO из календаря.
+            const long = (ymd: string) =>
+              new Intl.DateTimeFormat(locale, { dateStyle: 'long' }).format(
+                new Date(`${ymd}T00:00:00`),
+              )
+            void confirm({
+              title:
+                from === to
+                  ? t('clearDayConfirm', { day: long(from) })
+                  : t('clearPeriodConfirm', { from: long(from), to: long(to) }),
+              destructive: true,
+            }).then((ok) => {
+              if (!ok) return
+              setCalendarDay(null)
+              clearPeriod.mutate({ from, to })
+            })
+          }}
+        />
+      )}
       {forwardMsg && (
         <ForwardDialog
           chats={list}
