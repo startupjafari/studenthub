@@ -320,6 +320,46 @@ describe('Удаление аккаунта читателя', () => {
     )
     expect(notifier.send).not.toHaveBeenCalled()
   })
+
+  // Фаза 21.C2: отчисление, выпуск, перевод, блокировка — бронь снимается с уведомлением.
+  it('notifyReader: брони сняты, экземпляр — следующему, читателю «бронь отменена»', async () => {
+    const { service, prisma, tx, loans, notifier } = setup({
+      queueHead: {
+        id: 'res-2',
+        readerId: 'stu-2',
+        reader: { firstName: 'Айгерим', lastName: 'Ахметова', group: null },
+      },
+    })
+    prisma.reservation.findMany.mockResolvedValueOnce([{ id: 'res-1' }])
+    await expect(service.cancelAllOfReader('stu-1', { notifyReader: true })).resolves.toBe(1)
+    // Экземпляр двигает releaseCopy под локом книги: лок взят, следующий получил READY.
+    expect(tx.$executeRaw).toHaveBeenCalled()
+    expect(tx.reservation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'res-2' },
+        data: expect.objectContaining({ status: 'READY', copyId: 'copy-9' }),
+      }),
+    )
+    expect(loans.notifyHeld).toHaveBeenCalledWith(
+      expect.objectContaining({ readerId: 'stu-2' }),
+      'Русская литература',
+      'Asia/Almaty',
+    )
+    expect(notifier.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientIds: ['stu-1'],
+        titleKey: 'library.reservationCancelled.title',
+      }),
+    )
+  })
+
+  it('уже закрытая бронь не считается и не уведомляет', async () => {
+    const { service, prisma, tx, notifier } = setup()
+    prisma.reservation.findMany.mockResolvedValueOnce([{ id: 'res-1' }])
+    tx.reservation.updateMany.mockResolvedValueOnce({ count: 0 })
+    await expect(service.cancelAllOfReader('stu-1', { notifyReader: true })).resolves.toBe(0)
+    expect(notifier.send).not.toHaveBeenCalled()
+  })
 })
 
 describe('Догонялка «бронь готова»', () => {
