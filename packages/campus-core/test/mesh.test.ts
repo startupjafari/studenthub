@@ -159,6 +159,17 @@ describe('floorMesh — лестницы и лифты', () => {
     expect(Math.min(...xs)).toBeGreaterThan(1.25)
   })
 
+  it('марш — ступени на плите, под ним пусто; у марша стеклянное ограждение', () => {
+    // У пола (y = 0) — только первые ступени у начала марша (x ≈ 1,3 м), не весь марш.
+    expect(Math.max(...xsAtTop(m.stairs, 0))).toBeLessThan(2.2)
+    // Площадка — плита на полвысоты, а не столб от пола.
+    const platformBottom = [...m.stairs.positions].filter(
+      (v, i, all) => i % 3 === 1 && all[i - 1]! > 3.6 && v > 0.01,
+    )
+    expect(Math.min(...platformBottom)).toBeGreaterThan(1.2)
+    expect(m.glass.indices.length).toBeGreaterThan(0)
+  })
+
   it('проём в полу — над лестницей с этажа ниже пола нет', () => {
     const hall = new PlanBuilder().rect(0, 0, 6000, 4000).doc
     const area = (b: MeshBuffers): number => {
