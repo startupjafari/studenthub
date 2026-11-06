@@ -60,30 +60,32 @@ model File {
   processedAt      DateTime?   @map("processed_at")
   createdAt        DateTime    @default(now()) @map("created_at")
 
-  owner          User                @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  company        Company?            @relation("CompanyMedia", fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  universityPage University?         @relation("UniversityPageMedia", fields: [universityPageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  post           Post?               @relation(fields: [postId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  message        Message?            @relation(fields: [messageId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  material       Material?           @relation(fields: [materialId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  album          Album?              @relation("AlbumFiles", fields: [albumId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  owner                   User                     @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  company                 Company?                 @relation("CompanyMedia", fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  universityPage          University?              @relation("UniversityPageMedia", fields: [universityPageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  post                    Post?                    @relation(fields: [postId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  message                 Message?                 @relation(fields: [messageId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  material                Material?                @relation(fields: [materialId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  album                   Album?                   @relation("AlbumFiles", fields: [albumId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   // Альбомы, для которых этот файл — обложка (обычно один).
-  albumsCovered  Album[]             @relation("AlbumCover")
-  bookCovers     Book[]              @relation("BookCover")
-  document       Document?           @relation(fields: [documentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  albumsCovered           Album[]                  @relation("AlbumCover")
+  bookCovers              Book[]                   @relation("BookCover")
+  document                Document?                @relation(fields: [documentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   // Cascade, а не SetNull, как у материалов: файлы сдач лежат в бакете applications, который
   // cleanDetachedFiles не обходит, — отвязанная строка жила бы вечно. Удалили сдачу — уходит
   // строка, а объект без строки ночью снимет cleanOrphanFiles.
-  submission     Submission?         @relation(fields: [submissionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  submission              Submission?              @relation(fields: [submissionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   // SetNull, как у вложений сообщений: комментарий удаляется мягко, а при сносе события
   // отвязанный файл снимет cleanDetachedFiles.
-  eventComment   EventComment?       @relation(fields: [eventCommentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  eventComment            EventComment?            @relation(fields: [eventCommentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   // Сторисы, у которых этот файл — медиа (Ф14.1). Связь объявлена со стороны Story
   // (Story.fileId), поэтому здесь только обратная сторона.
-  stories        Story[]             @relation("StoryMedia")
+  stories                 Story[]                  @relation("StoryMedia")
   // Копия медиа сторис в «Актуальном» (32-stories.prisma, StoryHighlightItem.fileId).
-  highlightItem  StoryHighlightItem? @relation("StoryHighlightMedia")
-  variants       FileVariant[]
+  highlightItem           StoryHighlightItem?      @relation("StoryHighlightMedia")
+  variants                FileVariant[]
+  // Исходный DOCX версии шаблона документов: привязка, как documentId у страницы документа.
+  documentTemplateVersion DocumentTemplateVersion?
 
   // Пара (bucket, key) НЕ уникальна: несколько записей могут ссылаться на один объект
   // хранилища (общий пул медиа у сида, см. prisma/seed/steps/10-media.mjs). Следствие для

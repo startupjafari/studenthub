@@ -215,6 +215,8 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
       // Каталог услуг вуза: что студент может заказать и что для этого приложить (§3.2).
       { key: 'serviceCatalog', href: '/university-admin/services' },
       { key: 'documentTypes', href: '/university-admin/document-types' },
+      // DOCX-бланки вуза с переменными StudentHub (§3.8 «Шаблоны документов»).
+      { key: 'documentTemplates', href: '/university-admin/document-templates' },
     ],
   },
   // Библиотека вуза (Фаза 20): выключатель, правила выдачи; фонд ведёт библиотекарь.

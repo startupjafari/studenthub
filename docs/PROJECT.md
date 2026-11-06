@@ -610,6 +610,66 @@ status `DRAFT|UPLOADED|IN_REVIEW|VERIFIED|ACCEPTED|REJECTED|NEEDS_REPLACEMENT|EX
 тело `{ fileIds: string[] (1..50), reason }` → `{ urls: Record<fileId, url> }` — файлы берутся
 пачкой, одно обращение = одна запись `DOCUMENT_PLATFORM_DOWNLOAD` с `metadata.fileIds`).
 
+#### Шаблоны документов (DOCX)
+
+Вуз сам готовит бланк в Word — со своим логотипом, подписями и таблицами — и вставляет в него
+переменные StudentHub (`{student.fullName}`); платформа подставляет данные через `docxtemplater`.
+Оформление не навязывается: меняется только текст переменных. Экран — `/university-admin/document-templates`
+(«Заявки → Шаблоны документов»): список, каталог переменных, мастер создания, карточка шаблона.
+
+**Реестр переменных** — `DOCUMENT_TEMPLATE_VARIABLES` в `@studenthub/shared-config`, один для сервера
+(проверка и подстановка) и веба (каталог). В него входят только поля, которые реально хранятся:
+студент (`student.fullName/lastName/firstName/middleName/birthDate/studentCardNumber`), обучение
+(`student.group/course/faculty/specialty/studyForm/educationLevel/fundingType/enrollmentYear/graduationYear`),
+университет (`university.name/shortName/city/address/phone/email/website`), документ
+(`document.date/year`), сотрудник (`issuer.fullName/position`). ИИН, БИН, ректора и номера документа
+в модели данных нет — нет и переменных. Коды формы обучения и т.п. (`FULL_TIME`) подставляются
+подписью на языке шаблона (`locale`), готовые слова — как есть. Тег разрешается только по реестру:
+вычислителя выражений нет, значения берутся из плоской карты, собранной сервером из
+`UserService.documentTemplatePerson` и `UniversityService.documentRequisites`.
+
+**Модели** (`37-document-templates.prisma`). `DocumentTemplate` (вуз, название, `category`
+`CERTIFICATE|APPLICATION|ORDER|CONTRACT|CLEARANCE|DORMITORY|OTHER`, описание, `locale ru|kk|en`, `status
+DRAFT|PUBLISHED|ARCHIVED`, `currentVersionId` — рабочая версия, `publishedVersionId` — по ней формируются
+документы, автор, даты). `DocumentTemplateVersion` (номер, `fileId` → `File` в приватном бакете
+`documents`, имя, размер, SHA-256, найденные переменные, отчёт проверки `validation`, `valid`, автор).
+Каждая загрузка — новая версия: опубликованный файл не перезаписывается, новая версия начинает
+действовать только после повторной публикации. `DocumentTemplateGeneration` — журнал выданных
+студентам документов (шаблон, версия, вуз, студент, сотрудник; сам DOCX не хранится). Шаблон и версия
+в журнале — `Restrict`: шаблон, по которому выдавали документы, не удаляется, а архивируется.
+
+**Проверка файла** (до сохранения): расширение `.docx` и тип по сигнатуре (не `.doc`, `.docm`, zip);
+размер ≤ `DOCUMENT_TEMPLATE_MAX_BYTES` (по умолчанию 5 МБ, потолок 10 МБ); архив — свой разбор
+центрального каталога с распаковкой каждой части под пределом заявленного размера (zip-бомбы:
+≤ 1000 частей, ≤ 60 МБ распакованного, степень сжатия), запрет макросов, ActiveX/OLE, внешних
+шаблонов и вложенных документов. Такой файл не сохраняется — `422 TEMPLATE_FILE_INVALID` с причиной
+в `details[0].message` (`CORRUPTED|NOT_WORD_DOCUMENT|MACROS|ACTIVE_CONTENT|EXTERNAL_CONTENT|ENCRYPTED|TOO_COMPLEX`).
+**Проверка шаблона** (версия сохраняется с отчётом): синтаксис скобок (`SYNTAX`), переменные не из
+реестра (`UNKNOWN_VARIABLE`), циклы/условия/вставка XML (`UNSUPPORTED_TAG` — в MVP только простые
+поля), больше 500 тегов; предупреждения — нет переменных, поле может быть пустым (отчество),
+персональные данные. Опубликовать и формировать по версии с ошибками нельзя (`422 TEMPLATE_INVALID`).
+
+**Пустые значения.** Документ с пустым местом не формируется: незаполненное обязательное поле →
+`422 TEMPLATE_DATA_MISSING`, ключи переменных — в `details[].field`. Пустым может остаться только
+поле с `optional` в реестре (отчество).
+
+**Права.** Управление — `UNIVERSITY_ADMIN` своего вуза (вуз из токена; чужой шаблон → `403 WRONG_SCOPE`).
+Документ для студента формируют `UNIVERSITY_ADMIN`, `UNIVERSITY_MODERATOR` и `DEAN` (декан — только
+студентам своего факультета); студент другого вуза или факультета → `403 WRONG_SCOPE`, не студент →
+`404`. Модератор и декан видят только опубликованные шаблоны. Все действия пишутся в `AuditLog`
+(`document_template_created|updated|version_uploaded|published|unpublished|archived|deleted|test_generated|generated`)
+только идентификаторами — без ФИО и значений документа.
+
+**Эндпоинты** (база `/document-templates`): `GET /` (`page`, `limit ≤ 100`, `status`, `category`,
+`search`; `meta.total`) · `GET /:id` (карточка + до 50 версий с отчётами + `generationCount`) ·
+`POST /` · `PATCH /:id` (архивный → `409`) · `DELETE /:id` → `{ archived }` (выдавали документы — архив,
+иначе удаление вместе с файлами) · `POST /:id/versions` (multipart `file`, 20/мин) ·
+`GET /:id/versions/:versionId/source` → `{ url, fileName }` (presigned, 15 мин) · `POST /:id/publish`
+(только валидная рабочая версия; условным обновлением — подменённая между чтением и публикацией
+версия → `409`) · `POST /:id/unpublish` · `POST /:id/test?versionId` — DOCX на демо-данных из реестра
+(без журнала выдач, 20/мин) · `POST /:id/generate { studentId }` — DOCX по опубликованной версии
+(`Cache-Control: no-store`, 30/мин на пользователя).
+
 ---
 
 ### 3.9 Помещения и QR над дверью (Ф16)
@@ -1153,6 +1213,9 @@ Email при регистрации сохраняется в нижнем ре�
 | 403 | `TWO_FACTOR_SETUP_REQUIRED` | Привилегированной роли нужно включить 2FA; доступ к API закрыт до настройки (кроме эндпоинтов 2FA). Клиент ведёт на `/setup-2fa` |
 | 403 | `UNIVERSITY_BLOCKED` | Вуз заблокирован платформой: вход, refresh, регистрация по инвайту и запросы с выданным токеном отклоняются; смена статуса действует на других инстансах до 15 с. Платформенные роли не затронуты. По WebSocket — разрыв в handshake и на `auth:refresh`, `error { event, code: 'UNIVERSITY_BLOCKED' }` с разрывом на событиях чата (§9) |
 | 403 | `EMAIL_NOT_VERIFIED` | Работодатель не подтвердил почту компании: вход, QR, 2FA и refresh закрыты до перехода по ссылке |
+| 422 | `TEMPLATE_FILE_INVALID` | DOCX не годится в шаблон документа (повреждён, макросы, ActiveX/OLE, внешние ссылки, zip-бомба); причина — `details[0].message` (§3.8 «Шаблоны документов») |
+| 422 | `TEMPLATE_INVALID` | Шаблон не прошёл техническую проверку — публиковать и формировать по нему нельзя |
+| 422 | `TEMPLATE_DATA_MISSING` | У студента не заполнены поля, которые использует шаблон; ключи переменных — `details[].field` |
 | 400 | `EXPORT_TOO_LARGE` | Выборка больше потолка выгрузки в XLSX (`GET /users/export`, 5000 строк). Отдельно от `BAD_REQUEST`: клиент предлагает ту же выборку в CSV — он отдаётся потоком без потолка |
 | 409 | `USERNAME_TAKEN` | Имя пользователя занято другим аккаунтом (`PATCH /users/me/username`, `POST /auth/register-by-invite`). Отдельно от `CONFLICT`: форма подсвечивает именно поле имени |
 | 503 | `MAINTENANCE` | Платформа остановлена на техработы. Проходят платформенные роли и маршруты без которых режим не снять: `/auth`, `/auth/2fa`, `/mini`, `/platform`, `/health` |
@@ -1902,6 +1965,7 @@ MINIO_BUCKET_CHAT=chat-media
 MINIO_BUCKET_PROFILE_MEDIA=profile-media
 MINIO_BUCKET_PROFILE_COVERS=profile-covers
 MINIO_BUCKET_DOCUMENTS=documents
+DOCUMENT_TEMPLATE_MAX_BYTES=5242880   # предел DOCX-шаблона документов (§3.8), не больше 10 МБ
 MINIO_PUBLIC_ENDPOINT=       # публичный адрес MinIO для presigned-ссылок; пусто — MINIO_ENDPOINT
 MINIO_PUBLIC_PORT=443
 MINIO_PUBLIC_USE_SSL=true

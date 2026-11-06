@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { DOCUMENT_TEMPLATE_LIMITS } from '@studenthub/shared-config'
 
 // Единый контракт переменных окружения (docs/PROJECT.md §13, docs/BACKEND_RULES.md §14.2).
 // Валидируется на старте: отсутствие обязательной переменной = приложение не стартует.
@@ -85,6 +86,14 @@ export const envSchema = z.object({
   MINIO_BUCKET_PROFILE_COVERS: z.string().default('profile-covers'),
   // Документы (Ф15) — приватный бакет, доступ только по presigned-URL.
   MINIO_BUCKET_DOCUMENTS: z.string().default('documents'),
+  // Предел размера DOCX-шаблона документов вуза (§3.8 «Шаблоны»), байты. Потолок — порог
+  // буферной загрузки (10 МБ): шаблон идёт через API-процесс, его тут же разбирают.
+  DOCUMENT_TEMPLATE_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(DOCUMENT_TEMPLATE_LIMITS.MAX_BYTES_CEILING)
+    .default(DOCUMENT_TEMPLATE_LIMITS.MAX_BYTES_DEFAULT),
 
   // Публичный адрес MinIO для presigned-ссылок, отдаваемых в браузер (напр. домен
   // Railway у minio-сервиса). Если не задан — presigned генерятся на внутренний

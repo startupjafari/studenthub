@@ -45,6 +45,17 @@ export const ErrorCode = {
   // Отдельно от BAD_REQUEST: клиент предлагает выгрузить ту же выборку в CSV — его сервер
   // отдаёт потоком и без предела.
   EXPORT_TOO_LARGE: 'EXPORT_TOO_LARGE',
+  // DOCX-шаблон не принят: файл — документ Word, но содержимое не годится в шаблон
+  // (повреждён, макросы, внешние ссылки, zip-бомба). Причина — в details[].message
+  // (DOCUMENT_TEMPLATE_FILE_PROBLEMS). Отдельно от FILE_TYPE_NOT_ALLOWED: тип верный,
+  // и клиент объясняет, что исправить в самом документе.
+  TEMPLATE_FILE_INVALID: 'TEMPLATE_FILE_INVALID',
+  // Шаблон не прошёл техническую проверку (синтаксис, неизвестные переменные) — его нельзя
+  // опубликовать и нельзя по нему формировать документы.
+  TEMPLATE_INVALID: 'TEMPLATE_INVALID',
+  // У студента не заполнены поля, которые использует шаблон: официальный документ с пустыми
+  // местами не формируется. Ключи переменных — в details[].field.
+  TEMPLATE_DATA_MISSING: 'TEMPLATE_DATA_MISSING',
 } as const
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
@@ -86,6 +97,10 @@ export const ERROR_CODE_STATUS: Record<ErrorCode, number> = {
   // 400 — запрос корректен, но в этом формате невыполним; 413 тут неверен: он про тело
   // запроса, а не про ответ.
   EXPORT_TOO_LARGE: 400,
+  // 422 — запрос понятен, но содержимое (файл, шаблон, данные студента) его не допускает.
+  TEMPLATE_FILE_INVALID: 422,
+  TEMPLATE_INVALID: 422,
+  TEMPLATE_DATA_MISSING: 422,
 }
 
 /** Код по умолчанию для HTTP-статуса (для стандартных Nest-исключений без явного кода). */
