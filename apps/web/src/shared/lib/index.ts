@@ -46,6 +46,7 @@ export { nowInTz, wallClockInTz, isoWeekParity, isoWeekParityOf, type NowInTz } 
 export { useNowInTz } from './use-now-in-tz'
 export { safeNextPath } from './safe-next'
 export { isTrustedImageUrl } from './trusted-image'
+export { localMediaSrc } from './local-media-src'
 export { identityColor, identityInitials, IDENTITY_COLORS } from './identity-color'
 export { relativeTime } from './relative-time'
 export {
