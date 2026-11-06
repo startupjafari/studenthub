@@ -27,6 +27,7 @@ import { SPACE_KIND_COLOR } from '../../../entities/campus'
 import { MOTION, prefersReducedMotion } from '../../../shared/lib'
 import { buildDoorSigns, type DoorSigns } from './door-signs'
 import { ElevatorCabin } from './elevator-cabin'
+import { buildSiteVisual, type SiteVisual } from './site-visual'
 import { routePath, type RouteElevator, type RoutePath, type RoutePoint } from './route-path'
 import {
   ARROW_STEP_M,
@@ -166,6 +167,10 @@ const CAMERA_KEYS = new Set([
   'NumpadAdd',
   'NumpadSubtract',
 ])
+/** Небо: зенит и дымка у горизонта (ею же тонет даль). */
+const SKY_ZENITH = '#5d97d6'
+const SKY_HORIZON = '#dbe7f2'
+
 /** Перелёт камеры: двойной клик, «общий вид», подвод к помещению. */
 const FLIGHT_MS = MOTION.large * 1.5
 
@@ -198,16 +203,6 @@ const TOUR_PITCH_MAX = 0.35
 const ORBIT_FOV = 45
 /** Лента маршрута над полом, м: выше пола помещений (+2 см) и подсветки (+4 см). */
 const RIBBON_LIFT_M = 0.07
-
-const SITE_COLORS: Record<string, string> = {
-  lawn: '#bbf7d0',
-  parking: '#e2e8f0',
-  sport: '#fed7aa',
-  rest: '#d9f99d',
-  path: '#e7e5e4',
-  road: '#cbd5e1',
-  tree: '#4ade80',
-}
 
 /** Плавный старт и остановка (кубическая), для перелёта и стадий лифта. */
 function easeInOut(t: number): number {
@@ -286,8 +281,13 @@ export class CampusSceneController {
     this.renderer.domElement.style.touchAction = 'none'
     host.appendChild(this.renderer.domElement)
 
-    this.scene.background = new THREE.Color(palette.background)
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x556070, 1.8))
+    // Небо — купол с градиентом от зенита к дымке у горизонта, вокруг камеры; дальнее
+    // тонет в дымке того же цвета: горизонт без шва.
+    this.sky = this.makeSky()
+    this.scene.add(this.sky)
+    this.scene.fog = new THREE.Fog(SKY_HORIZON, 600, 3000)
+    // Небо сверху, трава снизу: отражённый от земли свет зеленоватый.
+    this.scene.add(new THREE.HemisphereLight(0xe8f1ff, 0x5d6b4c, 1.7))
     const sun = new THREE.DirectionalLight(0xffffff, 1.1)
     sun.position.set(60, 140, 40)
     this.scene.add(sun)
@@ -330,7 +330,6 @@ export class CampusSceneController {
   setPalette(p: ScenePalette): void {
     this.palette = p
     this.disposeRouteTextures()
-    this.scene.background = new THREE.Color(p.background)
     if (this.input) this.rebuild()
   }
 
@@ -433,6 +432,9 @@ export class CampusSceneController {
     // В проходе камерой правит он сам — OrbitControls развернул бы её к своей цели.
     else this.controls.update()
     this.updateSigns()
+    // Купол неба — вокруг камеры, чуть ближе дальней плоскости.
+    this.sky.position.copy(this.camera.position)
+    this.sky.scale.setScalar(this.camera.far * 0.9)
     const started = performance.now()
     this.renderer.render(this.scene, this.camera)
     this.adapt(performance.now() - started)
@@ -1002,6 +1004,74 @@ export class CampusSceneController {
     this.requestRender()
   }
 
+  // ── Небо и территория ────────────────────────────────────────────────────────────
+
+  private readonly sky: THREE.Mesh
+  private site: { doc: SitePlanDoc; key: string; visual: SiteVisual } | null = null
+
+  private makeSky(): THREE.Mesh {
+    const geo = new THREE.SphereGeometry(1, 32, 16)
+    const zenith = new THREE.Color(SKY_ZENITH)
+    const horizon = new THREE.Color(SKY_HORIZON)
+    const below = new THREE.Color('#a9b39a')
+    const colors: number[] = []
+    const p = geo.getAttribute('position')
+    for (let i = 0; i < p.count; i++) {
+      const y = p.getY(i)
+      const c =
+        y >= 0
+          ? horizon.clone().lerp(zenith, Math.pow(y, 0.6))
+          : horizon.clone().lerp(below, Math.min(1, -y * 4))
+      colors.push(c.r, c.g, c.b)
+    }
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
+    const sky = new THREE.Mesh(
+      geo,
+      new THREE.MeshBasicMaterial({
+        vertexColors: true,
+        side: THREE.BackSide,
+        depthWrite: false,
+        fog: false,
+      }),
+    )
+    sky.renderOrder = -1
+    sky.frustumCulled = false
+    return sky
+  }
+
+  /**
+   * Территория: строится, только когда сменилась она сама или корпуса (их контуры —
+   * вырезы в земле); пересборка этажей и маршрута её не трогает.
+   */
+  private updateSite(input: SceneInput): void {
+    if (!input.site) {
+      this.site?.visual.dispose()
+      this.site = null
+      return
+    }
+    const outlines = new Map<string, Pt[]>()
+    for (const f of input.floors) {
+      if (outlines.has(f.buildingId) || !f.outline?.length) continue
+      outlines.set(
+        f.buildingId,
+        f.outline.map((p) => (f.transform ? toCampus(p, f.transform) : p)),
+      )
+    }
+    const rings = [...outlines.values()]
+    const key = rings.map((r) => r.map((p) => `${p.x},${p.y}`).join(';')).join('|')
+    if (this.site?.doc === input.site && this.site.key === key) return
+    this.site?.visual.dispose()
+    const all = [...input.site.boundary, ...rings.flat()]
+    const xs = all.map((p) => p.x)
+    const ys = all.map((p) => p.y)
+    const extent = all.length
+      ? Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 1000
+      : 300
+    const visual = buildSiteVisual(input.site, rings, extent)
+    this.scene.add(visual.group)
+    this.site = { doc: input.site, key, visual }
+  }
+
   // ── Таблички у дверей ────────────────────────────────────────────────────────────
 
   /** Таблички этажей, построенные по требованию (ключ — этаж; план сменился — пересборка). */
@@ -1058,6 +1128,10 @@ export class CampusSceneController {
     if (this.frame) cancelAnimationFrame(this.frame)
     for (const entry of this.signs.values()) entry.signs?.dispose()
     this.signs.clear()
+    this.site?.visual.dispose()
+    this.site = null
+    this.sky.geometry.dispose()
+    ;(this.sky.material as THREE.Material).dispose()
     this.clear()
     this.tour = null
     this.endRide()
@@ -1337,68 +1411,8 @@ export class CampusSceneController {
     if (input.route && input.route.length > 1)
       this.buildRoute(input.route, input.floors, input.routeMarkers ?? { from: 'A', to: 'B' })
 
-    if (input.site) this.buildSite(input.site)
+    this.updateSite(input)
     this.requestRender()
-  }
-
-  /** Территория (§14): газоны, площадки — плоские многоугольники, дорожки — ленты. */
-  private buildSite(site: SitePlanDoc): void {
-    const mats = new Map<string, THREE.Material>()
-    const mat = (type: string): THREE.Material => {
-      let m = mats.get(type)
-      if (!m) {
-        m = this.material(
-          new THREE.MeshLambertMaterial({ color: SITE_COLORS[type] ?? this.palette.ground }),
-        )
-        mats.set(type, m)
-      }
-      return m
-    }
-    const toScene = (p: Pt) => ({ x: p.x / 1000, z: -p.y / 1000 })
-    for (const f of Object.values(site.features)) {
-      if ('polygon' in f) {
-        const shape = new THREE.Shape(
-          f.polygon.map((p) => new THREE.Vector2(p.x / 1000, p.y / 1000)),
-        )
-        const g = new THREE.ShapeGeometry(shape)
-        g.rotateX(-Math.PI / 2)
-        g.translate(0, -0.02, 0)
-        this.disposables.push(g)
-        this.content.add(new THREE.Mesh(g, mat(f.type)))
-      } else if ('line' in f) {
-        for (let i = 0; i + 1 < f.line.length; i++) {
-          const a = toScene(f.line[i]!)
-          const b = toScene(f.line[i + 1]!)
-          const len = Math.hypot(b.x - a.x, b.z - a.z)
-          if (len < 0.01) continue
-          const g = new THREE.PlaneGeometry(len, f.widthMm / 1000)
-          g.rotateX(-Math.PI / 2)
-          g.rotateY(-Math.atan2(b.z - a.z, b.x - a.x))
-          g.translate((a.x + b.x) / 2, -0.01, (a.z + b.z) / 2)
-          this.disposables.push(g)
-          this.content.add(new THREE.Mesh(g, mat(f.type)))
-        }
-      }
-    }
-    // Деревья — по одному инстансу на дерево: сотни деревьев остаются одним draw call.
-    const trees = Object.values(site.features).filter((f) => f.type === 'tree')
-    if (trees.length > 0) {
-      const cone = new THREE.ConeGeometry(1.4, 4, 7)
-      cone.translate(0, 2, 0)
-      this.disposables.push(cone)
-      const mesh = new THREE.InstancedMesh(cone, mat('tree'), trees.length)
-      const m = new THREE.Matrix4()
-      trees.forEach((f, i) => {
-        if (f.type !== 'tree') return
-        // Хвойные выше и уже лиственных.
-        const k = f.variant === 'conifer' ? 1.3 : 1
-        m.makeScale(1 / k, k, 1 / k).setPosition(f.x / 1000, 0, -f.y / 1000)
-        mesh.setMatrixAt(i, m)
-      })
-      mesh.instanceMatrix.needsUpdate = true
-      this.disposables.push({ dispose: () => mesh.dispose() })
-      this.content.add(mesh)
-    }
   }
 
   // ── Выбор помещения ──────────────────────────────────────────────────────────────
