@@ -148,10 +148,15 @@ function invalidTemplate(validation: DocumentTemplateValidation): AppException {
   )
 }
 
+const FILE_NAME_MAX = 200
+
 function fileName(raw: string | undefined): string {
   // Браузеры на Windows присылают полный путь; берём только имя.
   const base = (raw ?? '').split(/[\\/]/).pop()?.trim() ?? ''
-  return base.slice(0, 200)
+  if (base.length <= FILE_NAME_MAX) return base
+  // Режем основу, а не хвост: иначе длинное имя теряло «.docx» и честный файл отклонялся.
+  const ext = /\.[^.]{1,10}$/.exec(base)?.[0] ?? ''
+  return base.slice(0, FILE_NAME_MAX - ext.length) + ext
 }
 
 /**

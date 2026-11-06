@@ -571,7 +571,8 @@ export class UserService {
     return {
       ...rest,
       // Должность сотрудника заполняют в одном из двух полей профиля — берём что есть.
-      position: position ?? jobTitle,
+      // Пустая строка — не должность: иначе заполненный jobTitle терялся бы за пустым position.
+      position: position?.trim() || jobTitle?.trim() || null,
       groupName: group?.name ?? null,
       facultyName: faculty?.name ?? null,
     }

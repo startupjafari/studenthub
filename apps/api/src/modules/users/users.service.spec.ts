@@ -2453,3 +2453,41 @@ describe('UserService — присутствие только в охвате', 
     ).resolves.toEqual({ online: true })
   })
 })
+
+describe('UserService.documentTemplatePerson — должность для шаблонов документов', () => {
+  const row = {
+    id: 'u1',
+    role: Role.DEAN,
+    universityId: 'uni-A',
+    facultyId: 'fac-A',
+    firstName: 'Мария',
+    lastName: 'Примерова',
+    middleName: null,
+    birthDate: null,
+    studentCardNumber: null,
+    course: null,
+    specialty: null,
+    studyForm: null,
+    educationLevel: null,
+    fundingType: null,
+    enrollmentYear: null,
+    graduationYear: null,
+    group: null,
+    faculty: { name: 'Факультет ИТ' },
+  }
+
+  it('пустая position не прячет заполненный jobTitle', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({ ...row, position: '  ', jobTitle: 'Декан' })
+    await expect(service.documentTemplatePerson('u1')).resolves.toMatchObject({
+      position: 'Декан',
+      facultyName: 'Факультет ИТ',
+    })
+  })
+
+  it('обе пустые — null, а не пустая строка', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({ ...row, position: '', jobTitle: null })
+    await expect(service.documentTemplatePerson('u1')).resolves.toMatchObject({ position: null })
+  })
+})

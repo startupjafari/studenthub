@@ -55,6 +55,13 @@ describe('analyzeTemplate — проверка переменных шаблон
     expect(result.errors.map((e) => e.tag)).toEqual(['student.iin', 'university.bin'])
   })
 
+  it('отчёт ограничен: лишние ошибки сводятся в одну строку с их числом', () => {
+    const tags = Array.from({ length: 60 }, (_, i) => `{x${i}}`).join(' ')
+    const result = analyzeTemplate(buildDocx({ body: paragraph(tags) }))
+    expect(result.errors).toHaveLength(51)
+    expect(result.errors[50]).toEqual({ code: 'MORE_ISSUES', tag: '10' })
+  })
+
   it('нарушенные скобки — SYNTAX', () => {
     const result = analyzeTemplate(buildDocx({ body: paragraph('{student.fullName курс') }))
     expect(result.valid).toBe(false)

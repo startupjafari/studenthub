@@ -240,6 +240,19 @@ describe('DocumentTemplatesService — загрузка и версии', () => 
     expect(data.validation.errors[0]).toMatchObject({ code: 'UNKNOWN_VARIABLE' })
   })
 
+  it('длинное имя файла обрезается по основе и сохраняет .docx', async () => {
+    const { service, prisma, files } = setup()
+    prisma.documentTemplateVersion.findFirst.mockResolvedValueOnce(null)
+    prisma.documentTemplateVersion.create.mockResolvedValue({ id: 'v-2', version: 2 })
+    const long = `${'Справка об обучении '.repeat(15)}.docx`
+
+    await service.uploadVersion(admin, 't-1', { buffer: SOURCE, filename: long })
+
+    const name = files.upload.mock.calls[0][0].name as string
+    expect(name).toHaveLength(200)
+    expect(name.endsWith('.docx')).toBe(true)
+  })
+
   it('.doc, .docm и zip под видом docx не принимаются', async () => {
     const { service, files } = setup()
     expect(
