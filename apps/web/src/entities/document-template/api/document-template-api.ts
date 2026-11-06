@@ -7,7 +7,7 @@ import type {
   UpdateDocumentTemplateInput,
 } from '@studenthub/shared-schemas'
 import { api, getPaged, type Paged } from '../../../shared/api'
-import { requestFileByPost, type DownloadedFile } from '../../../shared/lib'
+import { requestFile, type DownloadedFile } from '../../../shared/lib'
 
 // DOCX-шаблоны документов вуза (docs/PROJECT.md §3.8 «Шаблоны документов»). Вуз сервер берёт
 // из токена; управление — админ вуза.
@@ -98,11 +98,7 @@ export function downloadDocumentTemplateTest(
   id: string,
   versionId?: string,
 ): Promise<DownloadedFile> {
-  return requestFileByPost(
-    `/document-templates/${id}/test`,
-    undefined,
-    versionId ? { versionId } : undefined,
-  )
+  return requestFile(`/document-templates/${id}/test`, versionId ? { versionId } : undefined, {})
 }
 
 /** Документ для студента по опубликованной версии. Данные сервер берёт из профиля. */
@@ -110,5 +106,5 @@ export function generateDocumentFromTemplate(
   id: string,
   studentId: string,
 ): Promise<DownloadedFile> {
-  return requestFileByPost(`/document-templates/${id}/generate`, { studentId })
+  return requestFile(`/document-templates/${id}/generate`, undefined, { body: { studentId } })
 }

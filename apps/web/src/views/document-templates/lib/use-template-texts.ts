@@ -45,6 +45,8 @@ export function useTemplateTexts() {
         return t('issue_OPTIONAL_VARIABLE', { label: variableLabel(tag) })
       case 'PERSONAL_DATA':
         return t('issue_PERSONAL_DATA')
+      case 'MORE_ISSUES':
+        return t('issue_MORE_ISSUES', { count: Number(tag) || 0 })
     }
   }
 

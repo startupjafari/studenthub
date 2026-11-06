@@ -6435,6 +6435,7 @@
     "issue_NO_VARIABLES": "The document has no variables — it will be issued unchanged.",
     "issue_OPTIONAL_VARIABLE": "The field \"{label}\" may be empty — then its place stays blank.",
     "issue_PERSONAL_DATA": "The template inserts the student's personal data. Issue the document only on request.",
+    "issue_MORE_ISSUES": "And {count, plural, one {# more similar error} other {# more similar errors}} — fix the ones above and upload the file again.",
     "part_header": "in the header",
     "part_footer": "in the footer",
     "part_other": "in footnotes or document properties",
