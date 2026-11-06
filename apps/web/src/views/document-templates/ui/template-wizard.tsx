@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { ArrowRight, Download, ListChecks } from 'lucide-react'
+import { ArrowRight, Download } from 'lucide-react'
 import type { DocumentTemplateDetail } from '@studenthub/shared-schemas'
 import { Button, Modal, Stepper } from '../../../shared/ui'
 import { createDocumentTemplate, documentTemplateKeys } from '../../../entities/document-template'
@@ -31,7 +31,6 @@ export function TemplateWizard({ onClose }: TemplateWizardProps) {
   const { errorToast } = useTemplateTexts()
   const [step, setStep] = useState(0)
   const [detail, setDetail] = useState<DocumentTemplateDetail | null>(null)
-  const [showCatalog, setShowCatalog] = useState(false)
 
   const create = useMutation({
     mutationFn: createDocumentTemplate,
@@ -113,16 +112,7 @@ export function TemplateWizard({ onClose }: TemplateWizardProps) {
                 </p>
               </figure>
             </div>
-            <Button
-              variant="outline"
-              className="w-fit"
-              onClick={() => setShowCatalog((v) => !v)}
-              aria-expanded={showCatalog}
-            >
-              <ListChecks className="size-4" aria-hidden />
-              {showCatalog ? t('hideCatalog') : t('openCatalog')}
-            </Button>
-            {showCatalog && <VariableCatalog compact />}
+            <VariableCatalog compact />
             {footer({ label: t('next'), onClick: () => setStep(2) })}
           </div>
         )}
