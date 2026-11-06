@@ -5,7 +5,9 @@ import {
   buildFaces,
   faceContains,
   matchSpaces,
+  pointInPolygon,
   toBuilding,
+  toCampus,
   type BuildingTransform,
   type FloorPlanDoc,
   type Pt,
@@ -23,6 +25,7 @@ import {
 } from '@studenthub/campus-core/mesh'
 import { SPACE_KIND_COLOR } from '../../../entities/campus'
 import { MOTION, prefersReducedMotion } from '../../../shared/lib'
+import { buildDoorSigns, type DoorSigns } from './door-signs'
 import { ElevatorCabin } from './elevator-cabin'
 import { routePath, type RouteElevator, type RoutePath, type RoutePoint } from './route-path'
 import {
@@ -74,6 +77,8 @@ export interface SceneInput {
   floorIndex?: { id: string; buildingId: string; label: string; elevationMm: number }[]
   /** Буквы булавок начала и конца маршрута (по умолчанию A и B). */
   routeMarkers?: { from: string; to: string }
+  /** Подписи типов помещений — для табличек у дверей без номера и названия. */
+  kindLabels?: Partial<Record<SpaceKind, string>>
   site: SitePlanDoc | null
 }
 
@@ -427,6 +432,7 @@ export class CampusSceneController {
     // Инерция: пока она гасится, `update` шлёт `change` и сам просит следующий кадр.
     // В проходе камерой правит он сам — OrbitControls развернул бы её к своей цели.
     else this.controls.update()
+    this.updateSigns()
     const started = performance.now()
     this.renderer.render(this.scene, this.camera)
     this.adapt(performance.now() - started)
@@ -996,8 +1002,62 @@ export class CampusSceneController {
     this.requestRender()
   }
 
+  // ── Таблички у дверей ────────────────────────────────────────────────────────────
+
+  /** Таблички этажей, построенные по требованию (ключ — этаж; план сменился — пересборка). */
+  private readonly signs = new Map<string, { doc: SceneFloor['doc']; signs: DoorSigns | null }>()
+  private static readonly SIGN_CACHE = 8
+
+  /**
+   * Таблички видны на этаже, где сейчас камера (внутри контура корпуса, по высоте между полом
+   * и потолком): идущему по коридору — да, при взгляде сверху — нет, мелочь там не нужна.
+   * Строятся при первом заходе на этаж, держим несколько последних.
+   */
+  private updateSigns(): void {
+    const input = this.input
+    const cam = this.camera.position
+    const here = new Set<string>()
+    if (input && input.mode !== 'campus') {
+      for (const f of input.floors) {
+        const y0 = f.elevationMm / 1000
+        if (cam.y < y0 || cam.y > y0 + f.heightMm / 1000) continue
+        if (!f.outline?.length) continue
+        const ring = f.outline.map((p) => (f.transform ? toCampus(p, f.transform) : p))
+        if (
+          pointInPolygon({ x: Math.round(cam.x * 1000), y: Math.round(-cam.z * 1000) }, ring) ===
+          'outside'
+        )
+          continue
+        here.add(f.id)
+      }
+    }
+    for (const id of here) {
+      const f = input!.floors.find((x) => x.id === id)!
+      const cached = this.signs.get(id)
+      if (cached && cached.doc === f.doc) continue
+      cached?.signs?.dispose()
+      const labels = input!.kindLabels ?? {}
+      const signs = buildDoorSigns(f, (k) => labels[k] ?? '')
+      if (signs) this.scene.add(signs.group)
+      this.signs.delete(id)
+      this.signs.set(id, { doc: f.doc, signs })
+    }
+    for (const [id, entry] of this.signs) {
+      if (entry.signs) entry.signs.group.visible = here.has(id)
+    }
+    // Лишние — самые давние (Map хранит порядок вставки).
+    while (this.signs.size > CampusSceneController.SIGN_CACHE) {
+      const [id, entry] = this.signs.entries().next().value!
+      if (here.has(id)) break
+      entry.signs?.dispose()
+      this.signs.delete(id)
+    }
+  }
+
   dispose(): void {
     if (this.frame) cancelAnimationFrame(this.frame)
+    for (const entry of this.signs.values()) entry.signs?.dispose()
+    this.signs.clear()
     this.clear()
     this.tour = null
     this.endRide()
