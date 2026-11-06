@@ -296,7 +296,9 @@ describe('CompanyMembersService — регистрация по приглаше
     prisma.companyInvite.findUnique.mockResolvedValue(pendingInvite())
     prisma.user.findFirst.mockResolvedValue({ id: 'existing' })
     expect(await codeOf(service.accept(input, ctx))).toBe('COMPANY_INVITE_EMAIL_TAKEN')
-    expect(prisma.companyInvite.updateMany).not.toHaveBeenCalled()
+    // Гашение уже сделано (оно идёт первым, чтобы гонка отвечала 410), но отказ бросается
+    // внутри $transaction — запись откатывается вместе с ним.
+    expect(prisma.$transaction).toHaveBeenCalled()
     expect(prisma.user.create).not.toHaveBeenCalled()
   })
 

@@ -338,6 +338,21 @@ export class CompanyMembersService {
         throw new AppException('INVITE_REVOKED', 'Компания больше не принимает приглашения')
       }
 
+      // Гашение — раньше проверки адреса. Условная запись берёт блокировку строки
+      // приглашения, и параллельный запрос по той же ссылке ждёт здесь коммита первого, а
+      // потом получает count 0 → 410. Когда проверка адреса шла первой, второй запрос успевал
+      // прочитать приглашение как PENDING и после коммита первого натыкался на только что
+      // созданный аккаунт — отвечал 409 «адрес занят» вместо 410 (ловит e2e 21.E4).
+      // Отказ ниже по адресу откатывает гашение вместе с транзакцией: ссылка остаётся в силе.
+      const acceptedAt = new Date()
+      const claimed = await tx.companyInvite.updateMany({
+        where: { id: invite.id, status: 'PENDING', expiresAt: { gt: acceptedAt } },
+        data: { status: 'ACCEPTED', acceptedAt },
+      })
+      if (claimed.count === 0) {
+        throw new AppException('INVITE_USED', 'Приглашение уже использовано')
+      }
+
       const taken = await tx.user.findFirst({
         where: { email: { in: [invite.email], mode: 'insensitive' } },
         select: { id: true },
@@ -347,15 +362,6 @@ export class CompanyMembersService {
           'COMPANY_INVITE_EMAIL_TAKEN',
           'На этот адрес уже есть аккаунт StudentHub. Попросите приглашение на другой адрес',
         )
-      }
-
-      const acceptedAt = new Date()
-      const claimed = await tx.companyInvite.updateMany({
-        where: { id: invite.id, status: 'PENDING', expiresAt: { gt: acceptedAt } },
-        data: { status: 'ACCEPTED', acceptedAt },
-      })
-      if (claimed.count === 0) {
-        throw new AppException('INVITE_USED', 'Приглашение уже использовано')
       }
 
       const user = await tx.user
