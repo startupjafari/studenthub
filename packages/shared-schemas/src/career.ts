@@ -692,6 +692,9 @@ export const CreateApplicationSchema = z
   .object({
     vacancyId: z.string().uuid(),
     coverLetter: optionalText(4000),
+    // Открыть скрытый карьерный профиль только компании этой вакансии (21.D1). Сам отклик
+    // профиль не раскрывает: без галочки компания видит лишь строку кандидата в воронке.
+    shareProfile: z.boolean().optional(),
   })
   .strict()
 export type CreateApplicationInput = z.infer<typeof CreateApplicationSchema>
