@@ -50,6 +50,7 @@ const ALL_ZONES: Audience[] = [
   'platformModerator',
   'securityGuard',
   'librarian',
+  'employer',
 ]
 
 function routesFor(zone: Audience): AuditRoute[] {
@@ -357,13 +358,6 @@ test.afterAll(() => {
         'не входила в этот прогон — бюджет входов 5 / 15 мин с IP (docs/PROJECT.md §7.4)',
     })
   }
-  collector.addZone({
-    zone: 'employer',
-    checked: [],
-    skipped: {},
-    unavailable:
-      'нет аккаунта EMPLOYER: фикстура e2e работодателя не заводит — компаний и вакансий на тестовом стенде нет',
-  })
 
   const outcome = writeReport(collector)
   // Единственный console в проекте, где он уместен: путь к отчёту нужен человеку и

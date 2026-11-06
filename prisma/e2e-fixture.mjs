@@ -7,7 +7,7 @@
 // Всё остальное — оценки, документы, посты — тесты создают сами или проверяют на пустых
 // состояниях: пустой экран это тоже состояние, и у него тоже есть вёрстка.
 //
-// Два исключения, и оба вынужденные.
+// Несколько исключений, и все вынужденные.
 //
 // КАТАЛОГ УСЛУГ — справочник платформы, а не демо-данные: глобальные шаблоны услуг видны
 // всем вузам, и заявка студента ссылается именно на них. Без него сценарий заявок не
@@ -20,6 +20,11 @@
 // ОДИН ПОСТ — сценарий ленты проверяет, что карточка публикации отрисовалась. Написать
 // его сам он тоже не может: композер есть у сотрудников, а лента смотрится из-под
 // студента. Пустая лента — тоже состояние, но проверяет его другой тест.
+//
+// РАБОТОДАТЕЛЬ С КОМПАНИЕЙ И ДОПУСКОМ — у EMPLOYER нет зоны без своей компании, а
+// компания без одобренного вузом доступа не видит его студентов. Ни создать компанию с
+// допуском, ни одобрить его тест сам не может: подтверждение почты идёт письмом, а допуск
+// выдаёт админ вуза из другого контекста.
 //
 // Запускается из apps/web/e2e/prepare-db.mjs на DATABASE_URL_TEST, после `db push
 // --force-reset`. На непустой или нетестовой базе не запускается — проверки в самом
@@ -48,6 +53,9 @@ const POST_ID = 'seed-post-001'
 const SUBJECT = 'Машинное обучение'
 // г. Алматы. `University.city` хранит код КАТО, а не название.
 const ALMATY = '750000000'
+// Компания работодателя. Её имя ищет apps/web/e2e/roles.e2e.ts.
+const COMPANY_ID = 'seed-company-e2e'
+const COMPANY_NAME = 'ТОО «Стажировки E2E»'
 
 // Один хэш на всех: bcrypt с cost=12 стоит ~0.3 с, а аккаунтов десять — на прогоне это
 // заметно, и никакой пользы от разных хэшей у одного и того же пароля нет.
@@ -198,7 +206,61 @@ if (dean) {
   })
 }
 
+// Работодатель с компанией и допуском к вузу фикстуры — ради веб-e2e его зоны (21.E3).
+// Аккаунт EMPLOYER вне вуза (пустой scope), компания ACTIVE (подтверждённая почта — иначе
+// вход отвечает EMAIL_NOT_VERIFIED), он её OWNER, а вуз одобрил доступ: без допуска
+// работодатель не видит студентов вуза, и разделы кандидатов и доступа были бы пустыми.
+// Вакансий нет — пустой список тоже состояние; сценарии создают их сами.
+const employer = await prisma.user.upsert({
+  where: { email: 'employer@studenthub.app' },
+  update: NO_2FA,
+  create: {
+    email: 'employer@studenthub.app',
+    passwordHash,
+    firstName: 'Асель',
+    lastName: 'Каримова',
+    role: 'EMPLOYER',
+    profileVisibility: 'PRIVATE',
+    ...NO_2FA,
+  },
+})
+await prisma.company.upsert({
+  where: { id: COMPANY_ID },
+  update: { status: 'ACTIVE', deletedAt: null },
+  create: {
+    id: COMPANY_ID,
+    name: COMPANY_NAME,
+    slug: 'e2e-internships',
+    description: 'Компания для e2e: стажировки для студентов.',
+    website: 'https://e2e-internships.example.kz',
+    status: 'ACTIVE',
+    createdById: employer.id,
+  },
+})
+await prisma.companyMember.upsert({
+  where: { userId: employer.id },
+  update: { companyId: COMPANY_ID, role: 'OWNER' },
+  create: { companyId: COMPANY_ID, userId: employer.id, role: 'OWNER' },
+})
+const universityAdmin = await prisma.user.findUnique({
+  where: { email: 'university-admin@studenthub.app' },
+})
+await prisma.companyUniversityAccess.upsert({
+  where: { id: `${COMPANY_ID}-access` },
+  update: { status: 'APPROVED' },
+  create: {
+    id: `${COMPANY_ID}-access`,
+    companyId: COMPANY_ID,
+    universityId: UNIVERSITY_ID,
+    status: 'APPROVED',
+    message: 'Берём студентов на стажировки.',
+    requestedById: employer.id,
+    decidedById: universityAdmin?.id ?? null,
+    decidedAt: new Date(),
+  },
+})
+
 await prisma.$disconnect()
 console.log(
-  `e2e-fixture: ${USERS.length + 1} аккаунт(ов), вуз, факультет, группа, инвайт, каталог услуг, пара «${SUBJECT}», пост готовы`,
+  `e2e-fixture: ${USERS.length + 2} аккаунт(ов), вуз, факультет, группа, инвайт, каталог услуг, пара «${SUBJECT}», пост, компания с допуском готовы`,
 )
