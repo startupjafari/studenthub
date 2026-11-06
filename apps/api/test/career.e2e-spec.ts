@@ -560,6 +560,37 @@ describe('Career (e2e) — сквозной поток работодателя 
         .send({ title: 'Перехвачено' })
         .expect(404)
     })
+
+    // 21.D3: черновик удаляется физически, у остальных статусов — история, только закрыть.
+    it('черновик удаляется, опубликованная — 409 VACANCY_NOT_DELETABLE, чужая — 404', async () => {
+      await grantAccess(employerToken, adminAToken, UNI_A)
+      const draft = await request(server)
+        .post('/api/v1/career/employer/vacancies')
+        .set(auth(employerToken))
+        .send(VACANCY)
+        .expect(201)
+      const draftId = draft.body.data.id as string
+
+      await signupAndVerify('hr2@rival.kz', 'ТОО Конкурент')
+      await request(server)
+        .delete(`/api/v1/career/employer/vacancies/${draftId}`)
+        .set(auth(await login('hr2@rival.kz')))
+        .expect(404)
+
+      await request(server)
+        .delete(`/api/v1/career/employer/vacancies/${draftId}`)
+        .set(auth(employerToken))
+        .expect(204)
+      expect(await prisma.vacancy.findUnique({ where: { id: draftId } })).toBeNull()
+
+      const publishedId = await publishAndApprove(employerToken, adminAToken)
+      const res = await request(server)
+        .delete(`/api/v1/career/employer/vacancies/${publishedId}`)
+        .set(auth(employerToken))
+        .expect(409)
+      expect(res.body.error.code).toBe('VACANCY_NOT_DELETABLE')
+      expect(await prisma.vacancy.findUnique({ where: { id: publishedId } })).not.toBeNull()
+    })
   })
 
   // ── Отклики ────────────────────────────────────────────────────────────────
@@ -725,6 +756,88 @@ describe('Career (e2e) — сквозной поток работодателя 
         .get(`/api/v1/career/applications/${applicationId}/history`)
         .set(auth(await login('hr2@rival.kz')))
         .expect(403)
+    })
+
+    // 21.D1: скрытый профиль отклик не раскрывает; галочка открывает его только этой компании.
+    describe('скрытый профиль и отклик', () => {
+      beforeEach(async () => {
+        await request(server)
+          .patch('/api/v1/career/profile')
+          .set(auth(studentToken))
+          .send({ visibility: 'HIDDEN', employmentStatus: 'LOOKING' })
+          .expect(200)
+      })
+
+      const card = (token: string) =>
+        request(server).get(`/api/v1/career/profile/candidates/${studentId}`).set(auth(token))
+
+      it('отклик без галочки профиль компании не открывает', async () => {
+        await request(server)
+          .post('/api/v1/career/applications')
+          .set(auth(studentToken))
+          .send({ vacancyId })
+          .expect(201)
+        await card(employerToken).expect(404)
+
+        const mine = await request(server)
+          .get('/api/v1/career/applications')
+          .set(auth(studentToken))
+          .expect(200)
+        expect(mine.body.data[0].profileAccess).toBe('HIDDEN')
+      })
+
+      it('галочка открывает профиль этой компании, закрытие — сразу закрывает', async () => {
+        await request(server)
+          .post('/api/v1/career/applications')
+          .set(auth(studentToken))
+          .send({ vacancyId, shareProfile: true })
+          .expect(201)
+        await card(employerToken).expect(200)
+
+        // Другой компании, допущенной в тот же вуз, профиль по-прежнему закрыт.
+        await signupAndVerify('hr2@rival.kz', 'ТОО Конкурент')
+        const rivalToken = await login('hr2@rival.kz')
+        await grantAccess(rivalToken, adminAToken, UNI_A)
+        await card(rivalToken).expect(404)
+
+        const mine = await request(server)
+          .get('/api/v1/career/applications')
+          .set(auth(studentToken))
+          .expect(200)
+        expect(mine.body.data[0].profileAccess).toBe('COMPANY')
+        const companyId = mine.body.data[0].vacancy.company.id as string
+
+        const profile = await request(server)
+          .get('/api/v1/career/profile')
+          .set(auth(studentToken))
+          .expect(200)
+        expect(profile.body.data.profileGrants).toEqual([
+          expect.objectContaining({ companyId, companyName: 'ТОО Прогресс' }),
+        ])
+
+        await request(server)
+          .delete(`/api/v1/career/profile/grants/${companyId}`)
+          .set(auth(studentToken))
+          .expect(204)
+        await card(employerToken).expect(404)
+
+        // Открыть снова можно — компании, куда был отклик; чужой — нет.
+        await request(server)
+          .put(`/api/v1/career/profile/grants/${companyId}`)
+          .set(auth(studentToken))
+          .expect(204)
+        await card(employerToken).expect(200)
+        const rivalCompanyId = (
+          await prisma.companyMember.findFirstOrThrow({
+            where: { user: { email: 'hr2@rival.kz' } },
+            select: { companyId: true },
+          })
+        ).companyId
+        await request(server)
+          .put(`/api/v1/career/profile/grants/${rivalCompanyId}`)
+          .set(auth(studentToken))
+          .expect(404)
+      })
     })
   })
 
