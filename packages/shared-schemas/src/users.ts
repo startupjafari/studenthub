@@ -9,6 +9,7 @@ import {
   queryBoolean,
 } from './pagination.js'
 import { RoleSchema } from './invites.js'
+import type { AccountLibraryDebt } from './library.js'
 
 // Колонки таблицы пользователей, по которым разрешена сортировка (docs/PROJECT.md §12.2).
 export const USER_SORT_FIELDS = ['name', 'email', 'role', 'blocked', 'createdAt'] as const
@@ -161,6 +162,21 @@ export const DeleteAccountSchema = z
   .default({})
 
 export type DeleteAccountInput = z.infer<typeof DeleteAccountSchema>
+
+/** Что мешает удалить аккаунт прямо сейчас (`GET /users/me/deletion-check`). */
+export const ACCOUNT_DELETION_BLOCKERS = ['libraryDebts', 'lastPlatformAdmin'] as const
+export type AccountDeletionBlocker = (typeof ACCOUNT_DELETION_BLOCKERS)[number]
+
+/**
+ * Предпроверка удаления аккаунта: клиент показывает причины ДО того, как человек введёт
+ * пароль. `DELETE /users/me` проверяет то же самое сам — ответ здесь подсказка, а не допуск.
+ */
+export interface AccountDeletionCheck {
+  canDelete: boolean
+  blockers: AccountDeletionBlocker[]
+  /** Книги на руках и утерянные с непогашенным долгом — вернуть или возместить (21.C1). */
+  libraryDebts: AccountLibraryDebt[]
+}
 
 /**
  * Тело `POST /users/me/consent`: повторное согласие на обработку персональных данных.
