@@ -290,6 +290,42 @@ export class VacanciesService {
     })
   }
 
+  /**
+   * Удаление вакансии — только черновика (21.D3), и физически: черновик никто, кроме
+   * компании, не видел, строк модерации и откликов у него нет — хранить нечего.
+   *
+   * Опубликованную, снятую и закрытую не удаляем: на них история решений вузов и откликов
+   * студентов, и удаление стёрло бы её каскадом. Такой вакансии — `409 VACANCY_NOT_DELETABLE`
+   * с подсказкой закрыть её.
+   *
+   * Условие на статус — в самом удалении: параллельная публикация между проверкой и
+   * удалением не должна стереть уже опубликованную вакансию.
+   */
+  async remove(viewer: JwtPayload, id: string, ctx: RequestContext) {
+    const companyId = this.access.requireCompany(viewer)
+
+    const { count } = await this.prisma.vacancy.deleteMany({
+      where: { id, companyId, status: 'DRAFT', deletedAt: null },
+    })
+    if (count === 0) {
+      // Не удалили: либо вакансии нет (или она чужая), либо она уже не черновик.
+      const vacancy = await this.ownVacancy(companyId, id)
+      throw new AppException(
+        'VACANCY_NOT_DELETABLE',
+        `Удалить можно только черновик, а эта вакансия в статусе ${vacancy.status}. ` +
+          'Закройте её — история откликов сохранится',
+      )
+    }
+
+    await this.audit.record({
+      userId: viewer.sub,
+      action: 'vacancy_deleted',
+      entity: 'Vacancy',
+      entityId: id,
+      ...ctx,
+    })
+  }
+
   // ── Витрина для студента ───────────────────────────────────────────────────
 
   /**

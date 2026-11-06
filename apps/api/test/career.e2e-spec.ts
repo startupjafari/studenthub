@@ -560,6 +560,37 @@ describe('Career (e2e) — сквозной поток работодателя 
         .send({ title: 'Перехвачено' })
         .expect(404)
     })
+
+    // 21.D3: черновик удаляется физически, у остальных статусов — история, только закрыть.
+    it('черновик удаляется, опубликованная — 409 VACANCY_NOT_DELETABLE, чужая — 404', async () => {
+      await grantAccess(employerToken, adminAToken, UNI_A)
+      const draft = await request(server)
+        .post('/api/v1/career/employer/vacancies')
+        .set(auth(employerToken))
+        .send(VACANCY)
+        .expect(201)
+      const draftId = draft.body.data.id as string
+
+      await signupAndVerify('hr2@rival.kz', 'ТОО Конкурент')
+      await request(server)
+        .delete(`/api/v1/career/employer/vacancies/${draftId}`)
+        .set(auth(await login('hr2@rival.kz')))
+        .expect(404)
+
+      await request(server)
+        .delete(`/api/v1/career/employer/vacancies/${draftId}`)
+        .set(auth(employerToken))
+        .expect(204)
+      expect(await prisma.vacancy.findUnique({ where: { id: draftId } })).toBeNull()
+
+      const publishedId = await publishAndApprove(employerToken, adminAToken)
+      const res = await request(server)
+        .delete(`/api/v1/career/employer/vacancies/${publishedId}`)
+        .set(auth(employerToken))
+        .expect(409)
+      expect(res.body.error.code).toBe('VACANCY_NOT_DELETABLE')
+      expect(await prisma.vacancy.findUnique({ where: { id: publishedId } })).not.toBeNull()
+    })
   })
 
   // ── Отклики ────────────────────────────────────────────────────────────────
@@ -725,6 +756,216 @@ describe('Career (e2e) — сквозной поток работодателя 
         .get(`/api/v1/career/applications/${applicationId}/history`)
         .set(auth(await login('hr2@rival.kz')))
         .expect(403)
+    })
+
+    // 21.D1: скрытый профиль отклик не раскрывает; галочка открывает его только этой компании.
+    describe('скрытый профиль и отклик', () => {
+      beforeEach(async () => {
+        await request(server)
+          .patch('/api/v1/career/profile')
+          .set(auth(studentToken))
+          .send({ visibility: 'HIDDEN', employmentStatus: 'LOOKING' })
+          .expect(200)
+      })
+
+      const card = (token: string) =>
+        request(server).get(`/api/v1/career/profile/candidates/${studentId}`).set(auth(token))
+
+      it('отклик без галочки профиль компании не открывает', async () => {
+        await request(server)
+          .post('/api/v1/career/applications')
+          .set(auth(studentToken))
+          .send({ vacancyId })
+          .expect(201)
+        await card(employerToken).expect(404)
+
+        const mine = await request(server)
+          .get('/api/v1/career/applications')
+          .set(auth(studentToken))
+          .expect(200)
+        expect(mine.body.data[0].profileAccess).toBe('HIDDEN')
+      })
+
+      it('галочка открывает профиль этой компании, закрытие — сразу закрывает', async () => {
+        await request(server)
+          .post('/api/v1/career/applications')
+          .set(auth(studentToken))
+          .send({ vacancyId, shareProfile: true })
+          .expect(201)
+        await card(employerToken).expect(200)
+
+        // Другой компании, допущенной в тот же вуз, профиль по-прежнему закрыт.
+        await signupAndVerify('hr2@rival.kz', 'ТОО Конкурент')
+        const rivalToken = await login('hr2@rival.kz')
+        await grantAccess(rivalToken, adminAToken, UNI_A)
+        await card(rivalToken).expect(404)
+
+        const mine = await request(server)
+          .get('/api/v1/career/applications')
+          .set(auth(studentToken))
+          .expect(200)
+        expect(mine.body.data[0].profileAccess).toBe('COMPANY')
+        const companyId = mine.body.data[0].vacancy.company.id as string
+
+        const profile = await request(server)
+          .get('/api/v1/career/profile')
+          .set(auth(studentToken))
+          .expect(200)
+        expect(profile.body.data.profileGrants).toEqual([
+          expect.objectContaining({ companyId, companyName: 'ТОО Прогресс' }),
+        ])
+
+        await request(server)
+          .delete(`/api/v1/career/profile/grants/${companyId}`)
+          .set(auth(studentToken))
+          .expect(204)
+        await card(employerToken).expect(404)
+
+        // Открыть снова можно — компании, куда был отклик; чужой — нет.
+        await request(server)
+          .put(`/api/v1/career/profile/grants/${companyId}`)
+          .set(auth(studentToken))
+          .expect(204)
+        await card(employerToken).expect(200)
+        const rivalCompanyId = (
+          await prisma.companyMember.findFirstOrThrow({
+            where: { user: { email: 'hr2@rival.kz' } },
+            select: { companyId: true },
+          })
+        ).companyId
+        await request(server)
+          .put(`/api/v1/career/profile/grants/${rivalCompanyId}`)
+          .set(auth(studentToken))
+          .expect(404)
+      })
+    })
+  })
+
+  // ── Команда компании (21.D2) ───────────────────────────────────────────────
+
+  describe('приглашение коллеги в компанию', () => {
+    let ownerToken: string
+
+    beforeEach(async () => {
+      await signupAndVerify('hr@company.kz', 'ТОО Прогресс')
+      ownerToken = await login('hr@company.kz')
+    })
+
+    /** Пригласить и достать токен из перехваченного письма. */
+    async function inviteColleague(email: string): Promise<string> {
+      await request(server)
+        .post('/api/v1/career/companies/me/invites')
+        .set(auth(ownerToken))
+        .send({ email })
+        .expect(201)
+      const job = [...jobs]
+        .reverse()
+        .find((j) => j.name === 'send-company-invite' && j.payload.to === email.toLowerCase())
+      if (!job) throw new Error(`Письмо-приглашение для ${email} не поставлено в очередь`)
+      return new URL(job.payload.inviteUrl as string).searchParams.get('token') as string
+    }
+
+    const accept = (token: string, extra: Record<string, unknown> = {}) =>
+      request(server)
+        .post('/api/v1/auth/register-by-company-invite')
+        .send({ token, password: PASSWORD, firstName: 'Айгерим', lastName: 'Нурланова', ...extra })
+
+    it('по ссылке создаётся RECRUITER этой компании с сессией; ссылка одноразовая', async () => {
+      const token = await inviteColleague('Colleague@Company.kz')
+
+      const preview = await request(server)
+        .get(`/api/v1/career/companies/invites/${token}/preview`)
+        .expect(200)
+      expect(preview.body.data).toMatchObject({
+        companyName: 'ТОО Прогресс',
+        email: 'c•••@company.kz',
+      })
+
+      const res = await accept(token).expect(201)
+      expect(res.body.data.accessToken).toEqual(expect.any(String))
+      expect(String(res.headers['set-cookie'])).toContain('sh_refresh')
+
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { email: 'colleague@company.kz' },
+        select: { role: true, universityId: true, companyMembership: { select: { role: true } } },
+      })
+      expect(user).toEqual({
+        role: 'EMPLOYER',
+        universityId: null,
+        companyMembership: { role: 'RECRUITER' },
+      })
+
+      // Рекрутер работает с вакансиями, но командой не управляет.
+      const recruiterToken = res.body.data.accessToken as string
+      await request(server)
+        .post('/api/v1/career/employer/vacancies')
+        .set(auth(recruiterToken))
+        .send(VACANCY)
+        .expect(201)
+      await request(server)
+        .get('/api/v1/career/companies/me/members')
+        .set(auth(recruiterToken))
+        .expect(403)
+
+      const reused = await accept(token).expect(410)
+      expect(reused.body.error.code).toBe('INVITE_USED')
+    })
+
+    it('отозванное приглашение не открывается; занятый адрес — 409, приглашение в силе', async () => {
+      const token = await inviteColleague('colleague@company.kz')
+      const team = await request(server)
+        .get('/api/v1/career/companies/me/members')
+        .set(auth(ownerToken))
+        .expect(200)
+      expect(team.body.data.members).toEqual([
+        expect.objectContaining({ email: 'hr@company.kz', role: 'OWNER', isMe: true }),
+      ])
+      const inviteId = team.body.data.invites[0].id as string
+
+      await request(server)
+        .delete(`/api/v1/career/companies/me/invites/${inviteId}`)
+        .set(auth(ownerToken))
+        .expect(204)
+      const revoked = await accept(token).expect(410)
+      expect(revoked.body.error.code).toBe('INVITE_REVOKED')
+
+      // Адрес занят студентом — аккаунт не создаётся, ссылка остаётся рабочей.
+      await makeUser('student@uni.kz', 'STUDENT', UNI_A)
+      const takenToken = await inviteColleague('student@uni.kz')
+      const taken = await accept(takenToken).expect(409)
+      expect(taken.body.error.code).toBe('COMPANY_INVITE_EMAIL_TAKEN')
+      await request(server)
+        .get(`/api/v1/career/companies/invites/${takenToken}/preview`)
+        .expect(200)
+    })
+
+    it('исключённый участник теряет доступ сразу; себя владелец не исключает', async () => {
+      const res = await accept(await inviteColleague('colleague@company.kz')).expect(201)
+      const recruiterToken = res.body.data.accessToken as string
+      const recruiter = await prisma.user.findUniqueOrThrow({
+        where: { email: 'colleague@company.kz' },
+        select: { id: true },
+      })
+      const owner = await prisma.user.findUniqueOrThrow({
+        where: { email: 'hr@company.kz' },
+        select: { id: true },
+      })
+
+      await request(server)
+        .delete(`/api/v1/career/companies/me/members/${owner.id}`)
+        .set(auth(ownerToken))
+        .expect(409)
+
+      // Метка отзыва ставится в секундах: токен, выданный в ту же секунду, тоже гаснет.
+      await request(server)
+        .delete(`/api/v1/career/companies/me/members/${recruiter.id}`)
+        .set(auth(ownerToken))
+        .expect(204)
+      expect(await prisma.companyMember.findUnique({ where: { userId: recruiter.id } })).toBeNull()
+      await request(server)
+        .get('/api/v1/career/employer/vacancies')
+        .set(auth(recruiterToken))
+        .expect(401)
     })
   })
 

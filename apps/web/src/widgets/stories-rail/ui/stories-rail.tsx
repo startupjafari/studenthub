@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
@@ -8,9 +9,18 @@ import { useAppSelector } from '../../../shared/store'
 import { STORIES_ENABLED } from '../../../shared/config'
 import { cn } from '../../../shared/lib/utils'
 import { Avatar, AvatarFallback, AvatarImage, Skeleton } from '../../../shared/ui'
-import { CreateStoryForm } from '../../../features/create-story'
 import { canCreateStory, fetchStories, storyKeys, type StoryRing } from '../../../entities/story'
-import { StoryViewer } from './story-viewer'
+
+// Просмотр и редактор сторис — отдельными чанками (задача 21.B4): полоса колец стоит над
+// лентой главной, а оба окна открываются только по нажатию. Статический импорт отдавал
+// главной ~100 КБ кода просмотрщика и редактора до первой отрисовки.
+const StoryViewer = dynamic(() => import('./story-viewer').then((m) => m.StoryViewer), {
+  ssr: false,
+})
+const CreateStoryForm = dynamic(
+  () => import('../../../features/create-story').then((m) => m.CreateStoryForm),
+  { ssr: false },
+)
 
 /**
  * Лента колец над основной лентой.

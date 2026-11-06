@@ -779,6 +779,65 @@ export class DocumentsService {
     return { id: file.id, mime: file.mime, size: file.size }
   }
 
+  // ── Многочастная загрузка (21.B1) ──────────────────────────────────────────
+  // Файлы больше FILE_UPLOAD.MULTIPART_THRESHOLD_BYTES (многостраничный PDF-скан): start →
+  // urls → PUT частей → complete. Документ — личное хранилище, права здесь — владение ключом
+  // (FileService проверяет префикс владельца на каждом шаге) и белый список MIME, как у
+  // presign/confirm. Файл после сборки ничей до `POST /documents/:id/files` — как и после confirm.
+
+  /** Шаг 1: открыть загрузку. Объявленный MIME отсекает заведомо чужое ещё до заливки. */
+  async startFileMultipart(
+    actor: JwtPayload,
+    mime: string,
+    size: number,
+  ): Promise<{ key: string; uploadId: string; partSize: number; partCount: number }> {
+    if (!DOCUMENT_MIME.has(mime)) {
+      throw new AppException('FILE_TYPE_NOT_ALLOWED', 'Поддерживаются только PDF, JPG и PNG')
+    }
+    return this.files.startMultipart({ bucket: this.bucket, mime, size, ownerId: actor.sub })
+  }
+
+  /** Шаг 2: подписи на диапазон частей. */
+  async fileMultipartUrls(
+    actor: JwtPayload,
+    input: { key: string; uploadId: string; from: number; to: number },
+  ): Promise<{ parts: { part: number; url: string }[]; expiresAt: string }> {
+    return this.files.presignParts({ bucket: this.bucket, ownerId: actor.sub, ...input })
+  }
+
+  /**
+   * Шаг 4: сборка. Реальный тип — по содержимому собранного объекта, тем же белым списком,
+   * что у `confirmFile`: заявленный на старте MIME здесь не участвует.
+   */
+  async completeFileMultipart(
+    actor: JwtPayload,
+    input: {
+      key: string
+      uploadId: string
+      parts: { part: number; etag: string }[]
+      name?: string
+    },
+  ): Promise<{ id: string; mime: string; size: number }> {
+    const file = await this.files.completeMultipart({
+      bucket: this.bucket,
+      key: input.key,
+      uploadId: input.uploadId,
+      parts: input.parts,
+      name: input.name,
+      ownerId: actor.sub,
+      allowedMimes: DOCUMENT_MIME,
+    })
+    return { id: file.id, mime: file.mime, size: file.size }
+  }
+
+  /** Отмена: хранилище удаляет залитые части. */
+  async abortFileMultipart(
+    actor: JwtPayload,
+    input: { key: string; uploadId: string },
+  ): Promise<void> {
+    await this.files.abortMultipart({ bucket: this.bucket, ownerId: actor.sub, ...input })
+  }
+
   /** Прикрепить уже загруженные файлы к документу (страницы/стороны), сохраняя порядок. */
   async attachFiles(
     actor: JwtPayload,

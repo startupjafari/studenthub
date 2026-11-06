@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
 import { GraduationCap } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import { MeshBrandPanel } from '../../../shared/ui'
+import { MeshBrandPanel } from '../../../shared/ui/mesh-brand-panel'
+import { MessagesScope } from '../../../i18n/messages-scope'
 
 /**
  * Публичные страницы работодателя (регистрация, подтверждение почты) — тот же
@@ -34,7 +35,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             без отступов упиралась бы в края экрана. */}
         <div className="relative z-10 flex flex-1 items-center justify-center py-10">
           <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-8">
-            {children}
+            <MessagesScope scope="employer/(public)">{children}</MessagesScope>
           </div>
         </div>
       </main>

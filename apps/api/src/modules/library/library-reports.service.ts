@@ -43,7 +43,7 @@ export class LibraryReportsService {
     const universityId = staffLibrary(actor)
     const now = new Date()
     const monthAgo = new Date(now.getTime() - 30 * DAY_MS)
-    const [books, copies, open, overdue, issued, returned, readers, reservations] =
+    const [books, copies, open, overdue, issued, returned, readers, reservations, withoutPhone] =
       await Promise.all([
         this.prisma.book.count({ where: { universityId, archivedAt: null } }),
         this.prisma.bookCopy.groupBy({
@@ -75,6 +75,15 @@ export class LibraryReportsService {
           where: { universityId, status: { in: ['QUEUED', 'READY'] } },
           _count: { _all: true },
         }),
+        // Выдачи без скана QR за тот же период — отдельной цифрой (Фаза 21.C5).
+        this.prisma.loan.count({
+          where: {
+            universityId,
+            withoutPhone: true,
+            issuedAt: { gte: monthAgo },
+            status: { not: 'CANCELLED' },
+          },
+        }),
       ])
     const byStatus = (status: string): number =>
       copies.find((c) => c.status === status)?._count._all ?? 0
@@ -93,7 +102,13 @@ export class LibraryReportsService {
         lost: byStatus('LOST'),
         writtenOff: byStatus('WRITTEN_OFF'),
       },
-      loans: { open, overdue, issuedLast30: issued, returnedLast30: returned },
+      loans: {
+        open,
+        overdue,
+        issuedLast30: issued,
+        returnedLast30: returned,
+        withoutPhoneLast30: withoutPhone,
+      },
       readers: { withLoans: readers[0]?.withLoans ?? 0, debtors: readers[0]?.debtors ?? 0 },
       reservations: { queued: held('QUEUED'), ready: held('READY') },
     }

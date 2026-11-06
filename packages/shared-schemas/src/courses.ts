@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { OffsetPaginationSchema, SortOrderSchema, queryBoolean } from './pagination.js'
+import { vm } from './validation-messages.js'
 
 // Дисциплины (docs/ACADEMIC_CORE.md, задача 2): Subject (справочник вуза), Term
 // (семестр как сущность), Course (преподавание дисциплины группе в семестре).
@@ -16,7 +17,7 @@ export const CreateTermSchema = z
   })
   .strict()
   .refine((v) => v.endsOn >= v.startsOn, {
-    message: 'endsOn must be on or after startsOn',
+    message: vm('validation.range.endNotBeforeStart'),
     path: ['endsOn'],
   })
 export type CreateTermInput = z.infer<typeof CreateTermSchema>

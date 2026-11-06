@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
+import { academicStatusCode, type AcademicStatusCode } from '@studenthub/shared-types'
 import {
   Award,
   Check,
@@ -46,10 +47,10 @@ function coursePercent(c: MyGradesCourse): number | null {
   return Math.round((scored.reduce((a, b) => a + b, 0) / scored.length) * 100)
 }
 
-// Учебный статус хранится кодом (`ACTIVE`, `EXPELLED`…), но вуз мог заполнить его и
-// строкой на своём языке: известный код — перевод, иное — как пришло (ключ из значения не
-// собираем, FRONTEND_RULES §10).
-const STATUS_KEYS: Record<string, string> = {
+// Учебный статус — значение закрытого справочника (`AcademicStatus` в shared-types) или код
+// сида и импорта (`ACTIVE`, `EXPELLED`…); оба сводятся к коду. Строка вне справочника — как
+// пришла (ключ из значения не собираем, FRONTEND_RULES §10).
+const STATUS_KEYS: Record<AcademicStatusCode, string> = {
   ACTIVE: 'statusActive',
   ACADEMIC_LEAVE: 'statusAcademicLeave',
   EXPELLED: 'statusExpelled',
@@ -132,7 +133,8 @@ export function AcademicView() {
   }, [examsQ.data, asgQ.data])
 
   const rawStatus = meQ.data?.academicStatus ?? null
-  const statusKey = rawStatus ? STATUS_KEYS[rawStatus] : 'statusActive'
+  const statusCode = academicStatusCode(rawStatus)
+  const statusKey = rawStatus ? (statusCode ? STATUS_KEYS[statusCode] : null) : 'statusActive'
   const academicStatusLabel = statusKey ? t(statusKey) : rawStatus
 
   const att = attQ.data

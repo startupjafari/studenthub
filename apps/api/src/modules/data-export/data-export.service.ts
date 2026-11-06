@@ -637,7 +637,7 @@ export class DataExportService {
     userId: string,
     take: number,
   ): Promise<Record<string, ExportSection>> {
-    const [profile, consents, applications, resume, companies] = await Promise.all([
+    const [profile, consents, grants, applications, resume, companies] = await Promise.all([
       this.prisma.careerProfile.findMany({
         where: { userId },
         select: {
@@ -660,6 +660,17 @@ export class DataExportService {
       this.prisma.careerConsent.findMany({
         where: { userId },
         select: { field: true, companyId: true, grantedAt: true, revokedAt: true },
+        orderBy: { grantedAt: 'desc' },
+        take,
+      }),
+      // Адресное открытие скрытого профиля одной компании (21.D1): кому и когда открыт.
+      this.prisma.careerProfileGrant.findMany({
+        where: { userId },
+        select: {
+          grantedAt: true,
+          revokedAt: true,
+          company: { select: { name: true } },
+        },
         orderBy: { grantedAt: 'desc' },
         take,
       }),
@@ -712,6 +723,10 @@ export class DataExportService {
     return {
       careerProfile: section(profile, SECTION_LIMIT),
       careerConsents: section(consents, SECTION_LIMIT),
+      careerProfileGrants: section(
+        grants.map(({ company, ...rest }) => ({ ...rest, company: company.name })),
+        SECTION_LIMIT,
+      ),
       careerApplications: section(applications.map(careerApplicationView), SECTION_LIMIT),
       resume: section(resume, SECTION_LIMIT),
       companies: section(companies, SECTION_LIMIT),
@@ -841,6 +856,8 @@ export class DataExportService {
           cancelledAt: true,
           cancelReason: true,
           disputedAt: true,
+          // Выдана без скана QR, по номеру билета (21.C5) — факт о его же выдаче.
+          withoutPhone: true,
         },
         orderBy: { issuedAt: 'desc' },
         take,
@@ -1328,6 +1345,7 @@ export const USER_RELATIONS: Readonly<Record<string, { section: string } | { exc
     'CompanyMember.userId': { section: 'companies' },
     'CareerProfile.userId': { section: 'careerProfile' },
     'CareerConsent.userId': { section: 'careerConsents' },
+    'CareerProfileGrant.userId': { section: 'careerProfileGrants' },
     'CareerApplication.studentId': { section: 'careerApplications' },
     'Resume.userId': { section: 'resume' },
     'ReleaseView.userId': { excluded: 'служебная отметка интерфейса «что нового» о версии' },
@@ -1418,6 +1436,14 @@ export const SCALAR_ID_FIELDS: Readonly<
   'CompanyUniversityAccess.decidedById': { excluded: STAFF_WORK },
   'Vacancy.createdById': { excluded: 'работа сотрудника компании от её имени — данные компании' },
   'VacancyUniversityReview.decidedById': { excluded: STAFF_WORK },
+  // Приглашение коллеги в компанию (21.D2): кто пригласил — работа от имени компании,
+  // кто принял — итог в разделе companies (членство).
+  'CompanyInvite.invitedById': {
+    excluded: 'работа сотрудника компании от её имени — данные компании',
+  },
+  'CompanyInvite.acceptedById': {
+    excluded: 'принятое приглашение: итог — членство в компании, раздел companies',
+  },
   'CareerApplicationEvent.actorId': {
     excluded: 'история отклика: шаги компании — её работа, итог — раздел careerApplications',
   },

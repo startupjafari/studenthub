@@ -6,12 +6,21 @@ import { useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useFormatter, useTranslations } from 'next-intl'
-import { BookCheck, Keyboard, ScanLine, TriangleAlert, UserRoundX } from 'lucide-react'
+import {
+  BookCheck,
+  IdCard,
+  Keyboard,
+  PhoneOff,
+  ScanLine,
+  TriangleAlert,
+  UserRoundX,
+} from 'lucide-react'
 import type { LibraryReaderSession, LoanItem, ReaderBlocker } from '@studenthub/shared-schemas'
 import {
   Badge,
   Button,
   Card,
+  Checkbox,
   DatePicker,
   EmptyState,
   Input,
@@ -27,8 +36,10 @@ import {
   fetchLoans,
   issueLoanRequest,
   libraryKeys,
+  lookupReaderRequest,
   resolveReaderRequest,
 } from '../../../entities/library'
+import { toApiError } from '../../../shared/lib'
 import { parseQrTarget } from '../../../features/qr-scan'
 import { isTicketError, localToday, useDeskErrors } from '../lib/desk-errors'
 import { CopyPicker, copyRefInput, hasCopyRef, type CopyRef } from './copy-picker'
@@ -36,6 +47,9 @@ import { CopyPicker, copyRefInput, hasCopyRef, type CopyRef } from './copy-picke
 // Выдача книг (Фаза 20.4, docs/PROJECT.md §3.11). Два скана: студенческий читателя (разовый
 // QR — сервер выдаёт пропуск на 15 минут) и наклейка экземпляра; срок — по правилам вуза.
 // По пропуску можно выдать несколько книг подряд, не сканируя студенческий заново.
+//
+// Читатель без телефона (Фаза 21.C5): поиск по номеру студенческого, сверка ФИО и фото и
+// обязательная отметка «без телефона» — без неё сервер выдачу не примет (`409 noPhoneMark`).
 
 // Сканер — только на клиенте и лениво: библиотека qr-scanner не попадает в бандл зря.
 const QrScanner = dynamic(() => import('../../../features/qr-scan').then((m) => m.QrScanner), {
@@ -60,6 +74,15 @@ export function IssueView() {
     },
     onError: (e) => setError(describe(e)),
   })
+  const lookupMut = useMutation({
+    mutationFn: lookupReaderRequest,
+    onSuccess: (s) => {
+      setSession(s)
+      setError(null)
+    },
+    onError: (e) =>
+      setError(toApiError(e).code === 'NOT_FOUND' ? t('noPhoneNotFound') : describe(e)),
+  })
 
   // QR студенческого, отсканированный общим сканером, приходит сюда как ?t=.
   const fromScan = params.get('t')
@@ -81,7 +104,7 @@ export function IssueView() {
           панели, последняя добирает остаток. На узких — колонкой, камера по пропорции. */}
       <div className="grid items-start gap-6 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-stretch">
         <div className="flex aspect-[3/4] w-full flex-col sm:aspect-[4/3] lg:aspect-auto lg:min-h-[24rem]">
-          {resolveMut.isPending ? (
+          {resolveMut.isPending || lookupMut.isPending ? (
             <Skeleton className="min-h-0 w-full flex-1 rounded-3xl" />
           ) : error ? (
             <EmptyState
@@ -115,6 +138,13 @@ export function IssueView() {
             onCode={(token) => {
               setError(null)
               resolveMut.mutate(token)
+            }}
+          />
+          <CardLookup
+            busy={lookupMut.isPending}
+            onCard={(card) => {
+              setError(null)
+              lookupMut.mutate(card)
             }}
           />
           <SectionPanel title={t('howToIssue')} subtitle={t('howToIssueHint')}>
@@ -200,6 +230,49 @@ function ManualCode({ busy, onCode }: { busy: boolean; onCode: (token: string) =
   )
 }
 
+/**
+ * Читатель без телефона: номер студенческого билета вместо QR. Находит только читателя
+ * своего вуза; сам поиск уже пишется в журнал удостоверений.
+ */
+function CardLookup({ busy, onCard }: { busy: boolean; onCard: (card: string) => void }) {
+  const t = useTranslations('LibraryDesk')
+  const [value, setValue] = useState('')
+  return (
+    <SectionPanel title={t('noPhoneTitle')} subtitle={t('noPhoneHint')}>
+      <form
+        className="flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault()
+          const card = value.trim()
+          if (card) onCard(card)
+        }}
+      >
+        <Label htmlFor="reader-card" className="sr-only">
+          {t('noPhonePlaceholder')}
+        </Label>
+        <div className="relative min-w-0 flex-1">
+          <IdCard
+            className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <Input
+            id="reader-card"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={t('noPhonePlaceholder')}
+            autoComplete="off"
+            maxLength={50}
+            className="pl-9"
+          />
+        </div>
+        <Button type="submit" variant="outline" loading={busy} disabled={!value.trim()}>
+          {t('noPhoneSubmit')}
+        </Button>
+      </form>
+    </SectionPanel>
+  )
+}
+
 const RECENT_LIMIT = 5
 
 /** Последние выдачи — чтобы видеть, что только что оформлено, не уходя со стойки. */
@@ -253,6 +326,9 @@ function ReaderSession({
   const [dueDate, setDueDate] = useState(session.defaultDueDate)
   const [issued, setIssued] = useState<LoanItem[]>([])
   const [error, setError] = useState<string | null>(null)
+  // Без скана QR — отметка обязательна и ставится заново на каждого читателя.
+  const noPhone = session.via === 'card'
+  const [noPhoneChecked, setNoPhoneChecked] = useState(false)
 
   // Выданное в этот раз считаем на месте: пропуск по второму QR не обновить.
   const active = session.eligibility.activeLoans + issued.length
@@ -274,6 +350,7 @@ function ReaderSession({
         ticket: session.ticket,
         ...copyRefInput(copy),
         dueDate,
+        ...(noPhone ? { withoutPhone: true } : {}),
       }),
     onSuccess: (loan) => {
       setIssued((prev) => [loan, ...prev])
@@ -292,7 +369,7 @@ function ReaderSession({
     },
   })
 
-  const ready = hasCopyRef(copy) && blockers.length === 0
+  const ready = hasCopyRef(copy) && blockers.length === 0 && (!noPhone || noPhoneChecked)
 
   return (
     <div className="flex w-full flex-col gap-6">
@@ -322,8 +399,26 @@ function ReaderSession({
               <Badge variant="secondary">
                 {t('onHands', { count: active, max: session.eligibility.maxActiveLoans })}
               </Badge>
+              {noPhone && <Badge variant="warning">{t('noPhoneBadge')}</Badge>}
             </div>
           </ReaderCard>
+
+          {noPhone && (
+            <Card className="flex-col gap-3 border-warning/40 bg-warning/10 p-4">
+              <p className="flex items-start gap-3 text-sm">
+                <PhoneOff className="mt-0.5 size-5 shrink-0 text-warning" aria-hidden />
+                {t('noPhoneWarning')}
+              </p>
+              <label className="flex items-center gap-3 text-sm font-medium">
+                <Checkbox
+                  checked={noPhoneChecked}
+                  onCheckedChange={(v) => setNoPhoneChecked(v === true)}
+                  aria-label={t('noPhoneMarkLabel')}
+                />
+                {t('noPhoneMarkLabel')}
+              </label>
+            </Card>
+          )}
 
           {blockers.length > 0 && (
             <Card className="flex-row items-start gap-3 border-destructive/30 bg-destructive/5 p-4">

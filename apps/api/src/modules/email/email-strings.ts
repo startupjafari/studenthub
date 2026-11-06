@@ -67,6 +67,17 @@ export interface EmailDict {
     note: string
     plainNote: string
   }
+  companyInvite: {
+    subject: (company: string) => string
+    heading: string
+    preheader: (company: string, until: string) => string
+    lead: (who: string, company: string) => string
+    invitedImpersonal: string
+    finish: string
+    action: string
+    note: string
+    plainNote: string
+  }
   passwordReset: {
     subject: string
     heading: string
@@ -169,6 +180,19 @@ const RU: EmailDict = {
     action: 'Подтвердить email',
     note: 'Если вы не регистрировались — просто проигнорируйте это письмо, аккаунт останется неактивным.',
     plainNote: 'Если вы не регистрировались — просто проигнорируйте это письмо.',
+  },
+  companyInvite: {
+    subject: (company) => `Приглашение в команду «${company}» в ${BRAND}`,
+    heading: 'Приглашение в команду компании',
+    preheader: (company, until) => `«${company}» приглашает вас, ссылка действует до ${until}`,
+    lead: (who, company) =>
+      `${who} в команду компании «${company}» в ${BRAND}: вакансии, отклики студентов и работа с университетами.`,
+    invitedImpersonal: 'Вас пригласили',
+    finish:
+      'Перейдите по ссылке, укажите имя и задайте пароль — аккаунт будет создан на этот адрес.',
+    action: 'Принять приглашение',
+    note: 'Если вы не ждали приглашения — просто проигнорируйте письмо, аккаунт не появится.',
+    plainNote: 'Если вы не ждали приглашения — просто проигнорируйте письмо.',
   },
   passwordReset: {
     subject: `Сброс пароля в ${BRAND}`,
@@ -280,6 +304,19 @@ const KK: EmailDict = {
     note: 'Егер тіркелмеген болсаңыз — бұл хатты елемей қоя беріңіз, тіркелгі белсенді болмай қалады.',
     plainNote: 'Егер тіркелмеген болсаңыз — бұл хатты елемей қоя беріңіз.',
   },
+  companyInvite: {
+    subject: (company) => `${BRAND}: «${company}» командасына шақыру`,
+    heading: 'Компания командасына шақыру',
+    preheader: (company, until) => `«${company}» сізді шақырады, сілтеме мерзімі ${until}`,
+    lead: (who, company) =>
+      `${who} — ${BRAND} платформасындағы «${company}» компаниясының командасына: бос орындар, студенттердің өтінімдері және университеттермен жұмыс.`,
+    invitedImpersonal: 'Сізді шақырды',
+    finish:
+      'Сілтемеге өтіп, атыңызды көрсетіп, құпиясөз қойыңыз — тіркелгі осы мекенжайға ашылады.',
+    action: 'Шақыруды қабылдау',
+    note: 'Егер шақыруды күтпеген болсаңыз — хатты елемей қоя беріңіз, тіркелгі ашылмайды.',
+    plainNote: 'Егер шақыруды күтпеген болсаңыз — хатты елемей қоя беріңіз.',
+  },
   passwordReset: {
     subject: `${BRAND} платформасында құпия сөзді қалпына келтіру`,
     heading: 'Құпия сөзді қалпына келтіру',
@@ -389,6 +426,19 @@ const EN: EmailDict = {
     action: 'Confirm email',
     note: 'If you did not register, simply ignore this message — the account will stay inactive.',
     plainNote: 'If you did not register, simply ignore this message.',
+  },
+  companyInvite: {
+    subject: (company) => `Join the “${company}” team on ${BRAND}`,
+    heading: 'Invitation to a company team',
+    preheader: (company, until) => `“${company}” invites you, link valid until ${until}`,
+    lead: (who, company) =>
+      `${who} to join the “${company}” team on ${BRAND}: vacancies, student applications and work with universities.`,
+    invitedImpersonal: 'You have been invited',
+    finish:
+      'Follow the link, enter your name and set a password — the account will be created for this address.',
+    action: 'Accept invitation',
+    note: 'If you were not expecting this invitation, simply ignore this message — no account will be created.',
+    plainNote: 'If you were not expecting this invitation, simply ignore this message.',
   },
   passwordReset: {
     subject: `Reset your ${BRAND} password`,

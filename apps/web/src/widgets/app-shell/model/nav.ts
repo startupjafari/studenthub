@@ -16,6 +16,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   DoorClosed,
+  FileCheck2,
   FileText,
   FolderLock,
   FolderOpen,
@@ -37,6 +38,7 @@ import {
   FileUser,
   TrendingUp,
   Users,
+  UserPlus,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -430,6 +432,8 @@ export const LIBRARIAN_NAV: NavItem[] = [
   { key: 'libraryCatalog', href: '/library/catalog', icon: BookOpen },
   { key: 'libraryInventory', href: '/library/inventory', icon: ClipboardCheck },
   { key: 'libraryReports', href: '/library/reports', icon: BarChart3 },
+  // Справки «задолженностей нет» с кодом проверки и их отзыв (Фаза 21.C4).
+  { key: 'libraryClearances', href: '/library/clearances', icon: FileCheck2 },
 ]
 
 // Навигация определяется РОЛЬЮ пользователя, а не route-группой: общие страницы
@@ -476,6 +480,9 @@ export const EMPLOYER_NAV: NavItem[] = [
   // Отдельного пункта «Компания» нет: страница компании — в профиле работодателя, за
   // переключателем «Мой профиль / Компания» (/profile?view=company).
   { key: 'universityAccess', href: '/employer/access', icon: GraduationCap },
+  // Команда компании (21.D2): приглашения коллег и состав. Управляет владелец, рекрутёр
+  // видит на странице, к кому обратиться.
+  { key: 'companyTeam', href: '/employer/team', icon: UserPlus },
 ]
 
 export const NAV_BY_VARIANT: Record<NavVariant, NavItem[]> = {

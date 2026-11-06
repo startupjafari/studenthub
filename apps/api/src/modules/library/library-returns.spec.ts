@@ -101,6 +101,8 @@ function setup({ queued = null as null | Record<string, unknown>, queueCount = 0
     requireEnabled: jest.fn().mockResolvedValue(rules),
     get: jest.fn().mockResolvedValue(rules),
   }
+  // Справки «задолженностей нет», выданные после ошибочного возврата (Фаза 21.C4).
+  const exports = { revokeMatching: jest.fn().mockResolvedValue(0) }
   const service = new LibraryLoansService(
     prisma as never,
     audit as never,
@@ -109,8 +111,9 @@ function setup({ queued = null as null | Record<string, unknown>, queueCount = 0
     settings as never,
     notifier as never,
     { get: jest.fn() } as never,
+    exports as never,
   )
-  return { service, prisma, tx, audit, notifier }
+  return { service, prisma, tx, audit, notifier, exports }
 }
 
 describe('Возврат', () => {
@@ -422,6 +425,26 @@ describe('Отмена возврата', () => {
     )
   })
 
+  // Фаза 21.C4: справка «задолженностей нет», выданная после ошибочного возврата, лжёт —
+  // книга снова на руках. Отзыв — в той же транзакции, только выданные после возврата.
+  it('отзывает справки читателя, выданные после ошибочного возврата', async () => {
+    const { service, prisma, tx, audit, exports } = setup()
+    const loan = returned()
+    prisma.loan.findUnique.mockResolvedValue(loan)
+    tx.loan.findUniqueOrThrow.mockResolvedValue(loanRow())
+    exports.revokeMatching.mockResolvedValue(1)
+    await service.cancelReturn(librarian, 'loan-1', { reason }, ctx)
+    expect(exports.revokeMatching).toHaveBeenCalledWith(
+      'library-clearance',
+      { universityId: 'uni-1', readerId: 'stu-1' },
+      { createdAfter: loan.returnedAt },
+      tx,
+    )
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ metadata: expect.objectContaining({ revokedClearances: 1 }) }),
+    )
+  })
+
   it.each([
     ['ON_LOAN', 'reissued'],
     ['RESERVED', 'heldForReservation'],
@@ -520,5 +543,34 @@ describe('«Бронь готова»', () => {
     notifier.send.mockResolvedValue(false)
     await expect(service.notifyHeld(held, 'Русская литература', 'Asia/Almaty')).resolves.toBe(false)
     expect(prisma.reservation.updateMany).not.toHaveBeenCalled()
+  })
+})
+
+// Фаза 21.C3: в отчёте о просрочках видно, что должник уже ушёл из вуза.
+describe('Пометка ушедшего читателя в выдачах', () => {
+  it.each([
+    ['Отчислен', 'EXPELLED'],
+    ['EXPELLED', 'EXPELLED'],
+    ['Выпускник', 'GRADUATED'],
+    ['переведен', 'TRANSFERRED'],
+    ['Обучающийся', null],
+    ['Академический отпуск', null],
+    [null, null],
+  ])('статус %s → leftStatus %s', async (academicStatus, leftStatus) => {
+    const { service } = setup()
+    const [item] = await service.toItems(
+      [loanRow({ reader: { academicStatus } }) as never],
+      'Asia/Almaty',
+    )
+    expect(item?.reader.leftStatus).toBe(leftStatus)
+  })
+
+  it('удалённый читатель (связь обнулена) — без пометки', async () => {
+    const { service } = setup()
+    const [item] = await service.toItems(
+      [loanRow({ readerId: null, reader: null }) as never],
+      'Asia/Almaty',
+    )
+    expect(item?.reader).toMatchObject({ id: null, leftStatus: null })
   })
 })

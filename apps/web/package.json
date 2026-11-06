@@ -2,6 +2,13 @@
   "name": "web",
   "version": "1.0.0",
   "private": true,
+  "sideEffects": [
+    "*.css",
+    "./src/shared/lib/pwa-install.ts",
+    "./src/instrumentation.ts",
+    "./src/instrumentation-client.ts",
+    "./worker/**"
+  ],
   "scripts": {
     "dev": "NODE_OPTIONS=--max-old-space-size=12288 next dev -p 3000",
     "build": "NODE_OPTIONS=--max-old-space-size=12288 next build",
@@ -15,7 +22,8 @@
     "e2e": "node e2e/prepare-db.mjs && playwright test --project=chromium",
     "e2e:ui": "node e2e/prepare-db.mjs && playwright test --project=chromium --ui",
     "ui-audit": "node e2e/prepare-db.mjs && playwright test --project=ui-audit",
-    "size": "size-limit"
+    "size": "size-limit",
+    "i18n:scopes": "node scripts/i18n-scopes.mjs"
   },
   "dependencies": {
     "@ducanh2912/next-pwa": "^10.2.9",

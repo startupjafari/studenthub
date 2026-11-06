@@ -9,6 +9,7 @@ import { Role } from '@studenthub/shared-types'
 vi.mock('next-intl', () => ({
   useTranslations: () => (k: string) => k,
   useLocale: () => 'ru',
+  useFormatter: () => ({ dateTime: () => '20 нояб.' }),
 }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 vi.mock('next-themes', () => ({ useTheme: () => ({ theme: 'light', setTheme: vi.fn() }) }))
@@ -17,10 +18,10 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 // Удаление бьёт по сети — глушим запрос, проверяем ПЕРЕДАННОЕ ТЕЛО.
 vi.mock('../../../entities/user/api/user-api', async (orig) => {
   const actual = await orig<typeof import('../../../entities/user/api/user-api')>()
-  return { ...actual, deleteAccountRequest: vi.fn() }
+  return { ...actual, deleteAccountRequest: vi.fn(), fetchAccountDeletionCheck: vi.fn() }
 })
 
-import { deleteAccountRequest } from '../../../entities/user'
+import { deleteAccountRequest, fetchAccountDeletionCheck } from '../../../entities/user'
 import type { MeResponse } from '../../../shared/api'
 import { DangerSection } from './account-settings-panels'
 
@@ -43,11 +44,15 @@ function wrapper({ children }: { children: ReactNode }) {
 }
 
 const deleteMut = vi.mocked(deleteAccountRequest)
+const checkMock = vi.mocked(fetchAccountDeletionCheck)
+const canDelete = { canDelete: true, blockers: [], libraryDebts: [] }
 // Кнопка в карточке и кнопка подтверждения в окне подписаны одинаково — берём последнюю.
 const confirmButton = () => screen.getAllByRole('button', { name: /deleteAccount/ }).at(-1)!
 
 beforeEach(() => {
   deleteMut.mockReset()
+  checkMock.mockReset()
+  checkMock.mockResolvedValue(canDelete)
 })
 
 // A-F13: необратимое удаление шло без пароля — хватало открытой вкладки.
@@ -58,6 +63,7 @@ describe('DangerSection — удаление с повторной аутент�
     render(<DangerSection me={me} />, { wrapper })
 
     await user.click(screen.getByRole('button', { name: /deleteAccount/ }))
+    await screen.findByLabelText('currentPassword')
     expect(confirmButton()).toBeDisabled()
     expect(screen.queryByLabelText('deleteCodeLabel')).not.toBeInTheDocument()
 
@@ -74,7 +80,7 @@ describe('DangerSection — удаление с повторной аутент�
     render(<DangerSection me={{ ...me, twoFactorEnabled: true }} />, { wrapper })
 
     await user.click(screen.getByRole('button', { name: /deleteAccount/ }))
-    await user.type(screen.getByLabelText('currentPassword'), 'Secret123')
+    await user.type(await screen.findByLabelText('currentPassword'), 'Secret123')
     expect(confirmButton()).toBeDisabled()
     await user.type(screen.getByLabelText('deleteCodeLabel'), ' 123456 ')
     await user.click(confirmButton())
@@ -90,7 +96,7 @@ describe('DangerSection — удаление с повторной аутент�
     render(<DangerSection me={me} />, { wrapper })
 
     await user.click(screen.getByRole('button', { name: /deleteAccount/ }))
-    await user.type(screen.getByLabelText('currentPassword'), 'wrong')
+    await user.type(await screen.findByLabelText('currentPassword'), 'wrong')
     await user.click(confirmButton())
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('deleteWrongPassword'))
@@ -103,9 +109,78 @@ describe('DangerSection — удаление с повторной аутент�
     render(<DangerSection me={{ ...me, role: Role.PLATFORM_ADMIN }} />, { wrapper })
 
     await user.click(screen.getByRole('button', { name: /deleteAccount/ }))
-    await user.type(screen.getByLabelText('currentPassword'), 'Secret123')
+    await user.type(await screen.findByLabelText('currentPassword'), 'Secret123')
     await user.click(confirmButton())
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('deleteLastAdmin'))
+  })
+
+  // Фаза 21.C1: книги библиотеки на руках — объяснение и список до ввода пароля.
+  it('книги на руках: список книг вместо формы, удалить нельзя', async () => {
+    const user = userEvent.setup()
+    checkMock.mockResolvedValue({
+      canDelete: false,
+      blockers: ['libraryDebts'],
+      libraryDebts: [
+        {
+          loanId: 'l1',
+          status: 'OPEN',
+          bookTitle: 'Война и мир',
+          inventoryNumber: '0012',
+          dueDate: '2026-11-20',
+          overdue: true,
+        },
+        {
+          loanId: 'l2',
+          status: 'LOST',
+          bookTitle: 'Идиот',
+          inventoryNumber: '0013',
+          dueDate: '2026-10-01',
+          overdue: false,
+        },
+      ],
+    })
+    render(<DangerSection me={me} />, { wrapper })
+
+    await user.click(screen.getByRole('button', { name: /deleteAccount/ }))
+    expect(await screen.findByText('deleteLibraryTitle')).toBeInTheDocument()
+    expect(screen.getByText('deleteLibraryDesc')).toBeInTheDocument()
+    expect(screen.getByText(/loanLine · overdue/)).toBeInTheDocument()
+    expect(screen.getByText('lostLine')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /deleteLibraryMyBooks/ })).toHaveAttribute(
+      'href',
+      '/my-books',
+    )
+    expect(screen.queryByLabelText('currentPassword')).not.toBeInTheDocument()
+    // В окне кнопки удаления нет (карточка под окном скрыта от доступности).
+    expect(screen.queryByRole('button', { name: /deleteAccount/ })).not.toBeInTheDocument()
+  })
+
+  it('книгу выдали, пока окно было открыто: 409 — окно перечитывает проверку', async () => {
+    const user = userEvent.setup()
+    deleteMut.mockRejectedValue({ code: 'LIBRARY_DEBTS_OPEN', message: 'книги' })
+    render(<DangerSection me={me} />, { wrapper })
+
+    await user.click(screen.getByRole('button', { name: /deleteAccount/ }))
+    await user.type(await screen.findByLabelText('currentPassword'), 'Secret123')
+    checkMock.mockResolvedValue({
+      canDelete: false,
+      blockers: ['libraryDebts'],
+      libraryDebts: [
+        {
+          loanId: 'l1',
+          status: 'OPEN',
+          bookTitle: 'Война и мир',
+          inventoryNumber: '0012',
+          dueDate: '2026-11-20',
+          overdue: false,
+        },
+      ],
+    })
+    await user.click(confirmButton())
+
+    expect(await screen.findByText('deleteLibraryTitle')).toBeInTheDocument()
+    expect(checkMock).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })

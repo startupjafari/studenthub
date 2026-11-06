@@ -58,6 +58,11 @@ export async function closeVacancy(id: string): Promise<void> {
   await api.post(`/career/employer/vacancies/${id}/close`)
 }
 
+// Только черновик: вакансию в другом статусе сервер не удаляет (409 VACANCY_NOT_DELETABLE).
+export async function deleteVacancy(id: string): Promise<void> {
+  await api.delete(`/career/employer/vacancies/${id}`)
+}
+
 // ── Вуз ──────────────────────────────────────────────────────────────────────
 
 export function fetchVacancyReviewQueue(

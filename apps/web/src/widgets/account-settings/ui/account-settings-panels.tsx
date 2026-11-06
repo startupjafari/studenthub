@@ -11,11 +11,12 @@ import { toast } from 'sonner'
 import type { Locale } from '@studenthub/shared-config'
 import { Role, isTwoFactorRequired } from '@studenthub/shared-types'
 import { writeLocaleCookie } from '../../../shared/i18n/locale-cookie'
-import { useLocale, useTranslations } from 'next-intl'
+import { useFormatter, useLocale, useTranslations } from 'next-intl'
 import { ContactSupportForm } from '../../../features/contact-support'
 import Link from 'next/link'
 import {
   Bell,
+  BookOpen,
   Check,
   Download,
   FolderLock,
@@ -41,6 +42,7 @@ import {
   UsernameSchema,
   PROFILE_VISIBILITY,
   type ChangePasswordInput,
+  type AccountLibraryDebt,
   type ProfileVisibilityValue,
 } from '@studenthub/shared-schemas'
 import { RELEASE_NOTES, ReleaseNoteModal, latestNote } from '../../../entities/release'
@@ -86,6 +88,7 @@ import {
   changePasswordRequest,
   deleteAccountRequest,
   exportMyData,
+  fetchAccountDeletionCheck,
   fetchMe,
   revokeUserSessionsRequest,
   updateProfileRequest,
@@ -1299,15 +1302,32 @@ function PrivacySection({ me }: { me: MeResponse }) {
 // ── Опасная зона ─────────────────────────────────────────────────────────────
 // Удаление — с повторной аутентификацией: сервер требует текущий пароль и, если включена
 // 2FA, её код. Открытой вкладки для необратимого действия больше не достаточно.
+//
+// Перед формой — предпроверка (`GET /users/me/deletion-check`, Фаза 21.C1): с книгами
+// библиотеки на руках аккаунт не удалить, и человек видит, какие книги вернуть, ещё до
+// ввода пароля. Не ответила — форма как раньше: сервер всё равно проверит сам и ответит
+// `409 LIBRARY_DEBTS_OPEN`, на который окно перечитывает проверку и показывает список.
 export function DangerSection({ me }: { me: MeResponse }) {
   const tS = useTranslations('Settings')
   const tP = useTranslations('Profile')
   const tErr = useTranslations('Errors')
+  const qc = useQueryClient()
   const [open, setOpen] = useState(false)
   const [password, setPassword] = useState('')
   const [code, setCode] = useState('')
   const [error, setError] = useState<string | null>(null)
   const needCode = me.twoFactorEnabled === true
+  const check = useQuery({
+    queryKey: userKeys.deletionCheck(),
+    queryFn: fetchAccountDeletionCheck,
+    enabled: open,
+    // Книгу могли вернуть минуту назад — каждое открытие окна спрашивает заново.
+    staleTime: 0,
+    retry: false,
+  })
+  const libraryDebts = check.data?.libraryDebts ?? []
+  const lastAdmin = check.data?.blockers.includes('lastPlatformAdmin') === true
+  const blocked = libraryDebts.length > 0
 
   const reset = () => {
     setPassword('')
@@ -1329,6 +1349,12 @@ export function DangerSection({ me }: { me: MeResponse }) {
     onError: (e) => {
       const c = errCode(e)
       setCode('')
+      if (c === 'LIBRARY_DEBTS_OPEN') {
+        // Книгу выдали, пока окно было открыто: список — из свежей предпроверки.
+        setError(null)
+        void qc.invalidateQueries({ queryKey: userKeys.deletionCheck() })
+        return
+      }
       setError(
         c === 'BAD_REQUEST'
           ? tS('deleteWrongPassword')
@@ -1373,69 +1399,133 @@ export function DangerSection({ me }: { me: MeResponse }) {
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>{tS('deleteConfirmTitle')}</AlertDialogTitle>
+                <AlertDialogTitle>
+                  {blocked ? tS('deleteLibraryTitle') : tS('deleteConfirmTitle')}
+                </AlertDialogTitle>
                 <AlertDialogDescription>
-                  {tP('deleteConfirm')}{' '}
-                  {needCode ? tS('deleteReauthDesc2fa') : tS('deleteReauthDesc')}
+                  {blocked ? (
+                    tS('deleteLibraryDesc')
+                  ) : (
+                    <>
+                      {tP('deleteConfirm')}{' '}
+                      {needCode ? tS('deleteReauthDesc2fa') : tS('deleteReauthDesc')}
+                    </>
+                  )}
                 </AlertDialogDescription>
               </AlertDialogHeader>
-              <form
-                id="delete-account-form"
-                className="flex flex-col gap-3"
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  if (canSubmit && !mut.isPending) mut.mutate()
-                }}
-              >
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="delete-account-password">{tP('currentPassword')}</Label>
-                  <Input
-                    id="delete-account-password"
-                    type="password"
-                    autoComplete="current-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    autoFocus
-                  />
+              {check.isPending ? (
+                <div className="flex flex-col gap-2" aria-hidden>
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-10 w-full" />
                 </div>
-                {needCode && (
+              ) : blocked ? (
+                <DeletionLibraryDebts debts={libraryDebts} />
+              ) : lastAdmin ? (
+                <p role="alert" className="text-sm text-destructive">
+                  {tS('deleteLastAdmin')}
+                </p>
+              ) : (
+                <form
+                  id="delete-account-form"
+                  className="flex flex-col gap-3"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    if (canSubmit && !mut.isPending) mut.mutate()
+                  }}
+                >
                   <div className="flex flex-col gap-2">
-                    <Label htmlFor="delete-account-code">{tS('deleteCodeLabel')}</Label>
+                    <Label htmlFor="delete-account-password">{tP('currentPassword')}</Label>
                     <Input
-                      id="delete-account-code"
-                      autoComplete="one-time-code"
-                      autoCapitalize="characters"
-                      spellCheck={false}
-                      placeholder="123456"
-                      value={code}
-                      onChange={(e) => setCode(e.target.value)}
+                      id="delete-account-password"
+                      type="password"
+                      autoComplete="current-password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      autoFocus
                     />
                   </div>
-                )}
-                {error && (
-                  <p role="alert" className="text-sm text-destructive">
-                    {error}
-                  </p>
-                )}
-              </form>
+                  {needCode && (
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="delete-account-code">{tS('deleteCodeLabel')}</Label>
+                      <Input
+                        id="delete-account-code"
+                        autoComplete="one-time-code"
+                        autoCapitalize="characters"
+                        spellCheck={false}
+                        placeholder="123456"
+                        value={code}
+                        onChange={(e) => setCode(e.target.value)}
+                      />
+                    </div>
+                  )}
+                  {error && (
+                    <p role="alert" className="text-sm text-destructive">
+                      {error}
+                    </p>
+                  )}
+                </form>
+              )}
               <AlertDialogFooter>
                 <AlertDialogCancel disabled={mut.isPending}>{tP('cancel')}</AlertDialogCancel>
-                <Button
-                  type="submit"
-                  form="delete-account-form"
-                  variant="destructive"
-                  loading={mut.isPending}
-                  disabled={!canSubmit}
-                >
-                  <Trash2 className="size-4" aria-hidden />
-                  {tP('deleteAccount')}
-                </Button>
+                {!check.isPending && !blocked && !lastAdmin && (
+                  <Button
+                    type="submit"
+                    form="delete-account-form"
+                    variant="destructive"
+                    loading={mut.isPending}
+                    disabled={!canSubmit}
+                  >
+                    <Trash2 className="size-4" aria-hidden />
+                    {tP('deleteAccount')}
+                  </Button>
+                )}
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * Книги, из-за которых аккаунт не удалить (Фаза 21.C1): на руках — со сроком, утерянные —
+ * с пометкой о долге. Строки — те же, что видит декан в предупреждении о долгах.
+ */
+function DeletionLibraryDebts({ debts }: { debts: AccountLibraryDebt[] }) {
+  const tS = useTranslations('Settings')
+  const tD = useTranslations('LibraryDebts')
+  const format = useFormatter()
+  const dayOf = (date: string) => {
+    const [y, m, d] = date.split('-').map(Number) as [number, number, number]
+    return format.dateTime(new Date(y, m - 1, d), { day: 'numeric', month: 'short' })
+  }
+  return (
+    <div className="flex flex-col gap-3">
+      <ul className="flex flex-col gap-1.5 rounded-xl border border-warning/40 bg-warning/10 p-3 text-sm">
+        {debts.map((d) => (
+          <li key={d.loanId} className="flex items-start gap-2">
+            <BookOpen className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
+            <span className="min-w-0 break-words">
+              {d.status === 'LOST'
+                ? tD('lostLine', { title: d.bookTitle, number: d.inventoryNumber })
+                : tD('loanLine', {
+                    title: d.bookTitle,
+                    number: d.inventoryNumber,
+                    date: dayOf(d.dueDate),
+                  })}
+              {d.overdue ? ` · ${tD('overdue')}` : ''}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <Button asChild variant="outline" className="self-start">
+        <Link href="/my-books">
+          <BookOpen className="size-4" aria-hidden />
+          {tS('deleteLibraryMyBooks')}
+        </Link>
+      </Button>
+    </div>
   )
 }
 

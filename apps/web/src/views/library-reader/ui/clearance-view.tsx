@@ -1,26 +1,69 @@
 'use client'
 
 import Link from 'next/link'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
-import { useFormatter, useTranslations } from 'next-intl'
-import { ArrowLeft, BadgeCheck, Printer, TriangleAlert } from 'lucide-react'
-import type { LibraryClearance } from '@studenthub/shared-schemas'
-import { Button, Card, EmptyState, PageHeader, Skeleton } from '../../../shared/ui'
-import { LoanDueBadge, fetchClearance, isLostDebt, libraryKeys } from '../../../entities/library'
+import { toast } from 'sonner'
+import { useFormatter, useLocale, useTranslations } from 'next-intl'
+import { ArrowLeft, BadgeCheck, Download, ShieldCheck, TriangleAlert } from 'lucide-react'
+import type { ClearanceCertificateItem } from '@studenthub/shared-schemas'
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  PageHeader,
+  SectionPanel,
+  Skeleton,
+} from '../../../shared/ui'
+import { saveFile, toApiError } from '../../../shared/lib'
+import {
+  LoanDueBadge,
+  fetchClearance,
+  fetchMyClearanceCertificates,
+  isLostDebt,
+  issueClearanceCertificate,
+  libraryKeys,
+} from '../../../entities/library'
 
-// Справка «задолженностей в библиотеке нет» (Фаза 20.11): на момент запроса, для обходного
-// листа при выпуске или переводе. Есть книги на руках — вместо справки список того, что
-// вернуть, а утерянную книгу без погашения — заменить или возместить. Печатается только лист
-// справки (правила @media print в globals.css).
+// Справка «задолженностей в библиотеке нет» (Фаза 20.11, 21.C4): для обходного листа при
+// выпуске или переводе. Есть книги на руках — вместо справки список того, что вернуть, а
+// утерянную книгу без погашения — заменить или возместить. Нет долгов — PDF с кодом проверки
+// и QR: его выпускает сервер и записывает в журнал документов, поэтому подделку проверка по
+// коду не подтвердит. Ниже — выданные справки с кодами и статусом (библиотекарь может отозвать).
 export function ClearanceView() {
   const t = useTranslations('LibraryReader')
+  const tErr = useTranslations('Errors')
   const format = useFormatter()
+  const locale = useLocale()
   const router = useRouter()
+  const qc = useQueryClient()
   const clearance = useQuery({
     queryKey: libraryKeys.clearance(),
     queryFn: fetchClearance,
     staleTime: 0,
+  })
+  const certificates = useQuery({
+    queryKey: libraryKeys.myCertificates(),
+    queryFn: fetchMyClearanceCertificates,
+  })
+  const issue = useMutation({
+    mutationFn: () => issueClearanceCertificate(locale),
+    onSuccess: (file) => {
+      saveFile(file)
+      toast.success(t('certificateDownloadedToast'))
+      void qc.invalidateQueries({ queryKey: libraryKeys.myCertificates() })
+    },
+    onError: (e) => {
+      const err = toApiError(e)
+      if (err.code === 'CONFLICT' && err.details?.[0]?.field === 'debts') {
+        // Книгу выдали, пока страница была открыта: показать, что вернуть.
+        void qc.invalidateQueries({ queryKey: libraryKeys.clearance() })
+        toast.error(t('error.debts'))
+        return
+      }
+      toast.error(tErr(err.code))
+    },
   })
 
   const back = (
@@ -50,10 +93,11 @@ export function ClearanceView() {
     hour: '2-digit',
     minute: '2-digit',
   })
+  const issued = certificates.data ?? []
 
   return (
     <div className="flex w-full flex-col gap-6">
-      {/* Назад — стрелкой слева, как на остальных экранах с возвратом; справа только печать. */}
+      {/* Назад — стрелкой слева, как на остальных экранах с возвратом; справа — справка. */}
       <PageHeader
         title={t('clearanceTitle')}
         subtitle={t('clearanceSubtitle')}
@@ -61,9 +105,14 @@ export function ClearanceView() {
         backLabel={t('tabMine')}
         actions={
           c.clear && (
-            <Button type="button" size="md" onClick={() => window.print()}>
-              <Printer className="size-4" aria-hidden />
-              {t('print')}
+            <Button
+              type="button"
+              size="md"
+              loading={issue.isPending}
+              onClick={() => issue.mutate()}
+            >
+              <Download className="size-4" aria-hidden />
+              {t('downloadCertificate')}
             </Button>
           )
         }
@@ -74,6 +123,7 @@ export function ClearanceView() {
           <div className="flex flex-col gap-1">
             <p className="font-semibold">{t('clearTitle')}</p>
             <p className="text-sm">{t('clearBody', { name: c.reader.name, date: checked })}</p>
+            <p className="text-sm text-muted-foreground">{t('certificateHint')}</p>
           </div>
         </Card>
       ) : (
@@ -97,35 +147,48 @@ export function ClearanceView() {
           )}
         </Card>
       )}
-      {c.clear && <ClearanceSheet clearance={c} checked={checked} />}
+      {issued.length > 0 && (
+        <SectionPanel
+          title={t('myCertificatesTitle')}
+          subtitle={t('certificateHint')}
+          bodyClassName="px-0 py-0"
+        >
+          <ul className="flex flex-col divide-y divide-border">
+            {issued.map((cert) => (
+              <CertificateRow key={cert.code} cert={cert} />
+            ))}
+          </ul>
+        </SectionPanel>
+      )}
     </div>
   )
 }
 
-/** Лист справки для печати — на экране скрыт. */
-function ClearanceSheet({
-  clearance: c,
-  checked,
-}: {
-  clearance: LibraryClearance
-  checked: string
-}) {
+function CertificateRow({ cert }: { cert: ClearanceCertificateItem }) {
   const t = useTranslations('LibraryReader')
-  const details = [
-    c.reader.faculty ? `${t('sheetFaculty')}: ${c.reader.faculty}` : null,
-    c.reader.group ? `${t('sheetGroup')}: ${c.reader.group}` : null,
-    c.reader.studentCardNumber ? `${t('sheetCard')}: ${c.reader.studentCardNumber}` : null,
-  ].filter(Boolean)
+  const format = useFormatter()
+  const revoked = cert.revokedAt !== null
   return (
-    <div className="sh-print-root">
-      <article className="sh-print-page mx-auto flex max-w-[170mm] flex-col gap-6 p-[10mm] text-black">
-        <p className="text-center text-sm">{c.university}</p>
-        <h1 className="text-center text-xl font-bold uppercase">{t('sheetTitle')}</h1>
-        <p className="text-base leading-relaxed">{t('sheetBody', { name: c.reader.name })}</p>
-        {details.length > 0 && <p className="text-sm">{details.join(' · ')}</p>}
-        <p className="text-sm">{t('sheetChecked', { date: checked })}</p>
-        <p className="mt-10 text-sm">{t('sheetSignature')}</p>
-      </article>
-    </div>
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
+      <span className="font-mono text-sm tracking-wider tabular-nums">
+        {t('certificateCode', { code: cert.code })}
+      </span>
+      <span className="text-sm text-muted-foreground">
+        {format.dateTime(new Date(cert.issuedAt), {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+        })}
+      </span>
+      <Badge variant={revoked ? 'destructive' : 'success'}>
+        {revoked ? t('certificateRevoked') : t('certificateValid')}
+      </Badge>
+      <Button asChild variant="ghost" size="sm" className="ml-auto">
+        <Link href={`/verify/${cert.code}`} target="_blank" rel="noopener">
+          <ShieldCheck className="size-4" aria-hidden />
+          {t('certificateVerify')}
+        </Link>
+      </Button>
+    </li>
   )
 }

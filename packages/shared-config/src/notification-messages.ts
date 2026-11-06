@@ -196,6 +196,9 @@ const RU = {
   'library.reservationReady.body': '«{title}» ждёт вас до {date}',
   'library.reservationExpired.title': 'Бронь истекла',
   'library.reservationCancelled.title': 'Бронь отменена',
+  // Библиотекарям вуза: отчислили читателя, за которым книги (Фаза 21.C3).
+  'library.debtorExpelled.title': 'Отчисление читателя-должника',
+  'library.debtorExpelled.body': '{name}: книг не возвращено — {count}',
 } as const
 
 /** Ключ словарной статьи. Тип выводится из русского каталога — он и есть эталон состава. */
@@ -346,6 +349,8 @@ const KK: Record<NotificationMessageKey, string> = {
   'library.reservationReady.body': '«{title}» сізді {date} дейін күтеді',
   'library.reservationExpired.title': 'Броньның мерзімі өтті',
   'library.reservationCancelled.title': 'Бронь жойылды',
+  'library.debtorExpelled.title': 'Қарызы бар оқырман оқудан шығарылды',
+  'library.debtorExpelled.body': '{name}: қайтарылмаған кітап — {count}',
 }
 
 const EN: Record<NotificationMessageKey, string> = {
@@ -492,6 +497,8 @@ const EN: Record<NotificationMessageKey, string> = {
   'library.reservationReady.body': '“{title}” is waiting for you until {date}',
   'library.reservationExpired.title': 'Hold expired',
   'library.reservationCancelled.title': 'Hold cancelled',
+  'library.debtorExpelled.title': 'A reader with unreturned books was expelled',
+  'library.debtorExpelled.body': '{name}: unreturned books — {count}',
 }
 
 export const NOTIFICATION_MESSAGES: Record<Locale, Record<NotificationMessageKey, string>> = {

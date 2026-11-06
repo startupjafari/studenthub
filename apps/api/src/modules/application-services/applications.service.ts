@@ -14,6 +14,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { visibleServicesWhere } from './service-visibility'
 import { ApplicationPolicy } from './application.policy'
 import { ApplicationNotifier, OVERDUE_STATUSES } from './application-notifier'
+import { ApplicationQueueEvents } from './application-queue-events'
 import { formDataError, pickFormFields, type FormFieldRule } from './form-validation'
 import { rethrowStaleStatus } from '../../common/prisma/stale-status'
 import { advisoryXactLock } from '../../common/prisma/advisory-lock'
@@ -79,6 +80,7 @@ export class ApplicationsService {
     private readonly prisma: PrismaService,
     private readonly policy: ApplicationPolicy,
     private readonly notifier: ApplicationNotifier,
+    private readonly queueEvents: ApplicationQueueEvents,
   ) {}
 
   /** Создать черновик заявки на услугу (§8/§30). Заполняется правкой черновика. */
@@ -216,6 +218,7 @@ export class ApplicationsService {
       })
       .catch(rethrowNumberTaken)
     await this.notifier.notifyHandlers(updated, 'submitted', eventId)
+    await this.queueEvents.changed(updated)
     return updated
   }
 
@@ -228,7 +231,7 @@ export class ApplicationsService {
     if (!canTransition(status, 'CANCELLED')) {
       throw new AppException('BAD_REQUEST', 'Эту заявку уже нельзя отозвать')
     }
-    return this.prisma.$transaction(async (tx) => {
+    const cancelled = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.application
         .update({
           where: { id, status },
@@ -248,6 +251,9 @@ export class ApplicationsService {
       })
       return updated
     })
+    // Неподанный черновик в очередях не виден — и убирать его оттуда незачем.
+    if (status !== 'DRAFT') await this.queueEvents.changed(cancelled)
+    return cancelled
   }
 
   /** Повторная отправка после исправления (§7): NEEDS_CORRECTION → RESUBMITTED. */
@@ -291,6 +297,7 @@ export class ApplicationsService {
     })
     // Исправление ждёт того, кто его просил: без сигнала заявка лежала в очереди незамеченной.
     await this.notifier.notifyHandlers(updated, 'resubmitted', eventId)
+    await this.queueEvents.changed(updated)
     return updated
   }
 

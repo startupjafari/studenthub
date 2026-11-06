@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { vm } from './validation-messages.js'
 
 // Справочник КАТО — классификатор административно-территориальных объектов РК
 // (docs/PROJECT.md §6.2). Общий для платформы, от вуза не зависит.
@@ -18,7 +19,7 @@ export type KatoKindValue = z.infer<typeof KatoKindSchema>
 
 // Код КАТО: ровно 9 цифр. Он же первичный ключ справочника и то, что хранится
 // в `University.city`.
-export const KatoCodeSchema = z.string().regex(/^\d{9}$/, 'Код КАТО — 9 цифр')
+export const KatoCodeSchema = z.string().regex(/^\d{9}$/, vm('validation.kato.code'))
 
 // Пресеты вместо произвольного списка видов: выбор населённого пункта и выбор региона —
 // два разных сценария, а перечислять виды в query-строке значило бы пускать наружу

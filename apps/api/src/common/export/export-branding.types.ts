@@ -12,7 +12,15 @@ export type ExportLocale = 'ru' | 'kk' | 'en'
  * новый вид добавляется вместе с подписью на трёх языках, а не строкой на месте вызова.
  */
 export type ExportKind =
-  'resume' | 'users' | 'chat' | 'certificate' | 'career-report' | 'my-data' | 'analytics-report'
+  | 'resume'
+  | 'users'
+  | 'chat'
+  | 'certificate'
+  | 'career-report'
+  | 'my-data'
+  | 'analytics-report'
+  // Справка «задолженностей в библиотеке нет» с кодом проверки (Фаза 21.C4).
+  | 'library-clearance'
 
 /** Расширение выгружаемого файла — оно же ключ к Content-Type. */
 export type ExportFormat = 'pdf' | 'xlsx' | 'csv' | 'txt' | 'json'

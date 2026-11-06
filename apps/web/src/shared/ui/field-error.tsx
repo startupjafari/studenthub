@@ -3,6 +3,7 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 
 import { cn } from 'shared/lib/utils'
+import { useValidationMessage } from 'shared/lib/validation-message'
 
 // Ошибка поля (DESIGN_SYSTEM §10.3). Стоит в строке подписи справа: поле, у которого первой
 // идёт подпись, раскладывается сеткой «подпись | ошибка» правилом `[data-field-error]` в
@@ -23,10 +24,21 @@ import { cn } from 'shared/lib/utils'
 const MARQUEE_SPEED = 40
 const MARQUEE_MIN_SECONDS = 4
 
-export function FieldError({ children, className }: { children?: ReactNode; className?: string }) {
+export function FieldError({
+  children: raw,
+  className,
+}: {
+  children?: ReactNode
+  className?: string
+}) {
   const box = useRef<HTMLParagraphElement>(null)
   const text = useRef<HTMLSpanElement>(null)
   const [overflow, setOverflow] = useState(0)
+  // Сообщение схемы из shared-schemas приходит ключом (`validation.…`) — переводим здесь,
+  // чтобы `{errors.x?.message}` работало в любой форме без своего перевода. Готовый текст
+  // и незнакомый ключ проходят как есть.
+  const translate = useValidationMessage()
+  const children = typeof raw === 'string' ? translate(raw) : raw
   const visible = Boolean(children)
 
   useLayoutEffect(() => {

@@ -55,6 +55,7 @@ function loanRow(overrides: Record<string, unknown> = {}) {
     cancelReason: null,
     disputedAt: null,
     lostSettledAt: null,
+    withoutPhone: false,
     readerId: 'stu-1',
     readerName: 'Оспанов Нурлан Бауыржанович',
     readerGroup: 'ИТ-23-1',
@@ -91,7 +92,11 @@ function setup({
     )
   const tx = {
     $executeRaw: jest.fn().mockResolvedValue(0),
+    // Читатель жив под локом (не удалён в промежутке — Фаза 21.C1).
+    user: { count: jest.fn().mockResolvedValue(1) },
     bookCopy: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    // Выдача без скана — строка журнала удостоверений в той же транзакции (21.C5).
+    libraryIdAccessLog: { create: jest.fn().mockResolvedValue({}) },
     loan: {
       count: loanCount,
       create: jest
@@ -109,7 +114,9 @@ function setup({
     user: {
       findFirst: jest.fn().mockResolvedValue(readerRow()),
       findMany: jest.fn().mockResolvedValue([{ id: 'lib-1' }, { id: 'lib-2' }]),
+      findUnique: jest.fn().mockResolvedValue({ firstName: 'Гульнара', lastName: 'Сапарова' }),
     },
+    libraryIdAccessLog: { create: jest.fn().mockResolvedValue({}) },
     loan: {
       count: loanCount,
       findMany: jest.fn().mockResolvedValue([]),
@@ -133,6 +140,8 @@ function setup({
     }),
   }
   const notifier = { send: jest.fn().mockResolvedValue(undefined) }
+  // Отзыв справок «задолженностей нет» (Фаза 21.C4).
+  const exports = { revokeMatching: jest.fn().mockResolvedValue(0) }
   const service = new LibraryLoansService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
@@ -141,8 +150,9 @@ function setup({
     settings as unknown as LibrarySettingsService,
     notifier as unknown as LibraryNotifier,
     config,
+    exports as never,
   )
-  return { service, prisma, tx, audit, notifier, studentId }
+  return { service, prisma, tx, audit, notifier, studentId, exports }
 }
 
 const ticketFor = (librarianId = 'lib-1', readerId = 'stu-1') =>
@@ -309,6 +319,20 @@ describe('LibraryLoansService — выдача', () => {
     expect(tx.loan.create).not.toHaveBeenCalled()
   })
 
+  // Фаза 21.C1: удаление аккаунта держит тот же лок читателя — выдача, ждавшая его, не
+  // запишет книгу на только что удалённого.
+  it('читателя удалили, пока выдача ждала лок, — 404, выдачи нет', async () => {
+    const { service, tx } = setup()
+    tx.user.count.mockResolvedValue(0)
+    await expect(
+      service.issue(librarian, { ticket: ticketFor(), copyCode: 'ABCD2345' }, ctx),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(tx.user.count).toHaveBeenCalledWith({
+      where: { id: 'stu-1', deletedAt: null, isBlocked: false },
+    })
+    expect(tx.loan.create).not.toHaveBeenCalled()
+  })
+
   it('книга с полки читателю из очереди — его бронь закрыта выдачей', async () => {
     const { service, tx } = setup()
     tx.reservation.findFirst.mockResolvedValue({ id: 'res-7', status: 'QUEUED', copyId: null })
@@ -340,6 +364,128 @@ describe('LibraryLoansService — выдача', () => {
     await expect(
       service.issue(librarian, { ticket: ticketFor(), copyCode: 'ABCD2345' }, ctx),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+})
+
+// Фаза 21.C5: читатель без телефона — поиск по номеру билета и выдача только с отметкой.
+describe('LibraryLoansService — читатель без телефона', () => {
+  const cardTicket = () =>
+    issueReaderTicket(config, 'stu-1', 'lib-1', 'uni-1', Date.now(), 'card').ticket
+
+  it('поиск по номеру билета: свой вуз, читатели; просмотр — в журнал с отметкой', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findMany.mockResolvedValue([{ id: 'stu-1' }])
+    const session = await service.lookupReader(librarian, { studentCardNumber: '2023-0042' }, ctx)
+    expect(prisma.user.findMany).toHaveBeenCalledWith({
+      where: {
+        universityId: 'uni-1',
+        deletedAt: null,
+        role: { in: [Role.STUDENT, Role.STAROSTA] },
+        studentCardNumber: { equals: '2023-0042', mode: 'insensitive' },
+      },
+      select: { id: true },
+      take: 2,
+    })
+    expect(session.via).toBe('card')
+    expect(session.reader).toMatchObject({ firstName: 'Нурлан', lastName: 'Оспанов' })
+    expect(prisma.libraryIdAccessLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        universityId: 'uni-1',
+        librarianId: 'lib-1',
+        librarianName: 'Сапарова Гульнара',
+        readerId: 'stu-1',
+        readerName: 'Оспанов Нурлан Бауыржанович',
+        withoutPhone: true,
+      }),
+    })
+  })
+
+  it('номера нет — 404; номер у двоих — 409 cardAmbiguous, журнал не пишется', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findMany.mockResolvedValueOnce([])
+    await expect(
+      service.lookupReader(librarian, { studentCardNumber: 'X' }, ctx),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    prisma.user.findMany.mockResolvedValueOnce([{ id: 'a' }, { id: 'b' }])
+    await expect(
+      service.lookupReader(librarian, { studentCardNumber: 'X' }, ctx),
+    ).rejects.toMatchObject({ details: [expect.objectContaining({ field: 'cardAmbiguous' })] })
+    expect(prisma.libraryIdAccessLog.create).not.toHaveBeenCalled()
+  })
+
+  it('ищет только библиотекарь', async () => {
+    const { service } = setup()
+    await expect(
+      service.lookupReader(actor(Role.UNIVERSITY_ADMIN), { studentCardNumber: 'X' }, ctx),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('пропуск по номеру билета без отметки — 409 noPhoneMark, выдачи нет', async () => {
+    const { service, tx } = setup()
+    await expect(
+      service.issue(librarian, { ticket: cardTicket(), copyCode: 'ABCD2345' }, ctx),
+    ).rejects.toMatchObject({ details: [expect.objectContaining({ field: 'noPhoneMark' })] })
+    expect(tx.loan.create).not.toHaveBeenCalled()
+  })
+
+  it('с отметкой: выдача withoutPhone, строка журнала в транзакции, аудит', async () => {
+    const { service, tx, audit } = setup()
+    const item = await service.issue(
+      librarian,
+      { ticket: cardTicket(), copyCode: 'ABCD2345', withoutPhone: true },
+      ctx,
+    )
+    expect(tx.loan.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ withoutPhone: true }) }),
+    )
+    expect(item.withoutPhone).toBe(true)
+    expect(tx.libraryIdAccessLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        loanId: 'loan-new',
+        readerId: 'stu-1',
+        librarianName: 'Сапарова Гульнара',
+        withoutPhone: true,
+      }),
+    })
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'library_loan_issued',
+        metadata: expect.objectContaining({ withoutPhone: true }),
+      }),
+    )
+  })
+
+  it('по скану QR отметка «без телефона» запрещена — 409 noPhoneMark', async () => {
+    const { service, tx } = setup()
+    await expect(
+      service.issue(
+        librarian,
+        { ticket: ticketFor(), copyCode: 'ABCD2345', withoutPhone: true },
+        ctx,
+      ),
+    ).rejects.toMatchObject({ details: [expect.objectContaining({ field: 'noPhoneMark' })] })
+    expect(tx.loan.create).not.toHaveBeenCalled()
+  })
+
+  it('обычная выдача по скану — без отметки и без строки журнала', async () => {
+    const { service, tx } = setup()
+    await service.issue(librarian, { ticket: ticketFor(), copyCode: 'ABCD2345' }, ctx)
+    expect(tx.loan.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ withoutPhone: false }) }),
+    )
+    expect(tx.libraryIdAccessLog.create).not.toHaveBeenCalled()
+  })
+
+  it('фильтр выдач без скана', async () => {
+    const { service, prisma } = setup()
+    Object.assign(prisma.loan, { findMany: jest.fn().mockResolvedValue([]) })
+    Object.assign(prisma, {
+      $transaction: jest.fn((arg: unknown) => Promise.all(arg as Promise<unknown>[])),
+    })
+    await service.list(librarian, { page: 1, limit: 20, filter: 'all', withoutPhone: true })
+    expect(prisma.loan.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ withoutPhone: true }) }),
+    )
   })
 })
 

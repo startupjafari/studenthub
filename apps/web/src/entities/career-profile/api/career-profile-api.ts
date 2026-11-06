@@ -25,6 +25,16 @@ export async function setCareerConsent(input: SetCareerConsentInput): Promise<Ca
   return data
 }
 
+/** Открыть скрытый профиль компании, куда был отклик (21.D1). */
+export async function shareProfileWithCompany(companyId: string): Promise<void> {
+  await api.put(`/career/profile/grants/${companyId}`)
+}
+
+/** Закрыть профиль, открытый компании адресно. Действует сразу. */
+export async function unshareProfileWithCompany(companyId: string): Promise<void> {
+  await api.delete(`/career/profile/grants/${companyId}`)
+}
+
 /** Карточка кандидата для работодателя: допуск к вузу и открытый профиль проверяет сервер. */
 export async function fetchCandidateCard(studentId: string): Promise<CandidateCard> {
   const { data } = await api.get<CandidateCard>(`/career/profile/candidates/${studentId}`)

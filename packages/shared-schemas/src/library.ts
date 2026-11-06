@@ -1,5 +1,7 @@
 import { z } from 'zod'
-import { PageSchema } from './pagination.js'
+import type { LeftAcademicStatusCode } from '@studenthub/shared-types'
+import { PageSchema, queryBoolean } from './pagination.js'
+import { vm } from './validation-messages.js'
 
 // Библиотека вуза (Фаза 20, docs/PROJECT.md §3.11): каталог, экземпляры, выдачи, брони.
 // Книги берут студенты и старосты своего вуза, выдаёт и принимает библиотекарь, модуль и
@@ -86,7 +88,7 @@ export const IsbnSchema = z
   .string()
   .trim()
   .transform((v) => v.replace(/[\s-]/g, '').toUpperCase())
-  .refine((v) => /^(\d{9}[\dX]|\d{13})$/.test(v), 'ISBN — 10 или 13 цифр')
+  .refine((v) => /^(\d{9}[\dX]|\d{13})$/.test(v), vm('validation.library.isbn'))
 
 const currentYearPlusOne = new Date().getFullYear() + 1
 
@@ -159,7 +161,7 @@ export const AddBookCopiesSchema = z
   })
   .strict()
   .refine((v) => (v.inventoryNumbers ? 1 : 0) + (v.count ? 1 : 0) === 1, {
-    message: 'Укажите инвентарные номера или количество',
+    message: vm('validation.library.copiesOrCount'),
     path: ['count'],
   })
 export type AddBookCopiesInput = z.infer<typeof AddBookCopiesSchema>
@@ -306,12 +308,25 @@ function isCalendarDay(value: string): boolean {
 /** Дата «YYYY-MM-DD»: срок выдачи — до конца этого дня по часам вуза. */
 export const LibraryDateSchema = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД')
-  .refine(isCalendarDay, 'Такой даты нет')
+  .regex(/^\d{4}-\d{2}-\d{2}$/, vm('validation.date.format'))
+  .refine(isCalendarDay, vm('validation.date.invalid'))
 
 /** Сканер студенческого отдал токен из QR — сервер сверяет читателя и выдаёт пропуск. */
 export const ResolveReaderSchema = z.object({ token: z.string().min(1).max(2048) }).strict()
 export type ResolveReaderInput = z.infer<typeof ResolveReaderSchema>
+
+/**
+ * Читатель без телефона (Фаза 21.C5): библиотекарь находит его по номеру студенческого билета
+ * в своём вузе. Пропуск такой сессии выдаёт книгу только с отметкой «без телефона».
+ */
+export const LookupReaderSchema = z
+  .object({ studentCardNumber: z.string().trim().min(1).max(50) })
+  .strict()
+export type LookupReaderInput = z.infer<typeof LookupReaderSchema>
+
+/** Как опознан читатель сессии выдачи: сканом QR студенческого или по номеру билета. */
+export const READER_SESSION_VIA = ['qr', 'card'] as const
+export type ReaderSessionVia = (typeof READER_SESSION_VIA)[number]
 
 /** Экземпляр — по коду наклейки или по инвентарному номеру (наклейка стёрлась). */
 const copyRef = {
@@ -328,16 +343,21 @@ export const IssueLoanSchema = z
     ...copyRef,
     /** Не указан — срок по умолчанию из правил вуза. */
     dueDate: LibraryDateSchema.optional(),
+    /**
+     * Отметка «читатель без телефона» (Фаза 21.C5): обязательна, если пропуск получен по
+     * номеру билета, и запрещена при пропуске по скану QR — `409 noPhoneMark`.
+     */
+    withoutPhone: z.boolean().optional(),
   })
   .strict()
-  .refine(oneCopyRef, { message: 'Укажите код наклейки или инвентарный номер', path: ['copyCode'] })
+  .refine(oneCopyRef, { message: vm('validation.library.copyRefRequired'), path: ['copyCode'] })
 export type IssueLoanInput = z.infer<typeof IssueLoanSchema>
 
 /** Возврат — сканом экземпляра: какая выдача открыта, сервер знает сам. */
 export const ReturnLoanSchema = z
   .object({ ...copyRef, condition: BookConditionSchema.default('GOOD') })
   .strict()
-  .refine(oneCopyRef, { message: 'Укажите код наклейки или инвентарный номер', path: ['copyCode'] })
+  .refine(oneCopyRef, { message: vm('validation.library.copyRefRequired'), path: ['copyCode'] })
 export type ReturnLoanInput = z.infer<typeof ReturnLoanSchema>
 
 /** Продление: новая дата или, без неё, срок по умолчанию от текущего срока. */
@@ -376,6 +396,8 @@ export const LoanListQuerySchema = z.object({
   q: z.string().trim().max(100).optional(),
   readerId: z.string().min(1).optional(),
   copyId: z.string().min(1).optional(),
+  /** Только выдачи без скана QR (`true`) или только по скану (`false`), Фаза 21.C5. */
+  withoutPhone: queryBoolean.optional(),
 })
 export type LoanListQueryInput = z.infer<typeof LoanListQuerySchema>
 
@@ -425,9 +447,22 @@ export interface LoanItem {
    * `null`: такая выдача — долг читателя, как просрочка.
    */
   lostSettledAt: string | null
+  /** Выдана без скана QR — по номеру билета с отметкой «читатель без телефона» (21.C5). */
+  withoutPhone: boolean
   book: { id: string; title: string; authors: string; coverUrl: string | null }
   copy: { id: string; inventoryNumber: string }
-  reader: { id: string | null; name: string; group: string | null; card: string | null }
+  reader: {
+    id: string | null
+    name: string
+    group: string | null
+    card: string | null
+    /**
+     * Читатель ушёл из вуза — отчислен, выпущен или переведён (`LEFT_ACADEMIC_STATUS_CODES`,
+     * shared-types): в отчёте о просрочках такая выдача помечается. Учится, удалён или статус
+     * не заполнен — `null`.
+     */
+    leftStatus: LeftAcademicStatusCode | null
+  }
   issuedBy: string | null
 }
 
@@ -435,6 +470,11 @@ export interface LoanItem {
 export interface LibraryReaderSession {
   reader: LibraryReader
   eligibility: ReaderEligibility
+  /**
+   * Как опознан читатель: `qr` — скан студенческого, `card` — номер билета (читатель без
+   * телефона): выдача по такой сессии требует отметки `withoutPhone`.
+   */
+  via: ReaderSessionVia
   /** Пропуск на выдачу этому читателю — живёт дольше двухминутного QR студенческого. */
   ticket: string
   ticketExpiresAt: string
@@ -487,6 +527,8 @@ export interface IdAccessItem {
   loanId: string | null
   bookTitle: string | null
   ip: string | null
+  /** Без скана QR: поиск читателя по номеру билета или выдача по нему (21.C5). */
+  withoutPhone: boolean
 }
 
 // ── Брони (20.8) ───────────────────────────────────────────────────────────────────
@@ -559,6 +601,54 @@ export interface LibraryClearance {
   loans: LoanItem[]
 }
 
+// ── Справка с кодом проверки (21.C4) ───────────────────────────────────────────────
+
+/**
+ * Журнал выданных справок «задолженностей нет»: действующие, отозванные, все. Справку
+ * выпускает сам студент (PDF с кодом и QR), отзывает библиотекарь.
+ */
+export const CLEARANCE_STATUSES = ['active', 'revoked', 'all'] as const
+export const ClearanceListQuerySchema = z.object({
+  page: PageSchema,
+  limit: z.coerce.number().int().positive().max(100).default(20),
+  status: z.enum(CLEARANCE_STATUSES).default('all'),
+  readerId: z.string().min(1).optional(),
+})
+export type ClearanceListQueryInput = z.infer<typeof ClearanceListQuerySchema>
+
+/** Отзыв справки — с причиной: она уходит в журнал аудита. */
+export const RevokeClearanceSchema = z
+  .object({ reason: z.string().trim().min(3).max(300) })
+  .strict()
+export type RevokeClearanceInput = z.infer<typeof RevokeClearanceSchema>
+
+export interface ClearanceCertificateItem {
+  /** Код проверки из бланка — по нему `/verify/<код>`. */
+  code: string
+  number: string | null
+  issuedAt: string
+  revokedAt: string | null
+  /** Читатель снимком на момент выдачи (как на странице проверки — полностью). */
+  reader: { id: string | null; name: string | null }
+}
+
+// ── Удаление аккаунта (21.C1) ──────────────────────────────────────────────────────
+
+/**
+ * Книга за читателем, из-за которой нельзя удалить аккаунт: на руках или утерянная с
+ * непогашенным долгом. Название и инвентарный номер — из снимка выдачи.
+ */
+export interface AccountLibraryDebt {
+  loanId: string
+  status: Extract<LoanStatusValue, 'OPEN' | 'LOST'>
+  bookTitle: string
+  inventoryNumber: string
+  /** Последний день срока «YYYY-MM-DD» по часам вуза. */
+  dueDate: string
+  /** На руках и срок прошёл. */
+  overdue: boolean
+}
+
 // ── Отчёты и инвентаризация (20.12) ────────────────────────────────────────────────
 
 /** Сводка фонда и выдач — библиотекарю и админу вуза. */
@@ -572,7 +662,14 @@ export interface LibrarySummary {
     lost: number
     writtenOff: number
   }
-  loans: { open: number; overdue: number; issuedLast30: number; returnedLast30: number }
+  loans: {
+    open: number
+    overdue: number
+    issuedLast30: number
+    returnedLast30: number
+    /** Из выданных за 30 дней — без скана QR, по номеру билета (21.C5). */
+    withoutPhoneLast30: number
+  }
   readers: { withLoans: number; debtors: number }
   reservations: { queued: number; ready: number }
 }
@@ -584,7 +681,7 @@ export const PopularQuerySchema = z.object({
     .int()
     .refine(
       (v) => (POPULAR_PERIODS as readonly number[]).includes(v),
-      'Период: 30, 90 или 365 дней',
+      vm('validation.library.popularPeriod'),
     )
     .default(90),
 })
@@ -604,7 +701,7 @@ export const InventoryScanSchema = z
     since: LibraryDateSchema.optional(),
   })
   .strict()
-  .refine(oneCopyRef, { message: 'Укажите код наклейки или инвентарный номер', path: ['copyCode'] })
+  .refine(oneCopyRef, { message: vm('validation.library.copyRefRequired'), path: ['copyCode'] })
 export type InventoryScanInput = z.infer<typeof InventoryScanSchema>
 
 /** Чем экземпляр в руках не похож на «стоит на полке» — повод разобраться. */

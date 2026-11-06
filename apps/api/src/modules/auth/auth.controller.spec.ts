@@ -8,6 +8,7 @@ import type { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { REFRESH_COOKIE, ROLE_COOKIE } from './auth.constants'
 import type { ConfigService } from '@nestjs/config'
+import type { CompanyMembersService } from '../career/company-members.service'
 import type { EnvVars } from '../../config/env.schema'
 
 // Роль cookie в /auth/refresh: у отказа она такая же важная, как код ответа, — role-cookie,
@@ -25,6 +26,7 @@ function setup(refreshImpl: () => Promise<SessionResult>) {
     {} as AuditService,
     {} as PasswordResetService,
     new JwtService(),
+    {} as CompanyMembersService,
   )
 
   const setCookie = jest.fn()
@@ -116,6 +118,7 @@ describe('AuthController.qrApprove — только по свежему access-�
       audit as unknown as AuditService,
       {} as PasswordResetService,
       jwt,
+      {} as CompanyMembersService,
     )
     const req = (ageSec: number) =>
       ({
