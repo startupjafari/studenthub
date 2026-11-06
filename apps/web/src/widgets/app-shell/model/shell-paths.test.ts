@@ -44,7 +44,7 @@ function pageUrls(dir: string): string[] {
       const segments = relative(APP_DIR, dir)
         .split(sep)
         .filter((s) => s && !(s.startsWith('(') && s.endsWith(')')))
-        .map((s) => s.replace('%5F', '_'))
+        .map((s) => s.replaceAll('%5F', '_'))
       urls.push(`/${segments.join('/')}`)
     }
   }
