@@ -175,7 +175,7 @@ export function floorMesh(doc: FloorPlanDoc, options: FloorMeshOptions): FloorMe
   const glass = new Builder()
 
   const openingsByWall = new Map<string, PlanOpening[]>()
-  for (const o of Object.values(doc.openings)) {
+  for (const o of [...Object.values(doc.openings), ...liftWallOpenings(doc)]) {
     if (!o.wallId) continue
     const list = openingsByWall.get(o.wallId)
     if (list) list.push(o)
@@ -338,6 +338,72 @@ export function floorMesh(doc: FloorPlanDoc, options: FloorMeshOptions): FloorMe
     liftDoors: liftDoors.build(),
     liftLights: liftLights.build(),
   }
+}
+
+/** Насколько далеко перед дверью лифта может стоять стена, в которой нужен проём, м. */
+const LIFT_WALL_REACH_M = 1.5
+
+/**
+ * Проёмы под двери лифтов в стенах перед шахтами. На плане шахту часто ставят в нишу за
+ * стеной коридора и рисуют в ней один общий проём — а то и ни одного; кабина тогда
+ * открывалась бы в стену. Дверь лифта и есть проём: если между лицом шахты и площадкой
+ * стоит стена, параллельная лицу, в ней прорезается проём шириной двери — кроме мест, где
+ * проём уже нарисован.
+ */
+export function liftWallOpenings(doc: FloorPlanDoc): PlanOpening[] {
+  const out: PlanOpening[] = []
+  const walls = Object.entries(doc.walls).filter(([, w]) => w.kind !== 'virtual')
+  for (const v of Object.values(doc.verticals)) {
+    if (v.type !== 'elevator') continue
+    const box = orientedBox(v.outline.map(([x, y]) => [x / 1000, y / 1000] as Pt3))
+    if (!box) continue
+    const { u, w, s0, s1, t0, t1 } = box
+    const sm = (s0 + s1) / 2
+    const tm = (t0 + t1) / 2
+    const L: Pt3 = [v.landing.x / 1000, v.landing.y / 1000]
+    const ls = L[0] * u[0] + L[1] * u[1] - sm
+    const lt = L[0] * w[0] + L[1] * w[1] - tm
+    const alongU = Math.abs(ls) >= Math.abs(lt)
+    const N: Pt3 = alongU
+      ? [u[0] * Math.sign(ls || 1), u[1] * Math.sign(ls || 1)]
+      : [w[0] * Math.sign(lt || 1), w[1] * Math.sign(lt || 1)]
+    const depth = alongU ? (s1 - s0) / 2 : (t1 - t0) / 2
+    const span = alongU ? t1 - t0 : s1 - s0
+    const F: Pt3 = [u[0] * sm + w[0] * tm + N[0] * depth, u[1] * sm + w[1] * tm + N[1] * depth]
+    const toLanding = (L[0] - F[0]) * N[0] + (L[1] - F[1]) * N[1]
+    const dw = liftDoorWidth(span)
+    for (const [wid, wall] of walls) {
+      const a = doc.nodes[wall.a]
+      const b = doc.nodes[wall.b]
+      if (!a || !b) continue
+      const A: Pt3 = [a.x / 1000, a.y / 1000]
+      const len = Math.hypot(b.x - a.x, b.y - a.y) / 1000
+      if (len < dw) continue
+      const d: Pt3 = [(b.x - a.x) / 1000 / len, (b.y - a.y) / 1000 / len]
+      // Стена параллельна лицу шахты, стоит перед ним (между лицом и площадкой).
+      if (Math.abs(d[0] * N[0] + d[1] * N[1]) > 0.05) continue
+      const gap = (A[0] - F[0]) * N[0] + (A[1] - F[1]) * N[1]
+      if (gap <= 0 || gap > LIFT_WALL_REACH_M || gap >= toLanding) continue
+      const t = (F[0] - A[0]) * d[0] + (F[1] - A[1]) * d[1]
+      const from = t - dw / 2
+      const to = t + dw / 2
+      if (from < 0 || to > len) continue
+      const busy = Object.values(doc.openings).some(
+        (o) => o.wallId === wid && o.offsetMm / 1000 < to && (o.offsetMm + o.widthMm) / 1000 > from,
+      )
+      if (busy) continue
+      out.push({
+        type: 'door',
+        wallId: wid,
+        offsetMm: Math.round(from * 1000),
+        widthMm: Math.round(dw * 1000),
+        heightMm: 2100,
+        swing: 'left-in',
+        access: 'public',
+      })
+    }
+  }
+  return out
 }
 
 /** Ширина двери лифта: не больше метра и не больше 60 % стороны шахты. */
