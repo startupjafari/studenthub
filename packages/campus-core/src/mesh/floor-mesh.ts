@@ -36,6 +36,10 @@ export interface FloorMesh {
   stairs: MeshBuffers
   /** Лифты — шахты на высоту этажа. */
   elevators: MeshBuffers
+  /** Двери лифтов со стороны площадки: створки, рамка, панель вызова (сталь). */
+  liftDoors: MeshBuffers
+  /** Светящееся у дверей лифта: табло над дверью и кнопка вызова. */
+  liftLights: MeshBuffers
 }
 
 export interface FloorMeshOptions {
@@ -277,6 +281,8 @@ export function floorMesh(doc: FloorPlanDoc, options: FloorMeshOptions): FloorMe
   // так любая нарисованная форма читается маршем или шахтой.
   const stairs = new Builder()
   const elevators = new Builder()
+  const liftDoors = new Builder()
+  const liftLights = new Builder()
   for (const v of Object.values(doc.verticals)) {
     const pts = v.outline.map(([x, y]) => scene({ x, y }))
     const box = orientedBox(pts)
@@ -287,6 +293,7 @@ export function floorMesh(doc: FloorPlanDoc, options: FloorMeshOptions): FloorMe
     const mid = (t0 + t1) / 2
     if (v.type === 'elevator') {
       prism(elevators, at(s0, mid), at(s1, mid), half, y0, y0 + top)
+      liftFront(liftDoors, liftLights, box, scene(v.landing), y0, top)
       continue
     }
     // Двухмаршевая лестница с этажной площадкой у входа (см. stairGeometry).
@@ -328,6 +335,77 @@ export function floorMesh(doc: FloorPlanDoc, options: FloorMeshOptions): FloorMe
     floors,
     stairs: stairs.build(),
     elevators: elevators.build(),
+    liftDoors: liftDoors.build(),
+    liftLights: liftLights.build(),
+  }
+}
+
+/** Ширина двери лифта: не больше метра и не больше 60 % стороны шахты. */
+export function liftDoorWidth(side: number): number {
+  return Math.min(1, side * 0.6)
+}
+
+/**
+ * Лицо лифта на этаже — со стороны площадки (там дверь): стальные створки с щелью
+ * посередине, рамка вокруг проёма, панель вызова сбоку с горящей кнопкой, табло над дверью.
+ * Всё чуть выступает из шахты, чтобы читалось на её фоне издалека и вблизи.
+ */
+function liftFront(
+  doors: Builder,
+  lights: Builder,
+  box: { u: Pt3; w: Pt3; s0: number; s1: number; t0: number; t1: number },
+  landing: Pt3,
+  y0: number,
+  top: number,
+): void {
+  const { u, w, s0, s1, t0, t1 } = box
+  const sm = (s0 + s1) / 2
+  const tm = (t0 + t1) / 2
+  const ls = landing[0] * u[0] + landing[1] * u[1] - sm
+  const lt = landing[0] * w[0] + landing[1] * w[1] - tm
+  // Сторона двери: ось, вдоль которой площадка дальше от центра шахты (то же правило, что у
+  // поездки в кабине при проходе по маршруту — двери шахты и кабины совпадают).
+  const alongU = Math.abs(ls) >= Math.abs(lt)
+  const N: Pt3 = alongU
+    ? [u[0] * Math.sign(ls || 1), u[1] * Math.sign(ls || 1)]
+    : [w[0] * Math.sign(lt || 1), w[1] * Math.sign(lt || 1)]
+  const T: Pt3 = [-N[1], N[0]]
+  const depth = alongU ? (s1 - s0) / 2 : (t1 - t0) / 2
+  const span = alongU ? t1 - t0 : s1 - s0
+  const c: Pt3 = [u[0] * sm + w[0] * tm + N[0] * depth, u[1] * sm + w[1] * tm + N[1] * depth]
+  // Точка на лице шахты: `x` — вдоль лица от центра, `out` — наружу.
+  const at = (x: number, out: number): Pt3 => [
+    c[0] + T[0] * x + N[0] * out,
+    c[1] + T[1] * x + N[1] * out,
+  ]
+  const piece = (
+    m: Builder,
+    x0: number,
+    x1: number,
+    out: number,
+    thick: number,
+    ya: number,
+    yb: number,
+  ): void => {
+    if (yb > ya) prism(m, at(x0, out), at(x1, out), thick / 2, y0 + ya, y0 + yb)
+  }
+  const dw = liftDoorWidth(span)
+  const dh = Math.min(2.1, top - 0.3)
+  if (dh < 1.5) return
+  const frame = 0.08
+  // Рамка: стойки и перемычка.
+  piece(doors, -dw / 2 - frame, -dw / 2, 0.04, 0.08, 0, dh + frame)
+  piece(doors, dw / 2, dw / 2 + frame, 0.04, 0.08, 0, dh + frame)
+  piece(doors, -dw / 2, dw / 2, 0.04, 0.08, dh, dh + frame)
+  // Створки с щелью 2 см посередине.
+  piece(doors, -dw / 2, -0.01, 0.015, 0.03, 0, dh)
+  piece(doors, 0.01, dw / 2, 0.015, 0.03, 0, dh)
+  // Табло над дверью и панель вызова сбоку (если сбоку есть место).
+  if (top > dh + 0.35) piece(lights, -0.2, 0.2, 0.03, 0.04, dh + 0.12, dh + 0.26)
+  const side = dw / 2 + frame + 0.12
+  if (side + 0.12 < span / 2) {
+    piece(doors, side, side + 0.12, 0.02, 0.03, 1.0, 1.3)
+    piece(lights, side + 0.035, side + 0.085, 0.04, 0.02, 1.13, 1.18)
   }
 }
 

@@ -1073,6 +1073,11 @@ export class CampusSceneController {
     // Лестницы — светлым камнем, шахты лифтов — тёмным металлом: видно сквозь окна и сверху.
     const stairsMat = this.material(new THREE.MeshLambertMaterial({ color: '#d6d3d1' }))
     const liftMat = this.material(new THREE.MeshLambertMaterial({ color: '#475569' }))
+    // Двери лифта — шлифованная сталь: блик от солнца отличает их от тёмной шахты.
+    const liftDoorMat = this.material(
+      new THREE.MeshPhongMaterial({ color: '#c3cad4', specular: '#ffffff', shininess: 70 }),
+    )
+    const liftLightMat = this.material(new THREE.MeshBasicMaterial({ color: '#fbbf24' }))
     const kindMats = new Map<SpaceKind | 'none', THREE.Material>()
     const kindMat = (k: SpaceKind | 'none'): THREE.Material => {
       let m = kindMats.get(k)
@@ -1137,12 +1142,18 @@ export class CampusSceneController {
         this.content.add(new THREE.Mesh(this.geometry(mesh.glass), glassMat))
       if (mesh.stairs.indices.length)
         this.content.add(new THREE.Mesh(this.geometry(mesh.stairs), stairsMat))
-      if (mesh.elevators.indices.length) {
-        const shaft = new THREE.Mesh(this.geometry(mesh.elevators), liftMat)
-        // В поездке шахты прячутся: кабина стоит на их месте, а глухая коробка заслонила бы её.
-        shaft.visible = !this.cabin
-        this.shaftMeshes.push(shaft)
-        this.content.add(shaft)
+      // Шахта и её лицо на этаже (двери, рамка, табло). В поездке прячутся: кабина стоит на
+      // их месте, а глухая коробка и закрытые двери заслонили бы её.
+      for (const [buf, mat] of [
+        [mesh.elevators, liftMat],
+        [mesh.liftDoors, liftDoorMat],
+        [mesh.liftLights, liftLightMat],
+      ] as const) {
+        if (!buf.indices.length) continue
+        const part = new THREE.Mesh(this.geometry(buf), mat)
+        part.visible = !this.cabin
+        this.shaftMeshes.push(part)
+        this.content.add(part)
       }
       for (const [kind, buf] of Object.entries(mesh.floors)) {
         const floor = new THREE.Mesh(this.geometry(buf!), kindMat(kind as SpaceKind | 'none'))
