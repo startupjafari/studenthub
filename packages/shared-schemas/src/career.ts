@@ -154,6 +154,38 @@ export const ResendCompanyVerificationSchema = z
   .strict()
 export type ResendCompanyVerificationInput = z.infer<typeof ResendCompanyVerificationSchema>
 
+// ── Приглашение коллеги в компанию (21.D2) ───────────────────────────────────
+
+/**
+ * Статус приглашения коллеги. Истечение не хранится: срок сверяется с `expiresAt` в
+ * момент чтения, как у допуска компании, — иначе «истёк» зависел бы от прохода cron.
+ */
+export const COMPANY_INVITE_STATUSES = ['PENDING', 'ACCEPTED', 'REVOKED'] as const
+export const CompanyInviteStatusSchema = z.enum(COMPANY_INVITE_STATUSES)
+export type CompanyInviteStatus = z.infer<typeof CompanyInviteStatusSchema>
+
+/** OWNER приглашает коллегу по почте. Роль не выбирается: приглашённый — всегда RECRUITER. */
+export const CreateCompanyInviteSchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email().max(160),
+  })
+  .strict()
+export type CreateCompanyInviteInput = z.infer<typeof CreateCompanyInviteSchema>
+
+/**
+ * Регистрация по приглашению компании. Почта — из приглашения (по ней пришла ссылка), роль
+ * и компания — тоже: тело принимает только имя и пароль, как регистрация по инвайту вуза.
+ */
+export const AcceptCompanyInviteSchema = z
+  .object({
+    token: z.string().min(16).max(200),
+    password: PasswordSchema,
+    firstName: z.string().trim().min(1).max(60),
+    lastName: z.string().trim().min(1).max(60),
+  })
+  .strict()
+export type AcceptCompanyInviteInput = z.infer<typeof AcceptCompanyInviteSchema>
+
 // ── Профиль компании ─────────────────────────────────────────────────────────
 
 /** Численность — диапазоном: точный штат никто не назовёт, а студенту важен порядок. */

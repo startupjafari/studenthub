@@ -48,6 +48,11 @@ export const ErrorCode = {
   // Удалить можно только черновик вакансии: у опубликованной, снятой и закрытой есть
   // история модерации и откликов. Отдельно от CONFLICT: клиент предлагает закрыть вакансию.
   VACANCY_NOT_DELETABLE: 'VACANCY_NOT_DELETABLE',
+  // Приглашение компании (21.D2) открыли, а на его адрес уже заведён аккаунт платформы —
+  // в том числе работодатель, исключённый из компании. Новый аккаунт на тот же адрес не
+  // создать, а привязывать существующий по одной ссылке из письма небезопасно. Клиент
+  // объясняет, что нужен другой адрес или обращение в поддержку.
+  COMPANY_INVITE_EMAIL_TAKEN: 'COMPANY_INVITE_EMAIL_TAKEN',
 } as const
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
@@ -91,6 +96,7 @@ export const ERROR_CODE_STATUS: Record<ErrorCode, number> = {
   EXPORT_TOO_LARGE: 400,
   // 409 — запрос верен, но противоречит состоянию вакансии.
   VACANCY_NOT_DELETABLE: 409,
+  COMPANY_INVITE_EMAIL_TAKEN: 409,
 }
 
 /** Код по умолчанию для HTTP-статуса (для стандартных Nest-исключений без явного кода). */
