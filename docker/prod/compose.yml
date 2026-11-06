@@ -192,7 +192,7 @@ services:
   # Продление сертификата раз в 12 часов. Первый выпуск — разовая команда до старта nginx
   # (docs/RUNBOOK.md): без сертификата nginx не стартует.
   certbot:
-    image: certbot/certbot:v5.8.0
+    image: certbot/certbot:v5.9.0
     entrypoint:
       [
         'sh',
