@@ -13,12 +13,19 @@ export type IdGen = (kind: IdKind) => string
 declare const crypto: { getRandomValues<T extends Uint8Array>(array: T): T }
 
 const ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz'
+const ID_LENGTH = 10
 
 export const randomIds: IdGen = (kind) => {
-  const bytes = crypto.getRandomValues(new Uint8Array(10))
-  let out = kind + '_'
-  for (const b of bytes) out += ALPHABET[b % ALPHABET.length]
-  return out
+  // Равномерно: от байта берём младшие 6 бит (0…63), значения за пределами алфавита
+  // отбрасываем. `byte % 36` давал бы первые четыре знака чаще остальных (256 = 7·36 + 4).
+  let body = ''
+  while (body.length < ID_LENGTH) {
+    for (const b of crypto.getRandomValues(new Uint8Array(16))) {
+      const index = b & 63
+      if (index < ALPHABET.length && body.length < ID_LENGTH) body += ALPHABET[index]
+    }
+  }
+  return `${kind}_${body}`
 }
 
 /** Детерминированный генератор для тестов и фикстур: n1, n2…, w1, w2… */
