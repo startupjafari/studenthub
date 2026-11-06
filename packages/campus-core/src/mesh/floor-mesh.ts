@@ -290,20 +290,36 @@ export function floorMesh(doc: FloorPlanDoc, options: FloorMeshOptions): FloorMe
       continue
     }
     // Двухмаршевая лестница с этажной площадкой у входа (см. stairGeometry).
+    // Марш — ступени на наклонной плите (снизу «пила» толщиной в плиту), площадка — плита:
+    // под маршем пусто, и с марша ниже проходишь в полный рост. По внутреннему краю маршей —
+    // стеклянное ограждение.
     const geo = stairGeometry(box, scene(v.landing), Math.min(top, options.heightMm / 1000))
     for (const f of geo.flights) {
+      const riser = (f.y1 - f.y0) / f.steps
+      const p = (k: number): Pt3 => [
+        f.from[0] + (f.to[0] - f.from[0]) * k,
+        f.from[1] + (f.to[1] - f.from[1]) * k,
+      ]
       for (let i = 0; i < f.steps; i++) {
-        const k0 = i / f.steps
-        const k1 = (i + 1) / f.steps
-        const p = (k: number): Pt3 => [
-          f.from[0] + (f.to[0] - f.from[0]) * k,
-          f.from[1] + (f.to[1] - f.from[1]) * k,
-        ]
-        prism(stairs, p(k0), p(k1), f.half, y0, y0 + f.y0 + (f.y1 - f.y0) * k1)
+        const top1 = f.y0 + riser * (i + 1)
+        const bottom = Math.max(0, top1 - riser - STAIR_WAIST_M)
+        prism(stairs, p(i / f.steps), p((i + 1) / f.steps), f.half, y0 + bottom, y0 + top1)
       }
+      const off = f.half - 0.03
+      const edge = (k: number, y: number): V3 => {
+        const q = p(k)
+        return [q[0] + f.inner[0] * off, y, q[1] + f.inner[1] * off]
+      }
+      const b0 = y0 + f.y0 + riser
+      const b1 = y0 + f.y1 + riser
+      const n: V3 = [f.inner[0], 0, f.inner[1]]
+      const m: V3 = [-f.inner[0], 0, -f.inner[1]]
+      const quad = [edge(0, b0), edge(1, b1), edge(1, b1 + RAIL_M), edge(0, b0 + RAIL_M)] as const
+      glass.quad(quad[0], quad[1], quad[2], quad[3], n)
+      glass.quad(quad[0], quad[1], quad[2], quad[3], m)
     }
     const pl = geo.platform
-    prism(stairs, pl.from, pl.to, pl.half, y0, y0 + pl.y)
+    prism(stairs, pl.from, pl.to, pl.half, y0 + pl.y - STAIR_WAIST_M, y0 + pl.y)
   }
 
   return {
@@ -317,6 +333,10 @@ export function floorMesh(doc: FloorPlanDoc, options: FloorMeshOptions): FloorMe
 
 /** Шаг ступени по высоте, м. */
 const STEP_RISE_M = 0.17
+/** Толщина плиты марша и площадки под ступенями, м. */
+const STAIR_WAIST_M = 0.2
+/** Высота ограждения над кромками ступеней, м. */
+const RAIL_M = 0.9
 
 export interface StairFlight {
   /** Ось марша по земле: откуда (низ) и куда (верх), полуширина. */
@@ -327,6 +347,8 @@ export interface StairFlight {
   y0: number
   y1: number
   steps: number
+  /** Единичный вектор по земле от оси марша к соседнему маршу — там ограждение. */
+  inner: Pt3
 }
 
 export interface StairLayout {
@@ -407,6 +429,7 @@ export function stairGeometry(
       y0: 0,
       y1: rise / 2,
       steps,
+      inner: [B[0], B[1]],
     }
     const f2: StairFlight = {
       from: P(edge, br),
@@ -415,6 +438,7 @@ export function stairGeometry(
       y0: rise / 2,
       y1: rise,
       steps,
+      inner: [-B[0], -B[1]],
     }
     const stripMid = (near + start) / 2
     const platMid = (edge + far) / 2
@@ -448,7 +472,15 @@ export function stairGeometry(
   const dirB = start === b0 ? 1 : -1
   const bs = start + dirB * 0.3
   const edge = end - dirB * platB
-  const f1: StairFlight = { from: P(an, bs), to: P(an, edge), half: q, y0: 0, y1: rise / 2, steps }
+  const f1: StairFlight = {
+    from: P(an, bs),
+    to: P(an, edge),
+    half: q,
+    y0: 0,
+    y1: rise / 2,
+    steps,
+    inner: [A[0] * dirA, A[1] * dirA],
+  }
   const f2: StairFlight = {
     from: P(af, edge),
     to: P(af, bs),
@@ -456,6 +488,7 @@ export function stairGeometry(
     y0: rise / 2,
     y1: rise,
     steps,
+    inner: [-A[0] * dirA, -A[1] * dirA],
   }
   const stripMid = (near + stripEnd) / 2
   const bandsMid = (stripEnd + far) / 2
@@ -486,13 +519,14 @@ export function stairGeometry(
 
 /**
  * Проём, который вертикаль этажа оставляет в полу и плите этажа выше, в мм корпуса: шахта
- * лифта — целиком, лестница — над маршами (этажная площадка остаётся полом).
+ * лифта — целиком, лестница — над маршами (этажная площадка остаётся полом). `riseM` —
+ * высота этажа, где стоит вертикаль: от неё зависит раскладка маршей, а с ней и проём.
  */
-export function verticalOpening(v: PlanVertical): Pt[] {
+export function verticalOpening(v: PlanVertical, riseM = 3): Pt[] {
   const pts = v.outline.map(([x, y]) => [x / 1000, y / 1000] as Pt3)
   const box = v.type === 'elevator' ? null : orientedBox(pts)
   if (!box) return v.outline.map(([x, y]) => ({ x, y }))
-  const { well } = stairGeometry(box, [v.landing.x / 1000, v.landing.y / 1000], 3)
+  const { well } = stairGeometry(box, [v.landing.x / 1000, v.landing.y / 1000], riseM)
   return well.map(([x, y]) => ({ x: Math.round(x * 1000), y: Math.round(y * 1000) }))
 }
 

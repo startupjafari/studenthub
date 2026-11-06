@@ -1120,7 +1120,10 @@ export class CampusSceneController {
     this.shaftMeshes.length = 0
     for (const f of visible) {
       const under = below(f)
-      const openings = under ? Object.values(under.doc.verticals).map(verticalOpening) : []
+      // Высота марша — высота этажа ниже: от неё зависит раскладка лестницы, а с ней и проём.
+      const openings = under
+        ? Object.values(under.doc.verticals).map((v) => verticalOpening(v, under.heightMm / 1000))
+        : []
       const opts = {
         elevationMm: f.elevationMm,
         heightMm: f.heightMm,
