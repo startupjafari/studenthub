@@ -11140,8 +11140,11 @@
           "409": {
             "description": "CONFLICT — работа отправлена или файлов уже 10"
           },
-          "422": {
-            "description": "FILE_TYPE_NOT_ALLOWED / FILE_TOO_LARGE"
+          "413": {
+            "description": "FILE_TOO_LARGE — больше лимита категории"
+          },
+          "415": {
+            "description": "FILE_TYPE_NOT_ALLOWED — тип по содержимому не подходит"
           }
         },
         "security": [
@@ -14348,7 +14351,7 @@
           "400": {
             "description": "BAD_REQUEST — файл или число частей за пределом"
           },
-          "422": {
+          "415": {
             "description": "FILE_TYPE_NOT_ALLOWED — только PDF/JPG/PNG"
           }
         },
@@ -14420,8 +14423,11 @@
           "403": {
             "description": "FORBIDDEN — ключ не принадлежит вызывающему"
           },
-          "422": {
-            "description": "FILE_TYPE_NOT_ALLOWED / FILE_TOO_LARGE"
+          "413": {
+            "description": "FILE_TOO_LARGE — больше лимита категории"
+          },
+          "415": {
+            "description": "FILE_TYPE_NOT_ALLOWED — тип по содержимому не подходит"
           }
         },
         "security": [
@@ -23583,8 +23589,11 @@
           "403": {
             "description": "FORBIDDEN — нет прав или ключ не свой"
           },
-          "422": {
-            "description": "FILE_TYPE_NOT_ALLOWED / FILE_TOO_LARGE"
+          "413": {
+            "description": "FILE_TOO_LARGE — больше лимита категории"
+          },
+          "415": {
+            "description": "FILE_TYPE_NOT_ALLOWED — тип по содержимому не подходит"
           }
         },
         "security": [
