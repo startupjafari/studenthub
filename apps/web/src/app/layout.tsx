@@ -9,6 +9,7 @@ import { AppSplash } from '../shared/ui/app-splash'
 import { PlatformGate } from '../widgets/platform-gate'
 import { PersistentShell, ROLE_TO_VARIANT, type NavVariant } from '../widgets/app-shell'
 import { getServerSession } from '../shared/session/server'
+import { pickMessages, ROOT_SCOPE } from '../i18n/pick-messages'
 import { AppProviders } from './providers'
 import './globals.css'
 
@@ -43,7 +44,10 @@ export const viewport: Viewport = {
 // offline-safe). Стек задаётся токеном --font-sans в globals.css.
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const locale = await getLocale()
-  const messages = await getMessages()
+  // Клиенту — не весь словарь (~400 КБ строкой в каждом HTML), а только пространства имён
+  // оболочки и провайдеров. Остальное досылают layout'ы зон через <MessagesScope>
+  // (src/i18n/messages-scope.tsx, состав — src/i18n/message-scopes.json).
+  const messages = pickMessages(await getMessages(), ROOT_SCOPE)
   // timeZone задан в i18n/request.ts; прокидываем в клиентский провайдер, иначе
   // next-intl на клиенте падает ENVIRONMENT_FALLBACK при форматировании дат.
   const timeZone = await getTimeZone()

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { GraduationCap } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { MeshBrandPanel } from '../../shared/ui/mesh-brand-panel'
+import { MessagesScope } from '../../i18n/messages-scope'
 
 // Split-лейаут экранов входа/регистрации: слева интерактивная брендовая панель
 // (меш-сетка за мышью, скрыта на мобильном), справа — форма по центру.
@@ -26,7 +27,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
         </div>
         <div className="relative z-10 flex flex-1 items-center justify-center">
           <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-8">
-            {children}
+            <MessagesScope scope="(auth)">{children}</MessagesScope>
           </div>
         </div>
       </main>
