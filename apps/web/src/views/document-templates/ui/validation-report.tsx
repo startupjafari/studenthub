@@ -60,25 +60,29 @@ export function ValidationReport({ validation, className }: ValidationReportProp
         </section>
       )}
 
-      <section className="flex flex-col gap-2" aria-labelledby="tpl-found">
-        <h3 id="tpl-found" className="text-sm font-semibold">
-          {t('foundVariables', { count: variables.length })}
-        </h3>
-        {variables.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t('noVariablesFound')}</p>
-        ) : (
-          <ul className="flex flex-wrap gap-1.5">
-            {variables.map((key) => (
-              <li key={key}>
-                <Badge variant="secondary" className="gap-1.5 whitespace-normal">
-                  <span>{variableLabel(key)}</span>
-                  <code className="font-mono text-[11px] opacity-70">{asTag(key)}</code>
-                </Badge>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      {/* Синтаксическая ошибка останавливает разбор: переменных «не найдено», хотя они есть.
+          Такой ноль только путает — показываем список, когда разбор дошёл до конца. */}
+      {(valid || variables.length > 0 || !errors.some((e) => e.code === 'SYNTAX')) && (
+        <section className="flex flex-col gap-2" aria-labelledby="tpl-found">
+          <h3 id="tpl-found" className="text-sm font-semibold">
+            {t('foundVariables', { count: variables.length })}
+          </h3>
+          {variables.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t('noVariablesFound')}</p>
+          ) : (
+            <ul className="flex flex-wrap gap-1.5">
+              {variables.map((key) => (
+                <li key={key}>
+                  <Badge variant="secondary" className="gap-1.5 whitespace-normal">
+                    <span>{variableLabel(key)}</span>
+                    <code className="font-mono text-[11px] opacity-70">{asTag(key)}</code>
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       {warnings.length > 0 && (
         <section className="flex flex-col gap-2" aria-labelledby="tpl-warnings">

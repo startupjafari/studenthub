@@ -35,6 +35,7 @@ import {
   TableSkeletonRows,
   TableText,
 } from '../../../shared/ui'
+import { afterOverlayClose } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import {
   documentTemplateKeys,
@@ -290,7 +291,9 @@ export function DocumentTemplatesView() {
         <TemplateWizard
           onClose={(id) => {
             setWizard(false)
-            if (id) router.push(`${TEMPLATES_BASE}/${id}`)
+            // В карточку — после того, как окно снимет свою запись истории, иначе адрес
+            // откатится обратно на список.
+            if (id) afterOverlayClose(() => router.push(`${TEMPLATES_BASE}/${id}`))
           }}
         />
       )}

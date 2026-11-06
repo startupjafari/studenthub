@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
@@ -43,6 +43,14 @@ export function TemplateWizard({ onClose }: TemplateWizardProps) {
     onError: (e) => toast.error(errorToast(e)),
   })
 
+  // Шести шагам тесно и в окне, и на телефоне: ряд прокручивается — держим текущий шаг на виду.
+  const stepsRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    stepsRef.current
+      ?.querySelector('[aria-current="step"]')
+      ?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' })
+  }, [step])
+
   const actions = useTemplateActions(detail?.id ?? '')
   const validation = detail?.versions[0]?.validation ?? null
   const valid = validation?.valid === true
@@ -61,11 +69,13 @@ export function TemplateWizard({ onClose }: TemplateWizardProps) {
   return (
     <Modal onClose={() => onClose(detail?.id)} title={t('wizardTitle')} size="xl" height="tall">
       <div className="flex flex-col gap-5">
-        <Stepper
-          steps={STEPS.map((id) => ({ id, label: t(`step_${id}`) }))}
-          current={step}
-          done={step}
-        />
+        <div ref={stepsRef}>
+          <Stepper
+            steps={STEPS.map((id) => ({ id, label: t(`step_${id}`) }))}
+            current={step}
+            done={step}
+          />
+        </div>
 
         {step === 0 && (
           <TemplateInfoForm

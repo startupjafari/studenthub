@@ -98,6 +98,16 @@ describe('ValidationReport', () => {
     expect(screen.getByText('ФИО студента')).toBeInTheDocument()
   })
 
+  it('при синтаксической ошибке не пишет «переменных нет»', () => {
+    render(
+      <ValidationReport
+        validation={{ valid: false, variables: [], errors: [{ code: 'SYNTAX' }], warnings: [] }}
+      />,
+      { wrapper },
+    )
+    expect(screen.queryByText('Переменных в документе нет')).not.toBeInTheDocument()
+  })
+
   it('годный шаблон без ошибок', () => {
     render(
       <ValidationReport

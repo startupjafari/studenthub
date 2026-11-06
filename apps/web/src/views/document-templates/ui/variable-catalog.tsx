@@ -101,7 +101,7 @@ export function VariableCatalog({ compact = false, className }: VariableCatalogP
       {!compact && (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="max-w-2xl text-sm text-muted-foreground">{t('catalogIntro')}</p>
-          <div className="flex shrink-0 gap-2">
+          <div className="flex flex-wrap gap-2 sm:shrink-0">
             <Button variant="outline" size="sm" onClick={() => void copyAll()}>
               <Copy className="size-4" aria-hidden /> {t('copyAll')}
             </Button>
