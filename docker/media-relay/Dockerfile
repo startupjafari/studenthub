@@ -1,7 +1,7 @@
 # Медиа-ретранслятор камер StudentHub (README.md рядом): MediaMTX + наш конфиг.
 # Бинарник берётся из официального образа (там scratch без оболочки), а оболочка нужна
 # entrypoint.sh, чтобы разложить сертификат из переменных Railway.
-FROM bluenviron/mediamtx:1.21.2 AS mediamtx
+FROM bluenviron/mediamtx:1.21.3 AS mediamtx
 
 FROM alpine:3.22
 COPY --from=mediamtx /mediamtx /usr/local/bin/mediamtx
