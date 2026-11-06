@@ -112,7 +112,8 @@
     "serviceCatalog": "Services",
     "support": "Support",
     "campus": "Campus map",
-    "campusMap": "Campus map"
+    "campusMap": "Campus map",
+    "companyTeam": "Team"
   },
   "Products": {
     "switch": "Switch product",
@@ -282,7 +283,12 @@
     "errDescription": "No more than 2000 characters",
     "errCity": "No more than 24 characters",
     "ownerOnlyAccess": "Only the company owner can apply to universities.",
-    "ownerOnlyCompany": "Only the company owner can edit the company profile."
+    "ownerOnlyCompany": "Only the company owner can edit the company profile.",
+    "joinTitle": "Invitation to the “{company}” team",
+    "joinSubtitle": "The account will be created for {email}. The link is valid until {until}.",
+    "joinSubmit": "Join the team",
+    "joinNote": "Your email and company come from the invitation. You will see students of the universities where the company has access.",
+    "joinFailTitle": "The invitation could not be opened"
   },
   "Demo": {
     "title": "Request a trial",
@@ -572,7 +578,10 @@
     "desiredPositionsPlaceholder": "Frontend developer, data analyst",
     "desiredPositionsHint": "Comma-separated, up to 10 positions",
     "relocationReady": "Ready to relocate",
-    "salaryCurrency": "Currency"
+    "salaryCurrency": "Currency",
+    "grantsTitle": "Opened individually — these companies see your profile even while it is hidden",
+    "grantRevoke": "Close",
+    "grantRevoked": "Profile closed to the company"
   },
   "Vacancies": {
     "title": "Jobs",
@@ -605,7 +614,13 @@
     "apply": "Apply",
     "applied": "Application sent",
     "alreadyApplied": "You applied:",
-    "goToApplications": "My applications"
+    "goToApplications": "My applications",
+    "profileVisibleNote": "The company will see your career profile: it is open to employers.",
+    "profileSharedNote": "Your profile is already open to this company.",
+    "profileHiddenTitle": "Your profile is hidden from employers",
+    "profileHiddenText": "The company will get your application with your name, major and skills, but will not see your career profile: about you, what you are looking for, portfolio.",
+    "shareProfile": "Open my profile to this company only",
+    "shareProfileHint": "Other companies will not see it. You can close access in “My applications” or in your career profile."
   },
   "EmployerVacancies": {
     "republish": "Publish again",
@@ -656,7 +671,11 @@
     "reReviewWarning": "Changes to the text or terms send the vacancy back to moderation: students will not see it until the university approves it again.",
     "rejectReason": "{university}: reason — {reason}",
     "closeConfirm": "Close the vacancy?",
-    "closeConfirmText": "The vacancy will disappear from university listings. A closed vacancy cannot be edited or published again."
+    "closeConfirmText": "The vacancy will disappear from university listings. A closed vacancy cannot be edited or published again.",
+    "delete": "Delete",
+    "deleteConfirm": "Delete the draft?",
+    "deleteConfirmText": "The draft will be deleted permanently and cannot be restored. Only drafts can be deleted — a published vacancy is closed instead.",
+    "deleted": "Draft deleted"
   },
   "CareerApplications": {
     "title": "My applications",
@@ -701,7 +720,13 @@
     "withdrawConfirm": "Withdraw the application?",
     "withdrawConfirmText": "The company will see that the application was withdrawn. This cannot be undone.",
     "statusConfirm": "Move to “{status}”?",
-    "statusConfirmText": "{name} will see the new status right away. It cannot be reverted."
+    "statusConfirmText": "{name} will see the new status right away. It cannot be reverted.",
+    "profileSharedWithCompany": "The company sees your profile",
+    "profileHiddenFromCompany": "The company does not see your profile",
+    "shareProfile": "Open my profile to it",
+    "unshareProfile": "Close my profile",
+    "profileShared": "Profile opened to the company",
+    "profileUnshared": "Profile closed to the company"
   },
   "CareerHome": {
     "statsActive": "Active applications",
@@ -1707,7 +1732,9 @@
     "TEMPLATE_DATA_MISSING": "Fields required by the document are missing in the student's profile",
     "MAINTENANCE": "Maintenance is in progress. Please try again a little later",
     "LOGIN_LOCKED": "Too many failed sign-in attempts. Sign-in to this account is temporarily locked — wait a few minutes",
-    "retryHint": "Could not load the data. Refresh the page or try again later."
+    "retryHint": "Could not load the data. Refresh the page or try again later.",
+    "VACANCY_NOT_DELETABLE": "Only a draft can be deleted. Close the vacancy instead — its application history will be kept",
+    "COMPANY_INVITE_EMAIL_TAKEN": "This address already has a StudentHub account. Ask for an invitation to a different address"
   },
   "Notifications": {
     "title": "Notifications",
@@ -6362,6 +6389,35 @@
     "floors": "Floors",
     "floorN": "Floor {label}",
     "editFloor": "Draw"
+  },
+  "EmployerTeam": {
+    "title": "Team",
+    "subtitle": "Who works on behalf of the company",
+    "ownerOnlyTitle": "The team is managed by the company owner",
+    "ownerOnlyText": "To invite a colleague or remove a member, contact the company owner.",
+    "inviteTitle": "Invite a colleague",
+    "inviteText": "They will get an email with a sign-up link and become a recruiter: vacancies and candidates — yes, university access and the team — no.",
+    "emailLabel": "Colleague’s email",
+    "emailPlaceholder": "colleague@company.com",
+    "emailInvalid": "Enter a valid email",
+    "invite": "Invite",
+    "invited": "Invitation sent to {email}",
+    "inviteRevoked": "Invitation revoked",
+    "memberRemoved": "Member removed",
+    "membersTitle": "Members",
+    "membersText": "The owner manages the company and the team, recruiters work with vacancies and candidates",
+    "invitesTitle": "Invitations",
+    "invitesText": "Not accepted yet. The link is valid for two days",
+    "removeConfirm": "Remove {name}?",
+    "removeConfirmText": "They will immediately lose access to the company’s vacancies and candidates. They can only come back with a new invitation to a different address.",
+    "remove": "Remove",
+    "roleOwner": "Owner",
+    "roleRecruiter": "Recruiter",
+    "you": "you",
+    "inviteExpired": "Link expired",
+    "inviteUntil": "Link valid until {date}",
+    "resend": "Send again",
+    "revoke": "Revoke"
   },
   "DocumentTemplates": {
     "title": "Document templates",

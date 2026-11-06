@@ -100,6 +100,13 @@ function setup(user: Record<string, unknown> | null = sourceUser(), consents: st
   const prisma = {
     user: { findFirst: honourPortfolioVisibility(user) },
     careerProfile: { update: jest.fn(), upsert: jest.fn() },
+    careerProfileGrant: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+      upsert: jest.fn().mockResolvedValue({}),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    careerApplication: { count: jest.fn().mockResolvedValue(1) },
     careerConsent: {
       findMany: jest.fn().mockResolvedValue(consents.map((field) => ({ field }))),
       findFirst: jest.fn().mockResolvedValue(null),
@@ -152,6 +159,40 @@ describe('CareerProfileService — карточка для работодате�
 
   it('скрытый профиль отвечает как несуществующий — перебор id ничего не подтверждает', async () => {
     const { service } = setup(sourceUser({ careerProfile: { visibility: 'HIDDEN' } }))
+    await expect(service.cardForEmployer(employer, 'stu-1', ctx)).rejects.toBeInstanceOf(
+      AppException,
+    )
+  })
+
+  it('скрытый профиль, открытый адресно этой компании, отдаётся ей (21.D1)', async () => {
+    const { service, prisma } = setup(
+      sourceUser({ careerProfile: { ...sourceUser().careerProfile, visibility: 'HIDDEN' } }),
+    )
+    prisma.careerProfileGrant.findFirst.mockResolvedValue({ id: 'g-1' })
+
+    const card = await service.cardForEmployer(employer, 'stu-1', ctx)
+
+    expect(card.id).toBe('stu-1')
+    // Открытие ищется для этой компании и только действующее.
+    expect(prisma.careerProfileGrant.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: 'stu-1', companyId: 'co-1', revokedAt: null } }),
+    )
+  })
+
+  it('скрытый профиль без открытия этой компании — NOT_FOUND, даже если открыт другой', async () => {
+    const { service, prisma } = setup(
+      sourceUser({ careerProfile: { ...sourceUser().careerProfile, visibility: 'HIDDEN' } }),
+    )
+    prisma.careerProfileGrant.findFirst.mockResolvedValue(null)
+    const err = (await service
+      .cardForEmployer(employer, 'stu-1', ctx)
+      .catch((e: unknown) => e)) as AppException
+    expect(err.code).toBe('NOT_FOUND')
+  })
+
+  it('адресное открытие не делает карточку без карьерного блока', async () => {
+    const { service, prisma } = setup(sourceUser({ careerProfile: null }))
+    prisma.careerProfileGrant.findFirst.mockResolvedValue({ id: 'g-1' })
     await expect(service.cardForEmployer(employer, 'stu-1', ctx)).rejects.toBeInstanceOf(
       AppException,
     )
@@ -355,6 +396,62 @@ describe('CareerProfileService — свой профиль', () => {
     await service.setConsent(student, { field: 'GPA', granted: true }, ctx)
 
     expect(prisma.careerConsent.create).not.toHaveBeenCalled()
+  })
+})
+
+describe('CareerProfileService — открытие профиля компании (21.D1)', () => {
+  it('открыть можно только компании, куда был отклик', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.careerApplication.count.mockResolvedValue(0)
+    const err = (await service
+      .shareWithCompany(student, 'co-9', ctx)
+      .catch((e: unknown) => e)) as AppException
+    expect(err.code).toBe('NOT_FOUND')
+    expect(prisma.careerProfileGrant.upsert).not.toHaveBeenCalled()
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  it('повторное открытие снимает отметку о закрытии и пишется в аудит', async () => {
+    const { service, prisma, audit } = setup()
+    await service.shareWithCompany(student, 'co-1', ctx)
+    expect(prisma.careerApplication.count).toHaveBeenCalledWith({
+      where: { studentId: 'stu-1', companyId: 'co-1' },
+    })
+    expect(prisma.careerProfileGrant.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ update: { revokedAt: null, grantedAt: expect.any(Date) } }),
+    )
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'career_profile_shared' }),
+    )
+  })
+
+  it('закрытие гасит открытие сразу; повторное закрытие — без ошибки и без аудита', async () => {
+    const { service, prisma, audit } = setup()
+    await service.unshareWithCompany(student, 'co-1', ctx)
+    expect(prisma.careerProfileGrant.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'stu-1', companyId: 'co-1', revokedAt: null },
+      data: { revokedAt: expect.any(Date) },
+    })
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'career_profile_unshared' }),
+    )
+
+    audit.record.mockClear()
+    prisma.careerProfileGrant.updateMany.mockResolvedValue({ count: 0 })
+    await expect(service.unshareWithCompany(student, 'co-1', ctx)).resolves.toBeUndefined()
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  it('свой профиль перечисляет компании, которым он открыт', async () => {
+    const { service, prisma } = setup()
+    const grantedAt = new Date()
+    prisma.careerProfileGrant.findMany.mockResolvedValue([
+      { companyId: 'co-1', grantedAt, company: { name: 'Компания' } },
+    ])
+    const profile = await service.myProfile(student)
+    expect(profile.profileGrants).toEqual([
+      { companyId: 'co-1', companyName: 'Компания', grantedAt },
+    ])
   })
 })
 

@@ -1095,6 +1095,150 @@
         ]
       }
     },
+    "/career/companies/me/members": {
+      "get": {
+        "operationId": "CompanyMembersController_list",
+        "parameters": [],
+        "responses": {
+          "403": {
+            "description": "FORBIDDEN — не владелец"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Участники и ожидающие приглашения своей компании (владелец)",
+        "tags": [
+          "Карьера — команда компании"
+        ]
+      }
+    },
+    "/career/companies/me/invites": {
+      "post": {
+        "operationId": "CompanyMembersController_invite",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCompanyInviteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ id, email, expiresAt } — письмо поставлено"
+          },
+          "403": {
+            "description": "FORBIDDEN — не владелец или компания не активна"
+          },
+          "409": {
+            "description": "CONFLICT — уже в команде или предел приглашений"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Пригласить коллегу по почте (владелец; роль — RECRUITER)",
+        "tags": [
+          "Карьера — команда компании"
+        ]
+      }
+    },
+    "/career/companies/me/invites/{id}": {
+      "delete": {
+        "operationId": "CompanyMembersController_revokeInvite",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "NOT_FOUND — нет такого ожидающего приглашения"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отозвать ожидающее приглашение (владелец)",
+        "tags": [
+          "Карьера — команда компании"
+        ]
+      }
+    },
+    "/career/companies/me/members/{userId}": {
+      "delete": {
+        "operationId": "CompanyMembersController_removeMember",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "409": {
+            "description": "CONFLICT — себя или последнего владельца"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Исключить участника (владелец; не себя и не последнего владельца)",
+        "tags": [
+          "Карьера — команда компании"
+        ]
+      }
+    },
+    "/career/companies/invites/{token}/preview": {
+      "get": {
+        "operationId": "CompanyMembersController_preview",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ companyName, email (маска), expiresAt }"
+          },
+          "404": {
+            "description": "NOT_FOUND — ссылка недействительна"
+          },
+          "410": {
+            "description": "INVITE_USED / INVITE_REVOKED / INVITE_EXPIRED"
+          }
+        },
+        "summary": "Предпросмотр приглашения в компанию по токену (публично)",
+        "tags": [
+          "Карьера — команда компании"
+        ]
+      }
+    },
     "/career/university/companies": {
       "get": {
         "operationId": "UniversityCompaniesController_list",
@@ -1320,6 +1464,65 @@
           }
         ],
         "summary": "Выдать или отозвать согласие на показ поля работодателю",
+        "tags": [
+          "Карьера — профиль"
+        ]
+      }
+    },
+    "/career/profile/grants/{companyId}": {
+      "put": {
+        "operationId": "CareerProfileController_share",
+        "parameters": [
+          {
+            "name": "companyId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Профиль открыт компании"
+          },
+          "404": {
+            "description": "NOT_FOUND — отклика в эту компанию нет"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Открыть скрытый профиль одной компании, куда был отклик (21.D1)",
+        "tags": [
+          "Карьера — профиль"
+        ]
+      },
+      "delete": {
+        "operationId": "CareerProfileController_unshare",
+        "parameters": [
+          {
+            "name": "companyId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Профиль закрыт для компании (идемпотентно)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Закрыть профиль, открытый компании адресно (21.D1)",
         "tags": [
           "Карьера — профиль"
         ]
@@ -1729,6 +1932,36 @@
           }
         ],
         "summary": "Изменить вакансию",
+        "tags": [
+          "Карьера — вакансии компании"
+        ]
+      },
+      "delete": {
+        "operationId": "EmployerVacanciesController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Черновик удалён"
+          },
+          "409": {
+            "description": "VACANCY_NOT_DELETABLE — вакансия не черновик: её можно только закрыть"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удалить черновик вакансии (физически)",
         "tags": [
           "Карьера — вакансии компании"
         ]
@@ -3171,6 +3404,40 @@
           }
         },
         "summary": "Регистрация по инвайту (роль и scope — из инвайта)",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/auth/register-by-company-invite": {
+      "post": {
+        "operationId": "AuthController_registerByCompanyInvite",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptCompanyInviteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ accessToken } + refresh-cookie"
+          },
+          "404": {
+            "description": "NOT_FOUND — ссылка недействительна"
+          },
+          "409": {
+            "description": "COMPANY_INVITE_EMAIL_TAKEN — на адрес уже есть аккаунт"
+          },
+          "410": {
+            "description": "INVITE_USED / INVITE_REVOKED / INVITE_EXPIRED"
+          }
+        },
+        "summary": "Регистрация по приглашению в компанию (роль и компания — из него)",
         "tags": [
           "Auth"
         ]
@@ -26068,6 +26335,20 @@
         ],
         "additionalProperties": false
       },
+      "CreateCompanyInviteDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "additionalProperties": false
+      },
       "DecideCompanyAccessDto": {
         "type": "object",
         "properties": {
@@ -26459,6 +26740,9 @@
           "coverLetter": {
             "type": "string",
             "maxLength": 4000
+          },
+          "shareProfile": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -26840,6 +27124,38 @@
           "password",
           "birthDate",
           "consent"
+        ],
+        "additionalProperties": false
+      },
+      "AcceptCompanyInviteDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 200
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "pattern": "[A-Za-zА-Яа-я]"
+          },
+          "firstName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "lastName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          }
+        },
+        "required": [
+          "token",
+          "password",
+          "firstName",
+          "lastName"
         ],
         "additionalProperties": false
       },

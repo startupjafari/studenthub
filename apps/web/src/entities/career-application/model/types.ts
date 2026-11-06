@@ -5,10 +5,17 @@ import type {
   WorkFormat,
 } from '@studenthub/shared-schemas'
 
+/**
+ * Видит ли компания отклика карьерный профиль студента (21.D1): открыт всем работодателям,
+ * открыт адресно ей или скрыт — тогда у неё только строка кандидата в воронке.
+ */
+export type ProfileAccess = 'EMPLOYERS' | 'COMPANY' | 'HIDDEN'
+
 /** Отклик глазами студента. */
 export interface StudentApplication {
   id: string
   status: CareerApplicationStatus
+  profileAccess: ProfileAccess
   coverLetter: string | null
   createdAt: string
   updatedAt: string
