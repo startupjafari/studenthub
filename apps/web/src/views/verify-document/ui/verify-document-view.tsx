@@ -77,7 +77,7 @@ export function VerifyDocumentView({ code }: { code: string }) {
   const revoked = doc.status === 'REVOKED'
   // В журнале лежат и рабочие выгрузки (списки, переписка). Зелёная отметка на них была
   // бы обманом: подтверждать там нечего, это не документ.
-  const official = doc.kind === 'certificate'
+  const official = doc.kind === 'certificate' || doc.kind === 'library-clearance'
 
   return (
     <Shell>
@@ -102,7 +102,16 @@ export function VerifyDocumentView({ code }: { code: string }) {
 
       <Card className="w-full">
         <CardContent className="flex flex-col gap-3 p-5">
-          <Row label={t('kind')} value={official ? t('kind_certificate') : t('kind_other')} />
+          <Row
+            label={t('kind')}
+            value={
+              doc.kind === 'certificate'
+                ? t('kind_certificate')
+                : doc.kind === 'library-clearance'
+                  ? t('kind_libraryClearance')
+                  : t('kind_other')
+            }
+          />
           <Row label={t('number')} value={doc.number} />
           <Row label={t('subject')} value={doc.subject} />
           <Row label={t('issuer')} value={doc.issuer} />

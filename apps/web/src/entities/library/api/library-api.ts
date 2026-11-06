@@ -1,5 +1,7 @@
 import type {
   AddBookCopiesInput,
+  ClearanceCertificateItem,
+  ClearanceListQueryInput,
   BookCard,
   BookCopyByCode,
   BookCopyItem,
@@ -35,6 +37,7 @@ import type {
   UpdateLibrarySettingsInput,
 } from '@studenthub/shared-schemas'
 import { api, getPaged, type Paged } from '../../../shared/api'
+import { requestFile, type DownloadedFile } from '../../../shared/lib'
 
 // Библиотека вуза (Фаза 20, docs/PROJECT.md §3.11). Ключи запросов — фабрика рядом с
 // запросами, как у остальных сущностей.
@@ -66,6 +69,10 @@ export const libraryKeys = {
   myReservations: () => ['library', 'my-reservations'] as const,
   debts: (userId: string) => ['library', 'debts', userId] as const,
   clearance: () => ['library', 'clearance'] as const,
+  // Справки с кодом проверки (Фаза 21.C4): свои — студенту, журнал вуза — библиотекарю.
+  myCertificates: () => ['library', 'clearance', 'certificates'] as const,
+  clearances: (params: Partial<ClearanceListQueryInput> = {}) =>
+    ['library', 'clearances', params] as const,
   summary: () => ['library', 'summary'] as const,
   popular: (days: number) => ['library', 'popular', days] as const,
   inventory: (params: { since: string; page: number; limit: number }) =>
@@ -286,6 +293,40 @@ export async function fetchReaderDebts(userId: string): Promise<LibraryDebts> {
 
 export async function fetchClearance(): Promise<LibraryClearance> {
   const { data } = await api.get<LibraryClearance>('/library/me/clearance')
+  return data
+}
+
+/**
+ * Справка «задолженностей нет» PDF-файлом с кодом проверки и QR (Фаза 21.C4). POST: каждая
+ * справка — новая запись в журнале документов. `locale` — язык бланка.
+ */
+export function issueClearanceCertificate(locale: string): Promise<DownloadedFile> {
+  return requestFile('/library/me/clearance/certificate', { locale }, {})
+}
+
+export async function fetchMyClearanceCertificates(): Promise<ClearanceCertificateItem[]> {
+  const { data } = await api.get<ClearanceCertificateItem[]>('/library/me/clearance/certificates')
+  return data
+}
+
+export async function fetchClearances(
+  params: Partial<ClearanceListQueryInput> = {},
+): Promise<Paged<ClearanceCertificateItem>> {
+  return getPaged<ClearanceCertificateItem>('/library/clearances', {
+    page: 1,
+    limit: 20,
+    ...params,
+  })
+}
+
+export async function revokeClearanceRequest(
+  code: string,
+  reason: string,
+): Promise<ClearanceCertificateItem> {
+  const { data } = await api.post<ClearanceCertificateItem>(
+    `/library/clearances/${encodeURIComponent(code)}/revoke`,
+    { reason },
+  )
   return data
 }
 

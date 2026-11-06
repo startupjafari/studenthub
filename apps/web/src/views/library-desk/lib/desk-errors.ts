@@ -29,6 +29,7 @@ type DeskField =
   | 'heldForReservation'
   | 'notLost'
   | 'settled'
+  | 'alreadyRevoked'
 
 export function useDeskErrors(): (error: unknown) => string {
   const t = useTranslations('LibraryDesk')
@@ -59,6 +60,7 @@ export function useDeskErrors(): (error: unknown) => string {
     heldForReservation: t('error.heldForReservation'),
     notLost: t('error.notLost'),
     settled: t('error.settled'),
+    alreadyRevoked: t('error.alreadyRevoked'),
   }
   return (error) => {
     const err = toApiError(error)
