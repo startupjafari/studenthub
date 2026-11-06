@@ -213,14 +213,14 @@
     "Resume",
     "Vacancies"
   ],
-  "(student)/companies": ["OrgPage", "Settings", "Support"],
+  "(student)/companies": ["LibraryDebts", "OrgPage", "Settings", "Support"],
   "(student)/documents": ["DocumentJournal", "Documents", "FileUpload"],
   "(student)/events": ["CareerEvents", "Events"],
   "(student)/my-books": ["LibraryDesk", "LibraryReader"],
-  "(student)/profile": ["OrgPage", "Settings", "Support"],
+  "(student)/profile": ["LibraryDebts", "OrgPage", "Settings", "Support"],
   "(student)/schedule": ["Schedule"],
-  "(student)/settings": ["Settings", "Support"],
-  "(student)/universities": ["OrgPage", "Settings", "Support"],
+  "(student)/settings": ["LibraryDebts", "Settings", "Support"],
+  "(student)/universities": ["LibraryDebts", "OrgPage", "Settings", "Support"],
   "employer/(app)": [
     "CareerApplications",
     "Employer",
