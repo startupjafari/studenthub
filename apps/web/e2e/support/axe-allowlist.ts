@@ -84,6 +84,14 @@ export const AXE_ALLOWLIST: AxeAllowance[] = [
     reason: CONTRAST,
   },
   {
+    // Зона работодателя попала в обход с 21.E3 (аккаунт в фикстуре). Корень тот же —
+    // активный пункт сайдбара (bg-primary/10) и вкладка (bg-primary/[0.08]).
+    rule: 'color-contrast',
+    zone: 'employer',
+    routes: ['/employer'],
+    reason: CONTRAST,
+  },
+  {
     rule: 'color-contrast',
     zone: 'librarian',
     routes: ['/library', '/library/issue', '/library/loans', '/library/reports', '/library/return'],

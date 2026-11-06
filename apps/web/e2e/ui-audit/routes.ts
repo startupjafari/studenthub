@@ -48,6 +48,7 @@ const PUBLIC_PREFIXES = [
   '/offline',
   '/employer/signup',
   '/employer/verify',
+  '/employer/join',
   '/demo',
   '/r/resume',
   '/verify',
@@ -70,16 +71,13 @@ const ZONE_AUDIENCE: Array<[prefix: string, audience: Audience]> = [
   // Роли с запретом по умолчанию: свой раздел, остальное middleware им не открывает.
   ['/security', 'securityGuard'],
   ['/library', 'librarian'],
+  // Работодатель живёт только в карьерном продукте; публичные /employer/signup|verify|join
+  // отсечены выше, в PUBLIC_PREFIXES.
+  ['/employer', 'employer'],
 ]
 
 /** Маршруты, которые не проверяем, и честная причина для отчёта. */
 const SKIPS: Array<[match: (url: string) => boolean, reason: string]> = [
-  [
-    // Регистрация работодателя публична и аккаунта не требует — она проверяется гостем.
-    (url) =>
-      url.startsWith('/employer') && url !== '/employer/signup' && url !== '/employer/verify',
-    'нет аккаунта EMPLOYER: фикстура e2e работодателя не заводит — компаний и вакансий на тестовом стенде нет',
-  ],
   [
     (url) => url === '/notifications',
     'by design редиректит на / (уведомления живут оверлеем сайдбара) — проверять нечего',
@@ -89,7 +87,11 @@ const SKIPS: Array<[match: (url: string) => boolean, reason: string]> = [
     'catch-all: пункт навигации без своей страницы — заглушка, остальное — 404; конкретные вкладки секции проверяются отдельно',
   ],
   [
-    (url) => url === '/demo/verify' || url === '/employer/verify' || url === '/reset-password',
+    (url) =>
+      url === '/demo/verify' ||
+      url === '/employer/verify' ||
+      url === '/employer/join' ||
+      url === '/reset-password',
     'экран по ссылке из письма: без валидного токена проверяется не он, а состояние «ссылка недействительна»',
   ],
   [
