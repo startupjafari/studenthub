@@ -45,6 +45,9 @@ export const ErrorCode = {
   // Отдельно от BAD_REQUEST: клиент предлагает выгрузить ту же выборку в CSV — его сервер
   // отдаёт потоком и без предела.
   EXPORT_TOO_LARGE: 'EXPORT_TOO_LARGE',
+  // Удалить можно только черновик вакансии: у опубликованной, снятой и закрытой есть
+  // история модерации и откликов. Отдельно от CONFLICT: клиент предлагает закрыть вакансию.
+  VACANCY_NOT_DELETABLE: 'VACANCY_NOT_DELETABLE',
 } as const
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
@@ -86,6 +89,8 @@ export const ERROR_CODE_STATUS: Record<ErrorCode, number> = {
   // 400 — запрос корректен, но в этом формате невыполним; 413 тут неверен: он про тело
   // запроса, а не про ответ.
   EXPORT_TOO_LARGE: 400,
+  // 409 — запрос верен, но противоречит состоянию вакансии.
+  VACANCY_NOT_DELETABLE: 409,
 }
 
 /** Код по умолчанию для HTTP-статуса (для стандартных Nest-исключений без явного кода). */
