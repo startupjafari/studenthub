@@ -1732,6 +1732,36 @@
         "tags": [
           "Карьера — вакансии компании"
         ]
+      },
+      "delete": {
+        "operationId": "EmployerVacanciesController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Черновик удалён"
+          },
+          "409": {
+            "description": "VACANCY_NOT_DELETABLE — вакансия не черновик: её можно только закрыть"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удалить черновик вакансии (физически)",
+        "tags": [
+          "Карьера — вакансии компании"
+        ]
       }
     },
     "/career/employer/vacancies/{id}/publish": {
