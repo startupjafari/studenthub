@@ -2,7 +2,7 @@
 
 import { useRef, type ReactNode } from 'react'
 import { useTranslations } from 'next-intl'
-import { FlipHorizontal2, RotateCcwSquare } from 'lucide-react'
+import { RotateCcwSquare, TrianglesCenterlineDashedVertical } from 'lucide-react'
 import { cn } from '../lib/utils'
 
 /** Точная подстройка угла, как в Telegram: ±90°, шаг — градус. */
@@ -72,7 +72,9 @@ export function CropToolbar({
         disabled={disabled}
         className={cn(CROP_TOOL_BUTTON, flip ? 'text-primary' : 'text-white/80 hover:text-white')}
       >
-        <FlipHorizontal2 className="size-5" aria-hidden />
+        {/* Отражение по горизонтали: треугольники слева и справа от вертикальной оси.
+            В lucide 1.x имя FlipHorizontal2 указывает на другой рисунок (ось горизонтальная). */}
+        <TrianglesCenterlineDashedVertical className="size-5" aria-hidden />
       </button>
       {children}
     </div>
