@@ -45,6 +45,9 @@ import { TemplateUpload } from './template-upload'
 import { ValidationReport } from './validation-report'
 import { TEMPLATES_BASE } from './document-templates-view'
 
+// Колонка карточек: на широком экране последняя тянется до низа сетки.
+const COLUMN = 'flex flex-col gap-4 lg:[&>*:last-child]:flex-1'
+
 type Dialog = 'edit' | 'upload' | 'generate' | 'preview' | null
 
 interface TemplateDetailViewProps {
@@ -177,13 +180,15 @@ export function TemplateDetailView({ templateId }: TemplateDetailViewProps) {
         </Card>
       )}
 
-      {/* Сетка занимает всю высоту под шапкой: пока файла нет, карточка загрузки тянется до
-          низа экрана, и зона перетаскивания вместе с ней. С файлом высоту задаёт содержимое.
+      {/* Две колонки на всю высоту под шапкой и с общим нижним краем. Тянется последняя
+          карточка каждой колонки (COLUMN), какой бы она ни была: новый блок, добавленный в
+          конец, сам становится растягиваемым, а прежний возвращается к своей высоте. Сетка
+          задаёт минимум, а не потолок — если содержимое выше экрана, прокручивается страница.
           Обе колонки — одинаковые карточки (p-4, заголовок text-base): с разными отступами
           заголовки левой и правой колонок стояли на разной высоте. */}
-      <div className="grid items-start gap-4 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <div className="flex min-w-0 flex-col gap-4 lg:self-stretch">
-          <Card className={cn('flex flex-col gap-4 p-4', !current && 'lg:flex-1')}>
+      <div className="grid items-start gap-4 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-stretch">
+        <div className={cn('min-w-0', COLUMN)}>
+          <Card className="flex flex-col gap-4 p-4">
             {/* «Заменить файл» — в строке заголовка: тремя кнопками внизу ряд не помещался и
                 переносился лесенкой. */}
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -278,7 +283,7 @@ export function TemplateDetailView({ templateId }: TemplateDetailViewProps) {
           )}
         </div>
 
-        <div className="flex flex-col gap-4">
+        <div className={COLUMN}>
           {!archived && (
             <Card className="flex flex-col gap-3 p-4">
               <h2 className="text-base font-semibold">{t('publicationTitle')}</h2>
