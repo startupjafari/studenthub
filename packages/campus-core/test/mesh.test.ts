@@ -209,6 +209,17 @@ describe('floorMesh — лестницы и лифты', () => {
     expect(Math.max(...ys(m.elevators))).toBeCloseTo(3, 5)
   })
 
+  it('двери лифта — на стороне шахты к площадке, чуть впереди её лица', () => {
+    // Шахта y = 2,5…3,8 м плана, площадка на y = 2,3 м: дверь на грани y = 2,5 м — в сцене
+    // z = −2,5 и чуть наружу, к площадке (z больше).
+    expect(m.liftDoors.indices.length).toBeGreaterThan(0)
+    expect(facingOk(m.liftDoors)).toBe(true)
+    const zs = [...m.liftDoors.positions].filter((_, i) => i % 3 === 2)
+    expect(Math.min(...zs)).toBeGreaterThan(-2.51)
+    expect(Math.max(...zs)).toBeLessThan(-2.44)
+    expect(m.liftLights.indices.length).toBeGreaterThan(0)
+  })
+
   it('разрез этажа срезает и лестницы с лифтами', () => {
     const cut = floorMesh(doc, { elevationMm: 0, heightMm: 3000, cutHeightMm: 1200 })
     expect(Math.max(...ys(cut.stairs))).toBeCloseTo(1.2, 5)
