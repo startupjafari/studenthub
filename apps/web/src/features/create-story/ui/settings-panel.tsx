@@ -19,7 +19,7 @@ import {
   type CreateStoryInput,
   type StoryBackgroundValue,
 } from '@studenthub/shared-schemas'
-import { OPTIONAL_TEXT } from '../../../shared/lib'
+import { localMediaSrc, OPTIONAL_TEXT } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { STORY_BACKGROUND_CLASS } from '../../../entities/story'
 import { Button, FieldError, Input } from '../../../shared/ui'
@@ -281,7 +281,7 @@ export function MediaSettings({
               >
                 {/* Локальный object-URL: оптимизировать blob next/image не может. */}
                 <img
-                  src={stage.url ?? ''}
+                  src={localMediaSrc(stage.url)}
                   alt=""
                   className={cn(
                     'aspect-square w-full rounded-lg object-cover ring-offset-2 ring-offset-card transition-shadow duration-150 motion-reduce:transition-none',

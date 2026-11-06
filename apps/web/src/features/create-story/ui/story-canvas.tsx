@@ -20,7 +20,7 @@ import {
   type StoryPoll,
 } from '../../../entities/story'
 import { Button } from '../../../shared/ui'
-import { placedTransform } from '../../../shared/lib'
+import { localMediaSrc, placedTransform } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { clamp01, type EditorElement } from '../model/editor-element'
 import {
@@ -305,7 +305,7 @@ export function StoryCanvas({
         {hasPhoto && url && stage.whole && frame && (
           // Локальный object-URL: оптимизировать blob next/image не может.
           <img
-            src={url}
+            src={localMediaSrc(url)}
             alt=""
             className="size-full object-cover"
             style={{
@@ -319,7 +319,7 @@ export function StoryCanvas({
       {hasPhoto && url && (
         <img
           ref={stage.imgRef}
-          src={url}
+          src={localMediaSrc(url)}
           alt=""
           onLoad={stage.onImageLoad}
           draggable={false}
@@ -382,7 +382,7 @@ export function StoryCanvas({
           {videoUrl && (
             <video
               ref={videoRef}
-              src={videoUrl}
+              src={localMediaSrc(videoUrl)}
               className="size-full object-cover"
               muted
               playsInline

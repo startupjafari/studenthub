@@ -72,19 +72,17 @@
   },
   "pnpm": {
     "auditConfig": {
-      "_comment": "Находки, для которых совместимого обновления нет. (1) stream-json (GHSA-hqr4-qq8f-hg3x, GHSA-mjw6-4jj6-33hc) и decode-uri-component — транзитивные зависимости клиента minio. Патч stream-json есть (3.6.0), но взять его нельзя: minio 8.0.7 (последняя на 10.10.2026) делает require(\"stream-json/jsonl/Parser.js\"), а в 3.x файл называется parser.js и лежит под src/ — карта exports \"./*\": \"./src/*\" ведёт на ./src/jsonl/Parser.js, которого не существует. На регистрозависимой ФС это падение на старте. Снять, когда minio уедет с этих пакетов. (2) braces GHSA-vfj7-8cjw-p6xm: исправленной версии не существует вовсе — уязвимы все <=3.0.3, а 3.0.3 последняя; пакет приходит транзитивно через micromatch из сборочного инструментария. Снять, когда выйдет патч. (3) Временно, с 24.10.2026: nodemailer GHSA-m943-m63m-w62w, GHSA-85x2-q946-cp5h, GHSA-8c8m-p3m8-cjg8 (патч 10.1.4) и fast-uri GHSA-w74x-v6f9-j3xg, GHSA-wjr9-j795-jxcr (патч 3.1.9/4.2.3, транзитивно через fastify) вышли 18–19.10 — моложе выдержки minimumReleaseAge (7 суток). Снять после 26.10.2026, обновив nodemailer и fast-uri. (4) zod GHSA-mrhx-c7xc-m3w5: исправлен только в 4.6.6, в линейке 3.x патча нет — нужен переход на zod 4. Память исчерпывается лишь на огромных коллекциях, а тело запроса и так ограничено bodyLimit Fastify. Снять с переходом на zod 4.",
+      "_comment": "Находки, для которых совместимого обновления нет. (1) stream-json (GHSA-hqr4-qq8f-hg3x, GHSA-mjw6-4jj6-33hc) и decode-uri-component — транзитивные зависимости клиента minio. Патч stream-json есть (3.6.0), но взять его нельзя: minio 8.0.7 (последняя на 10.10.2026) делает require(\"stream-json/jsonl/Parser.js\"), а в 3.x файл называется parser.js и лежит под src/ — карта exports \"./*\": \"./src/*\" ведёт на ./src/jsonl/Parser.js, которого не существует. На регистрозависимой ФС это падение на старте. Сюда же decode-uri-component GHSA-qr28-fpjm-wq7f: патч только в 0.5.1, а с 0.4 пакет стал ESM-only, тогда как query-string из minio подключает его через require(). Снять, когда minio уедет с этих пакетов. (2) braces GHSA-vfj7-8cjw-p6xm: исправленной версии не существует вовсе — уязвимы все <=3.0.3, а 3.0.3 последняя; пакет приходит транзитивно через micromatch из сборочного инструментария. Снять, когда выйдет патч. (3) zod GHSA-mrhx-c7xc-m3w5: исправлен только в 4.6.6, в линейке 3.x патча нет — нужен переход на zod 4. Память исчерпывается лишь на огромных коллекциях, а тело запроса и так ограничено bodyLimit Fastify. Снять с переходом на zod 4. (4) Временно, с 06.11.2026: glob GHSA-3g3m-2fjr-6pw4 и minimatch GHSA-g3hv-75wg-m249 — транзитивно через @fastify/static (из @nestjs/platform-fastify). Исправлены только в glob 14 / minimatch 11, а @fastify/static перешёл на glob 14 в 10.1.9 (04.11) — моложе выдержки minimumReleaseAge (7 суток). Снять после 13.11.2026, обновив @fastify/static.",
       "ignoreGhsas": [
         "GHSA-vcc3-ghjq-m6fr",
         "GHSA-528h-pc64-c93x",
         "GHSA-hqr4-qq8f-hg3x",
         "GHSA-mjw6-4jj6-33hc",
         "GHSA-vfj7-8cjw-p6xm",
-        "GHSA-m943-m63m-w62w",
-        "GHSA-85x2-q946-cp5h",
-        "GHSA-8c8m-p3m8-cjg8",
-        "GHSA-w74x-v6f9-j3xg",
-        "GHSA-wjr9-j795-jxcr",
-        "GHSA-mrhx-c7xc-m3w5"
+        "GHSA-mrhx-c7xc-m3w5",
+        "GHSA-qr28-fpjm-wq7f",
+        "GHSA-3g3m-2fjr-6pw4",
+        "GHSA-g3hv-75wg-m249"
       ]
     },
     "onlyBuiltDependencies": [
@@ -94,15 +92,15 @@
       "prisma"
     ],
     "overrides": {
-      "fast-uri@^3": "^3.1.6",
-      "fast-uri@^4": "^4.1.3",
+      "fast-uri@^3": "^3.1.9",
+      "fast-uri@^4": "^4.2.3",
       "find-my-way": "^9.7.0",
-      "fastify": "^5.12.1",
+      "fastify": "^5.12.6",
       "js-yaml@^3": "^3.15.2",
       "js-yaml@^4": "^4.3.2",
       "brace-expansion@^1": "^1.1.18",
       "brace-expansion@^2": "^2.1.4",
-      "serialize-javascript": "^7.1.2",
+      "serialize-javascript": "^7.1.3",
       "deepmerge-ts": "^8.0.0",
       "js-yaml@^5": "^5.2.2",
       "postcss": "^8.5.18",
@@ -110,12 +108,12 @@
       "@fastify/static": "^10.1.1",
       "brace-expansion@^5": "^5.0.9",
       "axios": "^1.20.0",
-      "undici@^7": "^7.29.1",
+      "undici@^7": "^7.30.1",
       "@nestjs/platform-fastify": "^11.2.4",
       "engine.io": "^6.6.10",
       "hono": "^4.12.34",
-      "ip-address": "^10.5.1",
-      "qs": "^6.16.0",
+      "ip-address": "^10.7.4",
+      "qs": "^6.16.1",
       "@fastify/busboy": "^3.2.2",
       "proxy-addr": "^2.0.8",
       "@modelcontextprotocol/sdk": "^1.32.1",
@@ -125,8 +123,11 @@
       "handlebars": "^4.7.10",
       "katex": "0.18.10",
       "markdown-it@^14": "^14.3.3",
-      "follow-redirects": "^1.16.1",
-      "vite@^7": "^7.3.7"
+      "follow-redirects": "^1.16.2",
+      "vite@^8": "^8.3.5",
+      "body-parser@^2": "^2.4.0",
+      "systeminformation": "^5.33.16",
+      "@hono/node-server": "^2.1.3"
     }
   }
 }

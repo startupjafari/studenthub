@@ -11,8 +11,6 @@ import {
   Camera,
   Globe,
   Info,
-  Instagram,
-  Linkedin,
   Mail,
   Pencil,
   Phone,
@@ -33,6 +31,8 @@ import {
   CardHeader,
   CardTitle,
   EmptyState,
+  Instagram,
+  Linkedin,
   Skeleton,
   useConfirm,
 } from '../../../shared/ui'
