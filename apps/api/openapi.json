@@ -5699,6 +5699,159 @@
         ]
       }
     },
+    "/library/me/clearance/certificate": {
+      "post": {
+        "operationId": "LibraryClearanceController_issueCertificate",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "PDF-файл; код проверки — в заголовке X-Verification-Code"
+          },
+          "409": {
+            "description": "CONFLICT (details.field = debts) — за студентом книги на руках или утерянные с долгом"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Справка «задолженностей в библиотеке нет» — PDF с кодом проверки и QR (?locale=ru|kk|en)",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/me/clearance/certificates": {
+      "get": {
+        "operationId": "LibraryClearanceController_myCertificates",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Мои справки «задолженностей нет»: коды и статус",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/clearances": {
+      "get": {
+        "operationId": "LibraryClearanceController_list",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 10000,
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "revoked",
+                "all"
+              ],
+              "default": "all"
+            }
+          },
+          {
+            "name": "readerId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Журнал выданных справок «задолженностей нет» своего вуза",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/clearances/{code}/revoke": {
+      "post": {
+        "operationId": "LibraryClearanceController_revoke",
+        "parameters": [
+          {
+            "name": "code",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevokeClearanceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "404": {
+            "description": "NOT_FOUND — справки нет или она чужого вуза"
+          },
+          "409": {
+            "description": "CONFLICT (alreadyRevoked) — уже отозвана"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отозвать справку: проверка по коду покажет «отозван»",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
     "/student-id/me": {
       "get": {
         "operationId": "StudentIdController_me",
@@ -27211,6 +27364,20 @@
             "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
           }
         },
+        "additionalProperties": false
+      },
+      "RevokeClearanceDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "reason"
+        ],
         "additionalProperties": false
       },
       "CreateVisitorDto": {
