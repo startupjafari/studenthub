@@ -78,9 +78,14 @@ enum APIError: Error {
 
     /// Текст для человека. Серверное сообщение уже на языке платформы, поэтому
     /// показываем его; свои строки — только там, где сервер ничего не сказал.
+    /// Исключение — ошибка поля с ключом валидации (`validation.…`): она конкретнее
+    /// общего сообщения и переводится каталогом на язык приложения.
     var displayMessage: String {
         switch self {
-        case .server(_, let message, _, _):
+        case .server(_, let message, let details, _):
+            if let field = details.lazy.compactMap({ ValidationMessage.text(for: $0.message) }).first {
+                return field
+            }
             return message
         case .transport:
             return String(localized: "error.network", defaultValue: "Нет связи с сервером")
