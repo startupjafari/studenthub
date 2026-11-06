@@ -2,6 +2,13 @@
   "name": "web",
   "version": "1.0.0",
   "private": true,
+  "sideEffects": [
+    "*.css",
+    "./src/shared/lib/pwa-install.ts",
+    "./src/instrumentation.ts",
+    "./src/instrumentation-client.ts",
+    "./worker/**"
+  ],
   "scripts": {
     "dev": "NODE_OPTIONS=--max-old-space-size=12288 next dev -p 3000",
     "build": "NODE_OPTIONS=--max-old-space-size=12288 next build",
