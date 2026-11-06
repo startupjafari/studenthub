@@ -1,5 +1,5 @@
 import { useTranslations } from 'next-intl'
-import { PageLoader } from '../../../shared/ui'
+import { PageLoader } from '../../../shared/ui/page-loader'
 
 // loading.tsx обязателен для сегмента (docs/FRONTEND_RULES.md §2.2).
 export default function Loading() {

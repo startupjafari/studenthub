@@ -1,6 +1,6 @@
 import { getTranslations } from 'next-intl/server'
 import { Wrench } from 'lucide-react'
-import { EmptyState } from '../../../shared/ui'
+import { EmptyState } from '../../../shared/ui/empty-state'
 
 // Универсальная заглушка ещё не реализованного раздела (внутри ролевой оболочки).
 export async function SectionStub() {

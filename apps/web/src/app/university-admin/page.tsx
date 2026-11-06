@@ -2,7 +2,8 @@ import { getTranslations } from 'next-intl/server'
 import { StatsDashboard } from '../../widgets/stats-dashboard'
 import { SetupBanner } from '../../views/onboarding'
 import { ExportReportButton } from '../../features/export-analytics-report'
-import { PageHeader, SeasonGreeting } from '../../shared/ui'
+import { PageHeader } from '../../shared/ui/page-header'
+import { SeasonGreeting } from '../../shared/ui/season-greeting'
 
 export default async function Page() {
   const t = await getTranslations('Stats')

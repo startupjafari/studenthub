@@ -1,6 +1,6 @@
 import { render } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { MessageContent } from './message-content'
+import { MessageContentMarkdown as MessageContent } from './message-content-markdown'
 
 // Перенос строки в сообщении должен выглядеть так же, как в поле ввода: одна строка —
 // один разрыв. У абзаца стоит `whitespace-pre-wrap`, поэтому лишний <br> от markdown
