@@ -5,6 +5,7 @@ import {
   PageSchema,
   SortOrderSchema,
 } from './pagination.js'
+import { vm } from './validation-messages.js'
 
 // Схемы модуля «Документы» (Ф15, задача 15.3). Значения enum зеркалят справочник в
 // @studenthub/shared-config (DOCUMENT_CATEGORIES/…); сам `type` валидируется как строка,
@@ -207,7 +208,7 @@ export const CreateCustomDocumentTypeSchema = z
       .string()
       .min(2)
       .max(48)
-      .regex(/^[A-Z][A-Z0-9_]*$/, 'Код: заглавные латинские, цифры, подчёркивание'),
+      .regex(/^[A-Z][A-Z0-9_]*$/, vm('validation.documents.typeCode')),
     category: DocumentCategorySchema,
     label: z.string().min(1).max(120),
     fields: z.array(DocumentFieldSchema).max(5).optional(),
@@ -307,7 +308,7 @@ export const ReviewSubmissionItemSchema = z
   })
   .strict()
   .refine((v) => v.status !== 'REJECTED' || !!v.rejectionReason?.trim(), {
-    message: 'rejectionReason required when rejecting',
+    message: vm('validation.common.rejectionReasonRequired'),
     path: ['rejectionReason'],
   })
 export type ReviewSubmissionItemInput = z.infer<typeof ReviewSubmissionItemSchema>

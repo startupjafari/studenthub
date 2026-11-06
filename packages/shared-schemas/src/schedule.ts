@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { vm } from './validation-messages.js'
 
 // Расписание (docs/PROJECT.md §3.1, §6; docs/BACKEND_RULES.md §19 #8).
 // Значения enum дублируют Prisma-enum WeekType/ScheduleChangeType (единый контракт API↔форма,
@@ -18,13 +19,15 @@ export type ScheduleChangeTypeValue = z.infer<typeof ScheduleChangeTypeSchema>
 // Настенное время в таймзоне вуза, "HH:mm" 24ч. Календарной даты у пары нет (еженедельный повтор).
 export const TimeStringSchema = z
   .string()
-  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Время в формате HH:mm (00:00–23:59)')
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, vm('validation.time.format'))
 
 // День недели по ISO-8601: 1 = понедельник … 7 = воскресенье.
 export const DayOfWeekSchema = z.number().int().min(1).max(7)
 
 // Календарная дата "YYYY-MM-DD" (в календаре вуза) — только для разовых изменений.
-export const DateStringSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате YYYY-MM-DD')
+export const DateStringSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, vm('validation.date.format'))
 
 // ── Контейнер расписания (Schedule) ─────────────────────────────────────────
 
@@ -63,7 +66,7 @@ const endAfterStart = (v: { startTime: string; endTime: string }, ctx: z.Refinem
   if (v.startTime >= v.endTime) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: 'Время начала должно быть раньше времени окончания',
+      message: vm('validation.range.startBeforeEnd'),
       path: ['endTime'],
     })
   }
@@ -131,14 +134,14 @@ export const CreateScheduleChangeSchema = z
     if (v.type === 'ROOM_CHANGED' && !v.newRoomId) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Нужна новая аудитория',
+        message: vm('validation.schedule.newRoomRequired'),
         path: ['newRoomId'],
       })
     }
     if (v.type === 'SUBSTITUTED' && !v.newTeacherId) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Нужен заменяющий преподаватель',
+        message: vm('validation.schedule.substituteRequired'),
         path: ['newTeacherId'],
       })
     }
@@ -146,21 +149,21 @@ export const CreateScheduleChangeSchema = z
       if (!v.newStartTime) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: 'Нужно новое время начала',
+          message: vm('validation.schedule.newStartRequired'),
           path: ['newStartTime'],
         })
       }
       if (!v.newEndTime) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: 'Нужно новое время окончания',
+          message: vm('validation.schedule.newEndRequired'),
           path: ['newEndTime'],
         })
       }
       if (v.newStartTime && v.newEndTime && v.newStartTime >= v.newEndTime) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: 'Начало должно быть раньше окончания',
+          message: vm('validation.range.startBeforeEnd'),
           path: ['newEndTime'],
         })
       }
@@ -185,7 +188,7 @@ export const ScheduleChangeQuerySchema = z
     if (v.from > v.to) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'from должно быть не позже to',
+        message: vm('validation.range.endNotBeforeStart'),
         path: ['to'],
       })
     }

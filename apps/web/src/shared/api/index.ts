@@ -61,6 +61,7 @@ export {
   type UploadedPart,
 } from './multipart-upload'
 export { uploadResumable } from './resumable-upload'
+export { uploadToDomain } from './domain-upload'
 export {
   fingerprintOf,
   indexedDbResumeStore,

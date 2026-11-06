@@ -1,17 +1,9 @@
-import type { AxiosProgressEvent } from 'axios'
 import type {
   CreateMaterialInput,
   MaterialListQueryInput,
   MaterialSubjectsQueryInput,
 } from '@studenthub/shared-schemas'
-import {
-  api,
-  getPaged,
-  needsDirectUpload,
-  uploadDirect,
-  type Paged,
-  type PresignedTarget,
-} from '../../../shared/api'
+import { api, getPaged, uploadToDomain, type Paged } from '../../../shared/api'
 import type { Material, MaterialFile, MaterialSubjectCount } from '../model/types'
 
 export const materialKeys = {
@@ -58,43 +50,23 @@ export async function createMaterialRequest(input: CreateMaterialInput): Promise
 }
 
 /**
- * Загрузка файла материала. Путь выбирается по размеру: до порога — буферный,
- * больше — прямой в MinIO по подписанной ссылке (лекция или презентация легко
- * перевешивает порог, а лимит категории DOCUMENT — 25 МБ).
+ * Загрузка файла материала. Путь выбирается по размеру: до порога — буферный, до 50 МБ —
+ * прямой в MinIO по подписанной ссылке, крупнее (запись лекции до 500 МБ) — частями с
+ * докачкой после обрыва. Отмена `signal` у многочастной загрузки удаляет залитые части.
  */
 export async function uploadMaterialFileRequest(
   id: string,
   file: File,
   onProgress?: (percent: number) => void,
+  signal?: AbortSignal,
 ): Promise<MaterialFile> {
-  if (needsDirectUpload(file.size)) {
-    return uploadDirect<MaterialFile>({
-      file,
-      presign: async (mime) => {
-        const { data } = await api.post<PresignedTarget>(`/materials/${id}/files/presign`, {
-          mime,
-        })
-        return data
-      },
-      confirm: async (key, name) => {
-        const { data } = await api.post<MaterialFile>(`/materials/${id}/files/confirm`, {
-          key,
-          name,
-        })
-        return data
-      },
-      onProgress,
-    })
-  }
-
-  const form = new FormData()
-  form.append('file', file)
-  const { data } = await api.post<MaterialFile>(`/materials/${id}/files`, form, {
-    onUploadProgress: (e: AxiosProgressEvent) => {
-      if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100))
-    },
+  return uploadToDomain<MaterialFile>({
+    file,
+    base: `/materials/${id}/files`,
+    scope: `MATERIALS:${id}`,
+    onProgress,
+    signal,
   })
-  return data
 }
 
 export async function fetchMaterialFileUrl(id: string, fileId: string): Promise<string> {

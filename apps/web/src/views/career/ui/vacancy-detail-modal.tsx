@@ -6,6 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
+import { EyeOff } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import {
   CreateApplicationSchema,
@@ -20,7 +21,24 @@ import {
   applyToVacancy,
   fetchMyApplications,
 } from '../../../entities/career-application'
-import { Badge, Button, FieldError, Label, Modal, Skeleton, Textarea } from '../../../shared/ui'
+import {
+  careerProfileKeys,
+  fetchMyCareerProfile,
+  type CareerProfile,
+} from '../../../entities/career-profile'
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  Badge,
+  Button,
+  Checkbox,
+  FieldError,
+  Label,
+  Modal,
+  Skeleton,
+  Textarea,
+} from '../../../shared/ui'
 import { toApiError, useApplicationStatusLabels } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
 import { salaryText } from '../lib/salary-text'
@@ -40,8 +58,10 @@ interface VacancyDetailModalProps {
 /**
  * Карточка вакансии с откликом.
  *
- * Отклик — сопроводительное письмо и одна кнопка: карьерный профиль и резюме компания
- * видит и так, а длинная форма отсекала бы тех, кто откликнулся бы «просто попробовать».
+ * Отклик — сопроводительное письмо и одна кнопка: длинная форма отсекала бы тех, кто
+ * откликнулся бы «просто попробовать». Карьерный профиль компания видит, только если он
+ * открыт работодателям или студент открыл его ей галочкой (21.D1) — об этом форма
+ * предупреждает до отклика.
  */
 export function VacancyDetailModal({
   vacancy: preview,
@@ -74,16 +94,27 @@ export function VacancyDetailModal({
   })
   const existing = mine.data?.items[0]
 
+  // Видимость карьерного профиля — чтобы до отклика сказать, увидит ли компания профиль
+  // (21.D1). Тот же ключ, что у экрана профиля: переключение там сразу видно здесь.
+  const profile = useQuery({
+    queryKey: careerProfileKeys.mine(),
+    queryFn: fetchMyCareerProfile,
+    enabled: canApply,
+  })
+
   const form = useForm<CreateApplicationInput>({
     resolver: zodResolver(CreateApplicationSchema),
-    defaultValues: { vacancyId: preview.id },
+    defaultValues: { vacancyId: preview.id, shareProfile: false },
   })
+  const shareProfile = form.watch('shareProfile') ?? false
 
   const apply = useMutation({
     mutationFn: applyToVacancy,
-    onSuccess: async () => {
+    onSuccess: async (_data, values) => {
       toast.success(t('applied'))
       await qc.invalidateQueries({ queryKey: applicationKeys.all })
+      // Открытие профиля компании видно в списке «кому открыт» на экране профиля.
+      if (values.shareProfile) await qc.invalidateQueries({ queryKey: careerProfileKeys.all })
     },
     onError: (error) => toast.error(tErr(toApiError(error).code)),
   })
@@ -149,6 +180,14 @@ export function VacancyDetailModal({
                     {form.formState.errors.coverLetter ? t('coverLetterTooLong') : null}
                   </FieldError>
                 </div>
+                {profile.data && (
+                  <ProfileVisibilityNotice
+                    profile={profile.data}
+                    companyId={vacancy.company.id}
+                    shareProfile={shareProfile}
+                    onShareProfileChange={(value) => form.setValue('shareProfile', value)}
+                  />
+                )}
                 <div className="flex justify-end">
                   <Button type="submit" loading={apply.isPending}>
                     {t('apply')}
@@ -160,6 +199,54 @@ export function VacancyDetailModal({
         )}
       </div>
     </Modal>
+  )
+}
+
+/**
+ * Что компания увидит из профиля (21.D1). Скрытый профиль отклик не раскрывает: компания
+ * получает строку кандидата, но не карьерный профиль. Галочка открывает его только этой
+ * компании — закрыть можно в «Моих откликах» и на экране профиля.
+ */
+function ProfileVisibilityNotice({
+  profile,
+  companyId,
+  shareProfile,
+  onShareProfileChange,
+}: {
+  profile: CareerProfile
+  companyId: string
+  shareProfile: boolean
+  onShareProfileChange: (value: boolean) => void
+}) {
+  const t = useTranslations('Vacancies')
+
+  if (profile.visibility === 'EMPLOYERS') {
+    return <p className="text-sm text-muted-foreground">{t('profileVisibleNote')}</p>
+  }
+  if (profile.profileGrants.some((grant) => grant.companyId === companyId)) {
+    return <p className="text-sm text-muted-foreground">{t('profileSharedNote')}</p>
+  }
+  return (
+    <Alert variant="warning">
+      <EyeOff aria-hidden />
+      <AlertTitle>{t('profileHiddenTitle')}</AlertTitle>
+      <AlertDescription className="gap-3">
+        <p>{t('profileHiddenText')}</p>
+        <div className="flex items-start gap-3 text-foreground">
+          <Checkbox
+            id="shareProfile"
+            checked={shareProfile}
+            onCheckedChange={(checked) => onShareProfileChange(checked === true)}
+          />
+          <div className="flex flex-col gap-0.5">
+            <Label htmlFor="shareProfile" className="cursor-pointer">
+              {t('shareProfile')}
+            </Label>
+            <span className="text-xs text-muted-foreground">{t('shareProfileHint')}</span>
+          </div>
+        </div>
+      </AlertDescription>
+    </Alert>
   )
 }
 

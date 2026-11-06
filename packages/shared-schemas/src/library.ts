@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { LeftAcademicStatusCode } from '@studenthub/shared-types'
 import { PageSchema, queryBoolean } from './pagination.js'
+import { vm } from './validation-messages.js'
 
 // Библиотека вуза (Фаза 20, docs/PROJECT.md §3.11): каталог, экземпляры, выдачи, брони.
 // Книги берут студенты и старосты своего вуза, выдаёт и принимает библиотекарь, модуль и
@@ -87,7 +88,7 @@ export const IsbnSchema = z
   .string()
   .trim()
   .transform((v) => v.replace(/[\s-]/g, '').toUpperCase())
-  .refine((v) => /^(\d{9}[\dX]|\d{13})$/.test(v), 'ISBN — 10 или 13 цифр')
+  .refine((v) => /^(\d{9}[\dX]|\d{13})$/.test(v), vm('validation.library.isbn'))
 
 const currentYearPlusOne = new Date().getFullYear() + 1
 
@@ -160,7 +161,7 @@ export const AddBookCopiesSchema = z
   })
   .strict()
   .refine((v) => (v.inventoryNumbers ? 1 : 0) + (v.count ? 1 : 0) === 1, {
-    message: 'Укажите инвентарные номера или количество',
+    message: vm('validation.library.copiesOrCount'),
     path: ['count'],
   })
 export type AddBookCopiesInput = z.infer<typeof AddBookCopiesSchema>
@@ -307,8 +308,8 @@ function isCalendarDay(value: string): boolean {
 /** Дата «YYYY-MM-DD»: срок выдачи — до конца этого дня по часам вуза. */
 export const LibraryDateSchema = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД')
-  .refine(isCalendarDay, 'Такой даты нет')
+  .regex(/^\d{4}-\d{2}-\d{2}$/, vm('validation.date.format'))
+  .refine(isCalendarDay, vm('validation.date.invalid'))
 
 /** Сканер студенческого отдал токен из QR — сервер сверяет читателя и выдаёт пропуск. */
 export const ResolveReaderSchema = z.object({ token: z.string().min(1).max(2048) }).strict()
@@ -349,14 +350,14 @@ export const IssueLoanSchema = z
     withoutPhone: z.boolean().optional(),
   })
   .strict()
-  .refine(oneCopyRef, { message: 'Укажите код наклейки или инвентарный номер', path: ['copyCode'] })
+  .refine(oneCopyRef, { message: vm('validation.library.copyRefRequired'), path: ['copyCode'] })
 export type IssueLoanInput = z.infer<typeof IssueLoanSchema>
 
 /** Возврат — сканом экземпляра: какая выдача открыта, сервер знает сам. */
 export const ReturnLoanSchema = z
   .object({ ...copyRef, condition: BookConditionSchema.default('GOOD') })
   .strict()
-  .refine(oneCopyRef, { message: 'Укажите код наклейки или инвентарный номер', path: ['copyCode'] })
+  .refine(oneCopyRef, { message: vm('validation.library.copyRefRequired'), path: ['copyCode'] })
 export type ReturnLoanInput = z.infer<typeof ReturnLoanSchema>
 
 /** Продление: новая дата или, без неё, срок по умолчанию от текущего срока. */
@@ -680,7 +681,7 @@ export const PopularQuerySchema = z.object({
     .int()
     .refine(
       (v) => (POPULAR_PERIODS as readonly number[]).includes(v),
-      'Период: 30, 90 или 365 дней',
+      vm('validation.library.popularPeriod'),
     )
     .default(90),
 })
@@ -700,7 +701,7 @@ export const InventoryScanSchema = z
     since: LibraryDateSchema.optional(),
   })
   .strict()
-  .refine(oneCopyRef, { message: 'Укажите код наклейки или инвентарный номер', path: ['copyCode'] })
+  .refine(oneCopyRef, { message: vm('validation.library.copyRefRequired'), path: ['copyCode'] })
 export type InventoryScanInput = z.infer<typeof InventoryScanSchema>
 
 /** Чем экземпляр в руках не похож на «стоит на полке» — повод разобраться. */

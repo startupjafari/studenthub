@@ -19,6 +19,13 @@ import type { RequestContext } from '../auth/auth.service'
 import { CareerAccessService, vacancyVisibleWhere } from './career-access.service'
 import { CareerNotifier } from './career-notifier'
 import { rethrowStaleStatus } from '../../common/prisma/stale-status'
+import { grantProfileToCompany } from './career-profile-grants'
+
+/**
+ * Что компания отклика видит из карьерного профиля студента: открыт всем работодателям,
+ * открыт адресно ей (21.D1) или скрыт — тогда только строку кандидата в воронке.
+ */
+type ProfileAccess = 'EMPLOYERS' | 'COMPANY' | 'HIDDEN'
 
 /** Что видит студент в списке своих откликов. */
 const STUDENT_SELECT = {
@@ -115,6 +122,12 @@ export class ApplicationsService {
       await tx.careerApplicationEvent.create({
         data: { applicationId: created.id, toStatus: 'SUBMITTED', actorId: viewer.sub },
       })
+      // Галочка «открыть профиль только этой компании» (21.D1) — тем же шагом, что и отклик:
+      // компания, получившая уведомление о кандидате, не должна открыть карточку раньше,
+      // чем запишется открытие, и отклик без открытия не должен остаться при сбое.
+      if (input.shareProfile) {
+        await grantProfileToCompany(tx, viewer.sub, vacancy.companyId)
+      }
       return created
     })
 
@@ -125,6 +138,20 @@ export class ApplicationsService {
       entityId: application.id,
       ...ctx,
     })
+    if (input.shareProfile) {
+      await this.audit.record({
+        userId: viewer.sub,
+        action: 'career_profile_shared',
+        entity: 'CareerProfileGrant',
+        entityId: viewer.sub,
+        metadata: {
+          companyId: vacancy.companyId,
+          via: 'application',
+          applicationId: application.id,
+        },
+        ...ctx,
+      })
+    }
     // Компания узнаёт о новом кандидате сразу, а не при следующем заходе в воронку (D-F28).
     await this.notifier.newApplication({
       id: application.id,
@@ -143,7 +170,7 @@ export class ApplicationsService {
       // последний отклик на любую вакансию и прятало форму отклика.
       ...(query.vacancyId ? { vacancyId: query.vacancyId } : {}),
     }
-    const [items, total] = await Promise.all([
+    const [items, total, profile] = await Promise.all([
       this.prisma.careerApplication.findMany({
         where,
         select: STUDENT_SELECT,
@@ -152,8 +179,36 @@ export class ApplicationsService {
         take: query.limit,
       }),
       this.prisma.careerApplication.count({ where }),
+      this.prisma.careerProfile.findUnique({
+        where: { userId: viewer.sub },
+        select: { visibility: true },
+      }),
     ])
-    return new Paginated(items, { total })
+
+    // Видит ли компания отклика карьерный профиль (21.D1): открыт всем работодателям,
+    // открыт адресно ей или скрыт. Одним запросом на страницу, а не на строку.
+    const companyIds = [...new Set(items.map((item) => item.vacancy.company.id))]
+    const shared =
+      profile?.visibility === 'EMPLOYERS' || companyIds.length === 0
+        ? new Set<string>()
+        : new Set(
+            (
+              await this.prisma.careerProfileGrant.findMany({
+                where: { userId: viewer.sub, companyId: { in: companyIds }, revokedAt: null },
+                select: { companyId: true },
+                take: companyIds.length,
+              })
+            ).map((g) => g.companyId),
+          )
+    const withAccess = items.map((item) => ({
+      ...item,
+      profileAccess: (profile?.visibility === 'EMPLOYERS'
+        ? 'EMPLOYERS'
+        : shared.has(item.vacancy.company.id)
+          ? 'COMPANY'
+          : 'HIDDEN') satisfies ProfileAccess,
+    }))
+    return new Paginated(withAccess, { total })
   }
 
   /** Отзыв отклика — единственный переход, доступный студенту. */

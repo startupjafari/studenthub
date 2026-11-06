@@ -1,4 +1,5 @@
 import {
+  renderCompanyInvite,
   renderDemoApproved,
   renderDemoRejected,
   renderInvite,
@@ -22,6 +23,35 @@ describe('email templates', () => {
     expect(r.html).toContain('Иван Петров')
     expect(r.text).toContain('https://app/register?token=xyz')
     expect(r.text).toContain('28.07.2026 12:00')
+  })
+
+  it('company-invite: компания, кто пригласил, ссылка и срок; имя экранируется', () => {
+    const r = renderCompanyInvite({
+      to: 'a@b.c',
+      companyName: 'ТОО <Прогресс>',
+      invitedByName: 'Ержан Сериков',
+      inviteUrl: 'https://app/employer/join?token=xyz',
+      expiresAt: '28.07.2026 12:00',
+    })
+    expect(r.subject).toContain('ТОО <Прогресс>')
+    expect(r.html).toContain('ТОО &lt;Прогресс&gt;')
+    expect(r.html).not.toContain('ТОО <Прогресс>')
+    expect(r.html).toContain('Ержан Сериков приглашает вас')
+    expect(r.html).toContain('https://app/employer/join?token=xyz')
+    expect(r.text).toContain('https://app/employer/join?token=xyz')
+    expect(r.text).toContain('28.07.2026 12:00')
+  })
+
+  it('company-invite: на английском и без имени пригласившего', () => {
+    const r = renderCompanyInvite({
+      to: 'a@b.c',
+      companyName: 'Acme',
+      inviteUrl: 'https://app/x',
+      expiresAt: '01.01.2027',
+      locale: 'en',
+    })
+    expect(r.subject).toContain('Acme')
+    expect(r.html).toContain('You have been invited')
   })
 
   it('invite: без invitedByName использует безличную формулировку', () => {

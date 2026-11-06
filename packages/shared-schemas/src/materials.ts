@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { PAGE_MAX } from './pagination.js'
 import { httpUrl } from './url.js'
+import { vm } from './validation-messages.js'
 
 // Учебные материалы (docs/PROJECT.md §12 teacher/materials, Ф12).
 export const CreateMaterialSchema = z
@@ -45,7 +46,7 @@ export const MaterialListQuerySchema = z
   // Страница таблицы — не больше 100 строк: потолок 200 остаётся у прежнего режима.
   .refine((q) => q.page === undefined || (q.limit ?? 0) <= 100, {
     path: ['limit'],
-    message: 'limit ≤ 100 для постраничной выдачи',
+    message: vm('validation.common.pageLimit'),
   })
 export type MaterialListQueryInput = z.infer<typeof MaterialListQuerySchema>
 

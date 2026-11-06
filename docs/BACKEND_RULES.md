@@ -230,7 +230,7 @@ RolesGuard     (@Roles(Role.DEAN, Role.UNIVERSITY_ADMIN))
 ScopeGuard     (universityId / facultyId / groupId из токена = scope ресурса)
 ```
 
-- `JwtAuthGuard` регистрируется глобально. Публичные эндпоинты помечаются `@Public()`. **Полный список — ровно 29 маршрутов**, сверен с кодом 2026-11-02; всё, чего здесь нет, обязано быть закрыто. Расширение списка требует явного согласования (стоп-точка).
+- `JwtAuthGuard` регистрируется глобально. Публичные эндпоинты помечаются `@Public()`. **Полный список — ровно 31 маршрут**, сверен с кодом 2026-11-06; всё, чего здесь нет, обязано быть закрыто. Расширение списка требует явного согласования (стоп-точка).
 
   | Маршрут | Почему публичный | Где обосновано |
   |---|---|---|
@@ -251,6 +251,8 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
   | `GET /career/resume/public/:slug` | резюме по ссылке, публикацию включает сам студент | `PROJECT.md` §Резюме |
   | `POST /career/companies/signup` | единственное исключение из инвайт-онли | §18.7, §19 п. 9 |
   | `POST /career/companies/verify-email` | подтверждение почты по ссылке из письма | §19 п. 9 |
+  | `GET /career/companies/invites/:token/preview` | предпросмотр приглашения в команду компании до регистрации (21.D2); адрес — под маской | `PROJECT.md` «Команда компании» |
+  | `POST /auth/register-by-company-invite` | регистрация по приглашению в команду компании: только `EMPLOYER`/`RECRUITER`, почта и компания — из приглашения (21.D2) | §19 п. 9, `PROJECT.md` «Команда компании» |
   | `POST /career/companies/resend-verification` | новая ссылка взамен истёкшей: без входа компания с неподтверждённой почтой застревала навсегда; ответ одинаков для любого адреса | §19 п. 9 |
   | `POST /mini/session` | Telegram открывает мини-апп без нашего JWT; защита — подпись initData | `PROJECT.md` §Мини-апп |
   | `POST /mini/link` | то же, плюс одноразовый код, выданный в вебе | `PROJECT.md` §Мини-апп |
@@ -309,6 +311,9 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 | `POST /auth/password/reset` | 5 / 15 мин с IP |
 | `GET /invites/:token/preview` | 30 / час на токен инвайта, потолок 200 / час с IP |
 | `POST /career/companies/signup`, `POST /demo-requests` | 5 / 15 мин с IP |
+| `POST /auth/register-by-company-invite` | 10 / час на токен приглашения, потолок 100 / час с IP |
+| `GET /career/companies/invites/:token/preview` | 30 / час на токен приглашения, потолок 200 / час с IP |
+| `POST /career/companies/me/invites` | 20 / час с пользователя (каждый вызов — письмо) |
 | `POST /complaints` | 10 / час с пользователя |
 | Остальные | 100 / мин с пользователя (без валидного токена — с IP) |
 
