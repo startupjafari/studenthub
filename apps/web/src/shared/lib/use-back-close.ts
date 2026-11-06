@@ -89,3 +89,24 @@ export function useBackClose(onClose: () => void): void {
     }
   }, [])
 }
+
+/**
+ * Действие, уводящее со страницы (`router.push`), сразу после закрытия окна.
+ *
+ * Окно снимает свою запись истории `history.back()` уже после размонтирования. Next при
+ * `push` переносит текущий `history.state` в новую запись — вместе с меткой окна, — и
+ * отложенный `back()` принимает новую запись за свою: адрес откатывается назад, хотя на
+ * экране уже новая страница. Поэтому переход ждём до `popstate` от этого `back()`; если окно
+ * записи не снимало (закрыли «назад»), срабатывает страховочный таймер.
+ */
+export function afterOverlayClose(action: () => void): void {
+  let done = false
+  const run = (): void => {
+    if (done) return
+    done = true
+    window.removeEventListener('popstate', run)
+    action()
+  }
+  window.addEventListener('popstate', run)
+  window.setTimeout(run, 300)
+}

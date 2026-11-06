@@ -532,6 +532,51 @@ export class UserService {
     }
   }
 
+  /**
+   * Поля человека для DOCX-шаблонов документов вуза (§3.8 «Шаблоны»): о ком документ и кто
+   * его формирует. Отдельный метод, а не `academicSubject`: шаблону нужны ещё scope (чтобы
+   * проверить доступ к студенту), дата рождения и должность, а справке B7 — нет.
+   *
+   * Только перечисленные поля: ни контактов, ни хэшей, ни токенов здесь нет, и в шаблонизатор
+   * уходит не эта строка, а значения, собранные по реестру переменных.
+   */
+  async documentTemplatePerson(userId: string): Promise<DocumentTemplatePerson | null> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: {
+        id: true,
+        role: true,
+        universityId: true,
+        facultyId: true,
+        firstName: true,
+        lastName: true,
+        middleName: true,
+        birthDate: true,
+        studentCardNumber: true,
+        course: true,
+        specialty: true,
+        studyForm: true,
+        educationLevel: true,
+        fundingType: true,
+        enrollmentYear: true,
+        graduationYear: true,
+        position: true,
+        jobTitle: true,
+        group: { select: { name: true } },
+        faculty: { select: { name: true } },
+      },
+    })
+    if (!user) return null
+    const { group, faculty, jobTitle, position, ...rest } = user
+    return {
+      ...rest,
+      // Должность сотрудника заполняют в одном из двух полей профиля — берём что есть.
+      position: position ?? jobTitle,
+      groupName: group?.name ?? null,
+      facultyName: faculty?.name ?? null,
+    }
+  }
+
   async list(viewer: JwtPayload, query: UserListQueryInput): Promise<Paginated<unknown>> {
     const where = this.listWhere(viewer, query)
     const [rows, total] = await this.prisma.$transaction([
@@ -2814,6 +2859,29 @@ function exportColumns(locale: ExportLocale, timezone: string): SpreadsheetColum
     { header: header.isBlocked, value: (r) => r.isBlocked, width: 14 },
     { header: header.createdAt, value: (r) => dateFormat.format(r.createdAt), width: 18 },
   ]
+}
+
+/** Поля человека для DOCX-шаблонов документов (см. `documentTemplatePerson`). */
+export interface DocumentTemplatePerson {
+  id: string
+  role: Role
+  universityId: string | null
+  facultyId: string | null
+  firstName: string
+  lastName: string
+  middleName: string | null
+  birthDate: Date | null
+  studentCardNumber: string | null
+  course: number | null
+  specialty: string | null
+  studyForm: string | null
+  educationLevel: string | null
+  fundingType: string | null
+  enrollmentYear: number | null
+  graduationYear: number | null
+  position: string | null
+  groupName: string | null
+  facultyName: string | null
 }
 
 /** Поля бланка справки об обучении: всё, что платформа знает о студенте как об учащемся. */

@@ -24,6 +24,22 @@ export async function requestFile(
   }
 }
 
+/**
+ * То же для действий, которые создают файл на сервере (документ по шаблону): POST, а не GET —
+ * запрос не идемпотентен и пишется в журнал, а тело несёт параметры.
+ */
+export async function requestFileByPost(
+  url: string,
+  body?: unknown,
+  params?: Record<string, unknown>,
+): Promise<DownloadedFile> {
+  const response = await api.post<Blob>(url, body, { params, responseType: 'blob' })
+  return {
+    blob: response.data,
+    filename: filenameFromDisposition(response.headers['content-disposition']),
+  }
+}
+
 /** Сохранить полученный файл на диск. */
 export function saveFile({ blob, filename }: DownloadedFile): void {
   const url = URL.createObjectURL(blob)

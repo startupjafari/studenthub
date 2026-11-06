@@ -2,7 +2,7 @@ export { cn } from './utils'
 export { useMediaQuery } from './use-media-query'
 export { ChatLayoutProvider, useChatListSlot, useSetChatOpen } from './chat-layout'
 export { toApiError } from './api-error'
-export { requestFile, saveFile, type DownloadedFile } from './download-file'
+export { requestFile, requestFileByPost, saveFile, type DownloadedFile } from './download-file'
 export { useEscapeBack } from './use-escape-back'
 export { useFormAlert, type FormAlertController } from './use-form-alert'
 export { useErrorToast } from './use-error-toast'
@@ -73,7 +73,7 @@ export {
   BUILD_ID,
   type AppUpdate,
 } from './use-sw-update'
-export { useBackClose } from './use-back-close'
+export { afterOverlayClose, useBackClose } from './use-back-close'
 export { useDismissAnimation } from './use-dismiss-animation'
 export { useKeyboardInset } from './use-keyboard-inset'
 export { isIosDevice, isStandalonePwa } from './platform'

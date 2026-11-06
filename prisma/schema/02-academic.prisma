@@ -30,26 +30,28 @@ model University {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  faculties        Faculty[]
-  specialties      Specialty[]
-  rooms            Room[]
-  campuses         Campus[]
-  users            User[]
-  posts            Post[]
-  stories          Story[]
-  chats            Chat[]
-  events           Event[]
-  complaints       Complaint[]
-  documents        Document[]
-  documentRequests DocumentRequest[]
-  documentTypes    DocumentType[]
-  appServices      ApplicationService[]      @relation("UniversityApplicationServices")
-  applicationsV2   Application[]             @relation("UniversityApplicationsV2")
-  subjects         Subject[]
-  terms            Term[]
-  companyAccess    CompanyUniversityAccess[] @relation("UniversityCompanyAccess")
-  vacancyReviews   VacancyUniversityReview[] @relation("UniversityVacancyReviews")
-  demoRequests     UniversityDemoRequest[]   @relation("UniversityDemoRequest")
+  faculties         Faculty[]
+  specialties       Specialty[]
+  rooms             Room[]
+  campuses          Campus[]
+  users             User[]
+  posts             Post[]
+  stories           Story[]
+  chats             Chat[]
+  events            Event[]
+  complaints        Complaint[]
+  documents         Document[]
+  documentRequests  DocumentRequest[]
+  documentTypes     DocumentType[]
+  // DOCX-шаблоны документов вуза (37-document-templates.prisma).
+  documentTemplates DocumentTemplate[]
+  appServices       ApplicationService[]      @relation("UniversityApplicationServices")
+  applicationsV2    Application[]             @relation("UniversityApplicationsV2")
+  subjects          Subject[]
+  terms             Term[]
+  companyAccess     CompanyUniversityAccess[] @relation("UniversityCompanyAccess")
+  vacancyReviews    VacancyUniversityReview[] @relation("UniversityVacancyReviews")
+  demoRequests      UniversityDemoRequest[]   @relation("UniversityDemoRequest")
 
   // Контент страницы университета: публикует админ или модератор вуза от его имени.
   // Отдельные связи, а не universityId: тот у постов — scope аудитории, а не владелец.

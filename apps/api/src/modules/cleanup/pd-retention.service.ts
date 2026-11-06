@@ -527,6 +527,9 @@ export class PdRetentionService {
         ownerId: userId,
         OR: [
           { bookCovers: { some: {} } },
+          // DOCX шаблона документов вуза: версию держит внешний ключ (Restrict), каскад по
+          // владельцу файла сорвал бы удаление.
+          { documentTemplateVersion: { isNot: null } },
           { post: { authorId: { not: userId } } },
           { message: { senderId: { not: userId } } },
           { material: { teacherId: { not: userId } } },
