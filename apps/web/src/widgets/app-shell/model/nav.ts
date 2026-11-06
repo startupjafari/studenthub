@@ -37,6 +37,7 @@ import {
   FileUser,
   TrendingUp,
   Users,
+  UserPlus,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -474,6 +475,9 @@ export const EMPLOYER_NAV: NavItem[] = [
   // Отдельного пункта «Компания» нет: страница компании — в профиле работодателя, за
   // переключателем «Мой профиль / Компания» (/profile?view=company).
   { key: 'universityAccess', href: '/employer/access', icon: GraduationCap },
+  // Команда компании (21.D2): приглашения коллег и состав. Управляет владелец, рекрутёр
+  // видит на странице, к кому обратиться.
+  { key: 'companyTeam', href: '/employer/team', icon: UserPlus },
 ]
 
 export const NAV_BY_VARIANT: Record<NavVariant, NavItem[]> = {

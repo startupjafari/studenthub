@@ -9,6 +9,7 @@ const SELF_AUTH_PATHS = [
   '/auth/login',
   '/auth/refresh',
   '/auth/register-by-invite',
+  '/auth/register-by-company-invite',
   '/auth/qr/claim',
 ]
 
