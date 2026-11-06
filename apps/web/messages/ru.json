@@ -4923,6 +4923,9 @@
     "issuedOn": "Выдана {date} · {name}",
     "renewedTimes": "{count, plural, one {продлена # раз} few {продлена # раза} many {продлена # раз} other {продлена # раза}}",
     "disputed": "Оспорена читателем",
+    "readerExpelled": "Отчислен",
+    "readerGraduated": "Выпускник",
+    "readerTransferred": "Переведён",
     "error": {
       "status": "Студент отчислен, выпущен или переведён — книги не выдаются",
       "overdue": "У читателя просрочена книга — сначала её возврат",

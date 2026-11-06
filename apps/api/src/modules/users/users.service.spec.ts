@@ -15,6 +15,7 @@ import type { AuditService } from '../../common/audit/audit.service'
 import type { ExportBrandingService } from '../../common/export/export-branding.service'
 import type { ExportRegistryService } from '../../common/export/export-registry.service'
 import type { LibraryReservationsService } from '../library/library-reservations.service'
+import type { LibraryDebtsService } from '../library/library-debts.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import type Redis from 'ioredis'
@@ -110,6 +111,8 @@ function setup() {
   }
   // Брони книг удаляемого закрывает модуль библиотеки (softDeleteSelf).
   const libraryReservations = { cancelAllOfReader: jest.fn().mockResolvedValue(0) }
+  // Отчисление должника — библиотекарям (updateAcademicRecord, Фаза 21.C3).
+  const libraryDebts = { notifyExpelledDebtor: jest.fn().mockResolvedValue(0) }
   const service = new UserService(
     prisma as unknown as PrismaService,
     passwords as unknown as PasswordService,
@@ -123,6 +126,7 @@ function setup() {
     exportRegistry as unknown as ExportRegistryService,
     redis as unknown as Redis,
     libraryReservations as unknown as LibraryReservationsService,
+    libraryDebts as unknown as LibraryDebtsService,
   )
   return {
     redis,
@@ -138,6 +142,7 @@ function setup() {
     branding,
     exportRegistry,
     libraryReservations,
+    libraryDebts,
   }
 }
 
@@ -2155,12 +2160,13 @@ describe('UserService — учебные данные ведёт вуз', () => 
   // От даты ухода считаются сроки хранения ПДн (PERSONAL_DATA §4).
   describe('дата ухода из вуза (leftUniversityAt)', () => {
     const admin = viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-A' })
-    const student = (leftUniversityAt: Date | null) => ({
+    const student = (leftUniversityAt: Date | null, academicStatus: string | null = null) => ({
       id: 's1',
       role: Role.STUDENT,
       universityId: 'uni-A',
       facultyId: 'fac-A',
       specialty: null,
+      academicStatus,
       leftUniversityAt,
     })
 
@@ -2233,13 +2239,40 @@ describe('UserService — учебные данные ведёт вуз', () => 
     })
 
     it('сбой библиотеки смену статуса не срывает', async () => {
-      const { service, prisma, libraryReservations } = setup()
+      const { service, prisma, libraryReservations, libraryDebts } = setup()
       prisma.user.findFirst.mockResolvedValue(student(null))
       prisma.user.update.mockResolvedValue({ id: 's1' })
       libraryReservations.cancelAllOfReader.mockRejectedValue(new Error('db down'))
+      libraryDebts.notifyExpelledDebtor.mockRejectedValue(new Error('db down'))
       await expect(
         service.updateAcademicRecord(admin, 's1', { academicStatus: 'Отчислен' }),
       ).resolves.toEqual({ id: 's1' })
+    })
+
+    // Фаза 21.C3: библиотекари узнают об отчислении должника в момент смены статуса.
+    it.each([null, 'Обучающийся', 'Выпускник', 'ACADEMIC_LEAVE'])(
+      'переход %s → «Отчислен» сообщает библиотеке',
+      async (from) => {
+        const { service, prisma, libraryDebts } = setup()
+        prisma.user.findFirst.mockResolvedValue(student(null, from))
+        prisma.user.update.mockResolvedValue({ id: 's1' })
+        await service.updateAcademicRecord(admin, 's1', { academicStatus: 'отчислен' })
+        expect(libraryDebts.notifyExpelledDebtor).toHaveBeenCalledWith('s1')
+      },
+    )
+
+    it.each([
+      ['Отчислен', { academicStatus: 'Отчислен' }],
+      ['EXPELLED', { academicStatus: 'Отчислен' }],
+      ['Обучающийся', { academicStatus: 'Выпускник' }],
+      ['Обучающийся', { academicStatus: 'Переведён' }],
+      ['Обучающийся', { course: 4 }],
+    ])('из %s с %j — библиотеке не сообщаем', async (from, input) => {
+      const { service, prisma, libraryDebts } = setup()
+      prisma.user.findFirst.mockResolvedValue(student(null, from))
+      prisma.user.update.mockResolvedValue({ id: 's1' })
+      await service.updateAcademicRecord(admin, 's1', input)
+      expect(libraryDebts.notifyExpelledDebtor).not.toHaveBeenCalled()
     })
 
     it('правка без статуса дату не трогает', async () => {

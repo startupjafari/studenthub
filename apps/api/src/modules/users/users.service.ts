@@ -3,7 +3,7 @@ import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
 import type Redis from 'ioredis'
-import { Role, isHigherRole } from '@studenthub/shared-types'
+import { Role, academicStatusCode, isHigherRole } from '@studenthub/shared-types'
 import type {
   AcceptConsentInput,
   UserListQueryInput,
@@ -41,6 +41,7 @@ import type { EnvVars } from '../../config/env.schema'
 import sharp from 'sharp'
 import { FileService } from '../files/file.service'
 import { LibraryReservationsService } from '../library/library-reservations.service'
+import { LibraryDebtsService } from '../library/library-debts.service'
 import { RealtimeGateway } from '../../common/realtime'
 import { QueueService, QUEUES, EMAIL_JOBS, FILE_JOBS, NOTIFICATION_JOBS } from '../../common/queue'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
@@ -343,6 +344,7 @@ export class UserService {
     private readonly exports: ExportRegistryService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly libraryReservations: LibraryReservationsService,
+    private readonly libraryDebts: LibraryDebtsService,
   ) {}
 
   /** Статус присутствия пользователя (онлайн по активным WS-соединениям, docs/PROJECT.md §9). */
@@ -2093,6 +2095,18 @@ export class UserService {
     // сохранение того же статуса снимает брони, оставшиеся с записей до этой правки.
     if (record.academicStatus !== undefined && isTerminalAcademicStatus(record.academicStatus)) {
       await this.releaseLibraryHolds(userId, { notifyReader: true })
+    }
+    // Отчислили должника — библиотекари вуза узнают сразу, а не по просрочке (Фаза 21.C3).
+    // Только на переходе: повторное сохранение «Отчислен» не шлёт второе уведомление.
+    if (
+      academicStatusCode(record.academicStatus) === 'EXPELLED' &&
+      academicStatusCode(target.academicStatus) !== 'EXPELLED'
+    ) {
+      try {
+        await this.libraryDebts.notifyExpelledDebtor(userId)
+      } catch (err) {
+        this.logger.warn(`Не удалось сообщить библиотеке об отчислении ${userId}: ${String(err)}`)
+      }
     }
     return updated
   }

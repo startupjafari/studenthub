@@ -522,3 +522,32 @@ describe('«Бронь готова»', () => {
     expect(prisma.reservation.updateMany).not.toHaveBeenCalled()
   })
 })
+
+// Фаза 21.C3: в отчёте о просрочках видно, что должник уже ушёл из вуза.
+describe('Пометка ушедшего читателя в выдачах', () => {
+  it.each([
+    ['Отчислен', 'EXPELLED'],
+    ['EXPELLED', 'EXPELLED'],
+    ['Выпускник', 'GRADUATED'],
+    ['переведен', 'TRANSFERRED'],
+    ['Обучающийся', null],
+    ['Академический отпуск', null],
+    [null, null],
+  ])('статус %s → leftStatus %s', async (academicStatus, leftStatus) => {
+    const { service } = setup()
+    const [item] = await service.toItems(
+      [loanRow({ reader: { academicStatus } }) as never],
+      'Asia/Almaty',
+    )
+    expect(item?.reader.leftStatus).toBe(leftStatus)
+  })
+
+  it('удалённый читатель (связь обнулена) — без пометки', async () => {
+    const { service } = setup()
+    const [item] = await service.toItems(
+      [loanRow({ readerId: null, reader: null }) as never],
+      'Asia/Almaty',
+    )
+    expect(item?.reader).toMatchObject({ id: null, leftStatus: null })
+  })
+})
