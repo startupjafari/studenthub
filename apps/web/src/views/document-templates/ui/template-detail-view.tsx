@@ -8,7 +8,7 @@ import { toast } from 'sonner'
 import {
   Archive,
   Download,
-  FileCheck2,
+  Eye,
   FileDown,
   Pencil,
   Send,
@@ -40,11 +40,12 @@ import { useTemplateTexts } from '../lib/use-template-texts'
 import { GenerateForStudentModal } from './generate-for-student-modal'
 import { StatusBadge } from './status-badge'
 import { TemplateInfoForm } from './template-info-form'
+import { TemplatePreviewModal } from './template-preview-modal'
 import { TemplateUpload } from './template-upload'
 import { ValidationReport } from './validation-report'
 import { TEMPLATES_BASE } from './document-templates-view'
 
-type Dialog = 'edit' | 'upload' | 'generate' | null
+type Dialog = 'edit' | 'upload' | 'generate' | 'preview' | null
 
 interface TemplateDetailViewProps {
   templateId: string
@@ -218,13 +219,8 @@ export function TemplateDetailView({ templateId }: TemplateDetailViewProps) {
               <>
                 <ValidationReport validation={current.validation} />
                 <div className="grid gap-2 sm:flex sm:flex-wrap">
-                  <Button
-                    variant="outline"
-                    loading={actions.test.isPending}
-                    disabled={!valid}
-                    onClick={() => actions.test.mutate(current.id)}
-                  >
-                    <FileCheck2 className="size-4" aria-hidden /> {t('testButton')}
+                  <Button variant="outline" disabled={!valid} onClick={() => setDialog('preview')}>
+                    <Eye className="size-4" aria-hidden /> {t('previewButton')}
                   </Button>
                   <Button
                     variant="outline"
@@ -378,6 +374,15 @@ export function TemplateDetailView({ templateId }: TemplateDetailViewProps) {
             <TemplateUpload templateId={templateId} onUploaded={() => setDialog(null)} />
           </div>
         </Modal>
+      )}
+
+      {dialog === 'preview' && current && (
+        <TemplatePreviewModal
+          templateId={templateId}
+          versionId={current.id}
+          version={current.version}
+          onClose={() => setDialog(null)}
+        />
       )}
 
       {dialog === 'generate' && (
