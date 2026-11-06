@@ -81,6 +81,7 @@ const parentScopes = (id, scopes) =>
           .filter((candidate) => scopes.has(candidate)),
       ]
 
+/** @returns {Record<string, string[]>} */
 export function computeScopes() {
   const scopes = findScopes()
   const needs = new Map([...scopes].map((id) => [id, new Set()]))

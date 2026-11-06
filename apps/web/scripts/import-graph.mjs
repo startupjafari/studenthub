@@ -47,7 +47,12 @@ function resolveFile(base) {
   return null
 }
 
-/** Файл исходников по спецификатору импорта; пакеты из node_modules — `null`. */
+/**
+ * Файл исходников по спецификатору импорта; пакеты из node_modules — `null`.
+ * @param {string} specifier
+ * @param {string} fromFile
+ * @returns {string | null}
+ */
 export function resolveImport(specifier, fromFile) {
   if (specifier.startsWith('.')) return resolveFile(path.resolve(path.dirname(fromFile), specifier))
   if (ALIASES.includes(specifier.split('/')[0])) return resolveFile(path.join(SRC, specifier))
@@ -109,12 +114,20 @@ function parse(file) {
   return info
 }
 
-/** Модуль с директивой `'use client'` — граница клиентского кода. */
+/**
+ * Модуль с директивой `'use client'` — граница клиентского кода.
+ * @param {string} file
+ * @returns {boolean}
+ */
 export function isClientModule(file) {
   return parse(file).client
 }
 
-/** Импортируемые файлы исходников (без `import type`, без тестов). */
+/**
+ * Импортируемые файлы исходников (без `import type`, без тестов).
+ * @param {string} file
+ * @returns {string[]}
+ */
 export function importsOf(file) {
   return parse(file).edges.map((edge) => edge.target)
 }
@@ -129,6 +142,9 @@ export function importsOf(file) {
  * Barrel проходится по именам: `import { Button } from 'shared/ui'` ведёт только в
  * button.tsx, а не во все шестьдесят компонентов слоя. Неиспользованный реэкспорт не
  * отрисуется никогда, значит, и словарь ему не нужен. Обычный модуль берётся целиком.
+ *
+ * @param {string[]} entries
+ * @returns {Set<string>}
  */
 export function clientNamespaces(entries) {
   const namespaces = new Set()
@@ -193,7 +209,13 @@ export function clientNamespaces(entries) {
   return namespaces
 }
 
-/** Все .ts/.tsx файлы каталога рекурсивно (без тестов), с фильтром по пути. */
+/**
+ * Все .ts/.tsx файлы каталога рекурсивно (без тестов), с фильтром по пути.
+ * @param {string} dir
+ * @param {(file: string) => boolean} [filter]
+ * @param {string[]} [out]
+ * @returns {string[]}
+ */
 export function listFiles(dir, filter = () => true, out = []) {
   for (const entry of readdirSync(dir)) {
     const full = path.join(dir, entry)
@@ -205,5 +227,9 @@ export function listFiles(dir, filter = () => true, out = []) {
   return out
 }
 
-/** Путь относительно src/ с прямыми слэшами — для сообщений тестов. */
+/**
+ * Путь относительно src/ с прямыми слэшами — для сообщений тестов.
+ * @param {string} file
+ * @returns {string}
+ */
 export const rel = (file) => path.relative(SRC, file).split(path.sep).join('/')
