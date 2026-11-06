@@ -6,11 +6,14 @@ import { useQueries, useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { Footprints, Map as MapIcon, Navigation, X } from 'lucide-react'
 import {
+  centerWalls,
   emptyFloorPlan,
   explainNoRoute,
   indexGraph,
+  nodePoint,
   routeBetweenSpaces,
   routeSteps,
+  type CenterWall,
   type FloorPlanDoc,
 } from '@studenthub/campus-core'
 import {
@@ -31,6 +34,7 @@ import {
   routeInScene,
   routeOnFloor,
   routeEndsOnLevel,
+  routeGeometry,
   routeOnLevel,
   routeStartFloor,
   routeTopFloor,
@@ -351,24 +355,54 @@ function Viewer({
     if (start) goTo(start, null)
     // Только на новый маршрут: смена этажа во время прохода сюда не относится.
   }, [route])
+  // Планы этажей маршрута — для стен: по ним путь ложится на ось проходов (routeGeometry).
+  const routeFloorIds = useMemo(() => {
+    const graph = nav.data?.graph
+    if (!graph || !route) return []
+    return [...new Set(route.nodes.flatMap((n) => nodePoint(graph, n).floor ?? []))]
+  }, [nav.data, route])
+  const routeDocs = useQueries({
+    queries: routeFloorIds.map((id) => ({
+      queryKey: campusKeys.publishedFloor(campusId, id, versionId),
+      queryFn: () => fetchCampusPublishedFloor(campusId, id),
+      staleTime: Infinity,
+    })),
+  })
+  const routeDocsKey = routeDocs.map((q) => (q.data ? 1 : 0)).join('')
+  const routeWalls = useMemo(() => {
+    const m = new Map<string, CenterWall[]>()
+    for (const q of routeDocs) {
+      const f = q.data && floorIndex.get(q.data.floorId)
+      if (q.data && f) m.set(q.data.floorId, centerWalls(q.data.document, f.building.transform))
+    }
+    return m
+    // routeDocsKey: пересобрать, когда догрузился план очередного этажа.
+  }, [routeDocsKey, floorIndex])
+  // Стены всех этажей пришли — тогда центруем; до того маршрут как в графе (без скачка
+  // посередине: линия меняется один раз, а не по этажу).
+  const routeReady = routeDocs.every((q) => q.data)
+  const routePoints = useMemo(
+    () => (index && route ? routeGeometry(index, route, routeReady ? routeWalls : new Map()) : []),
+    [index, route, routeWalls, routeReady],
+  )
   const mapRoute = useMemo(
     () =>
-      nav.data?.graph && route
-        ? routeOnLevel(nav.data.graph, route, new Set(levelFloors.map(({ f }) => f.id)))
+      routePoints.length > 1
+        ? routeOnLevel(routePoints, new Set(levelFloors.map(({ f }) => f.id)))
         : [],
-    [nav.data, route, levelFloors],
+    [routePoints, levelFloors],
   )
   const markerFrom = t('markerFrom')
   const markerTo = t('markerTo')
   const mapRouteEnds = useMemo(
     () =>
-      nav.data?.graph && route
+      routePoints.length > 1
         ? {
-            ...routeEndsOnLevel(nav.data.graph, route, new Set(levelFloors.map(({ f }) => f.id))),
+            ...routeEndsOnLevel(routePoints, new Set(levelFloors.map(({ f }) => f.id))),
             labels: { a: markerFrom, b: markerTo },
           }
         : undefined,
-    [nav.data, route, levelFloors, markerFrom, markerTo],
+    [routePoints, levelFloors, markerFrom, markerTo],
   )
   const sceneMarkers = useMemo(() => ({ from: markerFrom, to: markerTo }), [markerFrom, markerTo])
   // Все этажи корпусов — для кнопок в кабине лифта при проходе по маршруту.
@@ -452,8 +486,8 @@ function Viewer({
     // docsKey: пересобрать, когда догрузился очередной этаж.
   }, [mode, buildings, level, docsKey, floorId, doc])
   const sceneRoute = useMemo(
-    () => (index && route ? routeInScene(index, route) : null),
-    [index, route],
+    () => (routePoints.length > 1 ? routeInScene(routePoints) : null),
+    [routePoints],
   )
   const highlight = useMemo(
     () => (selectedSpace && floorId ? { floorId, spaceId: selectedSpace } : null),
