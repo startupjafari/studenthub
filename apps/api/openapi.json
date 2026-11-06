@@ -4847,6 +4847,39 @@
         ]
       }
     },
+    "/library/readers/lookup": {
+      "post": {
+        "operationId": "LibraryLoansController_lookup",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LookupReaderDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "404": {
+            "description": "NOT_FOUND — такого номера в вузе нет"
+          },
+          "409": {
+            "description": "details.field: cardAmbiguous — номер у нескольких читателей; reader; module"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Читатель без телефона: поиск по номеру студенческого, карточка и пропуск на выдачу с отметкой",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
     "/library/loans": {
       "post": {
         "operationId": "LibraryLoansController_issue",
@@ -4863,7 +4896,7 @@
         },
         "responses": {
           "409": {
-            "description": "details.field: status | overdue | lost | limit — читателю нельзя; onLoan | reserved | withdrawn | archived — экземпляр; ticket — пропуск истёк; module"
+            "description": "details.field: status | overdue | lost | limit — читателю нельзя; onLoan | reserved | withdrawn | archived — экземпляр; ticket — пропуск истёк; noPhoneMark — пропуск по номеру билета без отметки «без телефона» или отметка при скане; module"
           },
           "422": {
             "description": "Срок вне правил библиотеки (field = dueDate)"
@@ -4947,6 +4980,14 @@
             "schema": {
               "type": "string",
               "minLength": 1
+            }
+          },
+          {
+            "name": "withoutPhone",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -27255,6 +27296,20 @@
         ],
         "additionalProperties": false
       },
+      "LookupReaderDto": {
+        "type": "object",
+        "properties": {
+          "studentCardNumber": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          }
+        },
+        "required": [
+          "studentCardNumber"
+        ],
+        "additionalProperties": false
+      },
       "IssueLoanDto": {
         "type": "object",
         "properties": {
@@ -27276,6 +27331,9 @@
           "dueDate": {
             "type": "string",
             "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "withoutPhone": {
+            "type": "boolean"
           }
         },
         "required": [
