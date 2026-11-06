@@ -1199,6 +1199,20 @@ Email при регистрации сохраняется в нижнем ре�
 }
 ```
 
+**Сообщения валидации — ключи, а не текст** (21.B2). У `422 VALIDATION_ERROR` в
+`details[].message` для правил из `shared-schemas` приходит код-ключ вида
+`validation.password.tooShort`, а не русская строка: ошибку читают на ru/kk/en. Форма ответа не
+меняется — меняется только содержимое `message`. Реестр ключей — `VALIDATION_MESSAGE_KEYS`
+(`packages/shared-schemas/src/validation-messages.ts`), подстановки чисел (`{max}`, `{length}`) —
+`VALIDATION_MESSAGE_VALUES`. Перевод на клиенте: веб — пространство `Validation` в
+`apps/web/messages/*.json` (`FieldError`, `FormAlert`, тост ошибки), iOS — `Localizable.xcstrings`
+(`ValidationMessage`), Android — `strings_ios.xml` (`ValidationMessages`). Незнакомый ключ и
+обычный текст клиент показывает как есть. В `details[].message` по-прежнему может прийти
+стандартный текст zod (`Required`, `String must contain…`) у правил без своего сообщения и
+текст `AppException` сервисов — это не ключи. Новое сообщение в схеме — только через `vm('…')` с
+ключом из реестра и переводом во все языки (стражи: `validation-messages.test.ts` веба,
+`ValidationMessageTests` iOS, `ValidationMessagesTest` Android).
+
 ### 8.2 Коды ошибок
 
 | HTTP | code | Ситуация |
