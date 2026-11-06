@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useFormatter, useTranslations } from 'next-intl'
-import { FileText, Plus, Search } from 'lucide-react'
+import { FileText, FilterX, Plus, Search } from 'lucide-react'
 import {
   DOCUMENT_TEMPLATE_CATEGORY_VALUES,
   DOCUMENT_TEMPLATE_STATUS_VALUES,
@@ -51,8 +51,9 @@ export const TEMPLATES_BASE = '/university-admin/document-templates'
 type Tab = 'templates' | 'variables'
 const PAGE_SIZE = 20
 const DEBOUNCE_MS = 300
-// Название · вид · статус · переменные · автор · создан · изменён.
-const COLS = ['28%', '13%', '13%', '9%', '13%', '12%', '12%'] as const
+// Название · вид · статус · переменные · автор · создан · изменён. Даты числом
+// (06.11.2026): «6 нояб. 2026 г.» в колонке такой ширины переносилось на две строки.
+const COLS = ['23%', '15%', '14%', '13%', '11%', '12%', '12%'] as const
 const COLS_NARROW = ['56%', '0', '44%', '0', '0', '0', '0'] as const
 const HIDE = {
   category: 'hidden md:table-cell',
@@ -81,6 +82,7 @@ export function DocumentTemplatesView() {
   const [wizard, setWizard] = useState(false)
 
   const [search, setSearch] = useState('')
+  const [catalogQuery, setCatalogQuery] = useState('')
   const [debounced, setDebounced] = useState('')
   const [status, setStatus] = useState<'all' | DocumentTemplateStatus>('all')
   const [category, setCategory] = useState<'all' | DocumentTemplateCategory>('all')
@@ -110,10 +112,16 @@ export function DocumentTemplatesView() {
     enabled: tab === 'templates',
   })
   const items = list.data?.items ?? []
-  const filtered = !!debounced || status !== 'all' || category !== 'all'
+  const narrowed = status !== 'all' || category !== 'all'
+  const filtered = !!debounced || narrowed
+  const resetFilters = () => {
+    setStatus('all')
+    setCategory('all')
+    setPage(1)
+  }
 
   const date = (iso: string) =>
-    format.dateTime(new Date(iso), { day: 'numeric', month: 'short', year: 'numeric' })
+    format.dateTime(new Date(iso), { day: '2-digit', month: '2-digit', year: 'numeric' })
 
   const create = (
     <Button size="md" onClick={() => setWizard(true)}>
@@ -121,15 +129,27 @@ export function DocumentTemplatesView() {
     </Button>
   )
 
+  // Поиск — в шапке, как у остальных списков (DESIGN_SYSTEM §10.1). У каждой вкладки свой:
+  // по шаблонам ищет сервер, по каталогу — сам каталог.
+  const searchField =
+    tab === 'templates' ? (
+      <SearchField value={search} onChange={setSearch} placeholder={t('searchPlaceholder')} />
+    ) : (
+      <SearchField
+        value={catalogQuery}
+        onChange={setCatalogQuery}
+        placeholder={t('catalogSearch')}
+      />
+    )
+
   return (
     // Высоту области отдаём только таблице (она прокручивается внутри карточки). Каталог —
     // обычный поток: с `min-h-0` он вылезал за блок, и нижний отступ страницы оставался
     // под блоком, а последние карточки прилипали к краю.
-    <div className={cn('flex w-full flex-col gap-4', tab === 'templates' && 'min-h-0 flex-1')}>
+    <div className={cn('flex w-full flex-1 flex-col gap-4', tab === 'templates' && 'min-h-0')}>
       <PageHeader
         title={t('title')}
-        subtitle={t('subtitle')}
-        actions={create}
+        subtitle={tab === 'templates' ? t('subtitle') : t('catalogSubtitle')}
         tabs={
           <SegmentedTabs
             items={[
@@ -138,68 +158,68 @@ export function DocumentTemplatesView() {
             ]}
             value={tab}
             onChange={setTab}
+            aria-label={t('sections')}
           />
+        }
+        actions={
+          <>
+            {searchField}
+            {create}
+          </>
         }
       />
 
       {tab === 'variables' ? (
-        <VariableCatalog />
+        <VariableCatalog query={catalogQuery} />
       ) : (
         <>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <div className="relative flex-1">
-              <Search
-                className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-                aria-hidden
-              />
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={t('searchPlaceholder')}
-                aria-label={t('searchPlaceholder')}
-                className="pl-9"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-2 sm:flex">
-              <Select
-                value={status}
-                onValueChange={(v) => {
-                  setStatus(v as typeof status)
-                  setPage(1)
-                }}
-              >
-                <SelectTrigger aria-label={t('colStatus')} className="sm:w-44">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t('filterAllStatuses')}</SelectItem>
-                  {DOCUMENT_TEMPLATE_STATUS_VALUES.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {t(`status_${s}`)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select
-                value={category}
-                onValueChange={(v) => {
-                  setCategory(v as typeof category)
-                  setPage(1)
-                }}
-              >
-                <SelectTrigger aria-label={t('colCategory')} className="sm:w-48">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t('filterAllCategories')}</SelectItem>
-                  {DOCUMENT_TEMPLATE_CATEGORY_VALUES.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {t(`category_${c}`)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+          {/* Два фильтра в шапку вместе с вкладками, поиском и кнопкой не помещаются — она
+              переносилась на вторую строку. Они идут строкой над таблицей, как в журнале
+              документов, той же высоты, что контролы шапки. */}
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+            <Select
+              value={status}
+              onValueChange={(v) => {
+                setStatus(v as typeof status)
+                setPage(1)
+              }}
+            >
+              <SelectTrigger aria-label={t('colStatus')} size="md" className="sm:w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t('filterAllStatuses')}</SelectItem>
+                {DOCUMENT_TEMPLATE_STATUS_VALUES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {t(`status_${s}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={category}
+              onValueChange={(v) => {
+                setCategory(v as typeof category)
+                setPage(1)
+              }}
+            >
+              <SelectTrigger aria-label={t('colCategory')} size="md" className="sm:w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t('filterAllCategories')}</SelectItem>
+                {DOCUMENT_TEMPLATE_CATEGORY_VALUES.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {t(`category_${c}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {narrowed && (
+              <Button variant="ghost" size="md" onClick={resetFilters}>
+                <FilterX className="size-4" aria-hidden /> {t('resetFilters')}
+              </Button>
+            )}
           </div>
 
           {list.isError ? (
@@ -300,6 +320,33 @@ export function DocumentTemplatesView() {
           }}
         />
       )}
+    </div>
+  )
+}
+
+function SearchField({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+}) {
+  return (
+    <div className="relative w-full sm:w-48">
+      <Search
+        className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+        aria-hidden
+      />
+      <Input
+        size="md"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        className="pl-9"
+      />
     </div>
   )
 }

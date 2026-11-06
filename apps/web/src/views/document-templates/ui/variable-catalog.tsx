@@ -17,8 +17,13 @@ import { asTag, useTemplateTexts, varKey } from '../lib/use-template-texts'
 type GroupFilter = 'ALL' | DocumentTemplateVariableGroup
 
 interface VariableCatalogProps {
-  /** Компактный вид — внутри мастера: без шапки с действиями и в одну колонку. */
+  /** Компактный вид — внутри мастера: без действий над каталогом и в одну колонку. */
   compact?: boolean
+  /**
+   * Строка поиска снаружи. На странице поиск стоит в шапке, как у остальных списков
+   * (DESIGN_SYSTEM §10.1), — тогда своё поле каталог не рисует.
+   */
+  query?: string
   className?: string
 }
 
@@ -35,10 +40,16 @@ async function copyText(text: string): Promise<boolean> {
 // Каталог переменных StudentHub: что можно вставить в документ Word. Источник — реестр в
 // shared-config, тот же, по которому сервер проверяет и заполняет шаблоны: каталог не может
 // показать переменную, которой сервер не знает.
-export function VariableCatalog({ compact = false, className }: VariableCatalogProps) {
+export function VariableCatalog({
+  compact = false,
+  query: externalQuery,
+  className,
+}: VariableCatalogProps) {
   const t = useTranslations('DocumentTemplates')
   const { variableLabel } = useTemplateTexts()
-  const [query, setQuery] = useState('')
+  const [ownQuery, setOwnQuery] = useState('')
+  const ownSearch = externalQuery === undefined
+  const query = externalQuery ?? ownQuery
   const [group, setGroup] = useState<GroupFilter>('ALL')
   const [copied, setCopied] = useState<string | null>(null)
 
@@ -98,44 +109,44 @@ export function VariableCatalog({ compact = false, className }: VariableCatalogP
 
   return (
     <div className={cn('flex flex-col gap-4', className)}>
-      {!compact && (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="max-w-2xl text-sm text-muted-foreground">{t('catalogIntro')}</p>
-          <div className="flex flex-wrap gap-2 sm:shrink-0">
-            <Button variant="outline" size="sm" onClick={() => void copyAll()}>
-              <Copy className="size-4" aria-hidden /> {t('copyAll')}
-            </Button>
-            <Button variant="outline" size="sm" onClick={download}>
-              <Download className="size-4" aria-hidden /> {t('downloadReference')}
-            </Button>
+      {/* Одна строка на широком экране: [поиск] группы … действия справа. В окне мастера
+          (compact) места на строку нет — там поиск и группы друг под другом, без действий. */}
+      <div className={cn('flex flex-col gap-2', !compact && 'lg:flex-row lg:items-center')}>
+        {ownSearch && (
+          <div className={cn('relative', !compact && 'lg:min-w-0 lg:flex-1')}>
+            <Search
+              className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              size={compact ? undefined : 'md'}
+              value={ownQuery}
+              onChange={(e) => setOwnQuery(e.target.value)}
+              placeholder={t('catalogSearch')}
+              aria-label={t('catalogSearch')}
+              className="pl-9"
+            />
           </div>
-        </div>
-      )}
-
-      {/* На широком экране — одна строка: поиск тянется, группы справа по своей ширине.
-          В окне мастера (compact) места на строку нет — там друг под другом. */}
-      <div className={cn('flex flex-col gap-3', !compact && 'lg:flex-row lg:items-center')}>
-        <div className={cn('relative', !compact && 'lg:min-w-0 lg:flex-1')}>
-          <Search
-            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-            aria-hidden
-          />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t('catalogSearch')}
-            aria-label={t('catalogSearch')}
-            className="pl-9"
-          />
-        </div>
+        )}
         <SegmentedTabs
           items={tabs}
           value={group}
           onChange={setGroup}
+          aria-label={t('catalogGroups')}
           compact
           collapsible
           className={cn(!compact && 'lg:shrink-0')}
         />
+        {!compact && (
+          <div className="grid gap-2 sm:flex sm:flex-wrap lg:ml-auto lg:shrink-0">
+            <Button variant="outline" size="md" onClick={() => void copyAll()}>
+              <Copy className="size-4" aria-hidden /> {t('copyAll')}
+            </Button>
+            <Button variant="outline" size="md" onClick={download}>
+              <Download className="size-4" aria-hidden /> {t('downloadReference')}
+            </Button>
+          </div>
+        )}
       </div>
 
       {items.length === 0 ? (
