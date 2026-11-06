@@ -14,6 +14,13 @@ export interface CareerConsent {
   grantedAt: string
 }
 
+/** Компания, которой скрытый профиль открыт адресно — галочкой в отклике (21.D1). */
+export interface ProfileGrant {
+  companyId: string
+  companyName: string
+  grantedAt: string
+}
+
 /** Поля, которые студент не редактирует здесь: они приходят из профиля вуза. */
 export interface InheritedProfile {
   firstName: string
@@ -42,6 +49,7 @@ export interface CareerProfile {
   about: string | null
   readiness: ReadinessBreakdown
   consents: CareerConsent[]
+  profileGrants: ProfileGrant[]
   inherited: InheritedProfile
 }
 

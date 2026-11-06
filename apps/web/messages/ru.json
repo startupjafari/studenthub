@@ -571,7 +571,10 @@
     "desiredPositionsPlaceholder": "Frontend-разработчик, аналитик данных",
     "desiredPositionsHint": "Через запятую, до 10 позиций",
     "relocationReady": "Готов(а) к переезду",
-    "salaryCurrency": "Валюта"
+    "salaryCurrency": "Валюта",
+    "grantsTitle": "Открыт адресно — эти компании видят профиль, даже когда он скрыт",
+    "grantRevoke": "Закрыть",
+    "grantRevoked": "Профиль закрыт для компании"
   },
   "Vacancies": {
     "title": "Вакансии",
@@ -604,7 +607,13 @@
     "apply": "Откликнуться",
     "applied": "Отклик отправлен",
     "alreadyApplied": "Вы откликнулись:",
-    "goToApplications": "Мои отклики"
+    "goToApplications": "Мои отклики",
+    "profileVisibleNote": "Компания увидит ваш карьерный профиль: он открыт работодателям.",
+    "profileSharedNote": "Ваш профиль уже открыт этой компании.",
+    "profileHiddenTitle": "Профиль скрыт от работодателей",
+    "profileHiddenText": "Компания получит отклик с вашим именем, специальностью и навыками, но не увидит карьерный профиль: о себе, что вы ищете, портфолио.",
+    "shareProfile": "Открыть профиль только этой компании",
+    "shareProfileHint": "Другие компании его не увидят. Закрыть доступ можно в «Моих откликах» или в карьерном профиле."
   },
   "EmployerVacancies": {
     "republish": "Опубликовать повторно",
@@ -704,7 +713,13 @@
     "withdrawConfirm": "Отозвать отклик?",
     "withdrawConfirmText": "Компания увидит, что отклик отозван. Вернуть его нельзя.",
     "statusConfirm": "Перевести в «{status}»?",
-    "statusConfirmText": "{name} сразу увидит новый статус. Вернуть прежний нельзя."
+    "statusConfirmText": "{name} сразу увидит новый статус. Вернуть прежний нельзя.",
+    "profileSharedWithCompany": "Компания видит ваш профиль",
+    "profileHiddenFromCompany": "Компания не видит ваш профиль",
+    "shareProfile": "Открыть ей профиль",
+    "unshareProfile": "Закрыть профиль",
+    "profileShared": "Профиль открыт компании",
+    "profileUnshared": "Профиль закрыт для компании"
   },
   "CareerHome": {
     "statsActive": "Активные отклики",

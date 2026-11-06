@@ -571,7 +571,10 @@
     "desiredPositionsPlaceholder": "Frontend developer, data analyst",
     "desiredPositionsHint": "Comma-separated, up to 10 positions",
     "relocationReady": "Ready to relocate",
-    "salaryCurrency": "Currency"
+    "salaryCurrency": "Currency",
+    "grantsTitle": "Opened individually — these companies see your profile even while it is hidden",
+    "grantRevoke": "Close",
+    "grantRevoked": "Profile closed to the company"
   },
   "Vacancies": {
     "title": "Jobs",
@@ -604,7 +607,13 @@
     "apply": "Apply",
     "applied": "Application sent",
     "alreadyApplied": "You applied:",
-    "goToApplications": "My applications"
+    "goToApplications": "My applications",
+    "profileVisibleNote": "The company will see your career profile: it is open to employers.",
+    "profileSharedNote": "Your profile is already open to this company.",
+    "profileHiddenTitle": "Your profile is hidden from employers",
+    "profileHiddenText": "The company will get your application with your name, major and skills, but will not see your career profile: about you, what you are looking for, portfolio.",
+    "shareProfile": "Open my profile to this company only",
+    "shareProfileHint": "Other companies will not see it. You can close access in “My applications” or in your career profile."
   },
   "EmployerVacancies": {
     "republish": "Publish again",
@@ -704,7 +713,13 @@
     "withdrawConfirm": "Withdraw the application?",
     "withdrawConfirmText": "The company will see that the application was withdrawn. This cannot be undone.",
     "statusConfirm": "Move to “{status}”?",
-    "statusConfirmText": "{name} will see the new status right away. It cannot be reverted."
+    "statusConfirmText": "{name} will see the new status right away. It cannot be reverted.",
+    "profileSharedWithCompany": "The company sees your profile",
+    "profileHiddenFromCompany": "The company does not see your profile",
+    "shareProfile": "Open my profile to it",
+    "unshareProfile": "Close my profile",
+    "profileShared": "Profile opened to the company",
+    "profileUnshared": "Profile closed to the company"
   },
   "CareerHome": {
     "statsActive": "Active applications",
