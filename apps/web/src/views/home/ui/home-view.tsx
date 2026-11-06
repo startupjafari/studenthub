@@ -1,5 +1,6 @@
 import { getTranslations } from 'next-intl/server'
-import { PageHeader, SeasonGreeting } from '../../../shared/ui'
+import { PageHeader } from '../../../shared/ui/page-header'
+import { SeasonGreeting } from '../../../shared/ui/season-greeting'
 import { FeedList } from '../../../widgets/feed-list'
 import { StoriesRail } from '../../../widgets/stories-rail'
 import { HomeSidebar } from './home-sidebar'

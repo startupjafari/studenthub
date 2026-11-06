@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { GraduationCap } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import { MeshBrandPanel } from '../../../shared/ui'
+import { MeshBrandPanel } from '../../../shared/ui/mesh-brand-panel'
 
 /**
  * Публичные страницы работодателя (регистрация, подтверждение почты) — тот же

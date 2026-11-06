@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { GraduationCap } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import { MeshBrandPanel } from '../../shared/ui'
+import { MeshBrandPanel } from '../../shared/ui/mesh-brand-panel'
 
 // Split-лейаут экранов входа/регистрации: слева интерактивная брендовая панель
 // (меш-сетка за мышью, скрыта на мобильном), справа — форма по центру.

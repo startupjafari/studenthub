@@ -5,7 +5,7 @@ import { getLocale, getMessages, getTimeZone } from 'next-intl/server'
 // загрузки, включается одной строкой; без неё font-optical-sizing в globals.css ни на что
 // не влияет, потому что оси в шрифте просто нет.
 import '@fontsource-variable/inter/opsz.css'
-import { AppSplash } from '../shared/ui'
+import { AppSplash } from '../shared/ui/app-splash'
 import { PlatformGate } from '../widgets/platform-gate'
 import { PersistentShell, ROLE_TO_VARIANT, type NavVariant } from '../widgets/app-shell'
 import { getServerSession } from '../shared/session/server'
