@@ -1,10 +1,12 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import { Role } from '@studenthub/shared-types'
 import type { LibraryClearance, LibraryDebts } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
+import { NOTIFICATION_JOBS } from '../../common/queue/queue.constants'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { LibrarySettingsService } from './library-settings.service'
+import { LibraryNotifier } from './library-notifier'
 import { LOAN_SELECT, LibraryLoansService, UNSETTLED_DEBT_WHERE } from './library-loans.service'
 import { READER_ROLES, readerLibrary } from './library-scope'
 
@@ -15,14 +17,58 @@ import { READER_ROLES, readerLibrary } from './library-scope'
 
 /** Сколько долгов показываем — больше предела выдачи у читателя на руках не бывает. */
 const MAX_OPEN = 50
+/** Библиотекарей у вуза единицы; потолок — как у уведомления «выдача оспорена». */
+const MAX_LIBRARIANS = 50
 
 @Injectable()
 export class LibraryDebtsService {
+  private readonly logger = new Logger(LibraryDebtsService.name)
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: LibrarySettingsService,
     private readonly loans: LibraryLoansService,
+    private readonly notifier: LibraryNotifier,
   ) {}
+
+  /**
+   * Отчислили читателя, за которым числятся книги (на руках или утерянные с непогашенным
+   * долгом), — библиотекарям его вуза уведомление в тот же момент (Фаза 21.C3). Декан видит
+   * долги в форме и решает сам, но книги собирает библиотека, и раньше она узнавала об уходе
+   * должника только по просрочке. Зовёт UserService после смены статуса; без долгов —
+   * ничего. Возвращает, сколько книг за читателем.
+   */
+  async notifyExpelledDebtor(readerId: string, now = new Date()): Promise<number> {
+    const reader = await this.prisma.user.findFirst({
+      where: { id: readerId, deletedAt: null },
+      select: { role: true, universityId: true, firstName: true, lastName: true },
+    })
+    if (!reader?.universityId || !READER_ROLES.includes(reader.role)) return 0
+    const universityId = reader.universityId
+    const debts = await this.prisma.loan.count({
+      where: { readerId, universityId, ...UNSETTLED_DEBT_WHERE },
+    })
+    if (debts === 0) return 0
+    const librarians = await this.prisma.user.findMany({
+      where: { universityId, role: Role.LIBRARIAN, deletedAt: null, isBlocked: false },
+      select: { id: true },
+      take: MAX_LIBRARIANS,
+    })
+    await this.notifier.send({
+      recipientIds: librarians.map((l) => l.id),
+      job: NOTIFICATION_JOBS.LIBRARY_LOAN,
+      titleKey: 'library.debtorExpelled.title',
+      bodyKey: 'library.debtorExpelled.body',
+      params: { name: `${reader.lastName} ${reader.firstName}`, count: debts },
+      // Выдачи вуза: книги отчисленного помечены там «отчислен».
+      url: '/library/loans',
+      // Время в ключе: отчисленного, восстановленного и снова отчисленного нужно сообщить
+      // второй раз, а повтор того же job'а очередь отбросит по jobId.
+      dedupeKey: `library-debtor-expelled:${readerId}:${now.getTime()}`,
+    })
+    this.logger.log(`Отчислен читатель ${readerId} с долгами в библиотеке: ${debts}`)
+    return debts
+  }
 
   /** Книги за студентом: декан — своего факультета, админ вуза и библиотекарь — своего вуза. */
   async debts(actor: JwtPayload, userId: string): Promise<LibraryDebts> {
