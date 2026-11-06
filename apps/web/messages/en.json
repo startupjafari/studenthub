@@ -1034,6 +1034,13 @@
     "renameSpecialty": "New specialty name",
     "editGroup": "Edit group",
     "groupUpdated": "Group saved",
+    "groupsSubtitle": "Your university's academic groups, members and group leaders",
+    "colGroup": "Group",
+    "starostaAssigned": "Assigned",
+    "starostaNone": "Not assigned",
+    "groupMembers": "Group members",
+    "groupMembersTitle": "Group {name}",
+    "actionsColumn": "Actions",
     "save": "Save",
     "cancel": "Cancel"
   },

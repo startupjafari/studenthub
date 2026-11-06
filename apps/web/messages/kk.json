@@ -1034,6 +1034,13 @@
     "renameSpecialty": "Мамандықтың жаңа атауы",
     "editGroup": "Топты өзгерту",
     "groupUpdated": "Топ сақталды",
+    "groupsSubtitle": "ЖОО-ның академиялық топтары, құрамы мен топ басшылары",
+    "colGroup": "Топ",
+    "starostaAssigned": "Тағайындалған",
+    "starostaNone": "Тағайындалмаған",
+    "groupMembers": "Топ құрамы",
+    "groupMembersTitle": "{name} тобы",
+    "actionsColumn": "Әрекеттер",
     "save": "Сақтау",
     "cancel": "Болдырмау"
   },
