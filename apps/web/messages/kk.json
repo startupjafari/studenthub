@@ -6265,6 +6265,7 @@
     "actSelect": "бөлмені таңдау",
     "actRotate": "бұру",
     "actPan": "жылжыту",
+    "actRotateTilt": "бұру және еңкейту",
     "actTilt": "еңкейту",
     "actZoom": "масштаб",
     "actZoomCursor": "курсорға қарай масштаб",
