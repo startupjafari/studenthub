@@ -8,7 +8,7 @@ import { toast } from 'sonner'
 import {
   Archive,
   Download,
-  FileCheck2,
+  Eye,
   FileDown,
   Pencil,
   Send,
@@ -29,6 +29,7 @@ import {
   useConfirm,
 } from '../../../shared/ui'
 import { formatBytes, useByteUnitLabel } from '../../../shared/lib'
+import { cn } from '../../../shared/lib/utils'
 import {
   documentTemplateKeys,
   fetchDocumentTemplate,
@@ -39,11 +40,15 @@ import { useTemplateTexts } from '../lib/use-template-texts'
 import { GenerateForStudentModal } from './generate-for-student-modal'
 import { StatusBadge } from './status-badge'
 import { TemplateInfoForm } from './template-info-form'
+import { TemplatePreviewModal } from './template-preview-modal'
 import { TemplateUpload } from './template-upload'
 import { ValidationReport } from './validation-report'
 import { TEMPLATES_BASE } from './document-templates-view'
 
-type Dialog = 'edit' | 'upload' | 'generate' | null
+// Колонка карточек: на широком экране последняя тянется до низа сетки.
+const COLUMN = 'flex flex-col gap-4 lg:[&>*:last-child]:flex-1'
+
+type Dialog = 'edit' | 'upload' | 'generate' | 'preview' | null
 
 interface TemplateDetailViewProps {
   templateId: string
@@ -82,27 +87,31 @@ export function TemplateDetailView({ templateId }: TemplateDetailViewProps) {
 
   const back = () => router.push(TEMPLATES_BASE)
 
-  if (q.isPending) {
+  // Шапка — во всех состояниях, как на остальных вложенных страницах: пока карточка
+  // грузится или не открылась, «назад» уже на месте и экран не прыгает.
+  if (q.isPending || q.isError) {
+    const code = q.isError ? ((q.error as { code?: string }).code ?? 'INTERNAL_ERROR') : null
     return (
-      <div className="flex flex-col gap-4">
-        <Skeleton className="h-10 w-2/3" />
-        <Skeleton className="h-48 w-full" />
+      <div className="flex w-full flex-1 flex-col gap-4">
+        <PageHeader title={t('title')} onBack={back} backLabel={t('backToList')} />
+        {code === null ? (
+          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+            <Skeleton className="h-64 rounded-xl" />
+            <Skeleton className="h-40 rounded-xl" />
+          </div>
+        ) : (
+          <EmptyState
+            title={tErr(code)}
+            action={
+              code === 'NOT_FOUND' || code === 'WRONG_SCOPE' ? (
+                <Button onClick={back}>{t('backToList')}</Button>
+              ) : (
+                <Button onClick={() => void q.refetch()}>{t('retry')}</Button>
+              )
+            }
+          />
+        )}
       </div>
-    )
-  }
-  if (q.isError) {
-    const code = (q.error as { code?: string }).code ?? 'INTERNAL_ERROR'
-    return (
-      <EmptyState
-        title={tErr(code)}
-        action={
-          code === 'NOT_FOUND' || code === 'WRONG_SCOPE' ? (
-            <Button onClick={back}>{t('backToList')}</Button>
-          ) : (
-            <Button onClick={() => void q.refetch()}>{t('retry')}</Button>
-          )
-        }
-      />
     )
   }
 
@@ -136,24 +145,33 @@ export function TemplateDetailView({ templateId }: TemplateDetailViewProps) {
   }
 
   return (
-    <div className="flex w-full flex-col gap-4">
+    <div className="flex w-full flex-1 flex-col gap-4">
+      {/* Подзаголовок — строкой текста: бейдж в нём делал полосу шапки выше, чем на соседних
+          страницах. Статус — в карточке «О шаблоне», она есть и у архивного. */}
       <PageHeader
         title={tpl.title}
-        subtitle={
-          <span className="flex flex-wrap items-center gap-2">
-            <StatusBadge status={tpl.status} />
-            <span>{t(`category_${tpl.category}`)}</span>
-            <span aria-hidden>·</span>
-            <span>{t(`locale_${tpl.locale}`)}</span>
-          </span>
-        }
+        subtitle={`${t(`category_${tpl.category}`)} · ${t(`locale_${tpl.locale}`)}`}
         onBack={back}
         backLabel={t('backToList')}
+        actions={
+          !archived && (
+            <>
+              <Button variant="outline" size="md" onClick={() => setDialog('edit')}>
+                <Pencil className="size-4" aria-hidden /> {t('edit')}
+              </Button>
+              <Button
+                variant="outline"
+                size="md"
+                className="text-destructive"
+                loading={actions.remove.isPending}
+                onClick={() => void remove()}
+              >
+                <Trash2 className="size-4" aria-hidden /> {t('delete')}
+              </Button>
+            </>
+          )
+        }
       />
-
-      {tpl.description && (
-        <p className="max-w-3xl text-sm text-muted-foreground">{tpl.description}</p>
-      )}
 
       {archived && (
         <Card className="flex flex-row items-start gap-3 border-warning/30 bg-warning/5 p-4 text-sm">
@@ -162,36 +180,52 @@ export function TemplateDetailView({ templateId }: TemplateDetailViewProps) {
         </Card>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <div className="flex min-w-0 flex-col gap-4">
-          <Card className="flex flex-col gap-4 p-4 sm:p-5">
+      {/* Две колонки на всю высоту под шапкой и с общим нижним краем. Тянется последняя
+          карточка каждой колонки (COLUMN), какой бы она ни была: новый блок, добавленный в
+          конец, сам становится растягиваемым, а прежний возвращается к своей высоте. Сетка
+          задаёт минимум, а не потолок — если содержимое выше экрана, прокручивается страница.
+          Обе колонки — одинаковые карточки (p-4, заголовок text-base): с разными отступами
+          заголовки левой и правой колонок стояли на разной высоте. */}
+      <div className="grid items-start gap-4 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-stretch">
+        <div className={cn('min-w-0', COLUMN)}>
+          <Card className="flex flex-col gap-4 p-4">
+            {/* «Заменить файл» — в строке заголовка: тремя кнопками внизу ряд не помещался и
+                переносился лесенкой. */}
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-base font-semibold">
-                {current ? t('currentVersion', { version: current.version }) : t('fileTitle')}
-              </h2>
-              {tpl.hasUnpublishedChanges && <Badge variant="info">{t('unpublishedChanges')}</Badge>}
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <h2 className="text-base font-semibold">
+                  {current ? t('currentVersion', { version: current.version }) : t('fileTitle')}
+                </h2>
+                {tpl.hasUnpublishedChanges && (
+                  <Badge variant="info">{t('unpublishedChanges')}</Badge>
+                )}
+              </div>
+              {current && !archived && (
+                <Button variant="outline" size="sm" onClick={() => setDialog('upload')}>
+                  <Upload className="size-4" aria-hidden /> {t('replaceFile')}
+                </Button>
+              )}
             </div>
 
             {!current ? (
               archived ? (
                 <p className="text-sm text-muted-foreground">{t('noFileYet')}</p>
               ) : (
-                <div className="flex flex-col gap-3">
+                <div className="flex flex-1 flex-col gap-3">
                   <p className="text-sm text-muted-foreground">{t('uploadIntro')}</p>
-                  <TemplateUpload templateId={templateId} onUploaded={() => undefined} />
+                  <TemplateUpload
+                    templateId={templateId}
+                    onUploaded={() => undefined}
+                    className="flex-1"
+                  />
                 </div>
               )
             ) : (
               <>
                 <ValidationReport validation={current.validation} />
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    loading={actions.test.isPending}
-                    disabled={!valid}
-                    onClick={() => actions.test.mutate(current.id)}
-                  >
-                    <FileCheck2 className="size-4" aria-hidden /> {t('testButton')}
+                <div className="grid gap-2 sm:flex sm:flex-wrap">
+                  <Button variant="outline" disabled={!valid} onClick={() => setDialog('preview')}>
+                    <Eye className="size-4" aria-hidden /> {t('previewButton')}
                   </Button>
                   <Button
                     variant="outline"
@@ -200,18 +234,13 @@ export function TemplateDetailView({ templateId }: TemplateDetailViewProps) {
                   >
                     <Download className="size-4" aria-hidden /> {t('downloadSource')}
                   </Button>
-                  {!archived && (
-                    <Button variant="outline" onClick={() => setDialog('upload')}>
-                      <Upload className="size-4" aria-hidden /> {t('replaceFile')}
-                    </Button>
-                  )}
                 </div>
               </>
             )}
           </Card>
 
           {tpl.versions.length > 0 && (
-            <Card className="flex flex-col gap-3 p-4 sm:p-5">
+            <Card className="flex flex-col gap-3 p-4">
               <h2 className="text-base font-semibold">{t('versionsTitle')}</h2>
               <ul className="flex flex-col divide-y">
                 {tpl.versions.map((v) => (
@@ -254,7 +283,7 @@ export function TemplateDetailView({ templateId }: TemplateDetailViewProps) {
           )}
         </div>
 
-        <div className="flex flex-col gap-4">
+        <div className={COLUMN}>
           {!archived && (
             <Card className="flex flex-col gap-3 p-4">
               <h2 className="text-base font-semibold">{t('publicationTitle')}</h2>
@@ -303,9 +332,14 @@ export function TemplateDetailView({ templateId }: TemplateDetailViewProps) {
             </Card>
           )}
 
-          <Card className="flex flex-col gap-2 p-4 text-sm">
+          <Card className="flex flex-col gap-3 p-4 text-sm">
             <h2 className="text-base font-semibold">{t('aboutTitle')}</h2>
-            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+            {tpl.description && <p className="text-muted-foreground">{tpl.description}</p>}
+            <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
+              <dt className="text-muted-foreground">{t('colStatus')}</dt>
+              <dd>
+                <StatusBadge status={tpl.status} />
+              </dd>
               <dt className="text-muted-foreground">{t('colAuthor')}</dt>
               <dd className="truncate">{tpl.author?.name ?? '—'}</dd>
               <dt className="text-muted-foreground">{t('colCreated')}</dt>
@@ -315,24 +349,6 @@ export function TemplateDetailView({ templateId }: TemplateDetailViewProps) {
               <dt className="text-muted-foreground">{t('colVariables')}</dt>
               <dd>{tpl.variableCount}</dd>
             </dl>
-            <div className="flex flex-wrap gap-2 pt-2">
-              {!archived && (
-                <Button variant="outline" size="sm" onClick={() => setDialog('edit')}>
-                  <Pencil className="size-4" aria-hidden /> {t('edit')}
-                </Button>
-              )}
-              {!archived && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-destructive"
-                  loading={actions.remove.isPending}
-                  onClick={() => void remove()}
-                >
-                  <Trash2 className="size-4" aria-hidden /> {t('delete')}
-                </Button>
-              )}
-            </div>
           </Card>
         </div>
       </div>
@@ -363,6 +379,15 @@ export function TemplateDetailView({ templateId }: TemplateDetailViewProps) {
             <TemplateUpload templateId={templateId} onUploaded={() => setDialog(null)} />
           </div>
         </Modal>
+      )}
+
+      {dialog === 'preview' && current && (
+        <TemplatePreviewModal
+          templateId={templateId}
+          versionId={current.id}
+          version={current.version}
+          onClose={() => setDialog(null)}
+        />
       )}
 
       {dialog === 'generate' && (

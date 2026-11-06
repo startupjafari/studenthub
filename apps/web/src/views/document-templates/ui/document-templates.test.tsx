@@ -65,7 +65,7 @@ describe('VariableCatalog', () => {
   it('«Скопировать все» кладёт справочник со всеми переменными', async () => {
     const { user, writeText } = setupUser()
     render(<VariableCatalog />, { wrapper })
-    await user.click(screen.getByRole('button', { name: 'Скопировать все переменные' }))
+    await user.click(screen.getByRole('button', { name: 'Скопировать все' }))
     const text = writeText.mock.calls[0]?.[0] as string
     for (const v of DOCUMENT_TEMPLATE_VARIABLES) expect(text).toContain(`{${v.key}}`)
     expect(text).toContain('ФИО студента — {student.fullName}')

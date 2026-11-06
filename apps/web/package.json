@@ -38,6 +38,7 @@
     "axios": "^1.21.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "docx-preview": "^0.4.1",
     "flag-icons": "^7.6.0",
     "frimousse": "^0.4.0",
     "hls.js": "^1.7.4",

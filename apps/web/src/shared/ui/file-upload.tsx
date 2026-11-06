@@ -167,7 +167,9 @@ export function FileUpload<T>({
           onDragLeave={() => setDragOver(false)}
           onDrop={onDrop}
           className={cn(
-            'flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-6 text-center transition-colors',
+            // flex-1 — зона тянется, если обёртке дали высоту (className="flex-1"); без неё
+            // высота по содержимому, как раньше.
+            'flex flex-1 flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-6 text-center transition-colors',
             'border-input text-muted-foreground hover:border-ring hover:text-foreground',
             dragOver && 'border-ring bg-accent',
             disabled && 'pointer-events-none opacity-50',
