@@ -1,4 +1,3 @@
-import type { AxiosProgressEvent } from 'axios'
 import type {
   CreateDocumentInput,
   DocumentJournalItem,
@@ -8,14 +7,7 @@ import type {
   SharedWithMeQueryInput,
   UpdateDocumentInput,
 } from '@studenthub/shared-schemas'
-import {
-  api,
-  getPaged,
-  needsDirectUpload,
-  uploadDirect,
-  type Paged,
-  type PresignedTarget,
-} from '../../../shared/api'
+import { api, getPaged, uploadToDomain, type Paged } from '../../../shared/api'
 
 export const documentKeys = {
   all: ['documents'] as const,
@@ -118,39 +110,22 @@ export async function fetchDocumentEvents(id: string): Promise<DocumentEvent[]> 
 
 /**
  * Загрузка файла документа. Путь выбирается по размеру: до порога — буферный (multipart
- * через api), больше — прямой в MinIO по подписанной ссылке. Скан диплома в 300 dpi
- * обычно перевешивает порог, и раньше такой файл загрузить было нельзя вовсе.
+ * через api), до 50 МБ — прямой в MinIO по подписанной ссылке, крупнее (многостраничный
+ * PDF-скан) — частями с докачкой после обрыва. Скан диплома в 300 dpi обычно перевешивает
+ * порог буферной загрузки, и раньше такой файл загрузить было нельзя вовсе.
  */
 export async function uploadDocumentFile(
   file: File,
   onProgress?: (percent: number) => void,
+  signal?: AbortSignal,
 ): Promise<UploadedDocFile> {
-  if (needsDirectUpload(file.size)) {
-    return uploadDirect<UploadedDocFile>({
-      file,
-      presign: async (mime) => {
-        const { data } = await api.post<PresignedTarget>('/documents/upload/presign', { mime })
-        return data
-      },
-      confirm: async (key, name) => {
-        const { data } = await api.post<UploadedDocFile>('/documents/upload/confirm', {
-          key,
-          name,
-        })
-        return data
-      },
-      onProgress,
-    })
-  }
-
-  const form = new FormData()
-  form.append('file', file)
-  const { data } = await api.post<UploadedDocFile>('/documents/upload', form, {
-    onUploadProgress: (e: AxiosProgressEvent) => {
-      if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100))
-    },
+  return uploadToDomain<UploadedDocFile>({
+    file,
+    base: '/documents/upload',
+    scope: 'DOCUMENTS',
+    onProgress,
+    signal,
   })
-  return data
 }
 
 export async function createDocument(input: CreateDocumentInput): Promise<DocumentDto> {

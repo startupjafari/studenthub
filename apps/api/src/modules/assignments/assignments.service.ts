@@ -616,6 +616,81 @@ export class AssignmentsService {
     return this.attachFile(file.id, submissionId)
   }
 
+  // ── Многочастная загрузка файла сдачи (21.B1) ──────────────────────────────
+  // Файлы больше FILE_UPLOAD.MULTIPART_THRESHOLD_BYTES (видеоотчёт, проект архивом): start →
+  // urls → PUT частей → complete. Проверки те же, что у presign/confirm: право сдавать — на
+  // каждом шаге, черновик сдачи заводится только на сборке.
+
+  /** Шаг 1: открыть загрузку. Права и место под файл — ДО выдачи ключа. */
+  async startSubmissionFileMultipart(
+    actor: JwtPayload,
+    assignmentId: string,
+    mime: string,
+    size: number,
+  ) {
+    await this.assertCanAttach(actor, assignmentId)
+    return this.files.startMultipart({
+      bucket: this.submissionsBucket(),
+      mime,
+      size,
+      ownerId: actor.sub,
+    })
+  }
+
+  /** Шаг 2: подписи на диапазон частей — тому, кто ещё вправе сдавать это задание. */
+  async submissionFilePartUrls(
+    actor: JwtPayload,
+    assignmentId: string,
+    input: { key: string; uploadId: string; from: number; to: number },
+  ) {
+    await this.assertStudentCanSubmit(actor, assignmentId)
+    return this.files.presignParts({
+      bucket: this.submissionsBucket(),
+      ownerId: actor.sub,
+      ...input,
+    })
+  }
+
+  /** Шаг 4: сборка, та же проверка объекта, что у `confirmSubmissionFile`, и привязка. */
+  async completeSubmissionFileMultipart(
+    actor: JwtPayload,
+    assignmentId: string,
+    input: {
+      key: string
+      uploadId: string
+      parts: { part: number; etag: string }[]
+      name?: string
+    },
+  ) {
+    const submissionId = await this.draftForFiles(actor, assignmentId)
+    const file = await this.files.completeMultipart({
+      bucket: this.submissionsBucket(),
+      key: input.key,
+      uploadId: input.uploadId,
+      parts: input.parts,
+      name: input.name,
+      ownerId: actor.sub,
+      allowArchives: true,
+    })
+    return this.attachFile(file.id, submissionId)
+  }
+
+  /**
+   * Отмена: хранилище удаляет залитые части. Право сдавать здесь не проверяется намеренно —
+   * это уборка своего же мусора (ключ обязан начинаться с id вызывающего, это проверяет
+   * FileService), и истёкший посреди загрузки срок не должен оставлять части до ночного sweep.
+   */
+  async abortSubmissionFileMultipart(
+    actor: JwtPayload,
+    input: { key: string; uploadId: string },
+  ): Promise<void> {
+    await this.files.abortMultipart({
+      bucket: this.submissionsBucket(),
+      ownerId: actor.sub,
+      ...input,
+    })
+  }
+
   /** Убрать файл из черновика (или из работы, возвращённой на доработку). */
   async removeSubmissionFile(actor: JwtPayload, assignmentId: string, fileId: string) {
     await this.assertStudentCanSubmit(actor, assignmentId)

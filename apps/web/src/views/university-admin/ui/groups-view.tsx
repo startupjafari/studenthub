@@ -4,33 +4,35 @@ import { useEffect, useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
-import { ChevronDown, Pencil, Plus, Search, Trash2, Users } from 'lucide-react'
+import { Pencil, Plus, Search, Trash2, Users } from 'lucide-react'
 import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
   Badge,
   Button,
   Card,
   EmptyState,
   Input,
   PageHeader,
-  Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
   TablePagination,
+  TableRow,
+  TableSkeletonRows,
+  TableText,
   useConfirm,
 } from '../../../shared/ui'
 import { fetchFaculties, facultyKeys, type Faculty } from '../../../entities/faculty'
 import { CreateGroupModal } from './create-group-modal'
-import { AssignStarosta } from '../../../features/assign-starosta'
 import { EditGroupModal } from './edit-group-modal'
+import { GroupMembersModal } from './group-members-modal'
 import {
   deleteGroupRequest,
-  fetchGroupMembers,
   fetchGroupsPaged,
   groupKeys,
   type Group,
 } from '../../../entities/group'
-import { ProfileLink } from '../../../entities/user'
 import { cn } from '../../../shared/lib/utils'
 
 // Потолок 100 — столько разрешает OffsetPaginationSchema, на которой построен GET /groups.
@@ -38,6 +40,18 @@ const PAGE_SIZES = [20, 50, 100] as const
 const DEBOUNCE_MS = 250
 // Предел `search` в GroupListQuerySchema: длиннее сервер отвечает 400.
 const SEARCH_MAX = 100
+
+// Группа · факультет · год · староста · действия (состав, изменить, удалить).
+const COLS = ['24%', '36%', '12%', 'calc(28% - 8.5rem)', '8.5rem'] as const
+// Узкий экран: группа (факультет и год — строкой под ней) и действия. Колонка старосты
+// уходит: с ней название сжималось до «БУ…», а старосту видно в составе группы.
+const COLS_NARROW = ['calc(100% - 8.5rem)', '0', '0', '0', '8.5rem'] as const
+const HIDE = {
+  faculty: 'hidden md:table-cell',
+  year: 'hidden md:table-cell',
+  starosta: 'hidden md:table-cell',
+} as const
+const SKELETON_COLS = [undefined, HIDE.faculty, HIDE.year, HIDE.starosta, undefined]
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -52,25 +66,13 @@ function groupBlockers(e: unknown): GroupBlocker[] {
   return GROUP_BLOCKERS.filter((b) => details.some((d) => d.field === b))
 }
 
-function initials(f: string, l: string): string {
-  return `${f[0] ?? ''}${l[0] ?? ''}`.toUpperCase()
-}
-
-// Строка группы: имя/факультет/курс + разворот участников с назначением старосты + удаление.
+// Строка группы. Состав и назначение старосты — окном: строку таблицы не развернуть.
 function GroupRow({ group, facultyName }: { group: Group; facultyName?: string }) {
   const qc = useQueryClient()
   const t = useTranslations('UniAdmin')
   const tErr = useTranslations('Errors')
-  const tRoles = useTranslations('Roles')
   const confirm = useConfirm()
-  const [open, setOpen] = useState(false)
-  const [editing, setEditing] = useState(false)
-
-  const members = useQuery({
-    queryKey: groupKeys.members(group.id),
-    queryFn: () => fetchGroupMembers(group.id),
-    enabled: open,
-  })
+  const [dialog, setDialog] = useState<'members' | 'edit' | null>(null)
 
   const deleteMut = useMutation({
     mutationFn: () => deleteGroupRequest(group.id),
@@ -97,102 +99,84 @@ function GroupRow({ group, facultyName }: { group: Group; facultyName?: string }
     },
   })
 
+  const remove = async () => {
+    const ok = await confirm({
+      title: t('deleteGroupConfirm', { name: group.name }),
+      // Заранее: удаляется только пустая группа, и удаление не отменить.
+      description: t('deleteGroupWarning'),
+      destructive: true,
+    })
+    if (ok) deleteMut.mutate()
+  }
+
   return (
-    <Card className="gap-0 p-0">
-      <div className="flex items-center gap-3 p-4">
+    <TableRow className="hover:bg-muted/40">
+      <TableCell>
         <button
           type="button"
-          onClick={() => setOpen((v) => !v)}
-          className="flex flex-1 cursor-pointer items-center gap-3 text-left"
-          aria-expanded={open}
+          onClick={() => setDialog('members')}
+          className="block max-w-full cursor-pointer text-left font-medium hover:underline focus-visible:underline focus-visible:outline-none"
         >
-          <ChevronDown
-            className={cn(
-              'size-4 shrink-0 text-muted-foreground transition-transform',
-              open && 'rotate-180',
-            )}
-            aria-hidden
-          />
-          <div className="min-w-0">
-            <p className="font-medium">{group.name}</p>
-            <p className="text-xs text-muted-foreground">
-              {facultyName ?? '—'}
-              {group.year ? ` · ${group.year}` : ''}
-            </p>
-          </div>
+          <TableText value={group.name} />
         </button>
-        {group.starostaId && <Badge variant="info">{t('hasStarosta')}</Badge>}
-        <Button
-          variant="ghost"
-          size="sm"
-          icon
-          aria-label={t('editGroup')}
-          title={t('editGroup')}
-          onClick={() => setEditing(true)}
-          className="text-muted-foreground"
-        >
-          <Pencil className="size-4" aria-hidden />
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          icon
-          aria-label={t('delete')}
-          loading={deleteMut.isPending}
-          onClick={() => {
-            void confirm({
-              title: t('deleteGroupConfirm', { name: group.name }),
-              // Заранее: удаляется только пустая группа, и удаление не отменить.
-              description: t('deleteGroupWarning'),
-              destructive: true,
-            }).then((ok) => {
-              if (ok) deleteMut.mutate()
-            })
-          }}
-          className="text-muted-foreground hover:text-destructive"
-        >
-          <Trash2 className="size-4" aria-hidden />
-        </Button>
-      </div>
-
-      {open && (
-        <div className="flex flex-col gap-3 border-t border-border p-4">
-          {members.isLoading ? (
-            <Skeleton className="h-8 w-full" />
-          ) : members.data && members.data.length > 0 ? (
-            <>
-              <div className="flex flex-col gap-2">
-                {members.data.map((m) => (
-                  <div key={m.id} className="flex items-center gap-2 text-sm">
-                    <ProfileLink userId={m.id} className="flex items-center gap-2">
-                      <Avatar className="size-7">
-                        {m.avatarUrl && <AvatarImage src={m.avatarUrl} alt="" />}
-                        <AvatarFallback className="text-xs">
-                          {initials(m.firstName, m.lastName)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span>
-                        {m.firstName} {m.lastName}
-                      </span>
-                    </ProfileLink>
-                    <span className="text-xs text-muted-foreground">{tRoles(m.role)}</span>
-                    {group.starostaId === m.id && (
-                      <Badge variant="info" className="ml-auto">
-                        {t('starosta')}
-                      </Badge>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <AssignStarosta group={group} members={members.data} />
-            </>
-          ) : (
-            <EmptyState title={t('noMembers')} className="border-0 p-6" />
-          )}
+        {/* На телефоне колонки факультета нет — он строкой под названием. */}
+        <span className="block text-xs text-muted-foreground md:hidden">
+          <TableText value={[facultyName, group.year].filter(Boolean).join(' · ') || null} />
+        </span>
+      </TableCell>
+      <TableCell className={cn(HIDE.faculty, 'text-muted-foreground')}>
+        <TableText value={facultyName ?? null} />
+      </TableCell>
+      <TableCell className={cn(HIDE.year, 'text-right tabular-nums')}>
+        {group.year ?? '—'}
+      </TableCell>
+      <TableCell className={HIDE.starosta}>
+        {group.starostaId ? (
+          <Badge variant="info">{t('starostaAssigned')}</Badge>
+        ) : (
+          <Badge variant="outline">{t('starostaNone')}</Badge>
+        )}
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            icon
+            aria-label={t('groupMembers')}
+            title={t('groupMembers')}
+            onClick={() => setDialog('members')}
+          >
+            <Users className="size-4" aria-hidden />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon
+            aria-label={t('editGroup')}
+            title={t('editGroup')}
+            onClick={() => setDialog('edit')}
+          >
+            <Pencil className="size-4" aria-hidden />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon
+            aria-label={t('delete')}
+            title={t('delete')}
+            loading={deleteMut.isPending}
+            onClick={() => void remove()}
+          >
+            <Trash2 className="size-4 text-destructive" aria-hidden />
+          </Button>
         </div>
-      )}
-      {editing && <EditGroupModal group={group} onClose={() => setEditing(false)} />}
-    </Card>
+        {dialog === 'members' && (
+          <GroupMembersModal group={group} onClose={() => setDialog(null)} />
+        )}
+        {dialog === 'edit' && <EditGroupModal group={group} onClose={() => setDialog(null)} />}
+      </TableCell>
+    </TableRow>
   )
 }
 
@@ -247,15 +231,15 @@ export function GroupsAdminView() {
 
   const noFaculties = faculties.data && faculties.data.length === 0
 
+  const filtered = !!debounced
+
   return (
-    // Без `min-h-0`: страница — обычный список, и высота должна считаться по нему.
-    // С `min-h-0` корень имел право сжаться ниже содержимого, список вылезал за его
-    // границы, и нижний отступ `main` оставался НАД вылезшим хвостом — последняя
-    // карточка упиралась в край окна. `flex-1` при этом сохранён: на коротком списке
-    // он по-прежнему растягивает страницу, чтобы пустое состояние встало по центру.
-    <div className="flex w-full flex-1 flex-col gap-4">
+    // `min-h-0` — исключение для таблицы во всю высоту (DESIGN_SYSTEM §10.7): он держит
+    // flex-цепочку до тела таблицы, и прокручиваются строки, а не страница целиком.
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader
         title={t('groupsTitle')}
+        subtitle={t('groupsSubtitle')}
         actions={
           <>
             <div className="relative w-full sm:w-56">
@@ -288,56 +272,66 @@ export function GroupsAdminView() {
         }
       />
 
-      {groups.isLoading ? (
-        <div className="flex flex-col gap-2">
-          <Skeleton fill className="min-h-16" />
-          <Skeleton fill className="min-h-16" />
-        </div>
-      ) : groups.isError ? (
+      {groups.isError ? (
         <EmptyState title={tErr('INTERNAL_ERROR')} />
-      ) : total > 0 ? (
-        // Пустая страница при total > 0 — удалили последнюю группу на последней
-        // странице; эффект выше уже переводит на предыдущую.
-        <>
-          <div className="flex flex-col gap-2">
-            {items.map((g) => (
-              <GroupRow key={g.id} group={g} facultyName={facultyName(g.facultyId)} />
-            ))}
-          </div>
-          <Card className="gap-0 py-0">
-            <TablePagination
-              className="border-t-0"
-              page={page}
-              total={total}
-              limit={limit}
-              onPageChange={setPage}
-              limitOptions={PAGE_SIZES}
-              onLimitChange={(n) => {
-                setLimit(n)
-                setPage(1)
-              }}
-            />
-          </Card>
-        </>
-      ) : debounced ? (
-        <EmptyState
-          icon={<Search className="size-6" aria-hidden />}
-          title={tCommon('nothingFound')}
-        />
+      ) : !groups.isPending && total === 0 ? (
+        filtered ? (
+          <EmptyState
+            icon={<Search className="size-6" aria-hidden />}
+            title={tCommon('nothingFound')}
+          />
+        ) : (
+          <EmptyState
+            icon={<Users className="size-6" aria-hidden />}
+            title={t('noGroups')}
+            description={noFaculties ? t('needFacultyFirst') : t('noGroupsHint')}
+            action={
+              noFaculties ? null : (
+                <Button type="button" onClick={() => setCreateOpen(true)}>
+                  <Plus className="size-4" aria-hidden />
+                  {t('addGroup')}
+                </Button>
+              )
+            }
+          />
+        )
       ) : (
-        <EmptyState
-          icon={<Users className="size-6" aria-hidden />}
-          title={t('noGroups')}
-          description={noFaculties ? t('needFacultyFirst') : t('noGroupsHint')}
-          action={
-            noFaculties ? null : (
-              <Button type="button" onClick={() => setCreateOpen(true)}>
-                <Plus className="size-4" aria-hidden />
-                {t('addGroup')}
-              </Button>
-            )
-          }
-        />
+        // Пустая страница при total > 0 — удалили последнюю группу на последней странице;
+        // эффект выше уже переводит на предыдущую.
+        <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
+          <Table fixed scrollBody fill cols={COLS} colsNarrow={COLS_NARROW}>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('colGroup')}</TableHead>
+                <TableHead className={HIDE.faculty}>{t('faculty')}</TableHead>
+                <TableHead numeric className={HIDE.year}>
+                  {t('year')}
+                </TableHead>
+                <TableHead className={HIDE.starosta}>{t('starosta')}</TableHead>
+                <TableHead>
+                  <span className="sr-only">{t('actionsColumn')}</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {groups.isPending && <TableSkeletonRows columns={SKELETON_COLS} />}
+              {items.map((g) => (
+                <GroupRow key={g.id} group={g} facultyName={facultyName(g.facultyId)} />
+              ))}
+            </TableBody>
+          </Table>
+          <TablePagination
+            page={page}
+            total={total}
+            limit={limit}
+            onPageChange={setPage}
+            limitOptions={PAGE_SIZES}
+            onLimitChange={(n) => {
+              setLimit(n)
+              setPage(1)
+            }}
+          />
+        </Card>
       )}
 
       {createOpen && <CreateGroupModal onClose={() => setCreateOpen(false)} />}

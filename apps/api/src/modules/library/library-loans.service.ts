@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma, type BookCopyStatus } from '@prisma/client'
-import { Role } from '@studenthub/shared-types'
+import { Role, leftAcademicStatusCode } from '@studenthub/shared-types'
 import { LIBRARY_RETURN_CANCEL_HOURS } from '@studenthub/shared-schemas'
 import type {
   CancelLoanInput,
@@ -74,6 +74,9 @@ export const LOAN_SELECT = {
     },
   },
   issuedBy: { select: { firstName: true, lastName: true } },
+  // Только учебный статус: пометка «отчислен» в отчёте о просрочках (Фаза 21.C3). Остальное
+  // о читателе — снимком в самой выдаче.
+  reader: { select: { academicStatus: true } },
 } satisfies Prisma.LoanSelect
 
 export type LoanRow = Prisma.LoanGetPayload<{ select: typeof LOAN_SELECT }>
@@ -994,7 +997,13 @@ export class LibraryLoansService {
         coverUrl: r.copy.book.coverFileId ? (covers.get(r.copy.book.coverFileId) ?? null) : null,
       },
       copy: { id: r.copyId, inventoryNumber: r.inventoryNumber },
-      reader: { id: r.readerId, name: r.readerName, group: r.readerGroup, card: r.readerCard },
+      reader: {
+        id: r.readerId,
+        name: r.readerName,
+        group: r.readerGroup,
+        card: r.readerCard,
+        leftStatus: leftAcademicStatusCode(r.reader?.academicStatus),
+      },
       issuedBy: r.issuedBy ? fullName(r.issuedBy) : null,
     }))
   }

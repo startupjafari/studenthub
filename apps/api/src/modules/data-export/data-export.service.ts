@@ -1363,6 +1363,9 @@ export const USER_RELATIONS: Readonly<Record<string, { section: string } | { exc
     'SecurityPass.guardId': { excluded: STAFF_WORK },
     'SecurityVisitor.createdById': { excluded: STAFF_WORK },
     'SecurityVisitor.exitedById': { excluded: STAFF_WORK },
+    // DOCX-шаблоны документов вуза (§3.8): заводят и загружают версии сотрудники.
+    'DocumentTemplate.createdById': { excluded: STAFF_WORK },
+    'DocumentTemplateVersion.createdById': { excluded: STAFF_WORK },
   }
 
 const NOT_USER = 'идентификатор не человека'
@@ -1449,4 +1452,12 @@ export const SCALAR_ID_FIELDS: Readonly<
   'CampusSpaceIndex.spaceId': { notUser: NOT_USER },
   'CampusSpaceIndex.buildingId': { notUser: NOT_USER },
   'CampusSpaceIndex.floorId': { notUser: NOT_USER },
+  // Шаблоны документов вуза (§3.8): публикация и выдача — работа сотрудника. Сформированный
+  // по шаблону DOCX платформа не хранит, журнал выдач — только факт: какой шаблон, кто и когда.
+  'DocumentTemplate.publishedById': { excluded: STAFF_WORK },
+  'DocumentTemplateGeneration.universityId': { notUser: NOT_USER },
+  'DocumentTemplateGeneration.studentId': {
+    excluded: 'журнал выдач по шаблонам: сам документ не хранится, строка — учёт работы вуза',
+  },
+  'DocumentTemplateGeneration.actorId': { excluded: STAFF_WORK },
 }

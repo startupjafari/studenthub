@@ -273,22 +273,32 @@ export class LibraryReservationsService {
   }
 
   /**
-   * Удаление аккаунта читателя (UserService.softDeleteSelf): действующие брони закрываются,
-   * отложенный под готовую бронь экземпляр уходит следующему в очереди или на полку. Иначе
-   * очередь отдавала экземпляр «Удалённому пользователю» на весь срок брони, а остальные
-   * ждали. Уведомлений удалённому нет: закрывает он сам (actorId = readerId).
+   * Читатель больше не возьмёт книгу — действующие брони закрываются, отложенный под готовую
+   * бронь экземпляр уходит следующему в очереди или на полку (releaseCopy под локом книги).
+   * Иначе экземпляр лежал на полке броней весь срок для того, кто за ним не придёт, а
+   * остальные ждали. Зовёт UserService:
+   *
+   * - удаление аккаунта — без уведомления: закрывает он сам, и читать его уже некому;
+   * - отчисление, выпуск, перевод и блокировка — с уведомлением «бронь отменена»
+   *   (`notifyReader`): человек узнаёт, куда делись его брони.
    */
-  async cancelAllOfReader(readerId: string): Promise<number> {
+  async cancelAllOfReader(
+    readerId: string,
+    opts: { notifyReader?: boolean } = {},
+  ): Promise<number> {
     const rows = await this.prisma.reservation.findMany({
       where: { readerId, status: { in: ['QUEUED', 'READY'] } },
       select: { id: true },
       take: MY_RESERVATIONS,
     })
     const now = new Date()
+    // closeRow молчит, когда закрывает сам читатель (actorId = readerId).
+    const actorId = opts.notifyReader ? undefined : readerId
     let closed = 0
     for (const row of rows) {
-      if (await this.closeRow(row.id, 'CANCELLED', now, readerId)) closed++
+      if (await this.closeRow(row.id, 'CANCELLED', now, actorId)) closed++
     }
+    if (closed > 0) this.logger.log(`Сняты брони читателя ${readerId}: ${closed}`)
     return closed
   }
 

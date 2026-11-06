@@ -10,6 +10,7 @@ import {
   applicationKeys,
   fetchApplications,
   pickLocale,
+  useApplicationQueueRealtime,
   type ApplicationFilters,
   type ApplicationListItem,
 } from '../../../entities/application-service'
@@ -104,6 +105,8 @@ export function DeanApplicationsView() {
     queryFn: () => fetchApplications(filters),
     placeholderData: (prev) => prev,
   })
+  // Новая, взятая коллегой или поручённая заявка появляется без перезагрузки (21.B3).
+  useApplicationQueueRealtime()
 
   const items = listQ.data?.items ?? []
   const total = listQ.data?.total ?? 0

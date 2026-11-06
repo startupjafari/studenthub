@@ -11281,6 +11281,183 @@
         ]
       }
     },
+    "/assignments/{id}/submission/files/multipart/start": {
+      "post": {
+        "operationId": "AssignmentsController_startSubmissionFileMultipart",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmissionFileMultipartStartDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "key + uploadId + размер и число частей"
+          },
+          "400": {
+            "description": "BAD_REQUEST — файл или число частей за пределом"
+          },
+          "403": {
+            "description": "WRONG_SCOPE — задание другой группы"
+          },
+          "409": {
+            "description": "CONFLICT — работа отправлена или файлов уже 10"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Открыть многочастную загрузку файла работы (шаг 1 из 4)",
+        "tags": [
+          "Задания"
+        ]
+      }
+    },
+    "/assignments/{id}/submission/files/multipart/urls": {
+      "post": {
+        "operationId": "AssignmentsController_submissionFilePartUrls",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmissionFileMultipartUrlsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Ссылки по номерам частей + срок действия"
+          },
+          "403": {
+            "description": "FORBIDDEN / WRONG_SCOPE — ключ не свой или чужое задание"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Подписи на диапазон частей файла работы (шаг 2 из 4)",
+        "tags": [
+          "Задания"
+        ]
+      }
+    },
+    "/assignments/{id}/submission/files/multipart/complete": {
+      "post": {
+        "operationId": "AssignmentsController_completeSubmissionFileMultipart",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmissionFileMultipartCompleteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ id, name, mime, size, createdAt }"
+          },
+          "400": {
+            "description": "BAD_REQUEST — части не сходятся"
+          },
+          "403": {
+            "description": "FORBIDDEN — ключ не принадлежит вызывающему"
+          },
+          "409": {
+            "description": "CONFLICT — работа отправлена или файлов уже 10"
+          },
+          "413": {
+            "description": "FILE_TOO_LARGE — больше лимита категории"
+          },
+          "415": {
+            "description": "FILE_TYPE_NOT_ALLOWED — тип по содержимому не подходит"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Собрать файл работы из частей и приложить (шаг 4 из 4)",
+        "tags": [
+          "Задания"
+        ]
+      }
+    },
+    "/assignments/{id}/submission/files/multipart/abort": {
+      "post": {
+        "operationId": "AssignmentsController_abortSubmissionFileMultipart",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmissionFileMultipartAbortDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Залитые части удалены"
+          },
+          "403": {
+            "description": "FORBIDDEN — ключ не принадлежит вызывающему"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отменить многочастную загрузку файла работы",
+        "tags": [
+          "Задания"
+        ]
+      }
+    },
     "/assignments/{id}/submission/files/{fileId}": {
       "delete": {
         "operationId": "AssignmentsController_removeSubmissionFile",
@@ -14415,6 +14592,150 @@
           }
         ],
         "summary": "Подтвердить прямую загрузку — вернёт id файла для прикрепления (шаг 3 из 3)",
+        "tags": [
+          "Документы"
+        ]
+      }
+    },
+    "/documents/upload/multipart/start": {
+      "post": {
+        "operationId": "DocumentsController_startUploadMultipart",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentFileMultipartStartDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "key + uploadId + размер и число частей"
+          },
+          "400": {
+            "description": "BAD_REQUEST — файл или число частей за пределом"
+          },
+          "415": {
+            "description": "FILE_TYPE_NOT_ALLOWED — только PDF/JPG/PNG"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Открыть многочастную загрузку крупного скана (шаг 1 из 4)",
+        "tags": [
+          "Документы"
+        ]
+      }
+    },
+    "/documents/upload/multipart/urls": {
+      "post": {
+        "operationId": "DocumentsController_uploadMultipartUrls",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentFileMultipartUrlsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Ссылки по номерам частей + срок действия"
+          },
+          "403": {
+            "description": "FORBIDDEN — ключ не принадлежит вызывающему"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Подписи на диапазон частей скана (шаг 2 из 4)",
+        "tags": [
+          "Документы"
+        ]
+      }
+    },
+    "/documents/upload/multipart/complete": {
+      "post": {
+        "operationId": "DocumentsController_completeUploadMultipart",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentFileMultipartCompleteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "id, реальный mime и размер"
+          },
+          "400": {
+            "description": "BAD_REQUEST — части не сходятся"
+          },
+          "403": {
+            "description": "FORBIDDEN — ключ не принадлежит вызывающему"
+          },
+          "413": {
+            "description": "FILE_TOO_LARGE — больше лимита категории"
+          },
+          "415": {
+            "description": "FILE_TYPE_NOT_ALLOWED — тип по содержимому не подходит"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Собрать скан из частей — вернёт id файла для прикрепления (шаг 4 из 4)",
+        "tags": [
+          "Документы"
+        ]
+      }
+    },
+    "/documents/upload/multipart/abort": {
+      "post": {
+        "operationId": "DocumentsController_abortUploadMultipart",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentFileMultipartAbortDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Залитые части удалены"
+          },
+          "403": {
+            "description": "FORBIDDEN — ключ не принадлежит вызывающему"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отменить многочастную загрузку скана",
         "tags": [
           "Документы"
         ]
@@ -23412,6 +23733,180 @@
         ]
       }
     },
+    "/materials/{id}/files/multipart/start": {
+      "post": {
+        "operationId": "MaterialsController_startFileMultipart",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaterialFileMultipartStartDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "key + uploadId + размер и число частей"
+          },
+          "400": {
+            "description": "BAD_REQUEST — файл или число частей за пределом"
+          },
+          "403": {
+            "description": "FORBIDDEN — нет прав на материал"
+          },
+          "409": {
+            "description": "CONFLICT — у материала уже предельное число файлов"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Открыть многочастную загрузку файла материала (шаг 1 из 4)",
+        "tags": [
+          "Материалы"
+        ]
+      }
+    },
+    "/materials/{id}/files/multipart/urls": {
+      "post": {
+        "operationId": "MaterialsController_fileMultipartUrls",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaterialFileMultipartUrlsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Ссылки по номерам частей + срок действия"
+          },
+          "403": {
+            "description": "FORBIDDEN — нет прав или ключ не свой"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Подписи на диапазон частей файла материала (шаг 2 из 4)",
+        "tags": [
+          "Материалы"
+        ]
+      }
+    },
+    "/materials/{id}/files/multipart/complete": {
+      "post": {
+        "operationId": "MaterialsController_completeFileMultipart",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaterialFileMultipartCompleteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Файл прикреплён к материалу"
+          },
+          "400": {
+            "description": "BAD_REQUEST — части не сходятся"
+          },
+          "403": {
+            "description": "FORBIDDEN — нет прав или ключ не свой"
+          },
+          "413": {
+            "description": "FILE_TOO_LARGE — больше лимита категории"
+          },
+          "415": {
+            "description": "FILE_TYPE_NOT_ALLOWED — тип по содержимому не подходит"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Собрать файл материала из частей и прикрепить (шаг 4 из 4)",
+        "tags": [
+          "Материалы"
+        ]
+      }
+    },
+    "/materials/{id}/files/multipart/abort": {
+      "post": {
+        "operationId": "MaterialsController_abortFileMultipart",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaterialFileMultipartAbortDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Залитые части удалены"
+          },
+          "403": {
+            "description": "FORBIDDEN — ключ не свой"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отменить многочастную загрузку файла материала",
+        "tags": [
+          "Материалы"
+        ]
+      }
+    },
     "/materials/{id}/files": {
       "post": {
         "operationId": "MaterialsController_addFile",
@@ -23523,6 +24018,494 @@
         "summary": "Удалить материал (автор/админ)",
         "tags": [
           "Материалы"
+        ]
+      }
+    },
+    "/document-templates": {
+      "get": {
+        "operationId": "DocumentTemplatesController_list",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 10000,
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "DRAFT",
+                "PUBLISHED",
+                "ARCHIVED"
+              ]
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "CERTIFICATE",
+                "APPLICATION",
+                "ORDER",
+                "CONTRACT",
+                "CLEARANCE",
+                "DORMITORY",
+                "OTHER"
+              ]
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Страница шаблонов, meta.total"
+          },
+          "403": {
+            "description": "FORBIDDEN — роль не подходит"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — параметры списка"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Шаблоны своего вуза (админ — все, модератор и декан — опубликованные)",
+        "tags": [
+          "Документы: шаблоны DOCX"
+        ]
+      },
+      "post": {
+        "operationId": "DocumentTemplatesController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDocumentTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Карточка шаблона"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Создать шаблон (черновик без файла)",
+        "tags": [
+          "Документы: шаблоны DOCX"
+        ]
+      }
+    },
+    "/document-templates/{id}": {
+      "get": {
+        "operationId": "DocumentTemplatesController_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Карточка шаблона"
+          },
+          "403": {
+            "description": "WRONG_SCOPE — шаблон другого вуза"
+          },
+          "404": {
+            "description": "NOT_FOUND"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Шаблон: метаданные, версии и результаты их проверки",
+        "tags": [
+          "Документы: шаблоны DOCX"
+        ]
+      },
+      "patch": {
+        "operationId": "DocumentTemplatesController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDocumentTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Карточка шаблона"
+          },
+          "403": {
+            "description": "WRONG_SCOPE"
+          },
+          "409": {
+            "description": "CONFLICT — шаблон в архиве"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Изменить название, вид, описание или язык шаблона",
+        "tags": [
+          "Документы: шаблоны DOCX"
+        ]
+      },
+      "delete": {
+        "operationId": "DocumentTemplatesController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ archived } — true, если шаблон архивирован"
+          },
+          "403": {
+            "description": "WRONG_SCOPE"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удалить шаблон; если по нему уже выдавали документы — отправить в архив",
+        "tags": [
+          "Документы: шаблоны DOCX"
+        ]
+      }
+    },
+    "/document-templates/{id}/versions": {
+      "post": {
+        "operationId": "DocumentTemplatesController_upload",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Карточка шаблона с отчётом проверки версии"
+          },
+          "409": {
+            "description": "CONFLICT — шаблон в архиве"
+          },
+          "413": {
+            "description": "FILE_TOO_LARGE — больше предела шаблона"
+          },
+          "415": {
+            "description": "FILE_TYPE_NOT_ALLOWED — не .docx"
+          },
+          "422": {
+            "description": "TEMPLATE_FILE_INVALID — повреждён, макросы, внешние ссылки, zip-бомба"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Загрузить DOCX новой версией: проверка файла и переменных",
+        "tags": [
+          "Документы: шаблоны DOCX"
+        ]
+      }
+    },
+    "/document-templates/{id}/versions/{versionId}/source": {
+      "get": {
+        "operationId": "DocumentTemplatesController_source",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "versionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ url, fileName }"
+          },
+          "404": {
+            "description": "NOT_FOUND — версии нет у этого шаблона"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ссылка на исходный DOCX версии (presigned, 15 минут)",
+        "tags": [
+          "Документы: шаблоны DOCX"
+        ]
+      }
+    },
+    "/document-templates/{id}/publish": {
+      "post": {
+        "operationId": "DocumentTemplatesController_publish",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Карточка шаблона"
+          },
+          "409": {
+            "description": "CONFLICT — архив или файл только что заменили"
+          },
+          "422": {
+            "description": "TEMPLATE_INVALID — нет файла или есть ошибки"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Опубликовать рабочую версию (только прошедшую проверку)",
+        "tags": [
+          "Документы: шаблоны DOCX"
+        ]
+      }
+    },
+    "/document-templates/{id}/unpublish": {
+      "post": {
+        "operationId": "DocumentTemplatesController_unpublish",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Карточка шаблона"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Снять с публикации (вернуть в черновик)",
+        "tags": [
+          "Документы: шаблоны DOCX"
+        ]
+      }
+    },
+    "/document-templates/{id}/test": {
+      "post": {
+        "operationId": "DocumentTemplatesController_test",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "versionId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Файл DOCX"
+          },
+          "422": {
+            "description": "TEMPLATE_INVALID — версия не прошла проверку"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Проверочный DOCX на демонстрационных данных",
+        "tags": [
+          "Документы: шаблоны DOCX"
+        ]
+      }
+    },
+    "/document-templates/{id}/generate": {
+      "post": {
+        "operationId": "DocumentTemplatesController_generate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateDocumentFromTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Файл DOCX"
+          },
+          "400": {
+            "description": "BAD_REQUEST — шаблон не опубликован"
+          },
+          "403": {
+            "description": "WRONG_SCOPE — шаблон или студент вне вашей области"
+          },
+          "404": {
+            "description": "NOT_FOUND — нет шаблона или студента"
+          },
+          "422": {
+            "description": "TEMPLATE_DATA_MISSING — в профиле не заполнены поля (details[].field)"
+          },
+          "429": {
+            "description": "RATE_LIMIT — больше 30 документов в минуту"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Сформировать документ для студента по опубликованной версии",
+        "tags": [
+          "Документы: шаблоны DOCX"
         ]
       }
     },
@@ -29423,6 +30406,125 @@
         ],
         "additionalProperties": false
       },
+      "SubmissionFileMultipartStartDto": {
+        "type": "object",
+        "properties": {
+          "mime": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "exclusiveMinimum": true
+          }
+        },
+        "required": [
+          "mime",
+          "size"
+        ],
+        "additionalProperties": false
+      },
+      "SubmissionFileMultipartUrlsDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "from": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "to": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "key",
+          "uploadId",
+          "from",
+          "to"
+        ],
+        "additionalProperties": false
+      },
+      "SubmissionFileMultipartCompleteDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "part": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "etag": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "part",
+                "etag"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "key",
+          "uploadId",
+          "parts"
+        ],
+        "additionalProperties": false
+      },
+      "SubmissionFileMultipartAbortDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "key",
+          "uploadId"
+        ],
+        "additionalProperties": false
+      },
       "GradeSubmissionDto": {
         "type": "object",
         "properties": {
@@ -30474,6 +31576,125 @@
         },
         "required": [
           "key"
+        ],
+        "additionalProperties": false
+      },
+      "DocumentFileMultipartStartDto": {
+        "type": "object",
+        "properties": {
+          "mime": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "exclusiveMinimum": true
+          }
+        },
+        "required": [
+          "mime",
+          "size"
+        ],
+        "additionalProperties": false
+      },
+      "DocumentFileMultipartUrlsDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "from": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "to": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "key",
+          "uploadId",
+          "from",
+          "to"
+        ],
+        "additionalProperties": false
+      },
+      "DocumentFileMultipartCompleteDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "part": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "etag": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "part",
+                "etag"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "key",
+          "uploadId",
+          "parts"
+        ],
+        "additionalProperties": false
+      },
+      "DocumentFileMultipartAbortDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "key",
+          "uploadId"
         ],
         "additionalProperties": false
       },
@@ -32854,6 +34075,214 @@
         },
         "required": [
           "key"
+        ],
+        "additionalProperties": false
+      },
+      "MaterialFileMultipartStartDto": {
+        "type": "object",
+        "properties": {
+          "mime": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "exclusiveMinimum": true
+          }
+        },
+        "required": [
+          "mime",
+          "size"
+        ],
+        "additionalProperties": false
+      },
+      "MaterialFileMultipartUrlsDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "from": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "to": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "key",
+          "uploadId",
+          "from",
+          "to"
+        ],
+        "additionalProperties": false
+      },
+      "MaterialFileMultipartCompleteDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "part": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "etag": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "part",
+                "etag"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "key",
+          "uploadId",
+          "parts"
+        ],
+        "additionalProperties": false
+      },
+      "MaterialFileMultipartAbortDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "key",
+          "uploadId"
+        ],
+        "additionalProperties": false
+      },
+      "CreateDocumentTemplateDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "CERTIFICATE",
+              "APPLICATION",
+              "ORDER",
+              "CONTRACT",
+              "CLEARANCE",
+              "DORMITORY",
+              "OTHER"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "locale": {
+            "type": "string",
+            "enum": [
+              "ru",
+              "kk",
+              "en"
+            ],
+            "default": "ru"
+          }
+        },
+        "required": [
+          "title",
+          "category"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateDocumentTemplateDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "CERTIFICATE",
+              "APPLICATION",
+              "ORDER",
+              "CONTRACT",
+              "CLEARANCE",
+              "DORMITORY",
+              "OTHER"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          },
+          "locale": {
+            "type": "string",
+            "enum": [
+              "ru",
+              "kk",
+              "en"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "GenerateDocumentFromTemplateDto": {
+        "type": "object",
+        "properties": {
+          "studentId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "studentId"
         ],
         "additionalProperties": false
       },

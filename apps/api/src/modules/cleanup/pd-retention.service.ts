@@ -527,6 +527,20 @@ export class PdRetentionService {
         ownerId: userId,
         OR: [
           { bookCovers: { some: {} } },
+          // DOCX шаблона документов вуза: версию держит внешний ключ (Restrict). Файл
+          // переписывается на другого действующего админа вуза (deleteTombstone); блокирует
+          // удаление, только если переписать не на кого.
+          {
+            documentTemplateVersion: {
+              template: {
+                university: {
+                  users: {
+                    none: { role: 'UNIVERSITY_ADMIN', deletedAt: null, id: { not: userId } },
+                  },
+                },
+              },
+            },
+          },
           { post: { authorId: { not: userId } } },
           { message: { senderId: { not: userId } } },
           { material: { teacherId: { not: userId } } },
@@ -549,6 +563,20 @@ export class PdRetentionService {
           UPDATE "files" AS f SET "owner_id" = d."owner_id"
           FROM "documents" AS d
           WHERE f."document_id" = d."id" AND f."owner_id" = ${userId} AND d."owner_id" <> ${userId}
+        `
+        // Исходники шаблонов документов, загруженные этим админом, — данные вуза, а не
+        // человека: переходят к старейшему действующему админу того же вуза. Иначе каскад по
+        // File.owner упёрся бы в версию шаблона, и надгробие не удалялось бы никогда.
+        await tx.$executeRaw`
+          UPDATE "files" AS f SET "owner_id" = (
+            SELECT u."id" FROM "users" AS u
+            WHERE u."university_id" = t."university_id" AND u."role" = 'UNIVERSITY_ADMIN'
+              AND u."deleted_at" IS NULL AND u."id" <> ${userId}
+            ORDER BY u."created_at", u."id" LIMIT 1
+          )
+          FROM "document_template_versions" AS v
+          JOIN "document_templates" AS t ON t."id" = v."template_id"
+          WHERE v."file_id" = f."id" AND f."owner_id" = ${userId}
         `
         await tx.message.updateMany({
           where: { replyTo: { senderId: userId }, replyQuote: { not: null } },

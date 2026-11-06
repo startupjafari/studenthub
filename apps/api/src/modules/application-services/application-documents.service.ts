@@ -11,6 +11,7 @@ import { RealtimeGateway } from '../../common/realtime'
 import { FileService } from '../files/file.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { ApplicationPolicy } from './application.policy'
+import { ApplicationQueueEvents } from './application-queue-events'
 import { rethrowStaleStatus } from '../../common/prisma/stale-status'
 
 // Документы заявки (§3/§4): студент прикладывает документ из личного хранилища к требованию услуги;
@@ -26,6 +27,7 @@ export class ApplicationDocumentsService {
     private readonly files: FileService,
     private readonly queue: QueueService,
     private readonly realtime: RealtimeGateway,
+    private readonly queueEvents: ApplicationQueueEvents,
   ) {}
 
   /** Приложить документ из хранилища к требованию (или заменить существующий — та же строка). */
@@ -226,6 +228,12 @@ export class ApplicationDocumentsService {
     // Realtime: окно заявки у студента обновляется вживую (перевод в NEEDS_CORRECTION).
     this.realtime.emitEventToUser(app.studentId, REALTIME_EVENTS.applicationStatusChanged, appId, {
       status: 'NEEDS_CORRECTION',
+    })
+    await this.queueEvents.changed({
+      id: appId,
+      status: 'NEEDS_CORRECTION',
+      universityId: app.universityId,
+      facultyId: app.facultyId,
     })
     return null
   }

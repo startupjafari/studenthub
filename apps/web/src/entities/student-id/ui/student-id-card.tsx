@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
+import { academicStatusCode } from '@studenthub/shared-types'
 import { BadgeCheck, GraduationCap } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage, Badge } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
@@ -32,20 +33,17 @@ const STATUS_KEYS = {
   GRADUATED: 'status_GRADUATED',
 } as const
 
-// Статус обучения → тон бейджа. Коды — то, что лежит в базе; русские строки остались от
-// вузов, заполнявших поле текстом. Пустой статус у студента с билетом — «Активен».
+// Статус обучения → тон бейджа. В базе лежит значение справочника (`AcademicStatus` в
+// shared-types) или код сида — оба сводятся к коду. Ушедшие (тот же список, что закрывает
+// выдачу книг и вход) и строки вне справочника — «неактивен». Пустой статус у студента с
+// билетом — «Активен».
 type StatusTone = 'active' | 'leave' | 'inactive'
-const STATUS_TONES: Record<string, StatusTone> = {
-  ACTIVE: 'active',
-  Обучающийся: 'active',
-  ACADEMIC_LEAVE: 'leave',
-  'Академический отпуск': 'leave',
-  EXPELLED: 'inactive',
-  GRADUATED: 'inactive',
-}
 function statusMeta(status: string | null): { tone: StatusTone; raw: string | null } {
   if (!status) return { tone: 'active', raw: null }
-  return { tone: STATUS_TONES[status] ?? 'inactive', raw: status }
+  const code = academicStatusCode(status)
+  const tone: StatusTone =
+    code === 'ACTIVE' ? 'active' : code === 'ACADEMIC_LEAVE' ? 'leave' : 'inactive'
+  return { tone, raw: status }
 }
 
 // Визуальная «карта» цифрового студенческого: шапка вуза, фото, ФИО, статус и реквизиты.

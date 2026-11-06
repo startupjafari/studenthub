@@ -160,6 +160,8 @@ const NO_OWNER_BUT_POSTS_BUCKET_WHERE = {
   highlightItem: { is: null },
   albumsCovered: { none: {} },
   bookCovers: { none: {} },
+  // DOCX версии шаблона документов вуза лежит в бакете documents без documentId.
+  documentTemplateVersion: { is: null },
 } satisfies Prisma.FileWhereInput
 
 const NO_OWNER_BUT_POST_WHERE = {

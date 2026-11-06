@@ -45,6 +45,11 @@ import { LibraryReportsService } from './library-reports.service'
     LibraryDebtsService,
     LibraryReportsService,
   ],
-  exports: [LibrarySettingsService, LibraryRemindersService, LibraryReservationsService],
+  exports: [
+    LibrarySettingsService,
+    LibraryRemindersService,
+    LibraryReservationsService,
+    LibraryDebtsService,
+  ],
 })
 export class LibraryModule {}

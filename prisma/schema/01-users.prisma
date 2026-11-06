@@ -136,6 +136,10 @@ model User {
   // Релизы: до какой версии «Что нового» человек дочитал (28-releases.prisma).
   releaseView ReleaseView?
 
+  // Авторы шаблонов документов вуза и их версий (37-document-templates.prisma).
+  documentTemplatesCreated        DocumentTemplate[]        @relation("DocumentTemplateAuthor")
+  documentTemplateVersionsCreated DocumentTemplateVersion[] @relation("DocumentTemplateVersionAuthor")
+
   // Привязанный Telegram — вход в админский мини-апп (29-telegram.prisma).
   telegramAccount TelegramAccount?
 

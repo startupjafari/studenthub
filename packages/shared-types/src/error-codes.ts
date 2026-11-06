@@ -53,6 +53,17 @@ export const ErrorCode = {
   // создать, а привязывать существующий по одной ссылке из письма небезопасно. Клиент
   // объясняет, что нужен другой адрес или обращение в поддержку.
   COMPANY_INVITE_EMAIL_TAKEN: 'COMPANY_INVITE_EMAIL_TAKEN',
+  // DOCX-шаблон не принят: файл — документ Word, но содержимое не годится в шаблон
+  // (повреждён, макросы, внешние ссылки, zip-бомба). Причина — в details[].message
+  // (DOCUMENT_TEMPLATE_FILE_PROBLEMS). Отдельно от FILE_TYPE_NOT_ALLOWED: тип верный,
+  // и клиент объясняет, что исправить в самом документе.
+  TEMPLATE_FILE_INVALID: 'TEMPLATE_FILE_INVALID',
+  // Шаблон не прошёл техническую проверку (синтаксис, неизвестные переменные) — его нельзя
+  // опубликовать и нельзя по нему формировать документы.
+  TEMPLATE_INVALID: 'TEMPLATE_INVALID',
+  // У студента не заполнены поля, которые использует шаблон: официальный документ с пустыми
+  // местами не формируется. Ключи переменных — в details[].field.
+  TEMPLATE_DATA_MISSING: 'TEMPLATE_DATA_MISSING',
 } as const
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
@@ -97,6 +108,10 @@ export const ERROR_CODE_STATUS: Record<ErrorCode, number> = {
   // 409 — запрос верен, но противоречит состоянию вакансии.
   VACANCY_NOT_DELETABLE: 409,
   COMPANY_INVITE_EMAIL_TAKEN: 409,
+  // 422 — запрос понятен, но содержимое (файл, шаблон, данные студента) его не допускает.
+  TEMPLATE_FILE_INVALID: 422,
+  TEMPLATE_INVALID: 422,
+  TEMPLATE_DATA_MISSING: 422,
 }
 
 /** Код по умолчанию для HTTP-статуса (для стандартных Nest-исключений без явного кода). */

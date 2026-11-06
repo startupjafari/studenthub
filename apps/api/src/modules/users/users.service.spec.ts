@@ -15,6 +15,7 @@ import type { AuditService } from '../../common/audit/audit.service'
 import type { ExportBrandingService } from '../../common/export/export-branding.service'
 import type { ExportRegistryService } from '../../common/export/export-registry.service'
 import type { LibraryReservationsService } from '../library/library-reservations.service'
+import type { LibraryDebtsService } from '../library/library-debts.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import type Redis from 'ioredis'
@@ -110,6 +111,8 @@ function setup() {
   }
   // Брони книг удаляемого закрывает модуль библиотеки (softDeleteSelf).
   const libraryReservations = { cancelAllOfReader: jest.fn().mockResolvedValue(0) }
+  // Отчисление должника — библиотекарям (updateAcademicRecord, Фаза 21.C3).
+  const libraryDebts = { notifyExpelledDebtor: jest.fn().mockResolvedValue(0) }
   const service = new UserService(
     prisma as unknown as PrismaService,
     passwords as unknown as PasswordService,
@@ -123,6 +126,7 @@ function setup() {
     exportRegistry as unknown as ExportRegistryService,
     redis as unknown as Redis,
     libraryReservations as unknown as LibraryReservationsService,
+    libraryDebts as unknown as LibraryDebtsService,
   )
   return {
     redis,
@@ -138,6 +142,7 @@ function setup() {
     branding,
     exportRegistry,
     libraryReservations,
+    libraryDebts,
   }
 }
 
@@ -982,7 +987,10 @@ describe('UserService — softDeleteSelf', () => {
       where: { studentId: 'u', status: 'BOOKED', startsAt: { gt: expect.any(Date) } },
       data: { status: 'OPEN', studentId: null, topic: null },
     })
-    expect(libraryReservations.cancelAllOfReader).toHaveBeenCalledWith('u')
+    // Удалённому уведомление «бронь отменена» не шлём.
+    expect(libraryReservations.cancelAllOfReader).toHaveBeenCalledWith('u', {
+      notifyReader: false,
+    })
   })
 
   it('сбой библиотеки не срывает удаление аккаунта', async () => {
@@ -1350,6 +1358,30 @@ describe('UserService — setBlocked', () => {
       data: { isBlocked: true, blockedUntil: null },
     })
     expect(authService.revokeAllUserSessions).toHaveBeenCalledWith('t')
+  })
+
+  // Фаза 21.C2: отложенный под заблокированного экземпляр лежал на полке броней весь срок.
+  it('блокировка снимает брони книг, разблокировка — нет', async () => {
+    const { service, prisma, libraryReservations } = setup()
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B', role: Role.STUDENT })
+    prisma.user.update.mockResolvedValue({})
+    await service.setBlocked(viewer(Role.PLATFORM_ADMIN), 't', true)
+    expect(libraryReservations.cancelAllOfReader).toHaveBeenCalledWith('t', { notifyReader: true })
+
+    libraryReservations.cancelAllOfReader.mockClear()
+    await service.setBlocked(viewer(Role.PLATFORM_ADMIN), 't', false)
+    expect(libraryReservations.cancelAllOfReader).not.toHaveBeenCalled()
+  })
+
+  it('сбой библиотеки блокировку не срывает', async () => {
+    const { service, prisma, libraryReservations, audit } = setup()
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B', role: Role.STUDENT })
+    prisma.user.update.mockResolvedValue({})
+    libraryReservations.cancelAllOfReader.mockRejectedValue(new Error('db down'))
+    await expect(
+      service.setBlocked(viewer(Role.PLATFORM_ADMIN), 't', true),
+    ).resolves.toBeUndefined()
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'user_blocked' }))
   })
 })
 
@@ -2128,12 +2160,13 @@ describe('UserService — учебные данные ведёт вуз', () => 
   // От даты ухода считаются сроки хранения ПДн (PERSONAL_DATA §4).
   describe('дата ухода из вуза (leftUniversityAt)', () => {
     const admin = viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-A' })
-    const student = (leftUniversityAt: Date | null) => ({
+    const student = (leftUniversityAt: Date | null, academicStatus: string | null = null) => ({
       id: 's1',
       role: Role.STUDENT,
       universityId: 'uni-A',
       facultyId: 'fac-A',
       specialty: null,
+      academicStatus,
       leftUniversityAt,
     })
 
@@ -2179,6 +2212,67 @@ describe('UserService — учебные данные ведёт вуз', () => 
       const data = prisma.user.update.mock.calls[0][0].data
       expect(data.academicStatus).toBe('Переведён')
       expect(data.leftUniversityAt).toBeInstanceOf(Date)
+    })
+
+    // Фаза 21.C2: ушедший книгу не возьмёт — его брони снимаются, экземпляр уходит дальше.
+    it.each(['Отчислен', 'Выпускник', 'Переведён'])('«%s» снимает брони книг', async (status) => {
+      const { service, prisma, libraryReservations } = setup()
+      prisma.user.findFirst.mockResolvedValue(student(null))
+      prisma.user.update.mockResolvedValue({ id: 's1' })
+      await service.updateAcademicRecord(admin, 's1', { academicStatus: status })
+      expect(libraryReservations.cancelAllOfReader).toHaveBeenCalledWith('s1', {
+        notifyReader: true,
+      })
+    })
+
+    it.each([
+      [{ academicStatus: 'Обучающийся' }],
+      [{ academicStatus: 'Академический отпуск' }],
+      [{ academicStatus: '' }],
+      [{ course: 4 }],
+    ])('%j брони не трогает', async (input) => {
+      const { service, prisma, libraryReservations } = setup()
+      prisma.user.findFirst.mockResolvedValue(student(null))
+      prisma.user.update.mockResolvedValue({ id: 's1' })
+      await service.updateAcademicRecord(admin, 's1', input)
+      expect(libraryReservations.cancelAllOfReader).not.toHaveBeenCalled()
+    })
+
+    it('сбой библиотеки смену статуса не срывает', async () => {
+      const { service, prisma, libraryReservations, libraryDebts } = setup()
+      prisma.user.findFirst.mockResolvedValue(student(null))
+      prisma.user.update.mockResolvedValue({ id: 's1' })
+      libraryReservations.cancelAllOfReader.mockRejectedValue(new Error('db down'))
+      libraryDebts.notifyExpelledDebtor.mockRejectedValue(new Error('db down'))
+      await expect(
+        service.updateAcademicRecord(admin, 's1', { academicStatus: 'Отчислен' }),
+      ).resolves.toEqual({ id: 's1' })
+    })
+
+    // Фаза 21.C3: библиотекари узнают об отчислении должника в момент смены статуса.
+    it.each([null, 'Обучающийся', 'Выпускник', 'ACADEMIC_LEAVE'])(
+      'переход %s → «Отчислен» сообщает библиотеке',
+      async (from) => {
+        const { service, prisma, libraryDebts } = setup()
+        prisma.user.findFirst.mockResolvedValue(student(null, from))
+        prisma.user.update.mockResolvedValue({ id: 's1' })
+        await service.updateAcademicRecord(admin, 's1', { academicStatus: 'отчислен' })
+        expect(libraryDebts.notifyExpelledDebtor).toHaveBeenCalledWith('s1')
+      },
+    )
+
+    it.each([
+      ['Отчислен', { academicStatus: 'Отчислен' }],
+      ['EXPELLED', { academicStatus: 'Отчислен' }],
+      ['Обучающийся', { academicStatus: 'Выпускник' }],
+      ['Обучающийся', { academicStatus: 'Переведён' }],
+      ['Обучающийся', { course: 4 }],
+    ])('из %s с %j — библиотеке не сообщаем', async (from, input) => {
+      const { service, prisma, libraryDebts } = setup()
+      prisma.user.findFirst.mockResolvedValue(student(null, from))
+      prisma.user.update.mockResolvedValue({ id: 's1' })
+      await service.updateAcademicRecord(admin, 's1', input)
+      expect(libraryDebts.notifyExpelledDebtor).not.toHaveBeenCalled()
     })
 
     it('правка без статуса дату не трогает', async () => {
@@ -2451,5 +2545,70 @@ describe('UserService — присутствие только в охвате', 
     await expect(
       service.getPresenceFor(viewer(Role.STUDENT, { universityId: 'uni-A' }), 'x'),
     ).resolves.toEqual({ online: true })
+  })
+})
+
+describe('UserService.documentTemplatePerson — должность для шаблонов документов', () => {
+  const row = {
+    id: 'u1',
+    role: Role.DEAN,
+    universityId: 'uni-A',
+    facultyId: 'fac-A',
+    firstName: 'Мария',
+    lastName: 'Примерова',
+    middleName: null,
+    birthDate: null,
+    studentCardNumber: null,
+    course: null,
+    specialty: null,
+    studyForm: null,
+    educationLevel: null,
+    fundingType: null,
+    enrollmentYear: null,
+    graduationYear: null,
+    group: null,
+    faculty: { name: 'Факультет ИТ' },
+  }
+
+  it('пустая position не прячет заполненный jobTitle', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({ ...row, position: '  ', jobTitle: 'Декан' })
+    await expect(service.documentTemplatePerson('u1')).resolves.toMatchObject({
+      position: 'Декан',
+      facultyName: 'Факультет ИТ',
+    })
+  })
+
+  it('обе пустые — null, а не пустая строка', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({ ...row, position: '', jobTitle: null })
+    await expect(service.documentTemplatePerson('u1')).resolves.toMatchObject({ position: null })
+  })
+})
+
+// Те же люди — аудитория живой очереди заявок (21.B3, ApplicationQueueEvents): кто вправе
+// вести заявку, тот её в очереди и видит. Чужой вуз и чужой факультет сюда попасть не должны.
+describe('UserService.listApplicationAssignees — обработчики заявки', () => {
+  it('админ и модератор вуза заявки плюс деканы её факультета, живые и не заблокированные', async () => {
+    const { service, prisma } = setup()
+    await service.listApplicationAssignees('uni', 'fac')
+    const args = prisma.user.findMany.mock.calls[0][0]
+    expect(args.where).toEqual({
+      universityId: 'uni',
+      deletedAt: null,
+      isBlocked: false,
+      OR: [
+        { role: { in: [Role.UNIVERSITY_ADMIN, Role.UNIVERSITY_MODERATOR] } },
+        { role: Role.DEAN, facultyId: 'fac' },
+      ],
+    })
+    expect(args.take).toBeGreaterThan(0)
+  })
+
+  it('заявка вузовской услуги — без деканов: факультета у неё нет', async () => {
+    const { service, prisma } = setup()
+    await service.listApplicationAssignees('uni', null)
+    const where = prisma.user.findMany.mock.calls[0][0].where
+    expect(where.OR).toEqual([{ role: { in: [Role.UNIVERSITY_ADMIN, Role.UNIVERSITY_MODERATOR] } }])
   })
 })

@@ -1,20 +1,17 @@
+import { ACADEMIC_STATUSES, isLeftAcademicStatus } from '@studenthub/shared-types'
+
 /**
- * Закрытый справочник учебных статусов — тот же, что в вебе (`ACADEMIC_STATUS_DICT`).
- * Свободный ввод пропускал «Отчислена» и «отчислен(а)», и такой студент не считался ушедшим:
- * не ставилась дата ухода, от которой считаются сроки хранения ПДн (PERSONAL_DATA §4).
+ * Закрытый справочник учебных статусов — общий с вебом (`ACADEMIC_STATUS_DICT`), живёт в
+ * `@studenthub/shared-types` (`AcademicStatus`). Свободный ввод пропускал «Отчислена» и
+ * «отчислен(а)», и такой студент не считался ушедшим: не ставилась дата ухода, от которой
+ * считаются сроки хранения ПДн (PERSONAL_DATA §4).
  */
-export const ACADEMIC_STATUSES = [
-  'Обучающийся',
-  'Академический отпуск',
-  'Выпускник',
-  'Отчислен',
-  'Переведён',
-] as const
+export { ACADEMIC_STATUSES }
 
 /**
  * Статус из справочника в его написании: без учёта регистра и пробелов по краям, «переведен»
  * через «е» — тоже. Пустая строка — очистка поля, проходит как есть. Значение не из
- * справочника — `null`.
+ * справочника — `null`. Коды сида (`EXPELLED` и т. п.) на входе не принимаются: в форме их нет.
  */
 export function canonicalAcademicStatus(raw: string): string | null {
   const key = raw.trim().toLowerCase().replace('переведен', 'переведён')
@@ -23,25 +20,14 @@ export function canonicalAcademicStatus(raw: string): string | null {
 }
 
 /**
- * Статусы, с которыми студент больше не учится в вузе. Записи, внесённые до закрытого
+ * Студент больше не учится в вузе: отчислен, выпущен или переведён (`LEFT_ACADEMIC_STATUS_CODES`
+ * в shared-types; академический отпуск сюда не входит). Записи, внесённые до закрытого
  * справочника, могут отличаться регистром, а сид и импорт пишут коды (`EXPELLED`,
- * `GRADUATED`, `TRANSFERRED`), поэтому распознаём оба представления, без регистра и с обоими
- * написаниями «переведён». Тот же набор закрывает вход на посту охраны и выдачу книг в
- * библиотеке.
+ * `GRADUATED`, `TRANSFERRED`), поэтому распознаются оба представления. Тот же набор закрывает
+ * вход на посту охраны, выдачу и бронь книг в библиотеке и снимает брони читателя.
  */
-const TERMINAL_ACADEMIC_STATUSES = [
-  'отчислен',
-  'выпускник',
-  'переведён',
-  'переведен',
-  'expelled',
-  'graduated',
-  'transferred',
-]
-
 export function isTerminalAcademicStatus(status: string | null | undefined): boolean {
-  if (!status) return false
-  return TERMINAL_ACADEMIC_STATUSES.includes(status.trim().toLowerCase())
+  return isLeftAcademicStatus(status)
 }
 
 /**
