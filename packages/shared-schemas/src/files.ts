@@ -147,3 +147,55 @@ export const MultipartAbortSchema = z
   })
   .strict()
 export type MultipartAbortInput = z.infer<typeof MultipartAbortSchema>
+
+// ── Многочастная загрузка в доменные модули (21.B1) ──────────────────────────
+// Материалы, документы и сдачи заданий открывают многочастную загрузку своими маршрутами —
+// по тому же принципу, что одиночный presign/confirm: бакет неявный и определяется модулем,
+// а права на сущность (материал, задание) проверяются на каждом шаге. Поля те же, что у
+// общих `/files/multipart/*`, только без `bucket`.
+
+/** Шаг 1: открыть загрузку в бакет модуля. */
+export const MultipartDomainStartSchema = z
+  .object({
+    mime: z.string().min(1).max(120),
+    size: z.number().int().positive(),
+  })
+  .strict()
+export type MultipartDomainStartInput = z.infer<typeof MultipartDomainStartSchema>
+
+/** Шаг 2: подписи на диапазон частей `[from, to]`, нумерация с единицы. */
+export const MultipartDomainUrlsSchema = z
+  .object({
+    key: z.string().min(1).max(300),
+    uploadId: z.string().min(1).max(300),
+    from: z.number().int().min(1),
+    to: z.number().int().min(1),
+  })
+  .strict()
+  .refine((v) => v.to >= v.from, {
+    path: ['to'],
+    message: 'Конец диапазона частей не может быть меньше начала',
+  })
+export type MultipartDomainUrlsInput = z.infer<typeof MultipartDomainUrlsSchema>
+
+/** Шаг 4: собрать объект — дальше та же проверка, что у `confirm` модуля. */
+export const MultipartDomainCompleteSchema = z
+  .object({
+    key: z.string().min(1).max(300),
+    uploadId: z.string().min(1).max(300),
+    name: z.string().min(1).max(255).optional(),
+    parts: z
+      .array(z.object({ part: z.number().int().min(1), etag: z.string().min(1).max(200) }).strict())
+      .min(1),
+  })
+  .strict()
+export type MultipartDomainCompleteInput = z.infer<typeof MultipartDomainCompleteSchema>
+
+/** Отмена: части удаляются в хранилище. */
+export const MultipartDomainAbortSchema = z
+  .object({
+    key: z.string().min(1).max(300),
+    uploadId: z.string().min(1).max(300),
+  })
+  .strict()
+export type MultipartDomainAbortInput = z.infer<typeof MultipartDomainAbortSchema>
