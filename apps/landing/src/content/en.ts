@@ -113,6 +113,39 @@ export const en: Dictionary = {
         nav: ['Structure', 'Invitations', 'Analytics', 'Moderation', 'Settings'],
         highlight: 'University structure',
       },
+      {
+        id: 'librarian',
+        title: 'Librarian',
+        points: [
+          'Lending by scanning the digital student ID, returns by the QR sticker on the book',
+          'No new loans for readers who are overdue or no longer study at the university',
+          'Holds with a queue, collection reports and shelf inventory by scanning',
+        ],
+        nav: ['Library', 'Checkout', 'Check-in', 'Holds', 'Catalogue'],
+        highlight: 'Overdue loans',
+      },
+      {
+        id: 'securityGuard',
+        title: 'Security',
+        points: [
+          'Student ID check at the entrance: the answer shows at once whether to let them in, and why not',
+          'Visitor log: only the document type and its last four digits are stored',
+          'Live university cameras — no audio, no recording',
+        ],
+        nav: ['Security post', 'Cameras', 'Rooms', 'Campus map'],
+        highlight: 'Student passes',
+      },
+      {
+        id: 'employer',
+        title: 'Employer',
+        points: [
+          'Access to students is requested from each university separately',
+          'A job post reaches students only after their university approves it',
+          'An application pipeline — from viewed to interview and offer',
+        ],
+        nav: ['Overview', 'Jobs', 'Candidates', 'Universities', 'Team'],
+        highlight: 'Company overview',
+      },
     ],
   },
 
