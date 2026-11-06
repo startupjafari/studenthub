@@ -227,12 +227,16 @@ export function RouteStatus({
   loading,
   hasRoute,
   reason,
+  stepFree,
+  onAllowStairs,
 }: {
   from: { spaceId: string } | null
   to: { spaceId: string } | null
   loading: boolean
   hasRoute: boolean
   reason: string | null
+  stepFree: boolean
+  onAllowStairs: () => void
 }) {
   const t = useTranslations('CampusMap')
   if (!from || !to) return null
@@ -254,13 +258,20 @@ export function RouteStatus({
   }
   if (reason) {
     return (
-      <p
+      <div
         role="alert"
-        className="flex items-start gap-2 rounded-xl bg-destructive/5 p-3 text-sm text-destructive"
+        className="flex flex-col items-start gap-2 rounded-xl bg-destructive/5 p-3 text-sm text-destructive"
       >
-        <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
-        {t(`noRoute_${reason}`)}
-      </p>
+        <p className="flex items-start gap-2">
+          <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+          {t(`noRoute_${reason}`)}
+        </p>
+        {reason === 'STEP_FREE_UNAVAILABLE' && stepFree && (
+          <Button type="button" size="sm" variant="outline" onClick={onAllowStairs}>
+            {t('routeAllowStairs')}
+          </Button>
+        )}
+      </div>
     )
   }
   return null
