@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { CursorPaginationSchema } from './pagination.js'
+import { vm } from './validation-messages.js'
 
 // Сторисы (docs/PROJECT.md §3.4, задача Ф14.1). Значения enum дублируют Prisma-enum
 // StoryAudience. Предметной (SUBJECT) аудитории здесь нет. Личные — FRIENDS (друзья автора)
@@ -25,7 +26,9 @@ const StoryAudienceUsersSchema = z
   .array(z.string().min(1))
   .min(1)
   .max(STORY_AUDIENCE_USERS_MAX)
-  .refine((ids) => new Set(ids).size === ids.length, { message: 'Получатели повторяются' })
+  .refine((ids) => new Set(ids).size === ids.length, {
+    message: vm('validation.stories.duplicateRecipients'),
+  })
 
 /** Поля аудитории — общие у публикации и у смены аудитории опубликованной сторис. */
 const storyAudienceFields = {
@@ -40,7 +43,7 @@ function audienceUsersMatch(data: { audience: StoryAudienceValue; userIds?: stri
   return data.audience === 'SELECTED' ? Boolean(data.userIds?.length) : !data.userIds
 }
 const AUDIENCE_USERS_MESSAGE = {
-  message: 'Получатели указываются только для аудитории «выбранные»',
+  message: vm('validation.stories.recipientsOnlyForSelected'),
   path: ['userIds'],
 }
 
@@ -72,7 +75,7 @@ export const StoryPollSchema = z
       .max(4)
       // Одинаковые варианты делают результат бессмысленным, а голос — неоднозначным.
       .refine((options) => new Set(options).size === options.length, {
-        message: 'Варианты ответа не должны повторяться',
+        message: vm('validation.stories.duplicatePollOptions'),
       }),
   })
   .strict()
@@ -181,7 +184,7 @@ export const CreateStorySchema = z
       .string()
       .url()
       .max(500)
-      .refine((url) => /^https?:\/\//i.test(url), { message: 'Ссылка должна быть http или https' })
+      .refine((url) => /^https?:\/\//i.test(url), { message: vm('validation.url.httpOnly') })
       .optional(),
     linkLabel: z.string().trim().min(1).max(60).optional(),
     poll: StoryPollSchema.optional(),
@@ -192,25 +195,25 @@ export const CreateStorySchema = z
     (data) =>
       new Set(data.elements?.filter((e) => e.type === 'mention').map((e) => e.userId)).size <=
       STORY_MENTIONS_MAX,
-    { message: 'Слишком много упоминаний', path: ['elements'] },
+    { message: vm('validation.stories.tooManyMentions'), path: ['elements'] },
   )
   .refine(
     (data) =>
       (data.elements ?? []).filter((e) => (STORY_CARD_TYPES as readonly string[]).includes(e.type))
         .length <= STORY_CARDS_MAX,
-    { message: 'Слишком много карточек', path: ['elements'] },
+    { message: vm('validation.stories.tooManyCards'), path: ['elements'] },
   )
   // Содержимое — медиа, подпись или хотя бы один элемент редактора (текст на фоне).
   .refine((data) => Boolean(data.fileId) || Boolean(data.text) || Boolean(data.elements?.length), {
-    message: 'Сторис должна содержать медиа или текст',
+    message: vm('validation.stories.empty'),
     path: ['text'],
   })
   .refine((data) => !(data.background && data.fileId), {
-    message: 'Фон выбирается только для текстовой сторис',
+    message: vm('validation.stories.backgroundTextOnly'),
     path: ['background'],
   })
   .refine((data) => !(data.linkLabel && !data.linkUrl), {
-    message: 'Подпись без ссылки',
+    message: vm('validation.stories.linkLabelWithoutUrl'),
     path: ['linkLabel'],
   })
   .refine(audienceUsersMatch, AUDIENCE_USERS_MESSAGE)
@@ -277,7 +280,7 @@ export const UpdateStoryHighlightSchema = z
   })
   .strict()
   .refine((data) => data.title !== undefined || data.coverItemId !== undefined, {
-    message: 'Нечего менять',
+    message: vm('validation.common.nothingToChange'),
     path: ['title'],
   })
 export type UpdateStoryHighlightInput = z.infer<typeof UpdateStoryHighlightSchema>
@@ -292,7 +295,9 @@ export const ReorderStoryHighlightsSchema = z
       .array(z.string().min(1))
       .min(1)
       .max(Math.max(STORY_HIGHLIGHTS_MAX, STORY_HIGHLIGHT_ITEMS_MAX))
-      .refine((ids) => new Set(ids).size === ids.length, { message: 'Id повторяются' }),
+      .refine((ids) => new Set(ids).size === ids.length, {
+        message: vm('validation.common.duplicateIds'),
+      }),
   })
   .strict()
 export type ReorderStoryHighlightsInput = z.infer<typeof ReorderStoryHighlightsSchema>

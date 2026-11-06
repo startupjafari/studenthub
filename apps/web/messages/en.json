@@ -6597,5 +6597,143 @@
     "var_issuer_fullName_desc": "The staff member who generates the document.",
     "var_issuer_position_label": "Staff member's position",
     "var_issuer_position_desc": "Position from the generating staff member's profile."
+  },
+  "Validation": {
+    "auth": {
+      "identifierRequired": "Enter your email or username",
+      "passwordRequired": "Enter your password"
+    },
+    "username": {
+      "invalid": "Latin letters, digits and _ only, 3–32 characters"
+    },
+    "password": {
+      "tooShort": "At least 8 characters",
+      "letterRequired": "Add at least one letter",
+      "digitRequired": "Add at least one digit",
+      "specialRequired": "Add at least one special character",
+      "tooLong": "Password is too long: at most 72 bytes (about 36 Cyrillic letters)"
+    },
+    "twoFactor": {
+      "codeFormat": "A 6-digit code"
+    },
+    "birthDate": {
+      "implausible": "Check the date of birth"
+    },
+    "consent": {
+      "guardianRequired": "Consent of a legal representative is required",
+      "required": "Consent is required"
+    },
+    "onboarding": {
+      "stepNotSkippable": "This step cannot be skipped"
+    },
+    "date": {
+      "format": "Date in the YYYY-MM-DD format",
+      "invalid": "There is no such date"
+    },
+    "time": {
+      "format": "Time in the HH:mm format (00:00–23:59)"
+    },
+    "range": {
+      "endAfterStart": "The end must be after the start",
+      "endNotBeforeStart": "The end cannot be earlier than the start",
+      "startBeforeEnd": "The start time must be before the end time",
+      "bothBounds": "A period needs both a start and an end",
+      "tooLong": "The period is too long for this interval"
+    },
+    "timeZone": {
+      "unknown": "Unknown time zone"
+    },
+    "common": {
+      "nothingToChange": "Nothing to change",
+      "duplicateIds": "IDs must not repeat",
+      "reasonRequired": "Enter a reason",
+      "rejectionReasonRequired": "Enter the reason for rejection",
+      "textOrAttachment": "Add text or an attachment",
+      "pageLimit": "At most 100 records per page"
+    },
+    "url": {
+      "httpOnly": "The link must be http or https",
+      "website": "Enter a website address, e.g. example.kz"
+    },
+    "phone": {
+      "format": "Number in the format +7 (777) 777-77-77"
+    },
+    "version": {
+      "format": "Version in the 1.2.3 format"
+    },
+    "upload": {
+      "partRangeReversed": "The end of the part range cannot be less than its start"
+    },
+    "security": {
+      "documentLast4": "The last four digits of the document",
+      "documentTypeRequired": "Select the document type"
+    },
+    "kato": {
+      "code": "A KATO code is 9 digits"
+    },
+    "mini": {
+      "linkCodeLength": "The link code is {length} characters"
+    },
+    "support": {
+      "textTooShort": "Describe your question in more detail"
+    },
+    "stories": {
+      "duplicateRecipients": "Recipients must not repeat",
+      "recipientsOnlyForSelected": "Recipients can be set only for the “selected” audience",
+      "duplicatePollOptions": "Answer options must not repeat",
+      "tooManyMentions": "Too many mentions",
+      "tooManyCards": "Too many cards",
+      "empty": "A story needs media or text",
+      "backgroundTextOnly": "A background can be chosen only for a text story",
+      "linkLabelWithoutUrl": "A link label needs a link"
+    },
+    "chats": {
+      "nothingToChange": "Nothing to change: enter a title or a description",
+      "emptyMessage": "The message cannot be empty",
+      "privateOneMember": "A private chat is created with exactly one person",
+      "spoilerIndexes": "Expected attachment numbers separated by commas",
+      "quoteWithoutReply": "A quote is only possible together with a reply",
+      "scheduleInPast": "The send time must be in the future",
+      "scheduleTooFar": "You can schedule at most a year ahead"
+    },
+    "documents": {
+      "typeCode": "Code: uppercase Latin letters, digits, underscore"
+    },
+    "library": {
+      "isbn": "An ISBN is 10 or 13 digits",
+      "copiesOrCount": "Enter inventory numbers or a count",
+      "copyRefRequired": "Enter the sticker code or the inventory number",
+      "popularPeriod": "Period: 30, 90 or 365 days"
+    },
+    "applications": {
+      "tooManyFields": "At most {max} fields",
+      "fileOrDocument": "Provide either a file or an existing document",
+      "documentTypeRequired": "Select the document type",
+      "catalogCode": "Latin letters, digits and hyphens, 2–60 characters",
+      "choiceOptionsRequired": "A choice field needs at least one option",
+      "duplicateDeliveryMode": "A delivery method is listed twice",
+      "duplicateRequirementCodes": "Document codes must be different",
+      "duplicateFieldCodes": "Field codes must be different"
+    },
+    "org": {
+      "foundedYearFuture": "The year is in the future",
+      "telegram": "@name or https://t.me/name",
+      "instagram": "A link like https://instagram.com/name",
+      "linkedin": "A link like https://linkedin.com/company/name"
+    },
+    "cameras": {
+      "rtspScheme": "The address must start with rtsp://",
+      "credentialsInUrl": "Enter the login and password in separate fields, not in the address",
+      "hostMissing": "The address has no camera host"
+    },
+    "career": {
+      "slug": "Lowercase Latin letters, digits and hyphens only"
+    },
+    "schedule": {
+      "newRoomRequired": "Select the new room",
+      "substituteRequired": "Select the substitute teacher",
+      "newStartRequired": "Enter the new start time",
+      "newEndRequired": "Enter the new end time"
+    }
   }
 }

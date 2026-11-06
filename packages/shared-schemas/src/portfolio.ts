@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { httpUrl } from './url.js'
+import { vm } from './validation-messages.js'
 
 // Портфолио (docs/ACADEMIC_CORE.md, задача 21). Вид записи и видимость — строки (SSOT здесь).
 export const PORTFOLIO_KINDS = [
@@ -36,7 +37,7 @@ export const CreatePortfolioItemSchema = z
   })
   .strict()
   .refine((v) => !v.startDate || !v.endDate || v.endDate >= v.startDate, {
-    message: 'endDate must be after startDate',
+    message: vm('validation.range.endNotBeforeStart'),
     path: ['endDate'],
   })
 export type CreatePortfolioItemInput = z.infer<typeof CreatePortfolioItemSchema>
@@ -55,7 +56,7 @@ export const UpdatePortfolioItemSchema = z
   .strict()
   // Проверяем порядок дат только когда обе присланы непустыми.
   .refine((v) => !v.startDate || !v.endDate || v.endDate >= v.startDate, {
-    message: 'endDate must be after startDate',
+    message: vm('validation.range.endNotBeforeStart'),
     path: ['endDate'],
   })
 export type UpdatePortfolioItemInput = z.infer<typeof UpdatePortfolioItemSchema>
@@ -69,7 +70,9 @@ export const ReorderPortfolioSchema = z
       .array(z.string().min(1))
       .min(1)
       .max(PORTFOLIO_MAX_ITEMS)
-      .refine((ids) => new Set(ids).size === ids.length, { message: 'ids must be unique' }),
+      .refine((ids) => new Set(ids).size === ids.length, {
+        message: vm('validation.common.duplicateIds'),
+      }),
   })
   .strict()
 export type ReorderPortfolioInput = z.infer<typeof ReorderPortfolioSchema>

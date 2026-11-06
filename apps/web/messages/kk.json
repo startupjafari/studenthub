@@ -6597,5 +6597,143 @@
     "var_issuer_fullName_desc": "Құжатты жасайтын қызметкер.",
     "var_issuer_position_label": "Қызметкердің лауазымы",
     "var_issuer_position_desc": "Құжатты жасайтын қызметкердің профиліндегі лауазымы."
+  },
+  "Validation": {
+    "auth": {
+      "identifierRequired": "Email немесе пайдаланушы атын енгізіңіз",
+      "passwordRequired": "Құпиясөзді енгізіңіз"
+    },
+    "username": {
+      "invalid": "Тек латын әріптері, сандар және _, 3–32 таңба"
+    },
+    "password": {
+      "tooShort": "Кемінде 8 таңба",
+      "letterRequired": "Кемінде бір әріп керек",
+      "digitRequired": "Кемінде бір сан керек",
+      "specialRequired": "Кемінде бір арнайы таңба керек",
+      "tooLong": "Құпиясөз тым ұзын: 72 байттан аспауы керек (кириллицамен шамамен 36 әріп)"
+    },
+    "twoFactor": {
+      "codeFormat": "6 саннан тұратын код"
+    },
+    "birthDate": {
+      "implausible": "Туған күнді тексеріңіз"
+    },
+    "consent": {
+      "guardianRequired": "Заңды өкілдің келісімі қажет",
+      "required": "Келісім қажет"
+    },
+    "onboarding": {
+      "stepNotSkippable": "Бұл қадамды өткізіп жіберуге болмайды"
+    },
+    "date": {
+      "format": "Күн ЖЖЖЖ-АА-КК пішімінде",
+      "invalid": "Мұндай күн жоқ"
+    },
+    "time": {
+      "format": "Уақыт СС:ММ пішімінде (00:00–23:59)"
+    },
+    "range": {
+      "endAfterStart": "Аяқталуы басталуынан кейін болуы керек",
+      "endNotBeforeStart": "Аяқталуы басталуынан ерте болмауы керек",
+      "startBeforeEnd": "Басталу уақыты аяқталу уақытынан ерте болуы керек",
+      "bothBounds": "Кезең екі шекарамен де беріледі",
+      "tooLong": "Кезең осы қадам үшін рұқсат етілгеннен ұзақ"
+    },
+    "timeZone": {
+      "unknown": "Белгісіз уақыт белдеуі"
+    },
+    "common": {
+      "nothingToChange": "Өзгертетін ештеңе жоқ",
+      "duplicateIds": "Идентификаторлар қайталанады",
+      "reasonRequired": "Себебін көрсетіңіз",
+      "rejectionReasonRequired": "Бас тарту себебін көрсетіңіз",
+      "textOrAttachment": "Мәтін немесе тіркеме керек",
+      "pageLimit": "Беттеп шығарғанда — 100 жазбадан аспайды"
+    },
+    "url": {
+      "httpOnly": "Сілтеме http немесе https болуы керек",
+      "website": "Сайт мекенжайын көрсетіңіз, мысалы example.kz"
+    },
+    "phone": {
+      "format": "Нөмір +7 (777) 777-77-77 пішімінде"
+    },
+    "version": {
+      "format": "Нұсқа 1.2.3 пішімінде"
+    },
+    "upload": {
+      "partRangeReversed": "Бөліктер ауқымының соңы басынан кіші болмауы керек"
+    },
+    "security": {
+      "documentLast4": "Құжаттың соңғы төрт саны",
+      "documentTypeRequired": "Құжат түрін көрсетіңіз"
+    },
+    "kato": {
+      "code": "ӘАОЖ коды — 9 сан"
+    },
+    "mini": {
+      "linkCodeLength": "Байланыстыру коды — {length} таңба"
+    },
+    "support": {
+      "textTooShort": "Сұрағыңызды толығырақ сипаттаңыз"
+    },
+    "stories": {
+      "duplicateRecipients": "Алушылар қайталанады",
+      "recipientsOnlyForSelected": "Алушылар тек «таңдалғандар» аудиториясы үшін көрсетіледі",
+      "duplicatePollOptions": "Жауап нұсқалары қайталанбауы керек",
+      "tooManyMentions": "Белгілеулер тым көп",
+      "tooManyCards": "Карточкалар тым көп",
+      "empty": "Стористе медиа немесе мәтін болуы керек",
+      "backgroundTextOnly": "Фон тек мәтіндік сторис үшін таңдалады",
+      "linkLabelWithoutUrl": "Сілтемесіз жазу"
+    },
+    "chats": {
+      "nothingToChange": "Өзгертетін ештеңе жоқ: атауын немесе сипаттамасын көрсетіңіз",
+      "emptyMessage": "Хабарлама бос болмауы керек",
+      "privateOneMember": "Жеке чат дәл бір әңгімелесушімен құрылады",
+      "spoilerIndexes": "Тіркеме нөмірлері үтір арқылы күтілді",
+      "quoteWithoutReply": "Дәйексөз тек хабарламаға жауаппен бірге болады",
+      "scheduleInPast": "Жіберу уақыты болашақта болуы керек",
+      "scheduleTooFar": "Бір жылдан артық кейінге қалдыруға болмайды"
+    },
+    "documents": {
+      "typeCode": "Код: бас латын әріптері, сандар, астын сызу"
+    },
+    "library": {
+      "isbn": "ISBN — 10 немесе 13 сан",
+      "copiesOrCount": "Инвентарлық нөмірлерді немесе санын көрсетіңіз",
+      "copyRefRequired": "Жапсырма кодын немесе инвентарлық нөмірді көрсетіңіз",
+      "popularPeriod": "Кезең: 30, 90 немесе 365 күн"
+    },
+    "applications": {
+      "tooManyFields": "{max} өрістен аспауы керек",
+      "fileOrDocument": "Не файлды, не бар құжатты көрсетіңіз",
+      "documentTypeRequired": "Құжат түрін көрсетіңіз",
+      "catalogCode": "Латын әріптері, сандар және сызықша, 2–60 таңба",
+      "choiceOptionsRequired": "Таңдау өрісінде кемінде бір нұсқа керек",
+      "duplicateDeliveryMode": "Беру тәсілі екі рет көрсетілген",
+      "duplicateRequirementCodes": "Құжат кодтары әртүрлі болуы керек",
+      "duplicateFieldCodes": "Өріс кодтары әртүрлі болуы керек"
+    },
+    "org": {
+      "foundedYearFuture": "Болашақтағы жыл",
+      "telegram": "@атау немесе https://t.me/атау",
+      "instagram": "https://instagram.com/атау түріндегі сілтеме",
+      "linkedin": "https://linkedin.com/company/атау түріндегі сілтеме"
+    },
+    "cameras": {
+      "rtspScheme": "Мекенжай rtsp:// деп басталуы керек",
+      "credentialsInUrl": "Логин мен құпиясөзді мекенжайда емес, бөлек өрістерде көрсетіңіз",
+      "hostMissing": "Мекенжайда камера хосты жоқ"
+    },
+    "career": {
+      "slug": "Тек кіші латын әріптері, сандар және сызықша"
+    },
+    "schedule": {
+      "newRoomRequired": "Жаңа аудитория керек",
+      "substituteRequired": "Алмастыратын оқытушы керек",
+      "newStartRequired": "Жаңа басталу уақыты керек",
+      "newEndRequired": "Жаңа аяқталу уақыты керек"
+    }
   }
 }

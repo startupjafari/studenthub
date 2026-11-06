@@ -3,6 +3,7 @@ import { OffsetPaginationSchema, SortOrderSchema, queryBoolean } from './paginat
 import { PasswordSchema } from './auth.js'
 import { OrgPageFieldsShape } from './org-page.js'
 import { KatoCodeSchema } from './kato.js'
+import { vm } from './validation-messages.js'
 
 // Карьера (Фаза 18): компании-работодатели и их допуск к студентам вузов.
 // Единый источник истины для валидации на бэке и типов на фронте — дублировать
@@ -98,7 +99,7 @@ export const CompanySlugSchema = z
   .trim()
   .min(3)
   .max(48)
-  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Только строчная латиница, цифры и дефис')
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, vm('validation.career.slug'))
 
 export const CompanyNameSchema = z.string().trim().min(2).max(120)
 
@@ -108,7 +109,7 @@ const companyWebsiteUrl = z
   .trim()
   .max(200)
   .url()
-  .refine((v) => v.startsWith('http://') || v.startsWith('https://'), 'Ссылка должна быть http(s)')
+  .refine((v) => v.startsWith('http://') || v.startsWith('https://'), vm('validation.url.httpOnly'))
 
 export const CompanyWebsiteSchema = companyWebsiteUrl
   .optional()
@@ -240,7 +241,7 @@ export const DecideCompanyAccessSchema = z
   })
   .strict()
   .refine((v) => v.status === 'APPROVED' || !!v.reason, {
-    message: 'Укажите причину',
+    message: vm('validation.common.reasonRequired'),
     path: ['reason'],
   })
 export type DecideCompanyAccessInput = z.infer<typeof DecideCompanyAccessSchema>
@@ -529,7 +530,7 @@ export const DecideVacancySchema = z
   })
   .strict()
   .refine((v) => v.status === 'APPROVED' || !!v.reason, {
-    message: 'Укажите причину',
+    message: vm('validation.common.reasonRequired'),
     path: ['reason'],
   })
 export type DecideVacancyInput = z.infer<typeof DecideVacancySchema>
@@ -707,7 +708,7 @@ export const ChangeApplicationStatusSchema = z
   })
   .strict()
   .refine((v) => v.status !== 'REJECTED' || !!v.comment, {
-    message: 'Укажите причину отказа',
+    message: vm('validation.common.rejectionReasonRequired'),
     path: ['comment'],
   })
 export type ChangeApplicationStatusInput = z.infer<typeof ChangeApplicationStatusSchema>
