@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { useTranslations } from 'next-intl'
 import type { VideoTrimInput } from '@studenthub/shared-schemas'
+import { localMediaSrc } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 
 /** Сколько кадров в раскадровке: хватает, чтобы узнать сцену, и быстро готовится. */
@@ -30,13 +31,14 @@ function useVideoFrames(url: string, durationMs: number): string[] {
   const [frames, setFrames] = useState<string[]>([])
   useEffect(() => {
     setFrames([])
-    if (durationMs <= 0) return
+    const src = localMediaSrc(url)
+    if (durationMs <= 0 || !src) return
     let cancelled = false
     const video = document.createElement('video')
     video.muted = true
     video.playsInline = true
     video.preload = 'auto'
-    video.src = url
+    video.src = src
     const once = (event: 'loadeddata' | 'seeked'): Promise<void> =>
       new Promise((resolve, reject) => {
         video.addEventListener(event, () => resolve(), { once: true })

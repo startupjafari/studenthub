@@ -18,7 +18,7 @@ import {
   type StoryBackgroundValue,
   type VideoTrimInput,
 } from '@studenthub/shared-schemas'
-import { localId, useFormAlert, useMediaQuery } from '../../../shared/lib'
+import { localId, localMediaSrc, useFormAlert, useMediaQuery } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { createStoryRequest, storyKeys, uploadStoryMedia } from '../../../entities/story'
 import {
@@ -104,7 +104,9 @@ function videoDuration(file: File): Promise<number> {
     video.preload = 'metadata'
     video.onloadedmetadata = () => done(Number.isFinite(video.duration) ? video.duration : 0)
     video.onerror = () => done(0)
-    video.src = url
+    const src = localMediaSrc(url)
+    if (src) video.src = src
+    else done(0)
   })
 }
 
