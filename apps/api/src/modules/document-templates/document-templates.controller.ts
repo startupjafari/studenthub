@@ -1,4 +1,17 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  Res,
+} from '@nestjs/common'
 import {
   ApiBearerAuth,
   ApiBody,
@@ -199,6 +212,8 @@ export class DocumentTemplatesController {
   }
 
   @Post(':id/test')
+  // Ответ — файл, а не созданный ресурс: 200, как у обычного скачивания.
+  @HttpCode(HttpStatus.OK)
   @Roles(Role.UNIVERSITY_ADMIN)
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @ApiProduces(DOCX_MIME)
@@ -216,6 +231,7 @@ export class DocumentTemplatesController {
   }
 
   @Post(':id/generate')
+  @HttpCode(HttpStatus.OK)
   @Roles(Role.UNIVERSITY_ADMIN, Role.UNIVERSITY_MODERATOR, Role.DEAN)
   // Документ несёт персональные данные: ручку нельзя превращать в выгрузку всего вуза.
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
