@@ -48,7 +48,11 @@ import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 // смена пароля/удаление/блокировка обязаны погасить сессии, которыми владеет AuthService.
 import { AuthService } from '../auth/auth.service'
 import { canonicalSpecialtyName } from '../specialties/specialty-name'
-import { canonicalAcademicStatus, nextLeftUniversityAt } from './academic-status'
+import {
+  canonicalAcademicStatus,
+  isTerminalAcademicStatus,
+  nextLeftUniversityAt,
+} from './academic-status'
 import { birthDateIso, CONSENT_SELECT, consentStateOf, type ConsentState } from './consent'
 
 type PrismaTx = Prisma.TransactionClient
@@ -2002,6 +2006,7 @@ export class UserService {
         universityId: true,
         facultyId: true,
         specialty: true,
+        academicStatus: true,
         leftUniversityAt: true,
       },
     })
@@ -2037,7 +2042,30 @@ export class UserService {
       metadata: { fields: Object.keys(data) },
       ...ctx,
     })
+    // Отчислен, выпущен или переведён — книгу он больше не возьмёт: брони снимаются, и
+    // отложенный под него экземпляр уходит следующему в очереди (Фаза 21.C2). Повторное
+    // сохранение того же статуса снимает брони, оставшиеся с записей до этой правки.
+    if (record.academicStatus !== undefined && isTerminalAcademicStatus(record.academicStatus)) {
+      await this.releaseLibraryHolds(userId, { notifyReader: true })
+    }
     return updated
+  }
+
+  /**
+   * Брони книг закрывает модуль библиотеки: готовая бронь держит экземпляр, и его надо
+   * отдать следующему в очереди. Best-effort: смена статуса, блокировка и удаление уже
+   * сохранены, и сбой здесь не должен их откатывать — читатель с такими бронями всё равно
+   * пропускается очередью (library-holds.ts), брони просто повисят до ручной отмены.
+   */
+  private async releaseLibraryHolds(
+    userId: string,
+    opts: { notifyReader: boolean },
+  ): Promise<void> {
+    try {
+      await this.libraryReservations.cancelAllOfReader(userId, opts)
+    } catch (err) {
+      this.logger.warn(`Не удалось закрыть брони книг пользователя ${userId}: ${String(err)}`)
+    }
   }
 
   /**
@@ -2290,14 +2318,9 @@ export class UserService {
         data: { status: 'OPEN', studentId: null, topic: null },
       })
     })
-    // Брони книг закрывает модуль библиотеки: готовая бронь держит экземпляр, и его надо
-    // отдать следующему в очереди. Best-effort, как медиа: ПДн уже затёрты, а сбой здесь
-    // не должен оставлять аккаунт полуудалённым.
-    try {
-      await this.libraryReservations.cancelAllOfReader(userId)
-    } catch (err) {
-      this.logger.warn(`Не удалось закрыть брони книг пользователя ${userId}: ${String(err)}`)
-    }
+    // Брони книг — best-effort, как медиа: ПДн уже затёрты, а сбой здесь не должен
+    // оставлять аккаунт полуудалённым. Удалённому уведомлений не шлём.
+    await this.releaseLibraryHolds(userId, { notifyReader: false })
     await this.authService.revokeAllUserSessions(userId)
     // Строка журнала переживает анонимизацию: в ней только id, без ПДн удалённого.
     await this.audit.record({
@@ -2458,6 +2481,10 @@ export class UserService {
     })
     if (blocked) {
       await this.authService.revokeAllUserSessions(userId)
+      // Заблокированному книги не выдают — его брони снимаются, а отложенный экземпляр
+      // уходит следующему (Фаза 21.C2). Разблокировка их не возвращает: встать в очередь
+      // заново он может сам.
+      await this.releaseLibraryHolds(userId, { notifyReader: true })
     }
     // BACKEND_RULES §13 требует аудита блокировки — записи не было, а это одно из немногих
     // действий, необратимо отключающих человека от платформы. Только id, без ФИО и email.
