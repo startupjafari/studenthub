@@ -16,7 +16,6 @@ import {
   Globe,
   GraduationCap,
   Heart,
-  Instagram,
   Languages,
   Mail,
   MapPin,
@@ -36,6 +35,7 @@ import {
   CardHeader,
   CardTitle,
   CountryFlag,
+  Instagram,
   LanguageFlag,
   MarkdownImage,
 } from '../../../shared/ui'
