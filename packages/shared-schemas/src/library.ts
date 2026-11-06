@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { LeftAcademicStatusCode } from '@studenthub/shared-types'
-import { PageSchema } from './pagination.js'
+import { PageSchema, queryBoolean } from './pagination.js'
 
 // Библиотека вуза (Фаза 20, docs/PROJECT.md §3.11): каталог, экземпляры, выдачи, брони.
 // Книги берут студенты и старосты своего вуза, выдаёт и принимает библиотекарь, модуль и
@@ -314,6 +314,19 @@ export const LibraryDateSchema = z
 export const ResolveReaderSchema = z.object({ token: z.string().min(1).max(2048) }).strict()
 export type ResolveReaderInput = z.infer<typeof ResolveReaderSchema>
 
+/**
+ * Читатель без телефона (Фаза 21.C5): библиотекарь находит его по номеру студенческого билета
+ * в своём вузе. Пропуск такой сессии выдаёт книгу только с отметкой «без телефона».
+ */
+export const LookupReaderSchema = z
+  .object({ studentCardNumber: z.string().trim().min(1).max(50) })
+  .strict()
+export type LookupReaderInput = z.infer<typeof LookupReaderSchema>
+
+/** Как опознан читатель сессии выдачи: сканом QR студенческого или по номеру билета. */
+export const READER_SESSION_VIA = ['qr', 'card'] as const
+export type ReaderSessionVia = (typeof READER_SESSION_VIA)[number]
+
 /** Экземпляр — по коду наклейки или по инвентарному номеру (наклейка стёрлась). */
 const copyRef = {
   copyCode: z.string().trim().min(1).max(20).optional(),
@@ -329,6 +342,11 @@ export const IssueLoanSchema = z
     ...copyRef,
     /** Не указан — срок по умолчанию из правил вуза. */
     dueDate: LibraryDateSchema.optional(),
+    /**
+     * Отметка «читатель без телефона» (Фаза 21.C5): обязательна, если пропуск получен по
+     * номеру билета, и запрещена при пропуске по скану QR — `409 noPhoneMark`.
+     */
+    withoutPhone: z.boolean().optional(),
   })
   .strict()
   .refine(oneCopyRef, { message: 'Укажите код наклейки или инвентарный номер', path: ['copyCode'] })
@@ -377,6 +395,8 @@ export const LoanListQuerySchema = z.object({
   q: z.string().trim().max(100).optional(),
   readerId: z.string().min(1).optional(),
   copyId: z.string().min(1).optional(),
+  /** Только выдачи без скана QR (`true`) или только по скану (`false`), Фаза 21.C5. */
+  withoutPhone: queryBoolean.optional(),
 })
 export type LoanListQueryInput = z.infer<typeof LoanListQuerySchema>
 
@@ -426,6 +446,8 @@ export interface LoanItem {
    * `null`: такая выдача — долг читателя, как просрочка.
    */
   lostSettledAt: string | null
+  /** Выдана без скана QR — по номеру билета с отметкой «читатель без телефона» (21.C5). */
+  withoutPhone: boolean
   book: { id: string; title: string; authors: string; coverUrl: string | null }
   copy: { id: string; inventoryNumber: string }
   reader: {
@@ -447,6 +469,11 @@ export interface LoanItem {
 export interface LibraryReaderSession {
   reader: LibraryReader
   eligibility: ReaderEligibility
+  /**
+   * Как опознан читатель: `qr` — скан студенческого, `card` — номер билета (читатель без
+   * телефона): выдача по такой сессии требует отметки `withoutPhone`.
+   */
+  via: ReaderSessionVia
   /** Пропуск на выдачу этому читателю — живёт дольше двухминутного QR студенческого. */
   ticket: string
   ticketExpiresAt: string
@@ -499,6 +526,8 @@ export interface IdAccessItem {
   loanId: string | null
   bookTitle: string | null
   ip: string | null
+  /** Без скана QR: поиск читателя по номеру билета или выдача по нему (21.C5). */
+  withoutPhone: boolean
 }
 
 // ── Брони (20.8) ───────────────────────────────────────────────────────────────────
@@ -632,7 +661,14 @@ export interface LibrarySummary {
     lost: number
     writtenOff: number
   }
-  loans: { open: number; overdue: number; issuedLast30: number; returnedLast30: number }
+  loans: {
+    open: number
+    overdue: number
+    issuedLast30: number
+    returnedLast30: number
+    /** Из выданных за 30 дней — без скана QR, по номеру билета (21.C5). */
+    withoutPhoneLast30: number
+  }
   readers: { withLoans: number; debtors: number }
   reservations: { queued: number; ready: number }
 }
