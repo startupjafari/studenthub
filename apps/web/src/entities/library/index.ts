@@ -16,6 +16,7 @@ export {
   libraryImportPreviewRequest,
   libraryImportCommitRequest,
   resolveReaderRequest,
+  lookupReaderRequest,
   issueLoanRequest,
   fetchLoans,
   fetchMyLoans,

@@ -4694,6 +4694,7 @@
     "noHolds": "The holds shelf is empty"
   },
   "LibraryAdmin": {
+    "withoutPhoneBadge": "No scan",
     "title": "Library",
     "subtitle": "Module switch and lending rules. The librarian manages the collection and loans.",
     "enable": "Turn on the library",
@@ -4875,6 +4876,15 @@
     "historyReturned": "returned {date}"
   },
   "LibraryDesk": {
+    "noPhoneTitle": "Reader without a phone",
+    "noPhoneHint": "No digital student ID at hand? Find the reader by student ID number and check the name and photo.",
+    "noPhonePlaceholder": "Student ID number",
+    "noPhoneSubmit": "Find",
+    "noPhoneNotFound": "No reader with this student ID number at the university",
+    "noPhoneBadge": "No phone",
+    "noPhoneWarning": "The reader was found by ID number, without a QR scan. Check the name and photo against the person at the desk — the loan will be marked \"no phone\" and logged in the ID access journal.",
+    "noPhoneMarkLabel": "Reader without a phone: name and photo checked",
+    "filterNoPhone": "Without scan only",
     "clearancesTitle": "Certificates",
     "clearancesSubtitle": "Library clearance certificates issued to students: verification code and revocation",
     "clearanceFilterActive": "Valid",
@@ -4975,7 +4985,9 @@
       "lost": "The reader still owes for a lost book",
       "notLost": "The book is not marked as lost",
       "settled": "The debt is already settled",
-      "alreadyRevoked": "The certificate is already revoked"
+      "alreadyRevoked": "The certificate is already revoked",
+      "noPhoneMark": "Without a QR scan a book can only be lent with the \"reader without a phone\" mark",
+      "cardAmbiguous": "Several readers share this student ID number — lend the book by QR scan"
     },
     "acceptReturn": "Check in",
     "byDefault": "Default",
@@ -5824,6 +5836,8 @@
     "lostLine": "“{title}”, inv. {number}, lost — not paid for"
   },
   "LibraryReports": {
+    "withoutPhone30": "Without scan in 30 days",
+    "withoutPhone30Hint": "by ID number, with the mark",
     "title": "Reports",
     "subtitle": "Collection, loans, debtors and popular books",
     "books": "Books in catalog",

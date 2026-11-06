@@ -30,6 +30,8 @@ type DeskField =
   | 'notLost'
   | 'settled'
   | 'alreadyRevoked'
+  | 'noPhoneMark'
+  | 'cardAmbiguous'
 
 export function useDeskErrors(): (error: unknown) => string {
   const t = useTranslations('LibraryDesk')
@@ -61,6 +63,8 @@ export function useDeskErrors(): (error: unknown) => string {
     notLost: t('error.notLost'),
     settled: t('error.settled'),
     alreadyRevoked: t('error.alreadyRevoked'),
+    noPhoneMark: t('error.noPhoneMark'),
+    cardAmbiguous: t('error.cardAmbiguous'),
   }
   return (error) => {
     const err = toApiError(error)

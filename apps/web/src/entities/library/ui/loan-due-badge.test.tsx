@@ -23,6 +23,7 @@ function loan(over: Partial<LoanItem> = {}): LoanItem {
     cancelReason: null,
     disputedAt: null,
     lostSettledAt: null,
+    withoutPhone: false,
     book: { id: 'book-1', title: 'Абай жолы', authors: '', coverUrl: null },
     copy: { id: 'copy-1', inventoryNumber: '101' },
     reader: { id: 'stu-1', name: 'Оспанов Нурлан', group: null, card: null, leftStatus: null },

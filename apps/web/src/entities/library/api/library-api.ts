@@ -192,6 +192,19 @@ export async function resolveReaderRequest(token: string): Promise<LibraryReader
   return data
 }
 
+/**
+ * Читатель без телефона (Фаза 21.C5): поиск по номеру студенческого в своём вузе. Сессия с
+ * `via: 'card'` выдаёт книгу только с отметкой `withoutPhone`.
+ */
+export async function lookupReaderRequest(
+  studentCardNumber: string,
+): Promise<LibraryReaderSession> {
+  const { data } = await api.post<LibraryReaderSession>('/library/readers/lookup', {
+    studentCardNumber,
+  })
+  return data
+}
+
 export async function issueLoanRequest(input: IssueLoanInput): Promise<LoanItem> {
   const { data } = await api.post<LoanItem>('/library/loans', input)
   return data

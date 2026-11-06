@@ -8,6 +8,7 @@ import type { LoanItem } from '@studenthub/shared-schemas'
 import type { LeftAcademicStatusCode } from '@studenthub/shared-types'
 import {
   Badge,
+  Checkbox,
   Button,
   Card,
   EmptyState,
@@ -71,6 +72,8 @@ export function LoansView({ title, subtitle, headerTabs, headerActions, actions 
   const [debounced, setDebounced] = useState('')
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState<number>(PAGE_SIZES[0])
+  // Выдачи без скана QR (по номеру билета, Фаза 21.C5) — отдельно.
+  const [noPhoneOnly, setNoPhoneOnly] = useState(false)
 
   useEffect(() => {
     const next = search.trim().slice(0, 100)
@@ -82,7 +85,13 @@ export function LoansView({ title, subtitle, headerTabs, headerActions, actions 
     return () => clearTimeout(timer)
   }, [search, debounced])
 
-  const params = { filter, page, limit, ...(debounced ? { q: debounced } : {}) }
+  const params = {
+    filter,
+    page,
+    limit,
+    ...(debounced ? { q: debounced } : {}),
+    ...(noPhoneOnly ? { withoutPhone: true } : {}),
+  }
   const loans = useQuery({
     queryKey: libraryKeys.loans(params),
     queryFn: () => fetchLoans(params),
@@ -133,6 +142,17 @@ export function LoansView({ title, subtitle, headerTabs, headerActions, actions 
                 className="pl-9"
               />
             </div>
+            <label className="flex shrink-0 items-center gap-2 text-sm">
+              <Checkbox
+                checked={noPhoneOnly}
+                onCheckedChange={(v) => {
+                  setNoPhoneOnly(v === true)
+                  setPage(1)
+                }}
+                aria-label={t('filterNoPhone')}
+              />
+              {t('filterNoPhone')}
+            </label>
             {headerActions}
           </>
         }
@@ -207,6 +227,7 @@ export function LoansView({ title, subtitle, headerTabs, headerActions, actions 
                       {loan.disputedAt && loan.status === 'OPEN' && (
                         <Badge variant="warning">{t('disputed')}</Badge>
                       )}
+                      {loan.withoutPhone && <Badge variant="outline">{t('noPhoneBadge')}</Badge>}
                       {loan.reader.leftStatus && (
                         <Badge variant="destructive">{t(LEFT_KEYS[loan.reader.leftStatus])}</Badge>
                       )}
