@@ -11,6 +11,7 @@ import type Redis from 'ioredis'
 import { Prisma } from '@prisma/client'
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino'
 import { ZodValidationException } from 'nestjs-zod'
+import { ZodError } from 'zod'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import {
   errorCodeFromStatus,
@@ -54,10 +55,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       status = HttpStatus.UNPROCESSABLE_ENTITY
       code = 'VALIDATION_ERROR'
       message = 'Ошибка валидации'
-      details = exception.getZodError().issues.map((issue) => ({
-        field: issue.path.join('.') || '(root)',
-        message: issue.message,
-      }))
+      details = zodErrorDetails(exception.getZodError())
     } else if (exception instanceof AppException) {
       status = exception.getStatus()
       code = exception.code
@@ -161,6 +159,17 @@ function mapPrismaError(
     default:
       return null
   }
+}
+
+// nestjs-zod 5 отдаёт исходную ошибку как unknown: пайп оборачивает всё, что бросил
+// schema.parse. Схемы проекта на zod 3, так что details берём только из ZodError;
+// любая другая ошибка разбора остаётся 422 без details.
+function zodErrorDetails(error: unknown): ErrorDetail[] | undefined {
+  if (!(error instanceof ZodError)) return undefined
+  return error.issues.map((issue) => ({
+    field: issue.path.join('.') || '(root)',
+    message: issue.message,
+  }))
 }
 
 /** Ошибка Fastify или его плагина со статусом 4xx (`FST_*`, @fastify/error). */
