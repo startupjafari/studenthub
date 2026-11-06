@@ -199,7 +199,7 @@ export function centerPath(pts: readonly Pt[], walls: readonly CenterWall[]): Pt
     const c = result[i + 1]!
     const area = Math.abs(cross(a, b, c))
     const len = Math.hypot(c.x - a.x, c.y - a.y)
-    if (len > 0 && area / len < 30) continue
+    if (len > 0 && area / len < 8) continue
     simple.push(b)
   }
   simple.push(result[result.length - 1]!)

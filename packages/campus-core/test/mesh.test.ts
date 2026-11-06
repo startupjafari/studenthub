@@ -222,7 +222,8 @@ describe('floorMesh — лестницы и лифты', () => {
     expect(facingOk(m.liftDoors)).toBe(true)
     const zs = [...m.liftDoors.positions].filter((_, i) => i % 3 === 2)
     expect(Math.min(...zs)).toBeGreaterThan(-2.51)
-    expect(Math.max(...zs)).toBeLessThan(-2.44)
+    // Рамка выступает из шахты на 8 см.
+    expect(Math.max(...zs)).toBeLessThan(-2.41)
     expect(m.liftLights.indices.length).toBeGreaterThan(0)
   })
 
@@ -333,7 +334,8 @@ describe('ceilingMesh', () => {
     const ny = [...m.normals].filter((_, i) => i % 3 === 1)
     expect(ny.every((v) => v === -1)).toBe(true)
     const ys = [...m.positions].filter((_, i) => i % 3 === 1)
-    expect(ys.every((v) => Math.abs(v - 3.15) < 1e-9)).toBe(true)
+    // Координаты — float32: сравнение с допуском.
+    expect(ys.every((v) => Math.abs(v - 3.15) < 1e-5)).toBe(true)
     expect(m.indices.length).toBeGreaterThan(plain.indices.length)
   })
 })
