@@ -6418,8 +6418,6 @@
     "exampleAfter": "After",
     "exampleBeforeText": "\"This is to certify that Ivanov Ivan Ivanovich is a third-year student.\"",
     "exampleAfterText": "\"This is to certify that {fullName} is a year {course} student.\"",
-    "openCatalog": "Open the variable catalogue",
-    "hideCatalog": "Hide catalogue",
     "uploadIntro": "Upload a Word document (.docx) with variables. .doc, .docm files and archives will not work.",
     "uploadFixed": "Upload the fixed file",
     "checkOk": "The template passed the check",
