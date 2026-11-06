@@ -1,80 +1,48 @@
-import { Test } from '@nestjs/testing'
-import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify'
-import { ThrottlerGuard, ThrottlerStorage } from '@nestjs/throttler'
-import cookie from '@fastify/cookie'
 import request from 'supertest'
-import { AppModule } from '../src/app.module'
-import { throttlerStorageStub } from './throttler-storage.stub'
-import { PrismaService } from '../src/common/prisma/prisma.service'
-import { PasswordService } from '../src/common/security/password.service'
+import { createE2eApp, type E2eApp } from './support/e2e-app'
+import { makeLibraryUniversity, resetLibrary } from './support/library'
 
 // Фаза 21.C4: справка «задолженностей нет» с кодом проверки на настоящей БД — выдача PDF,
 // публичная проверка по коду, журнал справок вуза (фильтр по JSON-реквизитам) и отзыв.
 
-const PASSWORD = 'Passw0rd!'
 const UNI = 'uni-lib-clr'
 
 describe('Справка библиотеки с кодом проверки (e2e)', () => {
-  let app: NestFastifyApplication
-  let prisma: PrismaService
-  let passwords: PasswordService
-  let server: ReturnType<NestFastifyApplication['getHttpServer']>
+  let e2e: E2eApp
+  let prisma: E2eApp['prisma']
+  let server: E2eApp['server']
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
-      .overrideGuard(ThrottlerGuard)
-      .useValue({ canActivate: () => true })
-      .overrideProvider(ThrottlerStorage)
-      .useValue(throttlerStorageStub)
-      .compile()
-    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
-    app.setGlobalPrefix('api/v1')
-    await app.register(cookie)
-    await app.init()
-    await app.getHttpAdapter().getInstance().ready()
-    prisma = app.get(PrismaService)
-    passwords = app.get(PasswordService)
-    server = app.getHttpServer()
+    e2e = await createE2eApp()
+    prisma = e2e.prisma
+    server = e2e.server
   })
 
   afterAll(async () => {
-    await app.close()
+    await e2e.close()
   })
 
   beforeEach(async () => {
-    await prisma.$executeRawUnsafe(
-      'TRUNCATE TABLE document_exports, loans, book_copies, books, library_settings, audit_logs, refresh_tokens, universities, users RESTART IDENTITY CASCADE',
-    )
-    await prisma.university.create({ data: { id: UNI, name: 'Библиотечный вуз' } })
+    await resetLibrary(prisma)
+    await makeLibraryUniversity(prisma, UNI)
     await prisma.university.create({ data: { id: 'uni-other', name: 'Чужой вуз' } })
-    await prisma.librarySettings.create({ data: { universityId: UNI, enabled: true } })
   })
 
-  async function makeUser(
+  function makeUser(
     email: string,
     role: 'STUDENT' | 'LIBRARIAN',
     universityId = UNI,
   ): Promise<string> {
-    const u = await prisma.user.create({
-      data: {
-        email,
-        passwordHash: await passwords.hash(PASSWORD),
-        firstName: 'Айгерим',
-        lastName: 'Сейтова',
-        role,
-        universityId,
-      },
+    return e2e.createUser({
+      email,
+      firstName: 'Айгерим',
+      lastName: 'Сейтова',
+      role,
+      universityId,
     })
-    return u.id
   }
 
-  async function login(email: string): Promise<string> {
-    const res = await request(server)
-      .post('/api/v1/auth/login')
-      .send({ identifier: email, password: PASSWORD })
-      .expect(201)
-    return res.body.data.accessToken as string
-  }
+  const login = (email: string) => e2e.login(email)
 
   it('без долгов: PDF с кодом, проверка по коду, журнал вуза и отзыв', async () => {
     const readerId = await makeUser('reader@e2e.io', 'STUDENT')
