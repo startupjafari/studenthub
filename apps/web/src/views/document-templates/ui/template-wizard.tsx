@@ -67,7 +67,7 @@ export function TemplateWizard({ onClose }: TemplateWizardProps) {
   )
 
   return (
-    <Modal onClose={() => onClose(detail?.id)} title={t('wizardTitle')} size="xl" height="tall">
+    <Modal onClose={() => onClose(detail?.id)} title={t('wizardTitle')} size="xl">
       <div className="flex flex-col gap-5">
         <div ref={stepsRef}>
           <Stepper
