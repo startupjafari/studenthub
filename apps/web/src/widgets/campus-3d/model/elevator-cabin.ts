@@ -92,7 +92,7 @@ export class ElevatorCabin {
     box(width - 0.16, 0.042, depth - 0.16, floorMat, 0, 0.022, 0)
     box(width, 0.04, depth, ceiling, 0, CABIN_H, 0)
     box(Math.min(0.9, width - 0.4), 0.01, Math.min(0.9, depth - 0.4), light, 0, CABIN_H - 0.025, 0)
-    const lamp = new THREE.PointLight('#fff7e6', 2.2, 4.5, 2)
+    const lamp = new THREE.PointLight('#fff7e6', 1.1, 4.5, 2)
     lamp.position.set(0, CABIN_H - 0.3, 0)
     g.add(lamp)
 
@@ -126,14 +126,26 @@ export class ElevatorCabin {
     box(sideW, CABIN_H, WALL, steel, -(dw / 2 + sideW / 2), CABIN_H / 2, hd)
     box(sideW, CABIN_H, WALL, steel, dw / 2 + sideW / 2, CABIN_H / 2, hd)
     box(dw, CABIN_H - DOOR_H, WALL, steel, 0, (CABIN_H + DOOR_H) / 2, hd)
+    // Рамка проёма — тёмная сталь: створки на её фоне читаются дверью, а не стеной.
+    const frameMat = this.mat(
+      new THREE.MeshPhongMaterial({ color: '#5b6573', specular: '#ffffff', shininess: 50 }),
+    )
     for (const sx of [-1, 1])
-      box(0.05, DOOR_H + 0.05, WALL + 0.03, brushed, sx * (dw / 2 + 0.025), (DOOR_H + 0.05) / 2, hd)
-    box(dw + 0.1, 0.05, WALL + 0.03, brushed, 0, DOOR_H + 0.025, hd)
+      box(0.06, DOOR_H + 0.06, WALL + 0.03, frameMat, sx * (dw / 2 + 0.03), (DOOR_H + 0.06) / 2, hd)
+    box(dw + 0.12, 0.06, WALL + 0.03, frameMat, 0, DOOR_H + 0.03, hd)
     box(dw, 0.012, 0.1, brushed, 0, 0.046, hd - 0.02)
-    // Створки — шлифованная сталь, уезжают в стороны за стенку.
+    // Створки — шлифованная сталь с вертикальной фактурой и тёмной резиновой кромкой там,
+    // где они смыкаются: закрытая дверь видна дверью. Уезжают в стороны за стенку.
     for (const sign of [-1, 1]) {
+      const leaf = this.mat(
+        new THREE.MeshPhongMaterial({
+          map: this.doorTexture(sign),
+          specular: '#ffffff',
+          shininess: 80,
+        }),
+      )
       this.doors.push(
-        box(dw / 2 - 0.005, DOOR_H, 0.03, brushed, (sign * dw) / 4, DOOR_H / 2, hd - 0.045),
+        box(dw / 2 - 0.004, DOOR_H, 0.03, leaf, (sign * dw) / 4, DOOR_H / 2, hd - 0.045),
       )
     }
 
@@ -328,6 +340,31 @@ export class ElevatorCabin {
     c.arc(bx[2]!, by + 9, 3, 0, Math.PI * 2)
     c.fill()
     this.panelTex.needsUpdate = true
+  }
+
+  /** Фактура створки: вертикальные штрихи стали, у кромки смыкания — тёмная резина. */
+  private doorTexture(sign: number): THREE.CanvasTexture {
+    const c = document.createElement('canvas')
+    c.width = 128
+    c.height = 256
+    const g = c.getContext('2d')!
+    const grad = g.createLinearGradient(0, 0, 128, 0)
+    grad.addColorStop(0, '#c9d0d9')
+    grad.addColorStop(0.5, '#dde3ea')
+    grad.addColorStop(1, '#c3cad4')
+    g.fillStyle = grad
+    g.fillRect(0, 0, 128, 256)
+    for (let x = 0; x < 128; x += 2) {
+      g.fillStyle = x % 4 ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.05)'
+      g.fillRect(x, 0, 1, 256)
+    }
+    // Кромка смыкания — со стороны середины проёма.
+    g.fillStyle = '#2b3139'
+    g.fillRect(sign < 0 ? 122 : 0, 0, 6, 256)
+    const t = new THREE.CanvasTexture(c)
+    t.colorSpace = THREE.SRGBColorSpace
+    this.disposables.push(t)
+    return t
   }
 
   private geo<T extends THREE.BufferGeometry>(g: T): T {
