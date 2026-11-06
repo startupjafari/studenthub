@@ -27,6 +27,7 @@ import {
   saveCampusPlan,
   saveCampusSite,
   updateCampusBuilding,
+  type AutoLayoutFloorsResult,
   type CampusBuildingRow,
   type CampusSite,
   type CampusTree,
@@ -40,6 +41,7 @@ import {
   SiteStore,
   SiteToolbar,
   useSite,
+  type ViewInsets,
 } from '../../../features/campus-site-editor'
 import { CampusScene3D, type SceneFloor } from '../../../widgets/campus-3d'
 import { Button, EmptyState, PageLoader, SegmentedTabs } from '../../../shared/ui'
@@ -99,6 +101,7 @@ function Editor({ tree, site }: { tree: CampusTree; site: CampusSite }) {
   const [underlay] = useState(() => new UnderlayStore(`site:${tree.id}`))
   const [drawn, setDrawn] = useState<Pt[] | null>(null)
   const canvasBox = useRef<HTMLDivElement>(null)
+  const toolbarBox = useRef<HTMLDivElement>(null)
   const [store] = useState(
     () =>
       new SiteStore(
@@ -184,6 +187,20 @@ function Editor({ tree, site }: { tree: CampusTree; site: CampusSite }) {
     return () => underlay.dispose()
   }, [underlay])
 
+  /**
+   * Что закрывает панель инструментов: с md она столбцом слева, на телефоне — строкой сверху.
+   * Объект из списка встаёт в оставшуюся часть холста.
+   */
+  const canvasInsets = useCallback((): ViewInsets => {
+    const box = canvasBox.current?.getBoundingClientRect()
+    const bar = toolbarBox.current?.getBoundingClientRect()
+    const none = { left: 0, top: 0, right: 0, bottom: 0 }
+    if (!box || !bar || bar.width === 0) return none
+    return bar.height > bar.width
+      ? { ...none, left: bar.right - box.left }
+      : { ...none, top: bar.bottom - box.top }
+  }, [])
+
   /** Видимая часть плана в мм — туда вписывается новая подложка. */
   const visibleRect = useCallback(() => {
     const w = canvasBox.current?.clientWidth ?? 800
@@ -204,7 +221,11 @@ function Editor({ tree, site }: { tree: CampusTree; site: CampusSite }) {
     [t],
   )
 
-  const onBuildingCreated = (b: CampusBuildingRow, floors: number): void => {
+  const onBuildingCreated = (
+    b: CampusBuildingRow,
+    floors: number,
+    layout: AutoLayoutFloorsResult | null,
+  ): void => {
     setDrawn(null)
     store.addBuilding({
       id: b.id,
@@ -217,6 +238,8 @@ function Editor({ tree, site }: { tree: CampusTree; site: CampusSite }) {
     setTab('props')
     void qc.invalidateQueries({ queryKey: campusKeys.tree(tree.id) })
     toast.success(t('buildingDrawn', { name: b.name, count: floors }))
+    // Не прямые углы — автопланировка не сработала: этажи остались с наружными стенами.
+    if (layout?.error) toast.info(t('autoLayoutSkipped'))
   }
 
   /**
@@ -406,8 +429,13 @@ function Editor({ tree, site }: { tree: CampusTree; site: CampusSite }) {
                 onBuildingMoved={moveBuilding}
                 onBuildingDrawn={onBuildingDrawn}
                 onBuildingOutline={onBuildingOutline}
+                insets={canvasInsets}
               />
-              <div className="absolute top-3 left-3">
+              {/* С md — по центру высоты холста; на телефоне — строкой сверху. */}
+              <div
+                ref={toolbarBox}
+                className="absolute top-3 left-3 md:top-1/2 md:flex md:max-h-[calc(100%-1.5rem)] md:-translate-y-1/2 md:flex-col"
+              >
                 <SiteToolbar store={store} />
               </div>
             </>

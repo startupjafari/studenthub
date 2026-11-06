@@ -268,10 +268,13 @@ export type RouteStep =
     }
   | { type: 'exit'; fromFloor: string | null }
   | { type: 'enter'; toFloor: string | null }
+  /** Переход в примыкающий корпус через дверь в общей стене — без выхода на улицу. */
+  | { type: 'passage'; toFloor: string | null }
   | { type: 'arrive'; spaceId: string | null; distanceMm: number }
 
 /**
- * Шаги маршрута для списка «Как пройти»: смена этажа, выход на улицу и вход в корпус.
+ * Шаги маршрута для списка «Как пройти»: смена этажа, выход на улицу, вход в корпус и
+ * переход в соседний корпус (ребро между этажами разных корпусов без лестницы и улицы).
  * Повороты не описываем: линия на плане понятнее «через 12 м налево».
  */
 export function routeSteps(index: NavIndex, route: RouteResult): RouteStep[] {
@@ -308,6 +311,8 @@ export function routeSteps(index: NavIndex, route: RouteResult): RouteStep[] {
     } else if (outside && kind !== 'outdoor') {
       outside = false
       steps.push({ type: 'enter', toFloor: pb.floor })
+    } else if (pa.floor && pb.floor && pa.floor !== pb.floor) {
+      steps.push({ type: 'passage', toFloor: pb.floor })
     }
   }
   steps.push({

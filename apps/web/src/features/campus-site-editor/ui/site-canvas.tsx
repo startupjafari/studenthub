@@ -12,7 +12,7 @@ import {
 import type { UnderlayStore } from '../../../entities/campus'
 import { drawSite, type SitePalette } from '../lib/draw-site'
 import { buildingOutline, hitSite, moveFeature } from '../lib/site-geometry'
-import type { SiteSelection, SiteStore, SiteTool } from '../model/site-store'
+import type { SiteSelection, SiteStore, SiteTool, ViewInsets } from '../model/site-store'
 
 const POLYGON_TOOLS = new Set<SiteTool>([
   'boundary',
@@ -88,9 +88,12 @@ export function SiteCanvas({
   onBuildingMoved,
   onBuildingDrawn,
   onBuildingOutline,
+  insets,
 }: {
   store: SiteStore
   underlay?: UnderlayStore
+  /** Часть холста под плавающими панелями — туда «показать объект» его не ставит. */
+  insets?: () => ViewInsets
   onBuildingMoved: (id: string, transform: BuildingTransform) => void
   /** Нарисован контур нового корпуса — точки в мм кампуса. */
   onBuildingDrawn: (outline: Pt[]) => void
@@ -100,8 +103,8 @@ export function SiteCanvas({
   const t = useTranslations('CampusSite')
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const callbacks = useRef({ onBuildingMoved, onBuildingDrawn, onBuildingOutline })
-  callbacks.current = { onBuildingMoved, onBuildingDrawn, onBuildingOutline }
+  const callbacks = useRef({ onBuildingMoved, onBuildingDrawn, onBuildingOutline, insets })
+  callbacks.current = { onBuildingMoved, onBuildingDrawn, onBuildingOutline, insets }
 
   useEffect(() => {
     const wrap = wrapRef.current
@@ -164,11 +167,17 @@ export function SiteCanvas({
     ro.observe(wrap)
     resize()
     let fitNonce = store.getState().fitNonce
+    let focusNonce = store.getState().focusReq?.nonce ?? 0
     const unsubscribe = store.subscribe(() => {
-      const n = store.getState().fitNonce
-      if (n !== fitNonce) {
-        fitNonce = n
+      const s = store.getState()
+      if (s.fitNonce !== fitNonce) {
+        fitNonce = s.fitNonce
         fitAll()
+      }
+      if (s.focusReq && s.focusReq.nonce !== focusNonce) {
+        focusNonce = s.focusReq.nonce
+        const pad = callbacks.current.insets?.() ?? { left: 0, top: 0, right: 0, bottom: 0 }
+        store.focus(width, height, s.focusReq.points, pad)
       }
       schedule()
     })

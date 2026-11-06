@@ -1,6 +1,7 @@
 import type { FloorPlanDoc, PlanSpace } from '../format/schema.js'
 import type { SitePlanDoc } from '../format/site.js'
 import type { Pt } from '../geom/int.js'
+import { pointInPolygon } from '../geom/polygon.js'
 import { buildFaces, faceContains, type Face } from '../topology/faces.js'
 import { matchSpaces } from '../topology/match-spaces.js'
 import { toCampus, type BuildingTransform } from '../topology/building.js'
@@ -62,6 +63,11 @@ const VIRTUAL_STEP_MM = 1500
 const NEAREST = 8
 /** Улица дороже коридора: перейти двор — не то же, что пройти по зданию. */
 const OUTDOOR_FACTOR = 1.2
+/**
+ * Дверь в стене, общей с соседним корпусом, ведёт не на улицу, а в него: её внешняя точка
+ * лежит у двери соседа. Ближе этого — одна и та же дверь в общей стене (переход).
+ */
+const PASSAGE_MM = 700
 /** Входы разных корпусов без дорожек соединяются напрямую, если ближе. */
 const OUTDOOR_MAX_MM = 2_000_000
 
@@ -206,14 +212,19 @@ function norm(v: Pt): Pt {
 
 /**
  * Граф всего кампуса. `site` — территория: её дорожки связывают входы корпусов; без дорожек
- * входы соединяются напрямую (с наценкой за улицу).
+ * входы соединяются напрямую (с наценкой за улицу). `obstacles` — контуры корпусов в мм
+ * кампуса: уличные связи (вход → дорожка, ворота → дорожка, вход ↔ вход) их не пересекают,
+ * иначе линия маршрута шла бы сквозь стены.
  */
 export function buildNavGraph(
   floors: readonly NavFloorInput[],
   site: SitePlanDoc | null = null,
+  obstacles: readonly (readonly Pt[])[] = [],
 ): NavGraph {
   const g = new GraphBuilder()
   const entrances: { id: number; buildingId: string; z: number }[] = []
+  // Все «наружные» точки дверей, на любом этаже: часть из них — переходы в соседний корпус.
+  const doorOuts: { id: number; buildingId: string; z: number }[] = []
   // Уровень земли корпуса — самый низкий этаж с отметкой ≥ 0: двери наружу выше — балконы и
   // террасы, а не входы, через них на улицу не выходят.
   const ground = new Map<string, number>()
@@ -269,6 +280,8 @@ export function buildNavGraph(
       if (!f1 && !f2) continue
       const n1 = add(p1, f1 ? 'portal' : 'entrance', f1)
       const n2 = add(p2, f2 ? 'portal' : 'entrance', f2)
+      if (!f1) doorOuts.push({ id: n1, buildingId: f.buildingId, z })
+      if (!f2) doorOuts.push({ id: n2, buildingId: f.buildingId, z })
       if (z === ground.get(f.buildingId)) {
         if (!f1) entrances.push({ id: n1, buildingId: f.buildingId, z })
         if (!f2) entrances.push({ id: n2, buildingId: f.buildingId, z })
@@ -330,8 +343,50 @@ export function buildNavGraph(
     }
   }
 
-  connectOutdoors(g, entrances, site)
+  const passages = connectPassages(g, doorOuts, floors)
+  // На улицу выходят только настоящие входы: не переход и не точка внутри другого корпуса
+  // (дверь в общей стене без двери у соседа — тупик, а не выход во двор).
+  const street = entrances.filter((e) => {
+    if (passages.has(e.id)) return false
+    const p = g.point(e.id)
+    return !obstacles.some((ring) => pointInPolygon(p, ring) === 'inside')
+  })
+  connectOutdoors(g, street, site, obstacles)
   return g.build()
+}
+
+/**
+ * Переходы между примыкающими корпусами: внешняя точка двери одного корпуса стоит у
+ * внутренней точки двери соседа на той же высоте — соединяем их проходом. Возвращает
+ * внешние точки, ставшие переходами: на улицу через них не выходят.
+ */
+function connectPassages(
+  g: GraphBuilder,
+  doorOuts: { id: number; buildingId: string; z: number }[],
+  floors: readonly NavFloorInput[],
+): Set<number> {
+  const buildingOfFloor = new Map(floors.map((f) => [f.floorId, f.buildingId]))
+  const portal = NAV_NODE_KINDS.indexOf('portal')
+  const entrance = NAV_NODE_KINDS.indexOf('entrance')
+  const linked = new Set<number>()
+  const count = g.nodes.length / 5
+  for (const e of doorOuts) {
+    const p = g.point(e.id)
+    let best: { j: number; d: number } | null = null
+    for (let j = 0; j < count; j++) {
+      const kind = g.nodes[j * 5 + 4]
+      const fi = g.nodes[j * 5 + 3]!
+      if ((kind !== portal && kind !== entrance) || fi < 0) continue
+      if (buildingOfFloor.get(g.floors[fi]!) === e.buildingId) continue
+      if (Math.abs(g.nodes[j * 5 + 2]! - p.z) > 1) continue
+      const d = Math.hypot(g.nodes[j * 5]! - p.x, g.nodes[j * 5 + 1]! - p.y)
+      if (d <= PASSAGE_MM && (!best || d < best.d)) best = { j, d }
+    }
+    if (!best) continue
+    g.edge(e.id, best.j, best.d, 'walk')
+    linked.add(e.id)
+  }
+  return linked
 }
 
 function connectVisible(g: GraphBuilder, fn: FaceNodes): void {
@@ -356,10 +411,74 @@ function connectVisible(g: GraphBuilder, fn: FaceNodes): void {
   }
 }
 
+/** Пересекает ли отрезок p–q контур какого-нибудь корпуса (кроме касаний в концах). */
+function crossesObstacle(obstacles: readonly (readonly Pt[])[], p: Pt, q: Pt): boolean {
+  for (const ring of obstacles) {
+    for (let i = 0; i < ring.length; i++) {
+      if (properIntersect(p, q, ring[i]!, ring[(i + 1) % ring.length]!)) return true
+    }
+  }
+  return false
+}
+
+/** Части отрезка a–b вне корпусов: режем по контурам, выбрасываем куски внутри. */
+function piecesOutside(a: Pt, b: Pt, obstacles: readonly (readonly Pt[])[]): [Pt, Pt][] {
+  const ts = [0, 1]
+  for (const ring of obstacles) {
+    for (let i = 0; i < ring.length; i++) {
+      const c = ring[i]!
+      const d = ring[(i + 1) % ring.length]!
+      const d1 = cross(c, d, a)
+      const d2 = cross(c, d, b)
+      const d3 = cross(a, b, c)
+      const d4 = cross(a, b, d)
+      if (d1 * d2 < 0 && d3 * d4 <= 0) ts.push(d1 / (d1 - d2))
+    }
+  }
+  ts.sort((x, y) => x - y)
+  const at = (t: number): Pt => ({
+    x: Math.round(a.x + (b.x - a.x) * t),
+    y: Math.round(a.y + (b.y - a.y) * t),
+  })
+  const out: [Pt, Pt][] = []
+  for (let i = 0; i + 1 < ts.length; i++) {
+    const t0 = ts[i]!
+    const t1 = ts[i + 1]!
+    if (t1 - t0 < 1e-9) continue
+    const mid = at((t0 + t1) / 2)
+    if (obstacles.some((ring) => pointInPolygon(mid, ring) === 'inside')) continue
+    const p = at(t0)
+    const q = at(t1)
+    const last = out.at(-1)
+    // Соседние куски снаружи — один отрезок: лишние узлы на контурах ни к чему.
+    if (last && last[1].x === p.x && last[1].y === p.y) last[1] = q
+    else out.push([p, q])
+  }
+  return out
+}
+
+/**
+ * Ближайшие `count` целей, до которых можно дойти по прямой, не пересекая корпусов. Таких
+ * нет — просто ближайшие: лучше путь сквозь угол, чем вход, отрезанный от улицы.
+ */
+function nearestReachable<T extends { p: Pt }>(
+  from: Pt,
+  targets: readonly T[],
+  count: number,
+  obstacles: readonly (readonly Pt[])[],
+): { o: T; d: number }[] {
+  const sorted = targets
+    .map((o) => ({ o, d: Math.hypot(o.p.x - from.x, o.p.y - from.y) }))
+    .sort((a, b) => a.d - b.d)
+  const clear = sorted.filter(({ o }) => !crossesObstacle(obstacles, from, o.p)).slice(0, count)
+  return clear.length > 0 ? clear : sorted.slice(0, count)
+}
+
 function connectOutdoors(
   g: GraphBuilder,
   entrances: { id: number; buildingId: string; z: number }[],
   site: SitePlanDoc | null,
+  obstacles: readonly (readonly Pt[])[],
 ): void {
   const paths = site
     ? Object.values(site.features).filter((f) => f.type === 'path' || f.type === 'road')
@@ -367,15 +486,22 @@ function connectOutdoors(
   const outdoorNodes: { id: number; p: Pt }[] = []
   for (const f of paths) {
     if (f.type !== 'path' && f.type !== 'road') continue
-    let prev: number | null = null
-    let prevP: Pt | null = null
-    for (const p of f.line) {
+    let prev: { id: number; p: Pt } | null = null
+    const node = (p: Pt): { id: number; p: Pt } => {
+      if (prev && prev.p.x === p.x && prev.p.y === p.y) return prev
       const id = g.node(p, 0, -1, 'outdoor')
       outdoorNodes.push({ id, p })
-      if (prev !== null && prevP)
-        g.edge(prev, id, Math.hypot(p.x - prevP.x, p.y - prevP.y), 'outdoor')
-      prev = id
-      prevP = p
+      return { id, p }
+    }
+    // Куски дорожки внутри корпуса выбрасываем: дорожку могли нарисовать заходящей на
+    // корпус, и путь по ней шёл бы сквозь его стены.
+    for (let i = 0; i + 1 < f.line.length; i++) {
+      for (const [p, q] of piecesOutside(f.line[i]!, f.line[i + 1]!, obstacles)) {
+        const a = node(p)
+        const b = node(q)
+        g.edge(a.id, b.id, Math.hypot(q.x - p.x, q.y - p.y), 'outdoor')
+        prev = b
+      }
     }
   }
   // Пересечения дорожек: вершины ближе 2 м считаются одним перекрёстком.
@@ -390,12 +516,9 @@ function connectOutdoors(
   for (const e of entrances) {
     const p = g.point(e.id)
     if (outdoorNodes.length > 0) {
-      // Вход — к двум ближайшим точкам дорожек.
-      const near = outdoorNodes
-        .map((o) => ({ o, d: Math.hypot(o.p.x - p.x, o.p.y - p.y) }))
-        .sort((a, b) => a.d - b.d)
-        .slice(0, 2)
-      for (const { o, d } of near) g.edge(e.id, o.id, d * OUTDOOR_FACTOR, 'outdoor')
+      // Вход — к двум ближайшим точкам дорожек, до которых не мешает корпус.
+      for (const { o, d } of nearestReachable(p, outdoorNodes, 2, obstacles))
+        g.edge(e.id, o.id, d * OUTDOOR_FACTOR, 'outdoor')
     }
   }
   // Ворота — адрес «откуда»: посетитель начинает путь у ворот. Ключ `gate:<id>` в `spaces`.
@@ -408,11 +531,8 @@ function connectOutdoors(
         outdoorNodes.length > 0
           ? outdoorNodes
           : entrances.map((e) => ({ id: e.id, p: g.point(e.id) }))
-      const near = targets
-        .map((o) => ({ o, d: Math.hypot(o.p.x - f.x, o.p.y - f.y) }))
-        .sort((a, b) => a.d - b.d)
-        .slice(0, 2)
-      for (const { o, d } of near) g.edge(gate, o.id, d * OUTDOOR_FACTOR, 'outdoor')
+      for (const { o, d } of nearestReachable({ x: f.x, y: f.y }, targets, 2, obstacles))
+        g.edge(gate, o.id, d * OUTDOOR_FACTOR, 'outdoor')
     }
   }
   // Входы одного корпуса — всегда в обход по улице; разных корпусов — напрямую, только если
@@ -424,7 +544,8 @@ function connectOutdoors(
       const a = g.point(entrances[i]!.id)
       const b = g.point(entrances[j]!.id)
       const d = Math.hypot(a.x - b.x, a.y - b.y)
-      if (d <= OUTDOOR_MAX_MM)
+      // Напрямую сквозь корпус не ходим: такие входы свяжет дорожка или сам корпус изнутри.
+      if (d <= OUTDOOR_MAX_MM && !crossesObstacle(obstacles, a, b))
         g.edge(entrances[i]!.id, entrances[j]!.id, d * OUTDOOR_FACTOR, 'outdoor')
     }
   }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
@@ -39,8 +39,13 @@ const PARITY_MODES: ParityMode[] = ['AUTO', 'ODD', 'EVEN']
 
 /** Минимальная высота часа в сетке: ниже пары схлопываются в нечитаемые полоски. */
 const HOUR_PX = 56
-const DEFAULT_START_MIN = 8 * 60 // 08:00
-const DEFAULT_END_MIN = 20 * 60 // 20:00
+// Все сутки: пара на любом часу видна в сетке, а не за её краем. Рамка прокручивается
+// сама и при открытии подводит к утру.
+const DEFAULT_START_MIN = 0
+const DEFAULT_END_MIN = 24 * 60
+/** Утро, к которому подводит прокрутка, если пар раньше нет: сверху видно 07:00. */
+const MORNING_MIN = 8 * 60
+const LABEL_HALF_PX = 12
 
 function pad(n: number): string {
   return String(n).padStart(2, '0')
@@ -179,6 +184,31 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
   // всегда занимает всю высоту, поэтому отступ снизу равен отступу сверху на любом окне.
   const gridSpan = gridEnd - gridStart
   const gridMinHeight = (gridSpan / 60) * HOUR_PX
+
+  // Рамка сетки: и горизонтальная прокрутка (хук), и вертикальная — на одном узле.
+  const [gridBox, setGridBox] = useState<HTMLDivElement | null>(null)
+  const attachGrid = useCallback(
+    (node: HTMLDivElement | null) => {
+      gridScroll.ref(node)
+      setGridBox(node)
+    },
+    [gridScroll.ref],
+  )
+  // При открытии — не полночь: сверху час до самой ранней пары недели (или 07:00).
+  // Один раз на появление пар, дальше прокрутку держит человек.
+  const firstStart = visiblePairs.length
+    ? Math.min(...visiblePairs.map((p) => toMin(p.startTime)))
+    : null
+  const scrolledFor = useRef<'empty' | 'data' | null>(null)
+  useEffect(() => {
+    const body = gridBox?.querySelector<HTMLElement>('[data-grid-body]')
+    const phase = firstStart === null ? 'empty' : 'data'
+    if (!gridBox || !body || scrolledFor.current === phase || scrolledFor.current === 'data') return
+    scrolledFor.current = phase
+    const target = Math.max(gridStart, Math.min(firstStart ?? MORNING_MIN, MORNING_MIN) - 60)
+    // Минус полподписи: метка часа центрирована на линии и иначе пряталась бы под шапкой.
+    gridBox.scrollTop = ((target - gridStart) / gridSpan) * body.offsetHeight - LABEL_HALF_PX
+  }, [gridBox, firstStart, gridStart, gridSpan])
   /** Доля от окна сетки в процентах — для `top` абсолютных слоёв. */
   const pct = (minute: number): string => `${((minute - gridStart) / gridSpan) * 100}%`
 
@@ -189,7 +219,7 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
   const weekLabel = `${weekDates[0]!.toLocaleDateString(locale, { day: 'numeric', month: 'short' })} – ${weekDates[6]!.toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' })}`
 
   return (
-    <div className="flex flex-1 flex-col gap-3">
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
       {/* Панель: навигация по неделям + чётность + таймзона */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-1">
@@ -266,16 +296,18 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
         />
       ) : (
         <div
-          ref={gridScroll.ref}
+          ref={attachGrid}
           className={cn(
-            'flex flex-1 flex-col overflow-x-auto rounded-2xl border border-border',
+            'flex min-h-0 flex-1 flex-col overflow-auto rounded-2xl border border-border',
             gridScroll.overflowing && 'cursor-grab',
             gridScroll.dragging && 'cursor-grabbing select-none',
           )}
         >
           <div className="flex min-w-[52rem] flex-1 flex-col">
             {/* Заголовки дней */}
-            <div className="grid shrink-0 grid-cols-[3.5rem_repeat(7,1fr)] border-b border-border bg-muted/30">
+            {/* Липкая: при прокрутке суток дни остаются на месте. Фон непрозрачный — пары
+                уезжают под шапку, а не просвечивают сквозь неё. */}
+            <div className="sticky top-0 z-20 grid shrink-0 grid-cols-[3.5rem_repeat(7,1fr)] border-b border-border bg-card">
               <div className="border-r border-border" />
               {weekDates.map((d, i) => {
                 const isToday = i === todayIdx
@@ -298,6 +330,7 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
 
             {/* Сетка часов + колонки дней */}
             <div
+              data-grid-body
               className="grid flex-1 grid-cols-[3.5rem_repeat(7,1fr)]"
               style={{ minHeight: gridMinHeight }}
             >

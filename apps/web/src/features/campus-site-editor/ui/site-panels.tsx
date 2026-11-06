@@ -22,7 +22,7 @@ import type { BuildingTransform, SiteFeature } from '@studenthub/campus-core'
 import { Button, Checkbox, Label } from '../../../shared/ui'
 import { cn } from '../../../shared/lib'
 import { ChoiceField, NumberField, TextField } from '../../../entities/campus'
-import { polygonArea } from '../lib/site-geometry'
+import { buildingOutline, polygonArea } from '../lib/site-geometry'
 import { useSite, type SiteStore, type SiteTool } from '../model/site-store'
 
 export const SITE_TOOLS: {
@@ -53,8 +53,9 @@ export function SiteToolbar({ store }: { store: SiteStore }) {
       role="toolbar"
       aria-label={t('tools')}
       // На телефоне — строкой с прокруткой (столбец из 10+ кнопок не влезает в холст), с md —
-      // столбцом слева, как в редакторах на десктопе. Поверхность — как у карточек системы.
-      className="flex max-w-[calc(100vw-1.5rem)] flex-row gap-1 overflow-x-auto rounded-xl bg-card p-1 shadow-sm ring-1 ring-foreground/10 md:max-w-none md:flex-col md:overflow-visible"
+      // столбцом слева с подписями под иконками, как в редакторах на десктопе; не влез по
+      // высоте — прокручивается. Поверхность — как у карточек системы.
+      className="flex max-w-[calc(100vw-1.5rem)] flex-row gap-1 overflow-x-auto rounded-xl bg-card p-1 shadow-sm ring-1 ring-foreground/10 md:min-h-0 md:max-w-none md:flex-col md:overflow-x-visible md:overflow-y-auto"
     >
       {SITE_TOOLS.map(({ id, icon: Icon, key }) => (
         <button
@@ -65,13 +66,17 @@ export function SiteToolbar({ store }: { store: SiteStore }) {
           title={`${t(`tool_${id}`)} (${key})`}
           onClick={() => store.set({ tool: id, draft: [], cursor: null })}
           className={cn(
-            'flex size-11 shrink-0 items-center justify-center rounded-xl text-muted-foreground hover:bg-muted hover:text-foreground md:size-9',
-            'focus-visible:ring-4 focus-visible:ring-ring/20 focus-visible:outline-none',
+            'flex size-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl text-muted-foreground hover:bg-muted hover:text-foreground md:w-16',
+            'focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none focus-visible:ring-inset',
             active === id &&
               'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
           )}
         >
           <Icon className="size-5 md:size-4" />
+          {/* Подпись — с md: в строке телефона места на неё нет, там есть title и aria-label. */}
+          <span className="hidden max-w-full truncate px-0.5 text-[0.625rem] leading-none font-medium md:block">
+            {t(`toolShort_${id}`)}
+          </span>
         </button>
       ))}
     </div>
@@ -285,6 +290,7 @@ function Section({
  * Объекты территории списком — пара к вкладке «Помещения» редактора этажа: найти и выделить
  * то, что на плане мелко или перекрыто. Корпуса сверху, затем объекты по типам.
  */
+/** Список объектов: выбор строки выделяет объект и подводит к нему холст целиком. */
 export function SiteObjectsList({ store }: { store: SiteStore }) {
   const t = useTranslations('CampusSite')
   const doc = useSite(store, (s) => s.doc)
@@ -310,7 +316,10 @@ export function SiteObjectsList({ store }: { store: SiteStore }) {
       meta: t('building'),
       Icon: Building2,
       active: sel.kind === 'building' && sel.id === b.id,
-      select: () => store.set({ selection: { kind: 'building', id: b.id }, tool: 'select' }),
+      select: () => {
+        store.set({ selection: { kind: 'building', id: b.id }, tool: 'select' })
+        store.requestFocus(buildingOutline(b))
+      },
     })),
     ...features.map(([id, f]) => ({
       key: id,
@@ -318,7 +327,10 @@ export function SiteObjectsList({ store }: { store: SiteStore }) {
       meta: t(`tool_${f.type}`),
       Icon: icon(f.type),
       active: sel.kind === 'feature' && sel.id === id,
-      select: () => store.set({ selection: { kind: 'feature', id }, tool: 'select' }),
+      select: () => {
+        store.set({ selection: { kind: 'feature', id }, tool: 'select' })
+        store.requestFocus('polygon' in f ? f.polygon : 'line' in f ? f.line : [{ x: f.x, y: f.y }])
+      },
     })),
   ]
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">{t('noObjects')}</p>

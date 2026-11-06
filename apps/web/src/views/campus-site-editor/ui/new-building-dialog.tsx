@@ -5,8 +5,14 @@ import { useMutation } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import type { Pt } from '@studenthub/campus-core'
-import { createCampusBuilding, type CampusBuildingRow } from '../../../entities/campus'
-import { Button, Input, Label, Modal } from '../../../shared/ui'
+import {
+  autoLayoutFloors,
+  createCampusBuilding,
+  fetchCampusTree,
+  type AutoLayoutFloorsResult,
+  type CampusBuildingRow,
+} from '../../../entities/campus'
+import { Button, Checkbox, Input, Label, Modal } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
 
 /** Буквы корпусов по порядку — как их обычно и называют: А, Б, В… */
@@ -34,7 +40,11 @@ export function NewBuildingDialog({
   /** Контур в мм кампуса — как нарисовали. */
   outline: Pt[]
   takenCodes: (string | null)[]
-  onCreated: (building: CampusBuildingRow, floors: number) => void
+  onCreated: (
+    building: CampusBuildingRow,
+    floors: number,
+    layout: AutoLayoutFloorsResult | null,
+  ) => void
   onClose: () => void
 }) {
   const t = useTranslations('Campus')
@@ -46,6 +56,7 @@ export function NewBuildingDialog({
   const [floors, setFloors] = useState('1')
   const [firstLevel, setFirstLevel] = useState('1')
   const [height, setHeight] = useState('3.3')
+  const [autoPlan, setAutoPlan] = useState(true)
 
   const count = Number(floors)
   const first = Number(firstLevel)
@@ -66,15 +77,21 @@ export function NewBuildingDialog({
   const minY = Math.min(...outline.map((p) => p.y))
 
   const mut = useMutation({
-    mutationFn: () =>
-      createCampusBuilding(campusId, {
+    mutationFn: async () => {
+      const building = await createCampusBuilding(campusId, {
         name: name.trim(),
         code: code.trim() || undefined,
         outline: outline.map((p) => ({ x: p.x - minX, y: p.y - minY })),
         transform: { x: minX, y: minY, rotationDeg: 0 },
         floors: { count, firstLevel: first, heightMm },
-      }),
-    onSuccess: (building) => onCreated(building, count),
+      })
+      if (!autoPlan) return { building, layout: null }
+      // Этажи нового корпуса — сразу с коридорами и кабинетами.
+      const tree = await fetchCampusTree(campusId)
+      const floors = tree.buildings.find((b) => b.id === building.id)?.floors ?? []
+      return { building, layout: await autoLayoutFloors(building.outline, floors) }
+    },
+    onSuccess: ({ building, layout }) => onCreated(building, count, layout),
     onError: (e) => toast.error(tErr(toApiError(e).code)),
   })
 
@@ -129,6 +146,18 @@ export function NewBuildingDialog({
           </div>
         </div>
         {field('nb-floors', t('floorsCount'), floors, setFloors)}
+        <div className="flex items-start gap-2">
+          <Checkbox
+            id="nb-auto"
+            checked={autoPlan}
+            onCheckedChange={(v) => setAutoPlan(v === true)}
+            className="mt-0.5"
+          />
+          <Label htmlFor="nb-auto" className="flex flex-col items-start gap-0.5 font-normal">
+            <span className="text-sm font-medium">{t('autoLayoutNew')}</span>
+            <span className="text-xs text-muted-foreground">{t('autoLayoutNewHint')}</span>
+          </Label>
+        </div>
         <details className="group flex flex-col gap-3">
           <summary className="cursor-pointer text-sm text-muted-foreground select-none hover:text-foreground">
             {t('moreOptions')}

@@ -10,7 +10,10 @@ import {
   type NavFloorInput,
 } from '../src/nav/index.js'
 import { generateCampus, generateFloor } from '../src/fixtures/generate.js'
+import { PlanBuilder } from '../src/fixtures/edge-cases.js'
+import { decodeFlags } from '../src/nav/graph.js'
 import type { FloorPlanDoc } from '../src/format/schema.js'
+import { emptySitePlan, type SitePlanDoc } from '../src/format/site.js'
 
 const T0 = { x: 0, y: 0, rotationDeg: 0 }
 
@@ -236,5 +239,109 @@ describe('навигация: этажи и корпуса', () => {
     )
     expect(performance.now() - t2).toBeLessThan(200)
     expect(route).not.toBeNull()
+  })
+})
+
+describe('навигация: примыкающие корпуса', () => {
+  // Два корпуса 6 × 4 м стена к стене (A: 0…6 м, B: 6,2…12,2 м по оси стен), в общей стене —
+  // встречные двери. Через них переходят из корпуса в корпус, а не выходят на улицу.
+  const DOOR = { type: 'door', heightMm: 2100, swing: 'left-in', access: 'public' } as const
+  const room = (doorOn: 'east' | 'west'): FloorPlanDoc => {
+    const b = new PlanBuilder().rect(0, 0, 6000, 4000)
+    const wall =
+      doorOn === 'east'
+        ? b.wallIdAt({ x: 6000, y: 0 }, { x: 6000, y: 4000 })
+        : b.wallIdAt({ x: 0, y: 0 }, { x: 0, y: 4000 })
+    // Дверь в 1,55…2,45 м от начала стены — у обоих корпусов на одной высоте плана.
+    const a = b.doc.nodes[b.doc.walls[wall]!.a]!
+    const offset = a.y === 0 ? 1550 : 4000 - 2450
+    return b.opening('d1', { ...DOOR, wallId: wall, offsetMm: offset, widthMm: 900 }).doc
+  }
+  const tA = { x: 0, y: 0, rotationDeg: 0 }
+  const tB = { x: 6200, y: 0, rotationDeg: 0 }
+  const inputs: NavFloorInput[] = [
+    { floorId: 'A-1', buildingId: 'A', elevationMm: 0, doc: room('east'), transform: tA },
+    { floorId: 'B-1', buildingId: 'B', elevationMm: 0, doc: room('west'), transform: tB },
+  ]
+  const outline = (x: number) => [
+    { x: x - 100, y: -100 },
+    { x: x + 6100, y: -100 },
+    { x: x + 6100, y: 4100 },
+    { x: x - 100, y: 4100 },
+  ]
+  const graph = buildNavGraph(inputs, null, [outline(0), outline(6200)])
+  const index = indexGraph(graph)
+  const nodes = Array.from({ length: graph.nodes.length / 5 }, (_, i) => ({
+    i,
+    p: nodePoint(graph, i),
+  }))
+
+  it('дверь в общей стене — переход в соседний корпус, а не выход на улицу', () => {
+    const outdoor = new Set<number>()
+    for (let e = 0; e < graph.edges.length; e += 4) {
+      if (decodeFlags(graph.edges[e + 3]!).kind !== 'outdoor') continue
+      outdoor.add(graph.edges[e]!)
+      outdoor.add(graph.edges[e + 1]!)
+    }
+    const doorOuts = nodes.filter(({ p }) => p.kind === 'entrance')
+    expect(doorOuts.length).toBe(2)
+    for (const { i } of doorOuts) expect(outdoor.has(i)).toBe(false)
+
+    const a = nodes.find(({ p }) => p.kind === 'portal' && p.floor === 'A-1')!
+    const b = nodes.find(({ p }) => p.kind === 'portal' && p.floor === 'B-1')!
+    const route = routeBetweenSpaces(
+      {
+        ...index,
+        nodeBySpace: new Map([
+          ['a', a.i],
+          ['b', b.i],
+        ]),
+      },
+      'a',
+      'b',
+    )
+    expect(route).not.toBeNull()
+    // Путь короткий — через двери, а не вокруг корпусов по улице.
+    expect(route!.distanceMm).toBeLessThan(3_000)
+    expect(routeSteps(index, route!).map((s) => s.type)).toEqual(['start', 'passage', 'arrive'])
+  })
+})
+
+describe('навигация: дорожки и корпуса', () => {
+  it('кусок дорожки внутри корпуса выбрасывается — путь не идёт сквозь стены', () => {
+    const doc = new PlanBuilder().rect(0, 0, 6000, 4000).doc
+    const inputs: NavFloorInput[] = [
+      { floorId: 'A-1', buildingId: 'A', elevationMm: 0, doc, transform: T0 },
+    ]
+    const outline = [
+      { x: -100, y: -100 },
+      { x: 6100, y: -100 },
+      { x: 6100, y: 4100 },
+      { x: -100, y: 4100 },
+    ]
+    // Тротуар нарисован с заходом в корпус: на 0,5 м внутрь от южной стены.
+    const site: SitePlanDoc = {
+      ...emptySitePlan(),
+      features: {
+        walk: {
+          type: 'path',
+          widthMm: 2000,
+          covered: false,
+          line: [
+            { x: -20_000, y: 400 },
+            { x: 26_000, y: 400 },
+          ],
+        },
+      },
+    }
+    const graph = buildNavGraph(inputs, site, [outline])
+    for (let e = 0; e < graph.edges.length; e += 4) {
+      if (decodeFlags(graph.edges[e + 3]!).kind !== 'outdoor') continue
+      const a = nodePoint(graph, graph.edges[e]!)
+      const b = nodePoint(graph, graph.edges[e + 1]!)
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+      const inside = mid.x > -100 && mid.x < 6100 && mid.y > -100 && mid.y < 4100
+      expect(inside).toBe(false)
+    }
   })
 })

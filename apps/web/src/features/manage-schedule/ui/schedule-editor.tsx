@@ -1,17 +1,20 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { MapPin, User } from 'lucide-react'
 import { layoutColumns, type Pair, type Placed } from '../../../entities/schedule'
 import { cn } from '../../../shared/lib/utils'
 
 const HOUR_PX = 56
-// Учебный день: сетка всегда охватывает 07:00–20:00, даже если пар в крайних часах нет.
-// Постоянные границы важнее компактности: колонка не «дышит» при каждой правке, и время
-// на ней всегда на одном и том же месте.
-const DEFAULT_START = 7 * 60
-const DEFAULT_END = 20 * 60
+// Сетка — все сутки, 00:00–24:00: пару можно поставить на любое время, а колонка не
+// «дышит» при каждой правке — время на ней всегда на одном и том же месте. Карточка вокруг
+// прокручивается сама и при открытии подводит к утру.
+const DEFAULT_START = 0
+const DEFAULT_END = 24 * 60
+/** Утро, к которому подводит прокрутка, если пар раньше нет: сверху видно 07:00. */
+const MORNING_MIN = 8 * 60
+const LABEL_HALF_PX = 12
 /** Шаг привязки при перетаскивании и при клике по пустому месту. */
 const SNAP_MIN = 5
 /** Ниже этого сдвига в пикселях жест считается кликом, а не перетаскиванием. */
@@ -94,6 +97,7 @@ export function ScheduleEditor({
   // Ref именно на тело сетки, без шапки дней: и время, и колонка считаются от его
   // левого верхнего угла. Ref на внешний контейнер давал бы сдвиг на высоту шапки.
   const gridRef = useRef<HTMLDivElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
   const [drag, setDrag] = useState<DragState | null>(null)
   // Призрачный слот под курсором на пустом месте: показывает, куда именно встанет пара.
   const [hover, setHover] = useState<{ day: number; startMin: number } | null>(null)
@@ -114,6 +118,21 @@ export function ScheduleEditor({
     return out
   }, [gridStart, gridEnd])
   const gridHeight = ((gridEnd - gridStart) / 60) * HOUR_PX
+
+  // При открытии сетка не начинается с полуночи: сверху — час до самой ранней пары (или
+  // 07:00). Один раз на появление пар — дальше прокрутку держит человек, и перетаскивание
+  // пары её не дёргает.
+  const firstStart = pairs.length ? Math.min(...pairs.map((p) => toMin(p.startTime))) : null
+  const scrolledFor = useRef<'empty' | 'data' | null>(null)
+  useEffect(() => {
+    const box = rootRef.current?.parentElement
+    const phase = firstStart === null ? 'empty' : 'data'
+    if (!box || scrolledFor.current === phase || scrolledFor.current === 'data') return
+    scrolledFor.current = phase
+    const target = Math.max(gridStart, Math.min(firstStart ?? MORNING_MIN, MORNING_MIN) - 60)
+    // Минус полподписи: метка часа центрирована на линии и иначе пряталась бы под шапкой.
+    box.scrollTop = ((target - gridStart) / 60) * HOUR_PX - LABEL_HALF_PX
+  }, [firstStart, gridStart])
 
   const byDay = useMemo(() => {
     const map = new Map<number, Placed<PairWithMinutes>[]>()
@@ -193,7 +212,7 @@ export function ScheduleEditor({
   }
 
   return (
-    <div className="min-w-[44rem]">
+    <div ref={rootRef} className="min-w-[44rem]">
       {/* Заголовки дней. sticky: при прокрутке длинного дня шапка остаётся на месте. */}
       <div
         className="sticky top-0 z-20 grid border-b border-border bg-card"

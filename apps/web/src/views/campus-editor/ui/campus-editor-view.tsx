@@ -8,6 +8,7 @@ import { Role } from '@studenthub/shared-types'
 import { CircleAlert, Cloud, LayoutTemplate, Lock } from 'lucide-react'
 import {
   CampusEditorHeader,
+  FloorSwitcher,
   UnderlayPanel,
   UnderlayStore,
   campusKeys,
@@ -36,17 +37,7 @@ import {
   useValidation,
   type FloorDraft,
 } from '../../../features/campus-editor'
-import {
-  Button,
-  EmptyState,
-  PageLoader,
-  SegmentedTabs,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../../../shared/ui'
+import { Button, EmptyState, PageLoader, SegmentedTabs } from '../../../shared/ui'
 import { cn } from '../../../shared/lib'
 import { CampusPreview3D } from './campus-preview-3d'
 
@@ -264,22 +255,6 @@ function Editor({ plan }: { plan: CampusPlan }) {
         onFit={() => store.fit(viewport().width, viewport().height)}
         mode={mode}
         onModeChange={setMode}
-        leading={
-          building && building.floors.length > 1 ? (
-            <Select value={plan.floorId} onValueChange={goFloor}>
-              <SelectTrigger size="md" className="w-auto min-w-32" aria-label={t('floor')}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {[...building.floors].reverse().map((f) => (
-                  <SelectItem key={f.id} value={f.id}>
-                    {tc('floorN', { label: f.label })}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : null
-        }
         trailing={
           <Button
             type="button"
@@ -364,6 +339,21 @@ function Editor({ plan }: { plan: CampusPlan }) {
           ) : (
             <CampusPreview3D store={store} floorHeightMm={plan.heightMm} />
           )}
+          {/* Этажи корпуса — тем же переключателем и там же, что на карте кампуса. */}
+          {building && (
+            <FloorSwitcher
+              label={t('floor')}
+              items={building.floors.map((f) => ({
+                key: f.id,
+                label: f.label,
+                ariaLabel: tc('floorN', { label: f.label }),
+                active: f.id === plan.floorId,
+                onSelect: () => {
+                  if (f.id !== plan.floorId) goFloor(f.id)
+                },
+              }))}
+            />
+          )}
         </div>
         <aside className="flex max-h-[45dvh] min-h-0 w-full flex-col gap-3 overflow-y-auto border-t border-border p-3 lg:max-h-none lg:w-80 lg:border-t-0 lg:border-l">
           <SegmentedTabs
@@ -416,7 +406,13 @@ function Editor({ plan }: { plan: CampusPlan }) {
       </div>
 
       {templateOpen && (
-        <TemplateModal store={store} tools={tools} onClose={() => setTemplateOpen(false)} />
+        <TemplateModal
+          store={store}
+          tools={tools}
+          outline={building?.outline ?? null}
+          level={floor?.level ?? 1}
+          onClose={() => setTemplateOpen(false)}
+        />
       )}
     </div>
   )

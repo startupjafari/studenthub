@@ -5,8 +5,13 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { outlineFromShape, type BuildingShape } from '@studenthub/campus-core'
-import { campusKeys, createCampusBuilding } from '../../../entities/campus'
-import { Button, Input, Label, Modal, SegmentedTabs } from '../../../shared/ui'
+import {
+  autoLayoutFloors,
+  campusKeys,
+  createCampusBuilding,
+  fetchCampusTree,
+} from '../../../entities/campus'
+import { Button, Checkbox, Input, Label, Modal, SegmentedTabs } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
 
 const SHAPES: BuildingShape[] = ['rect', 'L', 'U', 'T']
@@ -44,6 +49,7 @@ export function CreateBuildingModal({
   const [height, setHeight] = useState('3.3')
   const [posX, setPosX] = useState('0')
   const [posY, setPosY] = useState('0')
+  const [autoPlan, setAutoPlan] = useState(true)
 
   const w = mm(width)
   const d = mm(depth)
@@ -63,8 +69,8 @@ export function CreateBuildingModal({
     Number.isInteger(first)
 
   const mut = useMutation({
-    mutationFn: () =>
-      createCampusBuilding(campusId, {
+    mutationFn: async () => {
+      const building = await createCampusBuilding(campusId, {
         name: name.trim(),
         code: code.trim() || undefined,
         outline: outlineFromShape(shape, w!, d!, k ?? 0),
@@ -74,7 +80,13 @@ export function CreateBuildingModal({
           rotationDeg: 0,
         },
         floors: { count, firstLevel: first, heightMm: h! },
-      }),
+      })
+      if (!autoPlan) return
+      // Этажи нового корпуса — сразу с коридорами и кабинетами.
+      const tree = await fetchCampusTree(campusId)
+      const floors = tree.buildings.find((b) => b.id === building.id)?.floors ?? []
+      await autoLayoutFloors(building.outline, floors)
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: campusKeys.tree(campusId) })
       toast.success(t('buildingCreated'))
@@ -150,6 +162,18 @@ export function CreateBuildingModal({
         <div className="grid gap-3 sm:grid-cols-2">
           {field('b-x', t('positionX'), posX, setPosX)}
           {field('b-y', t('positionY'), posY, setPosY)}
+        </div>
+        <div className="flex items-start gap-2">
+          <Checkbox
+            id="b-auto"
+            checked={autoPlan}
+            onCheckedChange={(v) => setAutoPlan(v === true)}
+            className="mt-0.5"
+          />
+          <Label htmlFor="b-auto" className="flex flex-col items-start gap-0.5 font-normal">
+            <span className="text-sm font-medium">{t('autoLayoutNew')}</span>
+            <span className="text-xs text-muted-foreground">{t('autoLayoutNewHint')}</span>
+          </Label>
         </div>
         <p className="text-xs text-muted-foreground">{t('buildingHint')}</p>
         <div className="flex justify-end gap-2">
