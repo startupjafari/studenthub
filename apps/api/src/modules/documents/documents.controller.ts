@@ -97,7 +97,7 @@ export class DocumentsController {
   @ApiOperation({ summary: 'Открыть многочастную загрузку крупного скана (шаг 1 из 4)' })
   @ApiResponse({ status: 201, description: 'key + uploadId + размер и число частей' })
   @ApiResponse({ status: 400, description: 'BAD_REQUEST — файл или число частей за пределом' })
-  @ApiResponse({ status: 422, description: 'FILE_TYPE_NOT_ALLOWED — только PDF/JPG/PNG' })
+  @ApiResponse({ status: 415, description: 'FILE_TYPE_NOT_ALLOWED — только PDF/JPG/PNG' })
   startUploadMultipart(
     @CurrentUser() user: CurrentUserData,
     @Body() dto: DocumentFileMultipartStartDto,
@@ -129,7 +129,11 @@ export class DocumentsController {
   @ApiResponse({ status: 201, description: 'id, реальный mime и размер' })
   @ApiResponse({ status: 400, description: 'BAD_REQUEST — части не сходятся' })
   @ApiResponse({ status: 403, description: 'FORBIDDEN — ключ не принадлежит вызывающему' })
-  @ApiResponse({ status: 422, description: 'FILE_TYPE_NOT_ALLOWED / FILE_TOO_LARGE' })
+  @ApiResponse({ status: 413, description: 'FILE_TOO_LARGE — больше лимита категории' })
+  @ApiResponse({
+    status: 415,
+    description: 'FILE_TYPE_NOT_ALLOWED — тип по содержимому не подходит',
+  })
   completeUploadMultipart(
     @CurrentUser() user: CurrentUserData,
     @Body() dto: DocumentFileMultipartCompleteDto,

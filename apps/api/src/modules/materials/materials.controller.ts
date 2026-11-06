@@ -147,7 +147,11 @@ export class MaterialsController {
   @ApiResponse({ status: 201, description: 'Файл прикреплён к материалу' })
   @ApiResponse({ status: 400, description: 'BAD_REQUEST — части не сходятся' })
   @ApiResponse({ status: 403, description: 'FORBIDDEN — нет прав или ключ не свой' })
-  @ApiResponse({ status: 422, description: 'FILE_TYPE_NOT_ALLOWED / FILE_TOO_LARGE' })
+  @ApiResponse({ status: 413, description: 'FILE_TOO_LARGE — больше лимита категории' })
+  @ApiResponse({
+    status: 415,
+    description: 'FILE_TYPE_NOT_ALLOWED — тип по содержимому не подходит',
+  })
   completeFileMultipart(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,

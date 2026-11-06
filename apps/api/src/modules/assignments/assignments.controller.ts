@@ -272,7 +272,11 @@ export class AssignmentsController {
   @ApiResponse({ status: 400, description: 'BAD_REQUEST — части не сходятся' })
   @ApiResponse({ status: 403, description: 'FORBIDDEN — ключ не принадлежит вызывающему' })
   @ApiResponse({ status: 409, description: 'CONFLICT — работа отправлена или файлов уже 10' })
-  @ApiResponse({ status: 422, description: 'FILE_TYPE_NOT_ALLOWED / FILE_TOO_LARGE' })
+  @ApiResponse({ status: 413, description: 'FILE_TOO_LARGE — больше лимита категории' })
+  @ApiResponse({
+    status: 415,
+    description: 'FILE_TYPE_NOT_ALLOWED — тип по содержимому не подходит',
+  })
   completeSubmissionFileMultipart(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
