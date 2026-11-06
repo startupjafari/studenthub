@@ -10,6 +10,7 @@ export const en: Dictionary = {
 
   nav: {
     product: 'What’s inside',
+    modules: 'Modules',
     security: 'Security',
     rollout: 'Rollout',
     faq: 'Questions',
@@ -111,6 +112,44 @@ export const en: Dictionary = {
         ],
         nav: ['Structure', 'Invitations', 'Analytics', 'Moderation', 'Settings'],
         highlight: 'University structure',
+      },
+    ],
+  },
+
+  modules: {
+    title: 'What else the platform covers',
+    subtitle:
+      'Beyond studies and requests, there are sections for the whole campus. The library and cameras are switched on by the university itself: both are off by default.',
+    items: [
+      {
+        id: 'campus',
+        title: 'Campus map',
+        text: 'The administration draws the floor plans, and a 3D model of the buildings is generated from them. A room can be found by search or straight from the timetable, and the route to it accounts for stairs and lifts.',
+      },
+      {
+        id: 'library',
+        title: 'Library',
+        text: 'Students browse the catalogue with live availability and place holds. The librarian lends a book by scanning the digital student ID and sees who is overdue, and students get a no-debt certificate with a verification code on their own.',
+      },
+      {
+        id: 'security',
+        title: 'Security post and cameras',
+        text: 'Security checks student IDs at the entrance and keeps the visitor log. Live camera feeds are visible only to security and the university administration — no audio, and the video is never recorded.',
+      },
+      {
+        id: 'communication',
+        title: 'Communication',
+        text: 'Chats with voice messages and files, the university feed, 24-hour stories and articles on profiles. Writing to a stranger starts with a message request: until it is accepted, no more than five messages go through.',
+      },
+      {
+        id: 'career',
+        title: 'Careers',
+        text: 'A company has its own page and job posts, but students see a post only after their university approves it. An application moves through to interview and offer, and a student’s profile is hidden from companies by default.',
+      },
+      {
+        id: 'templates',
+        title: 'Documents on the university’s letterhead',
+        text: 'The university uploads its own Word template and places fields in it: full name, group, faculty. The platform fills them from the student’s record and will not issue the document if a required field is empty.',
       },
     ],
   },
