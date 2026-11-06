@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { httpUrl } from './url.js'
 import { OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
+import { vm } from './validation-messages.js'
 
 // Приход вуза на платформу (docs/PROJECT.md §31): заявка с публичной формы, решение
 // модератора платформы и мастер первичной настройки.
@@ -65,7 +66,7 @@ export const SubmitDemoRequestSchema = z
      * снимает галочку обычным `false` без приведения типов. У литерала тип поля — сама
      * единица `true`, и каждое снятие галочки пришлось бы кастовать.
      */
-    consent: z.boolean().refine((value) => value, { message: 'Требуется согласие' }),
+    consent: z.boolean().refine((value) => value, { message: vm('validation.consent.required') }),
   })
   .strict()
 export type SubmitDemoRequestInput = z.infer<typeof SubmitDemoRequestSchema>
@@ -176,7 +177,7 @@ export const SKIPPABLE_ONBOARDING_STEPS: readonly OnboardingStep[] = [
 
 export const SkippableOnboardingStepSchema = OnboardingStepSchema.refine(
   (step) => SKIPPABLE_ONBOARDING_STEPS.includes(step),
-  { message: 'Этот шаг нельзя пропустить' },
+  { message: vm('validation.onboarding.stepNotSkippable') },
 )
 
 export const SkipOnboardingStepSchema = z.object({ step: SkippableOnboardingStepSchema }).strict()

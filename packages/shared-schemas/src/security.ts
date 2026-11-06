@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { OffsetPaginationSchema } from './pagination.js'
+import { vm } from './validation-messages.js'
 
 // Журналы поста охраны (docs/PROJECT.md §3.12): посетители и проходы студентов. Ведёт
 // охрана своего вуза, смотрит админ вуза; хранятся год (docs/PERSONAL_DATA.md §4).
@@ -21,7 +22,7 @@ export const PASS_DENY_REASONS = [
 export const PassDenyReasonSchema = z.enum(PASS_DENY_REASONS)
 export type PassDenyReasonValue = z.infer<typeof PassDenyReasonSchema>
 
-const LocalDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД')
+const LocalDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, vm('validation.date.format'))
 
 const optionalText = (max: number) =>
   z
@@ -43,19 +44,19 @@ export const CreateVisitorSchema = z
     documentLast4: z
       .string()
       .trim()
-      .regex(/^\d{4}$/, 'Четыре последние цифры документа')
+      .regex(/^\d{4}$/, vm('validation.security.documentLast4'))
       .optional(),
     // Телефон Казахстана в том виде, в каком его набирает маска поля: +7 (777) 777-77-77.
     phone: optionalText(20).refine(
       (v) => v === undefined || /^\+7 \(\d{3}\) \d{3}-\d{2}-\d{2}$/.test(v),
       {
-        message: 'Телефон в формате +7 (777) 777-77-77',
+        message: vm('validation.phone.format'),
       },
     ),
   })
   .strict()
   .refine((v) => !v.documentLast4 || v.documentType, {
-    message: 'Укажите тип документа',
+    message: vm('validation.security.documentTypeRequired'),
     path: ['documentType'],
   })
 export type CreateVisitorInput = z.infer<typeof CreateVisitorSchema>
