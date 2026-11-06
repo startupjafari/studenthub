@@ -12,8 +12,12 @@ import { Button } from './button'
 export interface FileUploadProps<T> {
   /** Категория задаёт лимит размера и белый список типов. */
   category: FileCategory
-  /** Функция загрузки — инкапсулирует эндпоинт/бакет (напр. аватар vs медиа поста). */
-  uploadFn: (file: File, onProgress: (percent: number) => void) => Promise<T>
+  /**
+   * Функция загрузки — инкапсулирует эндпоинт/бакет (напр. аватар vs медиа поста).
+   * `signal` — отмена крестиком во время загрузки: функция обязана оборвать запрос и
+   * завершиться ошибкой, а не дозалить файл (у многочастной загрузки это `abort` частей).
+   */
+  uploadFn: (file: File, onProgress: (percent: number) => void, signal: AbortSignal) => Promise<T>
   /** Успешная загрузка — родитель привязывает результат к своей сущности. */
   onUploaded: (result: T) => void
   /** Ошибка загрузки (код) — для внешней обработки при необходимости. */
@@ -45,6 +49,8 @@ export function FileUpload<T>({
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  // Текущая загрузка — чтобы крестик мог её отменить.
+  const abortRef = useRef<AbortController | null>(null)
 
   const allowedMimes = FILE_UPLOAD.ALLOWED_MIME[category] as readonly string[]
   const categoryMax = FILE_UPLOAD.MAX_BYTES[category]
@@ -108,14 +114,22 @@ export function FileUpload<T>({
 
   async function upload() {
     if (!file) return
+    const controller = new AbortController()
+    abortRef.current = controller
     setStatus('uploading')
     setProgress(0)
     setError(null)
     try {
-      const result = await uploadFn(file, setProgress)
+      const result = await uploadFn(file, setProgress, controller.signal)
       setStatus('done')
       onUploaded(result)
     } catch (err) {
+      // Отменил сам человек — это не ошибка: файл остаётся выбранным, загрузку можно начать снова.
+      if (controller.signal.aborted) {
+        setProgress(0)
+        setStatus('ready')
+        return
+      }
       const code = (err as { code?: string }).code ?? 'INTERNAL_ERROR'
       setError(tErr(code))
       setStatus('error')
@@ -204,18 +218,16 @@ export function FileUpload<T>({
             )}
           </div>
 
-          {status !== 'uploading' && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="lg"
-              icon
-              aria-label={t('remove')}
-              onClick={reset}
-            >
-              <X className="size-4" aria-hidden />
-            </Button>
-          )}
+          <Button
+            type="button"
+            variant="ghost"
+            size="lg"
+            icon
+            aria-label={status === 'uploading' ? t('cancel') : t('remove')}
+            onClick={() => (status === 'uploading' ? abortRef.current?.abort() : reset())}
+          >
+            <X className="size-4" aria-hidden />
+          </Button>
         </div>
       )}
 

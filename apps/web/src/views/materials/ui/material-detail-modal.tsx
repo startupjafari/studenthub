@@ -132,8 +132,8 @@ export function MaterialDetailModal({ material, canManage, onClose }: Props) {
         {canManage && (
           <FileUpload
             category="DOCUMENT"
-            uploadFn={(file, onProgress) =>
-              uploadMaterialFileRequest(material.id, file, onProgress)
+            uploadFn={(file, onProgress, signal) =>
+              uploadMaterialFileRequest(material.id, file, onProgress, signal)
             }
             onUploaded={() => {
               void invalidate()

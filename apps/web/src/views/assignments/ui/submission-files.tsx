@@ -38,6 +38,8 @@ export function SubmissionFiles({ files, submissionId, editable }: Props) {
   // Какая кнопка ждёт ответа: `dl:<id>` — скачивание, `rm:<id>` — удаление.
   const [busy, setBusy] = useState<string | null>(null)
   const [progress, setProgress] = useState<number | null>(null)
+  // Текущая пачка загрузок — крестик рядом с процентами отменяет её целиком.
+  const abortRef = useRef<AbortController | null>(null)
 
   async function download(fileId: string) {
     if (!submissionId) return
@@ -70,16 +72,26 @@ export function SubmissionFiles({ files, submissionId, editable }: Props) {
     e.target.value = ''
     const room = SUBMISSION_FILES_MAX - files.length
     if (picked.length > room) toast.error(t('filesLimit', { n: SUBMISSION_FILES_MAX }))
+    const controller = new AbortController()
+    abortRef.current = controller
     // По одному: прогресс один на строку, и отказ по одному файлу не роняет остальные.
     for (const file of picked.slice(0, Math.max(0, room))) {
+      if (controller.signal.aborted) break
       if (isOversizeOnPick(file)) {
         toast.error(`${file.name}: ${tErr('FILE_TOO_LARGE')}`)
         continue
       }
       setProgress(0)
       try {
-        await uploadSubmissionFileRequest(editable.assignmentId, file, setProgress)
+        await uploadSubmissionFileRequest(
+          editable.assignmentId,
+          file,
+          setProgress,
+          controller.signal,
+        )
       } catch (err) {
+        // Отмена — решение человека, а не сбой: без тоста.
+        if (controller.signal.aborted) break
         toast.error(`${file.name}: ${tErr(toApiError(err).code)}`)
       }
     }
@@ -148,6 +160,17 @@ export function SubmissionFiles({ files, submissionId, editable }: Props) {
             <Paperclip className="size-4" aria-hidden />
             {progress !== null ? t('fileUploading', { percent: progress }) : t('attachFile')}
           </Button>
+          {progress !== null && (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon
+              aria-label={t('fileUploadCancel')}
+              onClick={() => abortRef.current?.abort()}
+            >
+              <X className="size-4" aria-hidden />
+            </Button>
+          )}
           <span className="text-xs text-muted-foreground">
             {t('filesHint', { n: SUBMISSION_FILES_MAX })}
           </span>
