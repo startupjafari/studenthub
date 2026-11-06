@@ -4,15 +4,8 @@ import { EmojiPicker as Frimousse } from 'frimousse'
 import { Loader2, Search } from 'lucide-react'
 import { useLocale } from 'next-intl'
 import { cn } from '../lib/utils'
+import { EMOJI_PICKER_SIZES as SIZES, type EmojiPickerProps } from './emoji-picker'
 
-// Два размера пикера. Разница не в одной ширине панели: число колонок и клетка связаны —
-// frimousse раскладывает ряд на `columns` клеток фиксированного размера, и если их
-// произведение шире дорожки, крайние уезжают под обрез. Поэтому размер выбирается
-// парой, а не классом снаружи.
-//
-//  · md — выбор реакции в меню сообщения: панель всплывает у пузыря, и место там дорого;
-//  · lg — панель ввода чата: сюда приходят выбирать смайл глазами, и 32-пиксельная клетка
-//    превращает выбор в разглядывание.
 /**
  * Язык названий категорий и поиска по emoji. Список берётся у emojibase, и казахского в
  * нём нет — для `kk` показываем русские названия: «Smileys & emotion» посреди русского
@@ -20,29 +13,14 @@ import { cn } from '../lib/utils'
  */
 const PICKER_LOCALE: Record<string, 'ru' | 'en'> = { ru: 'ru', kk: 'ru', en: 'en' }
 
-const SIZES = {
-  md: { columns: 9, root: 'h-80 w-[19rem]', cell: 'size-8 text-lg' },
-  lg: { columns: 7, root: 'h-[26rem] w-[21rem]', cell: 'size-11 text-[1.75rem]' },
-  // dock — панель под полем ввода на телефоне: во всю ширину и примерно в высоту
-  // клавиатуры, которую она заменяет. Восемь колонок — столько 44-пиксельных клеток
-  // помещается на узком экране, не уезжая под обрез.
-  dock: { columns: 8, root: 'h-[min(45dvh,20rem)] w-full', cell: 'size-11 text-[1.75rem]' },
-} as const
-
 // Полноценный emoji-picker (§12) на frimousse (headless): категории, поиск, недавние.
 // Данные emoji подгружаются библиотекой (emojibase) при первом открытии.
-export function EmojiPicker({
+export function EmojiPickerPanel({
   onPick,
   searchPlaceholder,
   className,
   size = 'md',
-}: {
-  onPick: (emoji: string) => void
-  searchPlaceholder?: string
-  className?: string
-  /** Размер панели и клетки. `lg` — там, где смайл выбирают, а не подтверждают реакцией. */
-  size?: keyof typeof SIZES
-}) {
+}: EmojiPickerProps) {
   const scale = SIZES[size]
   const locale = useLocale()
   return (
