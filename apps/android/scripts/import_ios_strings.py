@@ -3,8 +3,9 @@
 
 Ключи у платформ общие (план Android, «Что берём из iOS»): одна и та же фраза не
 должна звучать на телефонах по-разному. Источник правды — `apps/ios/Resources/
-Localizable.xcstrings`; этот скрипт пересобирает из него `values/strings_ios.xml` и
-`values-kk/strings_ios.xml`. Руками эти файлы не правятся — правится каталог, затем
+Localizable.xcstrings`; этот скрипт пересобирает из него `values/strings_ios.xml`,
+`values-kk/strings_ios.xml` и `values-en/strings_ios.xml` (английский пока есть только у
+части строк — например, у сообщений валидации; остальное показывается по-русски). Руками эти файлы не правятся — правится каталог, затем
 скрипт запускается заново. Строки, которых в iOS нет, живут в `strings.xml`.
 
 Имя ресурса — ключ каталога с точками, заменёнными на подчёркивание:
@@ -89,7 +90,7 @@ def write(path: pathlib.Path, rows: list[tuple[str, str]]) -> None:
 
 def main() -> None:
     catalog = json.loads(CATALOG.read_text(encoding="utf-8"))["strings"]
-    russian, kazakh = [], []
+    russian, kazakh, english = [], [], []
     for key in sorted(catalog):
         entry = catalog[key]
         ru = unit(entry, "ru")
@@ -99,9 +100,13 @@ def main() -> None:
         kk = unit(entry, "kk")
         if kk:
             kazakh.append((key, kk))
+        en = unit(entry, "en")
+        if en:
+            english.append((key, en))
     write(RES / "values/strings_ios.xml", russian)
     write(RES / "values-kk/strings_ios.xml", kazakh)
-    print(f"ru: {len(russian)}, kk: {len(kazakh)}")
+    write(RES / "values-en/strings_ios.xml", english)
+    print(f"ru: {len(russian)}, kk: {len(kazakh)}, en: {len(english)}")
 
 
 if __name__ == "__main__":
