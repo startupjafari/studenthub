@@ -91,6 +91,8 @@ function setup({
     )
   const tx = {
     $executeRaw: jest.fn().mockResolvedValue(0),
+    // Читатель жив под локом (не удалён в промежутке — Фаза 21.C1).
+    user: { count: jest.fn().mockResolvedValue(1) },
     bookCopy: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     loan: {
       count: loanCount,
@@ -306,6 +308,20 @@ describe('LibraryLoansService — выдача', () => {
       service.issue(librarian, { ticket: ticketFor(), copyCode: 'ABCD2345' }, ctx),
     ).rejects.toMatchObject({ details: [expect.objectContaining({ field: 'limit' })] })
     expect(tx.$executeRaw).toHaveBeenCalledTimes(2)
+    expect(tx.loan.create).not.toHaveBeenCalled()
+  })
+
+  // Фаза 21.C1: удаление аккаунта держит тот же лок читателя — выдача, ждавшая его, не
+  // запишет книгу на только что удалённого.
+  it('читателя удалили, пока выдача ждала лок, — 404, выдачи нет', async () => {
+    const { service, tx } = setup()
+    tx.user.count.mockResolvedValue(0)
+    await expect(
+      service.issue(librarian, { ticket: ticketFor(), copyCode: 'ABCD2345' }, ctx),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(tx.user.count).toHaveBeenCalledWith({
+      where: { id: 'stu-1', deletedAt: null, isBlocked: false },
+    })
     expect(tx.loan.create).not.toHaveBeenCalled()
   })
 

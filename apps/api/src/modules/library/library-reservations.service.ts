@@ -13,7 +13,14 @@ import { LibrarySettingsService } from './library-settings.service'
 import { LibraryLoansService } from './library-loans.service'
 import { LibraryNotifier } from './library-notifier'
 import { todayIn } from './library-dates'
-import { lockBookQueue, lockReader, releaseCopy, serveQueue, type HeldFor } from './library-holds'
+import {
+  assertReaderActive,
+  lockBookQueue,
+  lockReader,
+  releaseCopy,
+  serveQueue,
+  type HeldFor,
+} from './library-holds'
 import { libraryConflict, librarianLibrary, readerLibrary, staffLibrary } from './library-scope'
 
 // Брони библиотеки (Фаза 20.8, docs/PROJECT.md §3.11). Читатель встаёт в очередь на книгу;
@@ -111,6 +118,7 @@ export class LibraryReservationsService {
       // Лок читателя, затем книги — тот же порядок, что у выдачи. Под ними: две одновременные
       // брони одного читателя не пройдут обе ни на одну книгу, ни сверх предела броней.
       await lockReader(tx, reader.id)
+      await assertReaderActive(tx, reader.id)
       await lockBookQueue(tx, bookId)
       // Книгу могли убрать в архив после проверки выше: бронь на неё повисла бы навсегда.
       const fresh = await tx.book.findUnique({
@@ -276,11 +284,9 @@ export class LibraryReservationsService {
    * Читатель больше не возьмёт книгу — действующие брони закрываются, отложенный под готовую
    * бронь экземпляр уходит следующему в очереди или на полку (releaseCopy под локом книги).
    * Иначе экземпляр лежал на полке броней весь срок для того, кто за ним не придёт, а
-   * остальные ждали. Зовёт UserService:
-   *
-   * - удаление аккаунта — без уведомления: закрывает он сам, и читать его уже некому;
-   * - отчисление, выпуск, перевод и блокировка — с уведомлением «бронь отменена»
-   *   (`notifyReader`): человек узнаёт, куда делись его брони.
+   * остальные ждали. Зовёт UserService при отчислении, выпуске, переводе и блокировке — с
+   * уведомлением «бронь отменена» (`notifyReader`): человек узнаёт, куда делись его брони.
+   * Удаление аккаунта снимает брони само, в своей транзакции (LibraryAccountService).
    */
   async cancelAllOfReader(
     readerId: string,

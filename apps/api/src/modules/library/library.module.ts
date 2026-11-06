@@ -18,6 +18,7 @@ import { LibraryDebtsController } from './library-debts.controller'
 import { LibraryDebtsService } from './library-debts.service'
 import { LibraryReportsController } from './library-reports.controller'
 import { LibraryReportsService } from './library-reports.service'
+import { LibraryAccountService } from './library-account.service'
 
 // Библиотека вуза (Фаза 20, docs/PROJECT.md §3.11). Владеет таблицами `library_settings`,
 // `books`, `book_copies`, `loans`, `reservations`, `library_id_access_logs`. FilesModule —
@@ -44,12 +45,14 @@ import { LibraryReportsService } from './library-reports.service'
     LibraryReservationsService,
     LibraryDebtsService,
     LibraryReportsService,
+    LibraryAccountService,
   ],
   exports: [
     LibrarySettingsService,
     LibraryRemindersService,
     LibraryReservationsService,
     LibraryDebtsService,
+    LibraryAccountService,
   ],
 })
 export class LibraryModule {}

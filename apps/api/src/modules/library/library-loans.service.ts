@@ -32,7 +32,13 @@ import { LibrarySettingsService } from './library-settings.service'
 import { LibraryNotifier } from './library-notifier'
 import { addDays, daysBetween, endOfDay, formatDay, todayIn } from './library-dates'
 import { issueReaderTicket, readTicket } from './library-ticket'
-import { lockBookQueue, lockReader, releaseCopy, type HeldFor } from './library-holds'
+import {
+  assertReaderActive,
+  lockBookQueue,
+  lockReader,
+  releaseCopy,
+  type HeldFor,
+} from './library-holds'
 import {
   READER_ROLES,
   libraryConflict,
@@ -219,6 +225,7 @@ export class LibraryLoansService {
       // обе видят «на одну меньше предела». Лок очереди книги — бронь, отложившая экземпляр,
       // и её отмена или истечение не проскочат между проверкой и выдачей.
       await lockReader(tx, reader.id)
+      await assertReaderActive(tx, reader.id)
       await lockBookQueue(tx, copy.book.id)
       const late = (await this.eligibility(reader, settings.maxActiveLoans, tx)).blockers[0]
       if (late) throw this.blockerConflict(late)
