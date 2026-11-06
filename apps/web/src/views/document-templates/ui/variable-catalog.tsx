@@ -112,8 +112,10 @@ export function VariableCatalog({ compact = false, className }: VariableCatalogP
         </div>
       )}
 
-      <div className="flex flex-col gap-3">
-        <div className="relative">
+      {/* На широком экране — одна строка: поиск тянется, группы справа по своей ширине.
+          В окне мастера (compact) места на строку нет — там друг под другом. */}
+      <div className={cn('flex flex-col gap-3', !compact && 'lg:flex-row lg:items-center')}>
+        <div className={cn('relative', !compact && 'lg:min-w-0 lg:flex-1')}>
           <Search
             className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
             aria-hidden
@@ -126,7 +128,14 @@ export function VariableCatalog({ compact = false, className }: VariableCatalogP
             className="pl-9"
           />
         </div>
-        <SegmentedTabs items={tabs} value={group} onChange={setGroup} compact collapsible />
+        <SegmentedTabs
+          items={tabs}
+          value={group}
+          onChange={setGroup}
+          compact
+          collapsible
+          className={cn(!compact && 'lg:shrink-0')}
+        />
       </div>
 
       {items.length === 0 ? (
