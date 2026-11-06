@@ -224,6 +224,7 @@
   "employer/(app)": [
     "CareerApplications",
     "Employer",
+    "EmployerTeam",
     "EmployerVacancies",
     "Profile",
     "Season",
