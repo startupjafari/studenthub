@@ -67,6 +67,14 @@ describe('buildTemplateValues', () => {
     expect(kk.get('student.studyForm')).toBe('Күндізгі')
   })
 
+  it('свободный текст, совпавший с именем метода объекта, подставляется как есть', () => {
+    const values = buildTemplateValues(
+      sources({ studyForm: 'constructor', fundingType: 'toString' }),
+    )
+    expect(values.get('student.studyForm')).toBe('constructor')
+    expect(values.get('student.fundingType')).toBe('toString')
+  })
+
   it('пустые и пробельные поля — null, а не пустая строка', () => {
     const values = buildTemplateValues(sources({ specialty: '   ' }))
     expect(values.get('student.specialty')).toBeNull()

@@ -74,7 +74,10 @@ function fullName(p: Pick<TemplatePerson, 'lastName' | 'firstName' | 'middleName
 function codeLabel(value: string | null, locale: DocumentTemplateLocale): string | null {
   const raw = text(value)
   if (!raw) return null
-  return DOCUMENT_TEMPLATE_CODE_LABELS[locale][raw] ?? raw
+  // Только собственные ключи словаря: поле свободное, и значение «constructor» иначе нашло бы
+  // метод Object.prototype — в справку ушёл бы текст функции.
+  const labels = DOCUMENT_TEMPLATE_CODE_LABELS[locale]
+  return Object.hasOwn(labels, raw) ? (labels[raw] ?? raw) : raw
 }
 
 /** Дата `ДД.ММ.ГГГГ` в заданном поясе. */

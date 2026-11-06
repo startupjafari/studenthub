@@ -152,6 +152,17 @@ function syntaxIssues(error: unknown): DocumentTemplateIssue[] | null {
   })
 }
 
+/**
+ * Ошибки без повторов и не больше MAX_REPORTED_ISSUES; про остальные — одна строка с их
+ * числом. Отчёт хранится в версии и отдаётся с карточкой шаблона, его размер ограничен.
+ */
+function report(issues: DocumentTemplateIssue[]): DocumentTemplateIssue[] {
+  const unique = dedupe(issues)
+  const limit = DOCUMENT_TEMPLATE_LIMITS.MAX_REPORTED_ISSUES
+  if (unique.length <= limit) return unique
+  return [...unique.slice(0, limit), { code: 'MORE_ISSUES', tag: String(unique.length - limit) }]
+}
+
 function dedupe(issues: DocumentTemplateIssue[]): DocumentTemplateIssue[] {
   const seen = new Set<string>()
   return issues.filter((i) => {
@@ -174,7 +185,7 @@ export function analyzeTemplate(buffer: Buffer): DocumentTemplateValidation {
   } catch (error) {
     const issues = syntaxIssues(error)
     if (!issues) throw error
-    return { valid: false, variables: [], errors: dedupe(issues), warnings: [] }
+    return { valid: false, variables: [], errors: report(issues), warnings: [] }
   }
 
   const errors: DocumentTemplateIssue[] = []
@@ -201,8 +212,8 @@ export function analyzeTemplate(buffer: Buffer): DocumentTemplateValidation {
     warnings.push({ code: 'PERSONAL_DATA' })
   }
 
-  const unique = dedupe(errors)
-  return { valid: unique.length === 0, variables, errors: unique, warnings }
+  const reported = report(errors)
+  return { valid: reported.length === 0, variables, errors: reported, warnings }
 }
 
 /**

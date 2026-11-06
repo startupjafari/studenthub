@@ -98,6 +98,23 @@ describe('ValidationReport', () => {
     expect(screen.getByText('ФИО студента')).toBeInTheDocument()
   })
 
+  it('сводит лишние ошибки в одну строку с их числом', () => {
+    render(
+      <ValidationReport
+        validation={{
+          valid: false,
+          variables: [],
+          errors: [{ code: 'MORE_ISSUES', tag: '12' }],
+          warnings: [],
+        }}
+      />,
+      { wrapper },
+    )
+    expect(
+      screen.getByText('И ещё 12 похожих ошибок — исправьте перечисленные и загрузите файл снова.'),
+    ).toBeInTheDocument()
+  })
+
   it('при синтаксической ошибке не пишет «переменных нет»', () => {
     render(
       <ValidationReport

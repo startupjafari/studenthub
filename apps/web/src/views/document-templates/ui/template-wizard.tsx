@@ -56,9 +56,15 @@ export function TemplateWizard({ onClose }: TemplateWizardProps) {
 
   const footer = (next: { label: string; onClick: () => void; disabled?: boolean }) => (
     <div className="flex items-center justify-between gap-2 pt-2">
-      <Button variant="outline" onClick={() => setStep((s) => s - 1)}>
-        {t('back')}
-      </Button>
+      {/* К первому шагу не возвращаемся: шаблон там уже создан, повторная отправка формы
+          завела бы второй черновик. Название и вид правятся потом в карточке. */}
+      {step > 1 ? (
+        <Button variant="outline" onClick={() => setStep((s) => s - 1)}>
+          {t('back')}
+        </Button>
+      ) : (
+        <span />
+      )}
       <Button onClick={next.onClick} disabled={next.disabled}>
         {next.label} <ArrowRight className="size-4" aria-hidden />
       </Button>

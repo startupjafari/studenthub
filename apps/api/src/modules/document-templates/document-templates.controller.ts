@@ -33,6 +33,7 @@ import { readNamedUpload } from '../../common/http/read-upload'
 import {
   DOCX_MIME,
   DocumentTemplatesService,
+  ISSUER_ROLES,
   type GeneratedDocx,
   type RequestMeta,
 } from './document-templates.service'
@@ -67,7 +68,7 @@ export class DocumentTemplatesController {
   constructor(private readonly templates: DocumentTemplatesService) {}
 
   @Get()
-  @Roles(Role.UNIVERSITY_ADMIN, Role.UNIVERSITY_MODERATOR, Role.DEAN)
+  @Roles(...ISSUER_ROLES)
   @ApiOperation({
     summary: 'Шаблоны своего вуза (админ — все, модератор и декан — опубликованные)',
   })
@@ -79,7 +80,7 @@ export class DocumentTemplatesController {
   }
 
   @Get(':id')
-  @Roles(Role.UNIVERSITY_ADMIN, Role.UNIVERSITY_MODERATOR, Role.DEAN)
+  @Roles(...ISSUER_ROLES)
   @ApiOperation({ summary: 'Шаблон: метаданные, версии и результаты их проверки' })
   @ApiResponse({ status: 200, description: 'Карточка шаблона' })
   @ApiResponse({ status: 403, description: 'WRONG_SCOPE — шаблон другого вуза' })
@@ -232,7 +233,7 @@ export class DocumentTemplatesController {
 
   @Post(':id/generate')
   @HttpCode(HttpStatus.OK)
-  @Roles(Role.UNIVERSITY_ADMIN, Role.UNIVERSITY_MODERATOR, Role.DEAN)
+  @Roles(...ISSUER_ROLES)
   // Документ несёт персональные данные: ручку нельзя превращать в выгрузку всего вуза.
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @ApiProduces(DOCX_MIME)

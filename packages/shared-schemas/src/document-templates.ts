@@ -90,6 +90,7 @@ export const DOCUMENT_TEMPLATE_ISSUE_CODES = [
   'NO_VARIABLES', // предупреждение: в документе нет ни одной переменной
   'OPTIONAL_VARIABLE', // предупреждение: поле может оказаться пустым (отчество)
   'PERSONAL_DATA', // предупреждение: шаблон подставляет персональные данные
+  'MORE_ISSUES', // ошибок больше, чем показано; в `tag` — сколько ещё
 ] as const
 export type DocumentTemplateIssueCode = (typeof DOCUMENT_TEMPLATE_ISSUE_CODES)[number]
 
