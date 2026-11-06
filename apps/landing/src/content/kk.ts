@@ -326,5 +326,8 @@ export const kk: Dictionary = {
     language: 'Тіл',
     company: 'Компанияларға',
     links: 'Платформа және байланыс',
+    privacy: 'Құпиялылық саясаты',
+    terms: 'Пайдаланушы келісімі',
+    legal: 'Құқықтық ақпарат',
   },
 }

@@ -321,5 +321,8 @@ export const en: Dictionary = {
     language: 'Language',
     company: 'For companies',
     links: 'Platform and contact',
+    privacy: 'Privacy Policy',
+    terms: 'Terms of Service',
+    legal: 'Legal',
   },
 }
