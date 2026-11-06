@@ -64,6 +64,11 @@ export const ErrorCode = {
   // У студента не заполнены поля, которые использует шаблон: официальный документ с пустыми
   // местами не формируется. Ключи переменных — в details[].field.
   TEMPLATE_DATA_MISSING: 'TEMPLATE_DATA_MISSING',
+  // Удалить аккаунт нельзя: за человеком в библиотеке числятся книги — на руках или
+  // утерянные с непогашенным долгом (Фаза 21.C1). Книги — в details[] (field `libraryDebts`,
+  // строка на книгу), структурный список — `GET /users/me/deletion-check`. Отдельно от
+  // CONFLICT: клиент объясняет, что сначала вернуть книги, а не «конфликт данных».
+  LIBRARY_DEBTS_OPEN: 'LIBRARY_DEBTS_OPEN',
 } as const
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
@@ -112,6 +117,8 @@ export const ERROR_CODE_STATUS: Record<ErrorCode, number> = {
   TEMPLATE_FILE_INVALID: 422,
   TEMPLATE_INVALID: 422,
   TEMPLATE_DATA_MISSING: 422,
+  // 409 — состояние ресурса не позволяет действие, пока книги не вернут.
+  LIBRARY_DEBTS_OPEN: 409,
 }
 
 /** Код по умолчанию для HTTP-статуса (для стандартных Nest-исключений без явного кода). */

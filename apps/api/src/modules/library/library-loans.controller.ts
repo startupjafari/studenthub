@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
+import { Throttle } from '@nestjs/throttler'
 import type { FastifyRequest } from 'fastify'
 import { Role } from '@studenthub/shared-types'
 import { Roles } from '../../common/decorators/roles.decorator'
@@ -11,6 +12,7 @@ import { LibraryLoansService } from './library-loans.service'
 import { IssueLoanDto } from './dto/issue-loan.dto'
 import { LoanListQueryDto } from './dto/loan-list-query.dto'
 import { ResolveReaderDto } from './dto/resolve-reader.dto'
+import { LookupReaderDto } from './dto/lookup-reader.dto'
 import { ReturnLoanDto } from './dto/return-loan.dto'
 import { RenewLoanDto } from './dto/renew-loan.dto'
 import { CancelLoanDto } from './dto/cancel-loan.dto'
@@ -42,13 +44,38 @@ export class LibraryLoansController {
     return this.loans.resolveReader(user, dto.token, this.ctx(req))
   }
 
+  /**
+   * Читатель без телефона (Фаза 21.C5): поиск по номеру студенческого в своём вузе. Каждый
+   * поиск — в журнал удостоверений; пропуск такой сессии выдаёт только с отметкой.
+   */
+  @Post('readers/lookup')
+  @Roles(Role.LIBRARIAN)
+  // Номер билета перебирать незачем: читатель стоит у стойки.
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @ApiOperation({
+    summary:
+      'Читатель без телефона: поиск по номеру студенческого, карточка и пропуск на выдачу с отметкой',
+  })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — такого номера в вузе нет' })
+  @ApiResponse({
+    status: 409,
+    description: 'details.field: cardAmbiguous — номер у нескольких читателей; reader; module',
+  })
+  lookup(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: LookupReaderDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.loans.lookupReader(user, dto, this.ctx(req))
+  }
+
   @Post('loans')
   @Roles(Role.LIBRARIAN)
   @ApiOperation({ summary: 'Выдать экземпляр читателю по пропуску' })
   @ApiResponse({
     status: 409,
     description:
-      'details.field: status | overdue | lost | limit — читателю нельзя; onLoan | reserved | withdrawn | archived — экземпляр; ticket — пропуск истёк; module',
+      'details.field: status | overdue | lost | limit — читателю нельзя; onLoan | reserved | withdrawn | archived — экземпляр; ticket — пропуск истёк; noPhoneMark — пропуск по номеру билета без отметки «без телефона» или отметка при скане; module',
   })
   @ApiResponse({ status: 422, description: 'Срок вне правил библиотеки (field = dueDate)' })
   issue(

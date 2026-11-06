@@ -16,6 +16,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   DoorClosed,
+  FileCheck2,
   FileText,
   FolderLock,
   FolderOpen,
@@ -431,6 +432,8 @@ export const LIBRARIAN_NAV: NavItem[] = [
   { key: 'libraryCatalog', href: '/library/catalog', icon: BookOpen },
   { key: 'libraryInventory', href: '/library/inventory', icon: ClipboardCheck },
   { key: 'libraryReports', href: '/library/reports', icon: BarChart3 },
+  // Справки «задолженностей нет» с кодом проверки и их отзыв (Фаза 21.C4).
+  { key: 'libraryClearances', href: '/library/clearances', icon: FileCheck2 },
 ]
 
 // Навигация определяется РОЛЬЮ пользователя, а не route-группой: общие страницы

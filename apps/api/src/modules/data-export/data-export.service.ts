@@ -841,6 +841,8 @@ export class DataExportService {
           cancelledAt: true,
           cancelReason: true,
           disputedAt: true,
+          // Выдана без скана QR, по номеру билета (21.C5) — факт о его же выдаче.
+          withoutPhone: true,
         },
         orderBy: { issuedAt: 'desc' },
         take,

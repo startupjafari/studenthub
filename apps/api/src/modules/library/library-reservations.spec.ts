@@ -50,6 +50,8 @@ function setup({
 } = {}) {
   const tx = {
     $executeRaw: jest.fn().mockResolvedValue(0),
+    // Читатель жив под локом (не удалён в промежутке — Фаза 21.C1).
+    user: { count: jest.fn().mockResolvedValue(1) },
     reservation: {
       count: jest.fn().mockResolvedValue(0),
       create: jest.fn().mockResolvedValue({ id: 'res-1' }),
