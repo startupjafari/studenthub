@@ -2,5 +2,6 @@
 
 export * from './constants.js'
 export * from './documents.js'
+export * from './document-templates.js'
 export * from './monitoring.js'
 export * from './notification-messages.js'

@@ -3,7 +3,7 @@ import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
 import type Redis from 'ioredis'
-import { Role, isHigherRole } from '@studenthub/shared-types'
+import { Role, academicStatusCode, isHigherRole } from '@studenthub/shared-types'
 import type {
   AcceptConsentInput,
   UserListQueryInput,
@@ -41,6 +41,7 @@ import type { EnvVars } from '../../config/env.schema'
 import sharp from 'sharp'
 import { FileService } from '../files/file.service'
 import { LibraryReservationsService } from '../library/library-reservations.service'
+import { LibraryDebtsService } from '../library/library-debts.service'
 import { RealtimeGateway } from '../../common/realtime'
 import { QueueService, QUEUES, EMAIL_JOBS, FILE_JOBS, NOTIFICATION_JOBS } from '../../common/queue'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
@@ -48,7 +49,11 @@ import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 // смена пароля/удаление/блокировка обязаны погасить сессии, которыми владеет AuthService.
 import { AuthService } from '../auth/auth.service'
 import { canonicalSpecialtyName } from '../specialties/specialty-name'
-import { canonicalAcademicStatus, nextLeftUniversityAt } from './academic-status'
+import {
+  canonicalAcademicStatus,
+  isTerminalAcademicStatus,
+  nextLeftUniversityAt,
+} from './academic-status'
 import { birthDateIso, CONSENT_SELECT, consentStateOf, type ConsentState } from './consent'
 
 type PrismaTx = Prisma.TransactionClient
@@ -339,6 +344,7 @@ export class UserService {
     private readonly exports: ExportRegistryService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly libraryReservations: LibraryReservationsService,
+    private readonly libraryDebts: LibraryDebtsService,
   ) {}
 
   /** Статус присутствия пользователя (онлайн по активным WS-соединениям, docs/PROJECT.md §9). */
@@ -529,6 +535,52 @@ export class UserService {
       universityName: user.university?.name ?? null,
       universityCity: user.university?.city ?? null,
       timezone: user.university?.timezone ?? 'UTC',
+    }
+  }
+
+  /**
+   * Поля человека для DOCX-шаблонов документов вуза (§3.8 «Шаблоны»): о ком документ и кто
+   * его формирует. Отдельный метод, а не `academicSubject`: шаблону нужны ещё scope (чтобы
+   * проверить доступ к студенту), дата рождения и должность, а справке B7 — нет.
+   *
+   * Только перечисленные поля: ни контактов, ни хэшей, ни токенов здесь нет, и в шаблонизатор
+   * уходит не эта строка, а значения, собранные по реестру переменных.
+   */
+  async documentTemplatePerson(userId: string): Promise<DocumentTemplatePerson | null> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: {
+        id: true,
+        role: true,
+        universityId: true,
+        facultyId: true,
+        firstName: true,
+        lastName: true,
+        middleName: true,
+        birthDate: true,
+        studentCardNumber: true,
+        course: true,
+        specialty: true,
+        studyForm: true,
+        educationLevel: true,
+        fundingType: true,
+        enrollmentYear: true,
+        graduationYear: true,
+        position: true,
+        jobTitle: true,
+        group: { select: { name: true } },
+        faculty: { select: { name: true } },
+      },
+    })
+    if (!user) return null
+    const { group, faculty, jobTitle, position, ...rest } = user
+    return {
+      ...rest,
+      // Должность сотрудника заполняют в одном из двух полей профиля — берём что есть.
+      // Пустая строка — не должность: иначе заполненный jobTitle терялся бы за пустым position.
+      position: position?.trim() || jobTitle?.trim() || null,
+      groupName: group?.name ?? null,
+      facultyName: faculty?.name ?? null,
     }
   }
 
@@ -2002,6 +2054,7 @@ export class UserService {
         universityId: true,
         facultyId: true,
         specialty: true,
+        academicStatus: true,
         leftUniversityAt: true,
       },
     })
@@ -2037,7 +2090,42 @@ export class UserService {
       metadata: { fields: Object.keys(data) },
       ...ctx,
     })
+    // Отчислен, выпущен или переведён — книгу он больше не возьмёт: брони снимаются, и
+    // отложенный под него экземпляр уходит следующему в очереди (Фаза 21.C2). Повторное
+    // сохранение того же статуса снимает брони, оставшиеся с записей до этой правки.
+    if (record.academicStatus !== undefined && isTerminalAcademicStatus(record.academicStatus)) {
+      await this.releaseLibraryHolds(userId, { notifyReader: true })
+    }
+    // Отчислили должника — библиотекари вуза узнают сразу, а не по просрочке (Фаза 21.C3).
+    // Только на переходе: повторное сохранение «Отчислен» не шлёт второе уведомление.
+    if (
+      academicStatusCode(record.academicStatus) === 'EXPELLED' &&
+      academicStatusCode(target.academicStatus) !== 'EXPELLED'
+    ) {
+      try {
+        await this.libraryDebts.notifyExpelledDebtor(userId)
+      } catch (err) {
+        this.logger.warn(`Не удалось сообщить библиотеке об отчислении ${userId}: ${String(err)}`)
+      }
+    }
     return updated
+  }
+
+  /**
+   * Брони книг закрывает модуль библиотеки: готовая бронь держит экземпляр, и его надо
+   * отдать следующему в очереди. Best-effort: смена статуса, блокировка и удаление уже
+   * сохранены, и сбой здесь не должен их откатывать — читатель с такими бронями всё равно
+   * пропускается очередью (library-holds.ts), брони просто повисят до ручной отмены.
+   */
+  private async releaseLibraryHolds(
+    userId: string,
+    opts: { notifyReader: boolean },
+  ): Promise<void> {
+    try {
+      await this.libraryReservations.cancelAllOfReader(userId, opts)
+    } catch (err) {
+      this.logger.warn(`Не удалось закрыть брони книг пользователя ${userId}: ${String(err)}`)
+    }
   }
 
   /**
@@ -2290,14 +2378,9 @@ export class UserService {
         data: { status: 'OPEN', studentId: null, topic: null },
       })
     })
-    // Брони книг закрывает модуль библиотеки: готовая бронь держит экземпляр, и его надо
-    // отдать следующему в очереди. Best-effort, как медиа: ПДн уже затёрты, а сбой здесь
-    // не должен оставлять аккаунт полуудалённым.
-    try {
-      await this.libraryReservations.cancelAllOfReader(userId)
-    } catch (err) {
-      this.logger.warn(`Не удалось закрыть брони книг пользователя ${userId}: ${String(err)}`)
-    }
+    // Брони книг — best-effort, как медиа: ПДн уже затёрты, а сбой здесь не должен
+    // оставлять аккаунт полуудалённым. Удалённому уведомлений не шлём.
+    await this.releaseLibraryHolds(userId, { notifyReader: false })
     await this.authService.revokeAllUserSessions(userId)
     // Строка журнала переживает анонимизацию: в ней только id, без ПДн удалённого.
     await this.audit.record({
@@ -2458,6 +2541,10 @@ export class UserService {
     })
     if (blocked) {
       await this.authService.revokeAllUserSessions(userId)
+      // Заблокированному книги не выдают — его брони снимаются, а отложенный экземпляр
+      // уходит следующему (Фаза 21.C2). Разблокировка их не возвращает: встать в очередь
+      // заново он может сам.
+      await this.releaseLibraryHolds(userId, { notifyReader: true })
     }
     // BACKEND_RULES §13 требует аудита блокировки — записи не было, а это одно из немногих
     // действий, необратимо отключающих человека от платформы. Только id, без ФИО и email.
@@ -2814,6 +2901,29 @@ function exportColumns(locale: ExportLocale, timezone: string): SpreadsheetColum
     { header: header.isBlocked, value: (r) => r.isBlocked, width: 14 },
     { header: header.createdAt, value: (r) => dateFormat.format(r.createdAt), width: 18 },
   ]
+}
+
+/** Поля человека для DOCX-шаблонов документов (см. `documentTemplatePerson`). */
+export interface DocumentTemplatePerson {
+  id: string
+  role: Role
+  universityId: string | null
+  facultyId: string | null
+  firstName: string
+  lastName: string
+  middleName: string | null
+  birthDate: Date | null
+  studentCardNumber: string | null
+  course: number | null
+  specialty: string | null
+  studyForm: string | null
+  educationLevel: string | null
+  fundingType: string | null
+  enrollmentYear: number | null
+  graduationYear: number | null
+  position: string | null
+  groupName: string | null
+  facultyName: string | null
 }
 
 /** Поля бланка справки об обучении: всё, что платформа знает о студенте как об учащемся. */

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { LeftAcademicStatusCode } from '@studenthub/shared-types'
 import { PageSchema } from './pagination.js'
 
 // Библиотека вуза (Фаза 20, docs/PROJECT.md §3.11): каталог, экземпляры, выдачи, брони.
@@ -427,7 +428,18 @@ export interface LoanItem {
   lostSettledAt: string | null
   book: { id: string; title: string; authors: string; coverUrl: string | null }
   copy: { id: string; inventoryNumber: string }
-  reader: { id: string | null; name: string; group: string | null; card: string | null }
+  reader: {
+    id: string | null
+    name: string
+    group: string | null
+    card: string | null
+    /**
+     * Читатель ушёл из вуза — отчислен, выпущен или переведён (`LEFT_ACADEMIC_STATUS_CODES`,
+     * shared-types): в отчёте о просрочках такая выдача помечается. Учится, удалён или статус
+     * не заполнен — `null`.
+     */
+    leftStatus: LeftAcademicStatusCode | null
+  }
   issuedBy: string | null
 }
 
