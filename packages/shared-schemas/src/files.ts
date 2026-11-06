@@ -175,7 +175,7 @@ export const MultipartDomainUrlsSchema = z
   .strict()
   .refine((v) => v.to >= v.from, {
     path: ['to'],
-    message: 'Конец диапазона частей не может быть меньше начала',
+    message: vm('validation.upload.partRangeReversed'),
   })
 export type MultipartDomainUrlsInput = z.infer<typeof MultipartDomainUrlsSchema>
 
