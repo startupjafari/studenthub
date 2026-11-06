@@ -1,6 +1,7 @@
 import type { AxiosProgressEvent } from 'axios'
 import type {
   AcceptConsentInput,
+  AccountDeletionCheck,
   UpdateProfileInput,
   UpdateUsernameInput,
   ChangePasswordInput,
@@ -22,6 +23,8 @@ export const userKeys = {
   consent: (birthDate: string | null) => ['user', 'me', 'consent', birthDate] as const,
   detail: (id: string) => ['user', 'detail', id] as const,
   presence: (id: string) => ['user', 'presence', id] as const,
+  // Что мешает удалить аккаунт: книги библиотеки на руках, последний админ платформы.
+  deletionCheck: () => ['user', 'me', 'deletion-check'] as const,
 }
 
 export async function fetchMe(): Promise<MeResponse> {
@@ -121,6 +124,15 @@ export async function changePasswordRequest(input: ChangePasswordInput): Promise
  */
 export async function deleteAccountRequest(input: DeleteAccountInput): Promise<void> {
   await api.delete('/users/me', { data: input })
+}
+
+/**
+ * Предпроверка удаления аккаунта (Фаза 21.C1): книги библиотеки на руках и прочие причины —
+ * показать до ввода пароля. Сервер при удалении проверяет то же самое сам.
+ */
+export async function fetchAccountDeletionCheck(): Promise<AccountDeletionCheck> {
+  const { data } = await api.get<AccountDeletionCheck>('/users/me/deletion-check')
+  return data
 }
 
 /**

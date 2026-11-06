@@ -1704,6 +1704,7 @@
     "TEMPLATE_FILE_INVALID": "This file cannot be used as a document template",
     "TEMPLATE_INVALID": "The template did not pass the check — fix the document and upload it again",
     "TEMPLATE_DATA_MISSING": "Fields required by the document are missing in the student's profile",
+    "LIBRARY_DEBTS_OPEN": "You can't delete your account while library books are checked out to you — return them first",
     "MAINTENANCE": "Maintenance is in progress. Please try again a little later",
     "LOGIN_LOCKED": "Too many failed sign-in attempts. Sign-in to this account is temporarily locked — wait a few minutes",
     "retryHint": "Could not load the data. Refresh the page or try again later."
@@ -3270,6 +3271,9 @@
     "deleteCodeLabel": "2FA code or backup code",
     "deleteWrongPassword": "Wrong password",
     "deleteLastAdmin": "You are the last platform administrator, so the account can't be deleted.",
+    "deleteLibraryTitle": "Return your library books first",
+    "deleteLibraryDesc": "You can't delete your account while library books are checked out to you: the library needs to know who has each book. Return them or settle the lost ones, and deletion will become available.",
+    "deleteLibraryMyBooks": "My books",
     "logoutEverywhere": "Sign out everywhere",
     "logoutEverywhereDesc": "Ends every session, including this one: you'll need to sign in again",
     "logoutEverywhereConfirm": "Sign out everywhere",
