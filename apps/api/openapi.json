@@ -1325,6 +1325,65 @@
         ]
       }
     },
+    "/career/profile/grants/{companyId}": {
+      "put": {
+        "operationId": "CareerProfileController_share",
+        "parameters": [
+          {
+            "name": "companyId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Профиль открыт компании"
+          },
+          "404": {
+            "description": "NOT_FOUND — отклика в эту компанию нет"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Открыть скрытый профиль одной компании, куда был отклик (21.D1)",
+        "tags": [
+          "Карьера — профиль"
+        ]
+      },
+      "delete": {
+        "operationId": "CareerProfileController_unshare",
+        "parameters": [
+          {
+            "name": "companyId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Профиль закрыт для компании (идемпотентно)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Закрыть профиль, открытый компании адресно (21.D1)",
+        "tags": [
+          "Карьера — профиль"
+        ]
+      }
+    },
     "/career/profile/candidates/{id}": {
       "get": {
         "operationId": "CareerProfileController_candidate",
@@ -25506,6 +25565,9 @@
           "coverLetter": {
             "type": "string",
             "maxLength": 4000
+          },
+          "shareProfile": {
+            "type": "boolean"
           }
         },
         "required": [
