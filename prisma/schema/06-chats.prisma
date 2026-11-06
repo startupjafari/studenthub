@@ -34,6 +34,11 @@ model Chat {
   // Ответ адресата = принятие: писать в чат, который не принял, он иначе не может.
   requestPendingForId String? @map("request_pending_for_id")
 
+  // Код ссылки-приглашения в пользовательскую группу. Ссылкой раньше был сам id чата: его
+  // знал каждый бывший участник, и исключённый возвращался сразу. Код меняет админ группы,
+  // он же сменяется сам при исключении и бане. NULL — ссылка ещё не выдавалась.
+  inviteCode String? @unique @map("invite_code")
+
   // Закрытие обращения в поддержку платформы (SUPPORT_PLATFORM). NULL — обращение открыто.
   // Отметкой времени, а не флагом: «когда закрыли» отвечает и на вопрос «сколько ждал
   // человек», а флаг не отвечает ни на один вопрос сверх «закрыто ли».
@@ -142,39 +147,47 @@ model ChatMember {
 }
 
 model Message {
-  id              String    @id @default(uuid())
-  chatId          String    @map("chat_id")
+  id               String    @id @default(uuid())
+  chatId           String    @map("chat_id")
   // Монотонный номер сообщения внутри чата (аллокатор — Chat.lastSeq). Клиент хранит последний
   // применённый seq и после реконнекта забирает только разницу, а не страницу истории заново.
-  seq             Int
-  senderId        String    @map("sender_id")
-  content         String
+  seq              Int
+  senderId         String    @map("sender_id")
+  content          String
   // Thread-ответ на другое сообщение того же чата.
-  replyToId       String?   @map("reply_to_id")
+  replyToId        String?   @map("reply_to_id")
   // Процитированный фрагмент отвечаемого сообщения (Telegram-стиль «ответ с цитатой»).
   // Хранится копией, а не смещениями: оригинал могут отредактировать, и смещения поехали бы.
   // Пусто — обычный ответ, в шапке показывается начало исходного сообщения целиком.
-  replyQuote      String?   @map("reply_quote")
+  replyQuote       String?   @map("reply_quote")
   // Отправлено «без звука»: сообщение доставляется как обычно, но уведомление и push
   // по нему не создаются. Флаг сообщения, а не участника — это выбор отправителя.
-  silent          Boolean   @default(false)
+  silent           Boolean   @default(false)
   // Пересылка (Ф9+): ссылка на исходное сообщение-источник (может быть из другого чата).
-  forwardedFromId String?   @map("forwarded_from_id")
-  editedAt        DateTime? @map("edited_at")
-  deletedAt       DateTime? @map("deleted_at")
+  forwardedFromId  String?   @map("forwarded_from_id")
+  editedAt         DateTime? @map("edited_at")
+  deletedAt        DateTime? @map("deleted_at")
   // Закрепление сообщения в чате (Ф9+): кто и когда закрепил.
-  pinnedAt        DateTime? @map("pinned_at")
-  pinnedById      String?   @map("pinned_by_id")
+  pinnedAt         DateTime? @map("pinned_at")
+  pinnedById       String?   @map("pinned_by_id")
+  // Когда закреп сняли. Снятие обнуляет pinnedAt и следа иначе не оставляет: догон после
+  // обрыва (GET /chats/:id/updates) по этому времени узнаёт, что закреп больше не действует.
+  unpinnedAt       DateTime? @map("unpinned_at")
   // Расшаренный пост (Ф9+ share-to-chat): превью-карточка поста в сообщении.
-  sharedPostId    String?   @map("shared_post_id")
+  sharedPostId     String?   @map("shared_post_id")
+  // Сторис в сообщении (§3.4): ответ на сторис автору или пересылка в личный чат. Сторис
+  // живёт сутки — после её удаления связь обнуляется (SetNull), и клиент пишет
+  // «сторис недоступна». sharedStoryReply — это ответ на сторис, а не пересылка.
+  sharedStoryId    String?   @map("shared_story_id")
+  sharedStoryReply Boolean   @default(false) @map("shared_story_reply")
   // Инлайн-превью первой ссылки (Ф9+): OG-мета {url,title,description,image,siteName}.
   // Заполняется асинхронно джобой link-preview; наружу отдаётся как есть.
-  linkPreview     Json?     @map("link_preview")
+  linkPreview      Json?     @map("link_preview")
   // Системное сообщение группы (§20): тип события (member_added, title_changed, …) + денормализованные
   // детали для рендера {targetName?, title?}. NULL — обычное сообщение. senderId = инициатор события.
-  systemType      String?   @map("system_type")
-  systemMeta      Json?     @map("system_meta")
-  createdAt       DateTime  @default(now()) @map("created_at")
+  systemType       String?   @map("system_type")
+  systemMeta       Json?     @map("system_meta")
+  createdAt        DateTime  @default(now()) @map("created_at")
 
   chat          Chat              @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   sender        User              @relation(fields: [senderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
@@ -184,6 +197,7 @@ model Message {
   forwards      Message[]         @relation("MessageForward")
   pinnedBy      User?             @relation("MessagePinnedBy", fields: [pinnedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
   sharedPost    Post?             @relation("MessageSharedPost", fields: [sharedPostId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  sharedStory   Story?            @relation("MessageSharedStory", fields: [sharedStoryId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   media         File[]
   reactions     MessageReaction[]
   // Опрос в чате (§38): 1:1 с сообщением-опросом (ChatPoll.messageId уникален).
@@ -199,6 +213,7 @@ model Message {
   @@index([forwardedFromId])
   @@index([pinnedById])
   @@index([sharedPostId])
+  @@index([sharedStoryId])
   // Закреплённые сообщения чата.
   @@index([chatId, pinnedAt])
   @@index([deletedAt])
@@ -340,5 +355,6 @@ model ScheduledMessage {
   @@index([scheduledAt])
   // Список своих отложенных в конкретном чате.
   @@index([chatId, senderId])
+  @@index([senderId])
   @@map("scheduled_messages")
 }

@@ -4,7 +4,12 @@ import { Role } from '@studenthub/shared-types'
 import type { NotificationKind } from '@studenthub/shared-schemas'
 import { PrismaService } from '../prisma/prisma.service'
 import type { EnvVars } from '../../config/env.schema'
-import { PLATFORM_STATE, type PlatformStateReader } from '../../modules/platform/platform.constants'
+import {
+  PLATFORM_STATE,
+  PLATFORM_TIME_ZONE,
+  isQuietHour,
+  type PlatformStateReader,
+} from '../../modules/platform/platform.constants'
 
 // Исходящие уведомления в Telegram команде платформы.
 //
@@ -23,17 +28,34 @@ const STAFF_ROLES: readonly Role[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERAT
 const SEND_TIMEOUT_MS = 5_000
 
 /**
+ * Час на часах команды платформы (0–23). Не `getHours()`: процесс API живёт в UTC, и час
+ * сервера разъезжался с часом людей на пять часов (см. PLATFORM_TIME_ZONE).
+ */
+export function platformHour(at: Date, timeZone: string = PLATFORM_TIME_ZONE): number {
+  const hour = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour: 'numeric',
+    hourCycle: 'h23',
+  }).format(at)
+  // Некоторые движки отдают полночь как «24» — сводим её к нулю.
+  return Number.parseInt(hour, 10) % 24
+}
+
+/**
  * Попадает ли момент в окно тишины. Окно задают как «с 22 до 8», то есть через полночь —
- * поэтому сравнение не «между», а «вне диапазона» при from > to.
+ * поэтому сравнение не «между», а «вне диапазона» при from > to. Часы — по поясу
+ * платформы, а не сервера: «22–8» в настройке означает ночь у команды.
  *
  * `from === to` означает тишину круглые сутки: так уведомления выключают, не стирая
  * настройку. Любое null — тишины нет.
  */
-export function isQuiet(from: number | null, to: number | null, now: Date): boolean {
-  if (from === null || to === null) return false
-  if (from === to) return true
-  const hour = now.getHours()
-  return from < to ? hour >= from && hour < to : hour >= from || hour < to
+export function isQuiet(
+  from: number | null,
+  to: number | null,
+  now: Date,
+  timeZone: string = PLATFORM_TIME_ZONE,
+): boolean {
+  return isQuietHour(from, to, platformHour(now, timeZone))
 }
 
 @Injectable()
@@ -82,20 +104,37 @@ export class TelegramNotifyService {
       if (isQuiet(policy.quietFrom, policy.quietTo, now)) return
     }
 
-    const accounts = await this.prisma.telegramAccount.findMany({
-      where: {
-        revokedAt: null,
-        user: {
-          role: { in: escalate ? [Role.PLATFORM_ADMIN] : [...STAFF_ROLES] },
-          isBlocked: false,
-        },
-        // Дежурный задан — пишем только ему: сообщение всей команде означает, что не
-        // среагирует никто, каждый решит, что возьмёт другой.
-        ...(policy?.dutyUserId ? { userId: policy.dutyUserId } : {}),
+    const team = {
+      revokedAt: null,
+      user: {
+        role: { in: escalate ? [Role.PLATFORM_ADMIN] : [...STAFF_ROLES] },
+        isBlocked: false,
+        // Роль удалённому сохраняется: без этого условия привязка, пережившая удаление,
+        // продолжала бы получать уведомления о жалобах и обращениях.
+        deletedAt: null,
       },
+    }
+    const dutyUserId = policy?.dutyUserId ?? null
+    let accounts = await this.prisma.telegramAccount.findMany({
+      // Дежурный задан — пишем только ему: сообщение всей команде означает, что не
+      // среагирует никто, каждый решит, что возьмёт другой.
+      where: dutyUserId ? { ...team, userId: dutyUserId } : team,
       select: { telegramId: true },
       take: 100,
     })
+    if (accounts.length === 0 && dutyUserId) {
+      // Дежурному не дойти: отвязал Telegram, заблокирован, удалён или уже не в команде.
+      // Промолчать значило бы потерять жалобу целиком — лучше написать всей команде, чем
+      // никому. Warn, а не тишина: настройка сломана, и чинить её должен человек.
+      this.logger.warn(
+        `Дежурный ${dutyUserId} недоступен в Telegram — уведомление «${kind}» уходит всей команде`,
+      )
+      accounts = await this.prisma.telegramAccount.findMany({
+        where: team,
+        select: { telegramId: true },
+        take: 100,
+      })
+    }
     if (accounts.length === 0) return
 
     const markup = this.keyboard(deepLink, take)

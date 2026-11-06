@@ -1,6 +1,6 @@
-import { PublicUserProfile } from '../../../../widgets/user-profile'
+import { PublicProfileView } from '../../../../views/profile'
 
 export default async function PublicProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  return <PublicUserProfile userId={id} />
+  return <PublicProfileView userId={id} />
 }

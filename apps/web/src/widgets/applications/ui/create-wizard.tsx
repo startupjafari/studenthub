@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Clock, FileText, Check } from 'lucide-react'
 import type { DeliveryType } from '@studenthub/shared-schemas'
+import { toApiError } from '../../../shared/lib'
 import {
   applicationKeys,
   fetchCategories,
@@ -16,13 +17,11 @@ import {
   submitApplicationRequest,
   pickLocale,
   type ServiceDetail,
-  type ServiceFormField,
 } from '../../../entities/application-service'
 import {
   Button,
   Card,
   EmptyState,
-  Input,
   Label,
   Modal,
   PageHeader,
@@ -33,21 +32,13 @@ import {
   SelectValue,
   Skeleton,
   Stepper,
-  Textarea,
 } from '../../../shared/ui'
 import { DocumentChecklist } from './document-checklist'
+import { FormAnswers } from './form-answers'
+import { DynamicField, isAnswerMissing } from './dynamic-field'
+import { allowedDeliveryTypes } from '../lib/delivery-types'
 
 type Step = 'catalog' | 'info' | 'form' | 'docs' | 'review'
-
-function allowedDeliveryTypes(modes: string[]): DeliveryType[] {
-  const e = modes.includes('ELECTRONIC')
-  const p = modes.includes('PAPER')
-  const out: DeliveryType[] = []
-  if (e) out.push('ELECTRONIC')
-  if (p) out.push('PAPER')
-  if (e && p) out.push('BOTH')
-  return out
-}
 
 // Мастер создания заявки: каталог → услуга → форма → проверка → отправка (§30, mobile-first).
 export function CreateWizard({
@@ -74,10 +65,33 @@ export function CreateWizard({
   // Категория выбирается отдельно от услуги: список услуг второго селекта — её услуги.
   const [categoryId, setCategoryId] = useState<string | null>(null)
   const [serviceId, setServiceId] = useState<string | null>(null)
-  const [draftId, setDraftId] = useState<string | null>(null)
+  // Черновик помнит услугу, на которую создан, и действует только пока выбрана она же.
+  // Раньше draftId жил отдельно от услуги: «Назад» до каталога → другая услуга → «Далее»
+  // рисовали форму и требования новой услуги, а прикладывали документы, сохраняли ответы
+  // и отправляли прежний черновик — студент получал заявку не на ту услугу.
+  const [draft, setDraft] = useState<{ id: string; serviceId: string } | null>(null)
+  const draftId = draft && draft.serviceId === serviceId ? draft.id : null
   const [deliveryType, setDeliveryType] = useState<DeliveryType | null>(null)
   const [formData, setFormData] = useState<Record<string, unknown>>({})
   const [seeded, setSeeded] = useState(false)
+
+  // Смена услуги: ответы и способ получения относились к прежней — коды полей у разных
+  // услуг совпадают, и чужой ответ тихо уехал бы в новую заявку.
+  const selectService = (id: string | null) => {
+    if (id === serviceId) return
+    setServiceId(id)
+    setFormData({})
+    setDeliveryType(null)
+  }
+
+  // Отказ сервера по существу (400: «Заполните поле: …», «Приложите документ: …») — с его
+  // текстом: общий «Не удалось загрузить» не говорил, что именно исправить.
+  const tErr = useTranslations('Errors')
+  const showError = (title: string) => (error: unknown) => {
+    const { code, message } = toApiError(error)
+    if (code === 'BAD_REQUEST' && message) toast.error(title, { description: message })
+    else toast.error(title, { description: tErr(code) })
+  }
 
   // Продолжение существующего черновика (§8): подгружаем и стартуем сразу с формы.
   const draftQ = useQuery({
@@ -89,7 +103,7 @@ export function CreateWizard({
     if (!initialDraftId || seeded || !draftQ.data) return
     const a = draftQ.data
     setServiceId(a.service.id)
-    setDraftId(a.id)
+    setDraft({ id: a.id, serviceId: a.service.id })
     setDeliveryType(a.deliveryType)
     setFormData((a.formData as Record<string, unknown>) ?? {})
     setStep('form')
@@ -107,15 +121,15 @@ export function CreateWizard({
   const createMut = useMutation({
     mutationFn: (id: string) => createDraftRequest(id),
     onSuccess: (app) => {
-      setDraftId(app.id)
+      setDraft({ id: app.id, serviceId: app.service.id })
       setStep('form')
     },
-    onError: () => toast.error(t('loadError')),
+    onError: showError(t('saveFailed')),
   })
   const saveMut = useMutation({
     mutationFn: () =>
       updateDraftRequest(draftId!, { deliveryType: deliveryType ?? undefined, formData }),
-    onError: () => toast.error(t('loadError')),
+    onError: showError(t('saveFailed')),
   })
   const submitMut = useMutation({
     mutationFn: async () => {
@@ -127,7 +141,7 @@ export function CreateWizard({
       toast.success(t('submittedToast', { number: app.number ?? '' }))
       onDone(app.id)
     },
-    onError: () => toast.error(t('loadError')),
+    onError: showError(t('submitFailed')),
   })
 
   // Приложенные документы черновика (для шага «Документы» и gating обязательных).
@@ -163,11 +177,7 @@ export function CreateWizard({
   const missingRequired = useMemo(() => {
     if (!service) return true
     if (!deliveryType) return true
-    return service.formFields.some((f) => {
-      if (!f.required) return false
-      const v = formData[f.code]
-      return v === undefined || v === null || v === ''
-    })
+    return service.formFields.some((f) => f.required && isAnswerMissing(f, formData[f.code]))
   }, [service, deliveryType, formData])
 
   // Степпер шагов заполнения (после выбора услуги): Услуга → Данные → Документы → Проверка.
@@ -190,11 +200,36 @@ export function CreateWizard({
       />
     ) : null
 
-  // Режим правки черновика: пока подгружается — скелетон.
+  // Режим правки черновика: пока подгружается — скелетон, не загрузился — ошибка с повтором
+  // (раньше скелетон оставался навсегда).
   if (initialDraftId && !seeded) {
     return (
       <Page onClose={onCancel} modal={asModal}>
-        <SkeletonList />
+        {draftQ.isError ? <ErrorState onRetry={() => draftQ.refetch()} /> : <SkeletonList />}
+      </Page>
+    )
+  }
+
+  // Услугу черновика могли выключить или заменить копией вуза: каталог отвечает 404, и
+  // шаги после каталога рисовали пустой экран без объяснения. Говорим, что случилось.
+  if (step !== 'catalog' && serviceQ.isError) {
+    const gone = toApiError(serviceQ.error).code === 'NOT_FOUND'
+    return (
+      <Page onClose={onCancel} modal={asModal}>
+        {gone ? (
+          <EmptyState
+            icon={<FileText className="size-6" aria-hidden />}
+            title={t('serviceUnavailableTitle')}
+            description={t('serviceUnavailableHint')}
+            action={
+              <Button variant="outline" onClick={onCancel}>
+                {t('backBtn')}
+              </Button>
+            }
+          />
+        ) : (
+          <ErrorState onRetry={() => serviceQ.refetch()} />
+        )}
       </Page>
     )
   }
@@ -222,7 +257,7 @@ export function CreateWizard({
                   setCategoryId(v)
                   // Услуга из прежней категории в новом списке отсутствует — сбрасываем,
                   // иначе кнопка «Далее» увела бы на услугу, которой в списке не видно.
-                  setServiceId(null)
+                  selectService(null)
                 }}
               >
                 <SelectTrigger id="application-category" className="w-full">
@@ -242,7 +277,7 @@ export function CreateWizard({
               <Label htmlFor="application-service">{t('serviceLabel')}</Label>
               <Select
                 value={serviceId ?? ''}
-                onValueChange={setServiceId}
+                onValueChange={selectService}
                 disabled={categoryServices.length === 0}
               >
                 <SelectTrigger id="application-service" className="w-full">
@@ -301,6 +336,15 @@ export function CreateWizard({
     )
   }
 
+  // Шаги после «Услуги» ждут её данных — пока грузятся, скелетон, а не пустое окно.
+  if (!service) {
+    return (
+      <Page onClose={onCancel} modal={asModal}>
+        <SkeletonList />
+      </Page>
+    )
+  }
+
   // ── Форма ───────────────────────────────────────────────────────────────────
   if (step === 'form' && service) {
     return (
@@ -343,6 +387,8 @@ export function CreateWizard({
                   value={formData[f.code]}
                   onChange={(v) => setFormData((prev) => ({ ...prev, [f.code]: v }))}
                   optionalLabel={t('optional')}
+                  yesLabel={t('answerYes')}
+                  noLabel={t('answerNo')}
                 />
               ))}
             </div>
@@ -436,18 +482,9 @@ export function CreateWizard({
             {deliveryType && (
               <Row label={t('deliveryTitle')} value={t(`delivery_${deliveryType}`)} />
             )}
-            {service.formFields.map((f) => {
-              const v = formData[f.code]
-              if (v === undefined || v === null || v === '') return null
-              return (
-                <Row
-                  key={f.id}
-                  label={pickLocale(f as unknown as Record<string, unknown>, 'label', locale)}
-                  value={String(v)}
-                />
-              )
-            })}
           </Card>
+          {/* Ответы — подписями вариантов и «Да/Нет», а не кодами и true/false. */}
+          <FormAnswers fields={service.formFields} formData={formData} />
           <div className="flex sm:justify-end">
             <Button
               className="w-full sm:w-auto"
@@ -571,77 +608,6 @@ function ServiceInfo({
   )
 }
 
-function DynamicField({
-  field,
-  locale,
-  value,
-  onChange,
-  optionalLabel,
-}: {
-  field: ServiceFormField
-  locale: string
-  value: unknown
-  onChange: (v: unknown) => void
-  optionalLabel: string
-}) {
-  const rec = field as unknown as Record<string, unknown>
-  const label = pickLocale(rec, 'label', locale)
-  const placeholder = pickLocale(rec, 'placeholder', locale)
-  const id = `field-${field.code}`
-  const common = { id, placeholder, 'aria-required': field.required }
-
-  return (
-    <div className="flex flex-col gap-2">
-      <Label htmlFor={id}>
-        {label}
-        {!field.required && (
-          <span className="ml-1 text-xs text-muted-foreground">({optionalLabel})</span>
-        )}
-      </Label>
-      {field.type === 'TEXTAREA' ? (
-        <Textarea
-          {...common}
-          value={(value as string) ?? ''}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      ) : field.type === 'SELECT' || field.type === 'RADIO' ? (
-        <select
-          id={id}
-          value={(value as string) ?? ''}
-          onChange={(e) => onChange(e.target.value)}
-          className="h-9 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-        >
-          <option value="" disabled>
-            —
-          </option>
-          {(field.options ?? []).map((o) => (
-            <option key={o.value} value={o.value}>
-              {pickLocale(o as unknown as Record<string, unknown>, 'label', locale) || o.value}
-            </option>
-          ))}
-        </select>
-      ) : field.type === 'BOOLEAN' || field.type === 'CHECKBOX' ? (
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            className="size-4 accent-primary"
-            checked={Boolean(value)}
-            onChange={(e) => onChange(e.target.checked)}
-          />
-          {placeholder || label}
-        </label>
-      ) : (
-        <Input
-          {...common}
-          type={field.type === 'NUMBER' ? 'number' : field.type === 'DATE' ? 'date' : 'text'}
-          value={(value as string) ?? ''}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      )}
-    </div>
-  )
-}
-
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5">
@@ -655,7 +621,7 @@ function SkeletonList() {
   return (
     <div className="flex flex-col gap-2">
       {Array.from({ length: 5 }).map((_, i) => (
-        <Skeleton key={i} className="h-16 w-full rounded-xl" />
+        <Skeleton key={i} fill className="min-h-16 rounded-xl" />
       ))}
     </div>
   )

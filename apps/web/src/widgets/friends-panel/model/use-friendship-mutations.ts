@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
+import { toApiError } from '../../../shared/lib'
 import { acceptFriendRequest, friendKeys, removeFriendship } from '../../../entities/friendship'
 import { notificationKeys } from '../../../entities/notification'
 
@@ -21,6 +22,11 @@ export function useFriendshipMutations() {
   const tErr = useTranslations('Errors')
   const queryClient = useQueryClient()
 
+  // Отказ — по коду: «заявка уже обработана» (409) или блокировка (403) — не сбой сервера.
+  const showError = (e: unknown): void => {
+    toast.error(tErr(toApiError(e).code))
+  }
+
   const invalidate = (): void => {
     void queryClient.invalidateQueries({ queryKey: friendKeys.all })
     void queryClient.invalidateQueries({ queryKey: notificationKeys.all })
@@ -32,7 +38,7 @@ export function useFriendshipMutations() {
       invalidate()
       toast.success(t('accepted'))
     },
-    onError: () => toast.error(tErr('INTERNAL_ERROR')),
+    onError: showError,
   })
 
   // Один эндпоинт на три исхода: отклонить входящую, отменить свою, удалить из друзей.
@@ -44,7 +50,7 @@ export function useFriendshipMutations() {
       invalidate()
       if (vars.message) toast.success(vars.message)
     },
-    onError: () => toast.error(tErr('INTERNAL_ERROR')),
+    onError: showError,
   })
 
   return { accept, remove }

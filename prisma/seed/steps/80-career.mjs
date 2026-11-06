@@ -157,6 +157,7 @@ export async function seedCareer(prisma, writer, ctx) {
       const { vacancyId, company } = visibleVacancies[(si + ai) % visibleVacancies.length]
       const status = random.pickWeighted(FUNNEL)
       const applicationId = `${vacancyId}-app-${studentId}`
+      const createdAt = random.randomDate(-50, -1)
       await writer.add('careerApplication', {
         id: applicationId,
         vacancyId,
@@ -165,18 +166,25 @@ export async function seedCareer(prisma, writer, ctx) {
         universityId: uniId,
         status,
         coverLetter: random.pick(COVER_LETTERS),
-        createdAt: random.randomDate(-50, -1),
+        createdAt,
       })
-      for (const [ei, toStatus] of pathTo(status, random).entries()) {
+      // Журнал откликов — основание в споре, поэтому цепочка обязана сходиться: путь
+      // считается один раз (у отказа и отзыва он случайный, и второй вызов давал другой
+      // «предыдущий» статус), fromStatus — toStatus прошлого события, время идёт вперёд
+      // от подачи и не уходит в будущее.
+      const path = pathTo(status, random)
+      let at = createdAt
+      for (const [ei, toStatus] of path.entries()) {
+        if (ei > 0) at = new Date(Math.min(Date.now(), at.getTime() + random.randInt(1, 72) * 3_600_000)) // prettier-ignore
         await writer.add('careerApplicationEvent', {
           id: child(applicationId, 'ev', ei),
           applicationId,
-          fromStatus: ei === 0 ? null : (pathTo(status, random)[ei - 1] ?? null),
+          fromStatus: ei === 0 ? null : path[ei - 1],
           toStatus,
           comment: toStatus === 'REJECTED' ? 'Выбрали другого кандидата' : null,
-          // Первый переход делает студент (подача), дальше — работодатель.
-          actorId: ei === 0 ? studentId : company.recruiterIds[0],
-          createdAt: random.randomDate(-49 + ei, 0),
+          // Подачу и отзыв делает студент, остальные переходы — работодатель.
+          actorId: ei === 0 || toStatus === 'WITHDRAWN' ? studentId : company.recruiterIds[0],
+          createdAt: at,
         })
       }
     }

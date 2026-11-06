@@ -66,7 +66,7 @@ export function Sparkline({
         strokeLinejoin="round"
         strokeLinecap="round"
         vectorEffect="non-scaling-stroke"
-        className="transition-[stroke-dashoffset] duration-700 ease-out motion-reduce:transition-none"
+        className="transition-[stroke-dashoffset] duration-(--motion-large) motion-reduce:transition-none"
         style={
           length ? { strokeDasharray: length, strokeDashoffset: drawn ? 0 : length } : undefined
         }
@@ -79,7 +79,7 @@ export function Sparkline({
         fill={palette.series[0]}
         stroke={palette.surface}
         strokeWidth={2}
-        className="transition-opacity delay-500 duration-300 motion-reduce:transition-none"
+        className="transition-opacity delay-(--motion-large) duration-(--motion-page) motion-reduce:transition-none"
         style={{ opacity: drawn ? 1 : 0 }}
       />
     </svg>

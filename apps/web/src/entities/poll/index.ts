@@ -1,6 +1,8 @@
 export {
   pollKeys,
   fetchPollsByUser,
+  fetchPollsByCompany,
+  fetchPollsByUniversity,
   fetchPoll,
   createPoll,
   updatePoll,

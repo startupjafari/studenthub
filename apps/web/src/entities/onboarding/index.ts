@@ -6,6 +6,7 @@ export {
   fetchDemoRequest,
   approveDemoRequest,
   rejectDemoRequest,
+  reissueDemoInvite,
   fetchOnboardingState,
   confirmOnboardingProfile,
   skipOnboardingStep,

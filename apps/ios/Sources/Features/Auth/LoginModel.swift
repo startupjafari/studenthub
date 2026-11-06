@@ -88,6 +88,15 @@ final class LoginModel {
         do {
             let issued = try await auth.verifyTwoFactor(challengeToken: challengeToken, code: entered)
             await adopt(issued, into: session)
+        } catch let error as APIError where error.code == .unauthorized {
+            // UNAUTHORIZED на втором шаге — не неверный код, а мёртвый challenge: три
+            // промаха или пять минут ожидания. Любой следующий код, даже верный, его не
+            // оживит (§8.3 Auth) — возвращаем к паролю и говорим почему, как веб.
+            startOver()
+            formError = String(
+                localized: "auth.error.challengeExpired",
+                defaultValue: "Время на ввод кода истекло или попытки закончились — введите пароль ещё раз"
+            )
         } catch {
             handle(error)
         }

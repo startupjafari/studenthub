@@ -12,12 +12,21 @@ import {
   Query,
   Req,
 } from '@nestjs/common'
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
 import type { FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
+import { AppException } from '../../common/exceptions/app.exception'
+import { readUploadWithFields } from '../../common/http/read-upload'
 import type { RequestContext } from '../auth/auth.service'
 import { AssignmentsService } from './assignments.service'
 import { CreateAssignmentDto } from './dto/create-assignment.dto'
@@ -25,6 +34,7 @@ import { UpdateAssignmentDto } from './dto/update-assignment.dto'
 import { AssignmentListQueryDto } from './dto/assignment-list-query.dto'
 import { ReviewQueueQueryDto } from './dto/review-queue-query.dto'
 import { SaveSubmissionDto } from './dto/save-submission.dto'
+import { ConfirmSubmissionFileDto, PresignSubmissionFileDto } from './dto/submission-file.dto'
 
 const TEACH_ROLES = [Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN, Role.TEACHER] as const
 const STUDENT_ROLES = [Role.STUDENT, Role.STAROSTA] as const
@@ -77,7 +87,13 @@ export class AssignmentsController {
 
   @Patch(':id')
   @Roles(...TEACH_ROLES)
-  @ApiOperation({ summary: 'Изменить задание' })
+  @ApiOperation({
+    summary: 'Изменить задание (опубликованное — тоже, кроме publishAt; правка пишется в аудит)',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'CONFLICT — publishAt у опубликованного; maxScore ниже выставленного балла',
+  })
   update(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
@@ -89,7 +105,8 @@ export class AssignmentsController {
 
   @Post(':id/publish')
   @Roles(...TEACH_ROLES)
-  @ApiOperation({ summary: 'Опубликовать задание' })
+  @ApiOperation({ summary: 'Опубликовать черновик или снова открыть закрытое задание' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — задание уже опубликовано' })
   publish(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
@@ -100,7 +117,8 @@ export class AssignmentsController {
 
   @Post(':id/close')
   @Roles(...TEACH_ROLES)
-  @ApiOperation({ summary: 'Закрыть задание' })
+  @ApiOperation({ summary: 'Закрыть опубликованное задание' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — черновик или уже закрыто' })
   close(@CurrentUser() user: CurrentUserData, @Param('id') id: string, @Req() req: FastifyRequest) {
     return this.assignments.setStatus(user, id, 'CLOSED', this.ctx(req))
   }
@@ -135,6 +153,81 @@ export class AssignmentsController {
   @ApiOperation({ summary: 'Отправить работу на проверку' })
   submit(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
     return this.assignments.submit(user, id)
+  }
+
+  // ── Файлы сдачи (студент) ───────────────────────────────────────────────
+  // Как у материалов: до порога — буферная загрузка, больше — presign → PUT → confirm.
+  // Файл сразу попадает в черновик сдачи (черновика нет — он создаётся).
+
+  @Post(':id/submission/files')
+  @Roles(...STUDENT_ROLES)
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file'],
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiOperation({ summary: 'Приложить файл к работе (до порога буферной загрузки)' })
+  @ApiResponse({ status: 201, description: '{ id, name, mime, size, createdAt }' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — работа отправлена или файлов уже 10' })
+  @ApiResponse({ status: 422, description: 'FILE_TYPE_NOT_ALLOWED / FILE_TOO_LARGE' })
+  async addSubmissionFile(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+  ) {
+    // С полями, а не readSingleUpload: нужно исходное имя файла — по нему преподаватель
+    // отличает отчёт от исходников.
+    const { files } = await readUploadWithFields(req)
+    const file = files[0]
+    if (!file) {
+      throw new AppException('BAD_REQUEST', 'Файл не передан (ожидается multipart-поле "file")')
+    }
+    return this.assignments.addSubmissionFile(user, id, {
+      buffer: file.buffer,
+      name: file.filename || undefined,
+    })
+  }
+
+  @Post(':id/submission/files/presign')
+  @Roles(...STUDENT_ROLES)
+  @ApiOperation({ summary: 'Прямая загрузка файла работы: подписанная ссылка (шаг 1 из 3)' })
+  @ApiResponse({ status: 201, description: 'key + PUT-URL + срок действия' })
+  presignSubmissionFile(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: PresignSubmissionFileDto,
+  ) {
+    return this.assignments.presignSubmissionFile(user, id, dto.mime)
+  }
+
+  @Post(':id/submission/files/confirm')
+  @Roles(...STUDENT_ROLES)
+  @ApiOperation({ summary: 'Подтвердить прямую загрузку файла работы (шаг 3 из 3)' })
+  @ApiResponse({ status: 201, description: '{ id, name, mime, size, createdAt }' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — ключ не принадлежит вызывающему' })
+  @ApiResponse({ status: 422, description: 'FILE_TYPE_NOT_ALLOWED / FILE_TOO_LARGE' })
+  confirmSubmissionFile(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: ConfirmSubmissionFileDto,
+  ) {
+    return this.assignments.confirmSubmissionFile(user, id, dto.key, dto.name)
+  }
+
+  @Delete(':id/submission/files/:fileId')
+  @Roles(...STUDENT_ROLES)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Убрать файл из неотправленной работы' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — работа уже отправлена' })
+  async removeSubmissionFile(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Param('fileId') fileId: string,
+  ): Promise<void> {
+    await this.assignments.removeSubmissionFile(user, id, fileId)
   }
 
   private ctx(req: FastifyRequest): RequestContext {

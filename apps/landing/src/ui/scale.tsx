@@ -27,9 +27,16 @@ export function Scale({ dict, tone }: { dict: Dictionary; tone?: SectionTone }) 
         {t.stats.map((stat, index) => (
           <Reveal key={stat.label} delay={index} className="flex flex-col gap-3">
             <span className="sh-title font-display text-[clamp(2.1rem,4.6vw,3.85rem)] leading-none font-semibold tracking-[-0.04em] tabular-nums">
-              {/* Начальное значение — 0: до появления число не должно мелькать готовым.
-                  У самого нуля разбега нет, поэтому он и не считается. */}
-              {stat.value === 0 ? <span>0</span> : <span data-count={stat.value}>0</span>}
+              {/* В разметке — настоящее число: его читают поисковики, превью ссылок и
+                  браузер без JavaScript. Раньше там стоял 0, и для них продукт выглядел
+                  платформой с нулём ролей. Сбрасывает к нулю перед разбегом уже сценарий
+                  (SiteMotion), пока блок ещё не проявился. У самого нуля разбега нет,
+                  поэтому он и не считается. */}
+              {stat.value === 0 ? (
+                <span>0</span>
+              ) : (
+                <span data-count={stat.value}>{stat.value}</span>
+              )}
             </span>
             <span className="max-w-[20ch] text-sm leading-snug text-muted-foreground">
               {stat.label}

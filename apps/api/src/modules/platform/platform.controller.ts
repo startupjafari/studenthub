@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, Post, Req } from '@nestjs/common'
+import { Body, Controller, Get, Patch, Post, Req, UseGuards } from '@nestjs/common'
 import { Throttle } from '@nestjs/throttler'
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
@@ -11,6 +11,7 @@ import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { QueueService } from '../../common/queue'
 import { PlatformService } from './platform.service'
+import { OptionalJwtGuard } from './optional-jwt.guard'
 import { SetMaintenanceDto } from './dto/set-maintenance.dto'
 import { SetBannerDto } from './dto/set-banner.dto'
 import { SetSectionsDto } from './dto/set-sections.dto'
@@ -37,12 +38,23 @@ export class PlatformController {
   // Читают все, включая неаутентифицированных: страница логина тоже обязана показать режим
   // техработ — иначе человек будет биться в форму, которая всё равно не пустит. Наружу
   // уходят только объявления, адресованные посетителю; кто двигал рычаги — не публикуется.
+  //
+  // Токен, если он есть, читает OptionalJwtGuard: по нему адресный баннер достаётся только
+  // адресату, а настройки уведомлений — только команде платформы. Без токена — срез для
+  // анонима: техработы, разделы и баннер без адресации.
   @Get('state')
   @Public()
-  @ApiOperation({ summary: 'Режим техработ, баннер, погашенные разделы, объявленный релиз' })
+  @UseGuards(OptionalJwtGuard)
+  @ApiOperation({
+    summary: 'Режим техработ, баннер, погашенные разделы, объявленный релиз',
+    description:
+      'Публичный; Bearer-токен необязателен. Аноним получает баннер только без адресации и ' +
+      'не получает `notifications`. Вошедший — баннер, если он ему адресован (в ' +
+      '`universityIds` — только свой вуз). Команда платформы — состояние целиком.',
+  })
   @ApiResponse({ status: 200, description: 'Действующее состояние платформы' })
-  state() {
-    return this.platform.publicState()
+  state(@CurrentUser() user: CurrentUserData | null | undefined) {
+    return this.platform.publicState(new Date(), user ?? null)
   }
 
   @Get('queues')

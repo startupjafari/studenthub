@@ -27,6 +27,13 @@ final class DeepLinkTests: XCTestCase {
         }
     }
 
+    /// Уведомления о постах и подписках ведут в ленту и в чужой профиль.
+    func testFeedAndProfileLinks() {
+        XCTAssertEqual(link("https://studenthub.kz/feed"), .tab(.home))
+        XCTAssertEqual(link("studenthub://profile/u-7"), .profile(id: "u-7"))
+        XCTAssertEqual(link("https://studenthub.kz/profile"), .section(.profile))
+    }
+
     /// Ролевой префикс веба на телефоне ничего не значит: вкладки у всех одни.
     func testRolePrefixIsIgnored() {
         XCTAssertEqual(link("https://studenthub.kz/teacher/schedule"), .tab(.schedule))
@@ -35,13 +42,26 @@ final class DeepLinkTests: XCTestCase {
 
     func testStarostaSectionsAreRecognised() {
         XCTAssertEqual(link("https://studenthub.kz/starosta/classmates"), .section(.classmates))
-        XCTAssertEqual(link("https://studenthub.kz/starosta/group-requests"), .section(.groupRequests))
+        // «Обращений группы» больше нет: заявки одногруппников старосте не видны.
+        XCTAssertNil(link("https://studenthub.kz/starosta/group-requests"))
     }
 
     func testApplicationAndEventCards() {
         XCTAssertEqual(link("studenthub://applications?a=app-1"), .application(id: "app-1"))
         XCTAssertEqual(link("https://studenthub.kz/events/event-1"), .event(id: "event-1"))
         XCTAssertEqual(link("https://studenthub.kz/posts/post-1"), .post(id: "post-1"))
+    }
+
+    /// Библиотека читателя: каталог, книга, «Мои книги» (туда ведут её уведомления) и
+    /// QR-наклейка экземпляра.
+    func testLibraryLinks() {
+        XCTAssertEqual(link("https://studenthub.kz/books"), .section(.library))
+        XCTAssertEqual(link("https://studenthub.kz/books/book-1"), .book(id: "book-1"))
+        XCTAssertEqual(link("studenthub://my-books"), .myBooks)
+        XCTAssertEqual(link("https://studenthub.kz/c/AB12CD34"), .bookCopy(code: "AB12CD34"))
+        // Фонд библиотекаря — не читательский раздел, его откроет браузер.
+        XCTAssertNil(link("https://studenthub.kz/library/catalog/book-1"))
+        XCTAssertNil(link("https://studenthub.kz/c"))
     }
 
     /// Незнакомый адрес не угадываем: его откроет браузер, где работает полная
@@ -101,13 +121,64 @@ final class AppRouterTests: XCTestCase {
         XCTAssertEqual(router.stack(for: .chats), [])
     }
 
+    /// Под книгой и «Моими книгами» остаётся каталог: «назад» из уведомления
+    /// библиотеки ведёт в библиотеку.
+    func testLibraryKeepsCatalogBeneath() {
+        let router = AppRouter()
+
+        XCTAssertTrue(router.open(.book(id: "book-1"), for: .student))
+        XCTAssertEqual(router.selectedTab, .more)
+        XCTAssertEqual(router.stack(for: .more), [.section(.library), .book(id: "book-1")])
+
+        XCTAssertTrue(router.open(.myBooks, for: .starosta))
+        XCTAssertEqual(router.stack(for: .more), [.section(.library), .myBooks])
+
+        XCTAssertTrue(router.open(.bookCopy(code: "AB12CD34"), for: .student))
+        XCTAssertEqual(router.stack(for: .more), [.section(.library), .bookCopy(code: "AB12CD34")])
+    }
+
+    /// Библиотека — для читателей: у преподавателя в приложении её нет.
+    func testLibraryIsForReadersOnly() {
+        let router = AppRouter()
+
+        XCTAssertFalse(router.open(.myBooks, for: .teacher))
+        XCTAssertFalse(router.open(.section(.library), for: .teacher))
+        XCTAssertTrue(router.open(.section(.library), for: .student))
+    }
+
     /// Ссылка в чужой раздел не должна открывать пустой экран: у студента нет
-    /// обращений группы.
+    /// раздела одногруппников.
     func testSectionForeignToTheRoleIsRefused() {
         let router = AppRouter()
 
-        XCTAssertFalse(router.open(.section(.groupRequests), for: .student))
-        XCTAssertTrue(router.open(.section(.groupRequests), for: .starosta))
+        XCTAssertFalse(router.open(.section(.classmates), for: .student))
+        XCTAssertTrue(router.open(.section(.classmates), for: .starosta))
+    }
+
+    /// Пуш на холодном старте ждёт роли: с неизвестной ролью библиотека отказала бы.
+    func testPostponedLinkOpensOnceRoleIsKnown() {
+        let router = AppRouter()
+
+        router.postpone(.myBooks)
+        XCTAssertTrue(router.stack(for: .more).isEmpty)
+
+        router.openPending(for: .student)
+        XCTAssertEqual(router.selectedTab, .more)
+        XCTAssertEqual(router.stack(for: .more), [.section(.library), .myBooks])
+    }
+
+    /// Выход: следующий человек начинает с главной и не получает ни открытого чата
+    /// прежнего, ни его отложенной ссылки.
+    func testResetForgetsStacksAndPendingLink() {
+        let router = AppRouter()
+        router.open(.chat(id: "chat-1"), for: .student)
+        router.postpone(.chat(id: "chat-2"))
+
+        router.reset()
+        router.openPending(for: .student)
+
+        XCTAssertEqual(router.selectedTab, .home)
+        XCTAssertTrue(router.stack(for: .chats).isEmpty)
     }
 }
 
@@ -120,6 +191,15 @@ final class MoreSectionTests: XCTestCase {
         XCTAssertTrue(MoreSection.sections(for: .starosta).contains(.classmates))
         XCTAssertTrue(MoreSection.sections(for: .teacher).contains(.subjects))
         XCTAssertFalse(MoreSection.sections(for: .teacher).contains(.classmates))
+    }
+
+    /// Библиотека — модуль вуза: в списке роли её нет, пункт появляется, когда вуз её
+    /// включил.
+    func testLibraryIsAModuleOfReaders() {
+        XCTAssertEqual(MoreSection.modules(for: .student), [.library])
+        XCTAssertEqual(MoreSection.modules(for: .starosta), [.library])
+        XCTAssertTrue(MoreSection.modules(for: .teacher).isEmpty)
+        XCTAssertFalse(MoreSection.sections(for: .student).contains(.library))
     }
 
     /// Роли вне MVP приложение не ведёт — и список для них пуст, а не «как у всех».

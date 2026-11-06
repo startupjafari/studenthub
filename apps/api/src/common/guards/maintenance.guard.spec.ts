@@ -1,5 +1,5 @@
 import { Reflector } from '@nestjs/core'
-import type { ExecutionContext } from '@nestjs/common'
+import { Logger, type ExecutionContext } from '@nestjs/common'
 import { Role } from '@studenthub/shared-types'
 import { MaintenanceGuard } from './maintenance.guard'
 import { AppException } from '../exceptions/app.exception'
@@ -64,6 +64,22 @@ describe('MaintenanceGuard', () => {
 
     await expect(guard.canActivate(context({ role: Role.STUDENT }))).resolves.toBe(true)
     expect(platform.maintenanceActive).not.toHaveBeenCalled()
+  })
+
+  // Регрессия B-F01: исключение из проверки было 500 на каждом запросе у всех ролей.
+  // Сбой проверки — та же сторона, что и сбой чтения БД: платформа считает себя работающей.
+  it('пропускает запрос, если сама проверка техработ упала', async () => {
+    const { guard, platform } = setup(false)
+    platform.maintenanceActive.mockRejectedValue(
+      new TypeError('this.memo.from.getTime is not a function'),
+    )
+    const log = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+    await expect(guard.canActivate(context({ role: Role.STUDENT }))).resolves.toBe(true)
+    await expect(guard.canActivate(context())).resolves.toBe(true)
+    // Сбой повторяется на каждом запросе — журнал не должен им захлебнуться.
+    expect(log).toHaveBeenCalledTimes(1)
+    log.mockRestore()
   })
 
   it('отдаёт код MAINTENANCE со статусом 503', async () => {

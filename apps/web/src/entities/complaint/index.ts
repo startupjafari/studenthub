@@ -1,8 +1,12 @@
 export {
   complaintKeys,
   createComplaintRequest,
+  createComplaintFromSupportRequest,
   fetchComplaints,
+  fetchComplaint,
   resolveComplaintRequest,
+  takeComplaintRequest,
+  reopenComplaintRequest,
   fetchComplaintMessages,
 } from './api/complaint-api'
 export {
@@ -12,6 +16,8 @@ export {
   type ComplaintStatusValue,
   type ComplaintTargetTypeValue,
   type Complaint,
+  type ComplaintCard,
+  type ComplaintTargetPreview,
   type ComplaintUser,
   type ComplaintChatMessage,
 } from './model/types'

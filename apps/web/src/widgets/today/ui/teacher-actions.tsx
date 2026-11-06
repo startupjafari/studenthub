@@ -71,8 +71,8 @@ export function AttendanceTodoPanel({
     <SectionPanel title={t('attendanceTodo')} subtitle={t('attendanceTodoHint')}>
       {pairIds.length > 0 && marked.isPending ? (
         <div className="flex flex-col gap-2">
-          <Skeleton className="h-12 w-full rounded-lg" />
-          <Skeleton className="h-12 w-full rounded-lg" />
+          <Skeleton fill className="min-h-12 rounded-lg" />
+          <Skeleton fill className="min-h-12 rounded-lg" />
         </div>
       ) : pending.length === 0 ? (
         <EmptyState
@@ -128,8 +128,8 @@ export function ReviewQueuePanel() {
     >
       {q.isPending ? (
         <div className="flex flex-col gap-2">
-          <Skeleton className="h-12 w-full rounded-lg" />
-          <Skeleton className="h-12 w-full rounded-lg" />
+          <Skeleton fill className="min-h-12 rounded-lg" />
+          <Skeleton fill className="min-h-12 rounded-lg" />
         </div>
       ) : items.length === 0 ? (
         <EmptyState
@@ -142,7 +142,7 @@ export function ReviewQueuePanel() {
           {items.map((a) => (
             <li key={a.id}>
               <Link
-                href={`/teacher/assignments/${a.id}`}
+                href={`/teacher/assignments?open=${a.id}`}
                 className="flex items-center gap-3 rounded-lg border border-border p-2.5 transition-colors hover:bg-muted/40"
               >
                 <span className="min-w-0 flex-1">
@@ -231,7 +231,7 @@ export function UpcomingConsultationsPanel() {
   return (
     <SectionPanel title={t('consultationsNext')} subtitle={t('consultationsNextHint')}>
       {q.isPending ? (
-        <Skeleton className="h-12 w-full rounded-lg" />
+        <Skeleton fill className="min-h-12 rounded-lg" />
       ) : items.length === 0 ? (
         <EmptyState
           icon={<CalendarClock className="size-6" aria-hidden />}

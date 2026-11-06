@@ -26,7 +26,7 @@ const PostLightbox = dynamic(
  */
 export function PostPageView({ postId }: { postId: string }) {
   const t = useTranslations('Feed')
-  const [lightbox, setLightbox] = useState<{ focusComment: boolean } | null>(null)
+  const [lightbox, setLightbox] = useState<{ focusComment: boolean; media?: number } | null>(null)
 
   const post = useQuery({
     queryKey: postKeys.detail(postId),
@@ -39,9 +39,9 @@ export function PostPageView({ postId }: { postId: string }) {
     <div className="flex w-full flex-1 flex-col gap-4">
       <PageHeader title={t('postTitle')} />
 
-      <div className="mx-auto w-full max-w-xl">
+      <div className="mx-auto w-full max-w-[46rem]">
         {post.isPending ? (
-          <Skeleton className="h-96 w-full rounded-2xl" />
+          <Skeleton fill className="min-h-96 rounded-2xl" />
         ) : post.isError || !post.data ? (
           <EmptyState
             icon={<Newspaper className="size-6" aria-hidden />}
@@ -56,7 +56,7 @@ export function PostPageView({ postId }: { postId: string }) {
         ) : (
           <PostCard
             post={post.data}
-            onOpenMedia={() => setLightbox({ focusComment: false })}
+            onOpenMedia={(media) => setLightbox({ focusComment: false, media })}
             onOpenComments={() => setLightbox({ focusComment: true })}
           />
         )}
@@ -67,6 +67,7 @@ export function PostPageView({ postId }: { postId: string }) {
           posts={[post.data]}
           index={0}
           focusComment={lightbox.focusComment}
+          initialMedia={lightbox.media}
           onIndex={() => undefined}
           onClose={() => setLightbox(null)}
         />

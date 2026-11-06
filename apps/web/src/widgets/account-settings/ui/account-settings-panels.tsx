@@ -4,11 +4,12 @@ import { useEffect, useState } from 'react'
 import { z } from 'zod'
 import { useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
-import { Controller, useForm } from 'react-hook-form'
+import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { Locale } from '@studenthub/shared-config'
+import { Role, isTwoFactorRequired } from '@studenthub/shared-types'
 import { writeLocaleCookie } from '../../../shared/i18n/locale-cookie'
 import { useLocale, useTranslations } from 'next-intl'
 import { ContactSupportForm } from '../../../features/contact-support'
@@ -19,6 +20,7 @@ import {
   Download,
   FolderLock,
   Lock,
+  LogOut,
   Monitor,
   Moon,
   Palette,
@@ -44,7 +46,12 @@ import {
 import { RELEASE_NOTES, ReleaseNoteModal, latestNote } from '../../../entities/release'
 import { TelegramLinkRow } from '../../../features/link-telegram'
 import type { MeResponse } from '../../../shared/api'
-import { setup2faRequest, enable2faRequest, disable2faRequest } from '../../../shared/api'
+import {
+  setup2faRequest,
+  enable2faRequest,
+  disable2faRequest,
+  regenerateBackupCodesRequest,
+} from '../../../shared/api'
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -61,7 +68,6 @@ import {
   CardHeader,
   CardTitle,
   CodeInput,
-  DictSingleSelect,
   Flag,
   FormAlert,
   Input,
@@ -74,12 +80,14 @@ import {
   SelectValue,
   Skeleton,
   type FlagCode,
+  FieldError,
 } from '../../../shared/ui'
-import { MARITAL_STATUS_DICT } from '../../../shared/config'
 import {
   changePasswordRequest,
   deleteAccountRequest,
+  exportMyData,
   fetchMe,
+  revokeUserSessionsRequest,
   updateProfileRequest,
   updateUsernameRequest,
   userKeys,
@@ -90,7 +98,7 @@ import {
   updateNotificationSettings,
   type NotificationSettingsData,
 } from '../../../entities/notification'
-import { useAppUpdate } from '../../../shared/lib'
+import { saveFile, useAppUpdate } from '../../../shared/lib'
 import { endSession } from '../../../shared/session'
 import { cn } from '../../../shared/lib/utils'
 import { syncSessionUser } from '../../../shared/session'
@@ -104,6 +112,7 @@ import {
   useSeasonMotionEnabled,
 } from '../../../shared/lib'
 import {
+  hasPushSubscription,
   subscribeToPush,
   unsubscribeFromPush,
   pushAvailability,
@@ -116,6 +125,19 @@ function errCode(e: unknown): string {
 
 // Длина TOTP задана сервером (two-factor.service.ts: /^\d{6}$/).
 const TOTP_LENGTH = 6
+
+// Кому сервер разрешает завершить свои сессии (`PATCH /users/:id/logout` со своим id) —
+// роли маршрута. Остальным выход везде пока даёт только смена пароля.
+const SESSION_REVOKE_ROLES: Role[] = [
+  Role.PLATFORM_ADMIN,
+  Role.PLATFORM_MODERATOR,
+  Role.UNIVERSITY_ADMIN,
+  Role.UNIVERSITY_MODERATOR,
+]
+
+// Команда платформы и есть поддержка: обращение от неё заводилось без автора — в очереди
+// строка без человека, ответить некому.
+const SUPPORT_STAFF_ROLES: Role[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR]
 
 const NAV: { id: string; labelKey: string; icon: LucideIcon }[] = [
   { id: 'personal', labelKey: 'navPersonal', icon: UserRound },
@@ -142,6 +164,10 @@ export function AccountSettingsPanels() {
   const tErr = useTranslations('Errors')
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
   const [tab, setTab] = useState('personal')
+  const myRole = me.data?.role
+  const nav = NAV.filter(
+    (item) => item.id !== 'support' || !myRole || !SUPPORT_STAFF_ROLES.includes(myRole),
+  )
   // На телефоне навигация по блокам — ряд с прокруткой (с `lg` это колонка слева):
   // ряд тянется, у краёв затухает.
   const row = useScrollRow<HTMLElement>()
@@ -160,7 +186,7 @@ export function AccountSettingsPanels() {
         )}
         style={{ maskImage: row.fadeMask, WebkitMaskImage: row.fadeMask }}
       >
-        {NAV.map((item) => {
+        {nav.map((item) => {
           const Icon = item.icon
           const active = tab === item.id
           const danger = item.id === 'danger'
@@ -200,8 +226,10 @@ export function AccountSettingsPanels() {
             {tab === 'appearance' && <AppearanceSection />}
             {tab === 'app' && <AppSection />}
             {tab === 'privacy' && <PrivacySection me={me.data} />}
-            {tab === 'support' && <ContactSupportForm />}
-            {tab === 'danger' && <DangerSection />}
+            {tab === 'support' && nav.some((item) => item.id === 'support') && (
+              <ContactSupportForm />
+            )}
+            {tab === 'danger' && <DangerSection me={me.data} />}
           </>
         )}
       </div>
@@ -303,29 +331,25 @@ export function PersonalSection({ me }: { me: MeResponse }) {
                 {...form.register('username', { onChange: () => setUsernameError(null) })}
               />
             </div>
-            {usernameError || form.formState.errors.username ? (
-              <p role="alert" className="text-xs text-destructive">
-                {usernameError ?? form.formState.errors.username?.message}
-              </p>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                {me.username ? tS('usernameHint') : tS('usernameEmptyHint')}
-              </p>
-            )}
+            <p className="text-xs text-muted-foreground">
+              {me.username ? tS('usernameHint') : tS('usernameEmptyHint')}
+            </p>
+            {/* Текст правила — из словаря, а не сообщение Zod: схема общая с сервером и
+                пишет по-русски, а форма бывает на казахском и английском. */}
+            <FieldError>
+              {(usernameError || form.formState.errors.username) &&
+                (usernameError ?? tS('usernameInvalid'))}
+            </FieldError>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="lastName">{tP('lastName')}</Label>
             <Input id="lastName" {...form.register('lastName')} />
-            {form.formState.errors.lastName && (
-              <p className="text-xs text-destructive">{form.formState.errors.lastName.message}</p>
-            )}
+            <FieldError>{form.formState.errors.lastName && tS('nameInvalid')}</FieldError>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="firstName">{tP('firstName')}</Label>
             <Input id="firstName" {...form.register('firstName')} />
-            {form.formState.errors.firstName && (
-              <p className="text-xs text-destructive">{form.formState.errors.firstName.message}</p>
-            )}
+            <FieldError>{form.formState.errors.firstName && tS('nameInvalid')}</FieldError>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="middleName">{tP('middleName')}</Label>
@@ -333,16 +357,11 @@ export function PersonalSection({ me }: { me: MeResponse }) {
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="headline">{tP('headline')}</Label>
-            <Controller
-              control={form.control}
-              name="headline"
-              render={({ field }) => (
-                <DictSingleSelect
-                  value={field.value ?? ''}
-                  onChange={field.onChange}
-                  options={MARITAL_STATUS_DICT}
-                />
-              )}
+            <Input
+              id="headline"
+              maxLength={120}
+              placeholder={tP('headlinePlaceholder')}
+              {...form.register('headline')}
             />
           </div>
         </div>
@@ -379,9 +398,15 @@ function SecuritySection({ me }: { me: MeResponse }) {
   const form = useForm<ChangePasswordInput>({ resolver: zodResolver(ChangePasswordSchema) })
   const mut = useMutation({
     mutationFn: changePasswordRequest,
-    onSuccess: () => {
+    // Смена пароля гасит все сессии, и эту тоже: выданный до неё токен сервер больше не
+    // принимает. Выходим сами и ведём на вход, а не ждём, пока следующий запрос
+    // выкинет на логин без объяснений.
+    onSuccess: async () => {
       form.reset({ currentPassword: '', newPassword: '' })
-      toast.success(tP('passwordChanged'))
+      // Сбой выхода не держит на экране: сессии сервер уже погасил сменой пароля, а
+      // локальный стор endSession чистит в любом исходе — ведём на вход всегда.
+      await endSession().catch(() => undefined)
+      window.location.assign('/login?reason=password-changed')
     },
     onError: (e) => showApiError(e),
   })
@@ -402,8 +427,14 @@ function SecuritySection({ me }: { me: MeResponse }) {
             id="currentPassword"
             type="password"
             autoComplete="current-password"
+            aria-invalid={!!form.formState.errors.currentPassword}
             {...form.register('currentPassword')}
           />
+          {/* Без строки ошибки пустое поле молча блокировало отправку: кнопка нажималась,
+              а ничего не происходило. */}
+          <FieldError>
+            {form.formState.errors.currentPassword && tS('currentPasswordRequired')}
+          </FieldError>
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="newPassword">{tP('newPassword')}</Label>
@@ -411,11 +442,17 @@ function SecuritySection({ me }: { me: MeResponse }) {
             id="newPassword"
             type="password"
             autoComplete="new-password"
+            aria-invalid={!!form.formState.errors.newPassword}
             {...form.register('newPassword')}
           />
-          {form.formState.errors.newPassword && (
-            <p className="text-xs text-destructive">{form.formState.errors.newPassword.message}</p>
-          )}
+          {/* Правило — из словаря: сообщения PasswordSchema русские. Предел в байтах —
+              единственная проверка-refine (тип `custom`), остальное — правило состава. */}
+          <FieldError>
+            {form.formState.errors.newPassword &&
+              (form.formState.errors.newPassword.type === 'custom'
+                ? tS('passwordTooLong')
+                : tS('passwordPolicy'))}
+          </FieldError>
         </div>
         <Button type="submit" loading={mut.isPending} className="w-full">
           {tP('changePassword')}
@@ -431,7 +468,61 @@ function SecuritySection({ me }: { me: MeResponse }) {
       <div className="mt-6 border-t border-border pt-5">
         <TelegramLinkRow role={me.role} />
       </div>
+
+      {SESSION_REVOKE_ROLES.includes(me.role) && (
+        <div className="mt-6 border-t border-border pt-5">
+          <LogoutEverywhereRow userId={me.id} />
+        </div>
+      )}
     </SectionCard>
+  )
+}
+
+/**
+ * «Выйти на всех устройствах»: гасит все сессии, включая эту. Раньше для этого оставалась
+ * только смена пароля — при подозрении на чужой вход пароль менять приходилось вслепую.
+ */
+function LogoutEverywhereRow({ userId }: { userId: string }) {
+  const tS = useTranslations('Settings')
+  const tErr = useTranslations('Errors')
+  const mut = useMutation({
+    mutationFn: () => revokeUserSessionsRequest(userId),
+    // Токен этой вкладки сервер больше не принимает: выходим сами и ведём на вход.
+    onSuccess: async () => {
+      await endSession().catch(() => undefined)
+      window.location.assign('/login')
+    },
+    onError: (e) => toast.error(tErr(errCode(e))),
+  })
+
+  return (
+    <SettingRow title={tS('logoutEverywhere')} desc={tS('logoutEverywhereDesc')}>
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <Button type="button" variant="outline" size="sm">
+            <LogOut className="size-4" aria-hidden />
+            {tS('logoutEverywhereConfirm')}
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{tS('logoutEverywhere')}</AlertDialogTitle>
+            <AlertDialogDescription>{tS('logoutEverywhereDesc')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={mut.isPending}>{tS('twoFactorCancel')}</AlertDialogCancel>
+            <Button
+              type="button"
+              variant="destructive"
+              loading={mut.isPending}
+              onClick={() => mut.mutate()}
+            >
+              {tS('logoutEverywhereConfirm')}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </SettingRow>
   )
 }
 
@@ -444,6 +535,8 @@ function TwoFactorManager({ me }: { me: MeResponse }) {
   const [code, setCode] = useState('')
   const [backupCodes, setBackupCodes] = useState<string[] | null>(null)
   const [disableCode, setDisableCode] = useState('')
+  const [regenCode, setRegenCode] = useState('')
+  const [regenOpen, setRegenOpen] = useState(false)
   // Ошибка показывается тостом, поэтому реакцию поля держим отдельно: счётчик попыток
   // входит в key ячеек — после неверного кода они пересоздаются и фокус встаёт в первую.
   const [attempt, setAttempt] = useState(0)
@@ -486,6 +579,21 @@ function TwoFactorManager({ me }: { me: MeResponse }) {
       toast.success(tS('twoFactorDisabledToast'))
     },
     onError: (e) => toast.error(tErr(errCode(e))),
+  })
+
+  // Перевыпуск резервных кодов: новый набор показывается в том же окне, что и при включении,
+  // — закрыть его до «Готово» значит потерять коды. Прежние коды сервер гасит.
+  const regenMut = useMutation({
+    mutationFn: () => regenerateBackupCodesRequest(regenCode.trim()),
+    onSuccess: (data) => {
+      setRegenCode('')
+      setRegenOpen(false)
+      setBackupCodes(data.backupCodes)
+    },
+    onError: (e) => {
+      setRegenCode('')
+      toast.error(tErr(errCode(e)))
+    },
   })
 
   // Мастер включения (QR → код → backup-коды) — в модальном окне: в карточке настроек
@@ -583,44 +691,91 @@ function TwoFactorManager({ me }: { me: MeResponse }) {
       <SettingRow title={tS('twoFactor')} desc={tS('twoFactorDesc')}>
         <div className="flex flex-col items-end gap-3">
           <Badge variant="secondary">{tS('twoFactorOn')}</Badge>
-          <AlertDialog>
+          <AlertDialog
+            open={regenOpen}
+            onOpenChange={(open) => {
+              setRegenOpen(open)
+              if (!open) setRegenCode('')
+            }}
+          >
             <AlertDialogTrigger asChild>
-              <Button type="button" variant="destructive" size="sm">
-                {tS('twoFactorDisable')}
+              <Button type="button" variant="outline" size="sm">
+                {tS('backupCodesRegenerate')}
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>{tS('twoFactorDisable')}</AlertDialogTitle>
-                <AlertDialogDescription>{tS('twoFactorDisableDesc')}</AlertDialogDescription>
+                <AlertDialogTitle>{tS('backupCodesRegenerate')}</AlertDialogTitle>
+                <AlertDialogDescription>{tS('backupCodesRegenerateDesc')}</AlertDialogDescription>
               </AlertDialogHeader>
               <div className="flex flex-col gap-2">
-                <Label htmlFor="disable2fa">{tS('twoFactorEnterCode')}</Label>
+                <Label htmlFor="regen2fa">{tS('twoFactorEnterCode')}</Label>
                 <Input
-                  id="disable2fa"
-                  inputMode="numeric"
+                  id="regen2fa"
                   autoComplete="one-time-code"
+                  autoCapitalize="characters"
+                  spellCheck={false}
                   placeholder="123456"
-                  value={disableCode}
-                  onChange={(e) => setDisableCode(e.target.value)}
+                  value={regenCode}
+                  onChange={(e) => setRegenCode(e.target.value)}
                 />
               </div>
               <AlertDialogFooter>
-                <AlertDialogCancel onClick={() => setDisableCode('')}>
-                  {tS('twoFactorCancel')}
-                </AlertDialogCancel>
+                <AlertDialogCancel>{tS('twoFactorCancel')}</AlertDialogCancel>
                 <Button
                   type="button"
-                  variant="destructive"
-                  loading={disableMut.isPending}
-                  disabled={!disableCode.trim()}
-                  onClick={() => disableMut.mutate()}
+                  loading={regenMut.isPending}
+                  disabled={!regenCode.trim()}
+                  onClick={() => regenMut.mutate()}
                 >
-                  {tS('twoFactorDisable')}
+                  {tS('backupCodesRegenerateConfirm')}
                 </Button>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
+          {/* Роли с обязательной 2FA отключить её не могут (сервер отвечает 403) — только
+              перевыпустить коды; потерянный телефон — сброс 2FA старшим по роли. */}
+          {!isTwoFactorRequired(me.role) && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button type="button" variant="destructive" size="sm">
+                  {tS('twoFactorDisable')}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>{tS('twoFactorDisable')}</AlertDialogTitle>
+                  <AlertDialogDescription>{tS('twoFactorDisableDesc')}</AlertDialogDescription>
+                </AlertDialogHeader>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="disable2fa">{tS('twoFactorEnterCode')}</Label>
+                  <Input
+                    id="disable2fa"
+                    autoComplete="one-time-code"
+                    autoCapitalize="characters"
+                    spellCheck={false}
+                    placeholder="123456"
+                    value={disableCode}
+                    onChange={(e) => setDisableCode(e.target.value)}
+                  />
+                </div>
+                <AlertDialogFooter>
+                  <AlertDialogCancel onClick={() => setDisableCode('')}>
+                    {tS('twoFactorCancel')}
+                  </AlertDialogCancel>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    loading={disableMut.isPending}
+                    disabled={!disableCode.trim()}
+                    onClick={() => disableMut.mutate()}
+                  >
+                    {tS('twoFactorDisable')}
+                  </Button>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
         </div>
       </SettingRow>
     )
@@ -682,8 +837,18 @@ function NotificationsSection() {
   // известно только в браузере: считаем после монтирования, иначе разойдётся гидрация.
   const [pushState, setPushState] = useState<PushAvailability>('ok')
   useEffect(() => setPushState(pushAvailability()), [])
+  // Подписан ли этот браузер. Тумблер — про браузер, а не про аккаунт: общий `pushEnabled`
+  // при выключении глушил и телефоны, а включить его обратно с телефона было нечем.
+  const [browserSubscribed, setBrowserSubscribed] = useState(false)
+  useEffect(() => {
+    void hasPushSubscription()
+      .then(setBrowserSubscribed)
+      .catch(() => setBrowserSubscribed(false))
+  }, [])
 
-  // Push (#Ф13.3): включение требует разрешения браузера + подписки SW; выключение — отписки.
+  // Push (#Ф13.3): включение требует разрешения браузера + подписки SW; выключение — отписки
+  // этого браузера. Флаг аккаунта включение поднимает (без него не уйдёт ни один push), а
+  // выключение не трогает: подписки других браузеров и телефоны продолжают получать пуши.
   const setPush = (value: boolean): void => {
     if (value) {
       if (pushState === 'ios-needs-install') {
@@ -695,29 +860,42 @@ function NotificationsSection() {
         return
       }
       void subscribeToPush()
-        .then((ok) => (ok ? set('pushEnabled', true) : toast.error(tS('pushDenied'))))
+        .then((ok) => {
+          if (!ok) {
+            toast.error(tS('pushDenied'))
+            return
+          }
+          setBrowserSubscribed(true)
+          if (!s?.pushEnabled) set('pushEnabled', true)
+        })
         .catch(() => toast.error(tS('pushDenied')))
     } else {
-      void unsubscribeFromPush().finally(() => set('pushEnabled', false))
+      void unsubscribeFromPush().finally(() => setBrowserSubscribed(false))
     }
   }
 
-  const typeRows: { key: keyof NotificationSettingsData; label: string }[] = [
+  const typeRows: { key: keyof NotificationSettingsData; label: string; desc?: string }[] = [
     { key: 'scheduleChangeEnabled', label: tS('notif_scheduleChangeEnabled') },
     { key: 'appUpdateEnabled', label: tS('notif_appUpdateEnabled') },
     { key: 'messageEnabled', label: tS('notif_messageEnabled') },
     { key: 'postEnabled', label: tS('notif_postEnabled') },
     { key: 'eventEnabled', label: tS('notif_eventEnabled') },
-    { key: 'systemEnabled', label: tS('notif_systemEnabled') },
+    // Тумблер выключает только социальные системные события — без пояснения он обещал бы
+    // тишину, которой не будет: решения и сроки приходят всегда.
+    {
+      key: 'systemEnabled',
+      label: tS('notif_systemEnabled'),
+      desc: tS('notif_systemEnabledDesc'),
+    },
   ]
 
   return (
     <SectionCard icon={Bell} title={tS('notificationsTitle')} desc={tS('notificationsDesc')}>
       {settings.isLoading && (
         <div className="flex flex-col gap-3">
-          <Skeleton className="h-12 w-full rounded-lg" />
-          <Skeleton className="h-12 w-full rounded-lg" />
-          <Skeleton className="h-12 w-full rounded-lg" />
+          <Skeleton fill className="min-h-12 rounded-lg" />
+          <Skeleton fill className="min-h-12 rounded-lg" />
+          <Skeleton fill className="min-h-12 rounded-lg" />
         </div>
       )}
       {settings.isError && <p className="text-sm text-destructive">{tErr('INTERNAL_ERROR')}</p>}
@@ -743,7 +921,7 @@ function NotificationsSection() {
               }
             >
               <ToggleSwitch
-                checked={s.pushEnabled}
+                checked={s.pushEnabled && browserSubscribed}
                 onChange={setPush}
                 disabled={pushState !== 'ok'}
                 label={tS('channelPush')}
@@ -756,7 +934,7 @@ function NotificationsSection() {
               {tS('typesTitle')}
             </p>
             {typeRows.map((row) => (
-              <SettingRow key={row.key} title={row.label}>
+              <SettingRow key={row.key} title={row.label} desc={row.desc}>
                 <ToggleSwitch
                   checked={s[row.key]}
                   onChange={(v) => set(row.key, v)}
@@ -1028,6 +1206,7 @@ function AppSection() {
 // ── Конфиденциальность (showEmail / showPhone) ──────────────────────────────
 function PrivacySection({ me }: { me: MeResponse }) {
   const tS = useTranslations('Settings')
+  const locale = useLocale()
   const qc = useQueryClient()
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
 
@@ -1047,6 +1226,14 @@ function PrivacySection({ me }: { me: MeResponse }) {
     onSuccess: (data) => qc.setQueryData(userKeys.me(), data),
   })
 
+  // Выгрузка своих данных (Ф14.6): файл собирается на сервере, здесь только сохранение.
+  // Имя файла приходит из Content-Disposition — шаблон имён живёт на бэкенде.
+  const dataExport = useMutation({
+    mutationFn: () => exportMyData(locale),
+    onSuccess: saveFile,
+    onError: (e) => showApiError(e),
+  })
+
   const visibility = me.profileVisibility ?? 'UNIVERSITY'
 
   return (
@@ -1061,6 +1248,17 @@ function PrivacySection({ me }: { me: MeResponse }) {
             <FolderLock className="size-4" aria-hidden />
             {tS('documentsStorageOpen')}
           </Link>
+        </SettingRow>
+        <SettingRow title={tS('dataExport')} desc={tS('dataExportDesc')}>
+          <Button
+            type="button"
+            variant="outline"
+            loading={dataExport.isPending}
+            onClick={() => dataExport.mutate()}
+          >
+            <Download className="size-4" aria-hidden />
+            {tS('dataExportAction')}
+          </Button>
         </SettingRow>
         <SettingRow title={tS('visibilityTitle')} desc={tS('visibilityDesc')}>
           <Select
@@ -1099,24 +1297,48 @@ function PrivacySection({ me }: { me: MeResponse }) {
 }
 
 // ── Опасная зона ─────────────────────────────────────────────────────────────
-function DangerSection() {
+// Удаление — с повторной аутентификацией: сервер требует текущий пароль и, если включена
+// 2FA, её код. Открытой вкладки для необратимого действия больше не достаточно.
+export function DangerSection({ me }: { me: MeResponse }) {
   const tS = useTranslations('Settings')
   const tP = useTranslations('Profile')
+  const tErr = useTranslations('Errors')
   const [open, setOpen] = useState(false)
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  const [password, setPassword] = useState('')
+  const [code, setCode] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const needCode = me.twoFactorEnabled === true
+
+  const reset = () => {
+    setPassword('')
+    setCode('')
+    setError(null)
+  }
 
   const mut = useMutation({
-    mutationFn: deleteAccountRequest,
-    onMutate: () => resetApiError(),
+    mutationFn: () =>
+      deleteAccountRequest({ password, ...(needCode ? { code: code.trim() } : {}) }),
+    onMutate: () => setError(null),
     onSuccess: async () => {
-      await endSession()
+      // Аккаунта уже нет — сбой выхода не повод оставлять человека на экране настроек.
+      await endSession().catch(() => undefined)
       window.location.assign('/login')
     },
+    // Ошибка — в том же окне: пароль и код вводятся там, и закрывать его значит заставить
+    // набирать всё заново. Неверный пароль сервер отдаёт как BAD_REQUEST.
     onError: (e) => {
-      setOpen(false)
-      showApiError(e)
+      const c = errCode(e)
+      setCode('')
+      setError(
+        c === 'BAD_REQUEST'
+          ? tS('deleteWrongPassword')
+          : c === 'CONFLICT'
+            ? tS('deleteLastAdmin')
+            : tErr(c),
+      )
     },
   })
+  const canSubmit = password.length > 0 && (!needCode || code.trim().length > 0)
 
   return (
     <Card className="border-destructive/40">
@@ -1128,13 +1350,18 @@ function DangerSection() {
         <p className="text-sm text-muted-foreground">{tS('dangerDesc')}</p>
       </CardHeader>
       <CardContent>
-        <FormAlert error={apiError} />
         <div className="flex flex-col gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-semibold">{tP('deleteAccount')}</p>
             <p className="text-sm text-muted-foreground">{tS('deleteAccountDesc')}</p>
           </div>
-          <AlertDialog open={open} onOpenChange={setOpen}>
+          <AlertDialog
+            open={open}
+            onOpenChange={(next) => {
+              setOpen(next)
+              if (!next) reset()
+            }}
+          >
             <AlertDialogTrigger asChild>
               <Button
                 variant="outline"
@@ -1147,11 +1374,59 @@ function DangerSection() {
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>{tS('deleteConfirmTitle')}</AlertDialogTitle>
-                <AlertDialogDescription>{tP('deleteConfirm')}</AlertDialogDescription>
+                <AlertDialogDescription>
+                  {tP('deleteConfirm')}{' '}
+                  {needCode ? tS('deleteReauthDesc2fa') : tS('deleteReauthDesc')}
+                </AlertDialogDescription>
               </AlertDialogHeader>
+              <form
+                id="delete-account-form"
+                className="flex flex-col gap-3"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  if (canSubmit && !mut.isPending) mut.mutate()
+                }}
+              >
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="delete-account-password">{tP('currentPassword')}</Label>
+                  <Input
+                    id="delete-account-password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoFocus
+                  />
+                </div>
+                {needCode && (
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="delete-account-code">{tS('deleteCodeLabel')}</Label>
+                    <Input
+                      id="delete-account-code"
+                      autoComplete="one-time-code"
+                      autoCapitalize="characters"
+                      spellCheck={false}
+                      placeholder="123456"
+                      value={code}
+                      onChange={(e) => setCode(e.target.value)}
+                    />
+                  </div>
+                )}
+                {error && (
+                  <p role="alert" className="text-sm text-destructive">
+                    {error}
+                  </p>
+                )}
+              </form>
               <AlertDialogFooter>
                 <AlertDialogCancel disabled={mut.isPending}>{tP('cancel')}</AlertDialogCancel>
-                <Button variant="destructive" loading={mut.isPending} onClick={() => mut.mutate()}>
+                <Button
+                  type="submit"
+                  form="delete-account-form"
+                  variant="destructive"
+                  loading={mut.isPending}
+                  disabled={!canSubmit}
+                >
                   <Trash2 className="size-4" aria-hidden />
                   {tP('deleteAccount')}
                 </Button>
@@ -1248,7 +1523,7 @@ function SectionSkeleton() {
   return (
     <div className="flex flex-col gap-6">
       <Skeleton className="h-56 w-full rounded-xl" />
-      <Skeleton className="h-64 w-full rounded-xl" />
+      <Skeleton fill className="min-h-64 rounded-xl" />
     </div>
   )
 }

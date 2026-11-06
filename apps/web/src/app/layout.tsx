@@ -7,6 +7,8 @@ import { getLocale, getMessages, getTimeZone } from 'next-intl/server'
 import '@fontsource-variable/inter/opsz.css'
 import { AppSplash } from '../shared/ui'
 import { PlatformGate } from '../widgets/platform-gate'
+import { PersistentShell, ROLE_TO_VARIANT, type NavVariant } from '../widgets/app-shell'
+import { getServerSession } from '../shared/session/server'
 import { AppProviders } from './providers'
 import './globals.css'
 
@@ -30,10 +32,8 @@ export const viewport: Viewport = {
   themeColor: '#2563eb',
   width: 'device-width',
   initialScale: 1,
-  // Полностью отключаем масштабирование на мобильных (iOS/Android): без пинч-зума и зума при фокусе.
-  maximumScale: 1,
-  minimumScale: 1,
-  userScalable: false,
+  // Пинч-зум не запрещаем (WCAG 1.4.4, Lighthouse/axe meta-viewport): кому-то без него текст
+  // не прочитать. Зум при фокусе на поле снимает правило 16px для тач-экранов в globals.css.
   // Клавиатура ужимает layout-viewport (и svh/dvh) — поле ввода чата остаётся над клавиатурой (iOS/Android).
   interactiveWidget: 'resizes-content',
 }
@@ -47,6 +47,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // timeZone задан в i18n/request.ts; прокидываем в клиентский провайдер, иначе
   // next-intl на клиенте падает ENVIRONMENT_FALLBACK при форматировании дат.
   const timeZone = await getTimeZone()
+  // Вариант навигации до загрузки профиля — по роли из role-cookie, чтобы сайдбар не
+  // мелькал студенческим у других ролей; AppShell затем подтверждает его по /users/me.
+  const session = await getServerSession()
+  const variant: NavVariant = session ? ROLE_TO_VARIANT[session.role] : 'student'
 
   return (
     // suppressHydrationWarning — next-themes выставляет класс темы на <html> до гидрации.
@@ -63,8 +67,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               высот не меняется, анимируется одна прозрачность (globals.css, `.sh-boot`). */}
           {/* PlatformGate внутри обёртки, а не снаружи: объявление проявляется вместе с
               приложением, а заглушка техработ — под уходящим полотном, без вспышки. */}
+          {/* Оболочка (сайдбар, нижняя навигация) — здесь, а не в ролевых layout'ах: корневой
+              layout не размонтируется никогда, и при переходе между зонами меняется только
+              область контента. Страницы без оболочки (вход, публичные ссылки) она
+              пропускает сама — widgets/app-shell/model/shell-paths.ts. */}
           <div className="sh-boot">
-            <PlatformGate>{children}</PlatformGate>
+            <PlatformGate>
+              <PersistentShell locale={locale} variant={variant}>
+                {children}
+              </PersistentShell>
+            </PlatformGate>
           </div>
         </AppProviders>
       </body>

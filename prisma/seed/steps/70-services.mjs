@@ -45,12 +45,16 @@ const ISSUERS = {
 // Типы документов, включённые вузом (id из каталога packages/shared-config/documents.ts).
 const ENABLED_TYPES = ['ID_CARD','PASSPORT','SCHOOL_CERTIFICATE','DIPLOMA','TRANSCRIPT','MEDICAL','STUDY_PLACE','MILITARY_DOCS','SOCIAL_REFERENCE','STUDENT_ID','ENROLLMENT_ORDER','CAMPUS_PASS'] // prettier-ignore
 
-// Глобальные услуги основного сида: на них ссылаются заявки.
+// Глобальные услуги основного сида: на них ссылаются заявки. Способ получения и данные
+// формы — по каталогу (steps/05-service-catalog.mjs): заявка на услугу «только бумажно»
+// с ELECTRONIC или без обязательного поля формы — состояние, которое API не пропустит.
 const GLOBAL_SERVICES = [
-  { id: 'seed-appsvc-study-certificate', requirement: 'seed-appreq-study-certificate-id-card', sla: 8 }, // prettier-ignore
-  { id: 'seed-appsvc-transcript', requirement: 'seed-appreq-transcript-id-card', sla: 48 },
-  { id: 'seed-appsvc-academic-leave', requirement: 'seed-appreq-academic-leave-id-card', sla: 120 },
+  { id: 'seed-appsvc-study-certificate', requirement: 'seed-appreq-study-certificate-id-card', sla: 8, delivery: 'ELECTRONIC', formData: { purpose: 'по месту требования' } }, // prettier-ignore
+  { id: 'seed-appsvc-transcript', requirement: 'seed-appreq-transcript-id-card', sla: 48, delivery: 'ELECTRONIC', formData: {} }, // prettier-ignore
+  { id: 'seed-appsvc-academic-leave', requirement: 'seed-appreq-academic-leave-id-card', sla: 120, delivery: 'PAPER', formData: { reason: 'По состоянию здоровья, заключение ВКК прилагаю' } }, // prettier-ignore
 ]
+// Своя услуга вуза (ниже): только электронно, обязательное поле «Основание».
+const OWN_SERVICE = { delivery: 'ELECTRONIC', formData: { 'family-status': 'far' } }
 
 // Статусы заявки и их «геометрия»: какие даты заполнены и что в журнале.
 // Все двенадцать статусов из APPLICATION_STATUSES
@@ -287,7 +291,9 @@ export async function seedServices(prisma, writer, ctx) {
   // должны быть видны все стадии.
   for (const [si, studentId] of allStudents.entries()) {
     const sent = si % 3 !== 2
-    const accepted = si % 4 === 0
+    // Принять можно только отправленный комплект: черновик сотрудник не видит и не
+    // проверяет, у него не бывает ни проверяющего, ни принятых позиций.
+    const accepted = sent && si % 4 === 0
     const submissionId = child(studentId, 'docsub')
     await writer.add('documentSubmission', {
       id: submissionId,
@@ -336,6 +342,7 @@ export async function seedServices(prisma, writer, ctx) {
     const serviceId = useOwn ? ownServiceId : service.id
     const requirementId = useOwn ? ownRequirementId : service.requirement
     const slaHours = useOwn ? 72 : service.sla
+    const { delivery, formData } = useOwn ? OWN_SERVICE : service
 
     const applicationId = child(studentId, 'app')
     const appNo = no
@@ -353,8 +360,8 @@ export async function seedServices(prisma, writer, ctx) {
       facultyId: faculty.id,
       serviceId,
       status,
-      deliveryType: 'ELECTRONIC',
-      formData: { purpose: 'по месту требования' },
+      deliveryType: delivery,
+      formData,
       assignedToId: inWork ? faculty.deanId : null,
       assignedAt: inWork ? random.randomDate(-15, -1) : null,
       submittedAt: submitted,
@@ -424,15 +431,19 @@ export async function seedServices(prisma, writer, ctx) {
         reviewedAt: isReady ? random.randomDate(-7, -1) : null,
       })
     }
-    // Результат: выданная вузом электронная справка.
+    // Результат: выданный вузом документ — электронный (с файлом в «Документах») или
+    // бумажный оригинал. Тип — из ApplicationResultTypeSchema.
     if (isIssued) {
+      const electronic = delivery === 'ELECTRONIC'
       await writer.add('applicationResult', {
         id: child(applicationId, 'res'),
         applicationId,
-        type: 'DOCUMENT',
-        documentId: child(studentId, 'doc', 'STUDENT_ID'),
+        type: electronic ? 'ELECTRONIC_DOCUMENT' : 'PAPER_DOCUMENT',
+        documentId: electronic ? child(studentId, 'doc', 'STUDENT_ID') : null,
         documentNumber: `${uniId}-R${String(appNo).padStart(6, '0')}`,
-        note: 'Документ доступен для скачивания в разделе «Документы».',
+        note: electronic
+          ? 'Документ доступен для скачивания в разделе «Документы».'
+          : 'Оригинал выдан в деканате.',
         issuedById: faculty.deanId,
       })
     }
@@ -440,9 +451,43 @@ export async function seedServices(prisma, writer, ctx) {
   await writer.flush()
 
   // ── Жалобы: очередь модерации вуза ──────────────────────────────────────────
+  // Цель — настоящий объект своего типа: жалоба на комментарий указывает на комментарий,
+  // на сообщение — на сообщение личного диалога, а жалуется его собеседник. Раньше
+  // COMMENT и MESSAGE указывали на id поста — карточка жалобы не находила цель.
+  const uniPostIds = Array.from({ length: 8 }, (_, pi) => id(index, 'post', 'uni', pi))
+  const comments = await prisma.comment.findMany({
+    where: { postId: { in: uniPostIds }, deletedAt: null },
+    select: { id: true },
+    orderBy: { id: 'asc' },
+    take: 12,
+  })
+  // Первое сообщение диалога pv-0 (шаг 60) пишет studentIds[0], собеседник — studentIds[1].
+  const dialogs = people.faculties
+    .flatMap((f) => f.groups)
+    .filter((g) => g.studentIds.length >= 2)
+    .map((g) => ({
+      messageId: child(child(g.id, 'chat', 'pv', 0), 'msg', 1),
+      peerId: g.studentIds[1],
+    }))
   for (let ci = 0; ci < 12; ci += 1) {
-    const reporterId = allStudents[(ci * 37) % allStudents.length]
-    const targetType = ['POST', 'COMMENT', 'MESSAGE', 'USER'][ci % 4]
+    let reporterId = allStudents[(ci * 37) % allStudents.length]
+    let targetType = ['POST', 'COMMENT', 'MESSAGE', 'USER'][ci % 4]
+    let targetId = id(index, 'post', 'uni', ci % 8)
+    if (targetType === 'USER') targetId = allStudents[(ci * 11) % allStudents.length]
+    if (targetType === 'COMMENT') {
+      const comment = comments[ci % Math.max(comments.length, 1)]
+      // Комментариев у постов вуза может не оказаться (их число случайно) — тогда жалоба
+      // на сам пост, а не на несуществующий комментарий.
+      if (comment) targetId = comment.id
+      else targetType = 'POST'
+    }
+    if (targetType === 'MESSAGE') {
+      const dialog = dialogs[ci % Math.max(dialogs.length, 1)]
+      if (dialog) {
+        targetId = dialog.messageId
+        reporterId = dialog.peerId
+      } else targetType = 'POST'
+    }
     const status = random.pickWeighted([
       ['PENDING', 40],
       ['REVIEWING', 20],
@@ -454,8 +499,7 @@ export async function seedServices(prisma, writer, ctx) {
       id: id(index, 'cmp', ci),
       reporterId,
       targetType,
-      // Цель — реальный объект: пост вуза либо пользователь.
-      targetId: targetType === 'USER' ? allStudents[(ci * 11) % allStudents.length] : id(index, 'post', 'uni', ci % 8), // prettier-ignore
+      targetId,
       reason: random.pick(COMPLAINT_REASONS),
       status,
       // Приоритет по категории цели (жалобы на человека и личные сообщения — первыми).

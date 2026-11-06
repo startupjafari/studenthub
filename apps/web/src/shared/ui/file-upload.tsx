@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl'
 import { Upload, X, FileText, RotateCcw, CheckCircle2 } from 'lucide-react'
 import { FILE_UPLOAD, type FileCategory } from '@studenthub/shared-config'
 import { cn } from '../lib/utils'
+import { formatBytes, useByteUnitLabel } from '../lib/format-bytes'
 import { Button } from './button'
 
 export interface FileUploadProps<T> {
@@ -23,10 +24,6 @@ export interface FileUploadProps<T> {
 
 type Status = 'idle' | 'ready' | 'uploading' | 'error' | 'done'
 
-function formatMb(bytes: number): string {
-  return `${(bytes / 1024 / 1024).toFixed(1)} МБ`
-}
-
 // Клиентская проверка размера/типа ДО отправки (docs/FRONTEND_RULES.md §7.6).
 // Серверная проверка по magic bytes при этом не отменяется.
 export function FileUpload<T>({
@@ -39,6 +36,7 @@ export function FileUpload<T>({
 }: FileUploadProps<T>) {
   const t = useTranslations('FileUpload')
   const tErr = useTranslations('Errors')
+  const unit = useByteUnitLabel()
   const inputRef = useRef<HTMLInputElement>(null)
 
   const [status, setStatus] = useState<Status>('idle')
@@ -79,7 +77,7 @@ export function FileUpload<T>({
       return
     }
     if (picked.size > categoryMax) {
-      setError(t('fileTooLarge', { max: formatMb(categoryMax) }))
+      setError(t('fileTooLarge', { max: formatBytes(categoryMax, unit) }))
       setStatus('error')
       setFile(null)
       setPreviewUrl(null)
@@ -159,7 +157,7 @@ export function FileUpload<T>({
         >
           <Upload className="size-6" aria-hidden />
           <span className="text-sm font-medium">{t('dropHint')}</span>
-          <span className="text-xs">{t('limitHint', { max: formatMb(categoryMax) })}</span>
+          <span className="text-xs">{t('limitHint', { max: formatBytes(categoryMax, unit) })}</span>
         </button>
       )}
 
@@ -181,7 +179,7 @@ export function FileUpload<T>({
 
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium">{file.name}</p>
-            <p className="text-xs text-muted-foreground">{formatMb(file.size)}</p>
+            <p className="text-xs text-muted-foreground">{formatBytes(file.size, unit)}</p>
 
             {status === 'uploading' && (
               <div

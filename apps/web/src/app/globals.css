@@ -55,6 +55,23 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Движение (DESIGN_SYSTEM §7): утилиты Tailwind и tw-animate-css по умолчанию едут по
+     кривой и длительности из токенов ниже. Кривая и длительность в классе (`ease-*`,
+     `duration-*`) по-прежнему перекрывают умолчание. */
+  --ease-out: var(--motion-ease);
+  --default-transition-timing-function: var(--motion-ease);
+  --default-transition-duration: var(--motion-control);
+  /* Те же строки, что в tw-animate-css, — меняются только запасные значения: вход парящего
+     слоя по умолчанию длится как меню, уход короче входа. */
+  --animate-in: enter var(--tw-animation-duration, var(--tw-duration, var(--motion-menu)))
+    var(--tw-ease, var(--motion-ease)) var(--tw-animation-delay, 0s)
+    var(--tw-animation-iteration-count, 1) var(--tw-animation-direction, normal)
+    var(--tw-animation-fill-mode, none);
+  --animate-out: exit var(--tw-animation-duration, var(--tw-duration, var(--motion-exit)))
+    var(--tw-ease, var(--motion-ease)) var(--tw-animation-delay, 0s)
+    var(--tw-animation-iteration-count, 1) var(--tw-animation-direction, normal)
+    var(--tw-animation-fill-mode, none);
 }
 
 :root {
@@ -314,7 +331,7 @@
   );
   -webkit-mask-image: var(--mesh-mask);
   mask-image: var(--mesh-mask);
-  transition: opacity 0.35s ease;
+  transition: opacity var(--motion-large) var(--motion-ease);
 }
 
 .mesh-halo {
@@ -416,7 +433,7 @@
 }
 
 .status-in {
-  animation: status-in 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: status-in var(--motion-large) var(--motion-ease);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -476,14 +493,31 @@ summary {
   cursor: pointer;
 }
 
+/* Токены движения — единый источник кривой и длительностей (DESIGN_SYSTEM §7). В классах —
+   `duration-(--motion-modal)`, в стилях — `var(--motion-modal)`, в JS — `MOTION` из
+   shared/lib/motion.ts (держать значения одинаковыми). Жесты сюда не относятся: у них
+   пружина shared/lib/spring.ts, а не длительность (§7.1). */
+:root {
+  /* Быстрый старт, мягкая остановка — для всех обычных взаимодействий. */
+  --motion-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-micro: 120ms; /* наведение, фокус, мелкие отклики */
+  --motion-control: 150ms; /* кнопки, переключатели, смена цвета */
+  --motion-menu: 180ms; /* меню, выпадающие списки, поповеры, подсказки */
+  --motion-exit: 150ms; /* уход любого слоя — короче входа */
+  --motion-page: 200ms; /* смена экрана или раздела */
+  --motion-modal: 220ms; /* модальные окна */
+  --motion-panel: 260ms; /* боковые панели и шторки */
+  --motion-large: 320ms; /* крупные содержательные изменения, оживление данных */
+}
+
 button,
 a,
 [role='button'],
 [role='menuitem'],
 summary {
   transition-property: background-color, color, border-color, box-shadow, transform, opacity;
-  transition-duration: 0.15s;
-  transition-timing-function: ease;
+  transition-duration: var(--motion-control);
+  transition-timing-function: var(--motion-ease);
 }
 
 /* Точечный фон экранов входа (мобильный): мягкая сетка точек с медленным дрейфом (ненавязчиво).
@@ -540,7 +574,7 @@ summary {
    и уходит по расписанию. Свет ничего не обещает: он просто даёт сцене объём.
 
    Расписание (всё считается от загрузки документа, суммарно ≈1.8 с):
-     0 → 420 мс      логотип: opacity 0→1, scale 0.94→1
+     0 → 420 мс      логотип: scale 0.94→1 (виден с первого кадра)
      120 → 1400 мс   ореол: opacity 0→1, scale 0.82→1 (медленное разгорание)
      1480 → 1780 мс  полотно: opacity 1→0
 
@@ -657,9 +691,11 @@ summary {
   animation: sh-splash-mark-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* Только масштаб, без прозрачности с нуля: Chrome не считает элемент с opacity 0 отрисованным,
+   и марка становилась «крупнейшей отрисовкой» (LCP) лишь на кадре анимации — уже после
+   разбора скриптов. Видимая с первого кадра, она отрисовывается вместе с полотном. */
 @keyframes sh-splash-mark-in {
   from {
-    opacity: 0;
     transform: scale(0.94);
   }
   to {
@@ -855,6 +891,135 @@ summary {
    с overflow съедал бы полезную ширину; включаем там, где содержимое дёргается. */
 .sh-scroll {
   scrollbar-gutter: stable;
+}
+
+/* ─── Ошибка поля в строке подписи ───────────────────────────────────────────
+   Поле — колонка «подпись → контрол → подсказки → ошибка» (DESIGN_SYSTEM §10.3). Когда в
+   нём есть ошибка (`FieldError`, `[data-field-error]`), колонка становится сеткой: подпись
+   и ошибка делят первую строку — подпись слева, ошибка справа, остальное идёт строками
+   ниже во всю ширину. Срабатывает только у поля, где подпись — первый ребёнок: так форма
+   целиком, у которой ошибка висит на уровне формы, не разъезжается. Подпись может сжаться
+   и перенестись, ошибке остаётся минимум 6rem — дальше её прокручивает сам FieldError.
+   Ошибка, поставленная сразу за подписью, — строка, которую автор разложил сам (подпись,
+   ошибка, «Забыли пароль?»), её правило не трогает.
+   Вне @layer: утилиты Tailwind (`flex`, `flex-col`) лежат в слое и иначе перебили бы сетку. */
+:where(div, fieldset, section):has(> label:first-child):has(> [data-field-error]):not(
+    :has(> label:first-child + [data-field-error])
+  ) {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(6rem, 1fr);
+  align-items: center;
+  column-gap: 0.75rem;
+}
+:where(div, fieldset, section):has(> label:first-child):has(> [data-field-error]):not(
+    :has(> label:first-child + [data-field-error])
+  )
+  > * {
+  grid-column: 1 / -1;
+}
+:where(div, fieldset, section):has(> label:first-child):has(> [data-field-error]):not(
+    :has(> label:first-child + [data-field-error])
+  )
+  > label:first-child {
+  grid-column: 1;
+  grid-row: 1;
+}
+:where(div, fieldset, section):has(> label:first-child):has(> [data-field-error]):not(
+    :has(> label:first-child + [data-field-error])
+  )
+  > [data-field-error] {
+  grid-column: 2;
+  grid-row: 1;
+  text-align: right;
+}
+
+/* Бегущая строка не влезшей ошибки: пауза на начале, прокрутка к концу, пауза, обратно. */
+@keyframes sh-marquee {
+  0%,
+  15% {
+    transform: translateX(0);
+  }
+  85%,
+  100% {
+    transform: translateX(var(--sh-marquee-shift, 0));
+  }
+}
+[data-marquee] {
+  animation: sh-marquee var(--sh-marquee-duration, 6s) ease-in-out infinite alternate;
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-marquee] {
+    animation: none;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+/* ─── Пустое состояние на всю высоту ─────────────────────────────────────────
+   EmptyState (shared/ui/empty-state.tsx) сам растягивается (`flex-1`), но только внутри
+   родителя, у которого есть высота. Корень страницы — колонка с авто-высотой, и блок
+   жался полоской под заголовком. Здесь корень страницы (прямой потомок области
+   контента), в котором есть пустое состояние, занимает свободную высоту; EmptyState —
+   его прямой потомок — дотягивается до низа. Только колонки (`.flex-col`): у сетки лишняя
+   высота растянула бы строки. Страницу с данными правило не трогает — у неё нет метки. */
+.sh-page-fill > .flex-col:has([data-empty-state]) {
+  flex: 1 1 auto;
+}
+
+/* ─── Скелетон на всю высоту ─────────────────────────────────────────────────
+   `Skeleton fill` (shared/ui/skeleton.tsx) — `flex-1`, но растянуться ему есть куда, только
+   если высоту отдаёт вся цепочка родителей от области контента. Пока идёт загрузка:
+     1) предок заглушки, у которого нет своей раскладки (обычный блок), становится колонкой —
+        иначе цепочка рвётся на первой же обёртке вроде тела SectionPanel;
+     2) предок, стоящий в вертикальной колонке, занимает её свободную высоту.
+   Загрузилось — метки нет, раскладка обычная.
+
+   Исключения. Сетка не растягивается: у неё выросли бы все строки, в том числе плитки
+   метрик. Колонка, которая на широком экране становится рядом (`md:flex-row`), не
+   передаёт рост: в ряду он ушёл бы в ширину. В колонку не перестраиваем то, что раскладывает
+   детей само (flex, grid), спрятано (`hidden`, `md:hidden`) или относится к таблице: правило
+   стоит вне слоёв и перебило бы их утилиты. */
+.sh-page-fill
+  :has([data-skeleton-fill]):not(
+    .flex,
+    .inline-flex,
+    .grid,
+    .hidden,
+    [class*=':hidden'],
+    [class*=':grid'],
+    [class*=':flex'],
+    table,
+    thead,
+    tbody,
+    tr,
+    td,
+    th
+  ) {
+  display: flex;
+  flex-direction: column;
+}
+.sh-page-fill.flex-col > :has([data-skeleton-fill]):not(.grid),
+.sh-page-fill .flex-col:not([class*='flex-row']) > :has([data-skeleton-fill]):not(.grid),
+.sh-page-fill
+  :has([data-skeleton-fill]):not(
+    .flex,
+    .inline-flex,
+    .grid,
+    .hidden,
+    [class*=':hidden'],
+    [class*=':grid'],
+    [class*=':flex'],
+    table,
+    thead,
+    tbody,
+    tr,
+    td,
+    th
+  )
+  > :has([data-skeleton-fill]):not(.grid) {
+  flex: 1 1 auto;
 }
 
 /* ─── Печать наклеек с QR помещений (Ф16) ────────────────────────────────────

@@ -1,0 +1,177 @@
+// Домен «Кампус» — Campus 3D Builder (docs/CAMPUS_BUILDER.md, Фаза 22).
+// Таблицы — то, на что ссылаются (кампус, корпус, этаж, версии, индекс помещений); геометрия
+// этажа и территории — JSONB-документом с ревизией (формат — packages/campus-core). Координаты
+// в документах — целые миллиметры. Опубликованные версии неизменяемы: зрители и ссылки ходят
+// только в них.
+
+model Campus {
+  id                 String    @id @default(uuid())
+  universityId       String    @map("university_id")
+  name               String
+  description        String?
+  // Геопривязка необязательна: {lat, lng, bearingDeg}. Без неё кампус в локальных координатах.
+  geoAnchor          Json?     @map("geo_anchor")
+  // Текущая опубликованная версия; null — ещё не публиковался. Без FK: циклическая ссылка
+  // «кампус ↔ версия» усложнила бы удаление, целостность держит сервис публикации.
+  publishedVersionId String?   @unique @map("published_version_id")
+  createdById        String    @map("created_by_id")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  deletedAt          DateTime? @map("deleted_at")
+
+  university University       @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  buildings  CampusBuilding[]
+  site       CampusSitePlan?
+  versions   CampusVersion[]
+
+  @@index([universityId])
+  @@map("campuses")
+}
+
+model CampusBuilding {
+  id        String    @id @default(uuid())
+  campusId  String    @map("campus_id")
+  name      String
+  code      String?
+  // Контур в локальных мм корпуса: [{x,y},…] против часовой, без повтора первой точки.
+  outline   Json
+  // Положение на территории: {x, y, rotationDeg} в мм кампуса.
+  transform Json
+  sortOrder Int       @default(0) @map("sort_order")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  campus Campus        @relation(fields: [campusId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  floors CampusFloor[]
+
+  @@index([campusId])
+  @@map("campus_buildings")
+}
+
+model CampusFloor {
+  id          String   @id @default(uuid())
+  buildingId  String   @map("building_id")
+  // Порядок: -1 подвал, 0 цоколь, 1, 2…; название — как называет вуз; отметка — реальная.
+  level       Int
+  label       String
+  kind        String   @default("regular") // regular | basement | technical
+  elevationMm Int      @map("elevation_mm")
+  heightMm    Int      @map("height_mm")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  building CampusBuilding   @relation(fields: [buildingId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  plan     CampusFloorPlan?
+
+  @@unique([buildingId, level])
+  @@map("campus_floors")
+}
+
+/// Черновой документ этажа. Ревизия — оптимистичная конкуренция: запись проходит, только если
+/// клиент правил ту же ревизию, что лежит в БД (иначе 409 CONFLICT).
+model CampusFloorPlan {
+  floorId     String   @id @map("floor_id")
+  format      Int
+  revision    Int      @default(0)
+  document    Json
+  sizeBytes   Int      @map("size_bytes")
+  updatedById String   @map("updated_by_id")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  floor CampusFloor @relation(fields: [floorId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@map("campus_floor_plans")
+}
+
+/// Точки восстановления черновика: автоматически (раз в 10 минут правки), перед публикацией и
+/// перед восстановлением версии. Старые чистит cron.
+model CampusFloorPlanSnapshot {
+  id          String   @id @default(uuid())
+  floorId     String   @map("floor_id")
+  revision    Int
+  format      Int
+  document    Json
+  reason      String // autosave | before_publish | before_restore | conflict
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([floorId, createdAt])
+  @@map("campus_floor_plan_snapshots")
+}
+
+/// Территория кампуса — документ с ревизией, как у этажа.
+model CampusSitePlan {
+  campusId    String   @id @map("campus_id")
+  format      Int
+  revision    Int      @default(0)
+  document    Json
+  updatedById String   @map("updated_by_id")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  campus Campus @relation(fields: [campusId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@map("campus_site_plans")
+}
+
+/// Опубликованная версия — неизменяемый снимок. `manifest` — корпуса и этажи без геометрии,
+/// `navGraph` — производный навигационный граф (MVP-B).
+model CampusVersion {
+  id            String   @id @default(uuid())
+  campusId      String   @map("campus_id")
+  number        Int
+  note          String?
+  manifest      Json
+  navGraph      Json?    @map("nav_graph")
+  publishedById String   @map("published_by_id")
+  publishedAt   DateTime @default(now()) @map("published_at")
+
+  campus Campus               @relation(fields: [campusId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  floors CampusVersionFloor[]
+  spaces CampusSpaceIndex[]
+
+  @@unique([campusId, number])
+  @@map("campus_versions")
+}
+
+model CampusVersionFloor {
+  versionId String @map("version_id")
+  floorId   String @map("floor_id")
+  format    Int
+  document  Json
+
+  version CampusVersion @relation(fields: [versionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([versionId, floorId])
+  @@map("campus_version_floors")
+}
+
+/// Индекс помещений версии: поиск по номеру и названию, deep links, связь с Room, видимость.
+/// Скрытые (hidden) помещения сюда не попадают.
+model CampusSpaceIndex {
+  versionId  String  @map("version_id")
+  spaceId    String  @map("space_id")
+  buildingId String  @map("building_id")
+  floorId    String  @map("floor_id")
+  roomId     String? @map("room_id")
+  number     String?
+  name       String?
+  kind       String
+  visibility String // public | staff
+  // Центр (метка) в мм кампуса — фокус камеры и маркер.
+  centerX    Int     @map("center_x")
+  centerY    Int     @map("center_y")
+  areaMm2    BigInt  @map("area_mm2")
+
+  version      CampusVersion @relation(fields: [versionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  room         Room?         @relation(fields: [roomId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  university   University?   @relation(fields: [universityId], references: [id])
+  universityId String?
+
+  @@id([versionId, spaceId])
+  // Одна запись Room — не больше одного помещения на карте версии (NULL не конфликтуют).
+  @@unique([versionId, roomId])
+  @@index([versionId, number])
+  @@index([roomId])
+  @@map("campus_space_index")
+}

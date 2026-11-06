@@ -18,6 +18,7 @@ import {
   POSTS_UNIVERSITY,
   POST_TITLES,
   REACTIONS,
+  postPriority,
   postText,
 } from '../data/content.mjs'
 import { child, id } from '../lib/ids.mjs'
@@ -79,10 +80,9 @@ export async function seedSocial(prisma, writer, ctx) {
       status: 'PUBLISHED',
       publishedAt: random.randomDate(-25, -1),
       views: random.randInt(40, 900),
+      priority: postPriority('UNIVERSITY', true),
       // Один закреплённый пост на вуз: лента должна показывать закрепление.
-      ...(pi === 0
-        ? { pinnedAt: random.randomDate(-5, -1), pinnedById: people.adminId, priority: 1 }
-        : {}),
+      ...(pi === 0 ? { pinnedAt: random.randomDate(-5, -1), pinnedById: people.adminId } : {}),
     })
   }
 
@@ -98,6 +98,7 @@ export async function seedSocial(prisma, writer, ctx) {
         status: 'PUBLISHED',
         publishedAt: random.randomDate(-18, -1),
         views: random.randInt(20, 300),
+        priority: postPriority('FACULTY', true),
       })
     }
     for (const group of faculty.groups) {
@@ -113,6 +114,7 @@ export async function seedSocial(prisma, writer, ctx) {
           status: 'PUBLISHED',
           publishedAt: random.randomDate(-12, 0),
           views: random.randInt(5, 60),
+          priority: postPriority('GROUP', false),
         })
       }
     }
@@ -126,6 +128,7 @@ export async function seedSocial(prisma, writer, ctx) {
     content: 'Текст ещё готовится: уточняем дату и место проведения.',
     universityId: uniId,
     status: 'DRAFT',
+    priority: postPriority('UNIVERSITY', true),
   })
   await addPost(id(index, 'post', 'sched'), {
     authorId: people.adminId,
@@ -135,6 +138,7 @@ export async function seedSocial(prisma, writer, ctx) {
     universityId: uniId,
     status: 'SCHEDULED',
     scheduledAt: random.randomDate(1, 6),
+    priority: postPriority('UNIVERSITY', true),
   })
 
   // ── Личные посты: 20–100 на каждого пользователя вуза ───────────────────────
@@ -187,6 +191,7 @@ export async function seedSocial(prisma, writer, ctx) {
         publishedAt,
         createdAt: publishedAt,
         views: random.randInt(0, 240),
+        priority: postPriority(audience, author.staff),
       })
       if (pi < imagesPerUser) {
         withImage.push({ postId, ownerId: author.id, source: sources[(ai + pi) % sources.length] })
@@ -352,11 +357,17 @@ export async function seedSocial(prisma, writer, ctx) {
       }
       // Блокировка: одна на группу. Экран «Заблокированные» должен быть непустым
       // хотя бы у части пользователей.
-      if (random.chance(0.3) && members.length > 2) {
+      //
+      // Пара — первый и последний в списке: дружбы выше идут только «вперёд» не дальше
+      // чем на 6 человек, а личные диалоги (шаг 60) — между соседями 0–3. Блокировать
+      // соседа значило бы держать человека одновременно в друзьях, в личном чате и в
+      // блоке — так не бывает: блокировка рвёт дружбу.
+      const blockedId = members[members.length - 1]
+      if (random.chance(0.3) && members.length > 7) {
         await writer.add('userBlock', {
-          id: `${members[0]}-blk-${members[1]}`,
+          id: `${members[0]}-blk-${blockedId}`,
           blockerId: members[0],
-          blockedId: members[1],
+          blockedId,
           createdAt: random.randomDate(-100, -1),
         })
       }

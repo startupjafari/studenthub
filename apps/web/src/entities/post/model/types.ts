@@ -1,8 +1,9 @@
 // Типы постов — зеркало ответов API (docs/PROJECT.md §3.3, Ф8).
-import type { PostAudienceValue } from '@studenthub/shared-schemas'
+import type { MediaPreview, MediaSource, MediaStatus } from '../../../shared/api'
+import type { PostAudienceValue, PostReactionSummary } from '@studenthub/shared-schemas'
 import type { Role } from '@studenthub/shared-types'
 
-export type { PostAudienceValue }
+export type { PostAudienceValue, PostReactionSummary }
 
 export interface PostAuthor {
   id: string
@@ -12,11 +13,24 @@ export interface PostAuthor {
   avatarUrl: string | null
 }
 
-export interface PostMedia {
+/**
+ * Медиа поста. Лента и пост по id подписывают ссылки пачкой на всю выдачу: `url` оригинала
+ * и варианты (MediaInfo) приходят прямо здесь. Поля необязательные — у старого ответа API их
+ * нет, и тогда ссылку даёт отдельная ручка (`fetchPostMediaLink`), она же продлевает истёкшую.
+ */
+export interface PostMedia extends MediaPreview {
   id: string
   mime: string
+  url?: string
+  /** Когда протухнут подписанные ссылки; `null` — ссылки постоянные. */
+  expiresAt?: string | null
+  status?: MediaStatus
+  sources?: MediaSource[]
+  poster?: MediaSource[]
+  hls?: string | null
 }
 
+/** Строка «кто что поставил» — устаревшая форма реакций, веб её больше не запрашивает. */
 export interface PostReaction {
   emoji: string
   userId: string
@@ -44,15 +58,54 @@ export interface FeedPost {
   publishedAt: string | null
   createdAt: string
   author: PostAuthor
+  /** Пост страницы компании (аудитория COMPANY): говорит компания, автор — её сотрудник. */
+  company?: { id: string; name: string; logoUrl: string | null } | null
+  /** Пост от имени университета (страница вуза): говорит вуз, автор — админ или модератор. */
+  universityPage?: { id: string; name: string; logoUrl: string | null } | null
   media: PostMedia[]
-  reactions: PostReaction[]
+  /**
+   * Реакции сводкой: сколько каждой и стоит ли своя. Нет — ответ старого API; тогда сводку
+   * собирает `reactionSummaryOf` из построчного `reactions`.
+   */
+  reactionSummary?: PostReactionSummary[]
+  /**
+   * Устаревшее: все реакции поста строками. Лента веба приходит без него (`reactions=summary`),
+   * пост по id — пока с ним (его читают мобильные клиенты).
+   */
+  reactions?: PostReaction[]
   original: { id: string; title: string | null; content: string; author: PostAuthor } | null
+  /**
+   * Репост статьи: id статьи и её карточка. Карточка `null` при заполненном id — статья
+   * зрителю недоступна (черновик, закрытый профиль, чужая аудитория). Нет полей — старый API.
+   */
+  sharedArticleId?: string | null
+  sharedArticle?: SharedArticle | null
   _count: { comments: number }
   /**
    * Сохранён ли пост ЗРИТЕЛЕМ. Личный признак: сколько людей сохранили пост, API не
    * отдаёт и не считает — в отличие от реакций, которые видны всем намеренно.
    */
   bookmarked: boolean
+  /**
+   * Права зрителя, посчитанные сервером теми же правилами, что и сами действия (ранг
+   * относительно автора и scope). Нет — ответ старого API: тогда решает роль, как раньше.
+   */
+  canDelete?: boolean
+  canPin?: boolean
+}
+
+/** Карточка статьи в репосте: без текста — читают её на странице `/articles/<id>`. */
+export interface SharedArticle {
+  id: string
+  title: string
+  description: string | null
+  coverUrl: string | null
+  coverGradient: string | null
+  category: string | null
+  readingMinutes: number | null
+  publishedAt: string | null
+  company?: { id: string; name: string; logoUrl: string | null } | null
+  universityPage?: { id: string; name: string; logoUrl: string | null } | null
 }
 
 export interface PostComment {
@@ -62,6 +115,17 @@ export interface PostComment {
   content: string
   createdAt: string
   author: PostAuthor
+  /** Может ли зритель удалить комментарий: автор, автор поста или модерация scope. */
+  canDelete?: boolean
+}
+
+/** Страница обсуждения: свежие сверху, `cursor` — самый старый комментарий страницы. */
+export interface PostCommentsPage {
+  items: PostComment[]
+  cursor?: string
+  hasNext: boolean
+  /** Сколько комментариев всего — для заголовка, не зависит от догруженных страниц. */
+  total?: number
 }
 
 // Аудитории и подписи — порядок для селекта при создании.

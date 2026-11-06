@@ -9,6 +9,7 @@ import { PrismaService } from '../../common/prisma/prisma.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
+import { NEWEST_FIRST, encodeKeyset, keysetFrom, olderThan } from '../../common/http/keyset-cursor'
 
 // Публичная выборка уведомления: без userId и dedupeKey (внутренние поля).
 //
@@ -33,6 +34,8 @@ const NOTIFICATION_SELECT = {
 // Дефолты настроек — совпадают с @default в схеме Prisma.
 const DEFAULT_SETTINGS = {
   emailEnabled: true,
+  // Выключен до согласия: в вебе — тумблер с разрешением браузера, на телефоне —
+  // первая регистрация устройства (PushService.registerDevice включает флаг сама).
   pushEnabled: false,
   scheduleChangeEnabled: true,
   appUpdateEnabled: true,
@@ -57,6 +60,12 @@ const SETTINGS_SELECT = {
 const UNREAD_TTL_SECONDS = 300
 const unreadKey = (userId: string): string => `notif:unread:${userId}`
 
+// Письмо-зеркало свёрнутого уведомления (сообщения чата) — не чаще раза в 6 часов на ключ.
+// Само сворачивание шлёт письмо, только когда строка заново стала непрочитанной; окно —
+// потолок сверху для того, кто то и дело заглядывает в колокольчик и снова уходит.
+const COLLAPSED_EMAIL_WINDOW_SECONDS = 6 * 60 * 60
+const emailSlotKey = (userId: string, key: string): string => `notif:email:${userId}:${key}`
+
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name)
@@ -66,23 +75,41 @@ export class NotificationsService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
-  /** Лента уведомлений пользователя (cursor-пагинация, свежие сверху). */
+  /**
+   * Лента уведомлений пользователя (cursor-пагинация, свежие сверху).
+   *
+   * Курсор несёт момент и id последней строки (keyset-cursor.ts), а не голый id для
+   * Prisma-курсора: свёрнутая строка чата при новом сообщении «подпрыгивает» наверх (новый
+   * createdAt), и курсор по её id отдавал страницу заново — дубли; удалённая курсорная строка
+   * обрывала листание пустой страницей. Голый id от прежних клиентов ещё понимаем.
+   */
   async list(userId: string, query: NotificationListQueryInput): Promise<Paginated<unknown>> {
     const where: Prisma.NotificationWhereInput = {
       userId,
       ...(query.unreadOnly ? { isRead: false } : {}),
     }
+    const after = query.cursor
+      ? await keysetFrom(query.cursor, (id) =>
+          this.prisma.notification.findFirst({
+            where: { id, userId },
+            select: { createdAt: true, id: true },
+          }),
+        )
+      : null
+    if (query.cursor && !after) return new Paginated([], { hasNext: false })
     const rows = await this.prisma.notification.findMany({
-      where,
+      where: after ? { AND: [where, olderThan(after)] } : where,
       select: NOTIFICATION_SELECT,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      orderBy: NEWEST_FIRST,
       take: query.limit + 1,
-      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     })
     const hasNext = rows.length > query.limit
     const items = hasNext ? rows.slice(0, query.limit) : rows
-    const nextCursor = hasNext ? items[items.length - 1]?.id : undefined
-    return new Paginated(items, { cursor: nextCursor, hasNext })
+    const last = items.at(-1)
+    return new Paginated(items, {
+      cursor: hasNext && last ? encodeKeyset(last) : undefined,
+      hasNext,
+    })
   }
 
   /**
@@ -180,6 +207,30 @@ export class NotificationsService {
       await this.redis.del(unreadKey(userId))
     } catch (error) {
       this.logger.warn({ err: error, userId }, 'Redis недоступен — пропуск инвалидации кэша')
+    }
+  }
+
+  /**
+   * Занять окно письма о свёрнутом уведомлении: true — письмо слать можно, следующее по
+   * этому ключу пройдёт не раньше чем через COLLAPSED_EMAIL_WINDOW_SECONDS.
+   *
+   * Недоступный Redis — false: письмо о сообщении не транзакционное, и пропустить его
+   * лучше, чем слать без ограничителя. Очередь писем живёт в том же Redis, так что
+   * поставить письмо в этот момент всё равно не вышло бы.
+   */
+  async claimEmailSlot(userId: string, key: string): Promise<boolean> {
+    try {
+      const claimed = await this.redis.set(
+        emailSlotKey(userId, key),
+        '1',
+        'EX',
+        COLLAPSED_EMAIL_WINDOW_SECONDS,
+        'NX',
+      )
+      return claimed === 'OK'
+    } catch (error) {
+      this.logger.warn({ err: error, userId }, 'Redis недоступен — письмо-зеркало пропущено')
+      return false
     }
   }
 }

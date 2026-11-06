@@ -10,6 +10,19 @@ export { useInfiniteScroll } from './use-infinite-scroll'
 export { OPTIONAL_TEXT, OPTIONAL_NUMBER } from './optional-field'
 export { localId } from './local-id'
 export { useBodyScrollLock } from './use-body-scroll-lock'
+export {
+  clampPlace,
+  containScale,
+  coverScale,
+  drawPlaced,
+  placedTransform,
+  rad,
+  toStage,
+  type Place,
+  type Pt,
+  type Size,
+} from './crop-geometry'
+export { useCropGestures, type CropGesturesOptions } from './use-crop-gestures'
 export { hapticTick, hapticCommit } from './haptics'
 export { useSheetDragClose } from './use-sheet-drag-close'
 export { useSwipeRows, type SwipeRowsController, type SwipeSide } from './use-swipe-row'
@@ -20,6 +33,7 @@ export {
 } from './use-media-gestures'
 export { useScrollRow, type ScrollRowController } from './use-scroll-row'
 export { useCountUp } from './use-count-up'
+export { MOTION, staggerDelay } from './motion'
 export {
   createSpring,
   projectMomentum,
@@ -28,8 +42,11 @@ export {
   prefersReducedMotion,
   type SpringHandle,
 } from './spring'
-export { nowInTz, isoWeekParity, type NowInTz } from './tz-date'
+export { nowInTz, wallClockInTz, isoWeekParity, isoWeekParityOf, type NowInTz } from './tz-date'
+export { useNowInTz } from './use-now-in-tz'
 export { safeNextPath } from './safe-next'
+export { isTrustedImageUrl } from './trusted-image'
+export { localMediaSrc } from './local-media-src'
 export { identityColor, identityInitials, IDENTITY_COLORS } from './identity-color'
 export { relativeTime } from './relative-time'
 export {
@@ -73,7 +90,12 @@ export {
   useFileDownload,
   saveBlob,
   downloadKeyOf,
+  downloadedUrl,
   type DownloadState,
   type DownloadSource,
   type FileDownload,
 } from './file-download'
+export { srcSetOf, pickSource } from './media-source'
+export { useHls, type HlsLevel, type HlsQuality } from './use-hls'
+export { plainPreview } from './plain-text'
+export { afterScrollSettles, scrollToAndFlash } from './scroll-settle'

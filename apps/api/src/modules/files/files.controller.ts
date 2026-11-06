@@ -11,6 +11,7 @@ import {
   Req,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { AppException } from '../../common/exceptions/app.exception'
 import { Throttle } from '@nestjs/throttler'
 import { ApiBody, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import type { FileBucketKind } from '@studenthub/shared-schemas'
@@ -65,8 +66,18 @@ export class FilesController {
     return this.files.upload({ buffer, bucket: this.bucketName(query.bucket), ownerId: user.sub })
   }
 
-  /** Все MINIO_BUCKET_* — строки; динамический ключ даёт union, сужаем явно. */
+  /**
+   * Все MINIO_BUCKET_* — строки; динамический ключ даёт union, сужаем явно.
+   *
+   * Публичный бакет аватаров через общие эндпоинты не принимается: аватар грузится своим
+   * маршрутом с проверкой изображения, а сюда — presign, PUT любого содержимого и без
+   * confirm — объект сутки до ночной уборки висел бы по постоянной публичной ссылке, то
+   * есть бакет работал бы как бесплатный хостинг от имени платформы.
+   */
   private bucketName(kind: FileBucketKind): string {
+    if (kind === 'AVATARS') {
+      throw new AppException('BAD_REQUEST', 'Аватар загружается в профиле')
+    }
     return this.config.get(BUCKET_ENV[kind], { infer: true }) as string
   }
 
@@ -93,12 +104,23 @@ export class FilesController {
   @ApiResponse({ status: 403, description: 'FORBIDDEN — ключ не принадлежит вызывающему' })
   @ApiResponse({ status: 404, description: 'NOT_FOUND — объект не загружен' })
   @ApiResponse({ status: 422, description: 'FILE_TYPE_NOT_ALLOWED / FILE_TOO_LARGE' })
+  @ApiResponse({
+    status: 400,
+    description: 'BAD_REQUEST — отрезок не для видео сторис или длиннее лимита',
+  })
   async confirm(@CurrentUser() user: CurrentUserData, @Body() dto: ConfirmUploadDto) {
     return this.files.confirmDirectUpload({
       bucket: this.bucketName(dto.bucket),
       key: dto.key,
       ownerId: user.sub,
       name: dto.name,
+      trim: dto.trim,
+      // Отрезать видео можно только у сторис: у них лимит длительности, и редактор даёт
+      // выбрать отрезок. Остальным бакетам потолок не задаём — отрезок там отклоняется.
+      trimMaxMs:
+        dto.bucket === 'STORIES'
+          ? this.config.get('STORY_VIDEO_MAX_SECONDS', { infer: true }) * 1000
+          : undefined,
     })
   }
 
@@ -176,10 +198,22 @@ export class FilesController {
     return { url }
   }
 
+  /**
+   * Только свой НЕПРИКРЕПЛЁННЫЙ файл. Прикреплённый (к сообщению, посту, сторис, материалу,
+   * документу, сдаче работы, альбому) удаляется через свой раздел — там права и аудит
+   * модуля. Аватары — тоже: на них ссылается URL пользователя или чата, а не FK.
+   */
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Удалить свой файл (объект в MinIO + запись)' })
+  @ApiResponse({ status: 204, description: '' })
+  @ApiResponse({
+    status: 409,
+    description: 'CONFLICT — файл прикреплён к сущности, удаляется через её раздел',
+  })
   async remove(@CurrentUser() user: CurrentUserData, @Param('id') id: string): Promise<void> {
-    await this.files.delete(id, user.sub)
+    await this.files.deleteDetached(id, user.sub, [
+      this.config.get('MINIO_BUCKET_AVATARS', { infer: true }),
+    ])
   }
 }

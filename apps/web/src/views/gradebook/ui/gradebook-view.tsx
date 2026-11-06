@@ -4,17 +4,8 @@ import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { BookOpen } from 'lucide-react'
-import {
-  EmptyState,
-  PageHeader,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Skeleton,
-} from '../../../shared/ui'
-import { courseKeys, fetchCourses } from '../../../entities/course'
+import { EmptyState, PageHeader, Skeleton } from '../../../shared/ui'
+import { CourseSelect, courseKeys, fetchAllCourses } from '../../../entities/course'
 import { GradebookTable } from './gradebook-table'
 
 // «Журнал оценок» преподавателя (задача 7): выбор дисциплины → матрица оценок.
@@ -26,8 +17,8 @@ import { GradebookTable } from './gradebook-table'
 export function GradebookView() {
   const t = useTranslations('Gradebook')
   const courses = useQuery({
-    queryKey: courseKeys.list({ mine: true }),
-    queryFn: () => fetchCourses({ mine: true }),
+    queryKey: courseKeys.listAll({ mine: true }),
+    queryFn: () => fetchAllCourses({ mine: true }),
     retry: false,
   })
   const [courseId, setCourseId] = useState('')
@@ -38,19 +29,18 @@ export function GradebookView() {
 
   const courseSelect = (
     <div className="w-60">
-      <Select value={courseId} onValueChange={setCourseId}>
-        {/* `md` — одна высота с кнопками «Добавить» и «Сохранить» рядом в шапке. */}
-        <SelectTrigger size="md">
-          <SelectValue placeholder={t('selectCourse')} />
-        </SelectTrigger>
-        <SelectContent>
-          {(courses.data ?? []).map((c) => (
-            <SelectItem key={c.id} value={c.id}>
-              {c.subject.name} · {c.group.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {/* `md` — одна высота с кнопками «Добавить» и «Сохранить» рядом в шапке. Сброс
+          выбора (крестик) журнал не закрывает: без дисциплины показывать нечего. */}
+      <CourseSelect
+        courses={courses.data ?? []}
+        value={courseId}
+        onChange={(next) => {
+          if (next) setCourseId(next)
+        }}
+        loading={courses.isFetching}
+        placeholder={t('selectCourse')}
+        size="md"
+      />
     </div>
   )
 
@@ -64,7 +54,7 @@ export function GradebookView() {
       {/* Дисциплины есть, но `courseId` ещё не проставлен эффектом — это тот же кадр
           загрузки, а не «нет дисциплин»: иначе на мгновение мигало бы пустое состояние. */}
       {courses.isLoading || hasCourses ? (
-        <Skeleton className="h-80 w-full rounded-xl" />
+        <Skeleton fill className="min-h-80 rounded-xl" />
       ) : (
         <EmptyState icon={<BookOpen />} title={t('noCourses')} description={t('noCoursesHint')} />
       )}

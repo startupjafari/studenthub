@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { ChevronRight, GraduationCap, Menu, X } from 'lucide-react'
 import type { Locale } from '../config/site'
-import { PLATFORM_LINKS, localePath } from '../config/site'
+import { localePath, platformLinks } from '../config/site'
 import type { Dictionary } from '../content'
 import { AnimatePresence, EASE, motion, useReducedMotion } from './motion'
 import { Container, LinkButton } from './primitives'
@@ -30,8 +30,10 @@ const SECTIONS = ['product', 'security', 'rollout', 'faq'] as const
  */
 export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale }) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const toggleRef = useRef<HTMLButtonElement>(null)
   const calm = useReducedMotion()
   const [activeSection, setActiveSection] = useState<string | null>(null)
+  const platform = platformLinks(locale)
 
   const links = [
     { id: 'product', label: dict.nav.product },
@@ -70,12 +72,43 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
     (`.sh-menu-open`) заодно держат шапку на месте и гасят её размытие. Полоса прокрутки
     при этом не пропадает скачком — у документа `scrollbar-gutter: stable`, и страница под
     меню не сдвигается вбок на её ширину.
+
+    Меню есть только на узком экране (`lg:hidden`). Окно расширили с открытым меню — оно
+    пропадало с глаз, а состояние оставалось открытым, и прокрутка страницы так и стояла
+    запертой. Поэтому на брейкпоинте `lg` (64rem) меню закрывается само.
+
+    Пока меню открыто, всё под ним — `inert`: Tab не уводит фокус на невидимую страницу,
+    а скринридер не читает закрытое полотном. Esc закрывает меню и возвращает фокус на
+    кнопку, которая его открыла.
   */
   useEffect(() => {
     if (!menuOpen) return
     const root = document.documentElement
     root.classList.add('sh-menu-open')
-    return () => root.classList.remove('sh-menu-open')
+
+    const desktop = window.matchMedia('(min-width: 64rem)')
+    const onBreakpoint = () => {
+      if (desktop.matches) setMenuOpen(false)
+    }
+    desktop.addEventListener('change', onBreakpoint)
+    onBreakpoint()
+
+    const behind = Array.from(document.querySelectorAll<HTMLElement>('main, footer'))
+    behind.forEach((el) => el.setAttribute('inert', ''))
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setMenuOpen(false)
+      toggleRef.current?.focus()
+    }
+    document.addEventListener('keydown', onKeyDown)
+
+    return () => {
+      root.classList.remove('sh-menu-open')
+      desktop.removeEventListener('change', onBreakpoint)
+      behind.forEach((el) => el.removeAttribute('inert'))
+      document.removeEventListener('keydown', onKeyDown)
+    }
   }, [menuOpen])
 
   return (
@@ -102,7 +135,7 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
             className="sh-menu fixed inset-0 z-40 flex flex-col bg-background lg:hidden"
           >
             <nav
-              aria-label={dict.nav.product}
+              aria-label={dict.nav.sections}
               className="flex-1 overflow-y-auto overscroll-contain"
             >
               <Container className="flex flex-col py-2">
@@ -135,9 +168,9 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
                 <span className="text-xs tracking-[0.14em] text-muted-foreground uppercase">
                   {dict.footer.language}
                 </span>
-                <LanguageMenu current={locale} side="top" />
+                <LanguageMenu current={locale} label={dict.footer.language} side="top" />
               </div>
-              <LinkButton href={PLATFORM_LINKS.demoRequest} external className="w-full">
+              <LinkButton href={platform.demoRequest} external className="w-full">
                 {dict.nav.demo}
               </LinkButton>
             </Container>
@@ -161,7 +194,7 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
             </span>
           </a>
 
-          <nav className="hidden items-center gap-1 lg:flex" aria-label={dict.nav.product}>
+          <nav className="hidden items-center gap-1 lg:flex" aria-label={dict.nav.sections}>
             {links.map((link) => (
               <a
                 key={link.id}
@@ -188,7 +221,7 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
 
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <div className="hidden sm:block">
-              <LanguageMenu current={locale} />
+              <LanguageMenu current={locale} label={dict.footer.language} />
             </div>
 
             {/* Разделитель: без него язык и «Войти» читаются как одна группа кнопок. */}
@@ -204,7 +237,7 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
           */}
             <span className="hidden xl:block">
               <LinkButton
-                href={PLATFORM_LINKS.demoRequest}
+                href={platform.demoRequest}
                 external
                 variant="ghost"
                 size="sm"
@@ -214,11 +247,12 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
               </LinkButton>
             </span>
 
-            <LinkButton href={PLATFORM_LINKS.login} external size="sm">
+            <LinkButton href={platform.login} external size="sm">
               {dict.nav.login}
             </LinkButton>
 
             <button
+              ref={toggleRef}
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
               aria-expanded={menuOpen}

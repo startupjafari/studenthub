@@ -1,3 +1,5 @@
 export { AppShell } from './ui/app-shell'
+export { PersistentShell } from './ui/persistent-shell'
+export { isShellPath } from './model/shell-paths'
 export { NAV_BY_VARIANT, ROLE_TO_VARIANT, careerHomeFor } from './model/nav'
 export type { NavVariant, NavItem } from './model/nav'

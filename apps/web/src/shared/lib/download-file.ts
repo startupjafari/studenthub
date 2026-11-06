@@ -30,8 +30,13 @@ export function saveFile({ blob, filename }: DownloadedFile): void {
   const link = document.createElement('a')
   link.href = url
   link.download = filename
+  link.rel = 'noopener'
+  document.body.appendChild(link)
   link.click()
-  URL.revokeObjectURL(url)
+  link.remove()
+  // Ссылку живой держим минуту, как в file-download.ts: браузер начинает запись не
+  // мгновенно, и revoke сразу после клика обрывал скачивание выгрузки в Safari.
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
 /**

@@ -1,11 +1,14 @@
 import type { AxiosProgressEvent } from 'axios'
 import type {
+  AcceptConsentInput,
   UpdateProfileInput,
   UpdateUsernameInput,
   ChangePasswordInput,
+  DeleteAccountInput,
   UserListQueryInput,
   ProfileVisibilityValue,
   UserDirectorySectionValue,
+  UpdateAcademicRecordInput,
 } from '@studenthub/shared-schemas'
 import type { Role } from '@studenthub/shared-types'
 import { api, getPaged } from '../../../shared/api'
@@ -14,6 +17,9 @@ import type { MeResponse, Paged } from '../../../shared/api'
 
 export const userKeys = {
   me: () => ['user', 'me'] as const,
+  // Под ключом `me`: инвалидация профиля перечитывает и согласие. Дата рождения — в ключе:
+  // её правка в профиле меняет основание согласия (A-F29), и состояние надо спросить заново.
+  consent: (birthDate: string | null) => ['user', 'me', 'consent', birthDate] as const,
   detail: (id: string) => ['user', 'detail', id] as const,
   presence: (id: string) => ['user', 'presence', id] as const,
 }
@@ -109,8 +115,38 @@ export async function changePasswordRequest(input: ChangePasswordInput): Promise
   await api.patch('/users/me/password', input)
 }
 
-export async function deleteAccountRequest(): Promise<void> {
-  await api.delete('/users/me')
+/**
+ * Удаление своего аккаунта. Сервер требует повторной аутентификации: текущий пароль и,
+ * если включена 2FA, её код (TOTP или резервный).
+ */
+export async function deleteAccountRequest(input: DeleteAccountInput): Promise<void> {
+  await api.delete('/users/me', { data: input })
+}
+
+/**
+ * Согласие на обработку ПДн (A-F29): нужно ли принять действующую редакцию документов.
+ * `reason`: VERSION — редакция сменилась; AGE_BASIS — дата рождения разошлась с тем, кто
+ * давал согласие (сам человек или законный представитель).
+ */
+export interface ConsentState {
+  required: boolean
+  reason: 'VERSION' | 'AGE_BASIS' | null
+  version: string
+  acceptedVersion: string | null
+  acceptedAt: string | null
+  byGuardian: boolean
+  guardianRequired: boolean
+  birthDateRequired: boolean
+}
+
+export async function fetchConsentState(): Promise<ConsentState> {
+  const { data } = await api.get<ConsentState>('/users/me/consent')
+  return data
+}
+
+export async function acceptConsentRequest(input: AcceptConsentInput): Promise<ConsentState> {
+  const { data } = await api.post<ConsentState>('/users/me/consent', input)
+  return data
 }
 
 export async function uploadAvatarRequest(
@@ -169,6 +205,8 @@ export interface AdminUser {
   facultyId: string | null
   groupId: string | null
   isBlocked: boolean
+  // Включена ли 2FA: по нему таблица показывает «Сбросить 2FA».
+  twoFactorEnabled: boolean
   createdAt: string
 }
 
@@ -196,12 +234,48 @@ export async function exportUsers(
   return requestFile('/users/export', { ...query, format, locale })
 }
 
-export async function blockUserRequest(id: string): Promise<void> {
-  await api.patch(`/users/${id}/block`)
+/**
+ * Машинная выгрузка СВОИХ персональных данных (Ф14.6). Формат один — JSON: файл читают
+ * и человек, и программа, а таблицей разнородные разделы архива не ложатся.
+ */
+export async function exportMyData(locale: string): Promise<DownloadedFile> {
+  return requestFile('/me/export', { locale })
+}
+
+/** Блокировка: без срока — бессрочная, со сроком (`blockDays`) снимается сама. */
+export async function blockUserRequest(id: string, blockDays?: number): Promise<void> {
+  await api.patch(`/users/${id}/block`, blockDays ? { blockDays } : undefined)
+}
+
+/**
+ * Завершить все сессии человека (угнанный аккаунт): чужой вылетает, хозяин входит заново.
+ * Свои сессии — тот же маршрут со своим id («Выйти на всех устройствах»).
+ */
+export async function revokeUserSessionsRequest(id: string): Promise<void> {
+  await api.patch(`/users/${id}/logout`)
 }
 
 export async function unblockUserRequest(id: string): Promise<void> {
   await api.patch(`/users/${id}/unblock`)
+}
+
+/**
+ * Сброс 2FA человеку, потерявшему аутентификатор. `code` — второй фактор САМОГО
+ * администратора (TOTP или резервный код): без него сервер сброс не выполнит.
+ */
+export async function resetUserTwoFactorRequest(id: string, code: string): Promise<void> {
+  await api.post(`/users/${id}/2fa/reset`, { code })
+}
+
+/**
+ * Учебные данные студента (курс, форма оплаты, статус…). Их ведёт вуз — декан своего
+ * факультета или админ вуза: из них печатается справка об обучении. Сам студент их не меняет.
+ */
+export async function updateAcademicRecordRequest(
+  id: string,
+  input: UpdateAcademicRecordInput,
+): Promise<void> {
+  await api.patch(`/users/${id}/academic`, input)
 }
 
 // ── Справочник людей своего вуза (§50, «кому написать») ─────────────────────

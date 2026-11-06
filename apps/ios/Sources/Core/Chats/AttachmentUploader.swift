@@ -136,19 +136,16 @@ struct AttachmentUploader: Sendable {
                 attachments: [AttachmentUpload(key: ticket.key, name: attachment.name)]
             )
             try await database.writer.write { db in
-                guard var row = try MessageRecord.fetchOne(db, key: message.id) else { return }
-                row.remoteId = sent.id
-                row.seq = sent.seq
-                row.createdAt = sent.createdAt
-                row.sendState = .sent
-                try row.update(db)
+                try MessageStore.confirm(localID: message.id, with: sent, in: db)
                 // Серверные вложения заменяют локальную запись, но файл на диске
                 // остаётся: показывать его из кэша быстрее, чем качать своё же.
+                // `upsert`, а не `insert`: если сообщение уже пришло из сокета, строка
+                // с серверным id вложения есть — вставка упёрлась бы в ключ.
                 if let serverFile = sent.media?.first {
                     var updated = local
                     updated.id = serverFile.id
                     try local.delete(db)
-                    try updated.insert(db)
+                    try updated.upsert(db)
                 }
             }
             return true

@@ -67,7 +67,9 @@ export class OnboardingService {
       currentStep: blocking[0] ?? 'launch',
       /** Чего не хватает для запуска. Пустой список — кнопка запуска активна. */
       blocking,
-      canLaunch: blocking.length === 0 && university.status !== 'ACTIVE',
+      // Запуск — только из PENDING. «Не ACTIVE» сюда не годится: у заблокированного
+      // платформой вуза шаги давно заполнены, и кнопка предлагала бы снять блокировку.
+      canLaunch: university.status === 'PENDING' && blocking.length === 0,
       dismissedAt: record.dismissedAt,
       completedAt: record.completedAt,
     }
@@ -135,12 +137,18 @@ export class OnboardingService {
    * Это единственное действие мастера, которое видно людям за пределами кабинета
    * админа: до него вуз заведён, но не работает. Поэтому проверка обязательных шагов
    * делается здесь, на сервере, а не только кнопкой на фронте.
+   *
+   * Переход — только из PENDING и только условным `updateMany`. BLOCKED сюда не входит:
+   * блокировку ставит и снимает платформа, а у работавшего вуза шаги заполнены, и
+   * безусловная запись ACTIVE позволяла админу вуза снять её самому одним нажатием.
+   * Условие в самом запросе, а не только в проверке выше: блокировка может прийти между
+   * чтением состояния и записью.
    */
   async launch(viewer: JwtPayload, ctx: RequestContext) {
     const universityId = this.requireUniversity(viewer)
     const current = await this.state(viewer)
-    if (current.university.status === 'ACTIVE') {
-      throw new AppException('CONFLICT', 'Университет уже запущен')
+    if (current.university.status !== 'PENDING') {
+      throw this.launchConflict(current.university.status)
     }
     if (current.blocking.length > 0) {
       throw new AppException(
@@ -149,13 +157,20 @@ export class OnboardingService {
       )
     }
 
-    await this.prisma.$transaction([
-      this.prisma.university.update({ where: { id: universityId }, data: { status: 'ACTIVE' } }),
-      this.prisma.universityOnboarding.update({
+    await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.university.updateMany({
+        where: { id: universityId, status: 'PENDING' },
+        data: { status: 'ACTIVE' },
+      })
+      if (count === 0) {
+        // Статус сменился между чтением состояния и записью — например, вуз заблокировали.
+        throw this.launchConflict(null)
+      }
+      await tx.universityOnboarding.update({
         where: { universityId },
         data: { completedAt: new Date() },
-      }),
-    ])
+      })
+    })
     await this.universities.invalidateStats(universityId)
 
     await this.audit.record({
@@ -169,6 +184,16 @@ export class OnboardingService {
   }
 
   // ── Вспомогательное ────────────────────────────────────────────────────────
+
+  /**
+   * Отказ в запуске вуза не в PENDING. Уже запущенный — повтор нажатия; заблокированный —
+   * не решение админа вуза: блокировку ставит и снимает платформа.
+   */
+  private launchConflict(status: string | null): AppException {
+    return status === 'ACTIVE'
+      ? new AppException('CONFLICT', 'Университет уже запущен')
+      : new AppException('CONFLICT', 'Запустить можно только вуз, ожидающий запуска')
+  }
 
   /**
    * Пройденность шага по самим данным — см. комментарий к модели UniversityOnboarding.

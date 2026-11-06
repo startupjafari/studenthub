@@ -1,13 +1,11 @@
-import { writeFile } from 'node:fs/promises'
-import path from 'node:path'
-import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from './support/fixtures'
 
 // Доступность и адаптивность (план 13.7): 375 / 768 / 1280, клавиатурная навигация.
 //
 // Проверяем машинно-проверяемое: горизонтальную прокрутку (главный симптом сломанной вёрстки на
 // узком экране), достижимость навигации с клавиатуры и видимый фокус. Контраст палитры проверяется
-// отдельно и дешевле — в unit-тесте shared/ui/theme-contrast.test.ts.
+// отдельно и дешевле — в unit-тесте shared/ui/theme-contrast.test.ts. Каталог правил WCAG (axe)
+// гоняется по всем экранам всех ролей в отдельном файле — a11y-axe.e2e.ts.
 
 const VIEWPORTS = [
   { name: 'мобильный', width: 375, height: 812 },
@@ -140,49 +138,4 @@ test('у всех видимых кнопок есть доступное имя
   }
   // Скринридер объявит такую кнопку как «кнопка» — что она делает, понять нельзя.
   expect(nameless, 'элементы без доступного имени').toEqual([])
-})
-
-// Машинная проверка WCAG поверх ручных проверок выше. Ручные ловят то, что знаем про себя
-// сами (прокрутка, фокус, доступные имена); axe — весь остальной каталог правил: порядок
-// заголовков, контраст в реально отрисованном DOM, роли и подписи полей, дубли id.
-//
-// Тест намеренно НЕ падает на находках. Сколько их сейчас — не знает никто, а проверка,
-// которая краснеет с первого дня, живёт ровно до первого «ну подумаешь». Поэтому сначала
-// список в сводке прогона несколько недель, и только потом — утверждение на нужном
-// уровне серьёзности. Список пишется в a11y-axe.json, прогон печатает его таблицей.
-test('axe: нарушения WCAG на ключевых экранах', async ({ studentPage: page }, testInfo) => {
-  await page.setViewportSize({ width: 1280, height: 800 })
-
-  const findings: {
-    route: string
-    rule: string
-    impact: string
-    help: string
-    elements: number
-  }[] = []
-
-  for (const route of ROUTES) {
-    await page.goto(route)
-    await page.getByRole('main').waitFor({ timeout: 30_000 })
-
-    const results = await new AxeBuilder({ page })
-      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-      .analyze()
-
-    for (const violation of results.violations) {
-      findings.push({
-        route,
-        rule: violation.id,
-        impact: violation.impact ?? 'unknown',
-        help: violation.help,
-        elements: violation.nodes.length,
-      })
-    }
-  }
-
-  // В отчёт Playwright — чтобы при разборе падения список был под рукой; в файл — чтобы
-  // прогон собрал из него таблицу в сводке запуска.
-  const body = JSON.stringify(findings, null, 2)
-  await testInfo.attach('axe.json', { body, contentType: 'application/json' })
-  await writeFile(path.resolve(process.cwd(), 'a11y-axe.json'), body, 'utf8')
 })

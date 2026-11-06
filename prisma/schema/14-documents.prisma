@@ -198,5 +198,6 @@ model DocumentSubmissionItem {
 
   @@unique([submissionId, requestItemId]) // одна позиция ответа на требование
   @@index([documentId])
+  @@index([requestItemId])
   @@map("document_submission_items")
 }

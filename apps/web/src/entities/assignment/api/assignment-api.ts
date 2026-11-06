@@ -6,8 +6,16 @@ import type {
   SaveSubmissionDraftInput,
   UpdateAssignmentInput,
 } from '@studenthub/shared-schemas'
-import { api, getPaged, type Paged } from '../../../shared/api'
-import type { AssignmentItem, SubmissionItem } from '../model/types'
+import type { AxiosProgressEvent } from 'axios'
+import {
+  api,
+  getPaged,
+  needsDirectUpload,
+  uploadDirect,
+  type Paged,
+  type PresignedTarget,
+} from '../../../shared/api'
+import type { AssignmentItem, SubmissionFile, SubmissionItem } from '../model/types'
 
 export const assignmentKeys = {
   reviewQueue: (limit: number) => ['assignments', 'review-queue', limit] as const,
@@ -16,10 +24,19 @@ export const assignmentKeys = {
     ['assignments', 'list-paged', filters] as const,
   list: (filters: Partial<AssignmentListQueryInput> = {}) =>
     ['assignments', 'list', filters] as const,
+  // Постраничный список студента («Показать ещё»). Под префиксом `list`, чтобы его
+  // освежала та же инвалидация `list()`, что и остальные списки после сдачи работы.
+  listPages: () => ['assignments', 'list', { pages: true }] as const,
   detail: (id: string) => ['assignments', 'detail', id] as const,
   submissions: (id: string) => ['assignments', id, 'submissions'] as const,
 }
 
+/**
+ * Первые 100 заданий одним массивом — для экранов, которым хватает «актуальных»:
+ * студенту сервер без `sort` отдаёт открытые по ближайшему сроку, затем прошедшие от
+ * свежих к старым, так что текущий семестр не отсекается заданиями первого курса.
+ * Календарю нужен период — `dueFrom`/`dueTo`.
+ */
 export async function fetchAssignments(
   filters: Partial<AssignmentListQueryInput> = {},
 ): Promise<AssignmentItem[]> {
@@ -32,9 +49,10 @@ export async function fetchAssignments(
 /**
  * Страница заданий с общим числом — для таблицы преподавателя.
  *
- * Отдельно от `fetchAssignments`: тот отдаёт массив и используется ещё на четырёх
- * экранах (календарь, задачи, курс, список студента), которым ни `total`, ни
+ * Отдельно от `fetchAssignments`: тот отдаёт массив и используется ещё на нескольких
+ * экранах (календарь, задачи, курс, академический профиль), которым ни `total`, ни
  * сортировка не нужны. Менять его форму значило бы править их все ради одной таблицы.
+ * Список студента читает этот же эндпоинт страницами — по `total` он знает, есть ли ещё.
  */
 export async function fetchAssignmentsPaged(
   query: Partial<AssignmentListQueryInput> = {},
@@ -110,6 +128,58 @@ export async function saveSubmissionDraftRequest(
 export async function submitAssignmentRequest(assignmentId: string): Promise<SubmissionItem> {
   const { data } = await api.post<SubmissionItem>(`/assignments/${assignmentId}/submit`)
   return data
+}
+
+/**
+ * Приложить файл к работе. Как у материалов: до порога — буферная загрузка через API,
+ * больше — прямая в MinIO по подписанной ссылке. Черновика сдачи нет — сервер заведёт его.
+ */
+export async function uploadSubmissionFileRequest(
+  assignmentId: string,
+  file: File,
+  onProgress?: (percent: number) => void,
+): Promise<SubmissionFile> {
+  const base = `/assignments/${assignmentId}/submission/files`
+  if (needsDirectUpload(file.size)) {
+    return uploadDirect<SubmissionFile>({
+      file,
+      presign: async (mime) => {
+        const { data } = await api.post<PresignedTarget>(`${base}/presign`, { mime })
+        return data
+      },
+      confirm: async (key, name) => {
+        const { data } = await api.post<SubmissionFile>(`${base}/confirm`, { key, name })
+        return data
+      },
+      onProgress,
+    })
+  }
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await api.post<SubmissionFile>(base, form, {
+    onUploadProgress: (e: AxiosProgressEvent) => {
+      if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100))
+    },
+  })
+  return data
+}
+
+export async function deleteSubmissionFileRequest(
+  assignmentId: string,
+  fileId: string,
+): Promise<void> {
+  await api.delete(`/assignments/${assignmentId}/submission/files/${fileId}`)
+}
+
+/** Ссылка на скачивание файла работы (автору и проверяющему), с исходным именем файла. */
+export async function fetchSubmissionFileUrl(
+  submissionId: string,
+  fileId: string,
+): Promise<string> {
+  const { data } = await api.get<{ url: string }>(
+    `/submissions/${submissionId}/files/${fileId}/presigned`,
+  )
+  return data.url
 }
 
 /** Очередь проверки преподавателя: сколько работ ждёт оценки и по каким заданиям. */

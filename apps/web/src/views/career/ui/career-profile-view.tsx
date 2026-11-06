@@ -25,16 +25,34 @@ import {
   Badge,
   Button,
   Checkbox,
+  EmptyState,
   Input,
   Label,
   PageHeader,
   PageLoader,
   Progress,
   SectionPanel,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Textarea,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
+
+const CURRENCIES = ['KZT', 'USD', 'EUR', 'RUB'] as const
+type Currency = (typeof CURRENCIES)[number]
+// «Без валюты» — отдельное значение селекта: пустую строку Radix Select не принимает.
+const NO_CURRENCY = 'none'
+
+/** Позиции вводятся одной строкой через запятую. */
+const toList = (value: string): string[] =>
+  value
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
 
 /**
  * Карьерный профиль студента.
@@ -45,6 +63,7 @@ import { cn } from '../../../shared/lib/utils'
  */
 export function CareerProfileView() {
   const t = useTranslations('CareerProfile')
+  const tErr = useTranslations('Errors')
   const tCommon = useTranslations('Common')
   const queryClient = useQueryClient()
 
@@ -56,19 +75,26 @@ export function CareerProfileView() {
       queryClient.setQueryData(careerProfileKeys.mine(), updated)
       toast.success(t('saved'))
     },
-    onError: (error) => toast.error(toApiError(error).message),
+    onError: (error) => toast.error(tErr(toApiError(error).code)),
   })
 
   const consent = useMutation({
     mutationFn: (input: { field: ConsentField; granted: boolean }) => setCareerConsent(input),
     onSuccess: (updated) => queryClient.setQueryData(careerProfileKeys.mine(), updated),
-    onError: (error) => toast.error(toApiError(error).message),
+    onError: (error) => toast.error(tErr(toApiError(error).code)),
   })
 
   // Локальная копия редактируемых полей: сохранение по кнопке, а не на каждый символ.
+  // Заполняется один раз, когда профиль приехал: переключение видимости и согласий кладёт
+  // в кэш свежий профиль, и пересборка черновика из него стирала несохранённые правки.
   const [draft, setDraft] = useState<UpdateCareerProfileInput>({})
+  // Позиции — строкой: разбор на каждый символ съедал бы набранную запятую.
+  const [positionsText, setPositionsText] = useState('')
+  const [draftReady, setDraftReady] = useState(false)
   useEffect(() => {
-    if (!profile.data) return
+    if (!profile.data || draftReady) return
+    setDraftReady(true)
+    setPositionsText(profile.data.desiredPositions.join(', '))
     setDraft({
       employmentStatus: profile.data.employmentStatus,
       desiredPositions: profile.data.desiredPositions,
@@ -77,10 +103,28 @@ export function CareerProfileView() {
       relocationReady: profile.data.relocationReady,
       desiredSalaryMin: profile.data.desiredSalaryMin,
       desiredSalaryMax: profile.data.desiredSalaryMax,
+      salaryCurrency: profile.data.salaryCurrency as Currency | null,
       about: profile.data.about ?? undefined,
     })
-  }, [profile.data])
+  }, [profile.data, draftReady])
 
+  // Сбой загрузки — ошибкой с повтором: без этой ветки экран навсегда оставался загрузкой.
+  if (profile.isError) {
+    return (
+      <div className="flex w-full flex-1 flex-col gap-4">
+        <PageHeader title={t('title')} />
+        <EmptyState
+          title={tErr(toApiError(profile.error).code)}
+          description={tErr('retryHint')}
+          action={
+            <Button variant="outline" onClick={() => void profile.refetch()}>
+              {tCommon('retry')}
+            </Button>
+          }
+        />
+      </div>
+    )
+  }
   if (profile.isLoading || !profile.data) return <PageLoader label={tCommon('loading')} />
 
   const data = profile.data
@@ -245,7 +289,7 @@ export function CareerProfileView() {
             render={(v) => formatLabel[v]}
           />
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-3">
             <div className="flex flex-col gap-2">
               <Label htmlFor="salaryMin">{t('salaryFrom')}</Label>
               <Input
@@ -276,6 +320,54 @@ export function CareerProfileView() {
                 }
               />
             </div>
+            <div className="flex flex-col gap-2">
+              <Label>{t('salaryCurrency')}</Label>
+              <Select
+                value={draft.salaryCurrency ?? NO_CURRENCY}
+                onValueChange={(v) =>
+                  setDraft((d) => ({
+                    ...d,
+                    salaryCurrency: v === NO_CURRENCY ? null : (v as Currency),
+                  }))
+                }
+              >
+                <SelectTrigger aria-label={t('salaryCurrency')}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_CURRENCY}>—</SelectItem>
+                  {CURRENCIES.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="desiredPositions">{t('desiredPositions')}</Label>
+            <Input
+              id="desiredPositions"
+              value={positionsText}
+              onChange={(e) => setPositionsText(e.target.value)}
+              placeholder={t('desiredPositionsPlaceholder')}
+            />
+            <p className="text-xs text-muted-foreground">{t('desiredPositionsHint')}</p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Checkbox
+              id="relocationReady"
+              checked={draft.relocationReady ?? false}
+              onCheckedChange={(checked) =>
+                setDraft((d) => ({ ...d, relocationReady: checked === true }))
+              }
+            />
+            <Label htmlFor="relocationReady" className="cursor-pointer font-normal">
+              {t('relocationReady')}
+            </Label>
           </div>
 
           <div className="flex flex-col gap-2">
@@ -292,7 +384,7 @@ export function CareerProfileView() {
           <Button
             className="self-start"
             loading={save.isPending}
-            onClick={() => save.mutate(draft)}
+            onClick={() => save.mutate({ ...draft, desiredPositions: toList(positionsText) })}
           >
             {t('save')}
           </Button>

@@ -1,4 +1,5 @@
 import type { ChatTypeValue } from '@studenthub/shared-schemas'
+import type { MediaStatus } from '../../../shared/api'
 export type { ChatTypeValue }
 
 // Вложение сообщения (Ф9+): presigned-URL получаем лениво по id (GET /chats/attachments/:id/url).
@@ -17,6 +18,11 @@ export interface MessageAttachment {
   // точное место, пока идут байты. NULL/undefined — не картинка либо вложение старше полей.
   width?: number | null
   height?: number | null
+  // Медиа-система: LQIP-заглушка (рисуется сразу, ещё до запроса ссылки), статус подготовки
+  // вариантов и длительность видео/аудио. Варианты и HLS приходят со ссылкой на вложение.
+  placeholder?: string | null
+  mediaStatus?: MediaStatus
+  durationMs?: number | null
   // ── Клиентские поля для оптимистичного рендера (Telegram-стиль), сервер их НЕ шлёт ──
   // object-URL локального файла/записи: показываем нужный тип сообщения мгновенно, до ответа сервера.
   // Переносится и на реальное сообщение после примирения — чтобы не перезагружать медиа с сервера.
@@ -30,7 +36,9 @@ export interface MessageAttachment {
 // Краткая ссылка на сообщение, на которое отвечают (без вложенной цепочки).
 export interface MessageReplyPreview {
   id: string
+  // У удалённого оригинала сервер текст не отдаёт — пустая строка и `deletedAt`.
   content: string
+  deletedAt?: string | null
   senderId: string
   sender: { id: string; firstName: string; lastName: string; avatarUrl: string | null }
 }
@@ -55,9 +63,25 @@ export interface SharedPostPreview {
   content: string
   authorId: string
   deletedAt: string | null
-  author: { id: string; firstName: string; lastName: string; avatarUrl: string | null }
+  // У снятого поста сервер ни автора, ни текста, ни обложки не отдаёт.
+  author: { id: string; firstName: string; lastName: string; avatarUrl: string | null } | null
   media: { id: string; mime: string }[]
   _count: { comments: number; reactions: number }
+}
+
+/**
+ * Сторис в сообщении: ответ на неё или пересылка (§3.4). Медиа — только тип: ссылки на
+ * файл сторис в переписке нет, сторис открывается по `/stories/:id` с проверкой аудитории.
+ * Истёкшая — без текста и фона; удалённая — `null` у сообщения.
+ */
+export interface SharedStoryPreview {
+  id: string
+  text: string | null
+  background: string | null
+  expiresAt: string
+  authorId: string
+  author: { id: string; firstName: string; lastName: string; avatarUrl: string | null }
+  file: { mime: string } | null
 }
 
 // Опрос в чате (§38): статика на сообщении. Результаты (счётчики + мой голос) — отдельным запросом.
@@ -120,6 +144,10 @@ export interface ChatMessage {
   replyTo: MessageReplyPreview | null
   forwardedFrom: MessageForwardOrigin | null
   sharedPost: SharedPostPreview | null
+  // Сторис в сообщении и признак «это ответ на сторис» (а не пересылка). Ответ остаётся
+  // ответом и после удаления сторис — тогда карточка пишет «сторис недоступна».
+  sharedStory?: SharedStoryPreview | null
+  sharedStoryReply?: boolean
   reactions: MessageReaction[]
   // Опрос (§38): не null → сообщение-опрос (рендерится как ChatPoll, не как текст).
   poll: ChatPoll | null
@@ -146,6 +174,10 @@ export interface ChatMediaItem {
   mime: string
   size: number
   hasPoster: boolean
+  width?: number | null
+  height?: number | null
+  placeholder?: string | null
+  durationMs?: number | null
   createdAt: string
   sender: { id: string; firstName: string; lastName: string; avatarUrl: string | null } | null
 }

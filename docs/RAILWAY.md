@@ -1,13 +1,16 @@
 # Деплой StudentHub на Railway
 
-Стек — 6 компонентов: **api** (NestJS, persistent: WebSocket + BullMQ + cron),
+Стек — 6 основных компонентов: **api** (NestJS, persistent: WebSocket + BullMQ + cron),
 **web** (Next.js standalone), **landing** (публичный сайт, Next.js standalone),
-**PostgreSQL**, **Redis** (обязателен для очередей), **объектное хранилище**
-(MinIO или внешний S3).
+**PostgreSQL**, **Redis** (обязателен для очередей и счётчиков rate-limit), **объектное
+хранилище** (MinIO или внешний S3). Плюс два сервиса по необходимости: **mini-app**
+(мини-апп администраторов в Telegram, §3.2) и **media-relay** (ретранслятор камер, §3.3).
 
-Dockerfile'ы написаны с контекстом сборки = **корень монорепо**, поэтому Root Directory
-каждого сервиса = корень репо, а нужный Dockerfile задаётся через config-as-code
-(`apps/api/railway.json`, `apps/web/railway.json`, `apps/landing/railway.json`).
+Dockerfile'ы приложений написаны с контекстом сборки = **корень монорепо**, поэтому Root
+Directory каждого сервиса = корень репо, а нужный Dockerfile задаётся через config-as-code
+(`apps/api/railway.json`, `apps/web/railway.json`, `apps/landing/railway.json`,
+`apps/mini-app/railway.json`). Исключение — `media-relay`: его Root Directory =
+`docker/media-relay`, конфиг — `docker/media-relay/railway.json` рядом.
 
 **Все сервисы из репозитория обязаны собираться с ОДНОЙ ветки** (Settings → Source →
 Branch). Ветка задаётся в интерфейсе Railway, а не в `railway.json`, поэтому разъезд
@@ -39,6 +42,7 @@ Branch). Ветка задаётся в интерфейсе Railway, а не в
    | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` |
    | `JWT_ACCESS_SECRET` | 64-символьный hex (см. ниже) |
    | `JWT_REFRESH_SECRET` | другой 64-символьный hex |
+   | `TOTP_ENCRYPTION_KEY` | третий секрет, ≥ 32 символов — шифрует секреты 2FA; смена ломает 2FA у всех (`docs/RUNBOOK.md`, «Секреты») |
    | `REDIS_HOST` | `${{Redis.REDISHOST}}` |
    | `REDIS_PORT` | `${{Redis.REDISPORT}}` |
    | `REDIS_PASSWORD` | `${{Redis.REDISPASSWORD}}` |
@@ -50,7 +54,15 @@ Branch). Ветка задаётся в интерфейсе Railway, а не в
    | `MINIO_PUBLIC_ENDPOINT` | публичный домен MinIO для presigned-ссылок (см. ниже) |
    | `CORS_ORIGIN` | публичный URL web-сервиса (после шага 3) |
 
-   Опционально: `SMTP_HOST/PORT/USER/PASS/SMTP_FROM`, `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`.
+   Опционально: `SMTP_HOST/PORT/USER/PASS/SMTP_FROM`, `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`,
+   `VAPID_SUBJECT`, `APP_PUBLIC_URL` (адрес веба в выгружаемых документах; по умолчанию —
+   первый origin `CORS_ORIGIN`), `TELEGRAM_*` и `MINI_APP_URL` (§3.2), `MEDIA_*` камер
+   (§3.3), `APNS_*` / `FCM_*` и `IOS_*` / `ANDROID_*` для мобильных клиентов
+   (`docs/RELEASE_IOS.md`, `docs/RELEASE_ANDROID.md`), `STORAGE_ALERT_GB` — порог сигнала о
+   росте хранилища. Полный список с пояснениями — `apps/api/src/config/env.schema.ts`.
+   Предохранители с умолчанием «выключено» (`PD_RETENTION_ENABLED`,
+   `CLEANUP_PURGE_UNVERIFIED_EMPLOYERS`) включаются только осознанно, `TRUST_PROXY` по
+   умолчанию уже доверяет приватной сети Railway — не задавать `true`.
 
    Мониторинг (Ф13.8) — `SENTRY_DSN` (без него трекер молчит), плюс по желанию
    `SENTRY_ENVIRONMENT` (напр. `pilot`) и `SENTRY_RELEASE`. Здесь достаточно
@@ -59,12 +71,15 @@ Branch). Ветка задаётся в интерфейсе Railway, а не в
    `SENTRY_RELEASE` стоит задать сразу как `${{RAILWAY_GIT_COMMIT_SHA}}`: без него
    ошибка в Sentry и сообщение ops-бота о деплое приходят с версией `dev`, и «когда
    это сломалось» приходится выяснять по времени. Порядок выпуска — `docs/RELEASE.md`.
-   **`PORT` не задавать** — Railway присваивает его сам, приложение читает `$PORT`
-   и слушает `0.0.0.0`.
+   **`PORT` и `DATABASE_URL_TEST` не задавать**: `PORT` Railway присваивает сам, а битая
+   ссылка в `DATABASE_URL_TEST` роняет старт через Zod. Приложение читает `$PORT` и слушает
+   `::` — edge и приватная сеть Railway ходят по IPv6 (`apps/api/src/main.ts`). Healthcheck выкатки — `/api/v1/health` с таймаутом 120 с
+   (`apps/api/railway.json`): новый деплой не получит трафик, пока не ответят Postgres,
+   Redis и MinIO.
 
    Генерация секретов локально:
    ```bash
-   openssl rand -hex 32   # выполнить дважды — для ACCESS и REFRESH
+   openssl rand -hex 32   # выполнить трижды — для ACCESS, REFRESH и TOTP_ENCRYPTION_KEY
    ```
 
 3. **Settings → Networking → Generate Domain** — публичный URL api.
@@ -77,21 +92,34 @@ Branch). Ветка задаётся в интерфейсе Railway, а не в
 
    | Переменная | Значение |
    |---|---|
-   | `NEXT_PUBLIC_API_URL` | `https://<api-домен>/api/v1` |
-   | `NEXT_PUBLIC_WS_URL` | `https://<api-домен>` |
+   | `NEXT_PUBLIC_API_URL` | `/api/v1` при `API_PROXY_TARGET` (единый origin) либо `https://<api-домен>/api/v1` |
+   | `API_PROXY_TARGET` | `https://<api-домен>` — web проксирует `/api/*` на api, cookie сессии становятся first-party (`next.config.mjs`, `rewrites`); build-time, как и `NEXT_PUBLIC_*` |
+   | `NEXT_PUBLIC_WS_URL` | `https://<api-домен>` — сокет всегда идёт прямо на api, обязателен при относительном `NEXT_PUBLIC_API_URL` |
    | `NEXT_PUBLIC_APP_URL` | `https://<web-домен>` |
    | `NEXT_PUBLIC_APP_NAME` | `StudentHub` |
    | `NEXT_PUBLIC_SENTRY_DSN` | DSN проекта Sentry (пусто = трекер выключен) |
+   | `NEXT_PUBLIC_MINIO_URL` | `https://<minio-домен>` — попадает в CSP |
+   | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | тот же ключ, что `VAPID_PUBLIC_KEY` у api; без него нет push |
+   | `NEXT_PUBLIC_FEATURE_STORIES` | `0` выключает сторисы (Ф14.1); пусто = включены |
 
    Опционально там же: `NEXT_PUBLIC_SENTRY_ENVIRONMENT`, `NEXT_PUBLIC_SENTRY_RELEASE`
    (тот же `${{RAILWAY_GIT_COMMIT_SHA}}`, что и у api — версия сборки уже показывается
-   пользователю в настройках, `NEXT_PUBLIC_BUILD_ID`)
+   пользователю в настройках, `NEXT_PUBLIC_BUILD_ID`),
+   `NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE`
    и — для читаемых стектрейсов вместо минифицированных — `SENTRY_ORG`, `SENTRY_PROJECT`,
    `SENTRY_AUTH_TOKEN` (загрузка source maps на сборке; без токена шаг молча пропускается).
+   Последние три до сборки сейчас не доезжают: секрет в build-arg остаётся в истории
+   образа, поэтому в `apps/web/Dockerfile` они не объявлены. Чтобы включить выгрузку
+   source maps, нужен `--mount=type=secret` — отдельная задача, а не переменная в панели.
 
    > `NEXT_PUBLIC_*` инлайнятся во время **сборки** — Railway передаёт переменные
    > сервиса как build-args, поэтому менять их = пересобрать web. Это относится и к
    > `NEXT_PUBLIC_SENTRY_DSN`: добавили DSN → нужен ре-деплой, рестарта недостаточно.
+   >
+   > Build-arg доезжает до сборки, только если он объявлен в `apps/web/Dockerfile`
+   > (`ARG` + `ENV`). Незадекларированную переменную docker игнорирует молча: в панели
+   > она есть, в бандле — `undefined`. Заводите новую `NEXT_PUBLIC_*` — правьте и
+   > Dockerfile, иначе отладка уходит в «почему флаг не работает».
 
 4. **Generate Domain** — публичный URL web. Затем вернуться в `api` и выставить
    `CORS_ORIGIN` = этот URL.
@@ -186,13 +214,48 @@ Branch). Ветка задаётся в интерфейсе Railway, а не в
 
 ---
 
+## 3.3 Сервис `media-relay`
+
+Медиа-ретранслятор камер (MediaMTX, `docs/PROJECT.md` §3.10). Пошагово — в
+`docker/media-relay/README.md`; коротко:
+
+1. **+ New → GitHub Repo**, **Root Directory** = `docker/media-relay` (корневой
+   `.dockerignore` исключает `docker/`, поэтому контекст сборки — этот каталог).
+2. **Generate Domain** — HLS для браузеров; **TCP Proxy** на порт `1936` — RTMPS для агентов.
+3. Самоподписанный сертификат на имя хоста TCP-прокси → `RELAY_TLS_CERT`/`RELAY_TLS_KEY`
+   ретранслятора и `MEDIA_RELAY_CA_PEM` у `api`.
+4. `MTX_AUTHJWTJWKS` = `https://api.<домен>/api/v1/.well-known/media-jwks.json`,
+   `MTX_HLSALLOWORIGINS` = origin веба.
+5. У `api`: `MEDIA_JWT_PRIVATE_KEY`, `MEDIA_RELAY_HLS_URL`, `MEDIA_RELAY_PUBLISH_URL`,
+   `MEDIA_RELAY_CA_PEM`. Без них просмотр камер выключен.
+
+Ключ подписи ретранслятор читает один раз при старте: сменили `MEDIA_JWT_PRIVATE_KEY` —
+перезапустите `media-relay`. Миграции камер (`add_cameras`, `add_camera_view_sessions`)
+применяются как обычно (§5).
+
+## 3.4 Воркер медиа (по необходимости)
+
+По умолчанию `MEDIA_PROCESSING=inline`: варианты изображений, постеры и HLS видео
+обрабатываются в процессе `api`. Чтобы ffmpeg не делил CPU с HTTP-запросами, обработку
+выносят в отдельный процесс — тот же образ `apps/api/Dockerfile`, команда
+`node dist/worker.js`, те же переменные БД, Redis и хранилища, что у `api`; у самого `api`
+тогда `MEDIA_PROCESSING=worker`. Порт воркер не слушает, health-эндпоинта у него нет.
+Отдельного `railway.json` под воркер в репозитории нет: `apps/api/railway.json` задаёт
+`startCommand` и `healthcheckPath` для `api`, и сервис воркера настраивается руками.
+Без воркера `MEDIA_PROCESSING=worker` не ставить — задачи будут копиться в очереди.
+
 ## 4. Объектное хранилище
 
 **Вариант А — MinIO как сервис Railway:**
-1. **+ New → Docker Image** → `quay.io/minio/minio` (на Docker Hub образ больше не
-   публикуется).
-2. **Settings → Deploy → Custom Start Command**: `server /data --console-address ":9001"`.
-3. **Variables**: `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` (≥8 симв.).
+1. **+ New → Docker Image** → `pgsty/minio:RELEASE.2026-08-04T00-00-00Z` — тот же образ, что
+   в `docker/shared/infra.yml`. Официальные `minio/minio` и `quay.io/minio/minio` больше не
+   раздаются (`docker/README.md`, «Решения»).
+2. **Settings → Deploy → Custom Start Command**:
+   `server /data --address "[::]:9000" --console-address "[::]:9001"` — приватная сеть
+   Railway (`*.railway.internal`) ходит по IPv6, и MinIO должен слушать `::`.
+3. **Variables**: `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` (≥8 симв.), а также
+   `MINIO_API_STALE_UPLOADS_EXPIRY=24h` и `MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL=6h` —
+   уборка брошенных многочастных загрузок (см. «Том под крупные файлы»).
 4. **Settings → Volumes** — примонтировать том на `/data` (иначе файлы не переживут редеплой).
 5. В `api` указать `MINIO_ENDPOINT` = приватный домен этого сервиса
    (`<minio>.railway.internal`), `MINIO_PORT=9000`, `MINIO_USE_SSL=false`,
@@ -235,9 +298,26 @@ Branch). Ветка задаётся в интерфейсе Railway, а не в
 ### Том под крупные файлы
 
 Предел видео и документов — 500 МБ (`FILE_UPLOAD.MAX_BYTES`), и это прямо переводится в размер тома
-на `/data`. Незавершённые части тоже занимают место: их отменяет ночная задача
-`sweepIncompleteUploads` (старше суток), но лучше продублировать правилом на бакете —
-`AbortIncompleteMultipartUpload` работает и тогда, когда приложение лежит.
+на `/data`. Незавершённые части тоже занимают место, поэтому их убирают два независимых рубежа:
+
+| Рубеж | Что делает | Где задано |
+|---|---|---|
+| MinIO, `api stale_uploads_expiry=24h`, `stale_uploads_cleanup_interval=6h` | каждые 6 часов отменяет загрузки старше суток — работает, даже когда `api` лежит | env MinIO: `MINIO_API_STALE_UPLOADS_EXPIRY`, `MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL` (`docker/shared/infra.yml`, на Railway — Variables minio-сервиса) |
+| `api`, ночная задача `sweepIncompleteUploads` (04:30) | отменяет загрузки старше суток во всех десяти медиа-бакетах | `cleanup.service.ts` — основная гарантия: не зависит от настроек хранилища |
+
+Значения env равны встроенным в MinIO по умолчанию; прописаны явно, чтобы обновление образа
+или ручной `mc admin config set` не сдвинули срок незаметно (env имеет приоритет над
+`mc admin config`). Проверить действующие: `mc admin config get <alias> api`.
+
+**Правило бакета `AbortIncompleteMultipartUpload` в MinIO не работает.** Проверено 23.10.2026
+на `pgsty/minio:RELEASE.2026-08-04T00-00-00Z` и `minio/minio:RELEASE.2025-04-22T22-12-26Z`:
+`PutBucketLifecycle` с таким правилом отвечает `InvalidArgument` («The XML you provided was not
+well-formed…»), в том числе вместе с правилом `Expiration`, а правило из одного `Expiration`
+принимается. Поэтому `api` при старте его не ставит: `setBucketLifecycle` заменяет конфигурацию
+целиком, и попытка добавить такое правило к `stories-media` сломала бы и TTL сторис.
+
+Во **внешнем S3** (вариант Б) правило поддерживается — его стоит задать в настройках бакетов
+у провайдера (у R2 — Object lifecycle rules); ночная задача `api` работает и там.
 
 Трафик загрузки идёт в minio-сервис напрямую, **мимо `api`**. Лимиты тела запроса и таймауты
 маршрутов `api` к нему отношения не имеют — упереться можно только в том и в сеть.
@@ -250,16 +330,35 @@ Branch). Ветка задаётся в интерфейсе Railway, а не в
 ## 5. Миграции БД
 
 Runner-образ минимальный и **не содержит Prisma CLI**, поэтому миграции применяются
-не из контейнера, а с локальной машины против БД Railway:
+не из контейнера, а снаружи против БД Railway.
+
+**Основной путь — прогоны GitHub Actions** (`.github/workflows/README.md`): у Railway
+прямой доступ к Postgres закрыт из части сетей, а у раннера egress открыт. Строка
+подключения — секрет `DATABASE_PUBLIC_URL` окружения `production`.
+
+- `prodDbMigrate` — режим `status` (неприменённые миграции и их SQL), затем `deploy`;
+- `prodDbSeed` — первичное наполнение и доливка данных под меткой. Идёт с
+  `SEED_DEMO_UNIVERSITY=0` (без демо-вуза с общим паролем) и паролем из секрета
+  `SEED_PASSWORD`: в публичный лог прогона сгенерированный пароль не печатается.
+
+**Запасной путь — с локальной машины**, если сеть пускает к публичному прокси Postgres:
 
 ```bash
 # DATABASE_URL — публичный (proxy) connection string из настроек Postgres в Railway
 DATABASE_URL="postgresql://...@<proxy-host>:<port>/railway" pnpm db:deploy
-DATABASE_URL="postgresql://...@<proxy-host>:<port>/railway" pnpm db:seed   # первый раз
+# первый раз: без демо-вуза и с паролем, известным только вам
+DATABASE_URL="postgresql://...@<proxy-host>:<port>/railway" SEED_ALLOW_REMOTE=1 \
+  SEED_DEMO_UNIVERSITY=0 SEED_PASSWORD='…' pnpm db:seed
 DATABASE_URL="postgresql://...@<proxy-host>:<port>/railway" pnpm db:seed:kato   # справочник КАТО
 ```
 
-Повторять `db:deploy` после каждого PR, меняющего схему. (Автоматизация через
+Без `SEED_PASSWORD` и `SEED_ALLOW_REMOTE` локальный сид ставит dev-пароль из репозитория, а
+без `SEED_DEMO_UNIVERSITY=0` создаёт демо-вуз с общим паролем и известным dev-инвайтом
+(`prisma/seed/lib/seed-password.mjs`, `prisma/seed.mjs`).
+
+Повторять `db:deploy` (или `prodDbMigrate` в режиме `deploy`) после каждого PR, меняющего
+схему. На PR в `main` job «Миграции прод-БД применены» в `codeChecks` красный, пока это не
+сделано. (Автоматизация через
 pre-deploy command возможна, но требует добавить `prisma` в prod-зависимости —
 отдельная задача.)
 
@@ -274,8 +373,9 @@ pre-deploy command возможна, но требует добавить `prism
 1. Postgres + Redis подняты.
 2. `api` собрался и задеплоился (health `/api/v1/health` станет зелёным после шага 5).
 3. Прогнать миграции + seed (шаг 5).
-4. `web` собрался; проверить вход `admin@studenthub.app` паролем из вывода шага 3
-   (`SEED_PASSWORD` или сгенерированный) → **сразу сменить**.
+4. `web` собрался; проверить вход `admin@studenthub.app` паролем из шага 3
+   (`SEED_PASSWORD`; при локальном сиде без него — сгенерированный и напечатанный один раз)
+   → **сразу сменить**.
 5. `landing` собрался — он ни от чего не зависит и может быть выкачен раньше остальных.
    Проверить: корень отдаёт 200, `/login` и `/r/<любой код>` — 308 на домен платформы.
 
@@ -284,7 +384,14 @@ pre-deploy command возможна, но требует добавить `prism
 - **Build падает за ~3 сек, «Failed to build an image»** — не задан Dockerfile/монорепо-контекст.
   Убедиться, что Config-as-code path указывает на `apps/<service>/railway.json`.
 - **api рестартится сразу после старта** — не хватает обязательной env (`JWT_*`,
-  `DATABASE_URL`, `MINIO_*`); смотреть Deploy Logs — Zod печатает список отсутствующих.
+  `TOTP_ENCRYPTION_KEY`, `DATABASE_URL`, `MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY`); смотреть
+  Deploy Logs — Zod печатает список отсутствующих.
 - **web собрался, но ходит на localhost** — `NEXT_PUBLIC_API_URL` не был задан на момент
   сборки; задать переменную и **пересобрать**.
 - **Файлы пропали после редеплоя MinIO** — не примонтирован Volume на `/data`.
+- **502 «Application failed to respond» при живом процессе и «Ready» в логах** — сервис
+  слушает только IPv4. Edge и приватная сеть Railway ходят по IPv6: api слушает `::`,
+  web и landing стартуют с `HOSTNAME=::` (CMD образа), MinIO — с `--address "[::]:9000"`.
+- **Картинки не грузятся, presign отвечает 500 с `S3 API Requests must be made to API
+  port`** — публичный домен MinIO смотрит на порт консоли `9001`, а должен на `9000`.
+  Проверка: `curl https://<minio-домен>/minio/health/live` отдаёт не `text/html`.

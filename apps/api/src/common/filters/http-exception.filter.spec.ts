@@ -1,4 +1,5 @@
 import { ArgumentsHost, HttpStatus } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import type { PinoLogger } from 'nestjs-pino'
 import { AppException } from '../exceptions/app.exception'
 import { HttpExceptionFilter } from './http-exception.filter'
@@ -84,5 +85,52 @@ describe('HttpExceptionFilter — отправка в Sentry', () => {
     filter.catch(new Error('boom'), hostWith())
 
     expect(captureException.mock.calls[0][1]).toMatchObject({ userId: undefined })
+  })
+
+  it('техработы (503 MAINTENANCE) — ожидаемый ответ: в трекер не идут', () => {
+    filter.catch(new AppException('MAINTENANCE', 'Техработы'), hostWith({ sub: 'u-1' }))
+
+    expect(captureException).not.toHaveBeenCalled()
+    expect(status).toHaveBeenCalledWith(HttpStatus.SERVICE_UNAVAILABLE)
+  })
+
+  it('ошибка Fastify с 4xx отдаёт свой статус, а не 500, и в трекер не идёт', () => {
+    const error = Object.assign(new Error('the request is not multipart'), {
+      code: 'FST_INVALID_MULTIPART_CONTENT_TYPE',
+      statusCode: 406,
+    })
+
+    filter.catch(error, hostWith({ sub: 'u-1' }))
+
+    expect(captureException).not.toHaveBeenCalled()
+    expect(status).toHaveBeenCalledWith(HttpStatus.NOT_ACCEPTABLE)
+    expect(send).toHaveBeenLastCalledWith(
+      expect.objectContaining({ error: expect.objectContaining({ code: 'BAD_REQUEST' }) }),
+    )
+  })
+
+  it('лимит Fastify 413 — FILE_TOO_LARGE, а не INTERNAL_ERROR', () => {
+    const error = Object.assign(new Error('reach files limit'), {
+      code: 'FST_FILES_LIMIT',
+      statusCode: 413,
+    })
+
+    filter.catch(error, hostWith())
+
+    expect(send).toHaveBeenLastCalledWith(
+      expect.objectContaining({ error: expect.objectContaining({ code: 'FILE_TOO_LARGE' }) }),
+    )
+  })
+
+  it('число вне диапазона колонки (P2020) — 422, а не 500', () => {
+    const error = new Prisma.PrismaClientKnownRequestError('Value out of range', {
+      code: 'P2020',
+      clientVersion: 'test',
+    })
+
+    filter.catch(error, hostWith())
+
+    expect(captureException).not.toHaveBeenCalled()
+    expect(status).toHaveBeenCalledWith(HttpStatus.UNPROCESSABLE_ENTITY)
   })
 })

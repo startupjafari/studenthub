@@ -68,3 +68,28 @@ describe('pickReleaseNote', () => {
     expect(pickReleaseNote(NOTES, { ...old, accountCreatedAt: null })?.action).toBe('show')
   })
 })
+
+// B-F18: объявленная версия — потолок для окна, а не просто поле в ответе.
+describe('pickReleaseNote — объявленная версия', () => {
+  const old = { version: null, seenAt: null, accountCreatedAt: '2026-01-01T00:00:00.000Z' }
+
+  it('нота новее объявленной окна не получает — показывается последняя объявленная', () => {
+    expect(pickReleaseNote(NOTES, old, '1.9.0')).toEqual({ note: NOTES[0], action: 'show' })
+  })
+
+  it('объявленная уже прочитана — окна нет, хотя в сборке есть нота новее', () => {
+    expect(pickReleaseNote(NOTES, { ...old, version: '1.9.0' }, '1.9.0')).toBeNull()
+  })
+
+  it('объявлена новая версия — окно её ноты', () => {
+    expect(pickReleaseNote(NOTES, { ...old, version: '1.9.0' }, '1.10.0')?.note).toBe(NOTES[1])
+  })
+
+  it('объявлено раньше всех нот сборки — окна нет', () => {
+    expect(pickReleaseNote(NOTES, old, '1.0.0')).toBeNull()
+  })
+
+  it('ничего не объявлено — как раньше, решает сборка', () => {
+    expect(pickReleaseNote(NOTES, old, null)?.note).toBe(NOTES[1])
+  })
+})

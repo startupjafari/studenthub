@@ -12,12 +12,14 @@ import {
   UserRound,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { useAppSelector } from '../../../shared/store'
 import { fetchSearch, searchKeys } from '../api/search-api'
+import { searchHrefsFor } from './search-hrefs'
 
 /** Короче двух символов не ищем: выдача по одной букве — это весь вуз. */
 export const SEARCH_MIN_QUERY = 2
 /** Пауза после последнего нажатия: запрос уходит один, а не на каждую букву. */
-const DEBOUNCE_MS = 250
+export const SEARCH_DEBOUNCE_MS = 250
 
 export interface SearchItem {
   id: string
@@ -49,6 +51,7 @@ export interface SearchItemsState {
  */
 export function useSearchItems(query: string): SearchItemsState {
   const t = useTranslations('Command')
+  const role = useAppSelector((s) => s.auth.role)
   const typed = query.trim()
   const [debounced, setDebounced] = useState('')
 
@@ -59,7 +62,7 @@ export function useSearchItems(query: string): SearchItemsState {
       setDebounced('')
       return
     }
-    const id = setTimeout(() => setDebounced(typed), DEBOUNCE_MS)
+    const id = setTimeout(() => setDebounced(typed), SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(id)
   }, [typed])
 
@@ -74,6 +77,8 @@ export function useSearchItems(query: string): SearchItemsState {
   const items: SearchItem[] = useMemo(() => {
     const r = active ? search.data : undefined
     if (!r) return []
+    // Ссылки — экраны роли смотрящего (search-hrefs.ts); null — у роли такого экрана нет.
+    const href = searchHrefsFor(role)
     const out: SearchItem[] = []
     for (const p of r.people)
       out.push({
@@ -83,40 +88,43 @@ export function useSearchItems(query: string): SearchItemsState {
         icon: UserRound,
         section: t('people'),
       })
-    for (const c of r.courses)
-      out.push({
-        id: `c-${c.id}`,
-        label: c.subject.name,
-        sub: c.group.name,
-        href: `/courses/${encodeURIComponent(c.subject.name)}`,
-        icon: BookOpen,
-        section: t('courses'),
-      })
-    for (const a of r.assignments)
-      out.push({
-        id: `a-${a.id}`,
-        label: a.title,
-        sub: a.course.subject.name,
-        // Диплинк в конкретное задание (роут /assignments раскрывает деталь по ?open=).
-        href: `/assignments?open=${a.id}`,
-        icon: ClipboardList,
-        section: t('assignments'),
-      })
-    for (const m of r.materials)
-      out.push({
-        id: `m-${m.id}`,
-        label: m.title,
-        sub: m.subject ?? undefined,
-        // Отдельного роута /materials нет (он 404-ил); материалы живут во вкладке курса.
-        href: m.subject ? `/courses/${encodeURIComponent(m.subject)}` : '/courses',
-        icon: FolderOpen,
-        section: t('materials'),
-      })
+    const { course, assignment, material } = href
+    if (course)
+      for (const c of r.courses)
+        out.push({
+          id: `c-${c.id}`,
+          label: c.subject.name,
+          sub: c.group.name,
+          href: course(c.subject.name),
+          icon: BookOpen,
+          section: t('courses'),
+        })
+    if (assignment)
+      for (const a of r.assignments)
+        out.push({
+          id: `a-${a.id}`,
+          label: a.title,
+          sub: a.course.subject.name,
+          href: assignment(a.id),
+          icon: ClipboardList,
+          section: t('assignments'),
+        })
+    if (material)
+      for (const m of r.materials)
+        out.push({
+          id: `m-${m.id}`,
+          label: m.title,
+          sub: m.subject ?? undefined,
+          href: material(m.subject),
+          icon: FolderOpen,
+          section: t('materials'),
+        })
+    // Найденное открывается само, а не список раздела: событие — его страница, чат — сам чат.
     for (const e of r.events)
       out.push({
         id: `e-${e.id}`,
         label: e.title,
-        href: '/events',
+        href: href.event(e.id),
         icon: CalendarDays,
         section: t('events'),
       })
@@ -124,12 +132,12 @@ export function useSearchItems(query: string): SearchItemsState {
       out.push({
         id: `ch-${ch.id}`,
         label: ch.title ?? '',
-        href: '/chats',
+        href: href.chat(ch.id),
         icon: MessagesSquare,
         section: t('chats'),
       })
     return out
-  }, [active, search.data, t])
+  }, [active, search.data, t, role])
 
   return {
     items,

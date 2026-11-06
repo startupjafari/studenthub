@@ -1,0 +1,2 @@
+# Windows PowerShell 5.1 читает скрипт с CRLF и BOM; не даём git привести концы строк к LF.
+webcam.ps1 text eol=crlf

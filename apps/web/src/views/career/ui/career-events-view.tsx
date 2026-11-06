@@ -1,22 +1,22 @@
 'use client'
 
 import { useState } from 'react'
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import Link from 'next/link'
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useFormatter, useTranslations } from 'next-intl'
-import { CalendarDays, MapPin, Users, Video } from 'lucide-react'
-import {
-  ADMIN_PAGE_SIZES,
-  CAREER_EVENT_KINDS,
-  type CareerEventKind,
-} from '@studenthub/shared-schemas'
+import { CalendarDays, MapPin, Plus, Users, Video } from 'lucide-react'
+import { CAREER_EVENT_KINDS, type CareerEventKind } from '@studenthub/shared-schemas'
 import { careerEventKeys, fetchCareerEvents } from '../../../entities/career-event'
 import {
   CareerUniversityRequired,
   useCareerUniversity,
 } from '../../../features/career-university-scope'
+import { CAREER_EVENT_AUTHOR_ROLES, CreateEventModal } from '../../../features/create-event'
+import { useAppSelector } from '../../../shared/store'
 import { toApiError } from '../../../shared/lib'
 import {
   Badge,
+  Button,
   Card,
   EmptyState,
   PageHeader,
@@ -42,8 +42,8 @@ import {
  * календаря нет намеренно: регистрация и напоминания живут в домене «События».
  */
 // Ширины колонок: название с описанием — главное, место и тип сжимаются первыми.
-// Размеры страницы — общий для админских экранов набор из контракта.
-const PAGE_SIZES = ADMIN_PAGE_SIZES
+// Размеры страницы: список на OffsetPaginationSchema (limit ≤ 100), 150 и 200 дали бы 422.
+const PAGE_SIZES = [20, 50, 100] as const
 
 const COLS = ['34%', '14%', '18%', '22%', '12%'] as const
 
@@ -55,6 +55,11 @@ export function CareerEventsView() {
   const [past, setPast] = useState(false)
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState<number>(PAGE_SIZES[0])
+  const [createOpen, setCreateOpen] = useState(false)
+  const queryClient = useQueryClient()
+  // Создать мероприятие может организатор событий вуза — у платформенной роли своего вуза нет.
+  const role = useAppSelector((s) => s.auth.role)
+  const canCreate = role !== null && CAREER_EVENT_AUTHOR_ROLES.includes(role)
 
   // Платформенная роль смотрит карьерный центр конкретного вуза — до выбора запрос
   // ушёл бы в заведомый WRONG_SCOPE, поэтому он просто не стартует.
@@ -108,24 +113,32 @@ export function CareerEventsView() {
           />
         }
         actions={
-          <Select
-            value={kind ?? 'all'}
-            onValueChange={(v) =>
-              refilter(() => setKind(v === 'all' ? null : (v as CareerEventKind)))
-            }
-          >
-            <SelectTrigger size="md" className="w-52" aria-label={t('colKind')}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t('kindAll')}</SelectItem>
-              {CAREER_EVENT_KINDS.map((value) => (
-                <SelectItem key={value} value={value}>
-                  {kindLabel[value]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <>
+            <Select
+              value={kind ?? 'all'}
+              onValueChange={(v) =>
+                refilter(() => setKind(v === 'all' ? null : (v as CareerEventKind)))
+              }
+            >
+              <SelectTrigger size="md" className="w-52" aria-label={t('colKind')}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t('kindAll')}</SelectItem>
+                {CAREER_EVENT_KINDS.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {kindLabel[value]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {canCreate && (
+              <Button type="button" size="md" onClick={() => setCreateOpen(true)}>
+                <Plus className="size-4" aria-hidden />
+                {t('create')}
+              </Button>
+            )}
+          </>
         }
       />
 
@@ -160,7 +173,14 @@ export function CareerEventsView() {
                   <TableRow key={event.id} className="hover:bg-muted/40">
                     <TableCell className="font-medium">
                       <span className="flex items-center gap-2">
-                        <TableText value={event.title} />
+                        {/* Название ведёт в карточку события: записаться можно только там. */}
+                        <Link
+                          href={`/events/${event.id}`}
+                          title={event.title}
+                          className="min-w-0 truncate hover:text-primary hover:underline focus-visible:underline focus-visible:outline-none"
+                        >
+                          {event.title}
+                        </Link>
                         {event.registered && (
                           <Badge variant="secondary" className="shrink-0">
                             {t('registered')}
@@ -220,6 +240,18 @@ export function CareerEventsView() {
             />
           </Card>
         </>
+      )}
+
+      {/* Событие создаётся общей формой событий с заранее выбранным карьерным типом:
+          без него оно не попало бы в этот раздел. */}
+      {createOpen && (
+        <CreateEventModal
+          careerKind={kind ?? 'CAREER_FAIR'}
+          onClose={() => {
+            setCreateOpen(false)
+            void queryClient.invalidateQueries({ queryKey: careerEventKeys.all })
+          }}
+        />
       )}
     </div>
   )

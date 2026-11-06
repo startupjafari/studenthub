@@ -237,6 +237,7 @@ model ApplicationDocument {
   @@unique([applicationId, requirementId])
   @@index([applicationId])
   @@index([documentId])
+  @@index([requirementId])
   @@map("application_documents")
 }
 
@@ -257,5 +258,6 @@ model ApplicationResult {
   document    Document?   @relation("ApplicationResultDocument", fields: [documentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@index([applicationId])
+  @@index([documentId])
   @@map("application_results")
 }

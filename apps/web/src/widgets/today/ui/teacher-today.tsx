@@ -1,13 +1,17 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { Inbox } from 'lucide-react'
 import { Button, EmptyState, PageHeader, SeasonGreeting, Skeleton } from '../../../shared/ui'
 import { meKeys, fetchMeToday } from '../../../entities/me'
+import { isSubstitutedAway } from '../../../entities/schedule'
+import { ExportReportButton } from '../../../features/export-analytics-report'
 import { useRealtimeEvent } from '../../../shared/realtime'
-import { buildDayPairs, isoWeekParity, nextPair, nowInTz } from '../lib/schedule-day'
+import { useAppSelector } from '../../../shared/store'
+import { buildDayPairs, nextPair } from '../lib/schedule-day'
+import { isoWeekParityOf, useNowInTz } from '../../../shared/lib'
 import { buildAttention } from '../lib/attention'
 import { NextPairCard } from './next-pair-card'
 import { TodayTimeline } from './today-timeline'
@@ -46,14 +50,30 @@ export function TeacherToday() {
   useRealtimeEvent('schedule:changed', () => {
     void qc.invalidateQueries({ queryKey: meKeys.today() })
   })
-  const now = useMemo(() => nowInTz(today.data?.timezone ?? null), [today.data?.timezone])
-  const parity = useMemo(() => isoWeekParity(), [])
+  // Часы идут, а день и чётность — по дате вуза (BUG-121): иначе «сейчас» застывало в
+  // момент открытия, а после полуночи экран показывал вчерашний день.
+  const now = useNowInTz(today.data?.timezone ?? null)
+  const parity = isoWeekParityOf(now.date)
+  // Наступили новые сутки по часам вуза — пары и изменения дня перечитываются.
+  useEffect(() => {
+    if (today.data && today.data.date !== now.date) {
+      void qc.invalidateQueries({ queryKey: meKeys.today() })
+    }
+  }, [today.data, now.date, qc])
 
   const dayPairs = useMemo(
     () => buildDayPairs(today.data?.pairs ?? [], today.data?.scheduleChanges ?? [], now, parity),
     [today.data?.pairs, today.data?.scheduleChanges, now, parity],
   )
   const upcoming = useMemo(() => nextPair(dayPairs, now), [dayPairs, now])
+  // Журнал отданного на замену занятия ведёт заменяющий (C-F12): основному его отмечать
+  // не нужно и нельзя. Пара остаётся в расписании дня — с пометкой о замене.
+  const myId = useAppSelector((s) => s.auth.user?.id)
+  const todoPairs = useMemo(() => {
+    const changes = today.data?.scheduleChanges ?? []
+    if (!myId) return dayPairs
+    return dayPairs.filter((dp) => !isSubstitutedAway(changes, dp.pair.id, now.date, myId))
+  }, [dayPairs, today.data?.scheduleChanges, now.date, myId])
   const attention = useMemo(
     () =>
       buildAttention({
@@ -75,7 +95,7 @@ export function TeacherToday() {
     return (
       <div className="flex w-full flex-1 flex-col gap-4">
         <PageHeader title={tNav('dashboard')} subtitle={greetingDate} />
-        <Skeleton className="h-40 w-full rounded-xl" />
+        <Skeleton fill className="min-h-40 rounded-xl" />
       </div>
     )
   }
@@ -98,7 +118,12 @@ export function TeacherToday() {
     // на высоте заголовка, то есть выше левой, и верхние края карточек не совпадали.
     // Это же каркас страницы из §10.1.
     <div className="flex w-full flex-1 flex-col gap-4">
-      <PageHeader title={tNav('dashboard')} subtitle={greetingDate} />
+      {/* Отчёт преподавателя — по его группам, только его пары и курсы (сервер берёт из токена). */}
+      <PageHeader
+        title={tNav('dashboard')}
+        subtitle={greetingDate}
+        actions={<ExportReportButton />}
+      />
       <SeasonGreeting />
       <div className="grid w-full grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         <section className="flex min-w-0 flex-col gap-4">
@@ -111,7 +136,7 @@ export function TeacherToday() {
           />
           {/* Обязанности со сроком — сразу под ближайшей парой: расписание и уведомления
               говорят, ЧТО происходит, а эти две панели — что нужно сделать. */}
-          <AttendanceTodoPanel dayPairs={dayPairs} date={now.date} now={now} />
+          <AttendanceTodoPanel dayPairs={todoPairs} date={now.date} now={now} />
           <ReviewQueuePanel />
           <AttentionList items={attention} />
         </section>

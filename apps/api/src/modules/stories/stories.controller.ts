@@ -1,0 +1,217 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
+import { Role } from '@studenthub/shared-types'
+import type { FastifyRequest } from 'fastify'
+import { Roles } from '../../common/decorators/roles.decorator'
+import { CurrentUser } from '../../common/decorators/current-user.decorator'
+import { AppException } from '../../common/exceptions/app.exception'
+import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
+import type { RequestContext } from '../auth/auth.service'
+import type { EnvVars } from '../../config/env.schema'
+import { StoriesService } from './stories.service'
+import { CreateStoryDto } from './dto/create-story.dto'
+import { StoriesFeedQueryDto } from './dto/stories-feed-query.dto'
+import { StoryReactionDto } from './dto/story-reaction.dto'
+import { StoryViewersQueryDto } from './dto/story-viewers-query.dto'
+import { StoryVoteDto } from './dto/story-vote.dto'
+import { UpdateStoryAudienceDto } from './dto/update-story-audience.dto'
+
+// Кто публикует сторисы (docs/PROJECT.md §2.2, строка «Сторисы — создание»): все роли с
+// социальными разделами. Шире, чем посты: сторис — личное и на сутки, модератор и
+// работодатель делятся им как люди (свои аудитории — ALLOWED_AUDIENCES), а не от имени
+// площадки. Охраны и библиотекаря нет: социальных разделов у них нет вовсе (§2).
+const AUTHOR_ROLES = [
+  Role.PLATFORM_ADMIN,
+  Role.PLATFORM_MODERATOR,
+  Role.UNIVERSITY_ADMIN,
+  Role.UNIVERSITY_MODERATOR,
+  Role.DEAN,
+  Role.TEACHER,
+  Role.STAROSTA,
+  Role.STUDENT,
+  Role.EMPLOYER,
+] as const
+
+// Раздел за флагом раскатки (env FEATURE_STORIES, по умолчанию включён). Выключенный флаг
+// закрывает API целиком: лента колец отвечает пустой — клиенту с включённым у себя разделом
+// это «сторис нет», а не ошибка на главной, — остальные ручки отвечают NOT_FOUND, как
+// отсутствующий раздел.
+@ApiTags('Сторисы')
+@ApiBearerAuth()
+@Controller('stories')
+export class StoriesController {
+  private readonly enabled: boolean
+
+  constructor(
+    private readonly stories: StoriesService,
+    config: ConfigService<EnvVars, true>,
+  ) {
+    this.enabled = config.get('FEATURE_STORIES', { infer: true })
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'Живые сторисы по видимости, сгруппированные в кольца авторов' })
+  @ApiResponse({ status: 200, description: 'Кольца авторов (пусто, если сторисы выключены)' })
+  async feed(@CurrentUser() user: CurrentUserData, @Query() query: StoriesFeedQueryDto) {
+    if (!this.enabled) return []
+    return this.stories.feed(user, query)
+  }
+
+  @Post()
+  @Roles(...AUTHOR_ROLES)
+  @ApiOperation({ summary: 'Опубликовать сторис на 24 часа (аудитория ограничена ролью)' })
+  @ApiResponse({ status: 201, description: 'Сторис создана' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN / WRONG_SCOPE' })
+  @ApiResponse({ status: 422, description: 'VALIDATION_ERROR' })
+  create(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: CreateStoryDto,
+    @Req() req: FastifyRequest,
+  ) {
+    this.assertEnabled()
+    return this.stories.create(user, dto, this.ctx(req))
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Сторис по id (если видима и не истекла)' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — не видима, истекла или удалена' })
+  getById(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    this.assertEnabled()
+    return this.stories.getById(user, id)
+  }
+
+  @Patch(':id/audience')
+  @Roles(...AUTHOR_ROLES)
+  @ApiOperation({ summary: 'Сменить аудиторию своей живой сторис (действует сразу)' })
+  @ApiResponse({ status: 200, description: 'Сторис с новой аудиторией' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — получатели SELECTED недоступны' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN / WRONG_SCOPE — аудитория вне роли' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — не своя или истекла' })
+  updateAudience(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: UpdateStoryAudienceDto,
+    @Req() req: FastifyRequest,
+  ) {
+    this.assertEnabled()
+    return this.stories.updateAudience(user, id, dto, this.ctx(req))
+  }
+
+  @Post(':id/view')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Отметить сторис просмотренной (идемпотентно)' })
+  @ApiResponse({ status: 204, description: 'Отмечено' })
+  async markViewed(@CurrentUser() user: CurrentUserData, @Param('id') id: string): Promise<void> {
+    this.assertEnabled()
+    await this.stories.markViewed(user, id)
+  }
+
+  @Get(':id/viewers')
+  @ApiOperation({ summary: 'Кто смотрел сторис (только автору, cursor-пагинация)' })
+  @ApiResponse({ status: 200, description: 'Страница зрителей' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — не автор' })
+  viewers(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Query() query: StoryViewersQueryDto,
+  ) {
+    this.assertEnabled()
+    return this.stories.viewers(user, id, query)
+  }
+
+  @Post(':id/reactions')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Поставить реакцию на сторис (идемпотентно)' })
+  @ApiResponse({ status: 204, description: 'Реакция поставлена' })
+  async addReaction(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: StoryReactionDto,
+  ): Promise<void> {
+    this.assertEnabled()
+    await this.stories.addReaction(user, id, dto)
+  }
+
+  @Delete(':id/reactions/:emoji')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Снять свою реакцию' })
+  @ApiResponse({ status: 204, description: 'Реакция снята' })
+  async removeReaction(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Param('emoji') emoji: string,
+  ): Promise<void> {
+    this.assertEnabled()
+    await this.stories.removeReaction(user, id, decodeURIComponent(emoji))
+  }
+
+  @Post(':id/vote')
+  @ApiOperation({ summary: 'Проголосовать в опросе сторис (повторный голос заменяет прежний)' })
+  @ApiResponse({ status: 201, description: 'Сторис с обновлённым опросом' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — опроса нет или чужой вариант' })
+  vote(@CurrentUser() user: CurrentUserData, @Param('id') id: string, @Body() dto: StoryVoteDto) {
+    this.assertEnabled()
+    return this.stories.vote(user, id, dto)
+  }
+
+  @Post('mutes/:userId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Скрыть сторис пользователя из ленты колец (профиль их по-прежнему показывает)',
+  })
+  @ApiResponse({ status: 204, description: 'Скрыто (повтор — тоже 204)' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — свои сторисы' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — пользователя нет' })
+  async mute(@CurrentUser() user: CurrentUserData, @Param('userId') userId: string): Promise<void> {
+    this.assertEnabled()
+    await this.stories.mute(user, userId)
+  }
+
+  @Delete('mutes/:userId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Вернуть сторис пользователя в ленту колец' })
+  @ApiResponse({ status: 204, description: 'Возвращено (не было скрыто — тоже 204)' })
+  async unmute(
+    @CurrentUser() user: CurrentUserData,
+    @Param('userId') userId: string,
+  ): Promise<void> {
+    this.assertEnabled()
+    await this.stories.unmute(user, userId)
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Удалить сторис (автор или модератор scope)' })
+  @ApiResponse({ status: 204, description: 'Удалена' })
+  @ApiResponse({ status: 403, description: 'WRONG_SCOPE / FORBIDDEN' })
+  async remove(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+  ): Promise<void> {
+    this.assertEnabled()
+    await this.stories.remove(user, id, this.ctx(req))
+  }
+
+  /** Выключенный раздел отвечает как отсутствующий. */
+  private assertEnabled(): void {
+    if (!this.enabled) throw new AppException('NOT_FOUND', 'Сторисы недоступны')
+  }
+
+  private ctx(req: FastifyRequest): RequestContext {
+    return { ip: req.ip, userAgent: req.headers['user-agent'] }
+  }
+}

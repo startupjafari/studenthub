@@ -97,7 +97,7 @@ export function PlatformDocumentsView() {
   const onErr = (e: unknown) => toast.error(tErr(errCode(e)))
 
   const loadMut = useMutation({
-    mutationFn: (req: AccessRequest) => fetchDocumentPlatform(req.docId),
+    mutationFn: (req: AccessRequest) => fetchDocumentPlatform(req.docId, req.reason),
     onSuccess: (d, req) => {
       setDoc(d)
       setRequest(req)

@@ -1,9 +1,15 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { fetchSearch, searchKeys } from '../../../entities/search'
+import type { SearchSource } from '@studenthub/shared-schemas'
+import {
+  SEARCH_DEBOUNCE_MS,
+  SEARCH_MIN_QUERY,
+  fetchSearch,
+  searchKeys,
+} from '../../../entities/search'
 import { Avatar, AvatarFallback, AvatarImage } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
@@ -26,12 +32,19 @@ export function applyMention(
   return { text: next, caret: start + login.length + 2 }
 }
 
+// Упоминанию нужны только люди: остальные пять источников поиска сервер не трогает.
+const MENTION_SOURCES: readonly SearchSource[] = ['people']
+
 /**
  * Подсказка упоминаний под полем ввода.
  *
  * Ищет через общий `/search`, который уже ограничен вузом зрителя, — отдельного
  * «поиска для упоминаний» заводить не пришлось. Логин показываем рядом с именем:
  * в комментарий уедет именно он, и человек должен видеть, что выбирает.
+ *
+ * Запрос — по тем же правилам, что глобальный поиск: от двух символов (короче сервер
+ * отвечает 422, а прежний повтор при ошибке удваивал запросы) и после паузы в наборе,
+ * а не на каждую букву.
  */
 export function MentionSuggest({
   query,
@@ -42,12 +55,30 @@ export function MentionSuggest({
 }) {
   const t = useTranslations('Feed')
   const [active, setActive] = useState(0)
-  const enabled = query !== null && query.length >= 1
+  const typed = query ?? ''
+  const [debounced, setDebounced] = useState('')
+
+  // Закрытое или слишком короткое упоминание гасит подсказку сразу — ждать паузу, чтобы
+  // убрать список, незачем.
+  useEffect(() => {
+    if (typed.length < SEARCH_MIN_QUERY) {
+      setDebounced('')
+      return
+    }
+    const id = setTimeout(() => setDebounced(typed), SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(id)
+  }, [typed])
+
+  const enabled =
+    query !== null && query.length >= SEARCH_MIN_QUERY && debounced.length >= SEARCH_MIN_QUERY
 
   const results = useQuery({
-    queryKey: searchKeys.query(query ?? ''),
-    queryFn: () => fetchSearch(query as string),
+    queryKey: searchKeys.query(debounced, MENTION_SOURCES),
+    queryFn: () => fetchSearch(debounced, MENTION_SOURCES),
     enabled,
+    retry: false,
+    // Уточнение «@iv» → «@iva» не мигает пустотой: прежний список виден, пока идёт новый.
+    placeholderData: keepPreviousData,
   })
 
   // Люди без логина упоминанию не подлежат: подставлять было бы нечего.

@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react'
 import dynamic from 'next/dynamic'
-import { useQueries, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { useFormatter, useLocale, useTranslations } from 'next-intl'
 import {
   AlertTriangle,
@@ -18,19 +18,25 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import { useAppSelector } from '../../../shared/store'
 import { fetchUniversityStats, universityKeys } from '../../../entities/university'
-import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
 import {
-  analyticsKeys,
-  fetchFacultyOverview,
   fetchApplicationsFlow,
   fetchAttendanceBreakdown,
   fetchAttendanceTrend,
   fetchExamResults,
   fetchRoomLoad,
   fetchUniversityInvitesFunnel,
+  fetchUniversityOverview,
   universityAnalyticsKeys,
 } from '../../../entities/analytics'
-import { Badge, EmptyState, MetricTile, Progress, SectionPanel, Skeleton } from '../../../shared/ui'
+import {
+  Badge,
+  Button,
+  EmptyState,
+  MetricTile,
+  Progress,
+  SectionPanel,
+  Skeleton,
+} from '../../../shared/ui'
 import {
   ChartLegend,
   DAY_GROUPS,
@@ -83,6 +89,7 @@ const TREND_FACULTIES = 3
 export function StatsDashboard() {
   const t = useTranslations('Stats')
   const tErr = useTranslations('Errors')
+  const tCommon = useTranslations('Common')
   const { palette } = useChartTheme()
   const universityId = useAppSelector((s) => s.auth.universityId)
 
@@ -91,38 +98,34 @@ export function StatsDashboard() {
     queryFn: () => fetchUniversityStats(universityId as string),
     enabled: !!universityId,
   })
-  const faculties = useQuery({ queryKey: facultyKeys.list(), queryFn: () => fetchFaculties() })
-
-  const overviews = useQueries({
-    queries: (faculties.data ?? []).map((f) => ({
-      queryKey: analyticsKeys.faculty(f.id),
-      queryFn: () => fetchFacultyOverview(f.id),
-      // Один недоступный факультет не должен ронять весь дашборд.
-      retry: false,
-    })),
+  // Плитки и худшие группы — одним агрегатом вуза с кэшем на сервере. Раньше здесь
+  // уходил `GET /analytics/faculty` на каждый факультет, а посещаемость вуза считалась
+  // невзвешенным средним групп и расходилась с трендом ниже.
+  const overview = useQuery({
+    queryKey: universityAnalyticsKeys.overview(),
+    queryFn: fetchUniversityOverview,
+    enabled: !!universityId,
   })
-  const loadedOverviews = overviews.map((q) => q.data).filter((d) => d !== undefined)
-  const analyticsLoading = faculties.isLoading || overviews.some((q) => q.isLoading)
+  const analyticsLoading = overview.isPending && !!universityId
 
-  // Посещаемость по вузу — среднее по группам с размеченной посещаемостью.
-  const groupStats = loadedOverviews.flatMap((o) => o.groups)
-  const tracked = groupStats.filter((g) => g.attendanceTracked > 0)
-  const attendanceRate =
-    tracked.length > 0
-      ? Math.round(tracked.reduce((acc, g) => acc + g.attendanceRate, 0) / tracked.length)
-      : null
-  const submissionsPending = loadedOverviews.reduce((a, o) => a + o.totals.submissionsPending, 0)
-  const examsUpcoming = loadedOverviews.reduce((a, o) => a + o.totals.examsUpcoming, 0)
-  const atRisk = loadedOverviews
-    .flatMap((o) => o.atRisk)
-    .sort((a, b) => a.attendanceRate - b.attendanceRate)
-
-  const worst = [...tracked]
-    .sort((a, b) => a.attendanceRate - b.attendanceRate)
-    .slice(0, WORST_GROUPS)
+  const attendanceRate = overview.data?.attendanceRate ?? null
+  // Без данных — прочерк, а не 0: при сбое запроса «0 работ на проверке» выдавал бы
+  // ошибку за спокойный день.
+  const submissionsPending = overview.data?.submissionsPending ?? null
+  const examsUpcoming = overview.data?.examsUpcoming ?? null
+  const atRisk = overview.data?.atRisk ?? []
+  // Сервер уже отдаёт группы по возрастанию посещаемости.
+  const worst = (overview.data?.groups ?? []).slice(0, WORST_GROUPS)
 
   if (!universityId) return <EmptyState title={t('noUniversity')} />
-  if (stats.isError) return <EmptyState title={tErr('INTERNAL_ERROR')} />
+  if (stats.isError) {
+    return (
+      <EmptyState
+        title={tErr('INTERNAL_ERROR')}
+        action={<Button onClick={() => stats.refetch()}>{tCommon('retry')}</Button>}
+      />
+    )
+  }
 
   const structure: { key: string; value: number | null; icon: LucideIcon }[] = [
     { key: 'faculties', value: stats.data?.faculties ?? null, icon: Building2 },
@@ -187,7 +190,9 @@ export function StatsDashboard() {
           bodyClassName={FILL_BODY}
         >
           {analyticsLoading ? (
-            <Skeleton className="h-64 w-full" />
+            <Skeleton fill className="min-h-64" />
+          ) : overview.isError ? (
+            <Failed onRetry={() => overview.refetch()} />
           ) : worst.length === 0 ? (
             <Empty text={t('noAttendance')} />
           ) : (
@@ -217,7 +222,9 @@ export function StatsDashboard() {
         <InvitesFunnelPanel />
         <SectionPanel title={t('atRiskTitle')} subtitle={t('atRiskHint')} bodyClassName={FILL_BODY}>
           {analyticsLoading ? (
-            <Skeleton className="h-64 w-full" />
+            <Skeleton fill className="min-h-64" />
+          ) : overview.isError ? (
+            <Failed onRetry={() => overview.refetch()} />
           ) : atRisk.length === 0 ? (
             <Empty text={t('atRiskEmpty')} />
           ) : (
@@ -271,11 +278,13 @@ function AttendanceTrendPanel() {
   // Худшие — по последней известной неделе: сравнивать по среднему за семестр значит
   // прятать факультет, который просел только что.
   const ranked = [...(q.data?.series ?? [])]
-    .filter((s) => s.points.length > 0)
-    .sort((a, b) => lastValue(a.points) - lastValue(b.points))
+    .filter((s) => lastValue(s.points) !== null)
+    .sort((a, b) => (lastValue(a.points) ?? 0) - (lastValue(b.points) ?? 0))
     .slice(0, TREND_FACULTIES)
 
-  const labels = longestPoints(ranked).map((p) =>
+  // Сетка недель общая у всех рядов (сервер отдаёт каждую неделю окна, пустую — null),
+  // поэтому подписи берутся у любого ряда, а точки ложатся на свои недели.
+  const labels = (ranked[0]?.points ?? []).map((p) =>
     fmt.dateTime(new Date(p.at), { day: 'numeric', month: 'short' }),
   )
   const series: ChartSeries[] = ranked.map((s, i) => ({
@@ -288,7 +297,9 @@ function AttendanceTrendPanel() {
   return (
     <SectionPanel title={t('trendTitle')} subtitle={t('trendHint')} bodyClassName={FILL_BODY}>
       {q.isPending ? (
-        <Skeleton className="h-64 w-full" />
+        <Skeleton fill className="min-h-64" />
+      ) : q.isError ? (
+        <Failed onRetry={() => q.refetch()} />
       ) : series.length === 0 ? (
         <Empty text={t('noAttendance')} />
       ) : (
@@ -300,7 +311,7 @@ function AttendanceTrendPanel() {
               label: s.label,
               color: s.color,
               line: true,
-              value: `${s.values[s.values.length - 1] ?? 0}%`,
+              value: `${lastValue(s.values.map((value) => ({ value }))) ?? 0}%`,
             }))}
           />
           <LineChart
@@ -341,7 +352,9 @@ function AttendanceBreakdownPanel() {
       bodyClassName={FILL_BODY}
     >
       {q.isPending ? (
-        <Skeleton className="h-64 w-full" />
+        <Skeleton fill className="min-h-64" />
+      ) : q.isError ? (
+        <Failed onRetry={() => q.refetch()} />
       ) : items.length === 0 ? (
         <Empty text={t('noAttendance')} />
       ) : (
@@ -430,7 +443,9 @@ function RoomLoadPanel() {
       bodyClassName={FILL_BODY}
     >
       {q.isPending ? (
-        <Skeleton className="h-64 w-full" />
+        <Skeleton fill className="min-h-64" />
+      ) : q.isError ? (
+        <Failed onRetry={() => q.refetch()} />
       ) : !q.data || q.data.peak === 0 ? (
         <Empty text={t('noSchedule')} />
       ) : (
@@ -500,7 +515,9 @@ function ExamResultsPanel() {
       bodyClassName={FILL_BODY}
     >
       {q.isPending ? (
-        <Skeleton className="h-64 w-full" />
+        <Skeleton fill className="min-h-64" />
+      ) : q.isError ? (
+        <Failed onRetry={() => q.refetch()} />
       ) : items.length === 0 ? (
         <Empty text={t('noExamResults')} />
       ) : (
@@ -543,7 +560,9 @@ function ApplicationsFlowPanel() {
   return (
     <SectionPanel title={t('appsFlowTitle')} subtitle={t('appsFlowHint')} bodyClassName={FILL_BODY}>
       {q.isPending ? (
-        <Skeleton className="h-64 w-full" />
+        <Skeleton fill className="min-h-64" />
+      ) : q.isError ? (
+        <Failed onRetry={() => q.refetch()} />
       ) : empty ? (
         <Empty text={t('noApplications')} />
       ) : (
@@ -555,7 +574,7 @@ function ApplicationsFlowPanel() {
               label: s.label,
               color: s.color,
               line: true,
-              value: String(s.values.reduce((a, b) => a + b, 0)),
+              value: String(s.values.reduce<number>((a, b) => a + (b ?? 0), 0)),
             }))}
           />
           <LineChart
@@ -582,7 +601,9 @@ function InvitesFunnelPanel() {
   return (
     <SectionPanel title={t('invitesTitle')} subtitle={t('invitesHint')} bodyClassName={FILL_BODY}>
       {q.isPending ? (
-        <Skeleton className="h-40 w-full" />
+        <Skeleton fill className="min-h-40" />
+      ) : q.isError ? (
+        <Failed onRetry={() => q.refetch()} />
       ) : !d || d.total === 0 ? (
         <Empty text={t('noInvites')} />
       ) : (
@@ -627,17 +648,27 @@ function Empty({ text }: { text: string }) {
   return <p className="m-auto py-8 text-center text-sm text-muted-foreground">{text}</p>
 }
 
-function lastValue(points: { value: number }[]): number {
-  return points[points.length - 1]?.value ?? 0
+/**
+ * Сбой запроса панели. Раньше упавший запрос проваливался в ветку «данных нет» —
+ * «никто не в зоне риска», «посещаемость не отмечали» — и выдавал сбой за хорошую новость.
+ */
+function Failed({ onRetry }: { onRetry: () => void }) {
+  const t = useTranslations('Common')
+  return (
+    <div className="m-auto flex flex-col items-center gap-3 py-8 text-center">
+      <p className="text-sm text-muted-foreground">{t('error')}</p>
+      <Button size="sm" variant="outline" onClick={onRetry}>
+        {t('retry')}
+      </Button>
+    </div>
+  )
 }
 
-/**
- * Подписи оси берём у самого длинного ряда: у факультетов, где посещаемость начали
- * отмечать позже, недель меньше, и по короткому ряду ось обрезала бы остальные.
- */
-function longestPoints<T extends { points: unknown[] }>(series: T[]): T['points'] {
-  return series.reduce<T['points']>(
-    (best, s) => (s.points.length > best.length ? s.points : best),
-    [],
-  )
+/** Последнее известное значение ряда: недели без отметок (null) пропускаются. */
+function lastValue(points: { value: number | null }[]): number | null {
+  for (let i = points.length - 1; i >= 0; i -= 1) {
+    const value = points[i]?.value
+    if (value !== null && value !== undefined) return value
+  }
+  return null
 }

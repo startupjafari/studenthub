@@ -116,8 +116,8 @@ describe('StatTile', () => {
     expect(tile.className).toContain('animate-in')
     // Класс motion-reduce гасит анимацию у тех, кто её отключил в системе.
     expect(tile.className).toContain('motion-reduce:animate-none')
-    // Задержка по индексу — плитки появляются волной, а не разом.
-    expect(tile.style.animationDelay).toBe('140ms')
+    // Задержка по индексу — плитки появляются короткой волной, а не разом.
+    expect(tile.style.animationDelay).toBe('80ms')
   })
 
   it('дельта вытесняет подсказку и красится по направлению', () => {

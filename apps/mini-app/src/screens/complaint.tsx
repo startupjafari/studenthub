@@ -9,13 +9,12 @@ import {
   type ComplaintMessage,
   type ResolveAction,
 } from '../api/complaints'
-import { ApiError } from '../api/client'
 import { confirmAction, haptic } from '../telegram/webapp'
 import { useBackHandler } from '../lib/back'
 import { ScreenHeader } from '../ui/screen-header'
 import { StatePlate } from '../ui/state-plate'
 import { SkeletonCards } from '../ui/skeleton'
-import { t } from '../i18n'
+import { errorText, t } from '../i18n'
 import { formatDateTime } from '../lib/format'
 import { PersonSummary } from './person-summary'
 
@@ -160,7 +159,7 @@ export function ComplaintScreen({
       } catch (err) {
         // Текст от сервера: он знает, почему нельзя (например, «жалоба уже обработана»
         // другим модератором), а выдумывать свою формулировку значило бы врать.
-        setError(err instanceof ApiError ? err.message : t('complaintApplyError'))
+        setError(errorText(err, 'complaintApplyError'))
       } finally {
         setBusy(false)
       }
@@ -177,7 +176,7 @@ export function ComplaintScreen({
       haptic.success()
       onBack()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('complaintReopenError'))
+      setError(errorText(err, 'complaintReopenError'))
     } finally {
       setBusy(false)
     }
@@ -306,6 +305,36 @@ export function ComplaintScreen({
         <PersonSummary userId={complaint.targetOwnerId} title={t('complaintOffender')} />
       )}
 
+      {/* Что именно обжаловано: без текста цели контент снимали вслепую. У жалобы на
+          сообщение вместо этого — переписка ниже, у жалобы на человека — его карточка. */}
+      {complaint.targetType !== 'MESSAGE' && complaint.targetType !== 'USER' && (
+        <section className="card">
+          <h2>{t('complaintTargetTitle')}</h2>
+          {complaint.targetPreview ? (
+            <>
+              {complaint.targetPreview.deleted && (
+                <p className="hint">{t('complaintTargetDeleted')}</p>
+              )}
+              {complaint.targetPreview.title && (
+                <p>
+                  <b>{complaint.targetPreview.title}</b>
+                </p>
+              )}
+              {complaint.targetPreview.text && (
+                <p className="quote">{complaint.targetPreview.text}</p>
+              )}
+              {complaint.targetPreview.mediaCount > 0 && (
+                <p className="hint">
+                  {t('complaintTargetMedia', { count: complaint.targetPreview.mediaCount })}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="hint">{t('complaintTargetGone')}</p>
+          )}
+        </section>
+      )}
+
       {complaint.targetType === 'MESSAGE' && (
         <section className="card">
           <h2>{t('complaintContextTitle')}</h2>
@@ -372,9 +401,7 @@ export function ComplaintScreen({
                     haptic.success()
                     void load()
                   })
-                  .catch((err: unknown) =>
-                    setError(err instanceof ApiError ? err.message : t('complaintTakeError')),
-                  )
+                  .catch((err: unknown) => setError(errorText(err, 'complaintTakeError')))
               }}
             >
               {t('complaintTake')}

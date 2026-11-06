@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
+import { NavLink } from './nav-link'
 import { usePathname } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, LogOut, MoreHorizontal, Search, UserRound, X } from 'lucide-react'
+import type { Role } from '@studenthub/shared-types'
+import { Bell, LogOut, MoreHorizontal, ScanQrCode, Search, UserRound, X } from 'lucide-react'
 import { AppSidebar } from './app-sidebar'
 import { endSession } from '../../../shared/session'
 import {
@@ -13,30 +15,29 @@ import {
   ROLE_TO_VARIANT,
   STUDENT_NAV,
   careerNavFor,
+  hasChats,
   isCareerPath,
+  isNavHrefActive,
+  isNavItemActive,
   type NavItem,
   type NavVariant,
 } from '../model/nav'
 import { fetchMe, userKeys } from '../../../entities/user'
 import { usePlatformState, isNavKeyDisabled } from '../../../entities/platform'
+import { fetchLibrarySettings, libraryKeys } from '../../../entities/library'
 import { fetchUnreadCount, notificationKeys } from '../../../entities/notification'
 import { useRealtimeEvent } from '../../../shared/realtime'
 import { useChatsUnread } from '../../../entities/chat'
-import { SEARCH_MIN_QUERY, useSearchItems } from '../../../entities/search'
+import { SEARCH_MIN_QUERY, canSearch, useSearchItems } from '../../../entities/search'
 import { Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { ChatLayoutProvider } from '../../../shared/lib'
 import { NotificationsPanel } from '../../../views/notifications'
+import { ConsentGate } from '../../../features/accept-consent'
 
 // Ширины строк скелетона поиска: разной длины, иначе блок читается как таблица, а не как
 // список названий. Значения же и служат ключами — индекс в key запрещён (§15).
 const SEARCH_SKELETON_WIDTHS = ['52%', '38%', '61%']
-
-function isActive(item: NavItem, pathname: string): boolean {
-  if (item.href === '/') return pathname === '/'
-  if (item.exact) return pathname === item.href
-  return pathname === item.href || pathname.startsWith(`${item.href}/`)
-}
 
 // Мобильная нижняя навигация (десктоп — сайдбар). 5 ячеек: первые 4 раздела роли + «Ещё».
 // «Ещё» не открывает нижний лист во всю ширину: над навигацией всплывает второй остров того
@@ -47,16 +48,20 @@ function isActive(item: NavItem, pathname: string): boolean {
 // приходит островом сверху, а крестик справа закрывает поиск.
 function BottomNav({
   nav,
+  role,
   notifOpen,
   onToggleNotif,
 }: {
   nav: NavItem[]
+  /** Роль из профиля; пока он грузится — undefined, и чаты не запрашиваются. */
+  role: Role | undefined
   notifOpen: boolean
   onToggleNotif: () => void
 }) {
   const pathname = usePathname()
   const tNav = useTranslations('Nav')
-  const chatsUnread = useChatsUnread()
+  const chatsUnread = useChatsUnread(role ? hasChats(role) : false)
+  const searchable = canSearch(role)
   const tShell = useTranslations('Dashboard')
   const tSearch = useTranslations('Command')
   const tCommon = useTranslations('Common')
@@ -106,6 +111,11 @@ function BottomNav({
   })
   // Живой бейдж: новое уведомление → пересчитать счётчик непрочитанных.
   useRealtimeEvent('notification:new', () => {
+    void queryClient.invalidateQueries({ queryKey: notificationKeys.unreadCount() })
+  })
+  // Прочтение чата гасит его свёрнутую строку в колокольчике (§10.1), а отдельного события
+  // об этом нет — без перечитывания бейдж висел до следующего уведомления.
+  useRealtimeEvent('chat:read', () => {
     void queryClient.invalidateQueries({ queryKey: notificationKeys.unreadCount() })
   })
   const count = unread.data ?? 0
@@ -267,10 +277,23 @@ function BottomNav({
             )}
           >
             {/* Поиск и уведомления — действия, а не разделы: первая группа. */}
-            <button type="button" onClick={openSearch} className={menuRow}>
-              <Search className="size-5 shrink-0 opacity-80" aria-hidden />
-              {tNav('search')}
-            </button>
+            {searchable && (
+              <button type="button" onClick={openSearch} className={menuRow}>
+                <Search className="size-5 shrink-0 opacity-80" aria-hidden />
+                {tNav('search')}
+              </button>
+            )}
+            {/* Сканер QR — тоже действие: с телефона подтверждают вход на компьютере,
+                проверяют студенческий, отмечаются на паре. */}
+            <Link
+              href="/scan"
+              onClick={() => setMoreOpen(false)}
+              aria-current={pathname === '/scan' ? 'page' : undefined}
+              className={cn(menuRow, pathname === '/scan' && 'bg-primary/10 text-primary')}
+            >
+              <ScanQrCode className="size-5 shrink-0 opacity-80" aria-hidden />
+              {tNav('scan')}
+            </Link>
             <button
               type="button"
               onClick={() => {
@@ -289,10 +312,46 @@ function BottomNav({
             {/* Разделы роли, не влезшие в основные вкладки. */}
             {overflow.map((item) => {
               const Icon = item.icon
-              const active = isActive(item, pathname)
+              const active = isNavItemActive(item, pathname)
               const badgeCount = item.key === 'chats' ? chatsUnread : 0
+              // Раздел со страницами: подпись раздела и под ней его страницы. Сворачивать
+              // их здесь незачем — меню и так открыто ради выбора, лишнее касание мешает.
+              if (item.children) {
+                return (
+                  <div key={item.key} role="group" aria-label={tNav(item.key)}>
+                    <div
+                      className={cn(
+                        menuRow,
+                        'cursor-default hover:bg-transparent active:bg-transparent',
+                        active && 'text-primary',
+                      )}
+                    >
+                      <Icon className="size-5 shrink-0 opacity-80" aria-hidden />
+                      <span className="min-w-0 truncate">{tNav(item.key)}</span>
+                    </div>
+                    {item.children.map((child) => {
+                      const childActive = isNavHrefActive(child.href, pathname, child.exact)
+                      return (
+                        <NavLink
+                          key={child.href}
+                          href={child.href}
+                          onClick={() => setMoreOpen(false)}
+                          aria-current={childActive ? 'page' : undefined}
+                          className={cn(
+                            menuRow,
+                            'pl-11',
+                            childActive && 'bg-primary/10 text-primary',
+                          )}
+                        >
+                          <span className="min-w-0 truncate">{tNav(child.key)}</span>
+                        </NavLink>
+                      )
+                    })}
+                  </div>
+                )
+              }
               return (
-                <Link
+                <NavLink
                   key={item.key}
                   href={item.href}
                   onClick={() => setMoreOpen(false)}
@@ -309,14 +368,14 @@ function BottomNav({
                       {badgeCount > 99 ? '99+' : badgeCount}
                     </span>
                   )}
-                </Link>
+                </NavLink>
               )
             })}
 
             <div className={hairline} aria-hidden />
 
             {/* Профиль и выход — не разделы роли, поэтому отбиты в последнюю группу. */}
-            <Link
+            <NavLink
               href="/profile"
               onClick={() => setMoreOpen(false)}
               aria-current={profileActive ? 'page' : undefined}
@@ -324,7 +383,7 @@ function BottomNav({
             >
               <UserRound className="size-5 shrink-0 opacity-80" aria-hidden />
               {tNav('profile')}
-            </Link>
+            </NavLink>
             {/* Выход — опасное действие: последним и за своей линией (правило для всех меню). */}
             <div className={hairline} aria-hidden />
             <button type="button" onClick={logout} className={cn(menuRow, 'text-destructive')}>
@@ -372,11 +431,11 @@ function BottomNav({
           ) : (
             <div className="material-island pointer-events-auto flex min-w-0 flex-1 items-stretch gap-0.5 rounded-full border border-border/60 p-1 shadow-lg">
               {nav.slice(0, 4).map((item) => {
-                const active = isActive(item, pathname)
+                const active = isNavItemActive(item, pathname)
                 const Icon = item.icon
                 const badgeCount = item.key === 'chats' ? chatsUnread : 0
                 return (
-                  <Link
+                  <NavLink
                     key={item.key}
                     href={item.href}
                     aria-current={active ? 'page' : undefined}
@@ -400,10 +459,17 @@ function BottomNav({
                         </span>
                       )}
                     </span>
-                    <span className="w-full truncate text-center leading-tight">
+                    {/* Подпись 10px на пилюле: синий на ней не дотягивает до контраста 4.5, поэтому
+                        цвет раздела несёт иконка, а подпись активного пункта — основной текст. */}
+                    <span
+                      className={cn(
+                        'w-full truncate text-center leading-tight',
+                        active && 'text-foreground',
+                      )}
+                    >
                       {tNav(item.key)}
                     </span>
-                  </Link>
+                  </NavLink>
                 )
               })}
             </div>
@@ -479,13 +545,39 @@ export function AppShell({
   // Карьера — отдельный продукт: под /career сайдбар показывает её разделы, а не разделы
   // платформы. Обратно — через переключатель под логотипом.
   const { disabledSections } = usePlatformState()
+  // Библиотека у читателя — только когда вуз её включил: пункт, ведущий на «библиотека
+  // выключена», хуже отсутствующего. Настройки спрашиваем лишь у студента и старосты.
+  const reader = effectiveVariant === 'student' || effectiveVariant === 'starosta'
+  // Запрос — сразу, не дожидаясь профиля: вариант до его прихода берётся из роли сессии
+  // (role-cookie), и это та же роль. Цепочка «профиль → настройки» вставляла пункт
+  // «Библиотека» в середину меню на второй сетевой круг, и пункты под ним сдвигались вниз.
+  const library = useQuery({
+    queryKey: libraryKeys.settings(),
+    queryFn: fetchLibrarySettings,
+    enabled: reader,
+    staleTime: 5 * 60_000,
+  })
+  const libraryOn = library.data?.enabled === true
   // Погашенный раздел уходит из навигации целиком. Это не защита — сервер всё равно
   // решает сам, — а обещание: пункт, ведущий на заглушку, хуже отсутствующего пункта.
   const nav = (
     isCareerPath(pathname)
       ? careerNavFor(me.data?.role)
       : (NAV_BY_VARIANT[effectiveVariant] ?? STUDENT_NAV)
-  ).filter((item) => !isNavKeyDisabled(item.key, disabledSections))
+  )
+    .filter((item) => !isNavKeyDisabled(item.key, disabledSections))
+    // Внутри раздела гаснут его страницы по отдельности: в «Заявках» админа очередь уходит
+    // вместе с разделом, а каталог услуг остаётся. Раздел без единой страницы не показываем.
+    .map((item) =>
+      item.children
+        ? {
+            ...item,
+            children: item.children.filter((c) => !isNavKeyDisabled(c.key, disabledSections)),
+          }
+        : item,
+    )
+    .filter((item) => !item.children || item.children.length > 0)
+    .filter((item) => item.key !== 'books' || libraryOn)
   const chatsMode = pathname.endsWith('/chats')
   const [listSlot, setListSlot] = useState<HTMLElement | null>(null)
 
@@ -520,13 +612,14 @@ export function AppShell({
               не меняются — блок с авто-высотой в колонке ведёт себя как раньше. */}
           {/* `sh-scroll` резервирует место под полосу прокрутки: без этого переход с короткой
               страницы на длинную сдвигал всю раскладку на ширину полосы. */}
-          <main className="sh-scroll flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain p-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-28 md:p-6 md:pt-6 md:pb-28 lg:pb-6">
+          <main className="sh-scroll sh-page-fill flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain p-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-28 md:p-6 md:pt-6 md:pb-28 lg:pb-6">
             {children}
           </main>
         </div>
         {!hideBottomNav && (
           <BottomNav
             nav={nav}
+            role={me.data?.role}
             notifOpen={notifOpen}
             onToggleNotif={() => setNotifOpen((o) => !o)}
           />
@@ -539,6 +632,9 @@ export function AppShell({
             <NotificationsPanel onClose={() => setNotifOpen(false)} />
           </div>
         )}
+
+        {/* Повторное согласие на обработку ПДн: окно поверх всего, пока его не примут. */}
+        <ConsentGate />
       </div>
     </ChatLayoutProvider>
   )

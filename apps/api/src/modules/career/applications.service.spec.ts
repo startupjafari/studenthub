@@ -6,6 +6,7 @@ import {
 } from '@studenthub/shared-schemas'
 import { ApplicationsService } from './applications.service'
 import { CareerAccessService } from './career-access.service'
+import type { CareerNotifier } from './career-notifier'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
@@ -33,12 +34,17 @@ const employer: JwtPayload = {
 
 function setup() {
   const tx = {
-    careerApplication: { create: jest.fn().mockResolvedValue({ id: 'a-1' }), update: jest.fn() },
+    careerApplication: {
+      create: jest.fn().mockResolvedValue({ id: 'a-1' }),
+      update: jest.fn().mockResolvedValue({}),
+    },
     careerApplicationEvent: { create: jest.fn() },
   }
   const prisma = {
     vacancy: {
-      findFirst: jest.fn().mockResolvedValue({ id: 'v-1', companyId: 'co-1', deadline: null }),
+      findFirst: jest
+        .fn()
+        .mockResolvedValue({ id: 'v-1', companyId: 'co-1', deadline: null, title: 'Стажёр' }),
     },
     careerApplication: {
       findUnique: jest.fn().mockResolvedValue(null),
@@ -51,14 +57,23 @@ function setup() {
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
-  const access = { requireCompany: jest.fn().mockReturnValue('co-1') }
+  // Граница воронки по допускам — своя логика в career-access.service.spec.ts; здесь
+  // проверяем, что она доходит до выборок.
+  const scope = { OR: [{ universityId: { in: ['uni-1'] } }] }
+  const access = {
+    requireCompany: jest.fn().mockReturnValue('co-1'),
+    applicationScopeWhere: jest.fn().mockResolvedValue(scope),
+  }
+  // Уведомление компании о новом кандидате: сборка и доставка — в career-notifier.spec.ts.
+  const notifier = { newApplication: jest.fn().mockResolvedValue(undefined) }
   const service = new ApplicationsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     queue as unknown as QueueService,
     access as unknown as CareerAccessService,
+    notifier as unknown as CareerNotifier,
   )
-  return { service, prisma, tx, audit, queue }
+  return { service, prisma, tx, audit, queue, access, scope, notifier }
 }
 
 describe('ApplicationsService — отклик студента', () => {
@@ -75,6 +90,26 @@ describe('ApplicationsService — отклик студента', () => {
         }),
       }),
     )
+  })
+
+  it('на вакансию компании без действующего допуска в вуз откликнуться нельзя', async () => {
+    const { service, prisma } = setup()
+
+    await service.apply(student('uni-7'), { vacancyId: 'v-1' }, ctx)
+
+    // Истёкший допуск решений вуза по вакансиям не трогает — проверка допуска обязана быть
+    // в самой выборке, иначе компания собирала бы кандидатов вуза, куда её уже не пускают.
+    expect(prisma.vacancy.findFirst.mock.calls[0][0].where).toMatchObject({
+      company: {
+        universityAccess: {
+          some: {
+            universityId: 'uni-7',
+            status: 'APPROVED',
+            OR: [{ expiresAt: null }, { expiresAt: { gt: expect.any(Date) } }],
+          },
+        },
+      },
+    })
   })
 
   it('недоступная вакансия — NOT_FOUND, а не отказ по правам', async () => {
@@ -127,6 +162,37 @@ describe('ApplicationsService — отклик студента', () => {
       AppException,
     )
   })
+
+  // D-F28: компания узнавала о новом кандидате, только открыв воронку.
+  it('новый отклик — уведомление компании; повторный (CONFLICT) — нет', async () => {
+    const { service, notifier, prisma } = setup()
+    await service.apply(student(), { vacancyId: 'v-1' }, ctx)
+    expect(notifier.newApplication).toHaveBeenCalledWith({
+      id: 'a-1',
+      companyId: 'co-1',
+      vacancyId: 'v-1',
+      vacancyTitle: 'Стажёр',
+    })
+
+    notifier.newApplication.mockClear()
+    prisma.careerApplication.findUnique.mockResolvedValue({ id: 'a-1' })
+    await expect(service.apply(student(), { vacancyId: 'v-1' }, ctx)).rejects.toBeInstanceOf(
+      AppException,
+    )
+    expect(notifier.newApplication).not.toHaveBeenCalled()
+  })
+})
+
+describe('ApplicationsService — свои отклики студента', () => {
+  it('фильтр по вакансии доходит до выборки — окно вакансии спрашивает именно про неё', async () => {
+    const { service, prisma } = setup()
+    await service.listMine(student(), { page: 1, limit: 1, vacancyId: 'v-2' })
+    const where = prisma.careerApplication.findMany.mock.calls[0][0].where
+    expect(where).toMatchObject({ studentId: 'stu-1', vacancyId: 'v-2' })
+    expect(prisma.careerApplication.count.mock.calls[0][0].where).toMatchObject({
+      vacancyId: 'v-2',
+    })
+  })
 })
 
 describe('ApplicationsService — воронка компании', () => {
@@ -161,6 +227,11 @@ describe('ApplicationsService — воронка компании', () => {
         data: expect.objectContaining({ fromStatus: 'SUBMITTED', toStatus: 'SHORTLISTED' }),
       }),
     )
+    // Запись условная: статус должен быть тем же, что прочитали.
+    expect(tx.careerApplication.update).toHaveBeenCalledWith({
+      where: { id: 'a-1', status: 'SUBMITTED' },
+      data: { status: 'SHORTLISTED' },
+    })
   })
 
   it('студент узнаёт о движении по заявке — молчание и есть претензия к job-бордам', async () => {
@@ -212,6 +283,31 @@ describe('ApplicationsService — воронка компании', () => {
       expect.objectContaining({ body: 'нужен опыт' }),
       expect.anything(),
     )
+  })
+
+  it('воронка ограничена откликами в границах допуска компании', async () => {
+    const { service, prisma, access, scope } = setup()
+
+    await service.pipeline(employer, { page: 1, limit: 20 })
+
+    expect(access.applicationScopeWhere).toHaveBeenCalledWith('co-1')
+    const where = prisma.careerApplication.findMany.mock.calls[0][0].where
+    expect(where).toMatchObject({ companyId: 'co-1', AND: [scope] })
+    expect(prisma.careerApplication.count.mock.calls[0][0].where).toBe(where)
+  })
+
+  it('отклик вне границы допуска двигать нельзя — та же граница, что у воронки', async () => {
+    const { service, prisma, scope } = setup()
+    prisma.careerApplication.findFirst.mockResolvedValue(null)
+
+    await expect(
+      service.changeStatus(employer, 'a-1', { status: 'VIEWED' }, ctx),
+    ).rejects.toBeInstanceOf(AppException)
+    expect(prisma.careerApplication.findFirst.mock.calls[0][0].where).toMatchObject({
+      id: 'a-1',
+      companyId: 'co-1',
+      AND: [scope],
+    })
   })
 
   it('чужой отклик компании недоступен', async () => {

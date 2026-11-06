@@ -92,7 +92,7 @@ describe('FriendsPanel', () => {
     setup()
 
     await screen.findByText('Оспанов Нурлан')
-    await userEvent.click(screen.getByRole('button', { name: 'accept' }))
+    await userEvent.click(screen.getByRole('button', { name: 'accept: Оспанов Нурлан' }))
 
     await waitFor(() => expect(acceptFriendRequest).toHaveBeenCalledWith('fr1'))
     expect(removeFriendship).not.toHaveBeenCalled()
@@ -110,7 +110,7 @@ describe('FriendsPanel', () => {
     setup()
 
     await screen.findByText('Оспанов Нурлан')
-    await userEvent.click(screen.getByRole('button', { name: 'decline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'decline: Оспанов Нурлан' }))
 
     await waitFor(() => expect(removeFriendship).toHaveBeenCalledWith('fr1'))
     expect(acceptFriendRequest).not.toHaveBeenCalled()

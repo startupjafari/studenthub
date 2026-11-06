@@ -11,7 +11,10 @@ import Observation
 final class QRApproveModel {
     enum State: Equatable {
         case scanning
-        case confirming(QRLoginTicket)
+        /// Код разобран, спрашиваем сервер, кто просит вход.
+        case previewing
+        /// Подтверждение показывает, чей это компьютер: браузер, систему и сеть.
+        case confirming(QRLoginTicket, QRLoginPreview)
         case approving
         case approved
         case rejected
@@ -31,21 +34,30 @@ final class QRApproveModel {
     /// Код распознан. Чужой QR (посещаемость, помещение, чья-то визитка) до запроса
     /// не доходит: разбор ссылки строгий.
     @MainActor
-    func scanned(_ payload: String) {
+    func scanned(_ payload: String) async {
         guard state == .scanning else { return }
         guard let ticket = QRLoginTicket(scanned: payload) else {
-            state = .failed(String(
-                localized: "auth.qrApproveInvalid",
-                defaultValue: "Ссылка недействительна или устарела."
-            ))
+            state = .failed(Self.invalidLink)
             return
         }
-        state = .confirming(ticket)
+        // Кто просит вход — до кнопки, как на странице `/qr` в вебе: общее
+        // предупреждение без браузера и сети подтверждения не защищало.
+        state = .previewing
+        do {
+            let preview = try await api.preview(ticket)
+            state = .confirming(ticket, preview)
+        } catch {
+            state = .failed((error as? APIError)?.displayMessage ?? Self.invalidLink)
+        }
+    }
+
+    private static var invalidLink: String {
+        String(localized: "auth.qrApproveInvalid", defaultValue: "Ссылка недействительна или устарела.")
     }
 
     @MainActor
     func approve() async {
-        guard case .confirming(let ticket) = state else { return }
+        guard case .confirming(let ticket, _) = state else { return }
         state = .approving
         do {
             try await api.approve(ticket)

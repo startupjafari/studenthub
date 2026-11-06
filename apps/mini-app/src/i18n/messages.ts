@@ -17,6 +17,12 @@ const ru = {
   tabSupport: 'Поддержка',
   tabControl: 'Управление',
   retry: 'Повторить',
+  errInvalidCode: 'Неверный код подтверждения',
+  errTwoFactorSetup: 'Сначала включите двухфакторную защиту в веб-версии',
+  errRateLimit: 'Слишком много запросов. Попробуйте чуть позже',
+  errForbidden: 'Недостаточно прав для этого действия',
+  errNotFound: 'Не найдено — возможно, уже удалено',
+  errConflict: 'Это уже изменилось. Обновите экран',
 
   // ── Привязка ───────────────────────────────────────────────────────────
   linkTitle: 'Привязка аккаунта',
@@ -33,6 +39,12 @@ const ru = {
   linkErrRateLimit: 'Слишком много попыток. Попробуйте позже',
   linkErrNoTelegram: 'Привязка возможна только из Telegram',
   linkErrUnknown: 'Не удалось привязать. Попробуйте ещё раз',
+  linkErrStale:
+    'С открытия мини-аппа прошло больше пяти минут. Закройте его, откройте снова и введите код',
+  sessionExpiredTitle: 'Сессия истекла',
+  sessionExpiredText:
+    'Telegram подтверждает вход только при открытии мини-аппа. Закройте его и откройте снова.',
+  sessionExpiredClose: 'Закрыть',
 
   // ── Жалобы ─────────────────────────────────────────────────────────────
   complaintsTitle: 'Жалобы',
@@ -46,6 +58,8 @@ const ru = {
   complaintsTabDone: 'Разобранные',
   complaintsFilterAll: 'Все',
   complaintsDoneEmpty: 'Разобранных жалоб пока нет.',
+  complaintsShownOf: 'Показаны {shown} из {total}',
+  complaintsShowMore: 'Показать ещё',
 
   targetUser: 'На пользователя',
   targetMessage: 'На сообщение',
@@ -64,6 +78,10 @@ const ru = {
   complaintReporter: 'Пожаловался: {name}',
   complaintReporterGone: 'Автор жалобы удалён',
   complaintRepeats: 'На эту цель жаловались уже {count}',
+  complaintTargetTitle: 'Что обжаловано',
+  complaintTargetDeleted: 'Автор уже удалил это — текст сохранён для разбора.',
+  complaintTargetMedia: 'Вложений: {count}',
+  complaintTargetGone: 'Содержимое недоступно — его уже сняли.',
   complaintContextTitle: 'Переписка вокруг сообщения',
   complaintContextEmpty: 'Сообщение недоступно — возможно, его уже удалили.',
   complaintContextError: 'Не удалось загрузить переписку',
@@ -233,6 +251,7 @@ const ru = {
   tabPeople: 'Люди',
   peopleCardTitle: 'О человеке',
   peopleAccessTitle: 'Доступ',
+  peopleNoAuthority: 'Роль этого человека не ниже вашей — решать о его доступе вы не можете.',
   peopleLoadError: 'Не удалось найти людей',
   peopleOnlyBlocked: 'Только заблокированные',
   peopleAll: 'Все',
@@ -271,6 +290,7 @@ const ru = {
   notifConfirm: 'Сохранить настройки уведомлений?',
   notifDigestMorning: 'Утром',
   notifDigestEvening: 'Вечером',
+  notifTimeZone: 'Часы — по времени Алматы (UTC+5).',
   complaintApplyAll: 'Применить ко всем ({count})',
   complaintReopen: 'Вернуть в очередь',
   complaintReopenConfirm:
@@ -342,6 +362,8 @@ const ru = {
   personRoleUniModerator: 'Модератор вуза',
   personRolePlatformAdmin: 'Администратор платформы',
   personRolePlatformModerator: 'Модератор платформы',
+  personRoleSecurityGuard: 'Охрана',
+  personRoleLibrarian: 'Библиотекарь',
 
   // ── Предупреждение и срок блокировки ───────────────────────────────────
   complaintWarnUser: 'Предупредить',
@@ -473,6 +495,12 @@ const kk: Record<MessageKey, string> = {
   tabSupport: 'Қолдау',
   tabControl: 'Басқару',
   retry: 'Қайталау',
+  errInvalidCode: 'Растау коды қате',
+  errTwoFactorSetup: 'Алдымен веб-нұсқада екі факторлы қорғанысты қосыңыз',
+  errRateLimit: 'Сұраулар тым көп. Сәл кейінірек көріңіз',
+  errForbidden: 'Бұл әрекетке құқығыңыз жеткіліксіз',
+  errNotFound: 'Табылмады — бәлкім, жойылған',
+  errConflict: 'Бұл өзгеріп қойған. Экранды жаңартыңыз',
 
   linkTitle: 'Аккаунтты байланыстыру',
   linkSubtitle: 'Платформа әкімшілері мен модераторларына арналған мини-қосымша',
@@ -488,6 +516,11 @@ const kk: Record<MessageKey, string> = {
   linkErrRateLimit: 'Тым көп әрекет. Кейінірек көріңіз',
   linkErrNoTelegram: 'Байланыстыру тек Telegram арқылы мүмкін',
   linkErrUnknown: 'Байланыстыру сәтсіз. Тағы бір көріңіз',
+  linkErrStale: 'Мини-қосымша ашылғалы бес минуттан асты. Оны жауып, қайта ашып, кодты енгізіңіз',
+  sessionExpiredTitle: 'Сеанс мерзімі өтті',
+  sessionExpiredText:
+    'Telegram кіруді тек мини-қосымша ашылғанда растайды. Оны жауып, қайта ашыңыз.',
+  sessionExpiredClose: 'Жабу',
 
   complaintsTitle: 'Шағымдар',
   complaintsLoadError: 'Кезекті жүктеу мүмкін болмады',
@@ -500,6 +533,8 @@ const kk: Record<MessageKey, string> = {
   complaintsTabDone: 'Қаралғандар',
   complaintsFilterAll: 'Барлығы',
   complaintsDoneEmpty: 'Қаралған шағымдар әзірге жоқ.',
+  complaintsShownOf: '{total} ішінен {shown} көрсетілген',
+  complaintsShowMore: 'Тағы көрсету',
 
   targetUser: 'Пайдаланушыға',
   targetMessage: 'Хабарламаға',
@@ -517,6 +552,10 @@ const kk: Record<MessageKey, string> = {
   complaintReporter: 'Шағымданған: {name}',
   complaintReporterGone: 'Шағым авторы жойылған',
   complaintRepeats: 'Бұл нысанға бұрын да шағымданған: {count}',
+  complaintTargetTitle: 'Неге шағымданды',
+  complaintTargetDeleted: 'Автор мұны жойып қойған — мәтін қарау үшін сақталған.',
+  complaintTargetMedia: 'Тіркемелер: {count}',
+  complaintTargetGone: 'Мазмұн қолжетімсіз — оны алып тастаған.',
   complaintContextTitle: 'Хабарлама айналасындағы жазысу',
   complaintContextEmpty: 'Хабарлама қолжетімсіз — оны жойған болуы мүмкін.',
   complaintContextError: 'Жазысуды жүктеу мүмкін болмады',
@@ -681,6 +720,7 @@ const kk: Record<MessageKey, string> = {
   tabPeople: 'Адамдар',
   peopleCardTitle: 'Адам туралы',
   peopleAccessTitle: 'Рұқсат',
+  peopleNoAuthority: 'Бұл адамның рөлі сіздікінен төмен емес — оның рұқсатын шеше алмайсыз.',
   peopleLoadError: 'Адамдарды табу мүмкін болмады',
   peopleOnlyBlocked: 'Тек бұғатталғандар',
   peopleAll: 'Барлығы',
@@ -719,6 +759,7 @@ const kk: Record<MessageKey, string> = {
   notifConfirm: 'Хабарлама параметрлерін сақтау керек пе?',
   notifDigestMorning: 'Таңертең',
   notifDigestEvening: 'Кешке',
+  notifTimeZone: 'Уақыт — Алматы уақытымен (UTC+5).',
   complaintApplyAll: 'Барлығына қолдану ({count})',
   complaintReopen: 'Кезекке қайтару',
   complaintReopenConfirm:
@@ -790,6 +831,8 @@ const kk: Record<MessageKey, string> = {
   personRoleUniModerator: 'ЖОО модераторы',
   personRolePlatformAdmin: 'Платформа әкімшісі',
   personRolePlatformModerator: 'Платформа модераторы',
+  personRoleSecurityGuard: 'Күзет',
+  personRoleLibrarian: 'Кітапханашы',
 
   // ── Ескерту және бұғаттау мерзімі ──────────────────────────────────────
   complaintWarnUser: 'Ескерту жасау',
@@ -920,6 +963,12 @@ const en: Record<MessageKey, string> = {
   tabSupport: 'Support',
   tabControl: 'Control',
   retry: 'Try again',
+  errInvalidCode: 'Wrong confirmation code',
+  errTwoFactorSetup: 'Turn on two-factor protection on the web first',
+  errRateLimit: 'Too many requests. Try again a bit later',
+  errForbidden: 'You don’t have permission for this action',
+  errNotFound: 'Not found — it may have been deleted',
+  errConflict: 'This has already changed. Refresh the screen',
 
   linkTitle: 'Link your account',
   linkSubtitle: 'Mini app for platform admins and moderators',
@@ -935,6 +984,12 @@ const en: Record<MessageKey, string> = {
   linkErrRateLimit: 'Too many attempts. Try again later',
   linkErrNoTelegram: 'Linking works only from Telegram',
   linkErrUnknown: 'Linking failed. Try once more',
+  linkErrStale:
+    'More than five minutes have passed since the mini app opened. Close it, open it again and enter the code',
+  sessionExpiredTitle: 'Session expired',
+  sessionExpiredText:
+    'Telegram confirms sign-in only when the mini app opens. Close it and open it again.',
+  sessionExpiredClose: 'Close',
 
   complaintsTitle: 'Reports',
   complaintsLoadError: 'Could not load the queue',
@@ -947,6 +1002,8 @@ const en: Record<MessageKey, string> = {
   complaintsTabDone: 'Reviewed',
   complaintsFilterAll: 'All',
   complaintsDoneEmpty: 'Nothing reviewed yet.',
+  complaintsShownOf: 'Showing {shown} of {total}',
+  complaintsShowMore: 'Show more',
 
   targetUser: 'About a person',
   targetMessage: 'About a message',
@@ -964,6 +1021,10 @@ const en: Record<MessageKey, string> = {
   complaintReporter: 'Reported by {name}',
   complaintReporterGone: 'The reporter’s account is gone',
   complaintRepeats: 'Reported before: {count}',
+  complaintTargetTitle: 'What was reported',
+  complaintTargetDeleted: 'The author already deleted this — the text is kept for review.',
+  complaintTargetMedia: 'Attachments: {count}',
+  complaintTargetGone: 'The content is unavailable — it was already taken down.',
   complaintContextTitle: 'Conversation around the message',
   complaintContextEmpty: 'The message is unavailable — it may already be deleted.',
   complaintContextError: 'Could not load the conversation',
@@ -1128,6 +1189,8 @@ const en: Record<MessageKey, string> = {
   tabPeople: 'People',
   peopleCardTitle: 'About the person',
   peopleAccessTitle: 'Access',
+  peopleNoAuthority:
+    'This person’s role is not below yours, so their access is not yours to change.',
   peopleLoadError: 'Could not search people',
   peopleOnlyBlocked: 'Blocked only',
   peopleAll: 'All',
@@ -1166,6 +1229,7 @@ const en: Record<MessageKey, string> = {
   notifConfirm: 'Save notification settings?',
   notifDigestMorning: 'Morning',
   notifDigestEvening: 'Evening',
+  notifTimeZone: 'Times are Almaty time (UTC+5).',
   complaintApplyAll: 'Apply to all ({count})',
   complaintReopen: 'Send back to the queue',
   complaintReopenConfirm:
@@ -1236,6 +1300,8 @@ const en: Record<MessageKey, string> = {
   personRoleUniModerator: 'University moderator',
   personRolePlatformAdmin: 'Platform admin',
   personRolePlatformModerator: 'Platform moderator',
+  personRoleSecurityGuard: 'Security',
+  personRoleLibrarian: 'Librarian',
 
   // ── Warning and block term ─────────────────────────────────────────────
   complaintWarnUser: 'Warn',

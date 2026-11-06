@@ -23,6 +23,7 @@ import {
 //  3. Знать, что ряд правда прокручивается и у какого края стоит, — из этого собирается
 //     маска затухания: «есть ещё» видно, а не угадывается.
 //  4. Довести нужный элемент до видимой зоны (`reveal`) — активный таб не остаётся за обрезом.
+//  5. Пролистать ряд на страницу (`scrollPage`) — для стрелок по краям ряда.
 //
 // На тач-экране жест НЕ перехватывается: нативная инерционная прокрутка прерываема, знает
 // свои края, различает горизонтальный и вертикальный пан (палец из ряда может тянуть
@@ -36,6 +37,11 @@ const FADE = 24
 const REVEAL_PAD = 16
 /** Окно точек для расчёта скорости отпускания. */
 const HISTORY = 10
+/**
+ * Шаг стрелки — доля видимой ширины. Не весь экран: крайние пункты остаются на виду, и
+ * понятно, откуда ряд продолжился.
+ */
+const PAGE = 0.8
 
 export interface ScrollRowController<T extends HTMLElement> {
   /**
@@ -52,6 +58,8 @@ export interface ScrollRowController<T extends HTMLElement> {
   dragging: boolean
   /** Довести элемент ряда до видимой зоны. */
   reveal: (child: HTMLElement | null) => void
+  /** Пролистать ряд на страницу влево (-1) или вправо (1). */
+  scrollPage: (dir: -1 | 1) => void
   /** Маска затухания у краёв для `mask-image`; `undefined`, когда ряд влезает целиком. */
   fadeMask: string | undefined
 }
@@ -239,11 +247,21 @@ export function useScrollRow<T extends HTMLElement = HTMLDivElement>(): ScrollRo
     [node, glide],
   )
 
+  const scrollPage = useCallback(
+    (dir: -1 | 1): void => {
+      if (!node) return
+      const max = node.scrollWidth - node.clientWidth
+      if (max < 1) return
+      glide(node, Math.max(0, Math.min(node.scrollLeft + dir * node.clientWidth * PAGE, max)))
+    },
+    [node, glide],
+  )
+
   const fadeMask = overflowing
     ? `linear-gradient(to right, transparent 0, black ${atStart ? 0 : FADE}px, black calc(100% - ${
         atEnd ? 0 : FADE
       }px), transparent 100%)`
     : undefined
 
-  return { ref, overflowing, atStart, atEnd, dragging, reveal, fadeMask }
+  return { ref, overflowing, atStart, atEnd, dragging, reveal, scrollPage, fadeMask }
 }

@@ -21,6 +21,17 @@ function parse(v: string): Date | null {
 function format(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
+
+/**
+ * Момент (ISO-строка с сервера или Date) — в значение поля: локальное время браузера,
+ * как его и читает `new Date("YYYY-MM-DDTHH:mm")`. Срез ISO-строки (`slice(0, 16)`) давал
+ * время UTC, а обратно оно читалось как местное — каждое сохранение сдвигало момент на
+ * смещение пояса.
+ */
+export function toDateTimeLocal(value: string | Date): string {
+  const d = typeof value === 'string' ? new Date(value) : value
+  return Number.isNaN(d.getTime()) ? '' : format(d)
+}
 function sameDay(a: Date, b: Date): boolean {
   return (
     a.getFullYear() === b.getFullYear() &&

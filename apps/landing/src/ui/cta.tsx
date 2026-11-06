@@ -1,4 +1,4 @@
-import { PLATFORM_LINKS, SALES_EMAIL } from '../config/site'
+import { SALES_EMAIL, platformLinks, type Locale } from '../config/site'
 import type { Dictionary } from '../content'
 import { Container, LinkButton, Reveal } from './primitives'
 
@@ -20,8 +20,9 @@ import { Container, LinkButton, Reveal } from './primitives'
  * Обещаний по срокам ответа здесь нет: письмо читает человек, а не робот, и «ответим за
  * час» — обязательство, которое страница взять не может.
  */
-export function Cta({ dict }: { dict: Dictionary }) {
+export function Cta({ dict, locale }: { dict: Dictionary; locale: Locale }) {
   const t = dict.cta
+  const links = platformLinks(locale)
   const mailto = `mailto:${SALES_EMAIL}?subject=${encodeURIComponent(t.mailSubject)}`
 
   return (
@@ -38,7 +39,7 @@ export function Cta({ dict }: { dict: Dictionary }) {
             {/* Инверсная кнопка: на брендовом полотне белая плашка — самый заметный
                 элемент, и это правильный порядок, тут её и нажимают. */}
             <LinkButton
-              href={PLATFORM_LINKS.demoRequest}
+              href={links.demoRequest}
               external
               variant="secondary"
               className="border-transparent bg-white text-primary shadow-none hover:bg-white/90"

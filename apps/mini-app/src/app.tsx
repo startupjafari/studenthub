@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { initTelegram, isTelegram, startParam } from './telegram/webapp'
-import { openSession, type MiniUser } from './api/client'
+import { initTelegram, isTelegram, startParam, webApp } from './telegram/webapp'
+import { onSessionLost, openSession, type MiniUser } from './api/client'
 import { LinkScreen } from './screens/link'
 import { ComplaintsScreen } from './screens/complaints'
 import { ControlScreen } from './screens/control'
@@ -14,6 +14,7 @@ import { TabBar } from './ui/tab-bar'
 import { SwipeTabs } from './ui/swipe-tabs'
 import { Tabs } from './ui/tabs'
 import { ScreenHeader } from './ui/screen-header'
+import { StatePlate } from './ui/state-plate'
 import { IconComplaints, IconControl, IconLogo, IconPeople, IconSupport } from './ui/icons'
 import { t } from './i18n'
 import { navigate } from './lib/navigate'
@@ -23,7 +24,8 @@ import { goBack, useCanGoBack } from './lib/back'
 // Мини-апп для администраторов и модераторов платформы.
 //
 // Единственный вход — подписанный initData от Telegram: при старте он меняется на короткий
-// токен. Дальше возможны ровно три исхода, и каждому соответствует экран.
+// токен. Дальше возможны ровно три исхода, и каждому соответствует экран; четвёртый —
+// сессия истекла позже, чем подпись Telegram можно предъявить снова (`expired`).
 //
 // Отказ сессии НЕ означает «не привязан»: сервер одинаково отвечает «нет доступа» и когда
 // привязки нет, и когда роль больше не та — по разнице ответов вычислялось бы, кто из
@@ -63,6 +65,7 @@ type State =
   | { status: 'outside' }
   | { status: 'link' }
   | { status: 'ready'; user: MiniUser }
+  | { status: 'expired' }
 
 export function App() {
   const [state, setState] = useState<State>({ status: 'starting' })
@@ -95,6 +98,13 @@ export function App() {
     void start()
   }, [start])
 
+  // Токен истёк, а продлить его нечем: подпись Telegram старше пяти минут. Экран с
+  // просьбой переоткрыть честнее, чем отказ каждого следующего действия.
+  useEffect(() => {
+    onSessionLost(() => setState({ status: 'expired' }))
+    return () => onSessionLost(null)
+  }, [])
+
   // Заставка держится ровно до того, как стало известно, что показывать. Снимать её по
   // расписанию, как на сайте, нельзя: за ней прячется обмен initData на токен, и ушедшее
   // раньше ответа полотно обнажило бы пустой экран.
@@ -120,6 +130,19 @@ export function App() {
             onTab={setTab}
             deepLink={deepLink}
           />
+        )}
+        {state.status === 'expired' && (
+          <div className="screen">
+            <StatePlate title={t('sessionExpiredTitle')} text={t('sessionExpiredText')}>
+              <button
+                type="button"
+                className="fallback-submit plate-action"
+                onClick={() => webApp()?.close()}
+              >
+                {t('sessionExpiredClose')}
+              </button>
+            </StatePlate>
+          </div>
         )}
       </main>
     </div>
@@ -182,7 +205,7 @@ function ReadyView({
         {active === 'support' && (
           <SupportScreen initialId={deepLink?.kind === 'support' ? deepLink.id : undefined} />
         )}
-        {active === 'people' && <PeopleScreen />}
+        {active === 'people' && <PeopleScreen viewerRole={role} />}
         {active === 'control' && <ControlTab userId={userId} />}
       </SwipeTabs>
       {/*

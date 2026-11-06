@@ -3,7 +3,13 @@ import type {
   CreateChatInput,
   CreateChatPollInput,
 } from '@studenthub/shared-schemas'
-import { api, type MultipartTarget, type PresignedTarget } from '../../../shared/api'
+import {
+  api,
+  toMediaLink,
+  type MediaLink,
+  type MultipartTarget,
+  type PresignedTarget,
+} from '../../../shared/api'
 import { requestFile, type DownloadedFile } from '../../../shared/lib'
 import { sortChats } from '../lib/sort-chats'
 import type { ResponseWithMeta } from '../../../shared/api/instance'
@@ -43,8 +49,11 @@ export const chatKeys = {
 // Сводка непрочитанного для бейджа в навигации. Отдельный лёгкий запрос: тянуть ради
 // числа весь список чатов на каждом экране приложения незачем.
 export interface ChatUnreadSummary {
+  /** Без заглушённых чатов: бейдж зовёт только туда, где человек ждёт сообщений. */
   chats: number
   messages: number
+  /** Заглушённые отдельно — для серой цифры, как в Telegram. Старый сервер поля не отдаёт. */
+  muted?: { chats: number; messages: number }
 }
 
 export async function fetchChatsUnread(): Promise<ChatUnreadSummary> {
@@ -80,6 +89,18 @@ export async function fetchChats(): Promise<ChatListItem[]> {
   return sortChats(out)
 }
 
+/**
+ * Только первая страница списка — для обновления по событию (F-F02). Событие поднимает чат
+ * наверх (страницы идут по времени активности), поэтому его строка — в первой странице, и
+ * перекачивать ради неё все остальные незачем. `complete` — других страниц нет, это весь список.
+ */
+export async function fetchChatsHead(): Promise<{ items: ChatListItem[]; complete: boolean }> {
+  const res = (await api.get<ChatListItem[]>('/chats', {
+    params: { limit: CHAT_PAGE_LIMIT },
+  })) as ResponseWithMeta & { data: ChatListItem[] }
+  return { items: res.data, complete: !res.meta?.hasNext }
+}
+
 // requestPendingForId — кому адресован непринятый запрос на переписку (§50); null —
 // обычный чат (друзья или запрос уже принят). Возвращается и для существующего чата.
 export async function createChatRequest(
@@ -109,10 +130,15 @@ export async function setChatArchivedRequest(chatId: string, archived: boolean):
 }
 
 // Присоединиться к группе по ссылке-приглашению (Ф9+).
+// Вступление по ссылке-приглашению: код из ссылки обязателен — один id чата больше не пускает.
 export async function joinChatRequest(
   chatId: string,
+  code: string,
 ): Promise<{ id: string; title: string | null }> {
-  const { data } = await api.post<{ id: string; title: string | null }>(`/chats/${chatId}/join`)
+  const { data } = await api.post<{ id: string; title: string | null }>(
+    `/chats/${encodeURIComponent(chatId)}/join`,
+    { code },
+  )
   return data
 }
 
@@ -151,6 +177,8 @@ export interface ChatUpdates {
   latestSeq: number
   // Разрыв больше серверного лимита — склеить ленту нельзя, нужен полный рефетч истории.
   overflow: boolean
+  // Момент выборки по часам сервера — следующий `sinceTs` (§9.2c).
+  syncedAt: string
 }
 
 export async function fetchChatUpdates(
@@ -241,9 +269,15 @@ export async function unpinMessageRequest(messageId: string): Promise<ChatMessag
   return data
 }
 
-export async function fetchAttachmentUrl(fileId: string): Promise<string> {
-  const { data } = await api.get<string>(`/chats/attachments/${fileId}/url`)
-  return data
+/**
+ * Ссылка на вложение и описание его вариантов (медиа-система): заглушка, srcset, постер, HLS.
+ *
+ * Голая строка — ответ API до медиа-системы, пока бэкенд выкатывается позже фронта:
+ * оборачиваем её в описание «вариантов нет», и вложение показывается оригиналом.
+ */
+export async function fetchAttachmentLink(fileId: string): Promise<MediaLink> {
+  const { data } = await api.get<MediaLink | string>(`/chats/attachments/${fileId}/url`)
+  return toMediaLink(data)
 }
 
 // Опросы в чате (§38–39).
@@ -579,4 +613,18 @@ export async function chatAttachmentPartUrls(
     input,
   )
   return data.parts
+}
+
+/** Код ссылки-приглашения группы (только админ группы); выдаётся при первом запросе. */
+export async function fetchChatInviteCode(chatId: string): Promise<string> {
+  const { data } = await api.get<{ code: string }>(`/chats/${encodeURIComponent(chatId)}/invite`)
+  return data.code
+}
+
+/** Сменить код: прежняя ссылка перестаёт пускать. */
+export async function resetChatInviteCode(chatId: string): Promise<string> {
+  const { data } = await api.post<{ code: string }>(
+    `/chats/${encodeURIComponent(chatId)}/invite/reset`,
+  )
+  return data.code
 }

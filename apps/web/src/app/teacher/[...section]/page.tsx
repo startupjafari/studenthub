@@ -1,5 +1,7 @@
-import { SectionStub } from '../../../views/role-landing'
+import { SectionFallback } from '../../../views/role-landing'
 
-export default function Page() {
-  return <SectionStub />
+// Адрес в зоне роли без своей страницы: раздел из навигации — заглушка, остальное — 404.
+export default async function Page({ params }: { params: Promise<{ section: string[] }> }) {
+  const { section } = await params
+  return <SectionFallback variant="teacher" base="/teacher" section={section} />
 }

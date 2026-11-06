@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { Role } from '@studenthub/shared-types'
 import { AdminLimitSchema, OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
 
 // Жалобы (docs/PROJECT.md §11, Ф11). Enum'ы дублируют Prisma ComplaintTargetType/ComplaintStatus.
@@ -36,6 +37,17 @@ export const COMPLAINT_PRIORITY_BY_TARGET: Record<
 
 export function complaintPriorityFor(target: ComplaintTargetTypeValue): ComplaintPriorityValue {
   return COMPLAINT_PRIORITY_BY_TARGET[target]
+}
+
+/**
+ * Кто подаёт жалобы (`POST /complaints`): студент, староста, преподаватель. Сотрудники вуза и
+ * платформы сами разбирают жалобы, работодатель — вне вуза. Один список для guard'а API и для
+ * пункта «Пожаловаться» в клиентах: раньше пункт видели все роли, а сервер отвечал им 403.
+ */
+export const COMPLAINT_REPORTER_ROLES: readonly Role[] = [Role.STUDENT, Role.STAROSTA, Role.TEACHER]
+
+export function canFileComplaint(role: Role | null | undefined): boolean {
+  return !!role && COMPLAINT_REPORTER_ROLES.includes(role)
 }
 
 export const CreateComplaintSchema = z

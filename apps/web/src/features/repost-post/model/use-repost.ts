@@ -3,7 +3,12 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { postKeys, repostRequest, selfRepostAudience } from '../../../entities/post'
+import {
+  postKeys,
+  repostArticleRequest,
+  repostRequest,
+  selfRepostAudience,
+} from '../../../entities/post'
 import { useAppSelector } from '../../../shared/store'
 
 /**
@@ -25,10 +30,13 @@ export function useRepost() {
 
   const audience = selfRepostAudience(role, { groupId, facultyId, universityId })
 
+  // Репостят пост или статью — одна и та же «своя» аудитория, разный адрес.
   const mutation = useMutation({
-    mutationFn: (postId: string) => {
+    mutationFn: (target: { kind: 'post' | 'article'; id: string }) => {
       if (!audience) throw new Error('no self audience')
-      return repostRequest(postId, { audience })
+      return target.kind === 'post'
+        ? repostRequest(target.id, { audience })
+        : repostArticleRequest(target.id, { audience })
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: postKeys.all })
@@ -40,7 +48,8 @@ export function useRepost() {
   return {
     /** null — мгновенный репост недоступен, нужен `RepostDialog`. */
     audience,
-    repost: (postId: string) => mutation.mutate(postId),
+    repost: (postId: string) => mutation.mutate({ kind: 'post', id: postId }),
+    repostArticle: (articleId: string) => mutation.mutate({ kind: 'article', id: articleId }),
     isPending: mutation.isPending,
   }
 }

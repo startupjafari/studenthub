@@ -40,7 +40,15 @@ import {
 import { cn } from '../../../shared/lib/utils'
 import { ComplaintDetailModal } from './complaint-detail-modal'
 
-const STATUS_TABS: (ComplaintStatusValue | 'all')[] = ['PENDING', 'RESOLVED', 'DISMISSED', 'all']
+// «В работе» — своей вкладкой: взятая в разбор жалоба уходит из «Новых», и без неё её
+// было не найти ни в одной вкладке, кроме «Все».
+const STATUS_TABS: (ComplaintStatusValue | 'all')[] = [
+  'PENDING',
+  'REVIEWING',
+  'RESOLVED',
+  'DISMISSED',
+  'all',
+]
 const PAGE_SIZES = ADMIN_PAGE_SIZES
 // Ширины колонок: приоритет · категория · причина · автор · дата · статус.
 const COLS = ['12%', '14%', '30%', '18%', '14%', '12%'] as const

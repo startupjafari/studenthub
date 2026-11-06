@@ -34,4 +34,21 @@ describe('ClientVersionService', () => {
 
     expect(service.info('ios').minimumVersion).toBe('0.0.0')
   })
+
+  // У платформ свои планки: релизы выходят в разное время, и минимальная версия iOS
+  // не должна блокировать Android, и наоборот.
+  it('для Android берёт свои переменные, а не iOS', () => {
+    const service = serviceWith({
+      IOS_MIN_SUPPORTED_VERSION: '2.0.0',
+      IOS_STORE_URL: 'https://apps.apple.com/app/id1',
+      ANDROID_MIN_SUPPORTED_VERSION: '1.1.0',
+      ANDROID_STORE_URL: 'https://play.google.com/store/apps/details?id=kz.studenthub.app',
+    })
+
+    expect(service.info('android')).toEqual({
+      platform: 'android',
+      minimumVersion: '1.1.0',
+      storeUrl: 'https://play.google.com/store/apps/details?id=kz.studenthub.app',
+    })
+  })
 })

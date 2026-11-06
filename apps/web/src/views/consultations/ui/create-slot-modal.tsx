@@ -14,8 +14,14 @@ import {
   Label,
   Modal,
 } from '../../../shared/ui'
-import { toApiError } from '../../../shared/lib'
+import { nowInTz, toApiError } from '../../../shared/lib'
 import { consultationKeys, createSlotRequest } from '../../../entities/consultation'
+
+/** Текущий момент в формате поля даты-времени ("YYYY-MM-DDTHH:mm", время браузера). */
+function nowLocalInput(): string {
+  const now = nowInTz(null)
+  return `${now.date}T${now.time}`
+}
 
 // Модалка создания слота приёма (преподаватель).
 export function CreateSlotModal({ onClose }: { onClose: () => void }) {
@@ -32,9 +38,15 @@ export function CreateSlotModal({ onClose }: { onClose: () => void }) {
   // которую человек ещё не заполнял, — шум.
   const [submitted, setSubmitted] = useState(false)
 
+  const [minLocal] = useState(nowLocalInput)
   const errors = {
     // Строки формата "YYYY-MM-DDTHH:mm" сравниваются лексикографически как даты.
-    start: !startLocal ? tCommon('dateRequired') : null,
+    // Слот в прошлом сервер не примет (C-F23) — говорим об этом у поля.
+    start: !startLocal
+      ? tCommon('dateRequired')
+      : startLocal <= nowLocalInput()
+        ? t('startInPast')
+        : null,
     end: !endLocal
       ? tCommon('dateRequired')
       : endLocal <= startLocal
@@ -64,7 +76,16 @@ export function CreateSlotModal({ onClose }: { onClose: () => void }) {
       toast.success(t('slotCreated'))
       onClose()
     } catch (e) {
-      toast.error(tErr(toApiError(e).code))
+      const code = toApiError(e).code
+      // CONFLICT — на это время у преподавателя уже есть слот; VALIDATION_ERROR — время
+      // в прошлом или слот длиннее допустимого.
+      toast.error(
+        code === 'CONFLICT'
+          ? t('slotOverlap')
+          : code === 'VALIDATION_ERROR'
+            ? t('formInvalid')
+            : tErr(code),
+      )
     } finally {
       setPending(false)
     }
@@ -78,6 +99,7 @@ export function CreateSlotModal({ onClose }: { onClose: () => void }) {
           <DateTimePicker
             value={startLocal}
             onChange={setStartLocal}
+            min={minLocal}
             aria-invalid={!!show('start')}
           />
           <FieldError>{show('start')}</FieldError>

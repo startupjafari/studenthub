@@ -1,13 +1,17 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
+import { useTranslations } from 'next-intl'
 
 import { cn } from 'shared/lib/utils'
 
 // Хлебные крошки: навигация внутри вложенных разделов (Дисциплина → Задание →
 // Проверка). Крошки-ссылки — обычный `next/link`. Текущая страница — `Page`.
 function Breadcrumb({ className, ...props }: React.ComponentProps<'nav'>) {
-  return <nav aria-label="breadcrumb" data-slot="breadcrumb" className={className} {...props} />
+  const t = useTranslations('Common')
+  return (
+    <nav aria-label={t('breadcrumb')} data-slot="breadcrumb" className={className} {...props} />
+  )
 }
 
 function BreadcrumbList({ className, ...props }: React.ComponentProps<'ol'>) {

@@ -12,8 +12,8 @@ import {
   Req,
 } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
-import { Role } from '@studenthub/shared-types'
 import type { FastifyRequest } from 'fastify'
+import { Role } from '@studenthub/shared-types'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
@@ -24,6 +24,7 @@ import { CreateRoomDto } from './dto/create-room.dto'
 import { UpdateRoomDto } from './dto/update-room.dto'
 import { RoomListQueryDto } from './dto/room-list-query.dto'
 import { RoomQrBatchDto } from './dto/room-qr-batch.dto'
+import { RestrictedAllowed } from '../../common/decorators/restricted-allowed.decorator'
 
 @ApiTags('Помещения')
 @ApiBearerAuth()
@@ -48,6 +49,7 @@ export class RoomsController {
     return this.rooms.create(user, dto, this.ctx(req))
   }
 
+  @RestrictedAllowed(Role.SECURITY_GUARD)
   @Get()
   @ApiOperation({ summary: 'Список аудиторий (по scope смотрящего)' })
   @ApiResponse({ status: 200, description: 'Страница аудиторий' })
@@ -59,6 +61,7 @@ export class RoomsController {
   // ВНИМАНИЕ: маршруты `qr/...` объявлены ДО `:id` — иначе Fastify сматчит `/rooms/qr`
   // на параметрический `:id` и вернёт 404 «помещение не найдено».
 
+  @RestrictedAllowed(Role.SECURITY_GUARD)
   @Get('qr/:code')
   @ApiOperation({
     summary: 'Статус помещения по коду из QR (что видит студент после сканирования)',
@@ -98,6 +101,7 @@ export class RoomsController {
     return this.qr.rotate(user, id, this.ctx(req))
   }
 
+  @RestrictedAllowed(Role.SECURITY_GUARD)
   @Get(':id')
   @ApiOperation({ summary: 'Помещение (scope)' })
   @ApiResponse({ status: 200, description: 'Аудитория' })

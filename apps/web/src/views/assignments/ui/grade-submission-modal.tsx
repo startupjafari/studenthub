@@ -4,20 +4,29 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { CheckCircle2, Link2, RotateCcw } from 'lucide-react'
-import { Badge, Button, Input, Label, Modal, Textarea } from '../../../shared/ui'
+import { CheckCircle2, Link2, Pencil, RotateCcw } from 'lucide-react'
+import { Badge, Button, FieldError, Input, Label, Modal, Textarea } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { useErrorToast } from '../../../shared/lib'
+import { toApiError, useErrorToast } from '../../../shared/lib'
 import {
   assignmentKeys,
   gradeSubmissionRequest,
   returnSubmissionRequest,
   type SubmissionItem,
 } from '../../../entities/assignment'
+import { SubmissionFiles } from './submission-files'
+
+// Общий потолок схемы (GradeSubmissionSchema): действует, когда у задания нет максимума.
+const SCORE_CEILING = 1000
 
 interface Props {
   assignmentId: string
   maxScore: number | null
+  /**
+   * Можно ли вернуть работу на доработку: только пока задание принимает работы. Из закрытого
+   * возвращённую студент не смог бы ни поправить, ни отправить снова (сервер отвечает 409).
+   */
+  returnable: boolean
   submission: SubmissionItem
   onClose: () => void
   /** Работа оценена или возвращена — родитель переходит к следующей непроверенной. */
@@ -34,6 +43,7 @@ interface Props {
 export function GradeSubmissionModal({
   assignmentId,
   maxScore,
+  returnable,
   submission,
   onClose,
   onGraded,
@@ -46,24 +56,46 @@ export function GradeSubmissionModal({
   // и увёл кнопки из-под курсора ровно при повторной попытке.
   const errorToast = useErrorToast(`grade-${submission.id}`)
   const [score, setScore] = useState(submission.score != null ? String(submission.score) : '')
-  const [feedback, setFeedback] = useState(submission.feedback ?? '')
+  // Отзыв подставляется только у оценённой (переоценка). У сданной в поле был бы комментарий
+  // «на доработку» к прошлой попытке — и он молча стал бы отзывом к итоговой оценке.
+  const [feedback, setFeedback] = useState(
+    submission.status === 'GRADED' ? (submission.feedback ?? '') : '',
+  )
+  // Ошибка балла — под полем, а не тостом: исправляют её там же (DESIGN_SYSTEM §10.3).
+  const [scoreError, setScoreError] = useState<string | null>(null)
+  const ceiling = maxScore ?? SCORE_CEILING
 
   const invalidate = () =>
     qc.invalidateQueries({ queryKey: assignmentKeys.submissions(assignmentId) })
+  // Переоценка (C-F20): у оценённой работы балл и отзыв можно исправить. Вернуть её на
+  // доработку нельзя — это решение принимают до оценки.
+  const [regrading, setRegrading] = useState(false)
   const gradable = submission.status === 'SUBMITTED'
+  const formOpen = gradable || regrading
 
   const grade = useMutation({
     mutationFn: () =>
       gradeSubmissionRequest(submission.id, {
         score: Number(score),
-        ...(feedback.trim() ? { feedback: feedback.trim() } : {}),
+        // Пустой отзыв уходит пустой строкой: сервер очищает поле, а не оставляет прежний.
+        feedback: feedback.trim(),
       }),
     onSuccess: () => {
       invalidate()
-      toast.success(t('graded'))
+      toast.success(regrading ? t('regraded') : t('graded'))
       onGraded()
     },
-    onError: (e) => errorToast.show(e),
+    onError: (e) => {
+      // Сервер сверяет балл с максимумом задания — его отказ тоже под полем.
+      const err = toApiError(e)
+      if (err.code === 'VALIDATION_ERROR' && err.details?.some((d) => d.field === 'score')) {
+        setScoreError(t('scoreOutOfRange', { max: ceiling }))
+        return
+      }
+      // CONFLICT — работу уже оценил или вернул другой проверяющий: перечитываем список.
+      if (err.code === 'CONFLICT') invalidate()
+      errorToast.show(e)
+    },
   })
   const back = useMutation({
     mutationFn: () => returnSubmissionRequest(submission.id, { feedback: feedback.trim() }),
@@ -72,14 +104,24 @@ export function GradeSubmissionModal({
       toast.success(t('returned'))
       onGraded()
     },
-    onError: (e) => errorToast.show(e),
+    onError: (e) => {
+      if (toApiError(e).code === 'CONFLICT') invalidate()
+      errorToast.show(e)
+    },
   })
 
   function onGrade() {
     if (score === '' || Number.isNaN(Number(score))) {
-      toast.error(t('scoreRequired'))
+      setScoreError(t('scoreRequired'))
       return
     }
+    const n = Number(score)
+    // Схема принимает только целые 0..1000; «150 из 100» — опечатка, а не оценка.
+    if (!Number.isInteger(n) || n < 0 || n > ceiling) {
+      setScoreError(t('scoreOutOfRange', { max: ceiling }))
+      return
+    }
+    setScoreError(null)
     grade.mutate()
   }
   function onReturn() {
@@ -105,7 +147,7 @@ export function GradeSubmissionModal({
       title={`${submission.student.firstName} ${submission.student.lastName}`}
     >
       <div className="flex flex-col gap-4">
-        {/* Сама работа: попытка, время сдачи, текст и ссылка. */}
+        {/* Сама работа: попытка, время сдачи, текст, ссылка и файлы. */}
         <div className="flex flex-col gap-2">
           <span className="text-xs text-muted-foreground">
             {t('attempt', { n: submission.attemptNumber })}
@@ -127,13 +169,14 @@ export function GradeSubmissionModal({
               {submission.linkUrl}
             </a>
           )}
+          <SubmissionFiles files={submission.files ?? []} submissionId={submission.id} />
         </div>
 
         {/* Линия вместо второй карточки: в окне работа и оценка — один разговор,
             и рамка внутри рамки только добавляет уровней. */}
         <hr className="border-border" />
 
-        {gradable ? (
+        {formOpen ? (
           <>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="grade-score">
@@ -144,10 +187,16 @@ export function GradeSubmissionModal({
                 id="grade-score"
                 type="number"
                 value={score}
-                onChange={(e) => setScore(e.target.value)}
-                max={maxScore ?? undefined}
+                onChange={(e) => {
+                  setScore(e.target.value)
+                  setScoreError(null)
+                }}
+                min={0}
+                max={ceiling}
+                aria-invalid={!!scoreError}
                 className="w-32"
               />
+              <FieldError>{scoreError}</FieldError>
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="grade-feedback">{t('feedback')}</Label>
@@ -187,23 +236,37 @@ export function GradeSubmissionModal({
         <div
           className={cn(
             'flex flex-wrap items-center gap-2',
-            gradable ? 'justify-between' : 'justify-end',
+            gradable || submission.status === 'GRADED' ? 'justify-between' : 'justify-end',
           )}
         >
           <Button variant="outline" onClick={onClose}>
             {tCommon('close')}
           </Button>
+          {submission.status === 'GRADED' &&
+            (regrading ? (
+              <Button className="gap-1.5" onClick={onGrade} loading={grade.isPending}>
+                <CheckCircle2 className="size-4" aria-hidden />
+                {t('saveGrade')}
+              </Button>
+            ) : (
+              <Button variant="outline" className="gap-1.5" onClick={() => setRegrading(true)}>
+                <Pencil className="size-4" aria-hidden />
+                {t('regrade')}
+              </Button>
+            ))}
           {gradable && (
             <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                className="gap-1.5"
-                onClick={onReturn}
-                loading={back.isPending}
-              >
-                <RotateCcw className="size-4" aria-hidden />
-                {t('returnForFix')}
-              </Button>
+              {returnable && (
+                <Button
+                  variant="outline"
+                  className="gap-1.5"
+                  onClick={onReturn}
+                  loading={back.isPending}
+                >
+                  <RotateCcw className="size-4" aria-hidden />
+                  {t('returnForFix')}
+                </Button>
+              )}
               <Button className="gap-1.5" onClick={onGrade} loading={grade.isPending}>
                 <CheckCircle2 className="size-4" aria-hidden />
                 {t('publishGrade')}

@@ -4,14 +4,18 @@ import type {
   FeedQueryInput,
   RepostInput,
 } from '@studenthub/shared-schemas'
-import { api } from '../../../shared/api'
+import { api, toMediaLink, type MediaLink } from '../../../shared/api'
 import type { ResponseWithMeta } from '../../../shared/api/instance'
-import type { FeedPost, PostComment } from '../model/types'
+import type { FeedPost, PostComment, PostCommentsPage } from '../model/types'
 
 export const postKeys = {
   all: ['posts'] as const,
   feed: (filter = 'ALL') => ['posts', 'feed', filter] as const,
   author: (userId: string) => ['posts', 'author', userId] as const,
+  // Посты страницы компании (аудитория COMPANY) — в ленту не попадают.
+  company: (companyId: string) => ['posts', 'company', companyId] as const,
+  // Посты от имени университета (они же — в ленте своего вуза).
+  universityPage: (universityId: string) => ['posts', 'university-page', universityId] as const,
   detail: (id: string) => ['posts', 'detail', id] as const,
   comments: (id: string) => ['posts', id, 'comments'] as const,
   media: (fileId: string) => ['posts', 'media', fileId] as const,
@@ -26,7 +30,10 @@ export interface FeedPage {
 }
 
 export async function fetchFeed(query: FeedQueryInput = { limit: 20 }): Promise<FeedPage> {
-  const res = (await api.get<FeedPost[]>('/posts', { params: query })) as ResponseWithMeta & {
+  // Реакции — только сводкой (`reactionSummary`): построчный список «кто что поставил»
+  // на популярном посте — тысячи строк ради одного числа у сердечка.
+  const params: FeedQueryInput = { ...query, reactions: 'summary' }
+  const res = (await api.get<FeedPost[]>('/posts', { params })) as ResponseWithMeta & {
     data: FeedPost[]
   }
   return {
@@ -44,6 +51,22 @@ export async function fetchAuthorPosts(
   query: Omit<FeedQueryInput, 'authorId'> = { limit: 20 },
 ): Promise<FeedPage> {
   return fetchFeed({ ...query, authorId })
+}
+
+// Посты страницы компании. Сервер пересекает с видимостью зрителя (допуск вуза).
+export async function fetchCompanyPosts(
+  companyId: string,
+  query: Omit<FeedQueryInput, 'companyId' | 'authorId'> = { limit: 20 },
+): Promise<FeedPage> {
+  return fetchFeed({ ...query, companyId })
+}
+
+// Посты страницы университета (от его имени).
+export async function fetchUniversityPagePosts(
+  universityPageId: string,
+  query: Omit<FeedQueryInput, 'companyId' | 'authorId' | 'universityPageId'> = { limit: 20 },
+): Promise<FeedPage> {
+  return fetchFeed({ ...query, universityPageId })
 }
 
 // Один пост по постоянной ссылке. Сервер сам решает, видим ли он зрителю:
@@ -66,6 +89,15 @@ export async function createPostRequest(input: CreatePostInput): Promise<FeedPos
 
 export async function repostRequest(id: string, input: RepostInput): Promise<FeedPost> {
   const { data } = await api.post<FeedPost>(`/posts/${id}/repost`, input)
+  return data
+}
+
+/** Репост статьи в ленту: пост со ссылкой на статью, тело — как у репоста поста. */
+export async function repostArticleRequest(
+  articleId: string,
+  input: RepostInput,
+): Promise<FeedPost> {
+  const { data } = await api.post<FeedPost>(`/posts/articles/${articleId}/repost`, input)
   return data
 }
 
@@ -105,15 +137,32 @@ export async function incrementPostView(id: string): Promise<number> {
   return data.views
 }
 
-// Presigned-URL к медиа поста (по видимости поста, TTL 15 мин). Файл авторизуется через сам пост.
-export async function fetchPostMediaUrl(postId: string, fileId: string): Promise<string> {
-  const { data } = await api.get<{ url: string }>(`/posts/${postId}/media/${fileId}/url`)
-  return data.url
+// Ссылка на медиа поста и его варианты (по видимости поста, TTL 15 мин): копии для srcset,
+// постер и HLS видео. Файл авторизуется через сам пост. Лента и пост по id приносят ссылки
+// сами (`inlineMediaLink`); сюда — только когда их нет или они истекли.
+export async function fetchPostMediaLink(postId: string, fileId: string): Promise<MediaLink> {
+  const { data } = await api.get<MediaLink>(`/posts/${postId}/media/${fileId}/url`)
+  return toMediaLink(data)
 }
 
-export async function fetchComments(id: string): Promise<PostComment[]> {
-  const { data } = await api.get<PostComment[]>(`/posts/${id}/comments`)
-  return data
+// Размер страницы обсуждения: под окно лайтбокса с запасом, дальше — «Показать предыдущие».
+export const COMMENTS_PAGE_SIZE = 20
+
+/**
+ * Страница комментариев: свежие сверху, `cursor` — самый старый из пришедших (по нему
+ * просим более ранние). Без `limit` сервер ответил бы прежним списком последних двухсот —
+ * его читают мобильные клиенты.
+ */
+export async function fetchCommentsPage(id: string, cursor?: string): Promise<PostCommentsPage> {
+  const res = (await api.get<PostComment[]>(`/posts/${id}/comments`, {
+    params: { limit: COMMENTS_PAGE_SIZE, ...(cursor ? { cursor } : {}) },
+  })) as ResponseWithMeta & { data: PostComment[] }
+  return {
+    items: res.data,
+    cursor: res.meta?.cursor,
+    hasNext: res.meta?.hasNext ?? false,
+    total: res.meta?.total,
+  }
 }
 
 export async function addCommentRequest(

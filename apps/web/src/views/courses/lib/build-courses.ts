@@ -1,7 +1,14 @@
-import type { Pair, PairTeacher } from '../../../entities/schedule'
-import type { Material } from '../../../entities/material'
+import {
+  changesByPairDate,
+  pairDateKey,
+  type Pair,
+  type PairTeacher,
+  type ScheduleChange,
+} from '../../../entities/schedule'
+import type { MaterialSubjectCount } from '../../../entities/material'
 import type { CourseItem } from '../../../entities/course'
 import { isoWeekParity, type NowInTz } from '../../../shared/lib'
+import { formatYmd } from '../../../shared/ui/calendar-grid'
 
 // «Дисциплины» без отдельной модели: агрегируем из существующих данных (пары
 // расписания + материалы). Дисциплина = уникальный `subject` группы. Со своим
@@ -16,7 +23,7 @@ export interface CourseNextLesson {
 }
 
 export interface CourseSummary {
-  // slug = subject (кодируется в URL).
+  // slug = subject (кодируется в URL); курс конкретного семестра — параметром `course`.
   subject: string
   teachers: PairTeacher[]
   lessonsPerWeek: number
@@ -32,32 +39,64 @@ function dowOf(d: Date): number {
   return ((d.getDay() + 6) % 7) + 1
 }
 
-// Ближайшее занятие дисциплины за 14 дней вперёд.
-function nextLessonFor(subjectPairs: Pair[], now: NowInTz): CourseNextLesson | null {
+// Ближайшее занятие ищется на две недели вперёд — за тот же период берутся изменения.
+const NEXT_LESSON_DAYS = 14
+
+/** Период изменений расписания для «ближайшего занятия»: сегодня и 13 дней вперёд. */
+export function nextLessonRange(now: NowInTz): { from: string; to: string } {
+  const last = new Date(`${now.date}T00:00:00`)
+  last.setDate(last.getDate() + NEXT_LESSON_DAYS - 1)
+  return { from: now.date, to: formatYmd(last) }
+}
+
+// Ближайшее занятие дисциплины за 14 дней вперёд — с изменениями своей даты, как в
+// «Сегодня»: отменённое занятие пропускается, у перенесённого — новое время и аудитория.
+function nextLessonFor(
+  subjectPairs: Pair[],
+  now: NowInTz,
+  changes: Map<string, ScheduleChange>,
+): CourseNextLesson | null {
   const base = new Date(`${now.date}T00:00:00`)
-  for (let offset = 0; offset < 14; offset++) {
+  for (let offset = 0; offset < NEXT_LESSON_DAYS; offset++) {
     const day = new Date(base)
     day.setDate(base.getDate() + offset)
     const dow = dowOf(day)
+    const date = formatYmd(day)
     const parity = isoWeekParity(day)
-    const candidates = subjectPairs
-      .filter((p) => p.dayOfWeek === dow && (p.weekType === 'BOTH' || p.weekType === parity))
-      .filter((p) => offset > 0 || p.startTime > now.time)
-      .sort((a, b) => a.startTime.localeCompare(b.startTime))
-    const first = candidates[0]
-    if (first) {
-      return {
-        inDays: offset,
-        dayOfWeek: dow,
-        startTime: first.startTime,
-        room: first.room?.name ?? null,
-      }
+    const candidates: CourseNextLesson[] = []
+    for (const p of subjectPairs) {
+      if (p.dayOfWeek !== dow || (p.weekType !== 'BOTH' && p.weekType !== parity)) continue
+      const change = changes.get(pairDateKey(p.id, date))
+      if (change?.type === 'CANCELLED') continue
+      const startTime = change?.newStartTime ?? p.startTime
+      if (offset === 0 && startTime <= now.time) continue
+      const room = change?.newRoom ?? p.room
+      candidates.push({ inDays: offset, dayOfWeek: dow, startTime, room: room?.name ?? null })
     }
+    candidates.sort((a, b) => a.startTime.localeCompare(b.startTime))
+    if (candidates[0]) return candidates[0]
   }
   return null
 }
 
-export function buildCourses(pairs: Pair[], materials: Material[], now: NowInTz): CourseSummary[] {
+function countsBySubject(materialCounts: MaterialSubjectCount[]): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const c of materialCounts) {
+    if (c.subject) out.set(c.subject, c.count)
+  }
+  return out
+}
+
+// `materialCounts` — счётчики с сервера (`GET /materials/subjects`): посчитанные по странице
+// списка материалов, они занижались, как только материалов становилось больше страницы.
+// `changes` — изменения расписания за `nextLessonRange`.
+export function buildCourses(
+  pairs: Pair[],
+  materialCounts: MaterialSubjectCount[],
+  now: NowInTz,
+  changes: ScheduleChange[] = [],
+): CourseSummary[] {
+  const changeByPairDate = changesByPairDate(changes)
   const bySubject = new Map<string, Pair[]>()
   for (const p of pairs) {
     const list = bySubject.get(p.subject) ?? []
@@ -65,11 +104,7 @@ export function buildCourses(pairs: Pair[], materials: Material[], now: NowInTz)
     bySubject.set(p.subject, list)
   }
 
-  const materialCount = new Map<string, number>()
-  for (const m of materials) {
-    if (!m.subject) continue
-    materialCount.set(m.subject, (materialCount.get(m.subject) ?? 0) + 1)
-  }
+  const materialCount = countsBySubject(materialCounts)
 
   const courses: CourseSummary[] = []
   for (const [subject, subjectPairs] of bySubject) {
@@ -86,7 +121,7 @@ export function buildCourses(pairs: Pair[], materials: Material[], now: NowInTz)
       teachers,
       lessonsPerWeek: subjectPairs.length,
       materialsCount: materialCount.get(subject) ?? 0,
-      next: nextLessonFor(subjectPairs, now),
+      next: nextLessonFor(subjectPairs, now, changeByPairDate),
       courseId: null,
       credits: null,
       termName: null,
@@ -96,43 +131,123 @@ export function buildCourses(pairs: Pair[], materials: Material[], now: NowInTz)
   return courses.sort((a, b) => a.subject.localeCompare(b.subject))
 }
 
-// Накладывает backend-курсы (`GET /courses`) поверх агрегации: сопоставляет по имени
-// дисциплины, добавляя courseId/кредиты/семестр/официального преподавателя; курсы без пар
-// в расписании добавляются отдельными карточками. Пустой `apiCourses` → возвращаем базу как есть.
-export function mergeApiCourses(base: CourseSummary[], apiCourses: CourseItem[]): CourseSummary[] {
-  if (apiCourses.length === 0) return base
-  const bySubject = new Map(base.map((c) => [c.subject, { ...c }]))
+/**
+ * Порядок курсов одной дисциплины: курс текущего семестра → без семестра → прочие,
+ * свежие раньше. Первый в нём — «основной»: ему достаются пары расписания (у пары нет
+ * ссылки на курс, только название), а значит и задания со страницы дисциплины.
+ */
+function courseRank(course: CourseItem): number {
+  if (course.term?.isActive) return 0
+  if (!course.term) return 1
+  return 2
+}
 
+function compareCourses(a: CourseItem, b: CourseItem): number {
+  return (
+    courseRank(a) - courseRank(b) ||
+    b.createdAt.localeCompare(a.createdAt) ||
+    a.id.localeCompare(b.id)
+  )
+}
+
+function courseTeachers(course: CourseItem): PairTeacher[] {
+  return course.teacher
+    ? [
+        {
+          id: course.teacher.id,
+          firstName: course.teacher.firstName,
+          lastName: course.teacher.lastName,
+        },
+      ]
+    : []
+}
+
+// Материалы привязаны к названию дисциплины, а не к курсу: страница курса прошлого семестра
+// или курса без пар показывает материалы по названию — карточка считает их так же.
+function summaryOf(course: CourseItem, materialCount: Map<string, number>): CourseSummary {
+  return {
+    subject: course.subject.name,
+    teachers: courseTeachers(course),
+    lessonsPerWeek: 0,
+    materialsCount: materialCount.get(course.subject.name) ?? 0,
+    next: null,
+    courseId: course.id,
+    credits: course.credits,
+    termName: course.term?.name ?? null,
+  }
+}
+
+// Накладывает backend-курсы (`GET /courses`) поверх агрегации: основной курс дисциплины
+// (см. `compareCourses`) дополняет карточку из расписания courseId/кредитами/семестром/
+// официальным преподавателем. Остальные курсы с тем же названием (прошлые семестры) и курсы
+// без пар в расписании — отдельными карточками: раньше карта по названию склеивала
+// «Математику» 1-го и 2-го семестров в одну, и побеждал случайный курс (C-F25).
+// Пустой `apiCourses` → возвращаем базу как есть. `materialCounts` — те же счётчики, что у
+// `buildCourses`: по ним считаются карточки курсов без пар.
+export function mergeApiCourses(
+  base: CourseSummary[],
+  apiCourses: CourseItem[],
+  materialCounts: MaterialSubjectCount[] = [],
+): CourseSummary[] {
+  if (apiCourses.length === 0) return base
+  const materialCount = countsBySubject(materialCounts)
+  const byName = new Map<string, CourseItem[]>()
   for (const course of apiCourses) {
-    const name = course.subject.name
-    const existing = bySubject.get(name)
-    const teacher = course.teacher
-      ? [
-          {
-            id: course.teacher.id,
-            firstName: course.teacher.firstName,
-            lastName: course.teacher.lastName,
-          },
-        ]
-      : []
-    if (existing) {
-      existing.courseId = course.id
-      existing.credits = course.credits
-      existing.termName = course.term?.name ?? null
-      if (existing.teachers.length === 0 && teacher.length > 0) existing.teachers = teacher
-    } else {
-      bySubject.set(name, {
-        subject: name,
-        teachers: teacher,
-        lessonsPerWeek: 0,
-        materialsCount: 0,
-        next: null,
-        courseId: course.id,
-        credits: course.credits,
-        termName: course.term?.name ?? null,
-      })
+    const list = byName.get(course.subject.name) ?? []
+    list.push(course)
+    byName.set(course.subject.name, list)
+  }
+
+  const result: CourseSummary[] = []
+  for (const card of base) {
+    const [primary, ...rest] = (byName.get(card.subject) ?? []).sort(compareCourses)
+    byName.delete(card.subject)
+    if (!primary) {
+      result.push(card)
+      continue
+    }
+    result.push({
+      ...card,
+      courseId: primary.id,
+      credits: primary.credits,
+      termName: primary.term?.name ?? null,
+      teachers: card.teachers.length > 0 ? card.teachers : courseTeachers(primary),
+    })
+    for (const course of rest) result.push(summaryOf(course, materialCount))
+  }
+  for (const list of byName.values()) {
+    for (const course of list.sort(compareCourses)) {
+      result.push(summaryOf(course, materialCount))
     }
   }
 
-  return Array.from(bySubject.values()).sort((a, b) => a.subject.localeCompare(b.subject))
+  // Сортировка устойчивая: внутри одной дисциплины основной курс остаётся первым.
+  return result.sort((a, b) => a.subject.localeCompare(b.subject))
+}
+
+/** Ключ карточки: у курсов одной дисциплины разных семестров название одно. */
+export function courseKey(course: CourseSummary): string {
+  return course.courseId ?? `subject:${course.subject}`
+}
+
+/**
+ * Ссылка на страницу дисциплины. Путь — по названию (так открываются и дисциплины без
+ * курса, из одного расписания), курс уточняется параметром `course`.
+ */
+export function courseHref(course: CourseSummary): string {
+  const path = `/courses/${encodeURIComponent(course.subject)}`
+  return course.courseId ? `${path}?course=${encodeURIComponent(course.courseId)}` : path
+}
+
+/**
+ * Карточка для страницы дисциплины: по id курса из ссылки, а без него (или если такого
+ * курса нет) — основная карточка с этим названием.
+ */
+export function pickCourse(
+  courses: CourseSummary[],
+  subject: string,
+  courseId: string | null,
+): CourseSummary | undefined {
+  const byId = courseId ? courses.find((c) => c.courseId === courseId) : undefined
+  return byId ?? courses.find((c) => c.subject === subject)
 }

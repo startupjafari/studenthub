@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
 import { useTranslations } from 'next-intl'
 import { X } from 'lucide-react'
 import { useBodyScrollLock } from '../lib'
+import { cn } from '../lib/utils'
 
 /**
  * Оболочка редактора медиа перед загрузкой — в духе редактора Telegram: окно всегда тёмное,
@@ -25,13 +26,22 @@ export function MediaEditorShell({
   hint,
   onClose,
   footer,
+  actions,
+  solid = false,
   children,
 }: {
   title: string
   hint?: string
   onClose: () => void
-  /** Нижняя строка: «Отмена» и главное действие. */
-  footer: ReactNode
+  /** Нижняя строка: «Отмена» и главное действие. Без неё строку рисует сам редактор. */
+  footer?: ReactNode
+  /** Кнопки в шапке перед «закрыть» (отмена и повтор правки). */
+  actions?: ReactNode
+  /**
+   * Непрозрачный фон вместо притемнения. Редактору с панелями (сторис) страница под ним
+   * только мешает: сквозь панели просвечивали бы лента и меню.
+   */
+  solid?: boolean
   /** Сцена и панель инструментов. */
   children: ReactNode
 }) {
@@ -42,7 +52,9 @@ export function MediaEditorShell({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
+      // Esc уже забрало вложенное окно Radix (выпадающий список, диалог поверх редактора):
+      // оно закрывается само и помечает событие — редактор при этом остаётся открытым.
+      if (e.key === 'Escape' && !e.defaultPrevented) {
         e.preventDefault()
         onClose()
       }
@@ -62,13 +74,25 @@ export function MediaEditorShell({
       // получает `pointer-events: none`, и без этого кнопки редактора не нажимались бы;
       // `data-overlay` — глобальный Esc закрывает слой, а не уводит на прошлую страницу.
       data-overlay
-      className="dark pointer-events-auto fixed inset-0 z-[100] flex flex-col overflow-hidden bg-black/80 text-white select-none animate-in fade-in-0 duration-200"
+      className={cn(
+        'dark pointer-events-auto fixed inset-0 z-[100] flex flex-col overflow-hidden text-white select-none animate-in fade-in-0 duration-200',
+        solid ? 'bg-background' : 'bg-black/80',
+      )}
     >
-      <div className="flex items-center gap-3 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2">
+      <div
+        className={cn(
+          'flex items-center gap-3 px-4',
+          // Редактор с панелями держит шапку ровно 56px — от неё считается сетка под ней.
+          solid
+            ? 'box-content h-14 shrink-0 border-b border-white/10 pt-[env(safe-area-inset-top)]'
+            : 'pt-[max(0.75rem,env(safe-area-inset-top))] pb-2',
+        )}
+      >
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-sm font-semibold">{title}</h2>
           {hint && <p className="truncate text-xs text-white/60">{hint}</p>}
         </div>
+        {actions}
         <button
           type="button"
           aria-label={t('close')}
@@ -81,9 +105,11 @@ export function MediaEditorShell({
 
       <div className="flex min-h-0 flex-1 flex-col">{children}</div>
 
-      <div className="mx-auto flex w-full max-w-3xl items-center gap-2 px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
-        {footer}
-      </div>
+      {footer && (
+        <div className="mx-auto flex w-full max-w-3xl items-center gap-2 px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          {footer}
+        </div>
+      )}
     </div>,
     document.body,
   )

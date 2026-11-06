@@ -3,5 +3,6 @@ import { GroupsList } from '../../../widgets/groups-list'
 
 export default async function Page() {
   const t = await getTranslations('Nav')
-  return <GroupsList title={t('groups')} />
+  // Декан назначает старост групп своего факультета (PATCH /groups/:id/starosta).
+  return <GroupsList title={t('groups')} manageStarosta />
 }

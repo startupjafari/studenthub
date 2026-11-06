@@ -45,7 +45,12 @@ export class PlatformAnalyticsController {
   @Get('universities-size')
   @Roles(...PLATFORM_ROLES)
   @MiniAllowed()
-  @ApiOperation({ summary: 'Размер вузов: студенты и преподаватели по каждому' })
+  @ApiOperation({
+    summary: 'Размер вузов: люди, факультеты, группы и аудитории по каждому',
+    description:
+      '`items` — не больше 200 вузов, крупнейшие первыми. ' +
+      '`totals` — итоги по всей платформе, а не сумма `items`.',
+  })
   universitiesSize() {
     return this.analytics.universitiesSize()
   }

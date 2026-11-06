@@ -1,0 +1,5 @@
+# Скрипты запуска Gradle: sh-скрипт обязан иметь LF, иначе ломается на Linux-раннере;
+# bat-файл — CRLF для cmd.exe. Jar — бинарный, без нормализации переводов строк.
+gradlew text eol=lf
+*.bat text eol=crlf
+*.jar binary

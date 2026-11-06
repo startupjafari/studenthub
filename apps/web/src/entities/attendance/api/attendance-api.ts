@@ -12,6 +12,8 @@ export const attendanceKeys = {
   roster: (pairId: string, date: string) => ['attendance', 'roster', pairId, date] as const,
   me: (query: Partial<AttendanceSummaryQueryInput> = {}) => ['attendance', 'me', query] as const,
   qr: (pairId: string, date: string) => ['attendance', 'qr', pairId, date] as const,
+  // Префикс всех «отмечено ли»: после сохранения ростера устаревают и список дня, и дашборд.
+  markedAll: () => ['attendance', 'marked'] as const,
   marked: (date: string, pairIds: string[]) => ['attendance', 'marked', date, pairIds] as const,
 }
 

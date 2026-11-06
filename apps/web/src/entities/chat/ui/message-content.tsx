@@ -5,6 +5,7 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from '../../../shared/lib/utils'
 import type { MessageContentMath } from './message-content-math'
+import { MarkdownImage } from '../../../shared/ui'
 
 // Подсветка совпадений поиска (§3): режем строковые дети по вхождению term (без регистра) и
 // оборачиваем в <mark>. Нестроковые дети (вложенный markdown) пропускаем как есть — не ломаем разметку.
@@ -64,6 +65,8 @@ const MD_COMPONENTS: Components = {
    * жёсткий перенос в markdown), поэтому гасим тег, а не символ.
    */
   br: () => null,
+  // Внешняя картинка из сообщения — трекинг-пиксель для каждого участника чата.
+  img: MarkdownImage,
 }
 
 // Грубая эвристика наличия формулы: $…$ или $$…$$ (не одиночный «$5»).

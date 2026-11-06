@@ -40,6 +40,20 @@ describe('TwoFactorGuard', () => {
     )
   })
 
+  it('охрана без 2FA → TWO_FACTOR_SETUP_REQUIRED: ей доступны студенческие и камеры вуза', () => {
+    const guard = guardWith(false)
+    expect(() => guard.canActivate(ctxFor(user(Role.SECURITY_GUARD, false)))).toThrow(
+      expect.objectContaining({ code: 'TWO_FACTOR_SETUP_REQUIRED' }),
+    )
+  })
+
+  it('библиотекарь без 2FA → TWO_FACTOR_SETUP_REQUIRED: ему видны удостоверения читателей', () => {
+    const guard = guardWith(false)
+    expect(() => guard.canActivate(ctxFor(user(Role.LIBRARIAN, false)))).toThrow(
+      expect.objectContaining({ code: 'TWO_FACTOR_SETUP_REQUIRED' }),
+    )
+  })
+
   it('привилегированная роль с включённой 2FA → пропускает', () => {
     const guard = guardWith(false)
     expect(guard.canActivate(ctxFor(user(Role.UNIVERSITY_ADMIN, true)))).toBe(true)

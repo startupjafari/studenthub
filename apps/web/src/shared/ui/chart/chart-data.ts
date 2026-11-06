@@ -6,13 +6,14 @@ export interface ChartSeries {
   key: string
   label: string
   color: string
-  values: number[]
+  /** null — у корзины нет значения: линия прерывается, а не падает в ноль. */
+  values: Array<number | null>
   /** Скрыта переключателем в легенде. */
   hidden?: boolean
 }
 
 /** Строка данных recharts: подпись корзины плюс значение каждой серии по её ключу. */
-export type ChartRow = { label: string } & Record<string, number | string>
+export type ChartRow = { label: string } & Record<string, number | string | null>
 
 /**
  * Ряды recharts из подписей и серий. Скрытые серии остаются в строках: их прячет
@@ -22,7 +23,12 @@ export type ChartRow = { label: string } & Record<string, number | string>
 export function toRows(labels: string[], series: readonly ChartSeries[]): ChartRow[] {
   return labels.map((label, i) => {
     const row: ChartRow = { label }
-    for (const s of series) row[s.key] = s.values[i] ?? 0
+    // Нет точки — ноль (ряд короче подписей); явный null — пропуск, его recharts рисует
+    // разрывом линии.
+    for (const s of series) {
+      const value = s.values[i]
+      row[s.key] = value === undefined ? 0 : value
+    }
     return row
   })
 }

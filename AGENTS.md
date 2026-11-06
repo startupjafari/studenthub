@@ -15,7 +15,18 @@
 
 ## Что это за проект
 
-Закрытая многоролевая образовательная платформа для университетов. 8 ролей, 4 зоны, регистрация только по инвайтам. Монорепо: Turborepo + pnpm; `apps/api` — NestJS + Fastify + Prisma; `apps/web` — Next.js App Router + FSD.
+Закрытая многоролевая образовательная платформа для университетов. 11 ролей (`packages/shared-types/src/roles.ts`, `docs/PROJECT.md §2`): `PLATFORM_ADMIN`, `PLATFORM_MODERATOR`, `UNIVERSITY_ADMIN`, `UNIVERSITY_MODERATOR`, `DEAN`, `TEACHER`, `STAROSTA`, `STUDENT`, `EMPLOYER`, `SECURITY_GUARD`, `LIBRARIAN`. Регистрация только по инвайтам; единственное исключение — саморегистрация работодателя (`EMPLOYER`, Ф18), который видит студентов вуза только после его допуска. Охрана и библиотекарь — роли с запретом по умолчанию (`RESTRICTED_ROLES`).
+
+Монорепо: Turborepo + pnpm.
+
+- `apps/api` — NestJS + Fastify + Prisma (плюс процесс-воркер медиа `dist/worker.js`);
+- `apps/web` — Next.js App Router + FSD;
+- `apps/landing` — публичный лендинг (Next.js);
+- `apps/mini-app` — Telegram Mini App для платформенных админов и модераторов (Vite + React);
+- `apps/ios` — нативный клиент iPhone (Swift, XcodeGen); `apps/android` — нативный клиент (Kotlin, Compose);
+- `apps/camera-agent` — агент камер, который вуз запускает в своей сети;
+- `packages/` — `shared-types`, `shared-schemas`, `shared-utils`, `shared-config`;
+- `prisma/` — multi-file схема, миграции и сид; `docker/` — стеки compose (`docker/README.md`).
 
 ## Команды
 
@@ -24,27 +35,43 @@
 
 ```bash
 pnpm install
-pnpm dev                                    # api:3001 + web:3000
+pnpm dev                                    # api:3001, web:3000, landing:3002, mini-app:3003
 pnpm lint                                   # весь монорепо
+pnpm typecheck                              # tsc --noEmit во всех пакетах
 pnpm build
+pnpm start                                  # собранное: api:3001, web:3000, landing:3002, mini-app:3003
 
-docker compose -f docker/docker-compose.yml up -d postgres redis minio
+pnpm infra:up                               # postgres, redis, minio, mailpit (docker/README.md)
+pnpm infra:down
+pnpm cameras:up / cameras:down              # стенд камер (docker/camera-sim)
+pnpm relay:up / relay:down                  # ретранслятор видео камер (docker/media-relay)
 
 pnpm --filter api test                      # unit
 pnpm --filter api test:e2e
-pnpm --filter api prisma validate
-pnpm --filter api prisma format
-pnpm --filter api prisma migrate dev --name <имя>
-pnpm --filter api prisma db seed
+pnpm --filter api typecheck
+
+# Prisma — из корня: схема prisma/schema/, конфиг prisma.config.ts (DATABASE_URL берёт из apps/api/.env)
+pnpm db:validate
+pnpm db:format
+pnpm db:status
+pnpm db:migrate --name <имя>                # prisma migrate dev
+pnpm db:deploy                              # prisma migrate deploy
+pnpm db:seed                                # демо-вуз, PLATFORM_ADMIN, dev-инвайт
 pnpm db:seed:full                           # 100 вузов, ~22 млн строк (PROJECT.md §14)
 pnpm db:seed:test                           # стенд: 1 вуз, состав по ТЗ (PROJECT.md §14.1)
 pnpm db:seed:media                          # только медиа-пул сида в MinIO
+pnpm db:seed:kato                           # только справочник КАТО
+pnpm db:seed:library                        # библиотека для уже засеянного вуза
+pnpm test:seed                              # тесты генератора сида
 
 pnpm --filter web lint
 pnpm --filter web build
 pnpm --filter web test
 pnpm --filter web e2e
 pnpm --filter web ui-audit                  # адаптивный UI-аудит всех экранов (см. /ui-audit)
+
+pnpm --filter mini-app test
+pnpm --filter camera-agent test
 ```
 
 ## Границы задачи

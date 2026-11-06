@@ -22,16 +22,18 @@ import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcrypt'
 import { loadConfig } from './seed/config.mjs'
 import { loadEnv } from './seed/lib/env.mjs'
-import { makeRandom } from './seed/lib/rng.mjs'
+import { makeRandom, SEED_BASE } from './seed/lib/rng.mjs'
 import { reportSeedPassword, resolveSeedPassword } from './seed/lib/seed-password.mjs'
 import { createProgress } from './seed/lib/progress.mjs'
 import { createStorage } from './seed/lib/storage.mjs'
 import { createWriter } from './seed/lib/writer.mjs'
+import { emailFor, uniPrefix, usernameFor } from './seed/lib/ids.mjs'
 import { person } from './seed/data/people.mjs'
 import { staffProfile } from './seed/data/profiles.mjs'
 import { seedUniversities } from './seed/index.mjs'
 import { seedKato } from './seed/steps/00-kato.mjs'
 import { seedServiceCatalog } from './seed/steps/05-service-catalog.mjs'
+import { seedLibrary } from './seed/steps/45-library.mjs'
 import { assignAvatars, seedMedia } from './seed/steps/10-media.mjs'
 import { seedCompanies } from './seed/steps/15-companies.mjs'
 import { seedUserMedia } from './seed/steps/57-user-media.mjs'
@@ -122,6 +124,71 @@ async function seedPlatformStaff(passwordHash) {
   return created
 }
 
+/**
+ * Роли с запретом по умолчанию (охрана, библиотекарь; docs/PROJECT.md §2) — учётки на u001.
+ * Отдельно от генератора вузов и у каждой роли со своим генератором случайных чисел:
+ * вставка в общий шаг «люди» сдвинула бы поток случайностей, и у всех людей после неё
+ * сменились бы имена. Профиль закрыт по умолчанию, как у роли на проде; 2FA при входе
+ * попросят настроить.
+ */
+const RESTRICTED_STAFF = [
+  {
+    role: 'SECURITY_GUARD',
+    local: 'security',
+    count: 2,
+    seed: 20261021,
+    fields: {
+      position: 'Сотрудник охраны',
+      jobTitle: 'Охрана',
+      responsibilities: 'Пропускной режим главного корпуса, проверка студенческих билетов.',
+    },
+  },
+  {
+    role: 'LIBRARIAN',
+    local: 'librarian',
+    count: 1,
+    seed: 20261022,
+    fields: {
+      position: 'Библиотекарь',
+      jobTitle: 'Библиотека',
+      responsibilities: 'Выдача и приём книг, учёт фонда, работа с должниками.',
+    },
+  },
+]
+
+async function seedRestrictedStaff(passwordHash, { role, local: prefix, count, seed, fields }) {
+  const uniIndex = 1
+  const universityId = uniPrefix(uniIndex)
+  const staffRandom = makeRandom(seed)
+  const created = []
+  for (let g = 0; g < count; g += 1) {
+    const local = `${prefix}.${g}`
+    const p = person(g, staffRandom)
+    const data = {
+      ...p,
+      ...staffProfile(p, staffRandom, {
+        template: null,
+        profile: { timezone: 'Asia/Almaty' },
+        cityName: CITY,
+      }),
+      username: usernameFor(uniIndex, local),
+      ...fields,
+      profileVisibility: 'PRIVATE',
+      role,
+      universityId,
+      ...TWO_FACTOR_RESET,
+    }
+    const email = emailFor(uniIndex, local)
+    await prisma.user.upsert({
+      where: { email },
+      update: data,
+      create: { email, passwordHash, ...data },
+    })
+    created.push(email)
+  }
+  return created
+}
+
 // «0-0» печатаем как 0, «100-500» — как диапазон: в логе прогона это первое, на что
 // смотрят, когда галерея оказалась не того объёма.
 function range([min, max]) {
@@ -171,6 +238,29 @@ async function main() {
     companies,
   })
 
+  for (const staff of RESTRICTED_STAFF) {
+    const created = await seedRestrictedStaff(passwordHash, staff)
+    console.log(`  ${staff.role}: ${created.length}`)
+  }
+
+  // Библиотека (Фаза 20): после библиотекаря — выдачи записываются на него. Вуз на стенде
+  // один; повторный прогон шаг пропускает сам.
+  const standUniversity = await prisma.university.findFirst({
+    orderBy: { createdAt: 'asc' },
+    select: { id: true },
+  })
+  if (standUniversity) {
+    const library = await seedLibrary(prisma, {
+      universityId: standUniversity.id,
+      random: makeRandom(SEED_BASE + 45),
+    })
+    if (!library.skipped) {
+      console.log(
+        `  библиотека: ${library.books} книг, ${library.copies} экз., ${library.loans} выдач`,
+      )
+    }
+  }
+
   // Аватары тем, кто появился ПОСЛЕ раздачи в шаге медиа: работодатели и вузовские
   // роли создаются позже пула. Без этого у аккаунтов компаний профиль без лица.
   if (mediaPool) await assignAvatars(prisma, mediaPool)
@@ -204,6 +294,8 @@ async function report(platform) {
   console.log('  DEAN: dean.<код факультета>@u001.edu.kz')
   console.log('  TEACHER: t.<код факультета>.<n>@u001.edu.kz')
   console.log('  STUDENT / STAROSTA: <код группы>.st<NN>@u001.edu.kz')
+  console.log('  SECURITY_GUARD: security.0@u001.edu.kz, security.1@u001.edu.kz')
+  console.log('  LIBRARIAN: librarian.0@u001.edu.kz')
   console.log("    точный список: SELECT email, role FROM users WHERE university_id = 'u001';")
   console.log('\nПользователи по ролям:')
   for (const row of byRole.sort((a, b) => b._count.id - a._count.id)) {

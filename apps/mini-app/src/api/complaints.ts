@@ -37,7 +37,10 @@ export interface ComplaintPage {
  * две очереди с разным порядком разъехались бы, и модераторы разбирали бы разное.
  */
 export interface ComplaintQuery {
-  /** `PENDING` — очередь, `RESOLVED` — разобранное. */
+  /**
+   * Один статус: список больше не принимает. Очередь — `PENDING` и `REVIEWING`,
+   * разобранное — `RESOLVED` и `DISMISSED`; экран спрашивает их по отдельности.
+   */
   status: ComplaintStatus
   priority?: ComplaintPriority
   limit?: number
@@ -69,6 +72,16 @@ export interface ComplaintMessage {
 export interface ComplaintCard extends Complaint {
   targetReports: number
   targetOwnerId: string | null
+  /**
+   * Текст обжалованного поста, комментария или сторис. null — у жалобы на человека или
+   * сообщение (у того своя переписка) и у цели, которой больше нет.
+   */
+  targetPreview?: {
+    title: string | null
+    text: string | null
+    mediaCount: number
+    deleted: boolean
+  } | null
 }
 
 export async function fetchComplaint(id: string): Promise<ComplaintCard> {

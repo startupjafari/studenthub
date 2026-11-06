@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
 } from '@nestjs/common'
 import {
@@ -22,6 +23,7 @@ import type { FastifyRequest } from 'fastify'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { readSingleUpload } from '../../common/http/read-upload'
+import type { RequestContext } from '../auth/auth.service'
 import { ProfileContentService } from './profile-content.service'
 import { CreateProfileArticleDto } from './dto/create-profile-article.dto'
 import { UpdateProfileArticleDto } from './dto/update-profile-article.dto'
@@ -31,9 +33,23 @@ import { CreateAlbumDto } from './dto/create-album.dto'
 import { UpdateAlbumDto } from './dto/update-album.dto'
 import { AssignAlbumMediaDto } from './dto/assign-album-media.dto'
 import { ContentCommentDto } from './dto/content-comment.dto'
+import { ContentCommentsQueryDto } from './dto/comments-query.dto'
+import { ProfileArticlesQueryDto } from './dto/profile-articles-query.dto'
+import { ContentOwnerQueryDto } from './dto/content-owner-query.dto'
+
+// `?as=company|university` у создания: контент страницы своей компании (работодатель) или
+// своего вуза (админ и модератор вуза); организация — из токена. Без параметра — личный.
+const AS_PAGE_403 =
+  'FORBIDDEN — as=company не работодателем (или компания не активна), as=university не админом/модератором вуза'
+
+// Квота медиа профиля (PROFILE_MEDIA_QUOTA в shared-config) — одинаково у всех путей загрузки.
+const QUOTA_409 =
+  'CONFLICT — исчерпана квота медиа профиля: details[0].field = profileMediaQuota, ' +
+  'details[0].message = files (число файлов) | bytes (суммарный объём)'
 
 // Контент профиля (вкладки): фото/видео и статьи (опросы — модуль polls).
-// Просмотр списков — любой аутентифицированный (как публичный профиль); мутации — только владелец.
+// Просмотр списков — любой аутентифицированный (как публичный профиль); мутации — только владелец,
+// удаление чужого — ещё модератор scope (роль строго выше автора, scope из JWT).
 @ApiTags('Профиль — контент')
 @ApiBearerAuth()
 @Controller('profile')
@@ -51,11 +67,19 @@ export class ProfileContentController {
       properties: { file: { type: 'string', format: 'binary' } },
     },
   })
-  @ApiOperation({ summary: 'Загрузить фото/видео в свой профиль' })
+  @ApiOperation({
+    summary: 'Загрузить фото/видео в свой профиль (?as=company|university — страницы организации)',
+  })
   @ApiResponse({ status: 201, description: 'Медиа загружено' })
-  async uploadMedia(@CurrentUser() user: CurrentUserData, @Req() req: FastifyRequest) {
+  @ApiResponse({ status: 403, description: AS_PAGE_403 })
+  @ApiResponse({ status: 409, description: QUOTA_409 })
+  async uploadMedia(
+    @CurrentUser() user: CurrentUserData,
+    @Req() req: FastifyRequest,
+    @Query() owner: ContentOwnerQueryDto,
+  ) {
     const buffer = await readSingleUpload(req)
-    return this.content.uploadMedia(user, buffer)
+    return this.content.uploadMedia(user, buffer, owner.as ?? 'user')
   }
 
   @Post('media/:fileId/poster')
@@ -79,14 +103,95 @@ export class ProfileContentController {
 
   @Post('media/presign')
   @ApiOperation({ summary: 'Presigned URL для прямой загрузки крупного медиа (>10МБ) в MinIO' })
-  presignMedia(@CurrentUser() user: CurrentUserData, @Body() dto: PresignProfileMediaDto) {
-    return this.content.presignMedia(user, dto)
+  @ApiResponse({ status: 403, description: AS_PAGE_403 })
+  @ApiResponse({ status: 409, description: QUOTA_409 })
+  presignMedia(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: PresignProfileMediaDto,
+    @Query() owner: ContentOwnerQueryDto,
+  ) {
+    return this.content.presignMedia(user, dto, owner.as ?? 'user')
   }
 
   @Post('media/confirm')
   @ApiOperation({ summary: 'Подтвердить presigned-загрузку медиа (создаёт запись File)' })
-  confirmMedia(@CurrentUser() user: CurrentUserData, @Body() dto: ConfirmProfileMediaDto) {
-    return this.content.confirmMedia(user, dto)
+  @ApiResponse({ status: 403, description: AS_PAGE_403 })
+  @ApiResponse({ status: 409, description: QUOTA_409 })
+  confirmMedia(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: ConfirmProfileMediaDto,
+    @Query() owner: ContentOwnerQueryDto,
+  ) {
+    return this.content.confirmMedia(user, dto, owner.as ?? 'user')
+  }
+
+  // ── Страницы организаций: списки ───────────────────────────────────────────
+  // Компания — её сотрудники, платформа и вузы с действующим допуском; университет — свои,
+  // платформа и компании с допуском. Остальным — пусто (нули у счётчиков), как закрытый профиль.
+
+  @Get('company/:companyId/media')
+  @ApiOperation({ summary: 'Медиа страницы компании (фото и видео)' })
+  listCompanyMedia(@CurrentUser() user: CurrentUserData, @Param('companyId') companyId: string) {
+    return this.content.listPageMedia(user, { kind: 'company', id: companyId })
+  }
+
+  @Get('company/:companyId/albums')
+  @ApiOperation({ summary: 'Альбомы страницы компании' })
+  listCompanyAlbums(@CurrentUser() user: CurrentUserData, @Param('companyId') companyId: string) {
+    return this.content.listPageAlbums(user, { kind: 'company', id: companyId })
+  }
+
+  @Get('company/:companyId/articles')
+  @ApiOperation({ summary: 'Статьи страницы компании (view=card — без полного текста)' })
+  listCompanyArticles(
+    @CurrentUser() user: CurrentUserData,
+    @Param('companyId') companyId: string,
+    @Query() query: ProfileArticlesQueryDto,
+  ) {
+    return this.content.listPageArticles(user, { kind: 'company', id: companyId }, query)
+  }
+
+  @Get('company/:companyId/counts')
+  @ApiOperation({ summary: 'Итоги вкладок страницы компании: фото, видео, статьи, опросы' })
+  companyCounts(@CurrentUser() user: CurrentUserData, @Param('companyId') companyId: string) {
+    return this.content.pageCounts(user, { kind: 'company', id: companyId })
+  }
+
+  @Get('university/:universityId/media')
+  @ApiOperation({ summary: 'Медиа страницы университета (фото и видео)' })
+  listUniversityMedia(
+    @CurrentUser() user: CurrentUserData,
+    @Param('universityId') universityId: string,
+  ) {
+    return this.content.listPageMedia(user, { kind: 'university', id: universityId })
+  }
+
+  @Get('university/:universityId/albums')
+  @ApiOperation({ summary: 'Альбомы страницы университета' })
+  listUniversityAlbums(
+    @CurrentUser() user: CurrentUserData,
+    @Param('universityId') universityId: string,
+  ) {
+    return this.content.listPageAlbums(user, { kind: 'university', id: universityId })
+  }
+
+  @Get('university/:universityId/articles')
+  @ApiOperation({ summary: 'Статьи страницы университета (view=card — без полного текста)' })
+  listUniversityArticles(
+    @CurrentUser() user: CurrentUserData,
+    @Param('universityId') universityId: string,
+    @Query() query: ProfileArticlesQueryDto,
+  ) {
+    return this.content.listPageArticles(user, { kind: 'university', id: universityId }, query)
+  }
+
+  @Get('university/:universityId/counts')
+  @ApiOperation({ summary: 'Итоги вкладок страницы университета: фото, видео, статьи, опросы' })
+  universityCounts(
+    @CurrentUser() user: CurrentUserData,
+    @Param('universityId') universityId: string,
+  ) {
+    return this.content.pageCounts(user, { kind: 'university', id: universityId })
   }
 
   @Get(':userId/media')
@@ -95,22 +200,49 @@ export class ProfileContentController {
     return this.content.listMedia(user, userId)
   }
 
+  @Get(':userId/counts')
+  @ApiOperation({
+    summary: 'Итоги вкладок профиля: фото, видео, статьи, опросы (по видимости смотрящего)',
+    description:
+      'Списки вкладок отдаются с потолком (PROFILE_LIST_LIMITS); здесь — настоящие итоги ' +
+      'для бейджей. Закрытый для смотрящего профиль — нули.',
+  })
+  counts(@CurrentUser() user: CurrentUserData, @Param('userId') userId: string) {
+    return this.content.counts(user, userId)
+  }
+
   @Delete('media/:fileId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Удалить своё медиа из профиля' })
+  @ApiOperation({
+    summary: 'Удалить медиа из профиля (своё; чужое — модератор scope, роль выше автора)',
+  })
+  @ApiResponse({ status: 204, description: 'Удалено' })
+  @ApiResponse({
+    status: 403,
+    description: 'FORBIDDEN / WRONG_SCOPE — модератор вне scope или ранга',
+  })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND' })
   async deleteMedia(
     @CurrentUser() user: CurrentUserData,
     @Param('fileId') fileId: string,
+    @Req() req: FastifyRequest,
   ): Promise<void> {
-    await this.content.deleteMedia(user, fileId)
+    await this.content.deleteMedia(user, fileId, this.ctx(req))
   }
 
   // ── Альбомы фото ──────────────────────────────────────────────────────────────
 
   @Post('albums')
-  @ApiOperation({ summary: 'Создать альбом фото' })
-  createAlbum(@CurrentUser() user: CurrentUserData, @Body() dto: CreateAlbumDto) {
-    return this.content.createAlbum(user, dto)
+  @ApiOperation({
+    summary: 'Создать альбом фото (?as=company|university — на странице организации)',
+  })
+  @ApiResponse({ status: 403, description: AS_PAGE_403 })
+  createAlbum(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: CreateAlbumDto,
+    @Query() owner: ContentOwnerQueryDto,
+  ) {
+    return this.content.createAlbum(user, dto, owner.as ?? 'user')
   }
 
   @Get(':userId/albums')
@@ -161,10 +293,17 @@ export class ProfileContentController {
   // ── Статьи ──────────────────────────────────────────────────────────────────
 
   @Post('articles')
-  @ApiOperation({ summary: 'Создать статью в своём профиле' })
+  @ApiOperation({
+    summary: 'Создать статью в своём профиле (?as=company|university — на странице организации)',
+  })
   @ApiResponse({ status: 201, description: 'Статья создана' })
-  createArticle(@CurrentUser() user: CurrentUserData, @Body() dto: CreateProfileArticleDto) {
-    return this.content.createArticle(user, dto)
+  @ApiResponse({ status: 403, description: AS_PAGE_403 })
+  createArticle(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: CreateProfileArticleDto,
+    @Query() owner: ContentOwnerQueryDto,
+  ) {
+    return this.content.createArticle(user, dto, owner.as ?? 'user')
   }
 
   @Post('articles/cover')
@@ -183,13 +322,31 @@ export class ProfileContentController {
   }
 
   @Get(':userId/articles')
-  @ApiOperation({ summary: 'Статьи пользователя (по видимости смотрящего)' })
-  listArticles(@CurrentUser() user: CurrentUserData, @Param('userId') userId: string) {
-    return this.content.listArticles(user, userId)
+  @ApiOperation({
+    summary: 'Статьи пользователя (по видимости смотрящего)',
+    description:
+      'view=card — без полного текста (content): для плиток профиля. Без параметра — с текстом.',
+  })
+  listArticles(
+    @CurrentUser() user: CurrentUserData,
+    @Param('userId') userId: string,
+    @Query() query: ProfileArticlesQueryDto,
+  ) {
+    return this.content.listArticles(user, userId, query)
+  }
+
+  @Get('articles/:id')
+  @ApiOperation({ summary: 'Статья целиком — для читалки и редактора (по видимости смотрящего)' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — нет статьи или она не видна' })
+  getArticle(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.content.getArticle(user, id)
   }
 
   @Post('articles/:id/view')
-  @ApiOperation({ summary: 'Засчитать просмотр статьи (при открытии читалки)' })
+  @ApiOperation({
+    summary: 'Засчитать просмотр статьи (при открытии читалки)',
+    description: 'Один просмотр на зрителя в сутки; повтор отвечает текущим числом.',
+  })
   incrementArticleView(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
     return this.content.incrementArticleView(user, id)
   }
@@ -201,9 +358,18 @@ export class ProfileContentController {
   }
 
   @Get('articles/:id/comments')
-  @ApiOperation({ summary: 'Комментарии статьи' })
-  listArticleComments(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.content.listArticleComments(user, id)
+  @ApiOperation({
+    summary: 'Комментарии статьи',
+    description:
+      'Без limit/cursor — последние 200 массивом по порядку написания. С ними — страница ' +
+      'свежих сверху: meta.cursor (раньше), meta.hasNext, meta.total.',
+  })
+  listArticleComments(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Query() query: ContentCommentsQueryDto,
+  ) {
+    return this.content.listArticleComments(user, id, query)
   }
 
   @Post('articles/:id/comments')
@@ -218,19 +384,39 @@ export class ProfileContentController {
 
   @Delete('articles/:id/comments/:commentId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Удалить комментарий (автор или владелец статьи)' })
+  @ApiOperation({ summary: 'Удалить комментарий (автор, владелец статьи или модератор scope)' })
+  @ApiResponse({ status: 204, description: 'Удалено' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN / WRONG_SCOPE' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND' })
   async deleteArticleComment(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
     @Param('commentId') commentId: string,
+    @Req() req: FastifyRequest,
   ): Promise<void> {
-    await this.content.deleteArticleComment(user, id, commentId)
+    await this.content.deleteArticleComment(user, id, commentId, this.ctx(req))
   }
 
   @Post('articles/:id/bookmark')
   @ApiOperation({ summary: 'Переключить закладку на статью' })
   toggleBookmark(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
     return this.content.toggleBookmark(user, id)
+  }
+
+  @Post('articles/:id/like')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Лайкнуть статью (идемпотентно)' })
+  @ApiResponse({ status: 200, description: '{ liked: true, likesCount }' })
+  @ApiResponse({ status: 400, description: 'Статья — черновик' })
+  likeArticle(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.content.setArticleLike(user, id, true)
+  }
+
+  @Delete('articles/:id/like')
+  @ApiOperation({ summary: 'Снять лайк со статьи (идемпотентно)' })
+  @ApiResponse({ status: 200, description: '{ liked: false, likesCount }' })
+  unlikeArticle(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.content.setArticleLike(user, id, false)
   }
 
   @Get('bookmarks')
@@ -251,11 +437,21 @@ export class ProfileContentController {
 
   @Delete('articles/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Удалить свою статью' })
+  @ApiOperation({
+    summary: 'Удалить статью (свою; чужую — модератор scope, роль выше автора)',
+  })
+  @ApiResponse({ status: 204, description: 'Удалено' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN / WRONG_SCOPE' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND' })
   async deleteArticle(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
+    @Req() req: FastifyRequest,
   ): Promise<void> {
-    await this.content.deleteArticle(user, id)
+    await this.content.deleteArticle(user, id, this.ctx(req))
+  }
+
+  private ctx(req: FastifyRequest): RequestContext {
+    return { ip: req.ip, userAgent: req.headers['user-agent'] }
   }
 }

@@ -69,6 +69,7 @@ function sourceUser(over: Record<string, unknown> = {}) {
         url: null,
         startDate: null,
         endDate: null,
+        visibility: 'PUBLIC',
       },
     ],
     documents: [{ id: 'd-1', title: 'Сертификат курса', issuedBy: 'Алатау', issuedAt: new Date() }],
@@ -76,21 +77,47 @@ function sourceUser(over: Record<string, unknown> = {}) {
   }
 }
 
+type PortfolioQuery = { select: { portfolioItems: { where?: { visibility?: { in: string[] } } } } }
+
+/**
+ * Мок `user.findFirst`, который честно применяет фильтр видимости к портфолио: со статичным
+ * ответом тест проверял бы фикстуру, а не запрос. Понимает ровно ту форму условия, что
+ * строит portfolioVisibilityWhere; нет условия — отдаёт все записи, как и Prisma.
+ */
+function honourPortfolioVisibility(user: Record<string, unknown> | null) {
+  return jest.fn<Promise<unknown>, [PortfolioQuery]>(async (args) => {
+    if (!user) return null
+    const items = (user.portfolioItems ?? []) as { visibility: string }[]
+    const allowed = args.select.portfolioItems.where?.visibility?.in
+    return {
+      ...user,
+      portfolioItems: items.filter((item) => !allowed || allowed.includes(item.visibility)),
+    }
+  })
+}
+
 function setup(user: Record<string, unknown> | null = sourceUser(), consents: string[] = []) {
   const prisma = {
-    user: { findFirst: jest.fn().mockResolvedValue(user) },
+    user: { findFirst: honourPortfolioVisibility(user) },
     careerProfile: { update: jest.fn(), upsert: jest.fn() },
     careerConsent: {
       findMany: jest.fn().mockResolvedValue(consents.map((field) => ({ field }))),
       findFirst: jest.fn().mockResolvedValue(null),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
+    // Выдача и отзыв согласия — под локом в транзакции; колбэк идёт на том же моке.
+    $executeRaw: jest.fn().mockResolvedValue(1),
+    $transaction: jest.fn(),
   }
+  prisma.$transaction.mockImplementation((fn: (tx: typeof prisma) => Promise<unknown>) =>
+    fn(prisma),
+  )
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const access = {
     requireCompany: jest.fn().mockReturnValue('co-1'),
-    assertCanAccessUniversity: jest.fn().mockResolvedValue(undefined),
+    canAccessUniversity: jest.fn().mockResolvedValue(true),
   }
   const service = new CareerProfileService(
     prisma as unknown as PrismaService,
@@ -137,13 +164,26 @@ describe('CareerProfileService — карточка для работодате�
     )
   })
 
-  it('допуск компании к вузу проверяется до выдачи данных', async () => {
-    const { service, access } = setup()
-    access.assertCanAccessUniversity.mockRejectedValue(
-      new AppException('WRONG_SCOPE', 'нет допуска'),
-    )
-    await expect(service.cardForEmployer(employer, 'stu-1', ctx)).rejects.toBeInstanceOf(
-      AppException,
+  // BUG-222: «чужой вуз» отвечал WRONG_SCOPE, а «нет такого» — NOT_FOUND, и перебор id
+  // подтверждал существование студента.
+  it('без допуска к вузу — тот же NOT_FOUND, что и для несуществующего id', async () => {
+    const { service, access, audit } = setup()
+    access.canAccessUniversity.mockResolvedValue(false)
+    await expect(service.cardForEmployer(employer, 'stu-1', ctx)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    expect(access.canAccessUniversity).toHaveBeenCalledWith('co-1', expect.any(String))
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  // BUG-221: карточка заблокированного студента отдавалась работодателю.
+  it('заблокированный студент работодателю не отдаётся', async () => {
+    const { service, prisma } = setup()
+    await service.cardForEmployer(employer, 'stu-1', ctx)
+    expect(prisma.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 'stu-1', deletedAt: null, isBlocked: false }),
+      }),
     )
   })
 
@@ -177,6 +217,106 @@ describe('CareerProfileService — карточка для работодате�
   })
 })
 
+describe('CareerProfileService — видимость записей портфолио', () => {
+  /** По записи каждой видимости — чтобы утечку было видно. */
+  const item = (id: string, visibility: string) => ({
+    id,
+    kind: 'PROJECT',
+    title: `Запись ${visibility}`,
+    organization: null,
+    description: null,
+    url: null,
+    startDate: null,
+    endDate: null,
+    visibility,
+  })
+  const mixed = () =>
+    sourceUser({
+      portfolioItems: [
+        item('p-pub', 'PUBLIC'),
+        item('p-uni', 'UNIVERSITY'),
+        item('p-priv', 'PRIVATE'),
+      ],
+    })
+
+  it('работодатель видит только PUBLIC: компания вне вуза, UNIVERSITY и PRIVATE ей не отдаются', async () => {
+    const { service, prisma } = setup(mixed())
+
+    const card = await service.cardForEmployer(employer, 'stu-1', ctx)
+
+    expect(card.portfolio.map((p) => p.id)).toEqual(['p-pub'])
+    expect(prisma.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          portfolioItems: expect.objectContaining({ where: { visibility: { in: ['PUBLIC'] } } }),
+        }),
+      }),
+    )
+  })
+
+  it('владелец в своём профиле считает все записи, включая приватные', async () => {
+    const { service } = setup(mixed())
+
+    const profile = await service.myProfile(student)
+
+    expect(profile.inherited.portfolioCount).toBe(3)
+  })
+
+  it('в карточке работодателя готовность — по тому, что он видит (только PUBLIC)', async () => {
+    // Три приватные записи дали бы полный вес портфолио; работодатель их не видит.
+    const { service } = setup(
+      sourceUser({
+        portfolioItems: [
+          item('p-1', 'PRIVATE'),
+          item('p-2', 'PRIVATE'),
+          item('p-3', 'PRIVATE'),
+          item('p-pub', 'PUBLIC'),
+        ],
+      }),
+    )
+
+    const card = await service.cardForEmployer(employer, 'stu-1', ctx)
+
+    const base = {
+      hasEducation: true,
+      skillsCount: 2,
+      hasPreferences: true,
+      aboutLength: 'Ищу стажировку'.length,
+    }
+    expect(card.readinessScore).toBe(careerReadiness({ ...base, portfolioCount: 1 }).score)
+    expect(card.readinessScore).toBeLessThan(careerReadiness({ ...base, portfolioCount: 4 }).score)
+  })
+
+  it('владельцу — готовность со всеми записями, в кэш для других — без PRIVATE', async () => {
+    const { service, prisma } = setup(
+      sourceUser({
+        portfolioItems: [
+          item('p-1', 'PRIVATE'),
+          item('p-2', 'PRIVATE'),
+          item('p-uni', 'UNIVERSITY'),
+        ],
+      }),
+    )
+
+    const profile = await service.myProfile(student)
+
+    const base = {
+      hasEducation: true,
+      skillsCount: 2,
+      hasPreferences: true,
+      aboutLength: 'Ищу стажировку'.length,
+    }
+    expect(profile.readiness.score).toBe(careerReadiness({ ...base, portfolioCount: 3 }).score)
+    expect(prisma.careerProfile.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          readinessScore: careerReadiness({ ...base, portfolioCount: 1 }).score,
+        }),
+      }),
+    )
+  })
+})
+
 describe('CareerProfileService — свой профиль', () => {
   it('вилка зарплаты наоборот отклоняется', async () => {
     const { service } = setup()
@@ -193,15 +333,19 @@ describe('CareerProfileService — свой профиль', () => {
     )
   })
 
-  it('отзыв согласия не удаляет запись, а гасит её', async () => {
+  // Отзыв гасит ВСЕ активные строки поля: дубль от параллельной выдачи иначе продолжал
+  // отдавать GPA, телефон и почту работодателю после отзыва.
+  it('отзыв согласия не удаляет записи, а гасит все активные под локом', async () => {
     const { service, prisma } = setup()
-    prisma.careerConsent.findFirst.mockResolvedValue({ id: 'c-1' })
 
     await service.setConsent(student, { field: 'GPA', granted: false }, ctx)
 
-    expect(prisma.careerConsent.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ revokedAt: expect.any(Date) }) }),
-    )
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1)
+    expect(prisma.careerConsent.updateMany).toHaveBeenCalledWith({
+      where: { userId: student.sub, field: 'GPA', companyId: null, revokedAt: null },
+      data: { revokedAt: expect.any(Date) },
+    })
+    expect(prisma.careerConsent.update).not.toHaveBeenCalled()
   })
 
   it('повторная выдача уже активного согласия не плодит записи', async () => {

@@ -2,12 +2,13 @@
 
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { ExternalLink, Send } from 'lucide-react'
 import { isApplicationFinal } from '@studenthub/shared-schemas'
 import {
   applicationKeys,
+  fetchApplicationHistory,
   fetchMyApplications,
   withdrawApplication,
   type StudentApplication,
@@ -19,6 +20,7 @@ import {
   PageHeader,
   Skeleton,
   TablePagination,
+  useConfirm,
 } from '../../../shared/ui'
 import { toApiError, useApplicationStatusLabels } from '../../../shared/lib'
 
@@ -32,6 +34,7 @@ export function CareerApplicationsView() {
   const t = useTranslations('CareerApplications')
   const tErr = useTranslations('Errors')
   const queryClient = useQueryClient()
+  const confirm = useConfirm()
   const [page, setPage] = useState(1)
   const limit = 20
 
@@ -46,7 +49,7 @@ export function CareerApplicationsView() {
       toast.success(t('withdrawn'))
       await queryClient.invalidateQueries({ queryKey: applicationKeys.all })
     },
-    onError: (error) => toast.error(toApiError(error).message),
+    onError: (error) => toast.error(tErr(toApiError(error).code)),
   })
 
   const rows = query.data?.items ?? []
@@ -58,7 +61,11 @@ export function CareerApplicationsView() {
       {query.isLoading ? (
         <ul className="flex flex-col gap-2" aria-busy>
           {['62%', '48%'].map((w) => (
-            <li key={w} className="rounded-xl border border-border p-4">
+            <li
+              key={w}
+              data-skeleton-fill=""
+              className="flex flex-1 items-center rounded-xl border border-border p-4"
+            >
               <Skeleton className="h-4 rounded-md" style={{ width: w }} />
             </li>
           ))}
@@ -81,7 +88,18 @@ export function CareerApplicationsView() {
                 key={application.id}
                 application={application}
                 busy={withdraw.isPending}
-                onWithdraw={() => withdraw.mutate(application.id)}
+                // Отзыв необратим (WITHDRAWN — конечный статус): спрашиваем, а не отзываем
+                // с одного случайного нажатия.
+                onWithdraw={() =>
+                  void confirm({
+                    title: t('withdrawConfirm'),
+                    description: t('withdrawConfirmText'),
+                    confirmLabel: t('withdraw'),
+                    destructive: true,
+                  }).then((ok) => {
+                    if (ok) withdraw.mutate(application.id)
+                  })
+                }
               />
             ))}
           </ul>
@@ -108,6 +126,7 @@ function ApplicationRow({
 }) {
   const t = useTranslations('CareerApplications')
   const { label, tone } = useApplicationStatusLabels()
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   return (
     <li className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-border bg-card p-4">
@@ -133,11 +152,75 @@ function ApplicationRow({
         )}
       </div>
 
-      {!isApplicationFinal(application.status) && (
-        <Button size="sm" variant="ghost" disabled={busy} onClick={onWithdraw}>
-          {t('withdraw')}
+      <div className="flex items-center gap-1">
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-expanded={historyOpen}
+          onClick={() => setHistoryOpen((open) => !open)}
+        >
+          {historyOpen ? t('historyHide') : t('history')}
         </Button>
-      )}
+        {!isApplicationFinal(application.status) && (
+          <Button size="sm" variant="ghost" disabled={busy} onClick={onWithdraw}>
+            {t('withdraw')}
+          </Button>
+        )}
+      </div>
+
+      {historyOpen && <ApplicationHistory applicationId={application.id} />}
     </li>
+  )
+}
+
+/**
+ * Хронология отклика: когда компания посмотрела, позвала, отказала. Причина отказа —
+ * то единственное, что студенту есть узнать из отказа, поэтому показываем её текстом.
+ */
+function ApplicationHistory({ applicationId }: { applicationId: string }) {
+  const t = useTranslations('CareerApplications')
+  const tErr = useTranslations('Errors')
+  const locale = useLocale()
+  const { label } = useApplicationStatusLabels()
+  const query = useQuery({
+    queryKey: applicationKeys.history(applicationId),
+    queryFn: () => fetchApplicationHistory(applicationId),
+  })
+
+  if (query.isLoading) {
+    return <Skeleton className="h-12 w-full basis-full rounded-lg" />
+  }
+  if (query.isError) {
+    return (
+      <p className="basis-full text-sm text-destructive">{tErr(toApiError(query.error).code)}</p>
+    )
+  }
+
+  const events = query.data ?? []
+  if (events.length === 0) {
+    return <p className="basis-full text-sm text-muted-foreground">{t('historyEmpty')}</p>
+  }
+
+  return (
+    <ol className="flex basis-full flex-col gap-2 border-t border-border pt-3">
+      {events.map((event) => (
+        <li key={event.id} className="flex flex-col gap-0.5 text-sm">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {new Date(event.createdAt).toLocaleString(locale, {
+                day: 'numeric',
+                month: 'short',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </span>
+            <span className="font-medium">{label[event.toStatus]}</span>
+          </div>
+          {event.comment && (
+            <p className="whitespace-pre-line text-muted-foreground">{event.comment}</p>
+          )}
+        </li>
+      ))}
+    </ol>
   )
 }

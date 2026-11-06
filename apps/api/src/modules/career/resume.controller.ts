@@ -11,7 +11,7 @@ import type { RequestContext } from '../auth/auth.service'
 import { ExportBrandingService } from '../../common/export/export-branding.service'
 import { ResumeService } from './resume.service'
 import { UpdateResumeDto } from './dto/update-resume.dto'
-import type { ResumeLabels } from './resume-pdf'
+import { ResumePdfQueryDto } from './dto/resume-pdf-query.dto'
 
 @ApiTags('Карьера — резюме')
 @Controller('career/resume')
@@ -58,7 +58,7 @@ export class ResumeController {
   @ApiResponse({ status: 200, description: 'PDF-файл' })
   async pdf(
     @CurrentUser() user: CurrentUserData,
-    @Query() query: Partial<ResumeLabels> & { locale?: string },
+    @Query() query: ResumePdfQueryDto,
     @Req() req: FastifyRequest,
     @Res() reply: FastifyReply,
   ) {

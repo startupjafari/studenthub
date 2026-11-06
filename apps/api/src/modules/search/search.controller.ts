@@ -12,8 +12,13 @@ export class SearchController {
   constructor(private readonly search: SearchService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Глобальный поиск по scope (люди, дисциплины, задания, материалы)' })
+  @ApiOperation({
+    summary: 'Глобальный поиск по scope (люди, дисциплины, задания, материалы, события, чаты)',
+    description:
+      'types — источники через запятую (people,courses,assignments,materials,events,chats); ' +
+      'без него ищутся все. Не запрошенные источники приходят пустыми массивами.',
+  })
   find(@CurrentUser() user: CurrentUserData, @Query() query: SearchQueryDto) {
-    return this.search.search(user, query.q)
+    return this.search.search(user, query.q, query.types)
   }
 }

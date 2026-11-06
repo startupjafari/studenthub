@@ -4,6 +4,7 @@ import { ModuleRef } from '@nestjs/core'
 import Redis from 'ioredis'
 import type { EnvVars } from '../../config/env.schema'
 import { CronLockService } from './cron-lock.service'
+import { SessionRevocationService } from './session-revocation.service'
 import { REDIS_CLIENT } from './redis.constants'
 
 // Ре-экспорт для существующих импортов `from './redis.module'`.
@@ -35,8 +36,9 @@ export { REDIS_CLIENT }
         }),
     },
     CronLockService,
+    SessionRevocationService,
   ],
-  exports: [REDIS_CLIENT, CronLockService],
+  exports: [REDIS_CLIENT, CronLockService, SessionRevocationService],
 })
 export class RedisModule implements OnApplicationShutdown {
   constructor(private readonly moduleRef: ModuleRef) {}

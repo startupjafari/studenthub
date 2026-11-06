@@ -60,4 +60,9 @@ jobs:
           # например, две high висят в undici, который приезжает транзитивно через shadcn,
           # то есть через CLI, не попадающий ни в один образ.
           fail-on-scopes: runtime
+          # Те же исключения, что в auditConfig.ignoreGhsas корневого package.json, — с теми
+          # же причинами и сроками; снимать в обоих местах разом. zod GHSA-mrhx-c7xc-m3w5:
+          # патч только в zod 4, на линейке 3.x его нет; тело запроса и так ограничено
+          # bodyLimit Fastify.
+          allow-ghsas: GHSA-mrhx-c7xc-m3w5
           comment-summary-in-pr: never

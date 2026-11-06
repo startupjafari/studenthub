@@ -18,6 +18,12 @@ enum DeepLink: Equatable {
     case application(id: String)
     case event(id: String)
     case lesson(id: String)
+    /// Чужой профиль: подписка, упоминание, заявка в друзья.
+    case profile(id: String)
+    /// Библиотека: «Мои книги», карточка книги и QR-наклейка экземпляра.
+    case myBooks
+    case book(id: String)
+    case bookCopy(code: String)
 
     static let scheme = "studenthub"
 
@@ -79,6 +85,9 @@ enum DeepLink: Equatable {
             ("courses", nil), ("materials", nil), ("gradebook", nil), ("exams", nil):
             self = .tab(.study)
 
+        // Лента в вебе — отдельный адрес, на телефоне она живёт на «Главной».
+        case ("feed", nil), ("posts", nil):
+            self = .tab(.home)
         case ("posts", .some(let id)):
             self = .post(id: id)
 
@@ -94,14 +103,26 @@ enum DeepLink: Equatable {
 
         case ("profile", nil):
             self = .section(.profile)
+        case ("profile", .some(let id)):
+            self = .profile(id: id)
         case ("documents", nil):
             self = .section(.documents)
         case ("settings", nil):
             self = .section(.settings)
         case ("starosta", "classmates"), ("starosta", "group"):
             self = .section(.classmates)
-        case ("starosta", "group-requests"):
-            self = .section(.groupRequests)
+
+        // Библиотека читателя. Сюда же ведут её уведомления: `data.url = "/my-books"`.
+        case ("books", nil):
+            self = .section(.library)
+        case ("books", .some(let id)):
+            self = .book(id: id)
+        case ("my-books", nil):
+            self = .myBooks
+        // QR-наклейка экземпляра ведёт на адрес, а не содержит данные: какая это книга,
+        // спросим у сервера на экране.
+        case ("c", .some(let code)):
+            self = .bookCopy(code: code)
 
         default:
             // Незнакомый адрес не угадываем: пусть откроется в браузере, где работает

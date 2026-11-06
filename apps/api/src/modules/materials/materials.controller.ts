@@ -23,12 +23,12 @@ import type { FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
-import { readSingleUpload } from '../../common/http/read-upload'
+import { readNamedUpload } from '../../common/http/read-upload'
 import type { RequestContext } from '../auth/auth.service'
 import { MaterialsService } from './materials.service'
 import { ConfirmMaterialFileDto, PresignMaterialFileDto } from './dto/presign-material-file.dto'
 import { CreateMaterialDto } from './dto/create-material.dto'
-import { MaterialListQueryDto } from './dto/material-list-query.dto'
+import { MaterialListQueryDto, MaterialSubjectsQueryDto } from './dto/material-list-query.dto'
 
 const AUTHOR_ROLES = [Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN, Role.TEACHER] as const
 
@@ -40,8 +40,20 @@ export class MaterialsController {
 
   @Get()
   @ApiOperation({ summary: 'Учебные материалы по scope (студент — своя группа)' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Без page — массив (cursor, limit ≤ 200, свежие сверху). С page — страница (limit ≤ 100, sort title|subject|teacher|files|createdAt, order) и meta.total',
+  })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — page вместе с cursor' })
   list(@CurrentUser() user: CurrentUserData, @Query() query: MaterialListQueryDto) {
     return this.materials.list(user, query)
+  }
+
+  @Get('subjects')
+  @ApiOperation({ summary: 'Число материалов по дисциплинам (тот же scope, что у списка)' })
+  subjects(@CurrentUser() user: CurrentUserData, @Query() query: MaterialSubjectsQueryDto) {
+    return this.materials.subjects(user, query)
   }
 
   @Post()
@@ -99,12 +111,13 @@ export class MaterialsController {
     @Param('id') id: string,
     @Req() req: FastifyRequest,
   ) {
-    const buffer = await readSingleUpload(req)
-    return this.materials.addFile(user, id, buffer, this.ctx(req))
+    const { buffer, filename } = await readNamedUpload(req)
+    return this.materials.addFile(user, id, buffer, filename, this.ctx(req))
   }
 
   @Get(':id/files/:fileId/presigned')
   @ApiOperation({ summary: 'Presigned URL к файлу материала (по scope)' })
+  @ApiResponse({ status: 200, description: '{ url, expiresAt, …MediaInfo } — оригинал и варианты' })
   fileUrl(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,

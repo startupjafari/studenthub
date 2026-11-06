@@ -101,6 +101,24 @@ final class RealtimeCoordinatorTests: XCTestCase {
         XCTAssertFalse(coordinator.onlineUsers.contains("u-other"))
     }
 
+    /// Выход и вход без перезапуска: поток событий переживает выход, а между ними
+    /// запоздалые события прежнего сокета в базу не пишутся.
+    func testEventsFlowAgainAfterSignOutAndSignIn() async throws {
+        let (database, coordinator, transport) = try await make()
+
+        await coordinator.stop()
+        await transport.emit(.messageNew(message(id: "m-2", seq: 2, sender: "u-other")))
+        await settle()
+        let ignored = try await database.reader.read { db in try MessageRecord.fetchOne(db, key: "m-2") }
+        XCTAssertNil(ignored)
+
+        coordinator.start()
+        await transport.emit(.messageNew(message(id: "m-3", seq: 3, sender: "u-other")))
+        await settle()
+        let stored = try await database.reader.read { db in try MessageRecord.fetchOne(db, key: "m-3") }
+        XCTAssertNotNil(stored)
+    }
+
     // MARK: - Помощники
 
     private func make(unread: Int = 0) async throws -> (AppDatabase, RealtimeCoordinator, StubTransport) {

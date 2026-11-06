@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Dialog as SheetPrimitive } from 'radix-ui'
 import { X } from 'lucide-react'
+import { useTranslations } from 'next-intl'
 
 import { cn } from 'shared/lib/utils'
 
@@ -16,10 +17,10 @@ const SheetClose = SheetPrimitive.Close
 
 const SIDE = {
   right:
-    'inset-y-0 right-0 h-full w-full max-w-md border-l data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right',
-  left: 'inset-y-0 left-0 h-full w-full max-w-md border-r data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left',
+    'inset-y-0 right-0 h-full w-full max-w-md border-l data-[state=open]:animate-in data-[state=open]:duration-(--motion-panel) data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right',
+  left: 'inset-y-0 left-0 h-full w-full max-w-md border-r data-[state=open]:animate-in data-[state=open]:duration-(--motion-panel) data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left',
   bottom:
-    'inset-x-0 bottom-0 max-h-[85dvh] rounded-t-2xl border-t data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom',
+    'inset-x-0 bottom-0 max-h-[85dvh] rounded-t-2xl border-t data-[state=open]:animate-in data-[state=open]:duration-(--motion-panel) data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom',
 } as const
 
 interface SheetContentProps extends React.ComponentProps<typeof SheetPrimitive.Content> {
@@ -35,9 +36,10 @@ function SheetContent({
   hideClose,
   ...props
 }: SheetContentProps) {
+  const t = useTranslations('Common')
   return (
     <SheetPrimitive.Portal>
-      <SheetPrimitive.Overlay className="fixed inset-0 z-[190] bg-overlay/30 backdrop-blur-[2px] data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
+      <SheetPrimitive.Overlay className="fixed inset-0 z-[190] bg-overlay/30 backdrop-blur-[2px] data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:duration-(--motion-panel) data-[state=open]:fade-in-0" />
       <SheetPrimitive.Content
         data-slot="sheet-content"
         className={cn(
@@ -58,7 +60,7 @@ function SheetContent({
         {!hideClose && (
           <SheetPrimitive.Close
             className="absolute top-4 right-4 rounded-lg p-1 text-muted-foreground opacity-70 outline-none transition-opacity hover:opacity-100 focus-visible:ring-4 focus-visible:ring-ring/20"
-            aria-label="Close"
+            aria-label={t('close')}
           >
             <X className="size-5" aria-hidden />
           </SheetPrimitive.Close>

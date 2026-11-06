@@ -30,7 +30,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
         // Не ошибка приложения: в симуляторе без Apple ID токена нет вовсе, и
-        // падать из-за этого нечему.
+        // падать из-за этого нечему. Но и глушить нельзя: на устройстве это значит
+        // «пуши не придут никогда» (например, нет entitlement `aps-environment`), и
+        // без следа в трекере жалоба на тишину нерасследуема.
+        Observability.pushRegistrationFailed(error)
     }
 
     /// Тихий пуш: данных в нём нет, есть повод за ними сходить. Система даёт на это
@@ -53,6 +56,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
         Observability.pushDelivered(silent: false)
+        // Сообщение в чате, который открыт прямо сейчас, человек уже видит в ленте —
+        // баннер поверх него только мешает (как веб не показывает тост открытого чата).
+        let payload = notification.request.content.userInfo
+        if case .chat(let id)? = PushRouting.link(from: payload) {
+            let open = await MainActor.run { AppServices.realtime.openChat }
+            if open == id { return [] }
+        }
         return [.banner, .list]
     }
 
@@ -66,7 +76,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         guard let link = PushRouting.link(from: payload) else { return }
         // Роль нужна, чтобы не открыть раздел, которого у этого человека нет:
         // пуш мог прийти на устройство, где уже вошёл кто-то другой.
-        let role = await AppServices.session.currentToken?.role ?? .unknown
-        await AppServices.router.open(link, for: role)
+        let session = AppServices.session
+        if let role = await session.currentToken?.role {
+            await AppServices.router.open(link, for: role)
+        } else if await session.hasStoredSession {
+            // Холодный старт: сессия ещё поднимается, роли пока нет. Откроем, когда
+            // оболочка её узнает, — иначе разделы «Ещё» отказали бы как чужие.
+            await AppServices.router.postpone(link)
+        }
+        // Иначе на экране входа: никто не вошёл, и маршрут достался бы следующему.
     }
 }

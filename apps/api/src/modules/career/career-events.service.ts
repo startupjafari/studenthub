@@ -1,10 +1,24 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import type { CareerEventListQueryInput } from '@studenthub/shared-schemas'
+import { Role } from '@studenthub/shared-types'
 import { resolveUniversityScope } from './career-scope'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import { eventVisibilityWhere } from '../events/event-visibility'
+
+/**
+ * Кто ведёт карьерный центр вуза и видит все его карьерные события. Остальные — только
+ * события своей аудитории, как в общем списке событий (D-F30): раньше мероприятие для
+ * одного факультета или группы показывалось всему вузу.
+ */
+const CAREER_CENTER_ROLES: ReadonlySet<Role> = new Set([
+  Role.UNIVERSITY_ADMIN,
+  Role.UNIVERSITY_MODERATOR,
+  Role.PLATFORM_ADMIN,
+  Role.PLATFORM_MODERATOR,
+])
 
 /**
  * Карьерные мероприятия.
@@ -27,6 +41,7 @@ export class CareerEventsService {
       careerKind: query.kind ?? { not: null },
       universityId,
       ...(query.past ? { startsAt: { lt: new Date() } } : { startsAt: { gte: new Date() } }),
+      ...(CAREER_CENTER_ROLES.has(viewer.role) ? {} : { AND: [eventVisibilityWhere(viewer)] }),
     }
 
     const [items, total] = await Promise.all([

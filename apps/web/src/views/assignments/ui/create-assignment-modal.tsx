@@ -26,36 +26,52 @@ import {
   Textarea,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
-import { courseKeys, fetchCourses } from '../../../entities/course'
-import { assignmentKeys, createAssignmentRequest } from '../../../entities/assignment'
+import { CourseSelect, courseKeys, fetchAllCourses } from '../../../entities/course'
+import {
+  assignmentKeys,
+  createAssignmentRequest,
+  updateAssignmentRequest,
+  type AssignmentItem,
+} from '../../../entities/assignment'
+import { assignmentFormDefaults, buildAssignmentPatch } from '../lib/assignment-patch'
 
 interface Props {
   onClose: () => void
+  /** Задание на правку (C-F20); без него — создание нового. */
+  assignment?: AssignmentItem
 }
 
-// Модалка создания задания (преподаватель). Валидация — общей CreateAssignmentSchema
+// Модалка создания и правки задания (преподаватель). Валидация — общей CreateAssignmentSchema
 // (safeParse), т.к. dueAt требует ISO с оффсетом (преобразуем из локального DateTimePicker).
-export function CreateAssignmentModal({ onClose }: Props) {
+// Правка шлёт только изменённые поля; дисциплину у задания не меняют.
+export function CreateAssignmentModal({ onClose, assignment }: Props) {
   const t = useTranslations('Assignments')
   const tCommon = useTranslations('Common')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  const editing = !!assignment
   const courses = useQuery({
-    queryKey: courseKeys.list({ mine: true }),
-    queryFn: () => fetchCourses({ mine: true }),
+    queryKey: courseKeys.listAll({ mine: true }),
+    queryFn: () => fetchAllCourses({ mine: true }),
     retry: false,
+    enabled: !editing,
   })
 
-  const [courseId, setCourseId] = useState('')
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
-  const [type, setType] = useState<(typeof ASSIGNMENT_TYPES)[number]>('HOMEWORK')
-  const [submissionType, setSubmissionType] = useState<(typeof SUBMISSION_TYPES)[number]>('TEXT')
-  const [maxScore, setMaxScore] = useState('')
-  const [dueAtLocal, setDueAtLocal] = useState('')
-  const [allowLate, setAllowLate] = useState(false)
+  const initial = assignment ? assignmentFormDefaults(assignment) : null
+  const [courseId, setCourseId] = useState(assignment?.course.id ?? '')
+  const [title, setTitle] = useState(initial?.title ?? '')
+  const [description, setDescription] = useState(initial?.description ?? '')
+  const [type, setType] = useState<(typeof ASSIGNMENT_TYPES)[number]>(initial?.type ?? 'HOMEWORK')
+  const [submissionType, setSubmissionType] = useState<(typeof SUBMISSION_TYPES)[number]>(
+    initial?.submissionType ?? 'TEXT',
+  )
+  const [maxScore, setMaxScore] = useState(initial?.maxScore ?? '')
+  const [dueAtLocal, setDueAtLocal] = useState(initial?.dueAtLocal ?? '')
+  const [allowLate, setAllowLate] = useState(initial?.allowLate ?? false)
   const [pending, setPending] = useState(false)
   const [submitted, setSubmitted] = useState(false)
+  // Сервер не даёт опустить максимум ниже уже выставленного балла — отказ под полем.
+  const [maxScoreServerError, setMaxScoreServerError] = useState<string | null>(null)
 
   const errors = {
     course: !courseId ? tCommon('fieldRequired') : null,
@@ -69,9 +85,45 @@ export function CreateAssignmentModal({ onClose }: Props) {
   }
   const show = (key: keyof typeof errors): string | null => (submitted ? errors[key] : null)
 
+  async function onUpdate(a: AssignmentItem) {
+    const patch = buildAssignmentPatch(a, {
+      title,
+      description,
+      type,
+      submissionType,
+      maxScore,
+      dueAtLocal,
+      allowLate,
+    })
+    if (Object.keys(patch).length === 0) {
+      onClose()
+      return
+    }
+    setPending(true)
+    try {
+      await updateAssignmentRequest(a.id, patch)
+      await qc.invalidateQueries({ queryKey: assignmentKeys.all })
+      toast.success(t('updated'))
+      onClose()
+    } catch (e) {
+      const err = toApiError(e)
+      if (err.code === 'CONFLICT' && err.details?.some((d) => d.field === 'maxScore')) {
+        setMaxScoreServerError(t('maxScoreBelowGraded'))
+        return
+      }
+      toast.error(tErr(err.code))
+    } finally {
+      setPending(false)
+    }
+  }
+
   async function onSubmit() {
     setSubmitted(true)
     if (Object.values(errors).some(Boolean)) return
+    if (assignment) {
+      await onUpdate(assignment)
+      return
+    }
     const payload: CreateAssignmentInput = {
       courseId,
       title: title.trim(),
@@ -101,23 +153,31 @@ export function CreateAssignmentModal({ onClose }: Props) {
   }
 
   return (
-    <Modal onClose={onClose} title={t('newAssignment')} size="lg">
+    <Modal onClose={onClose} title={editing ? t('editAssignment') : t('newAssignment')} size="lg">
       <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1.5">
-          <Label>{t('course')}</Label>
-          <Select value={courseId} onValueChange={setCourseId}>
-            <SelectTrigger aria-invalid={!!show('course')}>
-              <SelectValue placeholder={t('selectCourse')} />
-            </SelectTrigger>
-            <SelectContent>
-              {(courses.data ?? []).map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.subject.name} · {c.group.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {assignment ? (
+          // Дисциплину у задания не меняют — сдачи и журнал привязаны к ней.
+          <div className="flex flex-col gap-1">
+            <p className="text-sm text-muted-foreground">
+              {assignment.course.subject.name} · {assignment.course.group.name}
+            </p>
+            {assignment.status !== 'DRAFT' && (
+              <p className="text-xs text-muted-foreground">{t('editPublishedHint')}</p>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="a-course">{t('course')}</Label>
+            <CourseSelect
+              id="a-course"
+              courses={courses.data ?? []}
+              value={courseId}
+              onChange={setCourseId}
+              loading={courses.isFetching}
+              placeholder={t('selectCourse')}
+            />
+          </div>
+        )}
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="a-title">{t('assignmentTitle')}</Label>
@@ -184,10 +244,13 @@ export function CreateAssignmentModal({ onClose }: Props) {
               id="a-max"
               type="number"
               value={maxScore}
-              onChange={(e) => setMaxScore(e.target.value)}
-              aria-invalid={!!show('maxScore')}
+              onChange={(e) => {
+                setMaxScore(e.target.value)
+                setMaxScoreServerError(null)
+              }}
+              aria-invalid={!!(show('maxScore') ?? maxScoreServerError)}
             />
-            <FieldError>{show('maxScore')}</FieldError>
+            <FieldError>{show('maxScore') ?? maxScoreServerError}</FieldError>
           </div>
           <div className="flex flex-col gap-1.5">
             <Label>{t('dueAt')}</Label>
@@ -205,7 +268,7 @@ export function CreateAssignmentModal({ onClose }: Props) {
             {t('cancel')}
           </Button>
           <Button onClick={onSubmit} loading={pending}>
-            {t('create')}
+            {editing ? t('save') : t('create')}
           </Button>
         </div>
       </div>

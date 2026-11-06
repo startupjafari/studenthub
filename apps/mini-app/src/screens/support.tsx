@@ -18,12 +18,11 @@ import {
   type SupportTag,
   type SupportTicket,
 } from '../api/support'
-import { ApiError } from '../api/client'
 import { createComplaintFromSupport } from '../api/complaints'
 import { searchPeople, type Person } from '../api/people'
 import { confirmAction, haptic, setClosingConfirmation } from '../telegram/webapp'
 import { useBackHandler } from '../lib/back'
-import { t } from '../i18n'
+import { errorText, t } from '../i18n'
 import {
   IconBell,
   IconCheck,
@@ -318,7 +317,7 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
         prev.status === 'ready' ? { ...prev, ticket: { ...prev.ticket, assigneeId } } : prev,
       )
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('supportAssignError'))
+      setError(errorText(err, 'supportAssignError'))
     } finally {
       setBusy(false)
     }
@@ -340,7 +339,7 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
         setError(t('supportComplaintCreated'))
         navigate(() => setPage('ticket'), 'back')
       } catch (err) {
-        setError(err instanceof ApiError ? err.message : t('supportComplaintError'))
+        setError(errorText(err, 'supportComplaintError'))
       } finally {
         setBusy(false)
       }
@@ -370,7 +369,7 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
         await setTicketTags(id, next)
         haptic.select()
       } catch (err) {
-        setError(err instanceof ApiError ? err.message : t('supportTagsError'))
+        setError(errorText(err, 'supportTagsError'))
         setState((prev) =>
           prev.status === 'ready' ? { ...prev, ticket: { ...prev.ticket, tags: current } } : prev,
         )
@@ -392,7 +391,7 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
         // Уходим в целевую ветку: эта закрыта и сама по себе больше не существует.
         onBack()
       } catch (err) {
-        setError(err instanceof ApiError ? err.message : t('supportMergeError'))
+        setError(errorText(err, 'supportMergeError'))
       } finally {
         setBusy(false)
       }
@@ -409,7 +408,7 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
       haptic.success()
       setError(t('supportEscalated'))
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('supportEscalateError'))
+      setError(errorText(err, 'supportEscalateError'))
     } finally {
       setBusy(false)
     }
@@ -424,7 +423,7 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
       haptic.success()
       onBack()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('supportCloseError'))
+      setError(errorText(err, 'supportCloseError'))
     } finally {
       setBusy(false)
     }
@@ -658,7 +657,7 @@ function ChatView({
       haptic.success()
       onSent(message)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('supportSendError'))
+      setError(errorText(err, 'supportSendError'))
     } finally {
       setBusy(false)
     }
@@ -675,9 +674,7 @@ function ChatView({
         haptic.success()
         return onReload()
       })
-      .catch((err: unknown) =>
-        setError(err instanceof ApiError ? err.message : t('supportVoiceError')),
-      )
+      .catch((err: unknown) => setError(errorText(err, 'supportVoiceError')))
       .finally(() => setBusy(false))
   })
 

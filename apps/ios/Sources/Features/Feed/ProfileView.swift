@@ -131,10 +131,13 @@ struct ProfileView: View {
         isSaving = true
         defer { isSaving = false }
         do {
+            // «О себе» уходит как есть, и пустым тоже: пропущенное поле сервер не
+            // трогает, а `null` схема профиля не принимает — очистить его можно
+            // только пустой строкой.
             try await api.updateProfile(
                 firstName: firstName,
                 lastName: lastName,
-                bio: bio.isEmpty ? nil : bio
+                bio: bio
             )
             savedAt = Date()
             await load()

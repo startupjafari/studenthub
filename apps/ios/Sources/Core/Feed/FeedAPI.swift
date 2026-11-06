@@ -20,16 +20,44 @@ struct PostDTO: Decodable, Equatable, Identifiable {
         let mime: String?
     }
 
+    /// Одна строка сводки реакций (`PostReactionSummary`): сколько и стоит ли своя.
+    struct ReactionSummary: Decodable, Equatable {
+        let emoji: String
+        let count: Int
+        let mine: Bool
+    }
+
+    struct Counts: Decodable, Equatable {
+        let comments: Int?
+    }
+
     let id: String
     let content: String?
     let createdAt: Date
     let author: Author?
     let media: [Media]?
-    let commentsCount: Int?
+    /// Сводка реакций. Устаревшее поле `reactions` сервер отдаёт массивом строк
+    /// `{ emoji, userId }`, а клиент ждал словарь — typeMismatch ронял всю ленту.
+    let reactionSummary: [ReactionSummary]?
+    /// Счётчики Prisma: `_count.comments` — число комментариев.
+    let counts: Counts?
+
+    enum CodingKeys: String, CodingKey {
+        case id, content, createdAt, author, media, reactionSummary
+        case counts = "_count"
+    }
+
+    var commentsCount: Int { counts?.comments ?? 0 }
+
     /// Реакции: эмодзи → сколько раз поставили.
-    let reactions: [String: Int]?
+    var reactions: [String: Int] {
+        Dictionary((reactionSummary ?? []).map { ($0.emoji, $0.count) }, uniquingKeysWith: +)
+    }
+
     /// Что поставил я — по нему кнопка показывает нажатое состояние.
-    let myReactions: [String]?
+    var myReactions: [String] {
+        (reactionSummary ?? []).filter(\.mine).map(\.emoji)
+    }
 }
 
 struct PostCommentDTO: Decodable, Equatable, Identifiable {
@@ -57,14 +85,75 @@ struct NotificationDTO: Decodable, Equatable, Identifiable {
     let body: String
     let isRead: Bool
     let createdAt: Date
-    /// Идентификаторы перехода: chatId, postId, applicationId, url.
+    /// Идентификаторы перехода: chatId, postId, applicationId, url. `data` на сервере —
+    /// произвольный JSON, поэтому берутся только строковые поля: число в одном из них
+    /// не должно ронять всю ленту колокольчика.
     let data: [String: String]?
+
+    enum CodingKeys: String, CodingKey {
+        case id, type, title, body, isRead, createdAt, data
+    }
+
+    init(
+        id: String, type: String, title: String, body: String, isRead: Bool, createdAt: Date,
+        data: [String: String]?
+    ) {
+        self.id = id
+        self.type = type
+        self.title = title
+        self.body = body
+        self.isRead = isRead
+        self.createdAt = createdAt
+        self.data = data
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        type = try container.decode(String.self, forKey: .type)
+        title = try container.decode(String.self, forKey: .title)
+        body = try container.decode(String.self, forKey: .body)
+        isRead = try container.decode(Bool.self, forKey: .isRead)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        data = (try? container.decodeIfPresent(StringFields.self, forKey: .data))?.values
+    }
+
+    /// Куда ведёт уведомление — тот же адрес, что кладётся в пуш (`data.url`).
+    var link: DeepLink? {
+        guard let url = data?["url"] else { return nil }
+        return PushRouting.link(from: ["url": url])
+    }
+
+    /// Строковые поля JSON-объекта; остальные пропускаются.
+    private struct StringFields: Decodable {
+        let values: [String: String]
+
+        private struct Key: CodingKey {
+            let stringValue: String
+            var intValue: Int? { nil }
+            init(stringValue: String) { self.stringValue = stringValue }
+            init?(intValue: Int) { nil }
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: Key.self)
+            var values: [String: String] = [:]
+            for key in container.allKeys {
+                if let value = try? container.decode(String.self, forKey: key) {
+                    values[key.stringValue] = value
+                }
+            }
+            self.values = values
+        }
+    }
 }
 
+/// Каналы доставки. Имена полей — как в контракте API (`UpdateNotificationSettingsSchema`):
+/// схема строгая, и чужое поле в PATCH — это `400`. В колокольчик уведомления
+/// приходят всегда, отдельного флага у него нет.
 struct NotificationSettingsDTO: Codable, Equatable {
-    let push: Bool?
-    let email: Bool?
-    let inApp: Bool?
+    let pushEnabled: Bool?
+    let emailEnabled: Bool?
 }
 
 struct UserProfileDTO: Decodable, Equatable {
@@ -86,6 +175,7 @@ struct UserProfileDTO: Decodable, Equatable {
 
 protocol FeedFetching: Sendable {
     func posts(cursor: String?) async throws -> Page<PostDTO>
+    func post(id: String) async throws -> PostDTO
     func comments(postID: String) async throws -> [PostCommentDTO]
     func comment(postID: String, text: String) async throws -> PostCommentDTO
     func react(postID: String, emoji: String, on: Bool) async throws
@@ -110,9 +200,16 @@ struct FeedAPI: FeedFetching {
     }
 
     func posts(cursor: String?) async throws -> Page<PostDTO> {
-        var query = [URLQueryItem(name: "limit", value: "20")]
+        // `reactions=summary` — без построчного списка «кто что поставил»: приложению
+        // нужна только сводка, а список растёт с каждой реакцией.
+        var query = [URLQueryItem(name: "limit", value: "20"), URLQueryItem(name: "reactions", value: "summary")]
         if let cursor { query.append(URLQueryItem(name: "cursor", value: cursor)) }
         return try await client.page(.get("posts", query: query), of: PostDTO.self)
+    }
+
+    /// Сам пост — для карточки, открытой из уведомления: в ленте его может не быть.
+    func post(id: String) async throws -> PostDTO {
+        try await client.send(.get("posts/\(id)"), as: PostDTO.self)
     }
 
     func comments(postID: String) async throws -> [PostCommentDTO] {

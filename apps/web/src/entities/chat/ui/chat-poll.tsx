@@ -1,8 +1,9 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
+import { toast } from 'sonner'
 import { BarChart3, Check } from 'lucide-react'
 import { chatKeys, fetchPollResults, votePollRequest } from '../api/chat-api'
 import type { ChatPoll } from '../model/types'
@@ -32,20 +33,34 @@ export function ChatPollView({
   viewerId?: string
 }) {
   const t = useTranslations('Chats')
+  const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  // Выбор в опросе «несколько ответов» без переголосования: голос даётся один раз, поэтому
+  // варианты отмечаются здесь и уходят одной кнопкой. Мгновенная отправка по клику
+  // записывала первый вариант, а второй сервер уже отклонял.
+  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
   const results = useQuery({
     queryKey: chatKeys.poll(poll.id),
     queryFn: () => fetchPollResults(poll.id),
   })
   const vote = useMutation({
     mutationFn: (optionIds: string[]) => votePollRequest(poll.id, optionIds),
-    onSuccess: (data) => qc.setQueryData(chatKeys.poll(poll.id), data),
+    onSuccess: (data) => {
+      qc.setQueryData(chatKeys.poll(poll.id), data)
+      setPicked(new Set())
+    },
+    // Отказ (опрос завершён, голос менять нельзя) раньше проходил молча — клик просто
+    // ничего не делал.
+    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
 
   const r = results.data
   const my = useMemo(() => new Set(r?.myOptionIds ?? []), [r?.myOptionIds])
   const total = r?.totalVotes ?? 0
   const closed = r?.closed ?? poll.closed
+  // Без переголосования отданный голос окончателен — варианты больше не нажимаются.
+  const locked = !poll.allowRevote && my.size > 0
+  const batch = poll.multiple && !poll.allowRevote
 
   const options = useMemo(() => {
     const opts = [...poll.options]
@@ -57,8 +72,15 @@ export function ChatPollView({
   }, [poll.options, poll.randomOrder, poll.id, viewerId])
 
   function toggle(optionId: string): void {
-    if (closed || vote.isPending) return
-    if (poll.multiple) {
+    if (closed || vote.isPending || locked) return
+    if (batch) {
+      setPicked((prev) => {
+        const next = new Set(prev)
+        if (next.has(optionId)) next.delete(optionId)
+        else next.add(optionId)
+        return next
+      })
+    } else if (poll.multiple) {
       const next = new Set(my)
       if (next.has(optionId)) next.delete(optionId)
       else next.add(optionId)
@@ -93,13 +115,13 @@ export function ChatPollView({
           const votes = res?.votes ?? 0
           const voters = res?.voters ?? []
           const pct = total > 0 ? Math.round((votes / total) * 100) : 0
-          const selected = my.has(o.id)
+          const selected = my.has(o.id) || picked.has(o.id)
           return (
             <div key={o.id}>
               <button
                 type="button"
                 onClick={() => toggle(o.id)}
-                disabled={closed || vote.isPending}
+                disabled={closed || vote.isPending || locked}
                 className={cn(
                   'relative flex w-full items-center gap-2 overflow-hidden rounded-lg px-2 py-1.5 text-left text-sm transition-colors disabled:cursor-default',
                   mine ? 'bg-primary-foreground/10' : 'bg-background/60',
@@ -108,7 +130,7 @@ export function ChatPollView({
                 {/* Шкала-заливка по проценту. */}
                 <span
                   className={cn(
-                    'absolute inset-y-0 left-0 rounded-lg transition-[width] duration-500',
+                    'absolute inset-y-0 left-0 rounded-lg transition-[width] duration-(--motion-large)',
                     mine ? 'bg-primary-foreground/20' : 'bg-primary/15',
                   )}
                   style={{ width: `${pct}%` }}
@@ -144,6 +166,19 @@ export function ChatPollView({
           )
         })}
       </div>
+      {batch && !locked && !closed && (
+        <button
+          type="button"
+          onClick={() => vote.mutate([...picked])}
+          disabled={picked.size === 0 || vote.isPending}
+          className={cn(
+            'mt-1.5 w-full rounded-lg px-2 py-1.5 text-sm font-medium transition-colors disabled:opacity-50',
+            mine ? 'bg-primary-foreground/20' : 'bg-primary/15',
+          )}
+        >
+          {t('pollSubmitVote')}
+        </button>
+      )}
       <p className="mt-1.5 text-xs opacity-70">{t('pollVotes', { count: total })}</p>
     </div>
   )

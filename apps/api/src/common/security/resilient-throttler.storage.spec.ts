@@ -22,6 +22,18 @@ describe('ResilientThrottlerStorage', () => {
     await expect(storage.increment('k', 60, 100, 0, 'default')).resolves.toEqual(blocked)
   })
 
+  // Подвисший Redis — не упавший: ответа нет, и общий клиент ждал бы до 3 с на счётчик.
+  it('не дождался Redis за короткий срок — считает в памяти, а не ждёт', async () => {
+    const inner = { increment: jest.fn(() => new Promise(() => undefined)) }
+    const storage = new ResilientThrottlerStorage(inner as unknown as ThrottlerStorage, 20)
+
+    const started = Date.now()
+    const result = await storage.increment('k', 60_000, 100, 0, 'default')
+
+    expect(Date.now() - started).toBeLessThan(1000)
+    expect(result).toMatchObject({ totalHits: 1, isBlocked: false })
+  })
+
   it('при недоступном Redis не роняет запрос', async () => {
     const inner = { increment: jest.fn().mockRejectedValue(new Error('ECONNREFUSED')) }
     const storage = new ResilientThrottlerStorage(inner as unknown as ThrottlerStorage)
@@ -81,16 +93,20 @@ describe('ResilientThrottlerStorage', () => {
   })
 
   // Фолбэк не должен оставлять после себя таймеры: иначе процесс на выходе ждёт их,
-  // и деплой после сбоя Redis висит до конца окна (до 15 минут на логине).
-  it('фолбэк не заводит таймеров', async () => {
-    const inner = { increment: jest.fn().mockRejectedValue(new Error('down')) }
-    const storage = new ResilientThrottlerStorage(inner as unknown as ThrottlerStorage)
-    const setTimeoutSpy = jest.spyOn(global, 'setTimeout')
+  // и деплой после сбоя Redis висит до конца окна (до 15 минут на логине). Таймер ожидания
+  // Redis заводится на каждый запрос, но снимается в finally — висящих не остаётся.
+  it('фолбэк не оставляет висящих таймеров', async () => {
+    jest.useFakeTimers()
+    try {
+      const inner = { increment: jest.fn().mockRejectedValue(new Error('down')) }
+      const storage = new ResilientThrottlerStorage(inner as unknown as ThrottlerStorage)
 
-    for (let i = 0; i < 10; i++) await storage.increment('k', 60_000, 5, 0, 'default')
+      for (let i = 0; i < 10; i++) await storage.increment('k', 60_000, 5, 0, 'default')
 
-    expect(setTimeoutSpy).not.toHaveBeenCalled()
-    setTimeoutSpy.mockRestore()
+      expect(jest.getTimerCount()).toBe(0)
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   it('не заливает лог: предупреждение не чаще раза в минуту', async () => {

@@ -90,11 +90,15 @@ const ICONS = [
   { cls: 'size-8', Icon: Inbox, role: 'пустое состояние' },
 ]
 
+// Классы — литералами: Tailwind собирает только то, что видит в исходнике.
 const DURATIONS = [
-  { cls: 'duration-150', role: 'отклик: наведение, нажатие' },
-  { cls: 'duration-200', role: 'появление парящего слоя' },
-  { cls: 'duration-300', role: 'смена поверхности' },
-  { cls: 'duration-500', role: 'оживление данных' },
+  { cls: 'duration-(--motion-micro)', role: '120 мс · наведение, фокус' },
+  { cls: 'duration-(--motion-control)', role: '150 мс · кнопки, переключатели' },
+  { cls: 'duration-(--motion-menu)', role: '180 мс · меню, поповеры (умолчание входа)' },
+  { cls: 'duration-(--motion-page)', role: '200 мс · смена экрана' },
+  { cls: 'duration-(--motion-modal)', role: '220 мс · модальные окна' },
+  { cls: 'duration-(--motion-panel)', role: '260 мс · боковые панели, шторки' },
+  { cls: 'duration-(--motion-large)', role: '320 мс · крупные изменения, данные' },
 ]
 
 export function FoundationsSection() {
@@ -344,7 +348,7 @@ export function FoundationsSection() {
           rule="наведите курсор — квадрат меняет цвет с указанной скоростью"
         >
           {DURATIONS.map((d) => (
-            <div key={d.cls} className="flex w-40 flex-col gap-1.5">
+            <div key={d.cls} className="flex w-48 flex-col gap-1.5">
               <div
                 className={`h-12 rounded-lg bg-muted transition-colors hover:bg-primary ${d.cls}`}
               />

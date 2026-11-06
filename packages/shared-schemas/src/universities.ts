@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { AdminLimitSchema, OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
+import { OrgPageFieldsShape } from './org-page.js'
 
 // Статус вуза (docs/PROJECT.md §6.1 enum UniversityStatus).
 export const UniversityStatusSchema = z.enum(['PENDING', 'ACTIVE', 'BLOCKED'])
@@ -12,6 +13,9 @@ export const CreateUniversitySchema = z
     name: z.string().min(1).max(200),
     shortName: z.string().min(1).max(50).optional(),
     country: z.string().min(1).max(100).optional(),
+    // Город — код КАТО (9 цифр, KatoCodeSchema): его выбирает KatoSelect, по нему таблица
+    // резолвит название. Свободный текст — только для зарубежного вуза, чьего города в
+    // КАТО нет. Поэтому здесь не KatoCodeSchema: ужесточение отрезало бы зарубежные вузы.
     city: z.string().min(1).max(100).optional(),
     timezone: z.string().min(1).max(64).optional(),
   })
@@ -19,6 +23,14 @@ export const CreateUniversitySchema = z
 export type CreateUniversityInput = z.infer<typeof CreateUniversitySchema>
 
 export const UpdateUniversitySchema = CreateUniversitySchema.partial()
+
+/**
+ * Правка страницы университета (витрина в стиле профиля) — админ своего вуза. Название,
+ * город и статус здесь не меняются: это реквизиты вуза, их правит платформа
+ * (`PATCH /universities/:id`). Логотип и обложка — файлом (`POST /universities/my/page/logo|cover`).
+ */
+export const UpdateUniversityPageSchema = z.object({ ...OrgPageFieldsShape }).strict()
+export type UpdateUniversityPageInput = z.infer<typeof UpdateUniversityPageSchema>
 export type UpdateUniversityInput = z.infer<typeof UpdateUniversitySchema>
 
 export const UpdateUniversityStatusSchema = z.object({ status: UniversityStatusSchema }).strict()

@@ -9,14 +9,16 @@ import type {
   SetSeasonInput,
   SetSectionsInput,
 } from '@studenthub/shared-schemas'
+import { Role } from '@studenthub/shared-types'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import type { NotificationPolicy } from './platform.constants'
-import { PLATFORM_STATE_CACHE_KEY, PLATFORM_STATE_ID } from './platform.constants'
+import { PLATFORM_STATE_CACHE_KEY, PLATFORM_STATE_ID, isQuietHour } from './platform.constants'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import { TwoFactorService } from '../auth/two-factor.service'
 import type { RequestContext } from '../auth/auth.service'
+import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
 // Состояние платформы: рычаги, которыми админ управляет вебом без деплоя.
 // Модель и мотивация полей — prisma/schema/30-platform.prisma.
@@ -36,6 +38,44 @@ const CACHE_TTL_SEC = 60
 // включал. Для остановки на четверть часа это незаметно.
 const MAINTENANCE_MEMO_MS = 5_000
 
+/** Кто может дежурить: команда платформы — те же роли, которым уходят уведомления. */
+const DUTY_ROLES: readonly Role[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR]
+
+/**
+ * Действия журнала, которые пишут рычаги платформы. Один словарь на запись и на чтение:
+ * журнал читается по списку `action IN (...)`, а не префиксом `platform.%` — префиксный
+ * LIKE по btree без `text_pattern_ops` индекс не использует, и на десятках миллионов
+ * строк аудита план шёл по `created_at` назад до первой записи `platform.*` (B-F20).
+ * Новое действие рычага добавляется сюда — иначе его не увидят «Изменения» и откат.
+ */
+const ACTION = {
+  maintenanceOn: 'platform.maintenance.on',
+  maintenanceOff: 'platform.maintenance.off',
+  bannerOn: 'platform.banner.on',
+  bannerOff: 'platform.banner.off',
+  sectionsSet: 'platform.sections.set',
+  seasonSet: 'platform.season.set',
+  dutySet: 'platform.duty.set',
+  dutyRotate: 'platform.duty.rotate',
+  notificationsSet: 'platform.notifications.set',
+  releaseAnnounce: 'platform.release.announce',
+  stateUndo: 'platform.state.undo',
+} as const
+
+/** Все действия рычагов — для «Последних изменений». */
+export const PLATFORM_AUDIT_ACTIONS: string[] = Object.values(ACTION)
+
+/**
+ * Что можно откатить: всё, кроме понедельничной смены дежурного. Её пишет крон без
+ * снимка `before`, и, оказавшись последней записью, она отвечала «отменять нечего» на
+ * правку админа, сделанную минутой раньше.
+ */
+const UNDOABLE_ACTIONS: string[] = PLATFORM_AUDIT_ACTIONS.filter((a) => a !== ACTION.dutyRotate)
+
+/** Сколько живёт ответ «объём файлов»: COUNT и SUM по всей таблице `files` — не на каждый заход. */
+const STORAGE_CACHE_KEY = 'platform:storage'
+const STORAGE_CACHE_TTL_SEC = 300
+
 export interface LocalizedText {
   ru: string
   kk: string
@@ -43,14 +83,19 @@ export interface LocalizedText {
 }
 
 /**
- * То, что видит любой посетитель. Срок жизни здесь уже применён: наружу уходит либо
- * действующее объявление, либо `null`. Клиент не сравнивает даты сам — иначе веб,
- * мини-апп и мобильный браузер с уехавшими часами решали бы этот вопрос по-разному.
+ * Состояние платформы. Срок жизни здесь уже применён: наружу уходит либо действующее
+ * объявление, либо `null`. Клиент не сравнивает даты сам — иначе веб, мини-апп и
+ * мобильный браузер с уехавшими часами решали бы этот вопрос по-разному.
+ *
+ * Целиком его видит только команда платформы. Остальным `forViewer` отдаёт срез: без
+ * настроек уведомлений и только тот баннер, что адресован им (B-F19).
  */
 export interface PublicPlatformState {
-  /** Настройки уведомлений команде. Публичны намеренно: в них нет ничего о людях,
-      кроме id дежурного, а знание «сейчас тихие часы» не даёт постороннему ничего. */
-  notifications: {
+  /**
+   * Настройки уведомлений команде — только для команды платформы (мини-апп). Анониму и
+   * остальным ролям поля нет: id дежурного админа посетителю сайта знать незачем.
+   */
+  notifications?: {
     quietFrom: number | null
     quietTo: number | null
     muted: string[]
@@ -69,7 +114,11 @@ export interface PublicPlatformState {
     until: string
     level: 'INFO' | 'WARNING'
     text: LocalizedText
-    /** Кому показывать. Пустые массивы — всем; фильтрует клиент, знающий свою роль. */
+    /**
+     * Кому показывать. Пустые массивы — всем. Адресный баннер сервер отдаёт только
+     * адресату, а в `universityIds` оставляет лишь его вуз: чужие вузы из прицела наружу
+     * не уходят. Команда платформы видит прицел целиком.
+     */
     roles: string[]
     universityIds: string[]
   } | null
@@ -132,9 +181,11 @@ export class PlatformService {
   async maintenanceActive(now: Date = new Date()): Promise<boolean> {
     if (this.memo === null || Date.now() - this.memo.readAt > MAINTENANCE_MEMO_MS) {
       const row = await this.read()
+      // Через toDate, а не как есть: этот ответ читает каждый запрос к API, и строка вместо
+      // даты здесь — уже не кривой ответ одной функции, а 500 на всей платформе.
       this.memo = {
-        from: row?.maintenanceFrom ?? null,
-        until: row?.maintenanceUntil ?? null,
+        from: toDate(row?.maintenanceFrom),
+        until: toDate(row?.maintenanceUntil),
         readAt: Date.now(),
       }
     }
@@ -159,10 +210,16 @@ export class PlatformService {
     }
   }
 
-  /** Публичное состояние платформы. Пока рычагов не трогали, строки нет — это норма. */
-  async publicState(now: Date = new Date()): Promise<PublicPlatformState> {
+  /**
+   * Состояние платформы глазами того, кто спрашивает: `viewer` — пользователь из токена
+   * или null для анонима. Пока рычагов не трогали, строки нет — это норма.
+   */
+  async publicState(
+    now: Date = new Date(),
+    viewer: Pick<JwtPayload, 'role' | 'universityId'> | null = null,
+  ): Promise<PublicPlatformState> {
     const row = await this.read()
-    return row ? project(row, now) : EMPTY
+    return forViewer(row ? project(row, now) : EMPTY, viewer)
   }
 
   /**
@@ -197,7 +254,7 @@ export class PlatformService {
 
     await this.audit.record({
       userId,
-      action: until ? 'platform.maintenance.on' : 'platform.maintenance.off',
+      action: until ? ACTION.maintenanceOn : ACTION.maintenanceOff,
       entity: 'PlatformState',
       // Текст объявления в журнал не пишем: он и так виден всем, а место в метаданных
       // нужнее сроку — по нему потом считают длительность простоя.
@@ -239,7 +296,7 @@ export class PlatformService {
 
     await this.audit.record({
       userId,
-      action: until ? 'platform.banner.on' : 'platform.banner.off',
+      action: until ? ACTION.bannerOn : ACTION.bannerOff,
       entity: 'PlatformState',
       metadata: { before, ...(until ? { until: until.toISOString(), level: input.level } : {}) },
       ...ctx,
@@ -256,7 +313,7 @@ export class PlatformService {
     const { state, before } = await this.write(userId, { disabledSections: input.disabled })
     await this.audit.record({
       userId,
-      action: 'platform.sections.set',
+      action: ACTION.sectionsSet,
       entity: 'PlatformState',
       metadata: { before, disabled: input.disabled },
       ...ctx,
@@ -279,7 +336,7 @@ export class PlatformService {
     })
     await this.audit.record({
       userId,
-      action: 'platform.season.set',
+      action: ACTION.seasonSet,
       entity: 'PlatformState',
       metadata: { before, off: input.off, override: input.override },
       ...ctx,
@@ -291,13 +348,29 @@ export class PlatformService {
    * Объём файлов платформы. Считается по журналу `File`, а не по диску: S3-совместимое
    * хранилище про своё свободное место не рассказывает, и обещать «осталось столько-то»
    * было бы враньём. Зато рост этого числа виден, а он и есть то, что заканчивается.
+   *
+   * Ответ кэшируется на пять минут: COUNT и SUM идут по всей таблице `files`, а «Обзор»
+   * мини-аппа открывают много раз в день. Рост хранилища за пять минут не меняет ничего,
+   * что по этому числу решают. Redis недоступен — считаем напрямую.
    */
   async storageUsage(): Promise<{ files: number; bytes: number }> {
+    const cached = await this.redis.get(STORAGE_CACHE_KEY).catch(() => null)
+    if (cached) {
+      try {
+        return JSON.parse(cached) as { files: number; bytes: number }
+      } catch {
+        // Битая запись — пересчитаем и перезапишем.
+      }
+    }
     const [files, sum] = await Promise.all([
       this.prisma.file.count(),
       this.prisma.file.aggregate({ _sum: { size: true } }),
     ])
-    return { files, bytes: sum._sum.size ?? 0 }
+    const usage = { files, bytes: sum._sum.size ?? 0 }
+    await this.redis
+      .set(STORAGE_CACHE_KEY, JSON.stringify(usage), 'EX', STORAGE_CACHE_TTL_SEC)
+      .catch(() => undefined)
+    return usage
   }
 
   /**
@@ -308,7 +381,8 @@ export class PlatformService {
     { action: string; at: Date; by: { id: string; firstName: string; lastName: string } | null }[]
   > {
     const rows = await this.prisma.auditLog.findMany({
-      where: { action: { startsWith: 'platform.' } },
+      // Список действий, а не префикс: см. ACTION.
+      where: { action: { in: PLATFORM_AUDIT_ACTIONS }, entity: 'PlatformState' },
       orderBy: { createdAt: 'desc' },
       take: 20,
       select: { action: true, createdAt: true, userId: true },
@@ -351,6 +425,10 @@ export class PlatformService {
    * мог быть назначен руками, и молча снимать его вместе с расписанием — не то, о чём
    * просили. Первым дежурным ставим первого в списке, если дежурного ещё нет: очередь,
    * которая начнёт работать только через неделю, выглядит как сломанная.
+   *
+   * В очередь ставят только тех, кому бот может написать: сотрудник платформы с
+   * действующей привязкой Telegram. Иначе — 422: дежурный без привязки молча глушит
+   * уведомления команде.
    */
   async setDuty(
     userId: string,
@@ -359,7 +437,25 @@ export class PlatformService {
   ): Promise<{ dutyUserId: string | null; rotation: string[] }> {
     const unique = [...new Set(rotation)]
     const current = await this.read()
-    const duty = current?.dutyUserId ?? unique[0] ?? null
+    const reachable = await this.reachable(unique)
+
+    // Проверяются только ДОБАВЛЕННЫЕ: тот, кто уже стоит в очереди и с тех пор отвязал
+    // Telegram, в списке мини-аппа не виден, и убрать его оттуда нельзя — строгая проверка
+    // всего списка заперла бы очередь навсегда. Такого крон просто пропускает.
+    const known = new Set(current?.dutyRotation ?? [])
+    const rejected = unique.filter((id) => !known.has(id) && !reachable.has(id))
+    if (rejected.length > 0) {
+      throw new AppException(
+        'VALIDATION_ERROR',
+        'В очередь можно поставить только сотрудника платформы с привязанным Telegram',
+        rejected.map((id) => ({
+          field: `rotation.${rotation.indexOf(id)}`,
+          message: 'Нет активной привязки Telegram',
+        })),
+      )
+    }
+
+    const duty = current?.dutyUserId ?? unique.find((id) => reachable.has(id)) ?? null
 
     const { state: _state, before } = await this.write(userId, {
       dutyRotation: unique,
@@ -368,7 +464,7 @@ export class PlatformService {
     void _state
     await this.audit.record({
       userId,
-      action: 'platform.duty.set',
+      action: ACTION.dutySet,
       entity: 'PlatformState',
       metadata: { before, size: unique.length },
       ...ctx,
@@ -381,27 +477,76 @@ export class PlatformService {
    *
    * Позиция ищется по текущему дежурному, а не хранится числом: номер смены пришлось бы
    * чинить руками каждый раз, когда список правят, а по имени всё сходится само. Дежурный
-   * не из списка (назначили руками на выходные) — начинаем с начала.
+   * не из списка (назначили руками на выходные) — начинаем с начала. Тех, кому бот не
+   * может написать, пропускаем.
    */
   async rotateDuty(now: Date = new Date()): Promise<string | null> {
     const row = await this.read()
-    const rotation = row?.dutyRotation ?? []
-    if (rotation.length < 2) return null
-
-    const index = row?.dutyUserId ? rotation.indexOf(row.dutyUserId) : -1
-    const next = rotation[(index + 1) % rotation.length]
-    // `next` пуст только если очередь изменилась между чтением и этой строкой; передавать
-    // дежурство «никому» нельзя — лучше пропустить понедельник, чем оставить команду без
-    // адресата уведомлений.
-    if (!next || next === row?.dutyUserId) return null
+    const { candidate, order } = await this.pickNextOnDuty(row)
+    if (order.length === 0) return null
+    // Передавать дежурство «никому» нельзя — лучше пропустить понедельник, чем оставить
+    // команду без адресата уведомлений.
+    if (!candidate) {
+      this.logger.warn('rotateDuty: в очереди нет никого с привязанным Telegram — смена пропущена')
+      return null
+    }
+    if (candidate === row?.dutyUserId) return null
+    const next = candidate
 
     await this.write(row?.updatedById ?? next, { dutyUserId: next })
     await this.audit.record({
-      action: 'platform.duty.rotate',
+      action: ACTION.dutyRotate,
       entity: 'PlatformState',
-      metadata: { to: next, at: now.toISOString() },
+      metadata: { to: next, at: now.toISOString(), skipped: order.indexOf(next) },
     })
     return next
+  }
+
+  /**
+   * Кому крон передаст дежурство в понедельник, или null — смены не будет. Тот же выбор,
+   * что у `rotateDuty`, без записи: `/duty` в боте обязан называть следующим именно его,
+   * а не соседа по списку, которого крон пропустит.
+   */
+  async nextOnDuty(): Promise<string | null> {
+    const row = await this.read()
+    const { candidate } = await this.pickNextOnDuty(row)
+    return candidate && candidate !== row?.dutyUserId ? candidate : null
+  }
+
+  /**
+   * Первый, кому бот может написать, по кругу от следующего за текущим дежурным. Очередь
+   * короче двух — не ротация: `order` пуст. Кому бот не может написать (отвязал Telegram,
+   * заблокирован, удалён, ушёл из команды), того пропускаем: дежурство, переданное ему,
+   * означало бы неделю, в которую уведомления о жалобах не доходят до дежурного.
+   */
+  private async pickNextOnDuty(
+    row: PlatformState | null,
+  ): Promise<{ candidate: string | undefined; order: string[] }> {
+    const rotation = row?.dutyRotation ?? []
+    if (rotation.length < 2) return { candidate: undefined, order: [] }
+    const index = row?.dutyUserId ? rotation.indexOf(row.dutyUserId) : -1
+    const order = rotation.map((_, step) => rotation[(index + 1 + step) % rotation.length]!)
+    const reachable = await this.reachable(rotation)
+    return { candidate: order.find((id) => reachable.has(id)), order }
+  }
+
+  /**
+   * Кому из перечисленных бот может написать: сотрудник платформы, не удалён, не
+   * заблокирован, привязка Telegram действует. Те же условия, что у рассылки в
+   * TelegramNotifyService: дежурный, до которого она не дойдёт, хуже, чем никакого.
+   */
+  private async reachable(ids: string[]): Promise<Set<string>> {
+    if (ids.length === 0) return new Set()
+    const rows = await this.prisma.telegramAccount.findMany({
+      where: {
+        userId: { in: ids },
+        revokedAt: null,
+        user: { role: { in: [...DUTY_ROLES] }, isBlocked: false, deletedAt: null },
+      },
+      select: { userId: true },
+      take: ids.length,
+    })
+    return new Set(rows.map((row) => row.userId))
   }
 
   /**
@@ -420,10 +565,13 @@ export class PlatformService {
    * состояние платформы под этим предлогом нельзя. И направление: включить техработы
    * откатом нельзя — включение спрашивает код 2FA, и обход этого требования кнопкой без
    * кода сделал бы защиту декоративной.
+   *
+   * Понедельничную смену дежурного откат пропускает: это не правка человека, снимка у
+   * неё нет, и «отменять нечего» после неё было бы неправдой.
    */
   async undoLast(userId: string, ctx: RequestContext = {}): Promise<PublicPlatformState> {
     const entry = await this.prisma.auditLog.findFirst({
-      where: { action: { startsWith: 'platform.' } },
+      where: { action: { in: UNDOABLE_ACTIONS }, entity: 'PlatformState' },
       orderBy: { createdAt: 'desc' },
       select: { action: true, metadata: true, createdAt: true },
     })
@@ -444,13 +592,14 @@ export class PlatformService {
       )
     }
 
-    const { state } = await this.write(userId, patch)
+    // Снимок отката — состояние до отмены, а не снимок отменённой записи: с ним второе
+    // нажатие вернуло бы те же значения, что уже стоят, и отмену было бы не отменить.
+    const { state, before: undone } = await this.write(userId, patch)
     await this.audit.record({
       userId,
-      action: 'platform.state.undo',
+      action: ACTION.stateUndo,
       entity: 'PlatformState',
-      // Снимок отката — тоже снимок: второе нажатие вернёт то, что было до отмены.
-      metadata: { of: entry.action, at: entry.createdAt.toISOString(), before },
+      metadata: { of: entry.action, at: entry.createdAt.toISOString(), before: undone },
       ...ctx,
     })
     return state
@@ -462,6 +611,39 @@ export class PlatformService {
     input: SetNotificationsInput,
     ctx: RequestContext = {},
   ): Promise<PublicPlatformState> {
+    // Нового дежурного проверяем так же, как очередь: назначенный, которому бот не может
+    // написать, превращает «только дежурному» в «никому». Прежнее значение не проверяем —
+    // правка тихих часов не должна падать из-за того, что дежурный с тех пор отвязался
+    // (до команды такие уведомления всё равно дойдут, см. TelegramNotifyService).
+    if (input.dutyUserId !== null) {
+      const current = await this.read()
+      if (
+        input.dutyUserId !== current?.dutyUserId &&
+        !(await this.reachable([input.dutyUserId])).has(input.dutyUserId)
+      ) {
+        throw new AppException(
+          'VALIDATION_ERROR',
+          'Дежурным можно назначить только сотрудника платформы с привязанным Telegram',
+          [{ field: 'dutyUserId', message: 'Нет активной привязки Telegram' }],
+        )
+      }
+    }
+
+    // Сводку в тихий час рассылка глушит тем же окном — она не пришла бы никогда, а бот
+    // обещал бы её время. Тишина круглые сутки (`from === to`) — осознанное «выключить
+    // всё, не стирая настройку», её не трогаем.
+    if (
+      input.digestHour !== null &&
+      input.quietFrom !== input.quietTo &&
+      isQuietHour(input.quietFrom, input.quietTo, input.digestHour)
+    ) {
+      throw new AppException(
+        'VALIDATION_ERROR',
+        'Час сводки попадает в тихие часы — сводка не придёт',
+        [{ field: 'digestHour', message: 'Час сводки внутри тихих часов' }],
+      )
+    }
+
     const { state, before } = await this.write(userId, {
       quietFrom: input.quietFrom,
       quietTo: input.quietTo,
@@ -471,7 +653,7 @@ export class PlatformService {
     })
     await this.audit.record({
       userId,
-      action: 'platform.notifications.set',
+      action: ACTION.notificationsSet,
       entity: 'PlatformState',
       metadata: {
         before,
@@ -495,7 +677,7 @@ export class PlatformService {
     const { state, before } = await this.write(userId, { announcedVersion: input.version })
     await this.audit.record({
       userId,
-      action: 'platform.release.announce',
+      action: ACTION.releaseAnnounce,
       entity: 'PlatformState',
       metadata: { before, version: input.version },
       ...ctx,
@@ -617,6 +799,44 @@ function project(row: PlatformState, now: Date): PublicPlatformState {
   }
 }
 
+/**
+ * Срез состояния для того, кто спрашивает (B-F19).
+ *
+ * Раньше ответ был один на всех, а адресацию баннера проверял клиент: объявление «только
+ * студентам вуза X» вместе с UUID вузов-адресатов и UUID дежурного читал любой без входа.
+ * Теперь:
+ * - команда платформы видит всё — ей нужно проверить, что и кому повешено;
+ * - остальные — без настроек уведомлений, а адресный баннер только если он им: роль и
+ *   вуз проверяются пересечением, как в вебе (platform-gate), прицел по вузам сужается
+ *   до своего вуза;
+ * - аноним — только техработы и баннер без адресации.
+ *
+ * Имена полей прежние: веб и мини-апп читают тот же ответ, а фильтр на клиенте после
+ * серверного просто ничего не отсеивает.
+ */
+export function forViewer(
+  state: PublicPlatformState,
+  viewer: Pick<JwtPayload, 'role' | 'universityId'> | null,
+): PublicPlatformState {
+  if (viewer && DUTY_ROLES.includes(viewer.role)) return state
+  const { notifications: _team, ...rest } = state
+  void _team
+  return { ...rest, banner: bannerFor(state.banner, viewer) }
+}
+
+function bannerFor(
+  banner: PublicPlatformState['banner'],
+  viewer: Pick<JwtPayload, 'role' | 'universityId'> | null,
+): PublicPlatformState['banner'] {
+  if (!banner) return null
+  if (banner.roles.length === 0 && banner.universityIds.length === 0) return banner
+  if (!viewer) return null
+  if (banner.roles.length > 0 && !banner.roles.includes(viewer.role)) return null
+  if (banner.universityIds.length === 0) return banner
+  if (!viewer.universityId || !banner.universityIds.includes(viewer.universityId)) return null
+  return { ...banner, universityIds: [viewer.universityId] }
+}
+
 /** Срок считает сервер: часы клиента в этом вопросе не участвуют (см. SetMaintenanceSchema). */
 function minutesFromNow(minutes: number): Date {
   return new Date(Date.now() + minutes * 60_000)
@@ -631,12 +851,36 @@ function localized(ru: string | null, kk: string | null, en: string | null): Loc
   return ru && kk && en ? { ru, kk, en } : null
 }
 
+/**
+ * Все поля-даты строки состояния. Тип заставляет перечислить их целиком: новая колонка
+ * DateTime без записи здесь не соберётся. Список руками однажды забыл `maintenanceFrom` —
+ * он возвращался из кэша строкой, и плановые техработы роняли весь API.
+ */
+type DateField = {
+  [K in keyof PlatformState]-?: PlatformState[K] extends Date | null ? K : never
+}[keyof PlatformState]
+
+const DATE_FIELDS: Record<DateField, true> = {
+  maintenanceFrom: true,
+  maintenanceUntil: true,
+  bannerUntil: true,
+  updatedAt: true,
+}
+
 /** JSON.parse возвращает даты строками — восстанавливаем, иначе сроки не сравнить. */
 function reviveDates(row: PlatformState): PlatformState {
-  return {
-    ...row,
-    maintenanceUntil: row.maintenanceUntil ? new Date(row.maintenanceUntil) : null,
-    bannerUntil: row.bannerUntil ? new Date(row.bannerUntil) : null,
-    updatedAt: new Date(row.updatedAt),
-  }
+  const revived: Record<string, unknown> = { ...row }
+  for (const key of Object.keys(DATE_FIELDS)) revived[key] = toDate(revived[key])
+  return revived as unknown as PlatformState
+}
+
+/** Дата из кэша или из памяти. Пусто или не разбирается — `null`, а не Invalid Date. */
+function toDate(value: unknown): Date | null {
+  const date =
+    value instanceof Date
+      ? value
+      : typeof value === 'string' || typeof value === 'number'
+        ? new Date(value)
+        : null
+  return date && !Number.isNaN(date.getTime()) ? date : null
 }

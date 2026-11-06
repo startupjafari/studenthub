@@ -1,14 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { GraduationCap, Inbox, MoreHorizontal, Plus, Trash2, Users } from 'lucide-react'
+import { GraduationCap, Inbox, MoreHorizontal, Pencil, Plus, Trash2, Users } from 'lucide-react'
+import { EXAM_LIST_LIMIT, type ExamListQueryInput } from '@studenthub/shared-schemas'
 import {
   Badge,
   Button,
   Card,
+  DateRangePicker,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -16,6 +18,7 @@ import {
   DropdownMenuTrigger,
   EmptyState,
   PageHeader,
+  SegmentedTabs,
   Table,
   TableBody,
   TableCell,
@@ -25,9 +28,14 @@ import {
   TableRow,
   TableSkeletonRows,
   TableText,
+  parseYmd,
+  useConfirm,
   useTableSort,
+  type DateRange,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
+import { useAppSelector } from '../../../shared/store'
+import { Role } from '@studenthub/shared-types'
 import { cn } from '../../../shared/lib/utils'
 import { examKeys, fetchExams, deleteExamRequest, type ExamItem } from '../../../entities/exam'
 import { examFormatKey } from '../lib/visuals'
@@ -48,15 +56,63 @@ const HIDE = { group: 'hidden md:table-cell', room: 'hidden lg:table-cell' } as 
 // геометрия таблицы не меняется.
 const EXAM_SKELETON_COLS = [undefined, undefined, HIDE.group, HIDE.room, undefined, undefined]
 
+type TabId = 'upcoming' | 'past'
+const TAB_ORDER: TabId[] = ['upcoming', 'past']
+
+/** Начало дня "YYYY-MM-DD" по местному времени в ISO; `nextDay` — начало следующего дня. */
+function dayStartIso(ymd: string, nextDay = false): string | undefined {
+  const d = parseYmd(ymd)
+  if (!d) return undefined
+  if (nextDay) d.setDate(d.getDate() + 1)
+  return d.toISOString()
+}
+
+/**
+ * Параметры запроса вкладки. Граница вкладок — начало сегодняшнего дня: сегодняшние
+ * экзамены, в том числе уже прошедшие утром, остаются в «предстоящих», где по ним и
+ * заполняют ведомость. Период сужает вкладку. ISO-строки одного формата сравниваются
+ * как даты.
+ */
+function examParams(tab: TabId, today: string, period: DateRange): Partial<ExamListQueryInput> {
+  const from = period.from ? dayStartIso(period.from) : undefined
+  const to = period.to ? dayStartIso(period.to, true) : undefined
+  if (tab === 'upcoming') {
+    return { from: from && from > today ? from : today, ...(to ? { to } : {}) }
+  }
+  return { ...(from ? { from } : {}), to: to && to < today ? to : today }
+}
+
+function startOfToday(): string {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  return d.toISOString()
+}
+
 export function ExamManagementView({ mine }: { mine: boolean }) {
   const t = useTranslations('Exams')
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const [creating, setCreating] = useState(false)
+  const [editing, setEditing] = useState<ExamItem | null>(null)
   const [rosterId, setRosterId] = useState<string | null>(null)
+  const role = useAppSelector((s) => s.auth.role)
+  const myId = useAppSelector((s) => s.auth.user?.id)
+  // Экзаменатор, не читающий дисциплину, ведёт только ведомость: править и удалить экзамен
+  // может преподаватель дисциплины или деканат (так же решает сервер).
+  const canDelete = (e: ExamItem): boolean => role !== Role.TEACHER || e.course.teacherId === myId
 
-  const q = useQuery({ queryKey: examKeys.list(), queryFn: () => fetchExams() })
+  const [tab, setTab] = useState<TabId>('upcoming')
+  const [period, setPeriod] = useState<DateRange>({ from: '', to: '' })
+  // Граница вкладок фиксируется на время жизни экрана: «сейчас» в ключе запроса менялось бы
+  // на каждом рендере.
+  const [today] = useState(startOfToday)
+  const params = useMemo(() => examParams(tab, today, period), [tab, today, period])
+
+  // Сервер отдаёт экзамены вкладки, ближайшие к сегодняшнему дню, по возрастанию даты:
+  // раньше у декана с сотнями экзаменов в выдачу попадали самые старые, без текущей сессии.
+  const q = useQuery({ queryKey: examKeys.list(params), queryFn: () => fetchExams(params) })
 
   const remove = useMutation({
     mutationFn: (id: string) => deleteExamRequest(id),
@@ -64,41 +120,68 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
       qc.invalidateQueries({ queryKey: examKeys.all })
       toast.success(t('deleted'))
     },
-    onError: (e) => toast.error(tErr(toApiError(e).code)),
+    onError: (e) => {
+      const code = toApiError(e).code
+      toast.error(code === 'CONFLICT' ? t('deleteHasResults') : tErr(code))
+    },
   })
 
-  const rows = q.data ?? []
-  // По умолчанию — ближайший экзамен сверху: сессию читают по датам.
+  // Предстоящие — ближайший сверху, прошедшие — свежий сверху: до нажатия на заголовок
+  // таблица показывает то, что ближе всего к сегодняшнему дню.
+  const rows = useMemo(() => {
+    const list = q.data ?? []
+    return tab === 'past' ? [...list].reverse() : list
+  }, [q.data, tab])
+  // Без начальной сортировки: порядок задаёт вкладка (см. `rows`).
   const {
     rows: sorted,
     sort,
     toggle,
-  } = useTableSort<ExamItem>(
-    rows,
-    (e, key) => {
-      if (key === 'subject') return e.course.subject.name
-      if (key === 'date') return e.date
-      if (key === 'group') return e.group.name
-      if (key === 'room') return e.room?.name ?? null
-      if (key === 'format') return e.format
-      return null
-    },
-    { key: 'date', dir: 'asc' },
-  )
+  } = useTableSort<ExamItem>(rows, (e, key) => {
+    if (key === 'subject') return e.course.subject.name
+    if (key === 'date') return e.date
+    if (key === 'group') return e.group.name
+    if (key === 'room') return e.room?.name ?? null
+    if (key === 'format') return e.format
+    return null
+  })
 
   if (rosterId) {
-    return <ExamResultsRoster examId={rosterId} onBack={() => setRosterId(null)} />
+    return (
+      <ExamResultsRoster
+        examId={rosterId}
+        maxScore={rows.find((e) => e.id === rosterId)?.maxScore ?? null}
+        onBack={() => setRosterId(null)}
+      />
+    )
   }
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader
         title={t('manageTitle')}
+        tabs={
+          <SegmentedTabs
+            aria-label={t('manageTitle')}
+            value={tab}
+            onChange={setTab}
+            items={TAB_ORDER.map((id) => ({ value: id, label: t(id) }))}
+          />
+        }
         actions={
-          <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}>
-            <Plus className="size-4" aria-hidden />
-            {t('newExam')}
-          </Button>
+          <>
+            <DateRangePicker
+              size="sm"
+              className="w-60"
+              value={period}
+              onChange={setPeriod}
+              aria-label={t('period')}
+            />
+            <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}>
+              <Plus className="size-4" aria-hidden />
+              {t('newExam')}
+            </Button>
+          </>
         }
       />
 
@@ -107,6 +190,11 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
           icon={<Inbox className="size-6" aria-hidden />}
           title={t('loadError')}
           action={<Button onClick={() => q.refetch()}>{t('retry')}</Button>}
+        />
+      ) : !q.isLoading && rows.length === 0 && tab === 'past' ? (
+        <EmptyState
+          icon={<GraduationCap className="size-6" aria-hidden />}
+          title={t('pastEmpty')}
         />
       ) : !q.isLoading && rows.length === 0 ? (
         <EmptyState
@@ -195,11 +283,38 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
                           <Users aria-hidden />
                           {t('openRoster')}
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem variant="destructive" onClick={() => remove.mutate(e.id)}>
-                          <Trash2 aria-hidden />
-                          {t('delete')}
-                        </DropdownMenuItem>
+                        {canDelete(e) && (
+                          <>
+                            <DropdownMenuItem onClick={() => setEditing(e)}>
+                              <Pencil aria-hidden />
+                              {t('edit')}
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onClick={async () => {
+                                // Необратимо, и группа получит уведомление об отмене —
+                                // один промах по пункту меню не должен этого делать.
+                                const ok = await confirm({
+                                  title: t('confirmDeleteTitle'),
+                                  // Об отмене сервер сообщает только по предстоящему.
+                                  description: t(
+                                    new Date(e.date).getTime() > Date.now()
+                                      ? 'confirmDeleteDesc'
+                                      : 'confirmDeletePastDesc',
+                                    { subject: e.course.subject.name, group: e.group.name },
+                                  ),
+                                  confirmLabel: t('delete'),
+                                  destructive: true,
+                                })
+                                if (ok) remove.mutate(e.id)
+                              }}
+                            >
+                              <Trash2 aria-hidden />
+                              {t('delete')}
+                            </DropdownMenuItem>
+                          </>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -210,7 +325,22 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
         </Card>
       )}
 
+      {/* Список упёрся в потолок выдачи — честно говорим, что показана только часть. */}
+      {rows.length >= EXAM_LIST_LIMIT && (
+        <p className="text-xs text-muted-foreground">
+          {t('listCapped', { count: EXAM_LIST_LIMIT })}
+        </p>
+      )}
+
       {creating && <CreateExamModal mine={mine} onClose={() => setCreating(false)} />}
+      {editing && (
+        <CreateExamModal
+          key={editing.id}
+          mine={mine}
+          exam={editing}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </div>
   )
 }

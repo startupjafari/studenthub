@@ -6,7 +6,12 @@ import { Role } from '@studenthub/shared-types'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import { MINIO_CLIENT } from '../../common/minio/minio.module'
-import { PLATFORM_STATE, type PlatformStateReader } from '../platform/platform.constants'
+import {
+  PLATFORM_STATE,
+  PLATFORM_TIME_ZONE_LABEL,
+  isQuietHour,
+  type PlatformStateReader,
+} from '../platform/platform.constants'
 import { AppException } from '../../common/exceptions/app.exception'
 import { equalsConstantTime } from '../../common/security/constant-time'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -120,6 +125,16 @@ const UNLINKED = [
   'Настройки → «Мини-апп в Telegram», там выдаётся код.',
 ].join('\n')
 
+/** Привязку не удалось проверить: база не ответила. */
+const UNVERIFIED = Symbol('unverified')
+
+/**
+ * Ответ, когда привязку проверить нечем. Без данных, как и UNLINKED: кто пишет — неизвестно.
+ * Сотруднику этого хватает, чтобы понять, что платформа сейчас отвечает с ошибкой.
+ */
+const LINK_CHECK_FAILED =
+  'Не получилось проверить привязку Telegram — платформа сейчас отвечает с ошибкой. Попробуйте позже.'
+
 /**
  * Имя команды из текста сообщения, либо null, если это не команда.
  *
@@ -133,18 +148,6 @@ export function parseCommand(text: string | undefined): string | null {
   if (!trimmed.startsWith('/')) return 'help'
   const word = trimmed.slice(1).split(/[\s@]/, 1)[0]?.toLowerCase()
   return word ? word : 'help'
-}
-
-/** Следующий в очереди дежурства после текущего; по кругу. */
-export function nextInRotation(duty: {
-  dutyUserId: string | null
-  rotation: string[]
-}): string | null {
-  const { rotation, dutyUserId } = duty
-  if (rotation.length === 0) return null
-  const index = dutyUserId ? rotation.indexOf(dutyUserId) : -1
-  // Дежурного нет в списке (назначили руками) — следующим считается первый по очереди.
-  return rotation[index === -1 ? 0 : (index + 1) % rotation.length] ?? null
 }
 
 @Injectable()
@@ -259,7 +262,19 @@ export class TelegramHookService implements OnModuleInit {
     const command = parseCommand(message.text)
     if (command === null) return
 
-    const actor = await this.actorFor(message.from?.id)
+    // Привязку проверяет база. Не ответила — вебхук всё равно обязан вернуть 200 (иначе
+    // Telegram повторяет обновление часами), а человек — получить ответ: `/status` пишут
+    // как раз в аварию. Данных в ответе нет — кто спрашивает, здесь неизвестно.
+    const actor = await this.actorFor(message.from?.id).catch(
+      (error: unknown): typeof UNVERIFIED => {
+        this.logger.warn(`Бот: привязка Telegram не проверена: ${String(error)}`)
+        return UNVERIFIED
+      },
+    )
+    if (actor === UNVERIFIED) {
+      await this.reply(chatId, LINK_CHECK_FAILED)
+      return
+    }
     if (!actor) {
       await this.reply(chatId, UNLINKED)
       return
@@ -363,12 +378,15 @@ export class TelegramHookService implements OnModuleInit {
 
   /** Кто разбирает сейчас, кто следующий и что с тишиной. */
   private async dutyText(): Promise<string> {
-    const [duty, policy] = await Promise.all([
+    // Следующего выбирает тот же код, что и крон смены: с пропуском тех, кому бот не может
+    // написать, и без «следующего» при очереди короче двух.
+    const [duty, policy, next] = await Promise.all([
       this.platform.duty(),
       this.platform.notificationPolicy(),
+      this.platform.nextOnDuty(),
     ])
 
-    const ids = [duty.dutyUserId, nextInRotation(duty)].filter((id): id is string => id !== null)
+    const ids = [duty.dutyUserId, next].filter((id): id is string => id !== null)
     const names = await this.namesOf(ids)
 
     const lines = [
@@ -376,7 +394,6 @@ export class TelegramHookService implements OnModuleInit {
         ? `Дежурит: ${names.get(duty.dutyUserId) ?? 'неизвестно кто'}`
         : 'Дежурного нет — уведомления уходят всей команде',
     ]
-    const next = nextInRotation(duty)
     if (next && next !== duty.dutyUserId) lines.push(`Следующий: ${names.get(next) ?? '—'}`)
 
     lines.push(
@@ -384,9 +401,18 @@ export class TelegramHookService implements OnModuleInit {
         ? 'Тихих часов нет'
         : policy.quietFrom === policy.quietTo
           ? 'Уведомления выключены круглые сутки'
-          : `Тихие часы: с ${policy.quietFrom}:00 до ${policy.quietTo}:00`,
+          : `Тихие часы: с ${policy.quietFrom}:00 до ${policy.quietTo}:00 ${PLATFORM_TIME_ZONE_LABEL}`,
     )
-    if (policy.digestHour !== null) lines.push(`Сводка приходит в ${policy.digestHour}:00`)
+    // Час — по поясу платформы (PLATFORM_TIME_ZONE), а не по часам того, кто спросил:
+    // без пояса «в 9:00» читается по-разному у человека в Алматы и в командировке.
+    if (policy.digestHour !== null) {
+      // Тихие часы глушат и сводку: обещать её время, когда она не придёт, нельзя.
+      lines.push(
+        isQuietHour(policy.quietFrom, policy.quietTo, policy.digestHour)
+          ? `Сводка назначена на ${policy.digestHour}:00 ${PLATFORM_TIME_ZONE_LABEL}, но попадает в тихие часы и не приходит`
+          : `Сводка приходит в ${policy.digestHour}:00 ${PLATFORM_TIME_ZONE_LABEL}`,
+      )
+    }
     if (policy.muted.length > 0) lines.push(`Отключено: ${policy.muted.join(', ')}`)
     return lines.join('\n')
   }
@@ -449,6 +475,12 @@ export class TelegramHookService implements OnModuleInit {
   /**
    * Кто нажал. Никаких данных из тела обновления, кроме telegramId: роль и scope читаются
    * из нашей базы — иначе достаточно было бы прислать «я админ» вместе с нажатием.
+   *
+   * Допуск — тот же, что у веба и мини-аппа. Удалённый аккаунт сохраняет роль, и
+   * привязка, пережившая удаление (сбой, старые данные), пускала бы его брать жалобы и
+   * читать очередь; удаление снимает её само, здесь — вторая линия. Форс 2FA — как у
+   * TwoFactorGuard: платформенной роли без второго фактора веб и мини-апп отказывают, и
+   * бот, который её пускает, был бы обходом.
    */
   private async actorFor(telegramId: number | string | undefined): Promise<JwtPayload | null> {
     if (telegramId === undefined) return null
@@ -460,6 +492,8 @@ export class TelegramHookService implements OnModuleInit {
             id: true,
             role: true,
             isBlocked: true,
+            deletedAt: true,
+            twoFactorEnabled: true,
             universityId: true,
             facultyId: true,
             groupId: true,
@@ -468,8 +502,12 @@ export class TelegramHookService implements OnModuleInit {
       },
     })
     const user = account?.user
-    if (!user || user.isBlocked) return null
+    if (!user || user.isBlocked || user.deletedAt) return null
     if (!STAFF_ROLES.includes(user.role as Role)) return null
+    if (this.config.get('TWO_FACTOR_ENFORCE', { infer: true }) && !user.twoFactorEnabled) {
+      this.logger.warn(`Бот: отказ — роль ${user.role} без включённой 2FA (user=${user.id})`)
+      return null
+    }
 
     return {
       sub: user.id,
@@ -477,6 +515,7 @@ export class TelegramHookService implements OnModuleInit {
       universityId: user.universityId,
       facultyId: user.facultyId,
       groupId: user.groupId,
+      tfa: user.twoFactorEnabled,
     } as JwtPayload
   }
 

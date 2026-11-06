@@ -37,11 +37,17 @@ const COLS = ['8%', '26%', '16%', '14%', '14%', '22%'] as const
 function sortValue(r: BulkInvitePreviewRow, key: string): unknown {
   if (key === 'line') return r.line
   if (key === 'email') return r.email
-  if (key === 'groupName') return r.groupName
+  if (key === 'groupName') return placeOf(r)
   if (key === 'role') return r.role
   if (key === 'status') return r.status
   if (key === 'error') return r.error
   return undefined
+}
+
+// Куда приглашают: студента и старосту — в группу, декана (и по желанию преподавателя) —
+// на факультет. Одна колонка на оба случая: у строки заполнено что-то одно.
+function placeOf(r: BulkInvitePreviewRow): string {
+  return r.groupName || r.facultyName
 }
 
 function errCode(e: unknown): string {
@@ -71,9 +77,11 @@ export function BulkInvite() {
 
   const commitMut = useMutation({
     mutationFn: () => {
+      // Группа нужна не каждой строке (у преподавателя и декана её нет) — отправляем все
+      // годные строки, сервер перепроверит группу и факультет по своему scope.
       const rows = (preview?.rows ?? [])
-        .filter((r) => r.status === 'READY' && r.groupId)
-        .map((r) => ({ email: r.email, groupId: r.groupId as string, role: r.role }))
+        .filter((r) => r.status === 'READY')
+        .map((r) => ({ email: r.email, groupId: r.groupId, facultyId: r.facultyId, role: r.role }))
       return bulkCreateRequest({ rows })
     },
     onSuccess: (res) => {
@@ -176,6 +184,7 @@ function PreviewTable({
   rows: BulkInvitePreviewRow[]
   t: ReturnType<typeof useTranslations>
 }) {
+  const tRoles = useTranslations('Roles')
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState<number>(PREVIEW_PAGE_SIZES[0])
   // Сортировка клиентская намеренно: строки — результат разбора загруженного файла,
@@ -224,10 +233,10 @@ function PreviewTable({
                 <TableText value={r.email} />
               </TableCell>
               <TableCell>
-                <TableText value={r.groupName} />
+                <TableText value={placeOf(r)} />
               </TableCell>
               <TableCell className="text-muted-foreground">
-                <TableText value={r.role} />
+                <TableText value={tRoles(r.role)} />
               </TableCell>
               <TableCell>
                 <Badge variant={STATUS_VARIANT[r.status]}>{t(`bulk.status${r.status}`)}</Badge>
@@ -235,7 +244,14 @@ function PreviewTable({
               {/* Колонка ошибки: у годной строки её просто нет — это не пустое значение,
                   а отсутствие проблемы, поэтому здесь без «пусто». */}
               <TableCell className="text-xs text-muted-foreground">
-                {r.error ? <TableText value={r.error} /> : null}
+                {/* Дубль объясняется словарём, а не текстом сервера: тот русский в любой
+                    локали. Причины ошибок с именем группы или факультета пока приходят
+                    готовой строкой — кода у них в контракте строки нет. */}
+                {r.status === 'DUPLICATE' ? (
+                  <TableText value={t('bulk.duplicateReason')} />
+                ) : r.error ? (
+                  <TableText value={r.error} />
+                ) : null}
               </TableCell>
             </TableRow>
           ))}

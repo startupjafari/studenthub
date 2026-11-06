@@ -163,6 +163,51 @@ describe('uploadMultipart', () => {
     expect(seen[0]).toBeCloseTo(0.5, 5)
   })
 
+  it('на 403 хранилища перевыпускает подпись части и повторяет уже со свежей', async () => {
+    const { calls } = harness({ partCount: 1 })
+    put.mockReset()
+    put
+      .mockRejectedValueOnce({ response: { status: 403 } })
+      .mockImplementation(() => Promise.resolve(ok('e1')))
+
+    await uploadMultipart({ file: fileOf(PART), ...calls })
+
+    expect(calls.urls).toHaveBeenCalledTimes(2)
+    expect(calls.urls).toHaveBeenLastCalledWith(expect.objectContaining({ from: 1, to: 1 }))
+    expect(calls.complete).toHaveBeenCalled()
+  })
+
+  it('подписи, состарившиеся за время загрузки, перевыпускаются до PUT', async () => {
+    // Подписи живут 15 минут: каждая часть здесь льётся 13 — к четвёртой они протухли.
+    let now = 0
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now)
+    try {
+      const { calls } = harness({ partCount: 4 })
+      put.mockImplementation((url: string) => {
+        now += 13 * 60_000
+        return Promise.resolve(ok(`e${url.split('/').pop()}`))
+      })
+
+      await uploadMultipart({ file: fileOf(PART * 4), ...calls })
+
+      expect(calls.urls).toHaveBeenCalledTimes(2)
+      expect(calls.urls).toHaveBeenLastCalledWith(expect.objectContaining({ from: 4, to: 4 }))
+      expect(put).toHaveBeenCalledTimes(4)
+    } finally {
+      clock.mockRestore()
+    }
+  })
+
+  it('сбой хранилища уходит наружу кодом из реестра, а не сырым ERR_NETWORK', async () => {
+    const { calls } = harness({ partCount: 1 })
+    put.mockReset()
+    put.mockRejectedValue(Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' }))
+
+    await expect(uploadMultipart({ file: fileOf(PART), ...calls })).rejects.toMatchObject({
+      code: 'INTERNAL_ERROR',
+    })
+  })
+
   it('отмена убирает загрузку в хранилище, сетевая ошибка — нет', async () => {
     const { calls } = harness({ partCount: 1 })
     put.mockReset()

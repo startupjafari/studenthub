@@ -1,23 +1,20 @@
-import { Inject, Injectable } from '@nestjs/common'
+import { Inject, Injectable, Logger } from '@nestjs/common'
 import { HealthIndicatorResult, HealthIndicatorService } from '@nestjs/terminus'
 import type { Client as MinioClient } from 'minio'
 import { MINIO_CLIENT } from '../../../common/minio/minio.module'
+import { probe } from './probe'
 
 @Injectable()
 export class MinioHealthIndicator {
+  private readonly logger = new Logger(MinioHealthIndicator.name)
+
   constructor(
     private readonly healthIndicatorService: HealthIndicatorService,
     @Inject(MINIO_CLIENT) private readonly minio: MinioClient,
   ) {}
 
-  async isHealthy(key: string): Promise<HealthIndicatorResult> {
-    const indicator = this.healthIndicatorService.check(key)
-    try {
-      // listBuckets требует валидных креды и живого соединения — годится как проба.
-      await this.minio.listBuckets()
-      return indicator.up()
-    } catch (error) {
-      return indicator.down({ message: (error as Error).message })
-    }
+  // listBuckets требует валидных креды и живого соединения — годится как проба.
+  isHealthy(key: string): Promise<HealthIndicatorResult> {
+    return probe(this.healthIndicatorService, key, this.logger, () => this.minio.listBuckets())
   }
 }

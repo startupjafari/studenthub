@@ -5,6 +5,9 @@ import { UniversityService } from './universities.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import type { UniversityAccessService } from './university-access.service'
+import type { InviteService } from '../invites/invites.service'
+import type { RealtimeGateway } from '../../common/realtime/realtime.gateway'
 
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
 
@@ -24,14 +27,24 @@ function setup() {
     user: { count: jest.fn() },
     $transaction: jest.fn(),
   }
+  // Колбэк-транзакция (удаление): в tx — тот же мок. Пакетная (статистика) задаётся в тесте.
+  prisma.$transaction.mockImplementation(async (arg: unknown) =>
+    typeof arg === 'function' ? (arg as (tx: typeof prisma) => unknown)(prisma) : arg,
+  )
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const redis = { get: jest.fn(), set: jest.fn(), del: jest.fn() }
+  const access = { remember: jest.fn() }
+  const invites = { revokePendingInScope: jest.fn().mockResolvedValue(0) }
+  const realtime = { disconnectUniversity: jest.fn().mockResolvedValue(undefined) }
   const service = new UniversityService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     redis as unknown as Redis,
+    access as unknown as UniversityAccessService,
+    invites as unknown as InviteService,
+    realtime as unknown as RealtimeGateway,
   )
-  return { service, prisma, audit, redis }
+  return { service, prisma, audit, redis, access, invites, realtime }
 }
 
 function viewer(role: Role, universityId: string | null = null, sub = 'u'): JwtPayload {
@@ -101,6 +114,52 @@ describe('UniversityService — status/create/delete', () => {
     )
   })
 
+  // Блокировка должна действовать сразу, а не когда истечёт память допуска.
+  it('setStatus: новый статус сразу уходит в допуск пользователей', async () => {
+    const { service, prisma, access } = setup()
+    prisma.university.findUnique.mockResolvedValue(UNI)
+    prisma.university.update.mockResolvedValue({ ...UNI, status: 'BLOCKED' })
+    await service.setStatus(viewer(Role.PLATFORM_ADMIN), 'uni-1', { status: 'BLOCKED' }, ctx)
+    expect(access.remember).toHaveBeenCalledWith('uni-1', 'BLOCKED')
+  })
+
+  // Регрессия: HTTP пользователям заблокированного вуза уже отказывал, а открытый сокет
+  // продолжал получать события и принимать message:send в обход UNIVERSITY_BLOCKED.
+  it('setStatus BLOCKED: рвёт сокеты вуза — после того, как статус запомнен', async () => {
+    const { service, prisma, access, realtime } = setup()
+    prisma.university.findUnique.mockResolvedValue(UNI)
+    prisma.university.update.mockResolvedValue({ ...UNI, status: 'BLOCKED' })
+    await service.setStatus(viewer(Role.PLATFORM_ADMIN), 'uni-1', { status: 'BLOCKED' }, ctx)
+    expect(realtime.disconnectUniversity).toHaveBeenCalledWith('uni-1')
+    // Разрыв решает по статусу из памяти допуска: она должна знать о блокировке раньше.
+    expect(access.remember.mock.invocationCallOrder[0]).toBeLessThan(
+      realtime.disconnectUniversity.mock.invocationCallOrder[0] as number,
+    )
+  })
+
+  it('setStatus ACTIVE/PENDING: сокеты не трогает', async () => {
+    for (const status of ['ACTIVE', 'PENDING'] as const) {
+      const { service, prisma, realtime } = setup()
+      prisma.university.findUnique.mockResolvedValue({ ...UNI, status: 'BLOCKED' })
+      prisma.university.update.mockResolvedValue({ ...UNI, status })
+      await service.setStatus(viewer(Role.PLATFORM_ADMIN), 'uni-1', { status }, ctx)
+      expect(realtime.disconnectUniversity).not.toHaveBeenCalled()
+    }
+  })
+
+  it('setStatus BLOCKED: сбой разрыва сокетов не откатывает блокировку и не даёт 500', async () => {
+    const { service, prisma, audit, realtime } = setup()
+    prisma.university.findUnique.mockResolvedValue(UNI)
+    prisma.university.update.mockResolvedValue({ ...UNI, status: 'BLOCKED' })
+    realtime.disconnectUniversity.mockRejectedValue(new Error('adapter down'))
+    await expect(
+      service.setStatus(viewer(Role.PLATFORM_ADMIN), 'uni-1', { status: 'BLOCKED' }, ctx),
+    ).resolves.toMatchObject({ status: 'BLOCKED' })
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'university_status_changed' }),
+    )
+  })
+
   it('remove: FK-нарушение (P2003) → CONFLICT', async () => {
     const { service, prisma } = setup()
     prisma.university.findUnique.mockResolvedValue(UNI)
@@ -110,6 +169,25 @@ describe('UniversityService — status/create/delete', () => {
     await expect(service.remove(viewer(Role.PLATFORM_ADMIN), 'uni-1', ctx)).rejects.toMatchObject({
       code: 'CONFLICT',
     })
+  })
+
+  // Иначе ссылка-приглашение в удалённый вуз жила дальше и падала на регистрации
+  // невнятным «нарушением ссылочной целостности».
+  it('remove: ожидающие приглашения в вуз отзываются той же транзакцией, до удаления', async () => {
+    const { service, prisma, invites, audit } = setup()
+    prisma.university.findUnique.mockResolvedValue(UNI)
+    prisma.university.delete.mockResolvedValue(UNI)
+    invites.revokePendingInScope.mockResolvedValue(3)
+
+    await service.remove(viewer(Role.PLATFORM_ADMIN), 'uni-1', ctx)
+
+    expect(invites.revokePendingInScope).toHaveBeenCalledWith(prisma, { universityId: 'uni-1' })
+    expect(invites.revokePendingInScope.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.university.delete.mock.invocationCallOrder[0] as number,
+    )
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'university_deleted', metadata: { revokedInvites: 3 } }),
+    )
   })
 })
 
@@ -133,6 +211,40 @@ describe('UniversityService — stats cache', () => {
     const stats = await service.getStats(viewer(Role.PLATFORM_ADMIN), 'uni-1')
     expect(stats).toEqual({ faculties: 1, groups: 2, rooms: 3, students: 4, teachers: 5 })
     expect(redis.set).toHaveBeenCalledWith('stats:university:uni-1', expect.any(String), 'EX', 300)
+    // Плитка «Студенты» считает и старост — как аналитика платформы.
+    expect(prisma.user.count).toHaveBeenCalledWith({
+      where: {
+        universityId: 'uni-1',
+        role: { in: [Role.STUDENT, Role.STAROSTA] },
+        deletedAt: null,
+      },
+    })
+  })
+
+  // Кэш — ускорение: без Redis плитки дашборда считаются из БД, а не отвечают 500.
+  it('Redis недоступен на чтении и записи — статистика из БД', async () => {
+    const { service, prisma, redis } = setup()
+    prisma.university.findUnique.mockResolvedValue(UNI)
+    redis.get.mockRejectedValue(new Error('ECONNREFUSED'))
+    redis.set.mockRejectedValue(new Error('ECONNREFUSED'))
+    prisma.$transaction.mockResolvedValue([1, 2, 3, 4, 5])
+    await expect(service.getStats(viewer(Role.PLATFORM_ADMIN), 'uni-1')).resolves.toEqual({
+      faculties: 1,
+      groups: 2,
+      rooms: 3,
+      students: 4,
+      teachers: 5,
+    })
+  })
+
+  it('испорченная запись в кэше — промах, а не 500', async () => {
+    const { service, prisma, redis } = setup()
+    prisma.university.findUnique.mockResolvedValue(UNI)
+    redis.get.mockResolvedValue('{не json')
+    prisma.$transaction.mockResolvedValue([1, 0, 0, 0, 0])
+    await expect(service.getStats(viewer(Role.PLATFORM_ADMIN), 'uni-1')).resolves.toMatchObject({
+      faculties: 1,
+    })
   })
 })
 

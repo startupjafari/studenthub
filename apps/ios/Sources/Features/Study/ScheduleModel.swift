@@ -39,9 +39,17 @@ final class ScheduleModel {
         self.store = store ?? ScheduleStore(database: database)
         self.calendar = calendar
         selectedDay = Self.isoDay(of: now, calendar: calendar)
-        parity = WeekParity.current(now)
+        parity = WeekParity.current(now, in: Self.universityTimeZone ?? calendar.timeZone)
         syncedAt = UserDefaults.standard.object(forKey: Self.syncedKey) as? Date
     }
+
+    /// Пояс вуза из последнего ответа `GET /schedule`. По нему считается чётность —
+    /// как в вебе и Android; до первой загрузки — пояс устройства.
+    static var universityTimeZone: TimeZone? {
+        UserDefaults.standard.string(forKey: timeZoneKey).flatMap(TimeZone.init(identifier:))
+    }
+
+    static let timeZoneKey = "schedule.timezone"
 
     deinit {
         pairsTask?.cancel()
@@ -62,11 +70,23 @@ final class ScheduleModel {
 
     /// Переключить чётность вручную: человек смотрит «следующую неделю» чаще, чем
     /// кажется, и ради этого не должен ждать понедельника.
+    ///
+    /// Переключается именно неделя, а не только признак чётности: иначе на пары
+    /// следующей недели накладывались разовые изменения текущей (отмена в этот
+    /// вторник показывалась и на вторнике через неделю).
     @MainActor
     func toggleParity() {
+        weekOffset = weekOffset == 0 ? 1 : 0
         parity = parity == .odd ? .even : .odd
         observe()
     }
+
+    /// Неделя на экране: 0 — текущая, 1 — следующая.
+    private(set) var weekOffset = 0
+
+    /// Дата выбранного дня на показанной неделе — по ней ищутся изменения и на неё
+    /// ставится посещаемость.
+    var selectedDate: Date { dateOfSelectedDay() }
 
     @MainActor
     func refresh() async {
@@ -75,10 +95,20 @@ final class ScheduleModel {
         defer { isRefreshing = false }
 
         do {
-            try await store.save(try await api.schedule())
-            let from = calendar.startOfDay(for: Date())
-            let to = calendar.date(byAdding: .day, value: 14, to: from) ?? from
-            try await store.save(changes: try await api.changes(from: from, to: to), from: from)
+            let schedule = try await api.schedule()
+            try await store.save(schedule)
+            // Период изменений — дни вуза: «сегодня» студента в другом поясе не должно
+            // сдвигать окно на сутки.
+            let zone = schedule.timezone.flatMap(TimeZone.init(identifier:)) ?? calendar.timeZone
+            if let timezone = schedule.timezone {
+                UserDefaults.standard.set(timezone, forKey: Self.timeZoneKey)
+            }
+            let now = Date()
+            let until = calendar.date(byAdding: .day, value: 14, to: now) ?? now
+            try await store.save(
+                changes: try await api.changes(from: now, to: until, timeZone: zone),
+                from: calendar.startOfDay(for: now)
+            )
             syncedAt = Date()
             UserDefaults.standard.set(syncedAt, forKey: Self.syncedKey)
             failure = nil
@@ -97,7 +127,20 @@ final class ScheduleModel {
             .sorted { $0.startTime < $1.startTime }
     }
 
-    private static let syncedKey = "schedule.synced-at"
+    /// Ближайшая пара выбранного дня (на главной это сегодня): первая неотменённая,
+    /// которая ещё не закончилась. Идущая сейчас — тоже ближайшая, прошедшая — нет.
+    func nextPair(at now: Date = Date()) -> SchedulePair? {
+        let clock = Self.clock(of: now, calendar: calendar)
+        return visiblePairs.first { !$0.isCancelled && $0.endTime > clock }
+    }
+
+    /// «HH:mm» — в той же форме, что время пар: сравнивается строкой.
+    static func clock(of date: Date, calendar: Calendar) -> String {
+        let parts = calendar.dateComponents([.hour, .minute], from: date)
+        return String(format: "%02d:%02d", parts.hour ?? 0, parts.minute ?? 0)
+    }
+
+    static let syncedKey = "schedule.synced-at"
 
     @MainActor
     private func observe() {
@@ -123,11 +166,11 @@ final class ScheduleModel {
         }
     }
 
-    /// Дата выбранного дня внутри текущей недели — по ней ищутся разовые изменения.
+    /// Дата выбранного дня внутри показанной недели — по ней ищутся разовые изменения.
     private func dateOfSelectedDay() -> Date {
         let today = Date()
         let todayIndex = Self.isoDay(of: today, calendar: calendar)
-        let shift = selectedDay - todayIndex
+        let shift = selectedDay - todayIndex + 7 * weekOffset
         return calendar.date(byAdding: .day, value: shift, to: calendar.startOfDay(for: today)) ?? today
     }
 

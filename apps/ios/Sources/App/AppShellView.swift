@@ -14,6 +14,10 @@ struct AppShellView: View {
     /// Общий маршрутизатор: по нему же ходит переход из уведомления.
     @Bindable private var router = AppServices.router
 
+    /// Действует ли согласие на обработку ПДн: без него приложение закрыто экраном
+    /// согласия, как окном `ConsentGate` в вебе.
+    @State private var consent = ConsentGateModel()
+
     private var role: Role { viewer.role }
 
     var body: some View {
@@ -32,10 +36,18 @@ struct AppShellView: View {
             }
         }
         .tint(Palette.primary)
+        .fullScreenCover(isPresented: Binding(get: { consent.isRequired }, set: { _ in })) {
+            ConsentGateView(model: consent, session: session)
+        }
+        .task {
+            await consent.load()
+        }
         .task {
             // Соединение живёт, пока человек внутри приложения: вход в него делает
             // сессия, выход — её конец.
             AppServices.realtime.start()
+            // Пуш, нажатый на холодном старте, ждал роли — теперь она есть.
+            router.openPending(for: role)
             // Разрешение спрашиваем здесь, а не на экране входа: до входа уведомлять
             // человека не о чем, и запрос выглядел бы попрошайничеством.
             await PushRegistrar().requestAuthorization()
@@ -74,11 +86,11 @@ struct AppShellView: View {
         case .section(.attendance):
             AttendanceView()
         case .section(.assignments):
-            AssignmentsView()
+            AssignmentsView(isStudent: role != .teacher)
         case .section(.materials):
             MaterialsView()
         case .section(.notifications):
-            NotificationsView()
+            NotificationsView(role: role)
         case .section(.events):
             EventsView()
         case .section(.profile):
@@ -89,28 +101,40 @@ struct AppShellView: View {
             ServiceCatalogView()
         case .section(.documents):
             DocumentsView()
+        case .section(.library):
+            LibraryCatalogView()
         case .section(let section):
             PlaceholderScreen(title: section.title)
         case .chat(let id):
             ChatThreadView(chatID: id, viewerID: viewer.subject)
         case .post(let id):
             PostDetailView(postID: id)
+        case .profile(let id):
+            ProfileView(userID: id)
         case .application(let id):
             ApplicationDetailView(applicationID: id)
         case .service(let id):
             ApplicationFormView(serviceID: id)
         case .event:
             EventsView()
-        case .lesson(let id):
+        case .lesson(let id, let date):
             // Преподаватель с занятия идёт отмечать посещаемость — это главное,
             // зачем он вообще открывает пару на телефоне.
             if role == .teacher {
-                AttendanceMarkingView(pairID: id)
+                AttendanceMarkingView(pairID: id, date: date ?? Date())
             } else {
                 PlaceholderScreen(title: String(localized: "shell.lesson", defaultValue: "Пара"), reference: id)
             }
         case .assignment(let id):
-            AssignmentDetailView(assignmentID: id)
+            AssignmentDetailView(assignmentID: id, isStudent: role != .teacher)
+        case .myBooks:
+            MyBooksView()
+        case .libraryClearance:
+            LibraryClearanceView()
+        case .book(let id):
+            LibraryBookView(bookID: id)
+        case .bookCopy(let code):
+            LibraryCopyView(code: code)
         }
     }
 }

@@ -77,6 +77,15 @@ class InMemoryWindowCounter {
 }
 
 /** Контракт хранилища меряет остаток в секундах, внутренние отметки — в миллисекундах. */
+/**
+ * Сколько ждать Redis на одном счётчике. Общий клиент ждёт команду до 3 с (commandTimeout в
+ * redis.module.ts), а счётчиков на запрос несколько: подвисший — не упавший — Redis добавлял
+ * по 3–6 с к каждому запросу всей платформы. Тот же принцип, что у проверки отзыва сессий
+ * (SessionRevocationService, 150 мс): живой Redis отвечает за миллисекунды, а не дождались —
+ * считаем в памяти, как при сбое.
+ */
+const REDIS_TIMEOUT_MS = 200
+
 function toSeconds(ms: number): number {
   return ms > 0 ? Math.ceil(ms / 1000) : 0
 }
@@ -114,7 +123,10 @@ export class ResilientThrottlerStorage implements ThrottlerStorage {
    */
   private readonly fallback = new InMemoryWindowCounter()
 
-  constructor(private readonly inner: ThrottlerStorage) {}
+  constructor(
+    private readonly inner: ThrottlerStorage,
+    private readonly timeoutMs = REDIS_TIMEOUT_MS,
+  ) {}
 
   async increment(
     key: string,
@@ -123,11 +135,22 @@ export class ResilientThrottlerStorage implements ThrottlerStorage {
     blockDuration: number,
     throttlerName: string,
   ): Promise<ThrottlerStorageRecord> {
+    let timer: NodeJS.Timeout | undefined
     try {
-      return await this.inner.increment(key, ttl, limit, blockDuration, throttlerName)
+      return await Promise.race([
+        this.inner.increment(key, ttl, limit, blockDuration, throttlerName),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`Redis не ответил за ${this.timeoutMs} мс`)),
+            this.timeoutMs,
+          )
+        }),
+      ])
     } catch (error) {
       this.warnThrottled(error)
       return this.fallback.increment(key, ttl, limit, blockDuration)
+    } finally {
+      clearTimeout(timer)
     }
   }
 

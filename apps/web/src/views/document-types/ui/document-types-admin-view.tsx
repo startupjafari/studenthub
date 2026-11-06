@@ -28,6 +28,7 @@ import {
   TableRow,
   TableSkeletonRows,
   TableText,
+  useConfirm,
   useTableSort,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
@@ -139,8 +140,11 @@ export function DocumentTypesAdminView() {
             <TableBody>
               {q.isLoading && <TableSkeletonRows columns={SKELETON_COLS} />}
               {sorted.map((row) => (
+                // Срок хранения в ключе: поле — черновик ввода, и после сброса типа или
+                // сохранения на сервере строка пересоздаётся с новым значением. Иначе поле
+                // показывало прежний срок и при уходе фокуса записывало его снова.
                 <TypeRow
-                  key={row.typeId}
+                  key={`${row.typeId}:${row.retentionDays ?? ''}`}
                   row={row}
                   name={typeName(row)}
                   onChanged={invalidate}
@@ -169,6 +173,7 @@ function TypeRow({
   onErr: (e: unknown) => void
 }) {
   const t = useTranslations('Documents')
+  const confirm = useConfirm()
   const [retention, setRetention] = useState(row.retentionDays?.toString() ?? '')
 
   const updateMut = useMutation({
@@ -183,8 +188,21 @@ function TypeRow({
       onChanged()
       toast.success(t('dt_removed'))
     },
-    onError: onErr,
+    // Собственный тип, которым уже пользуются, сервер не удаляет (409) — подсказываем, что
+    // его выключают.
+    onError: (e) =>
+      (e as { code?: string }).code === 'CONFLICT' ? toast.error(t('dt_inUse')) : onErr(e),
   })
+
+  // Удаление своего типа и сброс стандартного необратимы — только после подтверждения.
+  const remove = async () => {
+    const ok = await confirm({
+      title: t(row.custom ? 'dt_deleteConfirm' : 'dt_resetConfirm', { name }),
+      confirmLabel: row.custom ? t('dt_delete') : t('dt_reset'),
+      destructive: true,
+    })
+    if (ok) removeMut.mutate()
+  }
 
   const saveRetention = () => {
     const trimmed = retention.trim()
@@ -250,7 +268,7 @@ function TypeRow({
           aria-label={row.custom ? t('dt_delete') : t('dt_reset')}
           title={row.custom ? t('dt_delete') : t('dt_reset')}
           loading={removeMut.isPending}
-          onClick={() => removeMut.mutate()}
+          onClick={() => void remove()}
         >
           {row.custom ? (
             <Trash2 className="size-4" aria-hidden />

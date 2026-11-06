@@ -2,7 +2,7 @@
 
 > Обязательный регламент для `apps/api` (NestJS + Fastify + Prisma).
 > Читается агентом (Claude Code / Codex) **до** написания любого кода в бэкенде.
-> Версия: 1.0 · Последнее обновление: 2026-07
+> Версия: 1.0 · Последнее обновление: 2026-11
 
 ---
 
@@ -24,9 +24,9 @@
 | DTO через `class-validator` | **Zod** через `packages/shared-schemas` | Единая схема валидации для API и фронта |
 | `npm run ...` | **`pnpm`** + Turborepo | Монорепо на pnpm workspaces |
 | Express-адаптер по умолчанию | **Fastify** (`@nestjs/platform-fastify`) | Производительность |
-| `postgres:17-alpine` | **`postgres:16-alpine`** | Зафиксировано в `docker-compose.yml` |
+| `postgres:17-alpine` | **`postgres:16-alpine`** | Зафиксировано в `docker/shared/infra.yml` |
 | Формат ошибки `{ statusCode, message, error }` | `{ success, error: { code, message, details } }` | Контракт фронтенда (`docs/PROJECT.md` §API) |
-| Одиночный `schema.prisma` | Multi-file схема в `prisma/schema/` | Схема на ~35 моделей |
+| Одиночный `schema.prisma` | Multi-file схема в `prisma/schema/` | Схема на ~120 моделей |
 
 ---
 
@@ -63,13 +63,16 @@ apps/api/src/
 │   ├── <feature>.service.spec.ts
 │   └── (gateway|processor|cron).ts   # если нужны
 ├── common/
-│   ├── guards/                   # JwtAuthGuard, RolesGuard, ScopeGuard, JwtWsGuard
-│   ├── decorators/               # @Roles, @CurrentUser, @Public, @Scope
+│   ├── guards/                   # JwtAuthGuard, RolesGuard, ScopeGuard, TwoFactorGuard,
+│   │                             # MaintenanceGuard, RestrictedRoleGuard, MiniAppGuard, …
+│   ├── decorators/               # @Roles, @CurrentUser, @Public, @Scope, @MiniAllowed, …
 │   ├── filters/                  # HttpExceptionFilter
-│   ├── interceptors/             # ResponseInterceptor, LoggingInterceptor, AuditInterceptor
-│   ├── pipes/                    # ZodValidationPipe
+│   ├── interceptors/             # ResponseInterceptor
+│   ├── realtime/                 # RealtimeGateway — WS-транспорт, аутентификация handshake
+│   ├── queue/ minio/ audit/ …    # общая инфраструктура (очереди, хранилище, аудит)
+│   ├── common.module.ts          # глобальный ZodValidationPipe (APP_PIPE), фильтр, интерсептор
 │   └── prisma/                   # PrismaModule, PrismaService
-├── config/                       # ConfigModule + Zod-валидация env
+├── config/                       # Zod-валидация env (env.schema.ts)
 └── main.ts
 ```
 
@@ -110,11 +113,12 @@ import { CreateInviteSchema } from '@studenthub/shared-schemas'
 export class CreateInviteDto extends createZodDto(CreateInviteSchema) {}
 ```
 
-`createZodDto` даёт одновременно валидацию и Swagger-схему (`patchNestJsSwagger()` в `main.ts`).
+`createZodDto` даёт одновременно валидацию и Swagger-схему (сборка документа —
+`createOpenApiDocument` в `common/swagger/openapi-document.ts`, вызывается из `main.ts`).
 
 ### Правила
 
-- `ZodValidationPipe` регистрируется **глобально** в `main.ts`. Локальные пайпы — только для нестандартных случаев.
+- `ZodValidationPipe` (из `nestjs-zod`) регистрируется **глобально** — `APP_PIPE` в `common/common.module.ts`. Локальные пайпы — только для нестандартных случаев.
 - Query-параметры валидируются так же строго, как body. `?limit=99999` должен отклоняться.
 - `.strict()` на схемах создания/обновления — лишние поля отклоняются, а не игнорируются.
 - Пароли: минимум 8 символов, буква + цифра + спецсимвол. Правило живёт в `PasswordSchema` в shared-schemas, дублировать не нужно.
@@ -158,9 +162,20 @@ export class CreateInviteDto extends createZodDto(CreateInviteSchema) {}
 | 404 | `NOT_FOUND` | Ресурс не найден |
 | 409 | `CONFLICT` | Нарушение уникальности |
 | 410 | `INVITE_EXPIRED` / `INVITE_USED` / `INVITE_REVOKED` | Состояние инвайта |
+| 415 | `FILE_TYPE_NOT_ALLOWED` | Тип файла (по magic bytes) не в белом списке |
+| 413 | `FILE_TOO_LARGE` | Размер больше лимита категории |
+| 413 | `FILE_DIRECT_UPLOAD_REQUIRED` | В пределах лимита, но больше порога буферной загрузки — только presigned (§8) |
 | 422 | `VALIDATION_ERROR` | Ошибка Zod, с `details[]` |
 | 429 | `RATE_LIMIT` | Throttler |
 | 500 | `INTERNAL_ERROR` | Необработанная ошибка |
+| 401 | `INVALID_2FA_CODE` | Неверный или просроченный код 2FA на втором шаге входа |
+| 403 | `TWO_FACTOR_SETUP_REQUIRED` | Привилегированной роли нужно включить 2FA |
+| 409 | `USERNAME_TAKEN` | Имя пользователя занято (отдельно от `CONFLICT` — подсветка поля) |
+| 503 | `MAINTENANCE` | Платформа на техработах |
+| 429 | `LOGIN_LOCKED` | Много неудачных попыток входа в одну учётную запись |
+| 403 | `UNIVERSITY_BLOCKED` | Вуз пользователя заблокирован платформой |
+| 403 | `EMAIL_NOT_VERIFIED` | Работодатель не подтвердил почту компании |
+| 400 | `EXPORT_TOO_LARGE` | Выборка больше предела выгрузки в XLSX — клиент предлагает CSV |
 
 ### 4.4 Правила выброса ошибок
 
@@ -182,7 +197,7 @@ export class CreateInviteDto extends createZodDto(CreateInviteSchema) {}
 - Модели `PascalCase`, поля `camelCase`, таблицы `@@map("snake_case")` — обязательно для каждой модели.
 - Все связи объявляют `onDelete` и `onUpdate` явно. Отсутствие `onDelete` — блокирующее замечание на ревью.
 - `@@index` обязателен на: все внешние ключи, поля частой фильтрации (`audience`, `status`, `expiresAt`, `createdAt`), составные лукапы (`[groupId, dayOfWeek]`, `[chatId, createdAt]`).
-- Soft delete через `deletedAt` для `User`, `Post`, `Comment`, `Message`, `ApplicationRequest`. **Любой** запрос по этим моделям содержит `where: { deletedAt: null }`.
+- Soft delete через `deletedAt` для `User`, `Post`, `Comment`, `EventComment`, `Message`, `Application`, `Document`, `Company`, `Vacancy`. **Любой** запрос по этим моделям содержит `where: { deletedAt: null }`.
 - `prisma validate` и `prisma format` — перед каждой генерацией миграции.
 
 ### 5.2 Миграции
@@ -215,7 +230,7 @@ RolesGuard     (@Roles(Role.DEAN, Role.UNIVERSITY_ADMIN))
 ScopeGuard     (universityId / facultyId / groupId из токена = scope ресурса)
 ```
 
-- `JwtAuthGuard` регистрируется глобально. Публичные эндпоинты помечаются `@Public()`. **Полный список — ровно 16 маршрутов**, сверен с кодом 2026-10-06; всё, чего здесь нет, обязано быть закрыто. Расширение списка требует явного согласования (стоп-точка).
+- `JwtAuthGuard` регистрируется глобально. Публичные эндпоинты помечаются `@Public()`. **Полный список — ровно 29 маршрутов**, сверен с кодом 2026-11-02; всё, чего здесь нет, обязано быть закрыто. Расширение списка требует явного согласования (стоп-точка).
 
   | Маршрут | Почему публичный | Где обосновано |
   |---|---|---|
@@ -224,6 +239,8 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
   | `POST /auth/refresh` | обмен по refresh-cookie | §6.2 |
   | `POST /auth/logout` | выход обязан работать при истёкшем access (см. ниже) | §6.1 |
   | `POST /auth/register-by-invite` | регистрация по инвайту | §7 |
+  | `POST /auth/password/forgot` | ссылка сброса пароля: человек, забывший пароль, войти не может; ответ одинаков для любого адреса | `PROJECT.md` §7.2 |
+  | `POST /auth/password/reset` | новый пароль по одноразовому токену из письма; сессию не выдаёт | `PROJECT.md` §7.2 |
   | `POST /auth/qr/create` | QR-сессию создаёт неавторизованный десктоп | `PROJECT.md` §Вход по QR |
   | `POST /auth/qr/claim` | сессию забирает тот же десктоп по `claimSecret` | `PROJECT.md` §Вход по QR |
   | `GET /invites/:token/preview` | превью инвайта до регистрации | §7 |
@@ -234,8 +251,18 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
   | `GET /career/resume/public/:slug` | резюме по ссылке, публикацию включает сам студент | `PROJECT.md` §Резюме |
   | `POST /career/companies/signup` | единственное исключение из инвайт-онли | §18.7, §19 п. 9 |
   | `POST /career/companies/verify-email` | подтверждение почты по ссылке из письма | §19 п. 9 |
+  | `POST /career/companies/resend-verification` | новая ссылка взамен истёкшей: без входа компания с неподтверждённой почтой застревала навсегда; ответ одинаков для любого адреса | §19 п. 9 |
   | `POST /mini/session` | Telegram открывает мини-апп без нашего JWT; защита — подпись initData | `PROJECT.md` §Мини-апп |
   | `POST /mini/link` | то же, плюс одноразовый код, выданный в вебе | `PROJECT.md` §Мини-апп |
+  | `GET /media/:fileId/hls/master.m3u8` | HLS приватного видео: нативный плеер Safari/iOS не приложит JWT к плейлисту; доступ — master-токен `?t=`, который модуль-владелец выдаёт после своей проверки прав (как presigned-ссылку) | `PROJECT.md` §Медиа |
+  | `GET /media/:fileId/hls/:rendition/index.m3u8` | то же, play-токен из мастер-плейлиста | `PROJECT.md` §Медиа |
+  | `GET /media/:fileId/hls/:rendition/:segment` | `302` на presigned-ссылку сегмента по play-токену; байты через API не идут | `PROJECT.md` §Медиа |
+  | `POST /camera-agent/sync` | агент камер в сети вуза: у него нет JWT, вход — по токену агента (`AgentAuthGuard`, в базе SHA-256), лимит 60/мин | `PROJECT.md` §3.10 |
+  | `GET /.well-known/media-jwks.json` | открытый ключ медиатокенов: его забирает ретранслятор камер (MediaMTX), у которого нет входа; в ответе только открытая часть ключа | `PROJECT.md` §3.10 |
+  | `POST /demo-requests` | заявка вуза на тестирование с лендинга: вуза и аккаунта ещё нет; не создаёт ни аккаунта, ни доступа — только строку в очереди к PLATFORM_ADMIN; лимит 5 / 15 мин | `PROJECT.md` §31 |
+  | `POST /demo-requests/verify` | подтверждение адреса заявки по ссылке из письма; лимит 10 / 15 мин | `PROJECT.md` §31 |
+  | `GET /platform/state` | режим техработ и баннер: страница входа обязана показать их до входа; аноним получает только срез без адресации, токен (если есть) читает `OptionalJwtGuard` | `PROJECT.md` «Состояние платформы» |
+  | `POST /telegram/webhook` | обновления бота: Telegram приходит без нашего JWT; защита — секрет в заголовке `x-telegram-bot-api-secret-token` (не настроен — ручка ничего не делает), ответ всегда 200, лимит 120 / мин | `PROJECT.md` «Вебхук бота» |
 
   `POST /auth/qr/approve` в списке **нет намеренно**: подтверждение входа делает уже залогиненный телефон, и этот маршрут закрыт. `claimSecret` в QR-код не попадает, поэтому публичность `qr/claim` не даёт забрать чужую сессию.
   - `POST /auth/logout` публичный намеренно: выход должен работать при истёкшем access-токене (иначе пользователь не сможет разлогиниться и очистить cookie). Безопасен — инвалидирует ТОЛЬКО сессию из refresh-cookie самого вызывающего; CSRF гасится `SameSite=Lax` (cookie не уходит на cross-site POST). Проверено аудитом §13.5.
@@ -250,7 +277,7 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 |---|---|---|
 | Срок | 15 мин | 30 дней |
 | Передача | `Authorization: Bearer` | httpOnly + Secure + SameSite=Lax cookie |
-| Payload | `{ sub, role, universityId, facultyId, groupId }` | UUID, в БД хранится только bcrypt-хэш |
+| Payload | `{ sub, role, universityId, facultyId, groupId }` + необязательные `companyId` (работодатель), `tfa` (2FA включена), `client: 'mini'` (токен мини-аппа) — `common/auth/jwt-payload.type.ts` | UUID, в БД хранится только SHA-256-хэш секрета |
 | Ротация | — | Новый при каждом refresh, предыдущий инвалидируется |
 
 Повторное использование инвалидированного токена рвёт всю цепочку — кроме **окна грации**
@@ -260,7 +287,13 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 клиента не доехала. В окне выдаётся новая ротация в той же цепочке (остаётся ровно один живой
 токен); вне окна — прежний строгий разрыв. `0` отключает послабление.
 
-- Refresh-токен в открытом виде в БД не хранится.
+- Refresh-токен в открытом виде в БД не хранится. Хэш секрета — SHA-256 со сравнением за
+  постоянное время, а не bcrypt: секрет — 122 бита из `randomUUID()`, перебирать нечего, а два
+  bcrypt cost 12 на каждый обмен забивали пул libuv. Записи, выданные до перехода (префикс `$2`),
+  сверяются bcrypt, пока не истекут; ветку убрать через срок жизни refresh после выката.
+- Погашенные refresh-строки не удаляются до своего `expiresAt`: на них держится детектор
+  повтора. Cron `purgeRefreshTokens` удаляет только истёкшие больше суток назад (§9.3).
+- Обычная ротация в `AuditLog` не пишется — только вход, выход и повтор погашенного токена.
 - Повторное использование уже инвалидированного refresh-токена → инвалидация **всей** сессионной цепочки пользователя + запись в `AuditLog` уровня `warn`.
 - Access-токен не пишется в cookie, refresh — не отдаётся в JSON body.
 - Секреты — минимум 32 символа, только из env. Значения по умолчанию в коде запрещены: отсутствующий `JWT_ACCESS_SECRET` должен ронять приложение на старте (Zod-валидация env).
@@ -269,11 +302,20 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 
 | Эндпоинт | Лимит |
 |---|---|
-| `POST /auth/login` | 5 / 15 мин с IP |
-| `POST /auth/register-by-invite` | 3 / час с IP |
-| `GET /invites/:token/preview` | 10 / час с IP |
+| `POST /auth/login`, `POST /auth/login/2fa` | 5 / 15 мин на пару «IP + идентификатор входа» (для 2FA — «IP + владелец challenge»), потолок 50 / 15 мин с IP |
+| `POST /auth/refresh` | 10 / мин на refresh-сессию, потолок 1000 / мин с IP |
+| `POST /auth/register-by-invite` | 10 / час на токен инвайта, потолок 100 / час с IP |
+| `POST /auth/password/forgot` | 3 / час на адрес почты, потолок 3 / 15 мин с IP |
+| `POST /auth/password/reset` | 5 / 15 мин с IP |
+| `GET /invites/:token/preview` | 30 / час на токен инвайта, потолок 200 / час с IP |
+| `POST /career/companies/signup`, `POST /demo-requests` | 5 / 15 мин с IP |
 | `POST /complaints` | 10 / час с пользователя |
-| Остальные | 100 / мин с пользователя |
+| Остальные | 100 / мин с пользователя (без валидного токена — с IP) |
+
+Публичные auth-маршруты считаются не по одному IP, а декоратором `@AuthThrottle`
+(`common/guards/user-throttler.guard.ts`): свой счётчик по ключу клиента плюс мягкий потолок с
+адреса. Причина — вуз за NAT делит один адрес на весь кампус. Перебор пароля к одной учётке
+дополнительно закрывает счётчик неудач (`LOGIN_LOCKED`).
 
 ---
 
@@ -293,10 +335,18 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 ## 8. Файлы и MinIO
 
 - Никакой файл не пишется на локальный диск контейнера. Только MinIO.
-- Бакеты и политики: `avatars` (публичный), `posts-media`, `stories-media` (TTL 24ч), `applications` (приватный, доступ только владельцу и деканату его факультета).
+  **Единственное исключение — воркер медиа** (`MediaProcessingService`, согласовано
+  16.10.2026): ffmpeg пишет постер и сегменты HLS в каталог временных файлов (`MEDIA_TMP_DIR`).
+  Каталог — один на job, удаляется в `finally`, брошенные упавшим процессом сносятся при старте
+  воркера; результат сразу уходит в MinIO, а хранилищем диск не становится. Исходник ffmpeg
+  читает потоком по ссылке из внутреннего MinIO и на диск не кладёт.
+- Бакеты и политики (`common/minio/minio-buckets.service.ts`, имена — из env `MINIO_BUCKET_*`):
+  публичные — `avatars`, `profile-media`, `profile-covers`; приватные — `posts-media`,
+  `stories-media` (TTL 24ч), `story-highlights`, `applications` (доступ только владельцу и
+  деканату его факультета), `materials`, `chat-media`, `documents`.
 - Метаданные каждого файла — в таблице `File`. Файл без записи в БД считается мусором и удаляется cron-задачей.
 - MIME-тип проверяется по **содержимому** (magic bytes), не по расширению и не по заголовку `Content-Type`.
-- Лимиты: изображения 10 МБ, аудио 25 МБ, видео и документы 500 МБ. Значения — в `shared-config`, не хардкодом в модуле.
+- Лимиты: изображения 10 МБ, аудио 25 МБ, видео, документы и архивы (только где модуль явно разрешил) 500 МБ. Значения — в `shared-config` (`FILE_UPLOAD`), не хардкодом в модуле.
 - Файлы > 10 МБ — только через presigned URL (прямая загрузка в MinIO), не через API-процесс.
 
 ### 8.1 Прямая (presigned) загрузка — три шага и три недоверия
@@ -320,7 +370,7 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 Любая неуспешная проверка удаляет объект: в приватном бакете не должно остаться содержимого,
 за которое никто не отвечает (осиротевшие объекты — баг, см. выше).
 - Ссылки на приватные бакеты выдаются presigned с TTL 15 минут. Постоянный публичный URL для приватного бакета — запрещён.
-- Удаление сущности удаляет и объект в MinIO (в той же операции или через очередь `cleanup`). Осиротевшие объекты — баг.
+- Удаление сущности удаляет и объект в MinIO (в той же операции или ночной уборкой `CleanupService`: `cleanDetachedFiles` → `cleanOrphanFiles`; отдельной очереди `cleanup` нет). Осиротевшие объекты — баг.
 
 ---
 
@@ -330,25 +380,54 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 
 Отправка email, push-уведомления, генерация превью, сжатие видео, массовая рассылка уведомлений по аудитории. HTTP-запрос **не ждёт** этих операций.
 
-Очереди: `email`, `notifications`, `file-processing`, `cleanup`.
+Очереди (`common/queue/queue.constants.ts`): `email`, `notifications`, `file-processing`,
+`link-preview`, `media-image`, `media-video`. Очереди `cleanup` нет: уборку делает cron под
+локом (§9.3). Варианты изображений и HLS видео (медиа-система) готовятся только в
+`media-image`/`media-video`; модулю достаточно создать `File` через `FileService` — в обработку
+файл ставится там же.
 
 ### 9.2 Правила job'ов
 
 - Job идемпотентен: повторный запуск не создаёт дубликат уведомления или письма.
 - Payload — только идентификаторы и минимум данных. Передавать целые объекты `User`/`Post` в job запрещено (данные устаревают, payload раздувается).
-- `attempts: 3`, `backoff: { type: 'exponential', delay: 5000 }`, `removeOnComplete: true`, `removeOnFail: false` — базовая конфигурация для всех job'ов.
+- `attempts: 3`, `backoff: { type: 'exponential', delay: 5000 }`, `removeOnComplete: true`, упавшие хранятся неделю (`removeOnFail: { age: 7 дней, count: 1000 }`) — базовая конфигурация для всех job'ов (`DEFAULT_JOB_OPTIONS`). Исключение — `email`: 8 попыток от 15 с, чтобы письма переживали минутный сбой SMTP.
 - Ошибка в процессоре логируется с `jobId` и payload-идентификаторами и **пробрасывается** (иначе BullMQ считает job успешным).
 - Отдельный процесс-воркер для очередей в production. В dev допустим встроенный.
 
 ### 9.3 Cron (`CleanupService`)
 
+Полный список — 37 задач, сверен с `cleanup.service.ts` 2026-11-02. Пояс — процесса
+сервера, кроме помеченных `Asia/Almaty` (`PLATFORM_TIME_ZONE`).
+
 | Задача | Расписание |
 |---|---|
-| `expireInvites` | `0 * * * *` |
-| `deleteExpiredStories` | `*/30 * * * *` |
+| `publishScheduledPosts`, `deliverScheduledMessages` | `* * * * *` |
+| `liftExpiredBlocks`, `watchServices` | `*/5 * * * *` |
+| `resumeMediaProcessing` | `*/10 * * * *` |
 | `scheduleEventReminders` | `*/15 * * * *` (см. замечание ниже) |
-| `cleanOldNotifications` | `0 2 * * 0` |
+| `deleteExpiredStories` | `*/30 * * * *` |
+| `expireInvites` | `0 * * * *` |
+| `sendDailyDigest` | `5 * * * *` (шлёт только в час, выбранный админом) |
+| `remindLibraryLoans` | `10 * * * *` |
+| `alertQueueBacklog` | `15 * * * *` |
+| `expireLibraryHolds` | `20 * * * *` |
+| `purgeRefreshTokens` | `25 * * * *` (не больше 100 батчей за прогон) |
+| `expireCompanyAccess` | `40 * * * *` |
 | `cleanAuditLogs` | `0 1 1 * *` |
+| `cleanOldNotifications` | `0 2 * * 0` |
+| `purgeClosedLoans`, `purgeViewLogs`, `purgeDepartedAcademicRecords`, `purgeDepartedApplications`, `purgeDepartedMessages`, `purgeDepartedDocuments`, `purgeDepartedProfiles`, `purgeAccountTombstones` | `5 2`, `10 2`, `20 2`, `30 2`, `40 2`, `50 2`, `0 3`, `10 3` ежедневно — сроки хранения ПДн (`PdRetentionService`, за флагом `PD_RETENTION_ENABLED`, `docs/PERSONAL_DATA.md` §4) |
+| `purgePasswordResetTokens` | `15 3 * * *` |
+| `sweepDocumentExpiry` | `30 3 * * *` |
+| `closeOverdueDocumentRequests` | `35 3 * * *` |
+| `cleanDetachedFiles` | `45 3 * * *` |
+| `purgeDeviceTokens` | `50 3 * * *` |
+| `cleanOrphanFiles` | `0 4 * * *` |
+| `purgeUnverifiedEmployers` | `20 4 * * *` (за флагом `CLEANUP_PURGE_UNVERIFIED_EMPLOYERS`) |
+| `sweepIncompleteUploads`, `purgeUnconfirmedDemoRequests` | `30 4 * * *` |
+| `reportStorageUsage` | `45 4 * * *` |
+| `closeStaleTickets` | `0 5 * * *` |
+| `notifyOverdueApplications` | `0 9 * * *`, `Asia/Almaty` |
+| `rotateDuty` | `0 9 * * 1`, `Asia/Almaty` |
 
 - Все cron-задачи — только в `CleanupService`. Разбрасывать `@Cron` по модулям запрещено.
 - Каждая задача логирует количество обработанных записей.
@@ -357,12 +436,16 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 - Рассылка, которая обязана дойти до каждого адресата (участники чата, участники события, получатели уведомления), не обрезается потолком: адресаты читаются страницами по курсору, и на каждую страницу ставится свой job. `jobId` включает номер страницы, `dedupeKey` — нет, иначе BullMQ отбросит все страницы кроме первой.
 
 > **Исправление исходной документации:** в §24 `scheduleEventReminders` запускается в `0 3 * * *`, но ищет события через 1–2 часа — то есть напоминания придут только для событий в 04:00–05:00. Задача должна выполняться каждые 15 минут с окном `[now+55min, now+70min]` и дедупликацией отправленных напоминаний (флаг `reminderSentAt` в `Event`).
+>
+> Реализовано (`EventsService.remindDue`) с окном `(now, now+70min]` вместо `[now+55, now+70]`:
+> берётся всё ещё не напомненное и не начавшееся, поэтому пропущенный тик догоняет следующий,
+> а дубли гасит `reminderSentAt`.
 
 ---
 
-## 10. WebSocket (`ChatGateway`)
+## 10. WebSocket (`RealtimeGateway` + `ChatGateway`)
 
-- Аутентификация в `handleConnection` через `JwtWsGuard` (токен в `socket.handshake.auth.token`). Невалидный токен → `client.disconnect()` немедленно.
+- Аутентификация — в `RealtimeGateway.handleConnection` (`common/realtime/`): подпись JWT, отзыв сессии и блокировка вуза проверяются прямо там, отдельного `JwtWsGuard` нет (токен в `socket.handshake.auth.token`). Невалидный токен → `client.disconnect()` немедленно. Чат-события (`ChatGateway`, `modules/chats/`) идут по тому же соединению.
 - При подключении пользователь автоматически входит в комнаты `user:{id}`, `group:{groupId}`, `university:{universityId}`.
 - В комнату `chat:{chatId}` — только по событию `chat:join` **после** проверки членства в чате в БД.
 - Каждый входящий payload валидируется той же Zod-схемой, что и REST. WS — не «доверенный» канал.
@@ -379,18 +462,18 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 
 | Приоритет | Что | Тип | Блокирует мёрж |
 |---|---|---|---|
-| 🔴 | `RolesGuard`, `ScopeGuard`, `JwtWsGuard` | unit | Да |
+| 🔴 | `RolesGuard`, `ScopeGuard`, аутентификация WS (`RealtimeGateway.handleConnection`) | unit | Да |
 | 🔴 | `InviteService` (создание, иерархия, валидация, отзыв) | unit | Да |
-| 🔴 | `ApplicationService.transitionStatus()` — матрица переходов | unit | Да |
+| 🔴 | Заявки: матрица переходов (`canTransition` из shared-schemas, `ApplicationProcessService`) | unit | Да |
 | 🔴 | `POST /auth/register-by-invite`, `POST /auth/login`, `POST /auth/refresh` | e2e | Да |
 | 🟡 | `PostsService` — audience-фильтр и cursor-пагинация | unit | Да |
-| 🟡 | `ChatsGateway` — auth и комнаты | unit | Нет |
-| 🟡 | `FilesService` — upload / presigned | integration | Нет |
+| 🟡 | `ChatGateway` — auth и комнаты | unit | Нет |
+| 🟡 | `FileService` — upload / presigned | integration | Нет |
 | 🟢 | `NotificationsService` | unit | Нет |
 
-- Именование: `*.spec.ts` (unit), `*.integration.spec.ts`, `*.e2e-spec.ts` (в `apps/api/test/`).
+- Именование: `*.spec.ts` (unit), `*.e2e-spec.ts` и `*.integration.e2e-spec.ts` (в `apps/api/test/`).
 - Unit: `PrismaService` мокается через `jest.fn()` по каждому используемому методу.
-- Integration/e2e: реальный PostgreSQL из отдельного `DATABASE_URL_TEST`, схема через `prisma db push --skip-generate`, чистка данных между тестами.
+- Integration/e2e: реальный PostgreSQL из отдельного `DATABASE_URL_TEST`, схема через `prisma db push --skip-generate` (`test/global-setup.cjs`), чистка данных между тестами.
 - Негативные кейсы обязательны: неверная роль, чужой scope, истёкший токен, использованный инвайт.
 - **Агент не заявляет о завершении задачи, не запустив `pnpm --filter api test` и не показав результат.** Формулировки «тесты должны проходить» без запуска — недопустимы.
 
@@ -414,7 +497,7 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 - Обязательный контекст в логах: `requestId`, `userId`, `path`, `action`. `requestId` генерируется в middleware и прокидывается в job'ы очередей.
 - **Никогда не логируются:** пароли, `passwordHash`, access/refresh-токены, токены инвайтов, содержимое личных сообщений, вложения заявок.
 - Уровни: `error` — сбой; `warn` — деградация, retry, подозрительная активность; `log` — бизнес-события (логин, создание инвайта, смена статуса заявки); `debug`/`verbose` — только dev.
-- `AuditLog` пишется через `AuditInterceptor` или явно в сервисе для: login, logout, всех операций с инвайтами, смены роли, смены статуса университета, блокировки пользователя, решений модератора, доступа администратора к личным чатам по жалобе.
+- `AuditLog` пишется явно в сервисе (`AuditService.log`, перехватчика аудита нет — IMPLEMENTATION_PLAN 11.6) для: login, logout, всех операций с инвайтами, смены роли, смены статуса университета, блокировки пользователя, решений модератора, доступа администратора к личным чатам по жалобе.
 - `GET /health` (`@nestjs/terminus`, публичный): проверки Prisma, Redis, MinIO.
 
 ### 13.1 Sentry (Ф13.8)
@@ -536,7 +619,7 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 5. Роль или scope, прочитанные из тела запроса вместо JWT.
 6. `passwordHash` или refresh-токен в ответе API либо в логах.
 7. Публичный эндпоинт, создающий пользователя в обход инвайта.
-   **Единственное исключение — регистрация работодателя** (`POST /companies/signup`,
+   **Единственное исключение — регистрация работодателя** (`POST /career/companies/signup`,
    Ф18): компания приходит извне и приглашать её некому. Границы исключения — в §19 п. 9;
    расширять его на другие роли запрещено.
 8. `findMany()` без `take`.
@@ -547,17 +630,18 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 
 ## 19. Расхождения исходной документации — РЕШЕНО
 
-Все 8 пунктов закрыты (решения зафиксированы 2026-07-27, до старта Фазы 5). Колонка «Статус»:
-✅ — уже реализовано в коде; 📌 — решение зафиксировано, применяется при реализации указанной фазы.
+Все 9 пунктов закрыты (пп. 1–8 — решения от 2026-07-27, до старта Фазы 5; п. 9 — Ф18).
+Колонка «Статус»: ✅ — уже реализовано в коде; 📌 — решение зафиксировано, применяется при
+реализации указанной фазы.
 
 | # | Расхождение | Принятое решение | Статус |
 |---|---|---|---|
-| 1 | `Story.mediaUrl` (§5) vs `Story.fileId` + relation `file` (§17, §24) | `fileId` + relation `file`, `mediaUrl` не вводить | 📌 Модель `Story` — Ф14 (v2.0) |
+| 1 | `Story.mediaUrl` (§5) vs `Story.fileId` + relation `file` (§17, §24) | `fileId` + relation `file`, `mediaUrl` не вводить | ✅ `prisma/schema/32-stories.prisma` (Ф14.1) |
 | 2 | Срок инвайта: 48 ч (§13) vs 1 год в seed (§21) | Seed-инвайт dev-only, срок 30 дней | ✅ `prisma/seed.mjs` |
 | 3 | `createdBy` (§13.3) vs `createdById` (§21.2, §26.5) | `createdById` + relation `createdBy` | ✅ `prisma/schema/01-users.prisma` |
 | 4 | `Invite.status` строкой `'PENDING'` вместо enum | Использовать `InviteStatus.*` из `@prisma/client` в коде и тестах | ✅ `invites.service.ts` + spec |
 | 5 | `multer` + Fastify | `@fastify/multipart` | ✅ Ф2 (`main.ts`, `FileService`) |
-| 6 | `@nestjs/bull` (Bull, legacy) | `@nestjs/bullmq` | 📌 Ставится в Ф3 (legacy Bull запрещён) |
-| 7 | `scheduleEventReminders` — нерабочее окно | Каждые 15 мин, окно `[now+55, now+70]`, флаг `Event.reminderSentAt` (см. §9.3) | 📌 Ф3/Ф10 (`CleanupService`) |
-| 8 | `Schedule` (§5) хранит пару, `Pair` (§17) — отдельная модель | `Schedule` = контейнер группы/семестра, `Pair` = занятие | 📌 Ф6 (задача 6.1) |
+| 6 | `@nestjs/bull` (Bull, legacy) | `@nestjs/bullmq` | ✅ `common/queue` (legacy Bull запрещён) |
+| 7 | `scheduleEventReminders` — нерабочее окно | Каждые 15 мин, окно `[now+55, now+70]`, флаг `Event.reminderSentAt` (см. §9.3) | ✅ `CleanupService` + `EventsService.remindDue` (окно `(now, now+70]`, §9.3) |
+| 8 | `Schedule` (§5) хранит пару, `Pair` (§17) — отдельная модель | `Schedule` = контейнер группы/семестра, `Pair` = занятие | ✅ `prisma/schema/03-schedule.prisma` (Ф6) |
 | 9 | Запрет §18.7 «публичный эндпоинт, создающий пользователя» vs публичная регистрация работодателя (Ф18) | Исключение разрешено **только** для роли `EMPLOYER`. Обязательные границы: throttle как у входа (5 / 15 мин с IP), компания создаётся в статусе `PENDING_EMAIL` и до подтверждения почты не видна вузам, токен подтверждения хранится хэшем, ответ на занятый email — заглушка (нет перебора адресов), scope пользователя пустой, `profileVisibility = PRIVATE`, доступ к студентам — только после одобрения вузом. Для любой другой роли запрет действует без исключений | ✅ `companies.controller.ts`, `companies.service.ts` |

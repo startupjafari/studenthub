@@ -26,4 +26,10 @@ describe('invite-token', () => {
     const raw = 'legacy-plain-token'
     expect(inviteTokenLookups(raw)).toEqual([hashInviteToken(raw), raw])
   })
+
+  it('сохранённый хэш, предъявленный как токен, не находит приглашение', () => {
+    const stored = hashInviteToken(randomUUID())
+    expect(inviteTokenLookups(stored)).toEqual([hashInviteToken(stored)])
+    expect(inviteTokenLookups(stored)).not.toContain(stored)
+  })
 })

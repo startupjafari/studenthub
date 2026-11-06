@@ -1,20 +1,10 @@
 'use client'
 
 import Link from 'next/link'
-import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { Building2 } from 'lucide-react'
-import { fetchUniversityOptions, universityKeys } from '../../../entities/university'
-import {
-  buttonVariants,
-  EmptyState,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Skeleton,
-} from '../../../shared/ui'
+import { UniversitySelect } from '../../../entities/university'
+import { buttonVariants, EmptyState } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { useCareerUniversity } from '../model/use-career-university'
 
@@ -26,32 +16,22 @@ import { useCareerUniversity } from '../model/use-career-university'
 export function CareerUniversityPicker() {
   const t = useTranslations('CareerAdmin')
   const { needsPick, universityId, select } = useCareerUniversity()
-  const list = useQuery({
-    queryKey: universityKeys.options(),
-    queryFn: fetchUniversityOptions,
-    enabled: needsPick,
-  })
 
   if (!needsPick) return null
-  if (list.isLoading) return <Skeleton className="h-8 w-full rounded-lg" />
 
+  // Серверный поиск: вузов больше, чем отдаёт одна страница (предел 200), и хвост
+  // алфавита в прежнем выпадающем списке выбрать было нельзя. Очистка выбора не
+  // сбрасывает вуз — без него разделу нечего показать.
   return (
-    <Select value={universityId ?? undefined} onValueChange={select}>
-      {/* Значок — слева, стрелка — у правого края, подпись занимает всё между ними. С
-          `justify-start` стрелка прилипала к подписи, и поле выглядело перекошенным:
-          содержимое сбито влево, справа пустота. */}
-      <SelectTrigger size="sm" className="w-full gap-2 text-xs" aria-label={t('pickUniversity')}>
-        <Building2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-        <SelectValue className="min-w-0 flex-1 text-left" placeholder={t('pickUniversity')} />
-      </SelectTrigger>
-      <SelectContent>
-        {(list.data ?? []).map((u) => (
-          <SelectItem key={u.id} value={u.id}>
-            {u.shortName || u.name}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <UniversitySelect
+      value={universityId}
+      onChange={(id) => {
+        if (id) select(id)
+      }}
+      size="sm"
+      placeholder={t('pickUniversity')}
+      short
+    />
   )
 }
 

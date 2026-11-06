@@ -14,6 +14,8 @@ import { Button, ImageCropModal, MediaEditorShell, VideoPlayer } from '../../../
 import { useErrorToast } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { ContentModal } from './content-modal'
+import { useMediaQuota } from '../lib/media-quota'
+import { useOwnerKey } from '../lib/content-owner'
 import { VideoCoverPicker, type VideoCover } from './video-cover-picker'
 
 function errCode(e: unknown): string {
@@ -95,16 +97,20 @@ export function PhotoCreateModal({ userId, onClose, initialFile }: MediaCreateMo
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  const { owner, key: ownerKey } = useOwnerKey(userId)
+  const quota = useMediaQuota(ownerKey)
   const [file, setFile] = useState<File | null>(initialFile ?? null)
 
   const mut = useMutation({
-    mutationFn: (f: File) => uploadProfileMediaAuto(f),
+    mutationFn: (f: File) => uploadProfileMediaAuto(f, undefined, owner),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: profileContentKeys.media(userId) })
+      void qc.invalidateQueries({ queryKey: profileContentKeys.media(ownerKey) })
       toast.success(t('mediaUploaded'))
       onClose()
     },
-    onError: (e) => toast.error(tErr(errCode(e))),
+    onError: (e) => {
+      if (!quota.handleError(e)) toast.error(tErr(errCode(e)))
+    },
   })
 
   if (file) {
@@ -127,7 +133,9 @@ export function PhotoCreateModal({ userId, onClose, initialFile }: MediaCreateMo
         accept="image/*"
         icon={<ImagePlus className="size-8" aria-hidden />}
         hint={t('dropImageHint')}
-        onPick={setFile}
+        onPick={(f) => {
+          if (quota.fits(f)) setFile(f)
+        }}
       />
       <Button type="button" variant="outline" className="w-full" onClick={onClose}>
         {t('cancel')}
@@ -141,6 +149,8 @@ export function VideoCreateModal({ userId, onClose, initialFile }: MediaCreateMo
   const t = useTranslations('Profile')
   const qc = useQueryClient()
   const { show: showApiError } = useErrorToast('profile-video')
+  const { owner, key: ownerKey } = useOwnerKey(userId)
+  const quota = useMediaQuota(ownerKey)
   const [file, setFile] = useState<File | null>(initialFile ?? null)
   const [url, setUrl] = useState<string | null>(null)
   const [cover, setCover] = useState<VideoCover | null>(null)
@@ -157,7 +167,7 @@ export function VideoCreateModal({ userId, onClose, initialFile }: MediaCreateMo
 
   const mut = useMutation({
     mutationFn: async (f: File) => {
-      const media = await uploadProfileMediaAuto(f)
+      const media = await uploadProfileMediaAuto(f, undefined, owner)
       // Прикрепляем выбранную обложку (если есть) — отдельным запросом.
       if (cover) {
         const posterFile = new File([cover.blob], 'poster.jpg', { type: 'image/jpeg' })
@@ -166,11 +176,13 @@ export function VideoCreateModal({ userId, onClose, initialFile }: MediaCreateMo
       return media
     },
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: profileContentKeys.media(userId) })
+      void qc.invalidateQueries({ queryKey: profileContentKeys.media(ownerKey) })
       toast.success(t('mediaUploaded'))
       onClose()
     },
-    onError: (e) => showApiError(e),
+    onError: (e) => {
+      if (!quota.handleError(e, 'profile-video')) showApiError(e)
+    },
   })
 
   const back = (): void => {
@@ -229,7 +241,9 @@ export function VideoCreateModal({ userId, onClose, initialFile }: MediaCreateMo
         accept="video/*"
         icon={<VideoIcon className="size-8" aria-hidden />}
         hint={t('dropVideoHint')}
-        onPick={setFile}
+        onPick={(f) => {
+          if (quota.fits(f, 'profile-video')) setFile(f)
+        }}
       />
       <Button type="button" variant="outline" className="w-full" onClick={onClose}>
         {t('cancel')}

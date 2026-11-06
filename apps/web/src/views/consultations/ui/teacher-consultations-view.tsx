@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
@@ -12,6 +12,7 @@ import {
   Card,
   EmptyState,
   PageHeader,
+  SegmentedTabs,
   Table,
   TableBody,
   TableCell,
@@ -56,6 +57,8 @@ const HIDE = {
 const SKELETON_COLS = 6
 const PAGE_SIZES = [20, 50, 100] as const
 
+type Scope = 'upcoming' | 'all'
+
 function slotTime(locale: string, s: ConsultationSlot): string {
   const start = new Date(s.startsAt)
   const end = new Date(s.endsAt)
@@ -81,10 +84,21 @@ export function TeacherConsultationsView() {
   const confirm = useConfirm()
   const [creating, setCreating] = useState(false)
   const paged = usePagedSort<ConsultationSort>()
+  // По умолчанию — с сегодняшнего дня: список идёт по возрастанию времени, и без фильтра
+  // первая страница — самые старые слоты, прошлогодние. Начало дня, а не «сейчас»: идущая
+  // или утренняя консультация сегодня ещё нужна под рукой. Момент фиксируем на монтирование —
+  // в ключе кэша он не должен меняться каждый рендер.
+  const [scope, setScope] = useState<Scope>('upcoming')
+  const todayStart = useMemo(() => {
+    const d = new Date()
+    d.setHours(0, 0, 0, 0)
+    return d.toISOString()
+  }, [])
+  const query = scope === 'upcoming' ? { ...paged.query, from: todayStart } : paged.query
 
   const q = useQuery({
-    queryKey: consultationKeys.mine(paged.query),
-    queryFn: () => fetchMyConsultations(paged.query),
+    queryKey: consultationKeys.mine(query),
+    queryFn: () => fetchMyConsultations(query),
   })
 
   const remove = useMutation({
@@ -113,6 +127,17 @@ export function TeacherConsultationsView() {
     if (ok) remove.mutate(s.id)
   }
 
+  // Отмена занятого слота уведомляет студента и необратима — с подтверждением.
+  async function onCancel(s: ConsultationSlot) {
+    const ok = await confirm({
+      title: t('confirmCancelSlot'),
+      description: slotTime(locale, s),
+      confirmLabel: t('cancelSlot'),
+      destructive: true,
+    })
+    if (ok) cancel.mutate(s.id)
+  }
+
   const rows = q.data?.items ?? []
   const total = q.data?.total ?? 0
 
@@ -122,6 +147,20 @@ export function TeacherConsultationsView() {
     <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader
         title={t('manageTitle')}
+        tabs={
+          <SegmentedTabs<Scope>
+            value={scope}
+            aria-label={t('scope')}
+            onChange={(v) => {
+              setScope(v)
+              paged.setPage(1)
+            }}
+            items={[
+              { value: 'upcoming', label: t('scopeUpcoming') },
+              { value: 'all', label: t('scopeAll') },
+            ]}
+          />
+        }
         actions={
           <Button size="md" className="gap-1.5" onClick={() => setCreating(true)}>
             <Plus className="size-4" aria-hidden />
@@ -203,12 +242,14 @@ export function TeacherConsultationsView() {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    {s.status === 'BOOKED' ? (
+                    {/* Прошедшую запись отменять нечего (сервер ответит 409) — её можно
+                        только убрать из списка, как свободный слот. */}
+                    {s.status === 'BOOKED' && new Date(s.startsAt) > new Date() ? (
                       <Button
                         variant="outline"
                         size="sm"
                         loading={cancel.isPending && cancel.variables === s.id}
-                        onClick={() => cancel.mutate(s.id)}
+                        onClick={() => onCancel(s)}
                       >
                         {t('cancelSlot')}
                       </Button>

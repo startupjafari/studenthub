@@ -7,6 +7,7 @@ import { Card, CardContent } from './card'
 import { Progress } from './progress'
 import { Skeleton } from './skeleton'
 import { useCountUp } from '../lib/use-count-up'
+import { staggerDelay } from '../lib/motion'
 import { cn } from '../lib/utils'
 
 /**
@@ -73,10 +74,10 @@ export function MetricTile({
   const tile = (
     <Card
       size="sm"
-      style={{ animationDelay: `${index * 60}ms` }}
+      style={{ animationDelay: `${staggerDelay(index)}ms` }}
       className={cn(
         'h-full gap-2',
-        'animate-in fade-in-0 slide-in-from-bottom-2 fill-mode-both duration-500 motion-reduce:animate-none',
+        'animate-in fade-in-0 slide-in-from-bottom-2 fill-mode-both duration-(--motion-large) motion-reduce:animate-none',
         href
           ? // Кликабельная карточка (§8): подложка на наведении. Кольцо фокуса рисует
             // ссылка-обёртка — оно должно быть снаружи, а у карточки overflow-hidden.
@@ -115,7 +116,7 @@ export function MetricTile({
           </span>
           <span className="block truncate text-xs text-muted-foreground">{label}</span>
           {hint && (
-            <span className="block truncate text-[0.6875rem] text-muted-foreground/80">{hint}</span>
+            <span className="block truncate text-[0.6875rem] text-muted-foreground">{hint}</span>
           )}
         </span>
         {href && (

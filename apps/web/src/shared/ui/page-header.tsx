@@ -14,6 +14,11 @@ export interface PageHeaderProps {
   backLabel?: string
   /** Переключатель разделов — обычно `SegmentedTabs`. Стоит справа, перед действиями. */
   tabs?: ReactNode
+  /**
+   * Длинная полоса выбора (например, камеры на стене). Стоит справа, перед действиями, и
+   * шире половины шапки не растёт: лишнее прокручивается по горизонтали, а не переносится.
+   */
+  nav?: ReactNode
   /** Действия справа (кнопки, поиск, скачивание). */
   actions?: ReactNode
   /**
@@ -39,6 +44,7 @@ export function PageHeader({
   onBack,
   backLabel,
   tabs,
+  nav,
   actions,
   bleed = true,
   className,
@@ -79,11 +85,26 @@ export function PageHeader({
           )}
         </div>
       </div>
+      {/* На телефоне полоса уходит отдельной строкой под заголовок. На широком экране —
+          в строку справа, по ширине своих плашек, но не шире половины шапки: заголовку
+          остаётся место, а длинный список прокручивается. Короткая полоса просто прижата
+          вправо. */}
+      {nav && (
+        <div className="order-last -mx-4 w-[calc(100%+2rem)] min-w-0 overflow-x-auto px-4 md:order-none md:mx-0 md:ml-auto md:w-auto md:max-w-1/2 md:px-0">
+          {nav}
+        </div>
+      )}
       {/* Табы и действия — одна правая зона: полоса читается как «слева кто я, справа чем
           управляю». `max-w-full` + `flex-wrap`: набор из табов, поиска и кнопки не влезает
           в строку на телефоне — он переносится внутри шапки, а не вылезает за её край. */}
       {(tabs || actions) && (
-        <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2">
+        <div
+          className={cn(
+            'flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2',
+            // С полосой выбора вправо прижимает она — второй `ml-auto` поделил бы место пополам.
+            nav ? 'md:ml-0 ml-auto' : 'ml-auto',
+          )}
+        >
           {tabs}
           {actions}
         </div>

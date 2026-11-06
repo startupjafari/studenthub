@@ -33,8 +33,9 @@ export class ExportVerifyController {
   async verify(@Param('code') code: string) {
     const found = await this.exports.findByShortId(code.trim().toUpperCase())
     if (!found) {
-      // Одинаковый ответ на «кода нет» и «код чужого вида выгрузки»: разница в сообщениях
-      // подсказала бы перебирающему, что он на верном пути.
+      // Одинаковый ответ на «кода нет» и «код чужого вида выгрузки» (реестр отдаёт только
+      // VERIFIABLE_EXPORT_KINDS): разница в сообщениях подсказала бы перебирающему, что он
+      // на верном пути, а рабочая выгрузка — не документ, и раскрывать её вид и дату незачем.
       throw new AppException('NOT_FOUND', 'Документ с таким кодом не найден')
     }
     return {

@@ -26,6 +26,7 @@ import { ReactionDto } from './dto/reaction.dto'
 import { PinPostDto } from './dto/pin-post.dto'
 import { UpdatePostDto } from './dto/update-post.dto'
 import { FeedQueryDto } from './dto/feed-query.dto'
+import { CommentsQueryDto } from './dto/comments-query.dto'
 
 // Роли, которым разрешено публиковать (docs/PROJECT.md §2.2 — модераторы посты не создают).
 const AUTHOR_ROLES = [
@@ -35,6 +36,10 @@ const AUTHOR_ROLES = [
   Role.TEACHER,
   Role.STAROSTA,
   Role.STUDENT,
+  // Только на страницу своей компании (аудитория COMPANY, PostsService.resolveTarget).
+  Role.EMPLOYER,
+  // Только от имени своего вуза (asUniversity): личных постов у модератора нет.
+  Role.UNIVERSITY_MODERATOR,
 ] as const
 
 @ApiTags('Посты')
@@ -46,6 +51,7 @@ export class PostsController {
   @Get()
   @ApiOperation({ summary: 'Лента постов по видимости (cursor-пагинация)' })
   @ApiResponse({ status: 200, description: 'Страница ленты' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — filter=MODERATION не у роли модерации' })
   feed(@CurrentUser() user: CurrentUserData, @Query() query: FeedQueryDto) {
     return this.posts.feed(user, query)
   }
@@ -72,7 +78,10 @@ export class PostsController {
   }
 
   @Post(':id/view')
-  @ApiOperation({ summary: 'Засчитать просмотр поста (при открытии в лайтбоксе)' })
+  @ApiOperation({
+    summary: 'Засчитать просмотр поста (при открытии в лайтбоксе)',
+    description: 'Один просмотр на зрителя в сутки; повтор отвечает текущим числом.',
+  })
   @ApiResponse({ status: 201, description: 'Обновлённое число просмотров' })
   incrementView(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
     return this.posts.incrementView(user, id)
@@ -80,15 +89,14 @@ export class PostsController {
 
   @Get(':id/media/:fileId/url')
   @ApiOperation({ summary: 'Presigned URL к медиа поста (по видимости поста)' })
-  @ApiResponse({ status: 200, description: 'Временный URL' })
+  @ApiResponse({ status: 200, description: '{ url, expiresAt, …MediaInfo } — оригинал и варианты' })
   @ApiResponse({ status: 404, description: 'NOT_FOUND — пост не видим или медиа не найдено' })
-  async mediaUrl(
+  mediaUrl(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
     @Param('fileId') fileId: string,
   ) {
-    const url = await this.posts.getMediaUrl(user, id, fileId)
-    return { url }
+    return this.posts.getMediaUrl(user, id, fileId)
   }
 
   @Patch(':id')
@@ -164,6 +172,21 @@ export class PostsController {
     return this.posts.repost(user, id, dto, this.ctx(req))
   }
 
+  @Post('articles/:articleId/repost')
+  @Roles(...AUTHOR_ROLES)
+  @ApiOperation({ summary: 'Репост статьи в ленту (пост со ссылкой на статью)' })
+  @ApiResponse({ status: 201, description: 'Репост создан' })
+  @ApiResponse({ status: 400, description: 'Статья не опубликована' })
+  @ApiResponse({ status: 404, description: 'Статья не найдена или недоступна' })
+  repostArticle(
+    @CurrentUser() user: CurrentUserData,
+    @Param('articleId') articleId: string,
+    @Body() dto: RepostDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.posts.repostArticle(user, articleId, dto, this.ctx(req))
+  }
+
   @Post(':id/bookmark')
   @ApiOperation({ summary: 'Сохранить пост в избранное или убрать оттуда (переключатель)' })
   @ApiResponse({ status: 201, description: 'Новое состояние закладки' })
@@ -197,10 +220,19 @@ export class PostsController {
   }
 
   @Get(':id/comments')
-  @ApiOperation({ summary: 'Комментарии поста (thread)' })
+  @ApiOperation({
+    summary: 'Комментарии поста (thread)',
+    description:
+      'Без limit/cursor — последние 200 массивом по порядку написания. С ними — страница ' +
+      'свежих сверху: meta.cursor (раньше), meta.hasNext, meta.total. У каждого — canDelete.',
+  })
   @ApiResponse({ status: 200, description: 'Список комментариев' })
-  comments(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.posts.listComments(user, id)
+  comments(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Query() query: CommentsQueryDto,
+  ) {
+    return this.posts.listComments(user, id, query)
   }
 
   @Post(':id/comments')
@@ -216,7 +248,7 @@ export class PostsController {
 
   @Delete(':id/comments/:commentId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Удалить комментарий (автор или модератор)' })
+  @ApiOperation({ summary: 'Удалить комментарий (автор комментария, автор поста или модератор)' })
   @ApiResponse({ status: 204, description: 'Удалён' })
   async removeComment(
     @CurrentUser() user: CurrentUserData,

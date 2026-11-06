@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import { AppException } from '../../common/exceptions/app.exception'
 import { ApplicationProcessService } from './application-process.service'
@@ -16,12 +17,21 @@ jest.mock('./study-certificate-pdf', () => ({
 function makePrisma(appRow: Record<string, unknown>) {
   const application = {
     findFirst: jest.fn().mockResolvedValue(appRow),
+    findUnique: jest.fn().mockResolvedValue({ pickupCode: 'SH-P-AB12CD34' }),
     update: jest.fn().mockResolvedValue({ ...appRow }),
     count: jest.fn().mockResolvedValue(0),
   }
-  const applicationEvent = { create: jest.fn().mockResolvedValue({}) }
-  const applicationResult = { create: jest.fn().mockResolvedValue({}) }
-  const tx = { application, applicationEvent, applicationResult }
+  const applicationEvent = { create: jest.fn().mockResolvedValue({ id: 'ev-1' }) }
+  const applicationResult = {
+    create: jest.fn().mockResolvedValue({}),
+    // Результаты заявки: «готово» для электронной выдачи без результата не ставится.
+    count: jest.fn().mockResolvedValue(1),
+  }
+  // Документ студента — отметка об отзыве справки.
+  const document = { updateManyAndReturn: jest.fn().mockResolvedValue([{ id: 'doc-1' }]) }
+  // Журнал документа — запись об отзыве справки.
+  const documentEvent = { createMany: jest.fn().mockResolvedValue({ count: 1 }) }
+  const tx = { application, applicationEvent, applicationResult, document, documentEvent }
   const prisma = {
     ...tx,
     $transaction: jest.fn((arg: unknown) =>
@@ -69,12 +79,15 @@ function setup(appRow: Record<string, unknown>) {
   const documents = {
     issueToOwner: jest.fn().mockResolvedValue({ id: 'doc-issued' }),
     uploadFile: jest.fn().mockResolvedValue({ id: 'file-1', mime: 'application/pdf', size: 1024 }),
+    isOwnedBy: jest.fn().mockResolvedValue(true),
   }
   // Справка об обучении (B7): данные студента, брендирование и журнал выгрузок — чужие
   // домены, в юните подменяются заглушками. Сам рендер PDF проверяется отдельно.
   const users = {
     academicSubject: jest.fn().mockResolvedValue(academicSubject),
     fullName: jest.fn().mockResolvedValue('Иванова Елена'),
+    findAssigneeScope: jest.fn().mockResolvedValue(null),
+    listApplicationAssignees: jest.fn().mockResolvedValue([]),
   }
   const branding = {
     publicUrl: 'https://studenthub.kz',
@@ -88,7 +101,10 @@ function setup(appRow: Record<string, unknown>) {
   }
   const exportRegistry = {
     register: jest.fn().mockResolvedValue({ id: 'exp-1', shortId: 'JT9ZPNDD' }),
+    registerExclusive: jest.fn().mockResolvedValue({ id: 'exp-1', shortId: 'JT9ZPNDD' }),
     revokeByDocumentNumber: jest.fn().mockResolvedValue(1),
+    hasActiveDocument: jest.fn().mockResolvedValue(false),
+    revokeByShortId: jest.fn().mockResolvedValue(undefined),
   }
   const service = new ApplicationProcessService(
     prisma as unknown as PrismaService,
@@ -223,6 +239,18 @@ describe('ApplicationProcessService — scope', () => {
     const { service } = setup({ ...base, status: 'SUBMITTED', facultyId: 'other' })
     await expect(service.take(dean, 'a1')).rejects.toMatchObject({ code: 'FORBIDDEN' })
   })
+
+  // Регрессия D-F01: черновик студент никуда не подавал — для обработчика его нет (404).
+  it('неподанная заявка (черновик) обработчику не находится → NOT_FOUND', async () => {
+    const { service, prisma } = setup({ ...base, status: 'DRAFT' })
+    prisma.application.findFirst.mockResolvedValue(null)
+    await expect(service.assign(dean, 'a1', 'u2')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(prisma.application.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'a1', deletedAt: null, AND: [{ submittedAt: { not: null } }] },
+      }),
+    )
+  })
 })
 
 describe('ApplicationProcessService — справка об обучении', () => {
@@ -244,6 +272,18 @@ describe('ApplicationProcessService — справка об обучении', (
     await expect(service.issueStudyCertificate(dean, 'app-1', 'ru')).rejects.toThrow(AppException)
   })
 
+  it.each(['Отчислен', 'выпускник'])(
+    'студенту со статусом «%s» справка не выдаётся и не регистрируется',
+    async (academicStatus) => {
+      const { service, users, exportRegistry } = setup(inPreparation)
+      users.academicSubject.mockResolvedValue({ ...academicSubject, academicStatus })
+      await expect(service.issueStudyCertificate(dean, 'app-1', 'ru')).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+      })
+      expect(exportRegistry.registerExclusive).not.toHaveBeenCalled()
+    },
+  )
+
   it('регистрирует документ в журнале ДО рендера и выдаёт студенту', async () => {
     const { service, documents, exportRegistry, branding } = setup(inPreparation)
 
@@ -252,10 +292,11 @@ describe('ApplicationProcessService — справка об обучении', (
     expect(result.verificationCode).toBe('JT9ZPNDD')
     // Код проверки печатается внутри документа, поэтому запись в журнале обязана быть
     // раньше брендирования и рендера.
-    expect(exportRegistry.register).toHaveBeenCalledWith(
+    expect(exportRegistry.registerExclusive).toHaveBeenCalledWith(
       expect.objectContaining({
         format: 'pdf',
         context: expect.objectContaining({ kind: 'certificate' }),
+        document: expect.objectContaining({ documentNumber: 'SH-2026-001842' }),
       }),
     )
     expect(branding.pdfBranding).toHaveBeenCalledWith(
@@ -270,12 +311,38 @@ describe('ApplicationProcessService — справка об обучении', (
 
   it('не выдаёт справку, если её не удалось записать в журнал', async () => {
     const { service, documents, exportRegistry } = setup(inPreparation)
-    exportRegistry.register.mockResolvedValue(null)
+    exportRegistry.registerExclusive.mockResolvedValue(null)
 
     // Официальный документ без записи в журнале непроверяем — выдавать его нельзя,
     // в отличие от рабочих выгрузок, где сбой журнала терпим.
     await expect(service.issueStudyCertificate(dean, 'app-1', 'ru')).rejects.toThrow(AppException)
     expect(documents.issueToOwner).not.toHaveBeenCalled()
+  })
+
+  it('действующая справка по заявке уже есть → CONFLICT, вторую не регистрирует', async () => {
+    const { service, exportRegistry } = setup(inPreparation)
+    exportRegistry.hasActiveDocument.mockResolvedValue(true)
+    const err = await service.issueStudyCertificate(dean, 'app-1', 'ru').catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(exportRegistry.registerExclusive).not.toHaveBeenCalled()
+  })
+
+  // D-F19: два одновременных «Сформировать» оба проходили проверку чтением. Теперь второй
+  // упирается в registerExclusive (проверка и запись под локом номера) и ничего не выдаёт.
+  it('гонка: действующая справка появилась между проверкой и записью → CONFLICT', async () => {
+    const { service, documents, exportRegistry } = setup(inPreparation)
+    exportRegistry.registerExclusive.mockResolvedValue('active')
+    const err = await service.issueStudyCertificate(dean, 'app-1', 'ru').catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(documents.uploadFile).not.toHaveBeenCalled()
+    expect(documents.issueToOwner).not.toHaveBeenCalled()
+  })
+
+  it('выдача сорвалась после регистрации → код отзывается', async () => {
+    const { service, documents, exportRegistry } = setup(inPreparation)
+    documents.issueToOwner.mockRejectedValue(new Error('minio down'))
+    await expect(service.issueStudyCertificate(dean, 'app-1', 'ru')).rejects.toThrow('minio down')
+    expect(exportRegistry.revokeByShortId).toHaveBeenCalledWith('JT9ZPNDD')
   })
 })
 
@@ -299,7 +366,12 @@ describe('ApplicationProcessService — отзыв справки', () => {
     const result = await service.revokeStudyCertificate(dean, 'app-1', 'выдана ошибочно')
 
     expect(result.revoked).toBe(1)
-    expect(exportRegistry.revokeByDocumentNumber).toHaveBeenCalledWith('SH-2026-001842')
+    // Журнал — в той же транзакции, что отметка на документе и событие.
+    expect(exportRegistry.revokeByDocumentNumber).toHaveBeenCalledWith(
+      'SH-2026-001842',
+      'certificate',
+      expect.objectContaining({ document: prisma.document }),
+    )
     expect(prisma.applicationEvent.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ action: 'RESULT_REVOKED', comment: 'выдана ошибочно' }),
@@ -307,10 +379,348 @@ describe('ApplicationProcessService — отзыв справки', () => {
     )
   })
 
-  it('сообщает, когда отзывать нечего, вместо тихого успеха', async () => {
-    const { service, exportRegistry } = setup(issued)
+  // D-F19: справка в кабинете оставалась «выданной», и студент узнавал об отзыве только по QR.
+  it('помечает справку в кабинете студента и уведомляет его', async () => {
+    const { service, prisma, queue } = setup(issued)
+
+    await service.revokeStudyCertificate(dean, 'app-1', 'выдана ошибочно')
+
+    expect(prisma.document.updateManyAndReturn).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        ownerId: 'stu-1',
+        type: 'STUDY_PLACE_REF',
+        issuedByUniversity: true,
+        applicationResults: { some: { applicationId: 'app-1' } },
+      }),
+      data: { status: 'REJECTED', rejectionReason: 'выдана ошибочно' },
+      select: { id: true },
+    })
+    // Отзыв виден и в журнале самого документа.
+    expect(prisma.documentEvent.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          actorId: 'dean',
+          documentId: 'doc-1',
+          action: 'REJECT',
+          metadata: { reason: 'выдана ошибочно', revoked: true, viaApplication: 'app-1' },
+        },
+      ],
+    })
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      'notifications',
+      expect.any(String),
+      expect.objectContaining({
+        recipientIds: ['stu-1'],
+        titleKey: 'applications.revoked.title',
+        params: { number: 'SH-2026-001842' },
+      }),
+      expect.anything(),
+    )
+  })
+
+  it('сообщает, когда отзывать нечего, вместо тихого успеха — и ничего не помечает', async () => {
+    const { service, exportRegistry, prisma, queue } = setup(issued)
     exportRegistry.revokeByDocumentNumber.mockResolvedValue(0)
 
     await expect(service.revokeStudyCertificate(dean, 'app-1')).rejects.toThrow(AppException)
+    expect(prisma.document.updateManyAndReturn).not.toHaveBeenCalled()
+    expect(prisma.documentEvent.createMany).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
   })
+})
+
+describe('ApplicationProcessService.assign — кому можно поручить заявку', () => {
+  it('админу вуза заявки — можно', async () => {
+    const { service, prisma, users } = setup({ ...base, status: 'IN_REVIEW' })
+    users.findAssigneeScope.mockResolvedValue({
+      id: 'ua',
+      role: Role.UNIVERSITY_ADMIN,
+      universityId: 'uni',
+      facultyId: null,
+    })
+
+    await service.assign(dean, 'a1', 'ua')
+
+    expect(prisma.application.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ assignedToId: 'ua' }) }),
+    )
+  })
+
+  // id сотрудника в comment история показывала студенту как текст.
+  it('кого назначили — в metadata события, comment пустой', async () => {
+    const { service, prisma, users } = setup({ ...base, status: 'IN_REVIEW' })
+    users.findAssigneeScope.mockResolvedValue({
+      id: 'ua',
+      role: Role.UNIVERSITY_ADMIN,
+      universityId: 'uni',
+      facultyId: null,
+    })
+    await service.assign(dean, 'a1', 'ua')
+    const data = prisma.applicationEvent.create.mock.calls[0][0].data
+    expect(data).toMatchObject({ action: 'ASSIGNED', metadata: { assigneeId: 'ua' } })
+    expect(data.comment).toBeUndefined()
+  })
+
+  it('декану другого факультета — нельзя: он заявку даже не увидит', async () => {
+    const { service, prisma, users } = setup({ ...base, status: 'IN_REVIEW' })
+    users.findAssigneeScope.mockResolvedValue({
+      id: 'dean-2',
+      role: Role.DEAN,
+      universityId: 'uni',
+      facultyId: 'fac-2',
+    })
+
+    await expect(service.assign(dean, 'a1', 'dean-2')).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    })
+    expect(prisma.application.update).not.toHaveBeenCalled()
+  })
+
+  it('студенту, преподавателю или несуществующему id — нельзя', async () => {
+    const { service, users } = setup({ ...base, status: 'IN_REVIEW' })
+    users.findAssigneeScope.mockResolvedValueOnce({
+      id: 'stud-2',
+      role: Role.STUDENT,
+      universityId: 'uni',
+      facultyId: 'fac',
+    })
+    await expect(service.assign(dean, 'a1', 'stud-2')).rejects.toBeInstanceOf(AppException)
+
+    users.findAssigneeScope.mockResolvedValueOnce(null)
+    await expect(service.assign(dean, 'a1', 'ghost')).rejects.toBeInstanceOf(AppException)
+  })
+
+  it('список кандидатов — по вузу и факультету заявки', async () => {
+    const { service, users } = setup({ ...base, status: 'IN_REVIEW' })
+    await service.assignees(dean, 'a1')
+    expect(users.listApplicationAssignees).toHaveBeenCalledWith('uni', 'fac')
+  })
+})
+
+describe('ApplicationProcessService — назначение, готовность, выдача (D-F18)', () => {
+  const assignable = {
+    id: 'ua',
+    role: Role.UNIVERSITY_ADMIN,
+    universityId: 'uni',
+    facultyId: null,
+  }
+
+  it.each(['ISSUED', 'DELIVERED', 'REJECTED', 'CANCELLED'])(
+    'закрытую заявку (%s) поручить нельзя',
+    async (status) => {
+      const { service, prisma, users } = setup({ ...base, status })
+      users.findAssigneeScope.mockResolvedValue(assignable)
+      await expect(service.assign(dean, 'a1', 'ua')).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+      })
+      expect(prisma.application.update).not.toHaveBeenCalled()
+    },
+  )
+
+  it('назначение пишется с условием «заявка ещё в работе»', async () => {
+    const { service, prisma, users } = setup({ ...base, status: 'IN_PREPARATION' })
+    users.findAssigneeScope.mockResolvedValue(assignable)
+    await service.assign(dean, 'a1', 'ua')
+    const where = prisma.application.update.mock.calls[0][0].where
+    expect(where.id).toBe('a1')
+    expect(where.status.notIn).toEqual(expect.arrayContaining(['DRAFT', 'ISSUED', 'CANCELLED']))
+  })
+
+  it('электронная выдача без результата → «готово» не ставится', async () => {
+    const { service, prisma, queue } = setup({
+      ...base,
+      status: 'IN_PREPARATION',
+      deliveryType: 'ELECTRONIC',
+    })
+    prisma.applicationResult.count.mockResolvedValue(0)
+    await expect(service.markReady(dean, 'a1', {})).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(prisma.application.update).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('бумажная выдача без результата — можно: результат и есть бумага', async () => {
+    const { service, prisma } = setup({ ...base, status: 'IN_PREPARATION', deliveryType: 'PAPER' })
+    prisma.applicationResult.count.mockResolvedValue(0)
+    await service.markReady(dean, 'a1', {})
+    expect(prisma.application.update.mock.calls[0][0].data.status).toBe('READY_FOR_PICKUP')
+  })
+
+  it('выдача с неверным кодом получения → BAD_REQUEST', async () => {
+    const { service, prisma } = setup({ ...base, status: 'READY_FOR_PICKUP' })
+    await expect(service.issue(dean, 'a1', 'SH-P-00000000')).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    })
+    expect(prisma.application.update).not.toHaveBeenCalled()
+  })
+
+  it('выдача с верным кодом (без учёта регистра) и без кода — проходит', async () => {
+    const withCode = setup({ ...base, status: 'READY_FOR_PICKUP' })
+    await withCode.service.issue(dean, 'a1', ' sh-p-ab12cd34 ')
+    expect(withCode.prisma.application.update.mock.calls[0][0].data.status).toBe('ISSUED')
+
+    const noCode = setup({ ...base, status: 'READY_FOR_PICKUP' })
+    await noCode.service.issue(dean, 'a1')
+    expect(noCode.prisma.application.findUnique).not.toHaveBeenCalled()
+    expect(noCode.prisma.application.update.mock.calls[0][0].data.status).toBe('ISSUED')
+  })
+})
+
+describe('ApplicationProcessService.addResult — документ из хранилища', () => {
+  it('чужой документ к результату не приложить', async () => {
+    const { service, prisma, documents } = setup({ ...base, status: 'IN_PREPARATION' })
+    documents.isOwnedBy.mockResolvedValue(false)
+
+    await expect(
+      service.addResult(dean, 'a1', { type: 'DOCUMENT', documentId: 'doc-of-someone-else' }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(documents.isOwnedBy).toHaveBeenCalledWith('doc-of-someone-else', 'stud')
+    expect(prisma.applicationResult.create).not.toHaveBeenCalled()
+  })
+
+  it('документ самого студента прикладывается', async () => {
+    const { service, prisma } = setup({ ...base, status: 'IN_PREPARATION' })
+    await service.addResult(dean, 'a1', { type: 'DOCUMENT', documentId: 'doc-own' })
+    expect(prisma.applicationResult.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ documentId: 'doc-own' }) }),
+    )
+  })
+})
+
+// Два сотрудника нажали одно действие одновременно (или студент отозвал заявку, пока её
+// брали в работу): переход пишется с условием на прочитанный статус, проигравший получает 409.
+describe('ApplicationProcessService — гонка переходов (условие на статус в записи)', () => {
+  const stale = () =>
+    new Prisma.PrismaClientKnownRequestError('not found', { code: 'P2025', clientVersion: '6' })
+
+  it('take пишет переход с условием на прочитанный статус', async () => {
+    const { service, prisma } = setup({ ...base, status: 'RESUBMITTED' })
+    await service.take(dean, 'a1')
+    expect(prisma.application.update.mock.calls[0][0].where).toEqual({
+      id: 'a1',
+      status: 'RESUBMITTED',
+    })
+    expect(prisma.applicationEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ fromStatus: 'RESUBMITTED', toStatus: 'IN_REVIEW' }),
+      select: { id: true },
+    })
+  })
+
+  it('заявку взял другой сотрудник между чтением и записью → CONFLICT, без события и сигналов', async () => {
+    const { service, prisma, queue, realtime } = setup({ ...base, status: 'SUBMITTED' })
+    prisma.application.update.mockRejectedValueOnce(stale())
+    await expect(service.take(dean, 'a1')).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(prisma.applicationEvent.create).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+    expect(realtime.emitEventToUser).not.toHaveBeenCalled()
+  })
+
+  it('отказ, проигравший гонку, студента не уведомляет', async () => {
+    const { service, prisma, queue, realtime } = setup({ ...base, status: 'IN_REVIEW' })
+    prisma.application.update.mockRejectedValueOnce(stale())
+    await expect(service.reject(dean, 'a1', 'нет справки')).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+    expect(queue.enqueue).not.toHaveBeenCalled()
+    expect(realtime.emitEventToUser).not.toHaveBeenCalled()
+  })
+
+  it('прочая ошибка базы не выдаётся за конфликт', async () => {
+    const { service, prisma } = setup({ ...base, status: 'IN_REVIEW' })
+    prisma.application.update.mockRejectedValueOnce(new Error('connection lost'))
+    await expect(service.startPreparation(dean, 'a1')).rejects.toThrow('connection lost')
+  })
+
+  it('назначение на заявку, закрытую между проверкой и записью → CONFLICT, без события', async () => {
+    const { service, prisma, users } = setup({ ...base, status: 'IN_PREPARATION' })
+    users.findAssigneeScope.mockResolvedValue({
+      id: 'ua',
+      role: Role.UNIVERSITY_ADMIN,
+      universityId: 'uni',
+      facultyId: null,
+    })
+    prisma.application.update.mockRejectedValueOnce(stale())
+    await expect(service.assign(dean, 'a1', 'ua')).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(prisma.applicationEvent.create).not.toHaveBeenCalled()
+  })
+
+  it('успешный переход уведомляет студента с ключом по id события перехода', async () => {
+    const { service, queue, realtime } = setup({ ...base, status: 'IN_REVIEW' })
+    await service.requestCorrection(dean, 'a1', 'перезагрузите скан')
+    const [, , payload, opts] = queue.enqueue.mock.calls[0]
+    expect(payload).toMatchObject({ recipientIds: ['stud'], dedupeKey: 'NEEDS_CORRECTION:ev-1' })
+    expect(opts).toEqual({ jobId: 'NEEDS_CORRECTION:ev-1' })
+    expect(realtime.emitEventToUser).toHaveBeenCalledWith('stud', expect.any(String), 'a1', {
+      status: 'NEEDS_CORRECTION',
+    })
+  })
+})
+
+describe('ApplicationProcessService.queueStats — просрочка', () => {
+  // Заявка, брошенная студентом в исправлении, висела «просроченной» навсегда: закрыть её
+  // обработчик не может, а сводка каждое утро называла её снова.
+  it('ожидание исправления от студента просрочкой не считается', async () => {
+    const { service, prisma } = setup({ ...base, status: 'IN_REVIEW' })
+    await service.queueStats(dean)
+    const overdueWhere = prisma.application.count.mock.calls
+      .map((call) => call[0].where)
+      .find((where) => where.dueAt)
+    expect(overdueWhere.status.in).toEqual(
+      expect.arrayContaining(['SUBMITTED', 'RESUBMITTED', 'IN_REVIEW', 'IN_PREPARATION']),
+    )
+    expect(overdueWhere.status.in).not.toContain('NEEDS_CORRECTION')
+  })
+})
+
+describe('ApplicationProcessService — отозванный результат и отказ после выдачи', () => {
+  // Отказ после выпуска справки оставлял её действующей: /verify отвечал VALID.
+  it('отказ при действующей справке → CONFLICT, заявка не меняется', async () => {
+    const { service, prisma, exportRegistry } = setup({ ...base, status: 'IN_PREPARATION' })
+    exportRegistry.hasActiveDocument.mockResolvedValue(true)
+    await expect(service.reject(dean, 'a1', 'нет оснований')).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+    expect(exportRegistry.hasActiveDocument).toHaveBeenCalledWith('SH-1')
+    expect(prisma.application.update).not.toHaveBeenCalled()
+  })
+
+  it('отказ без выданной справки проходит', async () => {
+    const { service, prisma } = setup({ ...base, status: 'IN_PREPARATION' })
+    await service.reject(dean, 'a1', 'нет оснований')
+    expect(prisma.application.update.mock.calls[0][0].data.status).toBe('REJECTED')
+  })
+
+  it('«готово» считает только действующие результаты — отозванная справка не в счёт', async () => {
+    const { service, prisma } = setup({ ...base, status: 'IN_PREPARATION' })
+    prisma.applicationResult.count.mockResolvedValue(0)
+    await expect(service.markReady(dean, 'a1', {})).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    const where = prisma.applicationResult.count.mock.calls[0][0].where
+    expect(where.applicationId).toBe('a1')
+    expect(where.OR).toEqual(expect.arrayContaining([{ documentId: null }]))
+  })
+
+  it('электронно «предоставлено» без действующего результата → BAD_REQUEST', async () => {
+    const { service, prisma } = setup({ ...base, status: 'READY' })
+    prisma.applicationResult.count.mockResolvedValue(0)
+    await expect(service.deliver(dean, 'a1')).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(prisma.application.update).not.toHaveBeenCalled()
+  })
+
+  it.each(['READY', 'READY_FOR_PICKUP'])(
+    'после «готово» (%s) результат можно перевыпустить',
+    async (status) => {
+      const { service, prisma } = setup({ ...base, status })
+      await service.addResult(dean, 'a1', { type: 'INFORMATION', note: 'перевыпуск' })
+      expect(prisma.applicationResult.create).toHaveBeenCalled()
+    },
+  )
+
+  it.each(['DELIVERED', 'ISSUED', 'REJECTED'])(
+    'у закрытой заявки (%s) результат не добавляется',
+    async (status) => {
+      const { service } = setup({ ...base, status })
+      await expect(service.addResult(dean, 'a1', { type: 'INFORMATION' })).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+      })
+    },
+  )
 })

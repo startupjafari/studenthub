@@ -1,26 +1,31 @@
 'use client'
 
-import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState, type ReactNode } from 'react'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
 import { ClipboardList, Plus, Trash2 } from 'lucide-react'
-import { DOCUMENT_TYPES } from '@studenthub/shared-config'
 import { Role } from '@studenthub/shared-types'
+import type { AuthoredRequestSort } from '@studenthub/shared-schemas'
 import {
+  closeDocumentRequest,
   createDocumentRequest,
   documentRequestKeys,
-  fetchAuthoredRequests,
+  fetchAuthoredRequestsPage,
   fetchRequestManage,
+  fetchRequestSubmissions,
   fetchSubmission,
   fetchSubmissionFileUrl,
   finalizeSubmission,
   reviewSubmissionItem,
   type StaffRequestSummary,
   type StaffSubmissionItem,
+  type StaffSubmissionSummary,
 } from '../../../entities/document-request'
+import { courseKeys, fetchCourses } from '../../../entities/course'
+import { useDocumentTypeCatalog } from '../../../entities/document-type'
 import { DocumentFileViewer, isViewableMedia } from '../../../entities/document'
-import { localId } from '../../../shared/lib'
+import { localId, nowInTz } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
 import {
   Badge,
@@ -44,11 +49,14 @@ import {
   TableEmpty,
   TableHead,
   TableHeader,
+  TablePagination,
   TableRow,
   TableSkeletonRows,
   TableText,
   Textarea,
-  useTableSort,
+  useConfirm,
+  usePagedSort,
+  type SortState,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { DocModal } from './doc-modal'
@@ -90,11 +98,22 @@ const REQ_SKELETON_COLS = [
   undefined,
 ]
 
+// Размер страницы — как у журнала документов; предел серверной схемы — 100.
+const PAGE_SIZES = [20, 50, 100] as const
+
 export function StaffRequests() {
   const t = useTranslations('Documents')
   const [creating, setCreating] = useState(false)
   const [manageId, setManageId] = useState<string | null>(null)
-  const q = useQuery({ queryKey: documentRequestKeys.authored(), queryFn: fetchAuthoredRequests })
+  // Страница и порядок — на сервере: упорядочены все запросы области, а не открытая
+  // страница. Прежняя страница остаётся на экране, пока грузится следующая.
+  const paged = usePagedSort<AuthoredRequestSort>(PAGE_SIZES[0])
+  const q = useQuery({
+    queryKey: documentRequestKeys.authoredPage(paged.query),
+    queryFn: () => fetchAuthoredRequestsPage(paged.query),
+    placeholderData: keepPreviousData,
+  })
+  const total = q.data?.total ?? 0
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -103,7 +122,7 @@ export function StaffRequests() {
           <Plus className="size-4" aria-hidden /> {t('req_create')}
         </Button>
       </div>
-      {!q.isLoading && (q.data ?? []).length === 0 ? (
+      {!q.isLoading && total === 0 ? (
         <EmptyState
           icon={<ClipboardList className="size-6" aria-hidden />}
           title={t('req_emptyStaff')}
@@ -115,7 +134,23 @@ export function StaffRequests() {
           }
         />
       ) : (
-        <RequestsTable rows={q.data ?? []} loading={q.isLoading} onOpen={setManageId} />
+        <RequestsTable
+          rows={q.data?.items ?? []}
+          loading={q.isLoading}
+          onOpen={setManageId}
+          sort={paged.sort}
+          onSort={paged.toggle}
+          footer={
+            <TablePagination
+              page={paged.page}
+              total={total}
+              limit={paged.limit}
+              onPageChange={paged.setPage}
+              limitOptions={PAGE_SIZES}
+              onLimitChange={paged.setLimit}
+            />
+          }
+        />
       )}
       {creating && <CreateRequestModal onClose={() => setCreating(false)} />}
       {manageId && <ManageRequestModal id={manageId} onClose={() => setManageId(null)} />}
@@ -127,59 +162,50 @@ export function StaffRequests() {
  * Список запросов таблицей.
  *
  * Плитками сотрудник не мог сравнить запросы между собой: «отправлено 3 из 40» и срок
- * лежали в разных местах каждой карточки. В колонках эти же числа стоят друг под другом
- * и сортируются — по сроку видно, что горит, по отправленным — где студенты молчат.
+ * лежали в разных местах каждой карточки. В колонках эти же числа стоят друг под другом.
+ * Сортирует сервер — по всем запросам области. Колонка «Отправлено» без сортировки: это
+ * доля двух счётчиков, а БД упорядочивает только по одному.
  */
 function RequestsTable({
   rows,
   loading,
   onOpen,
+  sort,
+  onSort,
+  footer,
 }: {
   rows: StaffRequestSummary[]
   loading: boolean
   onOpen: (id: string) => void
+  sort: SortState | null
+  onSort: (key: string) => void
+  footer: ReactNode
 }) {
   const t = useTranslations('Documents')
   const locale = useLocale()
-  // Сортировка по доле отправленных, а не по абсолютному числу: «3 из 5» важнее «3 из 400».
-  const {
-    rows: sorted,
-    sort,
-    toggle,
-  } = useTableSort<StaffRequestSummary>(rows, (r, key) => {
-    if (key === 'title') return r.title
-    if (key === 'items') return r.itemCount
-    if (key === 'submitted')
-      return r.submissionCount === 0 ? 0 : r.submittedCount / r.submissionCount
-    if (key === 'due') return r.dueAt
-    if (key === 'status') return r.status
-    return null
-  })
 
   return (
     <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
       <Table fixed scrollBody fill cols={REQ_COLS}>
         <TableHeader>
           <TableRow>
-            <TableHead sortKey="title" sort={sort} onSort={toggle}>
+            <TableHead sortKey="title" sort={sort} onSort={onSort}>
               {t('req_fieldTitle')}
             </TableHead>
             <TableHead
               numeric
               sortKey="items"
               sort={sort}
-              onSort={toggle}
+              onSort={onSort}
               className={REQ_HIDE.items}
             >
               {t('req_colItems')}
             </TableHead>
-            <TableHead numeric sortKey="submitted" sort={sort} onSort={toggle}>
-              {t('req_colSubmitted')}
-            </TableHead>
-            <TableHead sortKey="due" sort={sort} onSort={toggle}>
+            <TableHead numeric>{t('req_colSubmitted')}</TableHead>
+            <TableHead sortKey="dueAt" sort={sort} onSort={onSort}>
               {t('req_fieldDue')}
             </TableHead>
-            <TableHead sortKey="status" sort={sort} onSort={toggle} className={REQ_HIDE.status}>
+            <TableHead sortKey="status" sort={sort} onSort={onSort} className={REQ_HIDE.status}>
               {t('status')}
             </TableHead>
             <TableHead>
@@ -189,7 +215,7 @@ function RequestsTable({
         </TableHeader>
         <TableBody>
           {loading && <TableSkeletonRows columns={REQ_SKELETON_COLS} />}
-          {sorted.map((r) => (
+          {rows.map((r) => (
             <TableRow
               key={r.id}
               onClick={() => onOpen(r.id)}
@@ -197,6 +223,12 @@ function RequestsTable({
             >
               <TableCell className="font-medium">
                 <TableText value={r.title} />
+                {/* Запрос подразделения (предшественника, коллеги) — с именем автора. */}
+                {!r.mine && (
+                  <p className="truncate text-xs font-normal text-muted-foreground">
+                    {t('req_author', { name: r.authorName })}
+                  </p>
+                )}
               </TableCell>
               <TableCell className={cn(REQ_HIDE.items, 'text-right tabular-nums')}>
                 {r.itemCount}
@@ -231,6 +263,7 @@ function RequestsTable({
           ))}
         </TableBody>
       </Table>
+      {footer}
     </Card>
   )
 }
@@ -253,34 +286,53 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient()
   const myFacultyId = useAppSelector((s) => s.auth.facultyId)
   const role = useAppSelector((s) => s.auth.role)
-  // §15.2: преподаватель вправе запрашивать только учебные типы.
+  // §15.2: преподаватель вправе запрашивать только учебные типы. Типы — из каталога вуза:
+  // выключенные вузом не предлагаем, собственные типы вуза — предлагаем.
+  const catalog = useDocumentTypeCatalog()
   const availableTypes =
-    role === Role.TEACHER ? DOCUMENT_TYPES.filter((d) => d.category === 'ACADEMIC') : DOCUMENT_TYPES
-  const firstType = availableTypes[0]!.id
+    role === Role.TEACHER ? catalog.types.filter((d) => d.category === 'ACADEMIC') : catalog.types
+  // Каталог приходит запросом: позиция, заведённая до его загрузки, получает первый тип.
+  const firstType = availableTypes[0]?.typeId ?? ''
+  const typeOfItem = (it: DraftItem): string => it.documentType || firstType
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [dueAt, setDueAt] = useState('')
   const [items, setItems] = useState<DraftItem[]>(() => [
     { id: localId('req-item'), documentType: firstType, title: '', required: true },
   ])
-  const [toUniversity, setToUniversity] = useState(true)
-  const [toFaculty, setToFaculty] = useState(false)
+  // Адресаты — в области автора (сервер проверяет то же самое): весь вуз — модератор вуза,
+  // свой факультет — декан, группы своих дисциплин — преподаватель.
+  const canUniversity = role === Role.UNIVERSITY_MODERATOR
+  const canFaculty = role === Role.DEAN && !!myFacultyId
+  const isTeacher = role === Role.TEACHER
+  const [toUniversity, setToUniversity] = useState(canUniversity)
+  const [toFaculty, setToFaculty] = useState(canFaculty)
+  const [groupIds, setGroupIds] = useState<string[]>([])
+  // Преподавателю сервер отдаёт только его дисциплины.
+  const myCourses = useQuery({
+    queryKey: courseKeys.list(),
+    queryFn: () => fetchCourses(),
+    enabled: isTeacher,
+  })
+  // Одна группа может встречаться в нескольких дисциплинах — в списке она одна.
+  const myGroups = [...new Map((myCourses.data ?? []).map((c) => [c.group.id, c.group])).values()]
 
   const mut = useMutation({
     mutationFn: () => {
       const targets = [
-        ...(toUniversity ? [{ targetType: 'UNIVERSITY' as const }] : []),
-        ...(toFaculty && myFacultyId
+        ...(canUniversity && toUniversity ? [{ targetType: 'UNIVERSITY' as const }] : []),
+        ...(canFaculty && toFaculty && myFacultyId
           ? [{ targetType: 'FACULTY' as const, targetId: myFacultyId }]
           : []),
+        ...groupIds.map((id) => ({ targetType: 'GROUP' as const, targetId: id })),
       ]
       return createDocumentRequest({
         title: title.trim(),
         description: description.trim() || undefined,
         dueAt: dueAt ? new Date(dueAt) : undefined,
         items: items.map((it) => ({
-          documentType: it.documentType,
-          title: it.title.trim() || t(`docType_${it.documentType}`),
+          documentType: typeOfItem(it),
+          title: it.title.trim() || catalog.labelOf(typeOfItem(it)),
           required: it.required,
         })),
         targets,
@@ -294,7 +346,8 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
     onError: (e) => toast.error(tErr(errCode(e))),
   })
 
-  const targetsChosen = toUniversity || (toFaculty && !!myFacultyId)
+  const targetsChosen =
+    (canUniversity && toUniversity) || (canFaculty && toFaculty) || groupIds.length > 0
   // Ошибки показываем после первой попытки создать запрос.
   const [submitted, setSubmitted] = useState(false)
   const errors = {
@@ -319,6 +372,7 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
               if (!Object.values(errors).some(Boolean)) mut.mutate()
             }}
             loading={mut.isPending}
+            disabled={!firstType}
           >
             {t('req_create')}
           </Button>
@@ -348,9 +402,11 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
         </div>
         <div className="flex flex-col gap-1.5">
           <Label>{t('req_fieldDue')}</Label>
+          {/* Срок в прошлом сервер не примет: ответить на такой запрос было бы нельзя. */}
           <DatePicker
             value={dueAt}
             onChange={setDueAt}
+            min={nowInTz(null).date}
             className="w-48"
             aria-label={t('req_fieldDue')}
           />
@@ -365,7 +421,7 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
               className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-2"
             >
               <Select
-                value={it.documentType}
+                value={typeOfItem(it)}
                 onValueChange={(v) =>
                   setItems(items.map((x) => (x.id === it.id ? { ...x, documentType: v } : x)))
                 }
@@ -375,8 +431,8 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
                 </SelectTrigger>
                 <SelectContent>
                   {availableTypes.map((d) => (
-                    <SelectItem key={d.id} value={d.id}>
-                      {t(`docType_${d.id}`)}
+                    <SelectItem key={d.typeId} value={d.typeId}>
+                      {catalog.labelOf(d.typeId)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -386,7 +442,7 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
                 onChange={(e) =>
                   setItems(items.map((x) => (x.id === it.id ? { ...x, title: e.target.value } : x)))
                 }
-                placeholder={t(`docType_${it.documentType}`)}
+                placeholder={catalog.labelOf(typeOfItem(it))}
                 className="min-w-[140px] flex-1"
               />
               <label className="flex items-center gap-1.5 text-sm">
@@ -431,16 +487,41 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
         {/* Адресаты */}
         <div className="flex flex-col gap-2">
           <span className="text-sm font-medium">{t('req_fieldTargets')}</span>
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox checked={toUniversity} onCheckedChange={(v) => setToUniversity(v === true)} />
-            {t('req_targetUniversity')}
-          </label>
-          {myFacultyId && (
+          {canUniversity && (
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={toUniversity}
+                onCheckedChange={(v) => setToUniversity(v === true)}
+              />
+              {t('req_targetUniversity')}
+            </label>
+          )}
+          {canFaculty && (
             <label className="flex items-center gap-2 text-sm">
               <Checkbox checked={toFaculty} onCheckedChange={(v) => setToFaculty(v === true)} />
               {t('req_targetFaculty')}
             </label>
           )}
+          {isTeacher &&
+            (myCourses.isLoading ? (
+              <Skeleton className="h-5 w-40" />
+            ) : myGroups.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t('req_targetNoGroups')}</p>
+            ) : (
+              myGroups.map((g) => (
+                <label key={g.id} className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={groupIds.includes(g.id)}
+                    onCheckedChange={(v) =>
+                      setGroupIds((prev) =>
+                        v === true ? [...prev, g.id] : prev.filter((x) => x !== g.id),
+                      )
+                    }
+                  />
+                  {t('req_targetGroup', { name: g.name })}
+                </label>
+              ))
+            ))}
           <FieldError>{show('targets')}</FieldError>
         </div>
       </div>
@@ -451,21 +532,72 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
 function ManageRequestModal({ id, onClose }: { id: string; onClose: () => void }) {
   const t = useTranslations('Documents')
   const tErr = useTranslations('Errors')
+  const qc = useQueryClient()
+  const confirm = useConfirm()
   const [reviewId, setReviewId] = useState<string | null>(null)
   const q = useQuery({
     queryKey: documentRequestKeys.manage(id),
     queryFn: () => fetchRequestManage(id),
   })
   const d = q.data
+  // Карточка приносит первые 200 комплектов; остальные — страницами по кнопке.
+  const [more, setMore] = useState<StaffSubmissionSummary[]>([])
+  const [moreHasNext, setMoreHasNext] = useState<boolean | null>(null)
+  const submissions = d ? [...d.submissions, ...more] : []
+  const hasMore =
+    !!d && (moreHasNext ?? d.submissionCount > d.submissions.length) && submissions.length > 0
+  const moreMut = useMutation({
+    mutationFn: () => fetchRequestSubmissions(id, submissions[submissions.length - 1]!.id),
+    onSuccess: (page) => {
+      setMore((prev) => [...prev, ...page.items])
+      setMoreHasNext(page.hasNext)
+    },
+    onError: (e) => toast.error(tErr(errCode(e))),
+  })
+  const closeMut = useMutation({
+    mutationFn: () => closeDocumentRequest(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: documentRequestKeys.all })
+      toast.success(t('req_closedToast'))
+    },
+    onError: (e) => toast.error(tErr(errCode(e))),
+  })
 
   return (
-    <DocModal title={d?.title ?? t('req_title')} size="xl" onClose={onClose}>
+    <DocModal
+      title={d?.title ?? t('req_title')}
+      size="xl"
+      onClose={onClose}
+      footer={
+        d?.status === 'OPEN' ? (
+          <Button
+            variant="outline"
+            loading={closeMut.isPending}
+            onClick={() => {
+              void confirm({ title: t('req_closeConfirm'), destructive: true }).then((ok) => {
+                if (ok) closeMut.mutate()
+              })
+            }}
+          >
+            {t('req_close')}
+          </Button>
+        ) : undefined
+      }
+    >
       {q.isLoading ? (
         <Skeleton className="h-40 w-full rounded-xl" />
       ) : !d ? (
         <p className="text-sm text-destructive">{tErr('NOT_FOUND')}</p>
       ) : (
         <div className="flex flex-col gap-4">
+          {!d.mine && (
+            <p className="text-sm text-muted-foreground">
+              {t('req_author', { name: d.authorName })}
+            </p>
+          )}
+          {d.status === 'CLOSED' && (
+            <p className="text-sm text-muted-foreground">{t('req_closedNotice')}</p>
+          )}
           {d.description && <p className="text-sm text-muted-foreground">{d.description}</p>}
           <div>
             <p className="mb-1 text-sm font-medium">{t('req_fieldItems')}</p>
@@ -480,11 +612,11 @@ function ManageRequestModal({ id, onClose }: { id: string; onClose: () => void }
           </div>
           <div>
             <p className="mb-2 text-sm font-medium">{t('req_submissions')}</p>
-            {d.submissions.length === 0 ? (
+            {submissions.length === 0 ? (
               <p className="text-sm text-muted-foreground">{t('req_noSubmissions')}</p>
             ) : (
               <ul className="flex flex-col gap-2">
-                {d.submissions.map((s) => (
+                {submissions.map((s) => (
                   <li
                     key={s.id}
                     className="flex items-center justify-between gap-2 rounded-lg border border-border p-3"
@@ -512,6 +644,17 @@ function ManageRequestModal({ id, onClose }: { id: string; onClose: () => void }
                   </li>
                 ))}
               </ul>
+            )}
+            {hasMore && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mt-2"
+                loading={moreMut.isPending}
+                onClick={() => moreMut.mutate()}
+              >
+                {t('req_loadMore')}
+              </Button>
             )}
           </div>
         </div>

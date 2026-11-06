@@ -21,6 +21,8 @@ export interface InviteListItem {
   groupId: string | null
   expiresAt: string
   createdAt: string
+  // Кто выдал: в списке всего вуза (scope=university) это главное, что отличает строки.
+  createdBy: { id: string; firstName: string; lastName: string } | null
 }
 
 // Ответ создания: содержит одноразовый token для ссылки-приглашения.

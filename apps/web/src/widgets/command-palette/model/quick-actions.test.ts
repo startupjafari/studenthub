@@ -1,4 +1,4 @@
-import { Role, ROLE_HIERARCHY } from '@studenthub/shared-types'
+import { Role, ROLE_HIERARCHY, isRestrictedRole } from '@studenthub/shared-types'
 import { describe, expect, it } from 'vitest'
 import { quickActionsFor } from './quick-actions'
 
@@ -15,7 +15,7 @@ describe('quickActionsFor', () => {
   it('«Документы» есть у всех ролей вуза — раздел общий', () => {
     // Работодатель (Ф18) — единственная роль вне вуза: хранилище документов участника
     // вуза его не касается, поэтому общий раздел ему не добавляется.
-    for (const role of ROLE_HIERARCHY.filter((r) => r !== Role.EMPLOYER)) {
+    for (const role of ROLE_HIERARCHY.filter((r) => r !== Role.EMPLOYER && !isRestrictedRole(r))) {
       expect(
         quickActionsFor(role).map((a) => a.navKey),
         role,
@@ -23,8 +23,17 @@ describe('quickActionsFor', () => {
     }
   })
 
-  it('работодателю «Документы» не показываются', () => {
+  it('работодателю, охране и библиотекарю «Документы» не показываются', () => {
     expect(quickActionsFor(Role.EMPLOYER).map((a) => a.navKey)).not.toContain('documents')
+    expect(quickActionsFor(Role.SECURITY_GUARD).map((a) => a.navKey)).not.toContain('documents')
+    expect(quickActionsFor(Role.LIBRARIAN).map((a) => a.navKey)).not.toContain('documents')
+  })
+
+  // Регрессия: староста видел заявки одногруппников («Обращения группы»). Название услуги само
+  // раскрывает тему — академический отпуск, военный стол, — поэтому раздел убран целиком.
+  it('у старосты нет раздела с заявками одногруппников', () => {
+    const hrefs = quickActionsFor(Role.STAROSTA).map((a) => a.href)
+    expect(hrefs).not.toContain('/starosta/group-requests')
   })
 
   it('без роли действий нет', () => {

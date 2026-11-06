@@ -8,7 +8,7 @@ export type RepostSource =
   | { kind: 'loading' }
   /** Исходный пост загружен — показываем его, а не репост. */
   | { kind: 'ready'; source: FeedPost }
-  /** Исходник не виден зрителю или удалён — остаётся репост с цитатой. */
+  /** Исходник не виден зрителю или удалён — репост с пометкой «Публикация недоступна». */
   | { kind: 'unavailable' }
 
 /**
@@ -19,8 +19,11 @@ export type RepostSource =
  * исходный пост догружается отдельным `GET /posts/:id` — в тот же кэш, что и страница
  * поста: плитка профиля, карточка ленты и полный просмотр делят один запрос.
  *
- * Видимость решает сервер: исходник, которого зрителю видеть нельзя, отвечает
- * NOT_FOUND, и тогда показывается прежняя цитата — не раскрывая, есть ли он вообще.
+ * Видимость решает сервер. Исходник, которого зрителю видеть нельзя (удалён, снят
+ * модератором, адресован другой аудитории), приходит в ленте без цитаты — `original: null`
+ * при заполненном `originalPostId`, — и запрашивать его незачем. Если исходник пропал уже
+ * после загрузки ленты, `GET /posts/:id` отвечает NOT_FOUND. В обоих случаях — «Публикация
+ * недоступна»: старую цитату не показываем, иначе снятый пост жил бы дальше в репостах.
  */
 export function useRepostSource(post: FeedPost | undefined): RepostSource {
   const originalId = post?.original?.id ?? null
@@ -33,7 +36,7 @@ export function useRepostSource(post: FeedPost | undefined): RepostSource {
     staleTime: 60_000,
   })
 
-  if (originalId === null) return { kind: 'plain' }
+  if (originalId === null) return post?.originalPostId ? { kind: 'unavailable' } : { kind: 'plain' }
   if (query.data) return { kind: 'ready', source: query.data }
   if (query.isError) return { kind: 'unavailable' }
   return { kind: 'loading' }

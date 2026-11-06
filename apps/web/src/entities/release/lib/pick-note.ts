@@ -32,12 +32,21 @@ export function latestModalNote(notes: ReleaseNote[]): ReleaseNote | null {
  *
  * `state === undefined` — ответ ещё не пришёл: молчим. Показать окно и тут же убрать его,
  * когда выяснится, что человек всё читал, хуже, чем показать на полсекунды позже.
+ *
+ * `announcedVersion` — версия, объявленная командой платформы (`GET /platform/state`,
+ * B-F18). Нота новее объявленной окна не получает: сборка с ней уже может стоять, а
+ * рассказывать о релизе — ещё нет (ждут, пока выкатятся все клиенты, или релиз тихий).
+ * `null` — ничего не объявляли: решает сборка, как до появления рычага.
  */
 export function pickReleaseNote(
   notes: ReleaseNote[],
   state: ReleaseState | undefined,
+  announcedVersion: string | null = null,
 ): ReleaseDecision | null {
-  const note = latestModalNote(notes)
+  const announced = announcedVersion
+    ? notes.filter((n) => !isNewerVersion(n.version, announcedVersion))
+    : notes
+  const note = latestModalNote(announced)
   if (!note || !state) return null
 
   // Эту версию (или более новую) человек уже подтвердил.

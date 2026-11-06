@@ -23,34 +23,27 @@ import {
   useTableSort,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { courseKeys, fetchCourses, type CourseItem } from '../../../entities/course'
-import { gradebookKeys, fetchMyGrades, type MyGradesCourse } from '../../../entities/gradebook'
+import { formatYmd } from '../../../shared/ui/calendar-grid'
+import {
+  buildPlan,
+  courseKeys,
+  fetchCourses,
+  planCredits,
+  type CourseItem,
+  type PlanStatus,
+} from '../../../entities/course'
+import { gradebookKeys, fetchMyGrades } from '../../../entities/gradebook'
+import { examKeys, fetchExams } from '../../../entities/exam'
 
-type PlanStatus = 'completed' | 'studying' | 'upcoming' | 'notPassed'
-
-const STATUS_BADGE: Record<PlanStatus, 'success' | 'info' | 'secondary' | 'destructive'> = {
+const STATUS_BADGE: Record<
+  PlanStatus,
+  'success' | 'info' | 'secondary' | 'destructive' | 'outline'
+> = {
   completed: 'success',
   studying: 'info',
   upcoming: 'secondary',
   notPassed: 'destructive',
-}
-
-const PASS_THRESHOLD = 50
-
-// Процент по дисциплине из опубликованных оценок (avg score/maxScore).
-function gradePercent(mg: MyGradesCourse | undefined): number | null {
-  if (!mg) return null
-  const scored = mg.columns
-    .filter((c) => c.maxScore != null && c.score != null)
-    .map((c) => (c.score as number) / (c.maxScore as number))
-  if (scored.length === 0) return null
-  return Math.round((scored.reduce((a, b) => a + b, 0) / scored.length) * 100)
-}
-
-function statusOf(course: CourseItem, pct: number | null): PlanStatus {
-  if (pct !== null) return pct >= PASS_THRESHOLD ? 'completed' : 'notPassed'
-  if (course.term?.isActive) return 'studying'
-  return 'upcoming'
+  noResult: 'outline',
 }
 
 interface PlanCourse {
@@ -81,20 +74,25 @@ export function StudyPlanView() {
     queryFn: () => fetchMyGrades(),
     retry: false,
   })
+  // Итог экзамена — главный признак «пройдена / не сдана» (C-F26). Тот же запрос, что у
+  // экрана «Экзамены» студента: кеш общий.
+  const exams = useQuery({
+    queryKey: examKeys.list(),
+    queryFn: () => fetchExams(),
+    retry: false,
+  })
 
   const model = useMemo(() => {
-    const list = courses.data ?? []
-    const gradeByCourse = new Map((grades.data ?? []).map((g) => [g.courseId, g]))
-    const plan: PlanCourse[] = list.map((course) => {
-      const pct = gradePercent(gradeByCourse.get(course.id))
-      return {
-        course,
-        term: course.term?.name ?? t('noTerm'),
-        termOrder: course.term?.number ?? 9999,
-        pct,
-        status: statusOf(course, pct),
-      }
-    })
+    // Фаза семестра — по сегодняшней дате (дни, точность до суток достаточна).
+    const today = formatYmd(new Date())
+    const entries = buildPlan(courses.data ?? [], grades.data ?? [], exams.data ?? [], today)
+    const plan: PlanCourse[] = entries.map(({ course, pct, status }) => ({
+      course,
+      term: course.term?.name ?? t('noTerm'),
+      termOrder: course.term?.number ?? 9999,
+      pct,
+      status,
+    }))
 
     // Порядок строк по умолчанию — по семестрам, как были секции: пока читатель не
     // нажал заголовок, план идёт в учебной последовательности, а не вперемешку.
@@ -103,17 +101,11 @@ export function StudyPlanView() {
         a.termOrder - b.termOrder || a.course.subject.name.localeCompare(b.course.subject.name),
     )
 
-    let totalCredits = 0
-    let doneCredits = 0
-    for (const p of plan) {
-      const cr = p.course.credits ?? 0
-      totalCredits += cr
-      if (p.status === 'completed') doneCredits += cr
-    }
+    const { total: totalCredits, done: doneCredits } = planCredits(entries)
     const progress = totalCredits === 0 ? 0 : Math.round((doneCredits / totalCredits) * 100)
 
     return { rows, totalCredits, doneCredits, progress }
-  }, [courses.data, grades.data, t])
+  }, [courses.data, grades.data, exams.data, t])
 
   // Сортировка клиентская: весь план приходит одним запросом, сервер здесь ни при чём.
   // Статус сравниваем по переводу — алфавит языка интерфейса, а не порядок значений.
@@ -144,7 +136,7 @@ export function StudyPlanView() {
       {courses.isLoading ? (
         <div className="flex flex-col gap-3">
           <Skeleton className="h-24 w-full rounded-xl" />
-          <Skeleton className="h-40 w-full rounded-xl" />
+          <Skeleton fill className="min-h-40 rounded-xl" />
         </div>
       ) : courses.isError ? (
         <EmptyState

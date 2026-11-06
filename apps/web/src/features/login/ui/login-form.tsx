@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, type ReactNode } from 'react'
+import Link from 'next/link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -9,17 +10,19 @@ import { toast } from 'sonner'
 import { Eye, EyeOff, QrCode } from 'lucide-react'
 import type { ApiErrorBody } from '@studenthub/shared-types'
 import { LoginSchema, type LoginInput } from '@studenthub/shared-schemas'
-import { Button, CodeInput, Input, Label, LegalLinks } from '../../../shared/ui'
+import { Button, CodeInput, Input, Label, LegalLinks, FieldError } from '../../../shared/ui'
 // safeNextPath — то же правило, что в middleware (защита от открытого редиректа).
 import { useFormAlert, safeNextPath, toApiError } from '../../../shared/lib'
 import { loginRequest, loginVerify2faRequest } from '../../../shared/api'
 import { establishSession } from '../../../shared/session'
 import { ROLE_HOME } from '../../../shared/config'
+import { resendCompanyVerification } from '../../../entities/company'
 import { QrLoginPanel } from './qr-login-panel'
 
 export function LoginForm() {
   const t = useTranslations('Auth')
   const tErr = useTranslations('Errors')
+  const tEmployer = useTranslations('Employer')
   const router = useRouter()
   const searchParams = useSearchParams()
   const [showPassword, setShowPassword] = useState(false)
@@ -39,14 +42,34 @@ export function LoginForm() {
   // блок внутри карточки раздвигал форму и уводил поля из-под курсора прямо в момент
   // повторной попытки. Состояние ошибки при этом остаётся — по нему шаг 2FA чистит код
   // и красит рамку. Один id на все попытки: повторный отказ заменяет тост, а не копит стопку.
-  function failLogin(err: unknown) {
+  function failLogin(err: unknown, identifier?: string) {
     markApiError(err)
     const api = toApiError(err)
     const details = api.code === 'VALIDATION_ERROR' ? api.details : undefined
+    // Работодатель не подтвердил почту компании — вход закрыт до перехода по ссылке. Письмо
+    // можно запросить прямо из тоста: адрес он только что ввёл, искать форму незачем.
+    const resendTo =
+      api.code === 'EMAIL_NOT_VERIFIED' && identifier?.includes('@') ? identifier : null
     toast.error(tErr(api.code), {
       id: 'login-error',
       description: details?.length ? details.map((d) => d.message).join(' · ') : undefined,
+      ...(resendTo
+        ? {
+            duration: 15_000,
+            action: { label: tEmployer('resend'), onClick: () => void resend(resendTo) },
+          }
+        : {}),
     })
+  }
+
+  // Ответ сервера одинаков для любого адреса, поэтому и текст осторожный: «если…».
+  async function resend(email: string) {
+    try {
+      await resendCompanyVerification(email)
+      toast.success(tEmployer('resendMaybeSent'), { id: 'login-error' })
+    } catch (err) {
+      toast.error(tErr(toApiError(err).code), { id: 'login-error' })
+    }
   }
 
   // Гасить тост руками можно только там, где следом заведомо не прилетит новый: sonner
@@ -58,6 +81,15 @@ export function LoginForm() {
     resetApiError()
     toast.dismiss('login-error')
   }
+
+  // Сюда ведёт смена пароля: сессии погашены, и человеку нужно объяснить, почему он снова
+  // на экране входа.
+  const reason = searchParams.get('reason')
+  useEffect(() => {
+    if (reason === 'password-changed') {
+      toast.success(t('passwordChangedRelogin'), { id: 'password-changed' })
+    }
+  }, [reason, t])
 
   async function completeLogin(token: string) {
     // Вход удался — уносить ошибку прошлой попытки на следующий экран незачем.
@@ -78,7 +110,7 @@ export function LoginForm() {
       }
       await completeLogin(result.accessToken)
     } catch (err) {
-      failLogin(err)
+      failLogin(err, values.identifier.trim())
     }
   }
 
@@ -101,6 +133,15 @@ export function LoginForm() {
             const token = await loginVerify2faRequest(challengeToken, code)
             await completeLogin(token)
           } catch (err) {
+            // UNAUTHORIZED на втором шаге — не «неверный пароль», а мёртвый challenge: три
+            // промаха или пять минут ожидания. Любой следующий код, даже верный, его не
+            // оживит (§8.3 Auth) — возвращаем к паролю и говорим почему.
+            if (toApiError(err).code === 'UNAUTHORIZED') {
+              resetApiError()
+              setChallengeToken(null)
+              toast.error(t('twoFactorChallengeExpired'), { id: 'login-error' })
+              return
+            }
             failLogin(err)
           }
         }}
@@ -126,24 +167,28 @@ export function LoginForm() {
               aria-invalid={!!errors.identifier}
               {...register('identifier')}
             />
-            {errors.identifier && (
-              <p className="text-xs text-destructive">{errors.identifier.message}</p>
-            )}
+            <FieldError>{errors.identifier && errors.identifier.message}</FieldError>
           </div>
 
           <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="password">{t('password')}</Label>
-              <button
-                type="button"
-                onClick={() => toast.info(t('forgotSoon'))}
+            {/* Строка подписи несёт и ссылку «Забыли пароль?», поэтому ошибка поля встаёт в
+                неё сама, между подписью и ссылкой (DESIGN_SYSTEM §10.3). */}
+            <div className="flex items-center gap-3">
+              <Label htmlFor="password" className="shrink-0">
+                {t('password')}
+              </Label>
+              <FieldError className="flex-1 text-right">
+                {errors.password && errors.password.message}
+              </FieldError>
+              <Link
+                href="/forgot-password"
                 // Отступы растят область нажатия до 28px по высоте (16px текста — вдвое
                 // меньше минимума WCAG 2.5.8), отрицательные внешние их гасят: строка с
                 // подписью «Пароль» остаётся той же высоты, а правый край — на месте.
-                className="-mx-1 -my-1.5 cursor-pointer rounded px-1 py-1.5 text-xs font-medium text-primary underline-offset-4 transition-colors outline-none hover:text-primary/70 hover:underline focus-visible:ring-2 focus-visible:ring-ring/30"
+                className="-mx-1 -my-1.5 ml-auto shrink-0 cursor-pointer rounded px-1 py-1.5 text-xs font-medium text-primary underline-offset-4 transition-colors outline-none hover:text-primary/70 hover:underline focus-visible:ring-2 focus-visible:ring-ring/30"
               >
                 {t('forgotPassword')}
-              </button>
+              </Link>
             </div>
             <div className="relative">
               <Input
@@ -163,9 +208,6 @@ export function LoginForm() {
                 {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
               </button>
             </div>
-            {errors.password && (
-              <p className="text-xs text-destructive">{errors.password.message}</p>
-            )}
           </div>
 
           <Button type="submit" size="xl" loading={isSubmitting} className="mt-2 w-full">

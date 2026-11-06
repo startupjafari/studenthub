@@ -24,5 +24,6 @@ model DeaneryAppointment {
 
   @@index([facultyId, status])
   @@index([studentId])
+  @@index([assignedToId])
   @@map("deanery_appointments")
 }

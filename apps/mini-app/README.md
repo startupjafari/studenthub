@@ -7,6 +7,9 @@
 Студентам он не адресован: `PLATFORM_ADMIN` и `PLATFORM_MODERATOR` — единственные роли,
 которым сервер выдаёт сессию.
 
+Разделы — нижняя панель: «Жалобы», «Поддержка», «Люди» и «Управление» (сводка платформы и
+пульт). «Управление» видит только `PLATFORM_ADMIN`: рычаги платформы пишет он один.
+
 ## Запуск
 
 ```bash
@@ -17,12 +20,18 @@ pnpm --filter mini-app dev          # http://localhost:3003
 `pnpm dev` в корне поднимает его вместе с остальными приложениями (web 3000, api 3001,
 landing 3002, mini-app 3003).
 
-Нужен и работающий API: адрес задаётся в `.env.local` (образец — `.env.example`), по
-умолчанию `/api/v1` того же origin.
+Нужен и работающий API. Dev-сервер проксирует `/api` на `http://localhost:3001`, и запросы
+идут тем же origin, что и страница (`/api/v1`) — поэтому мини-апп работает и через туннель.
+Другой адрес API в разработке — `MINI_APP_API_TARGET` в `.env.local` (образец —
+`.env.example`):
 
 ```bash
 cp apps/mini-app/.env.example apps/mini-app/.env.local
 ```
+
+`VITE_API_URL` нужен только сборке, которую раздают отдельно от API. `VITE_TG_APP_LINK`
+(`https://t.me/<бот>/<приложение>`) — ссылка для кнопки «Поделиться» в карточке жалобы;
+не задана — делимся адресом страницы.
 
 В обычном браузере открывается экран «Откройте из Telegram»: очередь жалоб требует подписи
 `initData`, которой вне клиента нет. Это не заглушка «на потом», а честный ответ — токен
@@ -56,10 +65,19 @@ pnpm --filter mini-app tunnel       # терминал 2
 ```bash
 pnpm --filter mini-app build        # → dist/
 pnpm --filter mini-app typecheck
+pnpm --filter mini-app lint
+pnpm --filter mini-app test         # vitest
+pnpm --filter mini-app size         # бюджет размера dist (.size-limit.json), после build
+pnpm --filter mini-app start        # vite preview собранного, порт 3003
 ```
 
 `base: './'` в [vite.config.ts](vite.config.ts) — статика раздаётся с любого пути, не
 обязательно из корня домена.
+
+Прод — [Dockerfile](Dockerfile) (контекст — корень монорепо) и [railway.json](railway.json):
+nginx раздаёт `dist` и проксирует `/api` на `API_TARGET`, слушает `PORT`
+([nginx.conf.template](nginx.conf.template)). Мини-апп и API — один origin, CORS и
+`VITE_API_URL` не нужны.
 
 ## Что внутри
 
@@ -87,13 +105,22 @@ pnpm --filter mini-app typecheck
 | [src/telegram/use-telegram.ts](src/telegram/use-telegram.ts)               | Хуки над `BackButton` и `MainButton`                                                                  |
 | [src/telegram/use-voice.ts](src/telegram/use-voice.ts)                     | Запись голосового ответа поддержке                                                                    |
 | [src/i18n/messages.ts](src/i18n/messages.ts)                               | Словари ru/kk/en; язык берётся из Telegram, а не из настроек платформы                                |
+| [src/telegram/use-pull-to-refresh.ts](src/telegram/use-pull-to-refresh.ts) | Обновление списка потягиванием вниз — своим жестом, без библиотеки                                    |
 | [src/ui/tab-bar.tsx](src/ui/tab-bar.tsx)                                   | Нижняя панель разделов: значок над подписью, счётчик на значке                                        |
 | [src/ui/screen-header.tsx](src/ui/screen-header.tsx)                       | Шапка: возврат, название и переключатель состояний справа от него                                     |
 | [src/ui/tabs.tsx](src/ui/tabs.tsx)                                         | Переключатель состояний экрана с переезжающей плашкой                                                 |
 | [src/ui/state-plate.tsx](src/ui/state-plate.tsx)                           | Пустота и отказ во весь оставшийся экран                                                              |
 | [src/ui/icons.tsx](src/ui/icons.tsx)                                       | Значки своими контурами в `currentColor` — вместо библиотеки                                          |
 | [src/ui/swipe-row.tsx](src/ui/swipe-row.tsx)                               | Строка со свайпами, как в Почте iOS: только обратимые действия                                        |
+| [src/ui/swipe-tabs.tsx](src/ui/swipe-tabs.tsx)                             | Переключение разделов горизонтальным свайпом                                                          |
+| [src/ui/fold.tsx](src/ui/fold.tsx), [tile.tsx](src/ui/tile.tsx)            | Складной раздел пульта с состоянием в заголовке; цветная плитка-значок строки                         |
+| [src/ui/skeleton.tsx](src/ui/skeleton.tsx)                                 | Одинаковая заглушка загрузки на весь оставшийся экран                                                 |
+| [src/ui/message-text.tsx](src/ui/message-text.tsx)                         | Текст сообщения со ссылками и разметкой, как в чатах платформы (разбор — `src/lib/markup.ts`)         |
 | [src/lib/navigate.ts](src/lib/navigate.ts)                                 | Переходы между экранами через View Transitions: вглубь, назад, смена вкладки                          |
+| [src/lib/back.ts](src/lib/back.ts)                                         | Единый возврат через `BackButton` Telegram: на верхнем экране кнопки нет                              |
+| [src/lib/chrome.ts](src/lib/chrome.ts)                                     | Скрытие панели разделов на экранах вне раздела (переписка)                                            |
+| [src/lib/font-scale.ts](src/lib/font-scale.ts)                             | Крупный шрифт: масштаб хранится на устройстве (`localStorage`), не на сервере                         |
+| [src/lib/splash.ts](src/lib/splash.ts)                                     | Снятие заставки запуска из `index.html` по готовности приложения                                      |
 | [scripts/tg-tunnel.mjs](scripts/tg-tunnel.mjs)                             | Туннель для проверки в Telegram + перерегистрация кнопки бота                                         |
 
 Решения, которые стоит знать до правок:
@@ -105,7 +132,9 @@ pnpm --filter mini-app typecheck
 - **Цвета — только через `--tg-theme-*`.** Клиент меняет тему на лету; своя палитра сразу
   разъедется с окружением. Стекло плавающих поверхностей собрано из тех же переменных
   (`--glass` — это фон Telegram с прозрачностью), а не из своих цветов. Не палитра здесь
-  только блик канта и тени: это свет и тень, а не краска.
+  только блик канта и тени: это свет и тень, а не краска. Единственное исключение —
+  опознавательные цвета плиток пульта (`--tint-*`, `src/ui/tile.tsx`): они закреплены за
+  разделом и от темы не зависят.
 - **Панель вкладок вынута из потока** (`position: fixed`), поэтому место под неё резервирует
   содержимое через `--tabbar-h`. Меняете высоту капсулы — правьте переменную, иначе
   последняя строка списка уедет под панель.

@@ -29,6 +29,11 @@ const form = {
 
 function setup() {
   const tx = {
+    universityDemoRequest: {
+      // Условный перевод NEW → решение: 1 — заявка наша, 0 — решение уже принял другой.
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      update: jest.fn().mockResolvedValue({ id: 'req-1', status: 'APPROVED' }),
+    },
     university: { create: jest.fn().mockResolvedValue({ id: 'uni-1', name: 'Университет' }) },
     universityOnboarding: { create: jest.fn() },
   }
@@ -39,21 +44,27 @@ function setup() {
       create: jest.fn().mockResolvedValue({ id: 'req-1', universityName: form.universityName }),
       findFirst: jest.fn(),
       findUnique: jest.fn(),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'req-1', status: 'REJECTED' }),
       findMany: jest.fn().mockResolvedValue([]),
       update: jest.fn().mockResolvedValue({ id: 'req-1', status: 'APPROVED' }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     $transaction: jest.fn(async (arg: unknown) =>
       typeof arg === 'function' ? (arg as (t: typeof tx) => unknown)(tx) : arg,
     ),
+    // Справочник КАТО: по умолчанию город заявки в нём не находится.
+    katoUnit: { findMany: jest.fn().mockResolvedValue([]) },
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const invites = {
-    create: jest.fn().mockResolvedValue({
+    createInTransaction: jest.fn().mockResolvedValue({
       id: 'inv-1',
       token: 'raw-token',
+      role: Role.UNIVERSITY_ADMIN,
       expiresAt: new Date('2026-10-01T10:00:00Z'),
     }),
+    recordCreated: jest.fn().mockResolvedValue(undefined),
   }
   const config = { get: jest.fn().mockReturnValue('https://app.studenthub.kz') }
 
@@ -72,6 +83,8 @@ const openRequest = (over: Record<string, unknown> = {}) => ({
   id: 'req-open',
   status: 'PENDING_EMAIL',
   universityName: form.universityName,
+  // Хэш есть — письмо со ссылкой ушло в очередь.
+  emailVerificationHash: 'a'.repeat(64),
   // Письмо ушло час назад: пауза между переотправками уже прошла.
   emailVerificationExpiresAt: new Date(Date.now() + 23 * 3_600_000),
   ...over,
@@ -124,6 +137,53 @@ describe('DemoRequestsService.submit', () => {
     expect(prisma.universityDemoRequest.update).not.toHaveBeenCalled()
   })
 
+  // Redis лежит: строка заявки уже создана, и 500 человек прочитал бы как «форма сломана».
+  it('сбой очереди при первой подаче — ответ тот же, ссылка без письма гасится', async () => {
+    const { service, prisma, queue, audit } = setup()
+    prisma.universityDemoRequest.findFirst.mockResolvedValue(null)
+    queue.enqueue.mockRejectedValue(new Error('ECONNREFUSED'))
+
+    await expect(service.submit(form, ctx)).resolves.toEqual({ email: form.email })
+
+    expect(prisma.universityDemoRequest.update).toHaveBeenCalledWith({
+      where: { id: 'req-1' },
+      data: { emailVerificationHash: null },
+    })
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'demo_request_submitted' }),
+    )
+  })
+
+  // Письмо не ушло — пауза не держит: иначе пять минут «письмо отправлено» было бы неправдой.
+  it('письмо не ушло (хэша нет) — повтор шлёт сразу, без паузы', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.universityDemoRequest.findFirst.mockResolvedValue(
+      openRequest({
+        emailVerificationHash: null,
+        emailVerificationExpiresAt: new Date(Date.now() + 24 * 3_600_000),
+      }),
+    )
+
+    await service.submit(form, ctx)
+
+    expect(queue.enqueue).toHaveBeenCalledTimes(1)
+    const data = prisma.universityDemoRequest.update.mock.calls[0][0].data
+    expect(data.emailVerificationHash).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('повтор тоже не ушёл в очередь — ссылка снова гасится', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.universityDemoRequest.findFirst.mockResolvedValue(openRequest())
+    queue.enqueue.mockRejectedValue(new Error('ECONNREFUSED'))
+
+    await expect(service.submit(form, ctx)).resolves.toEqual({ email: form.email })
+
+    expect(prisma.universityDemoRequest.update).toHaveBeenLastCalledWith({
+      where: { id: 'req-open' },
+      data: { emailVerificationHash: null },
+    })
+  })
+
   it('протухшая неподтверждённая заявка адрес больше не занимает', async () => {
     const { service, prisma } = setup()
     // findOpen отсекает её условием по сроку — сюда приходит null.
@@ -149,8 +209,21 @@ describe('DemoRequestsService.purgeUnconfirmed', () => {
     await service.purgeUnconfirmed(cutoff)
 
     expect(prisma.universityDemoRequest.deleteMany).toHaveBeenCalledWith({
-      where: { status: 'PENDING_EMAIL', createdAt: { lt: cutoff } },
+      where: expect.objectContaining({ status: 'PENDING_EMAIL', createdAt: { lt: cutoff } }),
     })
+  })
+
+  // Повторная отправка продлевает только срок ссылки: по одному createdAt крон удалял заявку,
+  // письмо по которой пришло вчера.
+  it('не удаляет заявку с ещё живой ссылкой', async () => {
+    const { service, prisma } = setup()
+    await service.purgeUnconfirmed(new Date('2026-09-01T00:00:00Z'))
+
+    const where = prisma.universityDemoRequest.deleteMany.mock.calls[0][0].where
+    expect(where.OR).toEqual([
+      { emailVerificationExpiresAt: null },
+      { emailVerificationExpiresAt: { lt: expect.any(Date) } },
+    ])
   })
 })
 
@@ -193,6 +266,66 @@ describe('DemoRequestsService.approve', () => {
     email: 'rector@example.edu',
   }
 
+  // B-F13: у вуза из заявки город был текстом, у вуза из админки — кодом КАТО.
+  it('город заявки, однозначно найденный в КАТО, сохраняется кодом', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.universityDemoRequest.findUnique.mockResolvedValue(approved)
+    prisma.katoUnit.findMany.mockResolvedValue([{ code: '750000000' }])
+
+    await service.approve(admin, 'req-1', {}, ctx)
+
+    expect(prisma.katoUnit.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          kind: 'CITY',
+          OR: [
+            { nameRu: { equals: 'Алматы', mode: 'insensitive' } },
+            { nameKk: { equals: 'Алматы', mode: 'insensitive' } },
+          ],
+        }),
+      }),
+    )
+    expect(tx.university.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ city: '750000000' }) }),
+    )
+  })
+
+  it('неоднозначный или зарубежный город остаётся текстом', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.universityDemoRequest.findUnique.mockResolvedValue({ ...approved, city: 'Абай' })
+    prisma.katoUnit.findMany.mockResolvedValue([{ code: '353220100' }, { code: '999999999' }])
+
+    await service.approve(admin, 'req-1', {}, ctx)
+
+    expect(tx.university.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ city: 'Абай' }) }),
+    )
+  })
+
+  it('код КАТО из формы одобрения сохраняется как есть, без поиска', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.universityDemoRequest.findUnique.mockResolvedValue(approved)
+
+    await service.approve(admin, 'req-1', { city: '710000000' }, ctx)
+
+    expect(prisma.katoUnit.findMany).not.toHaveBeenCalled()
+    expect(tx.university.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ city: '710000000' }) }),
+    )
+  })
+
+  it('сбой справочника не роняет одобрение — город остаётся текстом', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.universityDemoRequest.findUnique.mockResolvedValue(approved)
+    prisma.katoUnit.findMany.mockRejectedValue(new Error('db down'))
+
+    await service.approve(admin, 'req-1', {}, ctx)
+
+    expect(tx.university.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ city: 'Алматы' }) }),
+    )
+  })
+
   it('заводит вуз в PENDING и сразу открывает мастер', async () => {
     const { service, prisma, tx } = setup()
     prisma.universityDemoRequest.findUnique.mockResolvedValue(approved)
@@ -207,20 +340,49 @@ describe('DemoRequestsService.approve', () => {
     })
   })
 
-  it('выдаёт обычное приглашение UNIVERSITY_ADMIN и не шлёт второго письма', async () => {
-    const { service, prisma, invites, queue } = setup()
+  it('выдаёт обычное приглашение UNIVERSITY_ADMIN в той же транзакции и не шлёт второго письма', async () => {
+    const { service, prisma, tx, invites, queue } = setup()
     prisma.universityDemoRequest.findUnique.mockResolvedValue(approved)
 
     await service.approve(admin, 'req-1', {}, ctx)
 
-    expect(invites.create).toHaveBeenCalledWith(
+    expect(invites.createInTransaction).toHaveBeenCalledWith(tx, admin, {
+      role: Role.UNIVERSITY_ADMIN,
+      email: approved.email,
+      universityId: 'uni-1',
+    })
+    expect(tx.universityDemoRequest.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { universityId: 'uni-1', inviteId: 'inv-1' } }),
+    )
+    // Аудит выдачи — после коммита, а не изнутри транзакции.
+    expect(invites.recordCreated).toHaveBeenCalledWith(
       admin,
-      { role: Role.UNIVERSITY_ADMIN, email: approved.email, universityId: 'uni-1' },
+      expect.objectContaining({ id: 'inv-1' }),
       ctx,
-      { notify: false },
     )
     const jobs = queue.enqueue.mock.calls.map((call) => call[1])
     expect(jobs).toEqual([EMAIL_JOBS.SEND_DEMO_APPROVED])
+  })
+
+  it('переводит заявку в APPROVED условно — только из NEW и первым шагом транзакции', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.universityDemoRequest.findUnique.mockResolvedValue(approved)
+
+    await service.approve(admin, 'req-1', { note: 'ок' }, ctx)
+
+    expect(tx.universityDemoRequest.updateMany).toHaveBeenCalledWith({
+      where: { id: 'req-1', status: 'NEW' },
+      data: expect.objectContaining({
+        status: 'APPROVED',
+        reviewedById: admin.sub,
+        reviewNote: 'ок',
+      }),
+    })
+    expect(Math.min(...tx.universityDemoRequest.updateMany.mock.invocationCallOrder)).toBeLessThan(
+      Math.min(...tx.university.create.mock.invocationCallOrder),
+    )
+    // Безусловного update снаружи транзакции больше нет.
+    expect(prisma.universityDemoRequest.update).not.toHaveBeenCalled()
   })
 
   it('второе одобрение той же заявки не заводит второй вуз', async () => {
@@ -229,6 +391,118 @@ describe('DemoRequestsService.approve', () => {
 
     await expect(service.approve(admin, 'req-1', {}, ctx)).rejects.toBeInstanceOf(AppException)
     expect(tx.university.create).not.toHaveBeenCalled()
+  })
+
+  it('параллельное одобрение: проверку прошли оба, вуз заводит только первый', async () => {
+    const { service, prisma, tx, invites, queue, audit } = setup()
+    // Чтение до транзакции видело NEW, но условный перевод уже не нашёл заявку в очереди.
+    prisma.universityDemoRequest.findUnique.mockResolvedValue(approved)
+    tx.universityDemoRequest.updateMany.mockResolvedValue({ count: 0 })
+
+    await expect(service.approve(admin, 'req-1', {}, ctx)).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+    expect(tx.university.create).not.toHaveBeenCalled()
+    expect(invites.createInTransaction).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  it('сбой приглашения роняет всю транзакцию — без письма, аудита и записи снаружи', async () => {
+    const { service, prisma, invites, queue, audit } = setup()
+    prisma.universityDemoRequest.findUnique.mockResolvedValue(approved)
+    invites.createInTransaction.mockRejectedValue(new Error('db down'))
+
+    // Ошибка выходит из колбэка $transaction — Prisma откатывает вуз, мастер и статус
+    // заявки, и повторное «Одобрить» начинает с NEW, а не заводит второй вуз.
+    await expect(service.approve(admin, 'req-1', {}, ctx)).rejects.toThrow('db down')
+    expect(prisma.universityDemoRequest.update).not.toHaveBeenCalled()
+    expect(invites.recordCreated).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+})
+
+describe('DemoRequestsService.reissueInvite', () => {
+  function approved() {
+    const env = setup()
+    env.prisma.universityDemoRequest.findUnique.mockResolvedValue({
+      id: 'req-1',
+      status: 'APPROVED',
+      universityId: 'uni-1',
+      inviteId: 'inv-old',
+      email: form.email,
+      contactName: form.contactName,
+    })
+    const university = {
+      findUnique: jest
+        .fn()
+        .mockResolvedValue({ id: 'uni-1', name: 'Университет', timezone: 'Asia/Almaty' }),
+    }
+    Object.assign(env.prisma, { university })
+    Object.assign(env.tx.universityDemoRequest, {
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'req-1', status: 'APPROVED' }),
+    })
+    const retireForReissue = jest.fn().mockResolvedValue('RETIRED')
+    Object.assign(env.invites, { retireForReissue })
+    return { ...env, university, retireForReissue }
+  }
+
+  it('отзывает прежнее приглашение, выписывает новое и шлёт письмо с новой ссылкой', async () => {
+    const { service, tx, invites, queue, retireForReissue } = approved()
+    const res = await service.reissueInvite(admin, 'req-1', ctx)
+
+    expect(retireForReissue).toHaveBeenCalledWith(tx, 'inv-old')
+    expect(invites.createInTransaction).toHaveBeenCalledWith(tx, admin, {
+      role: Role.UNIVERSITY_ADMIN,
+      email: form.email,
+      universityId: 'uni-1',
+    })
+    // Смена приглашения условная: параллельный повтор не выпишет второе.
+    expect(tx.universityDemoRequest.updateMany).toHaveBeenCalledWith({
+      where: { id: 'req-1', inviteId: 'inv-old' },
+      data: { inviteId: 'inv-1' },
+    })
+    expect(res.inviteUrl).toBe('https://app.studenthub.kz/register?token=raw-token')
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      expect.any(String),
+      EMAIL_JOBS.SEND_DEMO_APPROVED,
+      expect.objectContaining({ inviteUrl: res.inviteUrl }),
+      expect.anything(),
+    )
+  })
+
+  it('по приглашению уже вошли — CONFLICT, нового не выписываем', async () => {
+    const { service, invites, retireForReissue } = approved()
+    retireForReissue.mockResolvedValue('USED')
+    await expect(service.reissueInvite(admin, 'req-1', ctx)).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+    expect(invites.createInTransaction).not.toHaveBeenCalled()
+  })
+
+  it('заявка не одобрена — CONFLICT', async () => {
+    const { service, prisma } = approved()
+    prisma.universityDemoRequest.findUnique.mockResolvedValue({
+      id: 'req-1',
+      status: 'NEW',
+      universityId: null,
+      inviteId: null,
+      email: form.email,
+      contactName: form.contactName,
+    })
+    await expect(service.reissueInvite(admin, 'req-1', ctx)).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+  })
+
+  it('параллельный повтор уже сменил приглашение — CONFLICT, транзакция откатывается', async () => {
+    const { service, tx, queue } = approved()
+    tx.universityDemoRequest.updateMany.mockResolvedValue({ count: 0 })
+    await expect(service.reissueInvite(admin, 'req-1', ctx)).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+    expect(queue.enqueue).not.toHaveBeenCalled()
   })
 })
 
@@ -263,6 +537,25 @@ describe('DemoRequestsService.reject', () => {
     await service.reject(admin, 'req-1', { reason: 'NOT_ELIGIBLE' }, ctx)
 
     expect(queue.enqueue.mock.calls[0][2]).toMatchObject({ canReapply: false })
+  })
+
+  it('отклоняет условно: заявку, одобренную параллельно, не трогает и письма не шлёт', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.universityDemoRequest.findUnique.mockResolvedValue({
+      id: 'req-1',
+      status: 'NEW',
+      universityName: form.universityName,
+      email: form.email,
+    })
+    prisma.universityDemoRequest.updateMany.mockResolvedValue({ count: 0 })
+
+    await expect(
+      service.reject(admin, 'req-1', { reason: 'NO_CAPACITY' }, ctx),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(prisma.universityDemoRequest.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'req-1', status: 'NEW' } }),
+    )
+    expect(queue.enqueue).not.toHaveBeenCalled()
   })
 })
 

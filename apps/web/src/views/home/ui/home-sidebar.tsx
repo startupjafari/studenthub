@@ -1,44 +1,94 @@
 'use client'
 
+import { useMemo } from 'react'
+import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
-import { CalendarClock, CalendarDays, MapPin, Video } from 'lucide-react'
-import { scheduleKeys, fetchSchedule } from '../../../entities/schedule'
+import { CalendarClock, CalendarDays, CalendarX2, MapPin, Video } from 'lucide-react'
+import {
+  buildDayPairs,
+  fetchSchedule,
+  fetchScheduleChanges,
+  scheduleKeys,
+  type ScheduleChangeType,
+} from '../../../entities/schedule'
 import { eventKeys, fetchEvents } from '../../../entities/event'
 import { FriendsPanel } from '../../../widgets/friends-panel'
-import { Card, CardContent, CardHeader, CardTitle, EmptyState, Skeleton } from '../../../shared/ui'
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  EmptyState,
+  Skeleton,
+} from '../../../shared/ui'
+import { isoWeekParityOf, useNowInTz } from '../../../shared/lib'
+import { cn } from '../../../shared/lib/utils'
 
-// Чётность текущей ISO-недели (как в schedule-grid) — для выбора пар ODD/EVEN.
-function isoWeek(d: Date): number {
-  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
-  const dayNum = (date.getUTCDay() + 6) % 7
-  date.setUTCDate(date.getUTCDate() - dayNum + 3)
-  const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4))
-  return 1 + Math.round(((date.getTime() - firstThursday.getTime()) / 86400000 - 3) / 7)
+// Подпись изменения пары — ключи состояний «Сегодня» (Today.state.*).
+const CHANGE_STATE_KEY: Record<ScheduleChangeType, string> = {
+  CANCELLED: 'state.cancelled',
+  MOVED: 'state.moved',
+  ROOM_CHANGED: 'state.roomChanged',
+  SUBSTITUTED: 'state.substituted',
 }
 
 // Виджеты правой колонки главной студента: пары на сегодня, ближайшие события и друзья.
 export function HomeSidebar() {
   const t = useTranslations('Dashboard')
+  const tToday = useTranslations('Today')
+  const tCommon = useTranslations('Common')
   const locale = useLocale()
 
   const schedQ = useQuery({ queryKey: scheduleKeys.view({}), queryFn: () => fetchSchedule({}) })
+  // День, чётность и «сейчас» — по часам вуза, с изменениями на сегодня (как в «Сегодня»):
+  // раньше отменённая пара стояла в списке, а у перенесённой было старое время.
+  const now = useNowInTz(schedQ.data?.timezone ?? null)
+  const changesQ = useQuery({
+    queryKey: scheduleKeys.changes({ from: now.date, to: now.date }),
+    queryFn: () => fetchScheduleChanges({ from: now.date, to: now.date }),
+    enabled: !!schedQ.data,
+  })
   const eventsQ = useQuery({
-    queryKey: eventKeys.list('upcoming'),
+    queryKey: eventKeys.list('upcoming', false, 4),
     queryFn: () => fetchEvents({ limit: 4 }),
   })
 
-  const now = new Date()
-  const dow = ((now.getDay() + 6) % 7) + 1 // 1=Пн … 7=Вс
-  const parity = isoWeek(now) % 2 === 1 ? 'ODD' : 'EVEN'
-  const todayPairs = (schedQ.data?.pairs ?? [])
-    .filter((p) => p.dayOfWeek === dow && (p.weekType === 'BOTH' || p.weekType === parity))
-    .sort((a, b) => a.startTime.localeCompare(b.startTime))
+  const todayPairs = useMemo(
+    () =>
+      buildDayPairs(schedQ.data?.pairs ?? [], changesQ.data ?? [], now, isoWeekParityOf(now.date)),
+    [schedQ.data?.pairs, changesQ.data, now],
+  )
   const events = (eventsQ.data ?? []).slice(0, 4)
+
+  // Сбой загрузки — своё состояние с «Повторить» (FRONTEND_RULES §9). Раньше пустой массив
+  // по умолчанию превращал любую ошибку в «Сегодня пар нет» / «Нет событий», и студент
+  // уходил, уверенный, что пар нет.
+  const loadFailed = (refetch: () => unknown) => (
+    <EmptyState
+      title={tCommon('error')}
+      action={
+        <Button size="sm" variant="outline" onClick={() => void refetch()}>
+          {tCommon('retry')}
+        </Button>
+      }
+      className="border-0 p-6"
+    />
+  )
+
+  // Пустое состояние — одной строкой: большая карточка «ничего нет» в узкой колонке
+  // занимала полэкрана и сообщала ровно одну фразу.
+  const quietEmpty = (icon: React.ReactNode, text: string) => (
+    <p className="flex items-center gap-2 py-1 text-sm text-muted-foreground">
+      {icon}
+      {text}
+    </p>
+  )
 
   return (
     <>
-      <Card>
+      <Card size="sm">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <CalendarDays className="size-4 text-primary" aria-hidden />
@@ -47,31 +97,74 @@ export function HomeSidebar() {
         </CardHeader>
         <CardContent>
           {schedQ.isLoading ? (
-            <Skeleton className="h-16 w-full rounded-lg" />
+            <Skeleton fill className="min-h-16 rounded-lg" />
+          ) : schedQ.isError && !schedQ.data ? (
+            loadFailed(schedQ.refetch)
           ) : todayPairs.length === 0 ? (
-            <EmptyState title={t('noPairsToday')} className="border-0 p-6" />
+            quietEmpty(<CalendarX2 className="size-4 shrink-0" aria-hidden />, t('noPairsToday'))
           ) : (
-            <ul className="flex flex-col gap-2">
-              {todayPairs.map((p) => (
-                <li key={p.id} className="flex items-start gap-2 text-sm">
-                  <span className="shrink-0 tabular-nums text-muted-foreground">{p.startTime}</span>
-                  <div className="min-w-0">
-                    <span className="block truncate font-medium">{p.subject}</span>
-                    {p.room && (
-                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                        <MapPin className="size-3" aria-hidden />
-                        {p.room.name}
-                      </span>
+            <ul className="flex flex-col gap-1">
+              {todayPairs.map(({ pair, change, state }) => {
+                const cancelled = state === 'cancelled'
+                const room = change?.newRoom ?? pair.room
+                const changeKey = change ? CHANGE_STATE_KEY[change.type] : null
+                return (
+                  <li
+                    key={pair.id}
+                    // Идущая пара — акцентом слева, прошедшие приглушены: колонку читают
+                    // ради ответа «что сейчас и что дальше», а не всего дня целиком.
+                    aria-current={state === 'now' ? 'time' : undefined}
+                    className={cn(
+                      'flex items-start gap-3 rounded-lg px-2 py-1.5 text-sm',
+                      state === 'now' && 'bg-primary/10 ring-1 ring-primary/25',
+                      state === 'past' && 'opacity-60',
                     )}
-                  </div>
-                </li>
-              ))}
+                  >
+                    <span className="w-11 shrink-0 pt-px text-xs font-medium tabular-nums text-muted-foreground">
+                      {change?.newStartTime ?? pair.startTime}
+                    </span>
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      {/* Длинное название переносится, а не обрезается: «Основы
+                          программирования и алгори…» не отвечает, какая это пара. */}
+                      <span
+                        className={cn(
+                          'leading-snug font-medium break-words',
+                          cancelled && 'text-muted-foreground line-through',
+                        )}
+                      >
+                        {pair.subject}
+                      </span>
+                      <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                        {room && !cancelled && (
+                          <span className="inline-flex items-center gap-1">
+                            <MapPin className="size-3 shrink-0" aria-hidden />
+                            {room.name}
+                          </span>
+                        )}
+                        {/* Изменение — мягкой плашкой: заметно, но не тревожно. */}
+                        {changeKey && (
+                          <span
+                            className={cn(
+                              'rounded-full px-1.5 py-px text-[11px] font-medium',
+                              cancelled
+                                ? 'bg-destructive/10 text-destructive'
+                                : 'bg-warning/10 text-warning',
+                            )}
+                          >
+                            {tToday(changeKey)}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  </li>
+                )
+              })}
             </ul>
           )}
         </CardContent>
       </Card>
 
-      <Card>
+      <Card size="sm">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <CalendarClock className="size-4 text-primary" aria-hidden />
@@ -80,35 +173,47 @@ export function HomeSidebar() {
         </CardHeader>
         <CardContent>
           {eventsQ.isLoading ? (
-            <Skeleton className="h-16 w-full rounded-lg" />
+            <Skeleton fill className="min-h-16 rounded-lg" />
+          ) : eventsQ.isError && !eventsQ.data ? (
+            loadFailed(eventsQ.refetch)
           ) : events.length === 0 ? (
-            <EmptyState title={t('noUpcomingEvents')} className="border-0 p-6" />
+            quietEmpty(
+              <CalendarClock className="size-4 shrink-0" aria-hidden />,
+              t('noUpcomingEvents'),
+            )
           ) : (
-            <ul className="flex flex-col gap-3">
+            <ul className="flex flex-col gap-1">
               {events.map((e) => (
-                <li key={e.id} className="flex flex-col gap-0.5 text-sm">
-                  <span className="truncate font-medium">{e.title}</span>
-                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    {new Date(e.startsAt).toLocaleString(locale, {
-                      day: 'numeric',
-                      month: 'short',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                    {e.isOnline ? (
-                      <span className="inline-flex items-center gap-1">
-                        <Video className="size-3" aria-hidden />
-                        {t('online')}
-                      </span>
-                    ) : (
-                      e.location && (
-                        <span className="inline-flex min-w-0 items-center gap-1">
-                          <MapPin className="size-3 shrink-0" aria-hidden />
-                          <span className="truncate">{e.location}</span>
+                <li key={e.id}>
+                  <Link
+                    href={`/events/${e.id}`}
+                    className="flex flex-col gap-0.5 rounded-lg px-2 py-1.5 text-sm transition-colors duration-150 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+                  >
+                    <span className="line-clamp-2 leading-snug font-medium break-words">
+                      {e.title}
+                    </span>
+                    <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                      {new Date(e.startsAt).toLocaleString(locale, {
+                        day: 'numeric',
+                        month: 'short',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                      {e.isOnline ? (
+                        <span className="inline-flex items-center gap-1">
+                          <Video className="size-3" aria-hidden />
+                          {t('online')}
                         </span>
-                      )
-                    )}
-                  </span>
+                      ) : (
+                        e.location && (
+                          <span className="inline-flex min-w-0 items-center gap-1">
+                            <MapPin className="size-3 shrink-0" aria-hidden />
+                            <span className="truncate">{e.location}</span>
+                          </span>
+                        )
+                      )}
+                    </span>
+                  </Link>
                 </li>
               ))}
             </ul>

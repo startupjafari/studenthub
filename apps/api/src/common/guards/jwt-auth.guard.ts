@@ -24,6 +24,11 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   }
 
   override handleRequest<TUser>(err: unknown, user: TUser, info: unknown): TUser {
+    // Стратегия отказала с конкретным кодом (вуз заблокирован) — отдаём его
+    // как есть: «требуется авторизация» увело бы клиент в refresh, а повтор ничего не изменит.
+    if (err instanceof AppException) {
+      throw err
+    }
     if (err || !user) {
       const name = (info as { name?: string } | undefined)?.name
       if (name === 'TokenExpiredError') {

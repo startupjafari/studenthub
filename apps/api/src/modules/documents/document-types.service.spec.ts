@@ -23,6 +23,8 @@ function setup(overrides: unknown[] = []) {
       create: jest.fn().mockResolvedValue({}),
       deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
+    document: { findFirst: jest.fn().mockResolvedValue(null) },
+    documentRequestItem: { findFirst: jest.fn().mockResolvedValue(null) },
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const service = new DocumentTypesService(
@@ -115,6 +117,25 @@ describe('DocumentTypesService (15.20)', () => {
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'DOCUMENT_TYPE_CREATE', entityId: 'CLUB_CARD' }),
     )
+  })
+
+  it('remove: собственный тип с документами → CONFLICT, тип не удаляется', async () => {
+    const { service, prisma } = setup()
+    prisma.documentType.findUnique.mockResolvedValue({ custom: true })
+    prisma.document.findFirst.mockResolvedValue({ id: 'd1' })
+    const err = await service.remove(admin(), 'CLUB_CARD').catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(prisma.documentType.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it('remove: неиспользуемый собственный тип и сброс статического — удаляются', async () => {
+    const { service, prisma } = setup()
+    prisma.documentType.findUnique.mockResolvedValueOnce({ custom: true })
+    await service.remove(admin(), 'CLUB_CARD')
+    prisma.documentType.findUnique.mockResolvedValueOnce({ custom: false })
+    prisma.document.findFirst.mockResolvedValue({ id: 'd1' })
+    await service.remove(admin(), 'ID_CARD')
+    expect(prisma.documentType.deleteMany).toHaveBeenCalledTimes(2)
   })
 
   it('updateType: статический тип → upsert + аудит', async () => {

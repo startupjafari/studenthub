@@ -3,12 +3,21 @@
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { ChevronRight, Heart, Images, MessageCircle, Play, UserRound } from 'lucide-react'
-import type { SharedPostPreview } from '../../../entities/chat'
-import { fetchPostMediaUrl, postKeys } from '../../../entities/post'
+import {
+  ChevronRight,
+  Heart,
+  ImageIcon,
+  Images,
+  MessageCircle,
+  Play,
+  UserRound,
+} from 'lucide-react'
+import type { SharedPostPreview, SharedStoryPreview } from '../../../entities/chat'
+import { storyBackgroundClass, type StoryBackgroundValue } from '../../../entities/story'
+import { fetchPostMediaLink, postKeys } from '../../../entities/post'
 import { fetchUserById, userKeys } from '../../../entities/user'
 import { Avatar, AvatarFallback, AvatarImage, Markdown } from '../../../shared/ui'
-import { identityColor, identityInitials } from '../../../shared/lib'
+import { identityColor, identityInitials, srcSetOf } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 
 // Карточки того, чем поделились в чате: пост и профиль. Живут в виджете, а не в
@@ -25,7 +34,7 @@ import { cn } from '../../../shared/lib/utils'
 export function ChatSharedPost({ post, mine }: { post: SharedPostPreview; mine: boolean }) {
   const t = useTranslations('Feed')
 
-  if (post.deletedAt) {
+  if (post.deletedAt || !post.author) {
     return (
       <div className="rounded-xl border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
         {t('postUnavailable')}
@@ -84,6 +93,81 @@ export function ChatSharedPost({ post, mine }: { post: SharedPostPreview; mine: 
 }
 
 /**
+ * Сторис в чате: ответ на неё или пересылка. Миниатюра 9:16 — фон и текст сторис либо
+ * значок фото/видео: подписанной ссылки на файл сторис в переписке нет намеренно, сторис
+ * открывается по `/stories/:id`, где сервер ещё раз проверяет аудиторию. Истёкшая или
+ * удалённая — строкой «сторис недоступна», а ответ так и остаётся подписан ответом.
+ */
+export function ChatSharedStory({
+  story,
+  reply,
+  mine,
+}: {
+  story: SharedStoryPreview | null | undefined
+  reply: boolean
+  mine: boolean
+}) {
+  const t = useTranslations('Chats')
+  const label = reply ? t('storyReplyLabel') : t('storySharedLabel')
+
+  if (!story || new Date(story.expiresAt).getTime() <= Date.now()) {
+    return (
+      <div className="rounded-xl border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
+        {label} · {t('storyUnavailable')}
+      </div>
+    )
+  }
+
+  const name = `${story.author.lastName} ${story.author.firstName}`.trim()
+  const video = story.file?.mime.startsWith('video/') ?? false
+
+  return (
+    <Link
+      href={`/stories/${story.id}`}
+      className={cn(
+        'group flex w-full max-w-[16rem] items-center gap-3 rounded-2xl border bg-card p-2 text-foreground transition-colors',
+        mine ? 'border-white/15' : 'border-border',
+        'hover:border-ring/50',
+      )}
+    >
+      <span
+        className={cn(
+          'flex aspect-[9/16] w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg text-white',
+          story.file
+            ? 'bg-muted text-muted-foreground'
+            : storyBackgroundClass(story.background as StoryBackgroundValue | null),
+        )}
+      >
+        {story.file ? (
+          video ? (
+            <Play className="size-5" aria-hidden />
+          ) : (
+            <ImageIcon className="size-5" aria-hidden />
+          )
+        ) : (
+          story.text && (
+            <span className="line-clamp-5 px-1 text-center text-[8px] leading-tight">
+              {story.text}
+            </span>
+          )
+        )}
+      </span>
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="text-[11px] text-muted-foreground">{label}</span>
+        <span className="truncate text-xs font-semibold">{name}</span>
+        {story.file && story.text && (
+          <span className="line-clamp-2 text-xs text-muted-foreground">{story.text}</span>
+        )}
+        <span className="inline-flex items-center gap-0.5 text-xs font-medium text-primary">
+          {t('storyOpen')}
+          <ChevronRight className="size-3.5" aria-hidden />
+        </span>
+      </span>
+    </Link>
+  )
+}
+
+/**
  * Обложка карточки: подписанная ссылка на медиа поста — тем же запросом и в тот же кэш,
  * что у плиток ленты. Видео — первым кадром со значком «▶», а не проигрывателем: в
  * переписке это превью, смотрят его уже в самом посте.
@@ -92,16 +176,19 @@ function PostCover({ postId, media }: { postId: string; media: { id: string; mim
   const isVideo = media.mime.startsWith('video/')
   const url = useQuery({
     queryKey: postKeys.media(media.id),
-    queryFn: () => fetchPostMediaUrl(postId, media.id),
+    queryFn: () => fetchPostMediaLink(postId, media.id),
     staleTime: 10 * 60 * 1000,
   })
+  const link = url.data
+  // Обложка карточки шириной с пузырь: копия 640 (или постер видео), а не оригинал.
+  const poster = link?.poster ?? []
 
   return (
     <div className="relative aspect-video w-full overflow-hidden bg-muted">
-      {url.data ? (
-        isVideo ? (
+      {link ? (
+        isVideo && poster.length === 0 ? (
           <video
-            src={url.data}
+            src={link.url}
             muted
             playsInline
             preload="metadata"
@@ -110,10 +197,12 @@ function PostCover({ postId, media }: { postId: string; media: { id: string; mim
         ) : (
           // Подписанный адрес хранилища — обычный img, не next/image: оптимизатор его не знает.
           <img
-            src={url.data}
+            src={isVideo ? poster[poster.length - 1]?.url : link.url}
+            srcSet={srcSetOf(isVideo ? poster : link.sources, isVideo ? undefined : link)}
+            sizes="320px"
             alt=""
             loading="lazy"
-            className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+            className="size-full object-cover transition-transform duration-(--motion-large) group-hover:scale-[1.03]"
           />
         )
       ) : (
@@ -121,7 +210,7 @@ function PostCover({ postId, media }: { postId: string; media: { id: string; mim
           <Images className={cn('size-6', url.isLoading && 'animate-pulse')} aria-hidden />
         </div>
       )}
-      {isVideo && url.data && (
+      {isVideo && link && (
         <span className="absolute inset-0 flex items-center justify-center">
           <span className="flex size-11 items-center justify-center rounded-full bg-black/55 text-white">
             <Play className="size-5 translate-x-0.5 fill-current" aria-hidden />

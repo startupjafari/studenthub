@@ -97,6 +97,9 @@ export const ScheduleQuerySchema = z
     dayOfWeek: z.coerce.number().int().min(1).max(7).optional(),
     weekType: WeekTypeSchema.optional(),
     subject: z.string().min(1).max(200).optional(),
+    // Продолжение выборки: `nextCursor` предыдущего ответа. Пары отдаются страницами по 500
+    // (факультет из 30 групп в одну не влезает); без параметра — первая страница, как раньше.
+    cursor: z.string().min(1).optional(),
   })
   .strict()
 export type ScheduleQueryInput = z.infer<typeof ScheduleQuerySchema>
@@ -172,6 +175,10 @@ export const ScheduleChangeQuerySchema = z
     to: DateStringSchema,
     groupId: z.string().min(1).optional(),
     teacherId: z.string().min(1).optional(),
+    // Страницы (`limit`/`cursor`): без них — прежний ответ массивом, не больше 500 изменений
+    // (так читают выпущенные мобильные клиенты); с ними — страница с `meta.cursor`/`hasNext`.
+    cursor: z.string().min(1).optional(),
+    limit: z.coerce.number().int().positive().max(500).optional(),
   })
   .strict()
   .superRefine((v, ctx) => {

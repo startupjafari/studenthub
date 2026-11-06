@@ -12,8 +12,13 @@ import {
   type ChatMessage,
 } from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
-import { ChatSharedPost, ChatSharedProfile, parseProfileShare } from './shared-cards'
-import { Avatar, AvatarFallback } from '../../../shared/ui'
+import {
+  ChatSharedPost,
+  ChatSharedProfile,
+  ChatSharedStory,
+  parseProfileShare,
+} from './shared-cards'
+import { Avatar, AvatarFallback, AvatarImage } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
 // Эмодзи быстрой реакции в углу пузыря. Один на весь продукт: кнопка одна, и выбирать
@@ -21,10 +26,13 @@ import { cn } from '../../../shared/lib/utils'
 const QUICK_REACTION = '🔥'
 
 // Системные события группы (§20) → i18n-ключ. Текст строит клиент из actor/target/title.
-const SYSTEM_KEY: Record<string, string> = {
+// Ключ текста служебного сообщения по его типу — общий для пузыря и превью в списке чатов.
+export const SYSTEM_KEY: Record<string, string> = {
   member_added: 'sysMemberAdded',
   member_removed: 'sysMemberRemoved',
   member_left: 'sysMemberLeft',
+  member_joined: 'sysMemberJoined',
+  member_banned: 'sysMemberBanned',
   admin_granted: 'sysAdminGranted',
   admin_revoked: 'sysAdminRevoked',
   title_changed: 'sysTitleChanged',
@@ -43,6 +51,8 @@ export type MessageReadState = 'pending' | 'failed' | 'read' | 'delivered' | 'se
 // пропускал перерисовку невизуально-изменившихся пузырей (#57).
 export type MessageActions = {
   reply: (m: ChatMessage) => void
+  /** Нажали на пилюлю даты — календарь переписки на этом дне ("YYYY-MM-DD"). */
+  openCalendar: (ymd: string) => void
   openMenu: (m: ChatMessage, x: number, y: number) => void
   focus: (id: string) => void
   copy: (m: ChatMessage) => void
@@ -65,6 +75,11 @@ export type MessageActions = {
 export type MessageItemProps = {
   m: ChatMessage
   mine: boolean
+  /**
+   * Группа или канал: у чужих сообщений аватар и имя автора. В личном чате их нет — собеседник
+   * один и так в шапке, как в Telegram.
+   */
+  isGroup: boolean
   firstOfRun: boolean
   // Первое сообщение в списке — без верхнего отступа серии.
   /** Первое сообщение календарного дня — перед ним идёт пометка даты. */
@@ -97,6 +112,7 @@ export type MessageItemProps = {
 function MessageItemInner({
   m,
   mine,
+  isGroup,
   firstOfRun,
   showDay,
   dayText,
@@ -127,7 +143,8 @@ function MessageItemInner({
       })
     : null
   // Пересланный профиль приходит текстом «Имя + ссылка» — узнаём и рисуем карточкой.
-  const profileShare = m.sharedPost || m.poll ? null : parseProfileShare(m.content)
+  const storyCard = !!m.sharedStory || !!m.sharedStoryReply
+  const profileShare = m.sharedPost || m.poll || storyCard ? null : parseProfileShare(m.content)
 
   return (
     <div>
@@ -135,9 +152,20 @@ function MessageItemInner({
           когда она уезжает под верх (chat-window) — так дата видна и на месте, и всегда. */}
       {showDay && dayText && (
         <div className="my-2 flex justify-center">
-          <span className="rounded-full bg-muted/90 px-3 py-0.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur">
+          {/* Нажатие на дату — календарь переписки на этом дне, как в Telegram. */}
+          <button
+            type="button"
+            onClick={() => {
+              const d = new Date(m.createdAt)
+              actions.openCalendar(
+                `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+              )
+            }}
+            aria-label={t('openCalendar', { date: dayText })}
+            className="rounded-full bg-muted/90 px-3 py-0.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+          >
             {dayText}
-          </span>
+          </button>
         </div>
       )}
       {isUnreadDivider && (
@@ -158,7 +186,7 @@ function MessageItemInner({
           id={`msg-${m.id}`}
           className={cn(
             // -mx-4/px-4 — фон подсветки на всю ширину чата; select-none + touch-action:pan-y — для тач-жестов.
-            'group relative -mx-4 flex touch-pan-y items-center gap-1.5 px-4 py-0.5 transition-colors duration-700 ease-in-out select-none',
+            'group relative -mx-4 flex touch-pan-y items-center gap-1.5 px-4 py-0.5 transition-colors duration-(--motion-control) select-none',
             !isFirstInList && (firstOfRun ? 'mt-2' : 'mt-0.5'),
             mine && 'flex-row-reverse',
             (highlighted || (selecting && selected)) && 'bg-primary/10',
@@ -211,9 +239,11 @@ function MessageItemInner({
             </>
           )}
           {!mine &&
+            isGroup &&
             (firstOfRun ? (
               <ProfileLink userId={m.senderId} className="shrink-0 self-end">
                 <Avatar className="size-7">
+                  {m.sender.avatarUrl && <AvatarImage src={m.sender.avatarUrl} alt="" />}
                   <AvatarFallback>
                     {(m.sender.lastName[0] ?? '') + (m.sender.firstName[0] ?? '')}
                   </AvatarFallback>
@@ -243,13 +273,30 @@ function MessageItemInner({
               // Снаружи пузыря, вровень с его низом: внахлёст на верхнем углу кнопка закрывала
               // имя отправителя. Сбоку у низа она не заслоняет ни текст, ни время с галочками.
               className={cn(
-                'absolute bottom-0 z-10 flex size-6 items-center justify-center rounded-full border border-border bg-background text-xs leading-none opacity-0 shadow-sm transition-[opacity,transform] hover:scale-110 active:scale-95 group-hover:opacity-100',
+                'absolute bottom-0 z-10 flex size-6 items-center justify-center rounded-full border border-border bg-background text-xs leading-none opacity-0 shadow-sm transition-[opacity,transform] hover:scale-110 focus-visible:opacity-100 active:scale-95 group-hover:opacity-100',
                 mine ? 'right-full mr-1.5' : 'left-full ml-1.5',
               )}
             >
               <span aria-hidden>{QUICK_REACTION}</span>
             </button>
-            {!mine && firstOfRun && (
+            {/* Шеврон меню (как в Telegram) — над быстрой реакцией, одной колонкой у низа
+                пузыря. Раньше он стоял по центру всей строки: у высокого снимка две кнопки
+                висели в пустоте на разной высоте, у короткого — перекрывали друг друга. */}
+            <button
+              type="button"
+              aria-label={t('messageActions')}
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect()
+                actions.openMenu(m, r.left, r.bottom)
+              }}
+              className={cn(
+                'absolute bottom-7 z-10 flex size-6 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100',
+                mine ? 'right-full mr-1.5' : 'left-full ml-1.5',
+              )}
+            >
+              <ChevronDown className="size-4" aria-hidden />
+            </button>
+            {!mine && isGroup && firstOfRun && (
               <p className="mb-0.5 flex items-center gap-1.5 text-xs">
                 <ProfileLink
                   userId={m.senderId}
@@ -278,7 +325,9 @@ function MessageItemInner({
                 <span className="font-medium">{replyToNameText}</span>
                 {/* Цитата фрагмента заменяет начало оригинала: отвечают именно на неё. */}
                 <p className="line-clamp-2">
-                  {m.replyQuote || m.replyTo.content || t('attachment')}
+                  {m.replyTo.deletedAt
+                    ? t('replyDeleted')
+                    : m.replyQuote || m.replyTo.content || t('attachment')}
                 </p>
               </button>
             )}
@@ -330,6 +379,11 @@ function MessageItemInner({
                 <ChatSharedPost post={m.sharedPost} mine={mine} />
               </div>
             )}
+            {storyCard && (
+              <div className={cn(m.media.length > 0 && 'mt-1')}>
+                <ChatSharedStory story={m.sharedStory} reply={!!m.sharedStoryReply} mine={mine} />
+              </div>
+            )}
             {m.poll ? (
               <ChatPollView poll={m.poll} mine={mine} viewerId={myId} />
             ) : profileShare ? (
@@ -346,7 +400,12 @@ function MessageItemInner({
                 // select-text точечно снимает select-none со строки: он там ради тач-жестов
                 // (свайп-ответ, long-press), а выделять нужно именно текст — из него делается
                 // цитата при ответе.
-                <div className={cn('select-text', (m.media.length > 0 || m.sharedPost) && 'mt-1')}>
+                <div
+                  className={cn(
+                    'select-text',
+                    (m.media.length > 0 || m.sharedPost || storyCard) && 'mt-1',
+                  )}
+                >
                   <MessageContent content={m.content} highlight={highlightTerm} />
                 </div>
               )
@@ -408,18 +467,6 @@ function MessageItemInner({
               </span>
             </div>
           </div>
-          {/* Кнопка-шеврон открывает контекстное меню (как в Telegram) */}
-          <button
-            type="button"
-            aria-label={t('messageActions')}
-            onClick={(e) => {
-              const r = e.currentTarget.getBoundingClientRect()
-              actions.openMenu(m, r.left, r.bottom)
-            }}
-            className="flex size-6 shrink-0 items-center justify-center self-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
-          >
-            <ChevronDown className="size-4" aria-hidden />
-          </button>
         </div>
       )}
     </div>

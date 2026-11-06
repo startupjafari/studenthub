@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Значок в строке состояния: силуэт шапочки, одним цветом — так требует система. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M256,96L448,192L256,288L64,192Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M144,236v84c0,34 50,60 112,60s112,-26 112,-60v-84l-112,56 -112,-56Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M448,192a8,8 0 0,1 8,8v80a8,8 0 0,1 -16,0v-80a8,8 0 0,1 8,-8Z" />
+</vector>

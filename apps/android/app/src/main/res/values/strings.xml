@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Строки, которых нет в iOS: то, что на Android устроено иначе. Общие с iOS строки —
+  в strings_ios.xml, он генерируется скриптом и руками не правится.
+-->
+<resources>
+    <string name="app_name" translatable="false">StudentHub</string>
+
+    <!-- Вход по QR: сканер — системный, из Google Play services -->
+    <string name="auth_qrScanStart">Сканировать QR-код</string>
+    <string name="auth_qrScannerUnavailable">Сканер недоступен: на телефоне нет сервисов Google Play или их нужно обновить.</string>
+
+    <!-- Кнопка «назад» в заголовке: в iOS её подпись даёт система -->
+    <string name="common_back">Назад</string>
+
+    <!-- Каналы уведомлений: их видно в настройках системы -->
+    <string name="push_channelMessages">Сообщения</string>
+    <string name="push_channelGeneral">Уведомления платформы</string>
+
+    <!-- Двойная галочка: собеседник прочитал -->
+    <string name="chats_readMark">Прочитано</string>
+
+    <!-- Отметка посещаемости сохранена -->
+    <string name="study_saved">Сохранено</string>
+    <string name="study_gradebook">Журнал</string>
+
+    <!-- Настройки: типы уведомлений — те же переключатели, что в вебе -->
+    <string name="notifications_types">Что присылать</string>
+    <string name="notifications_typeMessages">Сообщения</string>
+    <string name="notifications_typeSchedule">Изменения расписания</string>
+    <string name="notifications_typePosts">Публикации</string>
+    <string name="notifications_typeEvents">События</string>
+    <string name="notifications_typeSystem">Системные</string>
+    <string name="settings_systemNotifications">Звук и вид уведомлений</string>
+    <string name="settings_language">Язык приложения</string>
+    <string name="settings_version">Версия %1$s (%2$d)</string>
+
+    <!-- Заявки: статусы и шаги, которых нет в iOS-каталоге (сверено с сервером) -->
+    <string name="applications_sla">Срок: %1$d ч</string>
+    <string name="applications_needsCorrection">Нужны исправления</string>
+    <string name="applications_resubmitted">Подана повторно</string>
+    <string name="applications_inPreparation">Готовится</string>
+    <string name="applications_readyForPickup">Готова к выдаче</string>
+    <string name="applications_delivered">Доставлена</string>
+    <string name="applications_delivery">Способ получения</string>
+    <string name="applications_deliveryElectronic">Электронно</string>
+    <string name="applications_deliveryPaper">На бумаге</string>
+    <string name="applications_deliveryBoth">Электронно и на бумаге</string>
+    <string name="applications_documents">Документы к заявке</string>
+    <string name="applications_pickDocument">Выбрать документ</string>
+    <string name="applications_noSuitableDocuments">Подходящих документов нет — загрузите их в разделе «Документы» в браузере</string>
+    <string name="applications_cancelAction">Отозвать заявку</string>
+    <string name="applications_result">Результат</string>
+    <string name="applications_download">Скачать</string>
+    <string name="applications_number">№ %1$s</string>
+    <string name="documents_downloading">Файл сохраняется в «Загрузки»</string>
+    <string name="common_yes">Да</string>
+
+    <!-- Библиотека вуза: студент и староста. Формулировки — из веба (LibraryReader, LibraryCatalog, LibraryDesk) -->
+    <string name="books_title">Библиотека</string>
+    <string name="books_myBooks">Мои книги</string>
+    <string name="books_book">Книга</string>
+    <string name="books_searchPlaceholder">Название, автор или ISBN</string>
+    <string name="books_allSections">Все разделы</string>
+    <string name="books_section">Раздел</string>
+    <string name="books_onlyAvailable">Есть на полке</string>
+    <string name="books_noCopies">Нет экземпляров</string>
+    <string name="books_availableOf">На полке %1$d из %2$d</string>
+    <string name="books_allOut">Все выданы</string>
+    <string name="books_allTaken">Все экземпляры на руках</string>
+    <string name="books_nothingFound">Ничего не найдено</string>
+    <string name="books_emptyTitle">В каталоге пока нет книг</string>
+    <string name="books_emptyHint">Библиотека ещё заполняет каталог — загляните позже.</string>
+    <string name="books_disabledTitle">Библиотека выключена</string>
+    <string name="books_disabledDescription">Каталог появится, когда администратор вуза включит библиотеку.</string>
+    <string name="books_isbn" translatable="false">ISBN</string>
+    <string name="books_publisher">Издательство</string>
+    <string name="books_year">Год издания</string>
+    <string name="books_description">Описание</string>
+    <string name="books_reserve">Забронировать</string>
+    <string name="books_joinQueue">Встать в очередь</string>
+    <string name="books_cancelReservation">Отменить бронь</string>
+    <string name="books_cancelTitle">Отменить бронь?</string>
+    <string name="books_cancelDesc">Бронь на «%1$s» будет отменена, место в очереди не сохранится.</string>
+    <string name="books_cancelled">Бронь отменена</string>
+    <string name="books_reservedReady">Книга отложена — заберите её в библиотеке</string>
+    <string name="books_reservedQueued">Вы в очереди — сообщим, когда книга освободится</string>
+    <string name="books_reserveHint">Книгу отложат на полку броней; заберите её с цифровым студенческим.</string>
+    <string name="books_queueHint">Сейчас все экземпляры на руках. Встаньте в очередь — сообщим, когда книга вернётся.</string>
+    <string name="books_readyHint">Книга ждёт вас в библиотеке — возьмите цифровой студенческий.</string>
+    <string name="books_queuedHint">Сообщим, когда подойдёт ваша очередь.</string>
+    <string name="books_onHandsHint">Эта книга сейчас у вас.</string>
+    <string name="books_onHands">На руках</string>
+    <string name="books_onHandsSubtitle">Верните до срока — иначе новые книги и брони будут закрыты</string>
+    <string name="books_noLoans">Книг на руках нет</string>
+    <string name="books_toCatalog">Открыть каталог</string>
+    <string name="books_reservations">Брони</string>
+    <string name="books_reservationsSubtitle">Готовые ждут на полке броней, остальные — в очереди</string>
+    <string name="books_noReservations">Броней нет</string>
+    <string name="books_history">История</string>
+    <string name="books_historySubtitle">Возвращённые и закрытые выдачи</string>
+    <string name="books_overdueBanner">Просроченных книг: %1$d. Пока не вернёте, новые книги и брони закрыты.</string>
+    <string name="books_issuedOn">Взята %1$s · инв. %2$s</string>
+    <string name="books_dispute">Это не я</string>
+    <string name="books_disputeTitle">Вы не брали эту книгу?</string>
+    <string name="books_disputeDesc">Библиотекарь получит отметку, что «%1$s» записана на вас по ошибке, и разберётся.</string>
+    <string name="books_disputed">Отмечено: не я</string>
+    <string name="books_disputedToast">Библиотекарь получил отметку</string>
+    <string name="books_readyAt">Ждёт вас на полке броней · инв. %1$s</string>
+    <string name="books_queuedNote">В очереди на книгу</string>
+    <string name="books_dueUntil">до %1$s</string>
+    <string name="books_overdueSince">просрочено с %1$s</string>
+    <string name="books_loanReturned">Возвращена</string>
+    <string name="books_loanLost">Утеряна</string>
+    <string name="books_loanCancelled">Отменена</string>
+    <string name="books_resReady">Готова</string>
+    <string name="books_resReadyUntil">Готова до %1$s</string>
+    <string name="books_resQueuePosition">В очереди: %1$d-я</string>
+    <string name="books_resQueued">В очереди</string>
+    <string name="books_resFulfilled">Выдана</string>
+    <string name="books_resExpired">Истекла</string>
+    <string name="books_resCancelled">Отменена</string>
+    <string name="books_errorStatus">Книги не выдаются: вы отчислены, выпущены или переведены</string>
+    <string name="books_errorOverdue">У вас просрочена книга — сначала верните её</string>
+    <string name="books_errorReservationLimit">Достигнут предел броней — отмените одну из действующих</string>
+    <string name="books_errorAlreadyReserved">Эта книга уже забронирована вами</string>
+    <string name="books_errorAlreadyBorrowed">Эта книга уже у вас на руках</string>
+    <string name="books_errorNoCopies">Экземпляров этой книги в библиотеке нет</string>
+    <string name="books_errorClosed">Бронь уже закрыта</string>
+    <string name="books_errorModule">Библиотека выключена</string>
+    <string name="books_errorNotFound">Книга не найдена</string>
+    <string name="books_loanLostDebt">Утеряна — долг</string>
+    <string name="books_loanLostSettled">Утеряна, долг погашен</string>
+    <string name="books_clearanceTitle">Справка из библиотеки</string>
+    <string name="books_clearanceSubtitle">Для обходного листа при выпуске или переводе</string>
+    <string name="books_clearanceShowHint">Покажите этот экран в библиотеке или деканате. Распечатать справку можно в веб-версии.</string>
+    <string name="books_clearTitle">Задолженностей нет</string>
+    <string name="books_clearBody">За %1$s нет книг на руках на %2$s.</string>
+    <string name="books_notClearTitle">Долгов перед библиотекой: %1$d. Верните книги, чтобы получить справку.</string>
+    <string name="books_debtsTitle">Что вернуть</string>
+    <string name="books_inventoryNumber">инв. %1$s</string>
+    <string name="books_lostHint">Утерянную книгу замените или возместите её стоимость в библиотеке — библиотекарь отметит, что долг погашен.</string>
+    <string name="books_clearanceDetails">Сведения</string>
+    <string name="books_clearanceName">ФИО</string>
+    <string name="books_clearanceGroup">Группа</string>
+    <string name="books_clearanceFaculty">Факультет</string>
+    <string name="books_clearanceCard">№ студенческого</string>
+    <string name="books_clearanceUniversity">Вуз</string>
+    <string name="books_clearanceChecked">Проверено</string>
+
+    <!-- Вход по QR: чьё устройство просит вход — до кнопки, как на странице /qr в вебе -->
+    <string name="auth_qrChecking">Проверяем код…</string>
+    <string name="auth_qrApproveRequester">Вход запрашивает</string>
+    <string name="auth_qrApproveUnknownBrowser">Неизвестный браузер</string>
+
+    <!-- Ошибки API по коду (PROJECT.md §8.2): серверный текст — по-русски, свой — на языке приложения -->
+    <string name="error_badRequest">Некорректный запрос</string>
+    <string name="error_unauthorized">Сессия истекла — войдите снова</string>
+    <string name="error_forbidden">Недостаточно прав для этого действия</string>
+    <string name="error_wrongScope">Нет доступа к этим данным</string>
+    <string name="error_notFound">Не найдено или уже удалено</string>
+    <string name="error_conflict">Данные уже изменились. Обновите экран и попробуйте снова</string>
+    <string name="error_fileType">Такой тип файла не поддерживается</string>
+    <string name="error_fileTooLarge">Файл слишком большой</string>
+    <string name="error_validation">Проверьте введённые данные</string>
+    <string name="error_rateLimit">Слишком много запросов. Подождите немного и попробуйте снова</string>
+    <string name="error_loginLocked">Слишком много неудачных попыток — вход временно закрыт. Попробуйте позже</string>
+    <string name="error_invalid2fa">Неверный код</string>
+    <string name="error_maintenance">Идут технические работы. Попробуйте позже</string>
+    <string name="error_universityBlocked">Доступ вашего вуза к платформе приостановлен</string>
+    <string name="error_internal">Ошибка на сервере. Попробуйте позже</string>
+    <string name="auth_error_invalidCredentials">Неверный email или пароль</string>
+    <string name="auth_error_accountBlocked">Учётная запись заблокирована</string>
+    <string name="auth_qrApproveTaken">Вход по этому QR-коду уже подтверждён</string>
+
+    <!-- Системные события группы: текст строит клиент по systemType (как Chats.sys* в вебе) -->
+    <string name="chats_someone">Кто-то</string>
+    <string name="chats_sysEvent">Событие группы</string>
+    <string name="chats_sysMemberAdded">%1$s добавил(а) %2$s</string>
+    <string name="chats_sysMemberRemoved">%1$s удалил(а) %2$s</string>
+    <string name="chats_sysMemberLeft">%1$s покинул(а) группу</string>
+    <string name="chats_sysMemberJoined">%1$s вступил(а) в группу по ссылке</string>
+    <string name="chats_sysMemberBanned">%1$s заблокировал(а) %2$s в группе</string>
+    <string name="chats_sysAdminGranted">%1$s назначил(а) администратором %2$s</string>
+    <string name="chats_sysAdminRevoked">%1$s снял(а) администратора %2$s</string>
+    <string name="chats_sysTitleChanged">%1$s изменил(а) название на «%2$s»</string>
+    <string name="chats_sysAvatarChanged">%1$s изменил(а) фото группы</string>
+    <string name="chats_sysMessagePinned">%1$s закрепил(а) сообщение</string>
+    <string name="chats_sysOwnerChanged">%1$s передал(а) владение %2$s</string>
+</resources>

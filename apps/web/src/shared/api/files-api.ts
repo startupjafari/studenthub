@@ -1,7 +1,9 @@
 import type { AxiosProgressEvent } from 'axios'
 import type { FileBucketKind } from '@studenthub/shared-schemas'
 import { api } from './instance'
-import type { MultipartTarget, UploadedPart } from './multipart-upload'
+import { needsDirectUpload, uploadDirect, type PresignedTarget } from './direct-upload'
+import { needsMultipartUpload, type MultipartTarget, type UploadedPart } from './multipart-upload'
+import { uploadResumable } from './resumable-upload'
 
 // Ответ POST /files/upload (envelope разворачивается интерцептором в чистую сущность).
 // Отдельного типа File в shared-* нет — это форма ответа API, объявляется здесь.
@@ -82,4 +84,47 @@ export async function multipartAbortRequest(
   input: { key: string; uploadId: string },
 ): Promise<void> {
   await api.post('/files/multipart/abort', { bucket, ...input })
+}
+
+/**
+ * Загрузка в общий бакет любым подходящим путём: до порога буферной — через API, до порога
+ * многочастной — одной подписанной ссылкой в MinIO, крупнее — частями с докачкой.
+ *
+ * Буферный путь принимает не больше `DIRECT_UPLOAD_THRESHOLD_BYTES` (10 МБ): видео к посту
+ * крупнее заливалось целиком и только потом получало `FILE_DIRECT_UPLOAD_REQUIRED`, хотя
+ * предел видео — 500 МБ (BACKEND_RULES §8).
+ */
+export async function uploadToBucket(
+  bucket: FileBucketKind,
+  file: File,
+  onProgress?: (percent: number) => void,
+): Promise<UploadedFile> {
+  if (!needsDirectUpload(file.size)) return uploadFileRequest(bucket, file, onProgress)
+  if (needsMultipartUpload(file.size)) {
+    return uploadResumable<UploadedFile>({
+      file,
+      bucket,
+      start: (mime, size) => multipartStartRequest(bucket, mime, size),
+      urls: (range) => multipartUrlsRequest(bucket, range),
+      complete: (input) => multipartCompleteRequest(bucket, input),
+      abort: (input) => multipartAbortRequest(bucket, input),
+      onProgress: onProgress ? (fraction) => onProgress(Math.round(fraction * 100)) : undefined,
+    })
+  }
+  return uploadDirect<UploadedFile>({
+    file,
+    onProgress,
+    presign: async (mime) => {
+      const { data } = await api.post<PresignedTarget>('/files/presign', { bucket, mime })
+      return data
+    },
+    confirm: async (key, name) => {
+      const { data } = await api.post<UploadedFile>('/files/confirm', {
+        bucket,
+        key,
+        ...(name ? { name } : {}),
+      })
+      return data
+    },
+  })
 }

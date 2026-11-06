@@ -16,7 +16,9 @@ struct CourseGradesDTO: Decodable, Equatable, Identifiable {
         let id: String
         let title: String
         let kind: String
-        let maxScore: Int
+        /// Максимум необязателен — так в журнале (`GradeColumn.maxScore` nullable):
+        /// обязательным он ронял разбор всего ответа из-за одной колонки.
+        let maxScore: Int?
         let score: Double?
     }
 
@@ -31,10 +33,11 @@ struct CourseGradesDTO: Decodable, Equatable, Identifiable {
     ///
     /// Считаем только там, где оценка уже стоит: иначе первая контрольная в
     /// семестре показывала бы «5 из 100» и выглядела бы провалом.
+    /// Точка без максимума в долю не входит: делить её не на что.
     var ratio: Double? {
-        let graded = columns.filter { $0.score != nil }
+        let graded = columns.filter { $0.score != nil && $0.maxScore != nil }
         guard !graded.isEmpty else { return nil }
-        let max = graded.reduce(0.0) { $0 + Double($1.maxScore) }
+        let max = graded.reduce(0.0) { $0 + Double($1.maxScore ?? 0) }
         guard max > 0 else { return nil }
         return graded.reduce(0.0) { $0 + ($1.score ?? 0) } / max
     }
@@ -56,20 +59,38 @@ struct AttendanceSummaryDTO: Decodable, Equatable {
         let pair: Pair?
     }
 
-    let counts: [String: Int]
     let total: Int
-    /// Доля не-пропусков: присутствовал, опоздал, уважительная.
-    let rate: Double?
+    let present: Int
+    let late: Int
+    let absent: Int
+    let excused: Int
+    /// Доля не-пропусков в целых процентах (0…100): присутствовал, опоздал, уважительная.
+    let rate: Int
     let records: [Record]
+
+    /// Счётчик по статусу: API отдаёт их отдельными полями, а не словарём.
+    func count(_ status: String) -> Int {
+        switch status {
+        case "PRESENT": return present
+        case "LATE": return late
+        case "ABSENT": return absent
+        case "EXCUSED": return excused
+        default: return 0
+        }
+    }
 }
 
 struct RosterDTO: Decodable, Equatable {
     struct Student: Decodable, Equatable, Identifiable {
-        let id: String
+        /// Сервер отдаёт `studentId`, а не `id` (`attendance.service.ts`, roster): с
+        /// `id` ростер не разбирался, и отметить посещаемость было нельзя.
+        let studentId: String
         let firstName: String?
         let lastName: String?
         let status: String?
         let note: String?
+
+        var id: String { studentId }
 
         var name: String {
             [lastName, firstName].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
@@ -125,6 +146,7 @@ protocol StudyFetching: Sendable {
     func grades() async throws -> [CourseGradesDTO]
     func attendance() async throws -> AttendanceSummaryDTO
     func assignments() async throws -> Page<AssignmentDTO>
+    func assignment(id: String) async throws -> AssignmentDTO
     func submit(assignmentID: String) async throws
     func saveSubmissionDraft(assignmentID: String, text: String?, linkURL: String?) async throws
     func materials() async throws -> Page<MaterialDTO>
@@ -158,14 +180,30 @@ struct StudyAPI: StudyFetching {
         try await client.page(.get("assignments", query: [URLQueryItem(name: "limit", value: "50")]), of: AssignmentDTO.self)
     }
 
+    /// Одно задание — для карточки. Искать его в первой странице списка нельзя: из
+    /// ссылки открывается и пятьдесят первое.
+    func assignment(id: String) async throws -> AssignmentDTO {
+        try await client.send(.get("assignments/\(id)"), as: AssignmentDTO.self)
+    }
+
     func submit(assignmentID: String) async throws {
         try await client.send(.post("assignments/\(assignmentID)/submit"))
     }
 
+    /// Пустое поле уходит явным `null`: пропущенный ключ сервер оставляет как было,
+    /// и стёртый ответ или ссылка возвращались после сохранения.
     func saveSubmissionDraft(assignmentID: String, text: String?, linkURL: String?) async throws {
         struct Body: Encodable {
+            enum CodingKeys: String, CodingKey { case text, linkUrl }
+
             let text: String?
             let linkUrl: String?
+
+            func encode(to encoder: Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                try container.encode(text, forKey: .text)
+                try container.encode(linkUrl, forKey: .linkUrl)
+            }
         }
         try await client.send(
             Endpoint(

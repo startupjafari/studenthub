@@ -31,4 +31,9 @@ actor AttachmentURLProvider {
         cache[fileID] = (answer.url, answer.expiresAt ?? Date().addingTimeInterval(600))
         return answer.url
     }
+
+    /// Выход из аккаунта: подписанные ссылки прежнего человека следующему не достаются.
+    func clear() {
+        cache = [:]
+    }
 }

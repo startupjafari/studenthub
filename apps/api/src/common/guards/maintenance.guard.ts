@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, Inject, Injectable } from '@nestjs/common'
+import { CanActivate, ExecutionContext, Inject, Injectable, Logger } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
 import { Role } from '@studenthub/shared-types'
 import type { FastifyRequest } from 'fastify'
@@ -20,8 +20,14 @@ import type { CurrentUserData } from '../auth/jwt-payload.type'
 // scope и права на маршруте остановленной платформы уже незачем.
 const STAFF_ROLES: readonly Role[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR]
 
+// Сбой проверки повторяется на каждом запросе; в журнал хватит строки в минуту.
+const FAILURE_LOG_INTERVAL_MS = 60_000
+
 @Injectable()
 export class MaintenanceGuard implements CanActivate {
+  private readonly logger = new Logger(MaintenanceGuard.name)
+  private failureLoggedAt = 0
+
   constructor(
     private readonly reflector: Reflector,
     // По токену, а не по классу: импорт PlatformService втянул бы сюда домен auth целиком
@@ -38,7 +44,7 @@ export class MaintenanceGuard implements CanActivate {
     ])
     if (exempt) return true
 
-    if (!(await this.platform.maintenanceActive())) return true
+    if (!(await this.maintenanceActive())) return true
 
     const user = context
       .switchToHttp()
@@ -46,5 +52,22 @@ export class MaintenanceGuard implements CanActivate {
     if (user && STAFF_ROLES.includes(user.role)) return true
 
     throw new AppException('MAINTENANCE', 'Платформа остановлена на технические работы')
+  }
+
+  /**
+   * Сбой самой проверки = «техработ нет», та же сторона, что у отказа чтения БД в
+   * PlatformService.read(). Guard стоит на каждом запросе: исключение отсюда — это 500 у
+   * всех ролей разом, включая платформенные, то есть у тех, кто пришёл бы чинить.
+   */
+  private async maintenanceActive(): Promise<boolean> {
+    try {
+      return await this.platform.maintenanceActive()
+    } catch (error: unknown) {
+      if (Date.now() - this.failureLoggedAt > FAILURE_LOG_INTERVAL_MS) {
+        this.failureLoggedAt = Date.now()
+        this.logger.error(`Проверка техработ упала, запрос пропущен: ${String(error)}`)
+      }
+      return false
+    }
   }
 }

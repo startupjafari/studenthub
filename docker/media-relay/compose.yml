@@ -1,0 +1,23 @@
+# Ретранслятор камер для разработки (README.md). На проде — сервис Railway из того же
+# Dockerfile. Ходит за JWKS к API на хосте разработчика; агент со стенда
+# docker/camera-sim отдаёт сюда поток через host.docker.internal:11936.
+
+name: studenthub-media-relay
+
+services:
+  relay:
+    build: .
+    image: studenthub-media-relay:dev
+    restart: unless-stopped
+    environment:
+      MTX_AUTHJWTJWKS: ${MTX_AUTHJWTJWKS:-http://host.docker.internal:3001/api/v1/.well-known/media-jwks.json}
+      MTX_HLSALLOWORIGINS: ${MTX_HLSALLOWORIGINS:-http://localhost:3000}
+    ports:
+      - '127.0.0.1:${RELAY_HLS_PORT:-18888}:8888'
+      # RTMPS — на адресе моста Docker (host.docker.internal): агенту из контейнера
+      # стенда он виден, локальной сети разработчика — нет.
+      - '${RELAY_DOCKER_HOST_IP:-172.17.0.1}:${RELAY_RTMPS_PORT:-11936}:1936'
+    volumes:
+      - ./certs:/certs:ro
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'

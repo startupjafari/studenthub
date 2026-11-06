@@ -23,6 +23,8 @@ import { recordRun } from './seed/lib/marker.mjs'
 import { runCleanup } from './seed/cleanup.mjs'
 import { loadEnv } from './seed/lib/env.mjs'
 import { createWriter } from './seed/lib/writer.mjs'
+import { postPriority } from './seed/data/content.mjs'
+import { academicCalendar, courseOf } from './seed/lib/calendar.mjs'
 import { createStorage } from './seed/lib/storage.mjs'
 
 // DATABASE_URL живёт в apps/api/.env, а `node prisma/seed.mjs` его сам не читает: .env
@@ -198,8 +200,10 @@ async function main() {
   const admin = await prisma.user.upsert({
     where: { email: 'admin@studenthub.app' },
     // Пароль/профиль при повторном запуске не трогаем, но 2FA сбрасываем: демо-аккаунт
-    // должен пускать по одному паролю (см. TWO_FACTOR_RESET).
-    update: TWO_FACTOR_RESET,
+    // должен пускать по одному паролю (см. TWO_FACTOR_RESET). На удалённой базе
+    // (SEED_ALLOW_REMOTE=1 — workflow «Seed», база общая с продом) это боевой админ:
+    // снять ему 2FA значит оставить вход по одному паролю, поэтому существующего не трогаем.
+    update: config.allowRemote ? {} : TWO_FACTOR_RESET,
     create: {
       email: 'admin@studenthub.app',
       passwordHash,
@@ -328,6 +332,172 @@ main()
  * Отдельной функцией, а не куском main(), ровно ради одного флага: на общей с продом
  * базе этот набор заливать нельзя, а генератор вузов и справочники — можно.
  */
+// ── Библиотека демо-вуза (Фаза 20) ─────────────────────────────────────────────
+// Идемпотентно по фиксированным id: повторный прогон ничего не трогает (`update: {}`), иначе
+// сроки выдач «ехали» бы при каждом пересиде. Коды наклеек — из алфавита readableCode
+// (apps/api/src/common/crypto/readable-code.ts): без 0/O, 1/I/L.
+const DEMO_BOOKS = [
+  ['Евгений Онегин', 'Пушкин А. С.', 'Художественная литература', 1833, 1],
+  ['Преступление и наказание', 'Достоевский Ф. М.', 'Художественная литература', 1866, 2],
+  ['Абай жолы', 'Әуезов М. О.', 'Художественная литература', 1942, 2],
+  ['Мастер и Маргарита', 'Булгаков М. А.', 'Художественная литература', 1967, 1],
+  [
+    'Алгоритмы: построение и анализ',
+    'Кормен Т., Лейзерсон Ч., Ривест Р., Штайн К.',
+    'Информатика',
+    2013,
+    3,
+  ],
+  ['Чистый код', 'Мартин Р.', 'Информатика', 2019, 2],
+  ['Высшая математика для экономистов', 'Кремер Н. Ш.', 'Математика', 2010, 2],
+  ['История Казахстана', 'Кан Г. В.', 'История', 2020, 2],
+]
+
+const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'
+
+async function seedDemoLibrary() {
+  const U = SEED_UNIVERSITY_ID
+  const users = await prisma.user.findMany({
+    take: 5,
+    where: {
+      email: {
+        in: ['student@studenthub.app', 'starosta@studenthub.app', 'librarian@studenthub.app'],
+      },
+    },
+    select: { id: true, email: true, firstName: true, lastName: true, studentCardNumber: true },
+  })
+  const byEmail = Object.fromEntries(users.map((u) => [u.email, u]))
+  const student = byEmail['student@studenthub.app']
+  const starosta = byEmail['starosta@studenthub.app']
+  const librarian = byEmail['librarian@studenthub.app']
+  if (!student || !starosta || !librarian) return
+
+  await prisma.librarySettings.upsert({
+    where: { universityId: U },
+    update: {},
+    create: { universityId: U, enabled: true },
+  })
+
+  // Экземпляры по порядку: книга i получает DEMO_BOOKS[i][4] экземпляров с номерами 1001…
+  const copies = []
+  let n = 0
+  for (const [i, [title, authors, section, year, count]] of DEMO_BOOKS.entries()) {
+    const bookId = `seed-book-${String(i + 1).padStart(3, '0')}`
+    await prisma.book.upsert({
+      where: { id: bookId },
+      update: {},
+      create: {
+        id: bookId,
+        universityId: U,
+        title,
+        authors,
+        section,
+        year,
+        createdById: librarian.id,
+      },
+    })
+    for (let c = 0; c < count; c += 1) {
+      n += 1
+      copies.push({
+        id: `seed-copy-${String(n).padStart(3, '0')}`,
+        bookId,
+        title,
+        inventoryNumber: String(1000 + n),
+        code: `KNGB${CODE_ALPHABET[Math.floor(n / 31)]}${CODE_ALPHABET[n % 31]}22`,
+      })
+    }
+  }
+  const status = {
+    'seed-copy-001': 'ON_LOAN', // «Евгений Онегин» у студента; на него очередь старосты
+    'seed-copy-004': 'ON_LOAN', // «Абай жолы» у старосты — просрочена
+    'seed-copy-006': 'RESERVED', // «Мастер и Маргарита» ждёт студента на полке броней
+  }
+  for (const c of copies) {
+    await prisma.bookCopy.upsert({
+      where: { id: c.id },
+      update: {},
+      create: {
+        id: c.id,
+        bookId: c.bookId,
+        universityId: U,
+        inventoryNumber: c.inventoryNumber,
+        code: c.code,
+        status: status[c.id] ?? 'AVAILABLE',
+      },
+    })
+  }
+
+  const day = 86_400_000
+  const now = Date.now()
+  // Конец местных суток Алматы (UTC+5) через `days` дней — так сервис хранит срок выдачи.
+  const dueIn = (days) => {
+    const d = new Date(now + days * day + 5 * 3_600_000)
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 18, 59, 59, 999))
+  }
+  const fullName = (u) => `${u.lastName} ${u.firstName}`
+  const copy = (id) => copies.find((c) => c.id === id)
+  const loans = [
+    ['seed-loan-001', student, 'seed-copy-001', -9, 5, 'OPEN'],
+    ['seed-loan-002', starosta, 'seed-copy-004', -20, -3, 'OPEN'],
+    ['seed-loan-003', student, 'seed-copy-002', -40, -26, 'RETURNED'],
+  ]
+  for (const [id, reader, copyId, issuedDays, dueDays, loanStatus] of loans) {
+    const c = copy(copyId)
+    await prisma.loan.upsert({
+      where: { id },
+      update: {},
+      create: {
+        id,
+        universityId: U,
+        copyId,
+        readerId: reader.id,
+        issuedById: librarian.id,
+        issuedAt: new Date(now + issuedDays * day),
+        dueAt: dueIn(dueDays),
+        status: loanStatus,
+        ...(loanStatus === 'RETURNED'
+          ? {
+              returnedAt: new Date(now + (dueDays - 2) * day),
+              returnedToId: librarian.id,
+              returnCondition: 'GOOD',
+            }
+          : {}),
+        readerName: fullName(reader),
+        readerGroup: 'ИТ-23-1',
+        readerCard: reader.studentCardNumber,
+        bookTitle: c.title,
+        inventoryNumber: c.inventoryNumber,
+      },
+    })
+  }
+
+  await prisma.reservation.upsert({
+    where: { id: 'seed-reservation-001' },
+    update: {},
+    create: {
+      id: 'seed-reservation-001',
+      universityId: U,
+      bookId: copy('seed-copy-006').bookId,
+      readerId: student.id,
+      status: 'READY',
+      copyId: 'seed-copy-006',
+      readyAt: new Date(now - day),
+      holdUntil: dueIn(2),
+    },
+  })
+  await prisma.reservation.upsert({
+    where: { id: 'seed-reservation-002' },
+    update: {},
+    create: {
+      id: 'seed-reservation-002',
+      universityId: U,
+      bookId: copy('seed-copy-001').bookId,
+      readerId: starosta.id,
+      status: 'QUEUED',
+    },
+  })
+}
+
 async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword }) {
   // Демо-структура (Фаза 5): вуз ACTIVE, факультет, группа, 3 аудитории.
   // `city` — код КАТО, а не название: 750000000 = г. Алматы (см. prisma/seed/steps/00-kato.mjs).
@@ -408,6 +578,8 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
     ['TEACHER', 'teacher@studenthub.app', 'Елена', 'Иванова', scope.faculty, 'FEMALE', 'Сергеевна'],
     ['STAROSTA', 'starosta@studenthub.app', 'Аружан', 'Серикова', scope.group, 'FEMALE', 'Муратовна'], // prettier-ignore
     ['STUDENT', 'student@studenthub.app', 'Нурлан', 'Оспанов', scope.group, 'MALE', 'Бауыржанович'], // prettier-ignore
+    ['SECURITY_GUARD', 'security@studenthub.app', 'Ерлан', 'Жумабаев', scope.university, 'MALE', 'Кайратович'], // prettier-ignore
+    ['LIBRARIAN', 'librarian@studenthub.app', 'Гульнара', 'Сапарова', scope.university, 'FEMALE', 'Ермековна'], // prettier-ignore
   ]
   // Профиль этих аккаунтов заполняется теми же построителями, что и у 130 тысяч
   // сгенерированных (prisma/seed/data/profiles.mjs). Раньше здесь задавались только
@@ -471,6 +643,20 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
         academicDegree: 'Кандидат наук',
         academicTitle: 'Доцент',
       },
+      // Профиль охраны закрыт по умолчанию — как у роли на проде (defaultVisibilityFor).
+      SECURITY_GUARD: {
+        position: 'Сотрудник охраны',
+        jobTitle: 'Охрана',
+        responsibilities: 'Пропускной режим главного корпуса, проверка студенческих билетов.',
+        profileVisibility: 'PRIVATE',
+      },
+      // Профиль библиотекаря закрыт по той же причине, что у охраны.
+      LIBRARIAN: {
+        position: 'Библиотекарь',
+        jobTitle: 'Библиотека',
+        responsibilities: 'Выдача и приём книг, учёт фонда, работа с должниками.',
+        profileVisibility: 'PRIVATE',
+      },
     }
     return { ...staff, ...(byRole[role] ?? {}) }
   }
@@ -495,22 +681,30 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
     })
   }
 
+  // Библиотека демо-вуза (Фаза 20): модуль включён, книги с экземплярами, выдачи и брони у
+  // демо-студента и старосты — чтобы каждый экран библиотеки открывался не пустым.
+  await seedDemoLibrary()
+
   // ── Дисциплины (демо): семестр + справочная дисциплина + курс группы ──────────
   // Идемпотентно по фиксированным id. Позволяет проверить домен «Дисциплины» после миграции.
   const teacherUser = await prisma.user.findUnique({
     where: { email: 'teacher@studenthub.app' },
     select: { id: true },
   })
+  // Семестр — текущий по календарю прогона (seed/lib/calendar.mjs), а не зашитая «Осень
+  // 2025»: посещаемость и задания демо-вуза считаются от сегодняшнего дня, и через год
+  // они лежали бы за пределами единственного активного семестра.
+  const demoTerm = academicCalendar().cur
+  const demoTermDates = { startsOn: new Date(demoTerm.from), endsOn: new Date(demoTerm.to) }
   const term = await prisma.term.upsert({
     where: { id: 'seed-term-001' },
-    update: { name: 'Осень 2025', isActive: true },
+    update: { name: demoTerm.name, ...demoTermDates, isActive: true },
     create: {
       id: 'seed-term-001',
       universityId: SEED_UNIVERSITY_ID,
-      name: 'Осень 2025',
+      name: demoTerm.name,
       number: 5,
-      startsOn: new Date('2025-09-01'),
-      endsOn: new Date('2025-12-31'),
+      ...demoTermDates,
       isActive: true,
     },
   })
@@ -767,7 +961,7 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
           universityId: U,
           facultyId: fac.id,
           groupId: gid,
-          course: 2025 - year,
+          course: courseOf(year),
           enrollmentYear: year,
           educationLevel: 'BACHELOR',
           studyForm: pick(['FULL_TIME', 'FULL_TIME', 'PART_TIME']),
@@ -841,7 +1035,12 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
   const pairRows = []
   for (const g of groupList) {
     const schId = `seed-sch-${g.id}`
-    scheduleRows.push({ id: schId, groupId: g.id, name: 'Осенний семестр 2025/26', isActive: true })
+    scheduleRows.push({
+      id: schId,
+      groupId: g.id,
+      name: academicCalendar().scheduleName,
+      isActive: true,
+    })
     g.courses.forEach((c, idx) => {
       const day = (idx % 5) + 1
       const slot = TIMES[idx % TIMES.length]
@@ -960,6 +1159,8 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
       for (let w = 0; w < ATT_WEEKS; w += 1) {
         const d = new Date(attMonday)
         d.setUTCDate(d.getUTCDate() + (p.day - 1) - 7 * (ATT_WEEKS - 1 - w))
+        // Окно доходит до конца текущей недели: на ещё не наступившие пары отметок нет.
+        if (d > daysFromNow(0)) continue
         for (const sid of g.studentIds) {
           const roll = rng()
           const status =
@@ -1114,6 +1315,7 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
       universityId: U,
       status: 'PUBLISHED',
       publishedAt: daysFromNow(-randInt(1, 20)),
+      priority: postPriority('UNIVERSITY', true),
     })
   }
   for (const fac of FACS) {
@@ -1132,6 +1334,7 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
         facultyId: fac.id,
         status: 'PUBLISHED',
         publishedAt: daysFromNow(-randInt(1, 15)),
+        priority: postPriority('FACULTY', true),
       })
     }
   }
@@ -1150,6 +1353,7 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
       groupId: g.id,
       status: 'PUBLISHED',
       publishedAt: daysFromNow(-randInt(1, 10)),
+      priority: postPriority('GROUP', false),
     })
   }
   counts.posts = await insertMany(prisma.post, postRows)

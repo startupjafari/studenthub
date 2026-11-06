@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Briefcase, Eye } from 'lucide-react'
+import { Briefcase, Eye, Pencil, Plus } from 'lucide-react'
 import type { VacancyReviewStatus, VacancyStatus } from '@studenthub/shared-schemas'
 import {
   closeVacancy,
@@ -21,8 +21,10 @@ import {
   PageHeader,
   Skeleton,
   TablePagination,
+  useConfirm,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
+import { VacancyFormModal } from './vacancy-form-modal'
 
 /**
  * Вакансии компании.
@@ -35,8 +37,11 @@ export function EmployerVacanciesView() {
   const t = useTranslations('EmployerVacancies')
   const tErr = useTranslations('Errors')
   const queryClient = useQueryClient()
+  const confirm = useConfirm()
   const [page, setPage] = useState(1)
   const limit = 20
+  // Открытая форма: `null` — новая вакансия, строка — правка этой вакансии.
+  const [form, setForm] = useState<{ vacancy: EmployerVacancy | null } | null>(null)
 
   const query = useQuery({
     queryKey: vacancyKeys.mine(page),
@@ -53,19 +58,31 @@ export function EmployerVacanciesView() {
       toast.success(t('saved'))
       await queryClient.invalidateQueries({ queryKey: vacancyKeys.all })
     },
-    onError: (error) => toast.error(toApiError(error).message),
+    onError: (error) => toast.error(tErr(toApiError(error).code)),
   })
 
   const rows = query.data?.items ?? []
 
   return (
     <div className="flex w-full flex-1 flex-col gap-4">
-      <PageHeader title={t('title')} subtitle={t('subtitle')} />
+      <PageHeader
+        title={t('title')}
+        subtitle={t('subtitle')}
+        actions={
+          <Button onClick={() => setForm({ vacancy: null })}>
+            <Plus className="size-4" aria-hidden /> {t('create')}
+          </Button>
+        }
+      />
 
       {query.isLoading ? (
         <ul className="flex flex-col gap-2" aria-busy>
           {['58%', '44%'].map((w) => (
-            <li key={w} className="rounded-xl border border-border p-4">
+            <li
+              key={w}
+              data-skeleton-fill=""
+              className="flex flex-1 items-center rounded-xl border border-border p-4"
+            >
               <Skeleton className="h-4 rounded-md" style={{ width: w }} />
             </li>
           ))}
@@ -88,7 +105,23 @@ export function EmployerVacanciesView() {
                 key={vacancy.id}
                 vacancy={vacancy}
                 busy={act.isPending}
-                onAct={(action) => act.mutate({ id: vacancy.id, action })}
+                onAct={(action) => {
+                  if (action !== 'close') {
+                    act.mutate({ id: vacancy.id, action })
+                    return
+                  }
+                  // Закрытие необратимо: вакансия уходит с витрин, её нельзя ни править,
+                  // ни опубликовать снова — поэтому только после подтверждения.
+                  void confirm({
+                    title: t('closeConfirm'),
+                    description: t('closeConfirmText'),
+                    confirmLabel: t('close'),
+                    destructive: true,
+                  }).then((ok) => {
+                    if (ok) act.mutate({ id: vacancy.id, action })
+                  })
+                }}
+                onEdit={() => setForm({ vacancy })}
               />
             ))}
           </ul>
@@ -100,6 +133,8 @@ export function EmployerVacanciesView() {
           />
         </>
       )}
+
+      {form && <VacancyFormModal vacancy={form.vacancy} onClose={() => setForm(null)} />}
     </div>
   )
 }
@@ -108,10 +143,12 @@ function VacancyRow({
   vacancy,
   busy,
   onAct,
+  onEdit,
 }: {
   vacancy: EmployerVacancy
   busy: boolean
   onAct: (action: 'publish' | 'pause' | 'close') => void
+  onEdit: () => void
 }) {
   const t = useTranslations('EmployerVacancies')
 
@@ -144,9 +181,29 @@ function VacancyRow({
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-2">
+          {/* Закрытая вакансия — конечное состояние: ни правки, ни публикации. */}
+          {vacancy.status !== 'CLOSED' && (
+            <Button size="sm" variant="outline" disabled={busy} onClick={onEdit}>
+              <Pencil className="size-4" aria-hidden /> {t('edit')}
+            </Button>
+          )}
           {(vacancy.status === 'DRAFT' || vacancy.status === 'PAUSED') && (
             <Button size="sm" disabled={busy} onClick={() => onAct('publish')}>
               {t('publish')}
+            </Button>
+          )}
+          {/* Повторная публикация опубликованной: вуз, допустивший компанию позже или
+              вернувший допуск, получает вакансию на модерацию; одобрения других вузов
+              сервер не трогает. */}
+          {vacancy.status === 'PUBLISHED' && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => onAct('publish')}
+              title={t('republishHint')}
+            >
+              {t('republish')}
             </Button>
           )}
           {vacancy.status === 'PUBLISHED' && (
@@ -175,6 +232,22 @@ function VacancyRow({
               </li>
             ))}
           </ul>
+          {/* Причина отказа или снятия: без неё компания видит только, что вакансия
+              исчезла, и не знает, что исправить. */}
+          {vacancy.reviews.some((review) => review.status === 'REJECTED' && review.reason) && (
+            <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
+              {vacancy.reviews.map((review) =>
+                review.status === 'REJECTED' && review.reason ? (
+                  <li key={review.university.id}>
+                    {t('rejectReason', {
+                      university: review.university.name,
+                      reason: review.reason,
+                    })}
+                  </li>
+                ) : null,
+              )}
+            </ul>
+          )}
         </div>
       )}
     </li>

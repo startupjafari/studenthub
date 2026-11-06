@@ -19,6 +19,7 @@ import { toApiError } from '../../../shared/lib'
 export function DemoVerifyView() {
   const t = useTranslations('Demo')
   const tCommon = useTranslations('Common')
+  const tErr = useTranslations('Errors')
   const params = useSearchParams()
   const token = params.get('token')
   const [state, setState] = useState<'loading' | 'ok' | 'error'>('loading')
@@ -39,9 +40,17 @@ export function DemoVerifyView() {
       .then(() => setState('ok'))
       .catch((err: unknown) => {
         setState('error')
-        setMessage(toApiError(err).message)
+        // Текст по коду, а не сообщение сервера: оно русское и в kk/en.
+        const code = toApiError(err).code
+        setMessage(
+          code === 'NOT_FOUND' || code === 'VALIDATION_ERROR'
+            ? t('verifyInvalid')
+            : code === 'BAD_REQUEST'
+              ? t('verifyExpired')
+              : tErr(code),
+        )
       })
-  }, [token, t])
+  }, [token, t, tErr])
 
   if (state === 'loading') return <PageLoader label={tCommon('loading')} />
 

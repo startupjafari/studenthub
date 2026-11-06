@@ -6,7 +6,9 @@ import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import { Check, ChevronDown, ChevronUp, Plus, Save, X } from 'lucide-react'
 import { CONTENT_VISIBILITY, POLL_RESULTS_VISIBILITY } from '@studenthub/shared-schemas'
-import { createPoll, pollKeys, updatePoll, type PollView } from '../../../entities/poll'
+import { createPoll, updatePoll, type PollView } from '../../../entities/poll'
+import { useContentOwner } from '../lib/content-owner'
+import { ownerPollsKey } from '../lib/owner-queries'
 import {
   Button,
   Checkbox,
@@ -18,6 +20,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  toDateTimeLocal,
 } from '../../../shared/ui'
 import { localId, useErrorToast } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
@@ -49,7 +52,6 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
         ],
   )
   const [multiple, setMultiple] = useState(initial?.multiple ?? false)
-  const [anonymous, setAnonymous] = useState(initial?.anonymous ?? true)
   const [allowRevote, setAllowRevote] = useState(initial?.allowRevote ?? false)
   const [resultsVisibility, setResultsVisibility] = useState(
     initial?.resultsVisibility ?? 'AFTER_VOTE',
@@ -57,9 +59,13 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
   const [visibility, setVisibility] = useState(initial?.visibility ?? 'UNIVERSITY')
   const [closePreset, setClosePreset] = useState<ClosePreset>(initial?.closesAt ? 'custom' : 'none')
   const [customClose, setCustomClose] = useState(
-    initial?.closesAt ? initial.closesAt.slice(0, 16) : '',
+    // Поле показывает местное время, а сервер отдаёт UTC (см. toDateTimeLocal).
+    initial?.closesAt ? toDateTimeLocal(initial.closesAt) : '',
   )
   const [showSettings, setShowSettings] = useState(false)
+  // Опрос страницы организации: видимость ставит сервер, выбора области у него нет.
+  const owner = useContentOwner(userId)
+  const isPage = owner.kind !== 'user'
 
   const saveMut = useMutation({
     mutationFn: (status: 'DRAFT' | 'PUBLISHED') => {
@@ -67,17 +73,23 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
         question: question.trim(),
         options: options.map((o) => o.text.trim()).filter(Boolean),
         multiple,
-        anonymous,
+        // Голосование в опросах профиля всегда анонимно: списка проголосовавших нет ни у одного
+        // клиента, поэтому галочки в форме нет. Поле шлём явно (его требует тип входа схемы) и
+        // всегда true — «неанонимный» опрос обещал бы то, чего платформа не показывает.
+        anonymous: true,
         allowRevote,
         resultsVisibility: resultsVisibility as (typeof POLL_RESULTS_VISIBILITY)[number],
-        visibility: visibility as (typeof CONTENT_VISIBILITY)[number],
+        // Для опроса страницы сервер значение игнорирует; её видимость схема правки не примет.
+        visibility: isPage ? 'ALL' : (visibility as (typeof CONTENT_VISIBILITY)[number]),
         status,
         closesAt: closesAt(),
       }
-      return initial ? updatePoll(initial.id, input) : createPoll(input)
+      return initial
+        ? updatePoll(initial.id, input)
+        : createPoll(input, owner.kind === 'user' ? undefined : owner.kind)
     },
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: pollKeys.byUser(userId) })
+      void qc.invalidateQueries({ queryKey: ownerPollsKey(owner) })
       toast.success(t('saved'))
       onClose()
     },
@@ -197,10 +209,6 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
             </div>
 
             <label className="flex cursor-pointer items-center gap-2 text-sm">
-              <Checkbox checked={anonymous} onCheckedChange={(v) => setAnonymous(v === true)} />
-              {t('pollAnonymous')}
-            </label>
-            <label className="flex cursor-pointer items-center gap-2 text-sm">
               <Checkbox checked={allowRevote} onCheckedChange={(v) => setAllowRevote(v === true)} />
               {t('pollAllowRevote')}
             </label>
@@ -244,21 +252,29 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
               )}
             </div>
 
-            <div className="flex flex-col gap-2">
-              <Label>{t('pollVisibility')}</Label>
-              <Select value={visibility} onValueChange={setVisibility}>
-                <SelectTrigger size="xl">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {CONTENT_VISIBILITY.map((v) => (
-                    <SelectItem key={v} value={v}>
-                      {t(`vis_${v}`)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {isPage ? (
+              <p className="text-sm text-muted-foreground">
+                {owner.kind === 'company'
+                  ? t('companyVisibilityHint')
+                  : t('universityVisibilityHint')}
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <Label>{t('pollVisibility')}</Label>
+                <Select value={visibility} onValueChange={setVisibility}>
+                  <SelectTrigger size="xl">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CONTENT_VISIBILITY.map((v) => (
+                      <SelectItem key={v} value={v}>
+                        {t(`vis_${v}`)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
         )}
       </div>

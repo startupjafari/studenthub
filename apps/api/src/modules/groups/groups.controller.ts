@@ -43,7 +43,7 @@ export class GroupsController {
   @Get()
   @ApiOperation({ summary: 'Список групп (по scope смотрящего)' })
   list(@CurrentUser() user: CurrentUserData, @Query() query: GroupListQueryDto) {
-    return this.groups.list(user, query.page, query.limit, query.facultyId)
+    return this.groups.list(user, query)
   }
 
   @Get(':id')

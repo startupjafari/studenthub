@@ -125,8 +125,26 @@ export const BANNER_PRESETS = [
   },
 ] as const
 
+/** Настройки «тишины нет, дежурного нет» — если сервер их не прислал. */
+const NO_NOTIFICATIONS: NotificationSettings = {
+  quietFrom: null,
+  quietTo: null,
+  muted: [],
+  dutyUserId: null,
+  digestHour: null,
+}
+
+/**
+ * Состояние платформы. Запрос идёт с токеном мини-аппа, и сервер отвечает команде
+ * платформы целиком — с настройками уведомлений. Анониму и остальным ролям их не отдают
+ * (id дежурного посетителю незачем), поэтому отсутствие поля сводим к «настроек нет», а
+ * не роняем экран.
+ */
 export async function fetchPlatformState(): Promise<PlatformState> {
-  return apiGet<PlatformState>('/platform/state')
+  const state = await apiGet<Omit<PlatformState, 'notifications'> & Partial<PlatformState>>(
+    '/platform/state',
+  )
+  return { ...state, notifications: state.notifications ?? NO_NOTIFICATIONS }
 }
 
 /** `minutes: null` — снять режим. Код 2FA обязателен только при включении. */

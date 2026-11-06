@@ -3,19 +3,22 @@ export {
   fetchFeed,
   fetchPost,
   fetchAuthorPosts,
+  fetchCompanyPosts,
+  fetchUniversityPagePosts,
   createPostRequest,
   updatePostRequest,
   repostRequest,
+  repostArticleRequest,
   deletePostRequest,
   pinPostRequest,
   publishPostRequest,
   addReactionRequest,
   removeReactionRequest,
   toggleBookmarkRequest,
-  fetchComments,
+  fetchCommentsPage,
   addCommentRequest,
   deleteCommentRequest,
-  fetchPostMediaUrl,
+  fetchPostMediaLink,
   incrementPostView,
   type FeedPage,
 } from './api/post-api'
@@ -34,6 +37,18 @@ export {
   type PostAuthor,
   type PostMedia,
   type PostReaction,
+  type PostReactionSummary,
   type FeedPost,
+  type SharedArticle,
   type PostComment,
+  type PostCommentsPage,
 } from './model/types'
+export {
+  LIKE_EMOJI,
+  reactionSummaryOf,
+  reactionTotal,
+  hasMyReaction,
+  withMyReaction,
+} from './model/reactions'
+export { inlineMediaLink } from './model/media'
+export { patchCachedPost } from './model/cache'

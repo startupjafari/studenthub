@@ -1,5 +1,5 @@
 import type { Dictionary } from '../content'
-import { PLATFORM_LINKS } from '../config/site'
+import { platformLinks, type Locale } from '../config/site'
 import { Container, LinkButton } from './primitives'
 import { MeshBackdrop } from './mesh-backdrop'
 
@@ -23,8 +23,9 @@ import { MeshBackdrop } from './mesh-backdrop'
  * здесь остаётся на CSS, хотя на остальной странице движением занимается Framer Motion.
  * Клиентский код тут ровно один — подсветка меш-сетки за курсором.
  */
-export function Hero({ dict }: { dict: Dictionary }) {
+export function Hero({ dict, locale }: { dict: Dictionary; locale: Locale }) {
   const t = dict.hero
+  const links = platformLinks(locale)
 
   return (
     // Экран ровно в высоту окна (.sh-hero в globals.css), содержимое — по центру.
@@ -66,10 +67,10 @@ export function Hero({ dict }: { dict: Dictionary }) {
 
         {/* Кнопки — в строку с переносом: на 360 px они обязаны остаться над сгибом. */}
         <div className="sh-soft-up mt-9 flex w-full flex-col justify-center gap-3 sm:w-auto sm:flex-row sm:flex-wrap [--delay:0.5s]">
-          <LinkButton href={PLATFORM_LINKS.demoRequest} external variant="primary">
+          <LinkButton href={links.demoRequest} external variant="primary">
             {t.ctaDemo}
           </LinkButton>
-          <LinkButton href={PLATFORM_LINKS.login} external variant="secondary">
+          <LinkButton href={links.login} external variant="secondary">
             {t.ctaLogin}
           </LinkButton>
         </div>

@@ -1,6 +1,13 @@
 import type Redis from 'ioredis'
 import { Role } from '@studenthub/shared-types'
-import { CareerAccessService } from './career-access.service'
+import {
+  CareerAccessService,
+  activeAccessWhere,
+  companyContentVisibleWhere,
+  isCompanyMember,
+  isUniversityPageEditor,
+  universityPageVisibleWhere,
+} from './career-access.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -11,6 +18,10 @@ import { AppException } from '../../common/exceptions/app.exception'
 function setup(rows: Array<{ universityId: string; status: string; expiresAt: Date | null }> = []) {
   const prisma = {
     companyUniversityAccess: { findMany: jest.fn().mockResolvedValue(rows) },
+    company: {
+      findFirst: jest.fn().mockResolvedValue({ status: 'ACTIVE', blockedReason: null }),
+      count: jest.fn().mockResolvedValue(1),
+    },
   }
   // Кэш выключен: get всегда мимо, чтобы тест проверял решение по данным, а не по Redis.
   const redis = {
@@ -63,6 +74,14 @@ describe('CareerAccessService — какие вузы видит компани�
     await expect(service.canAccessUniversity('co-1', 'uni-2')).resolves.toBe(false)
   })
 
+  it('заблокированная компания не видит ни одного вуза — BLOCKED перекрывает допуски', async () => {
+    const { service, prisma } = setup()
+    await service.allowedUniversityIds('co-1')
+    expect(prisma.companyUniversityAccess.findMany.mock.calls[0][0].where).toMatchObject({
+      company: { status: 'ACTIVE', deletedAt: null },
+    })
+  })
+
   it('выборка ограничена take — findMany без предела запрещён (§5.3)', async () => {
     const { service, prisma } = setup()
     await service.allowedUniversityIds('co-1')
@@ -98,6 +117,23 @@ describe('CareerAccessService — барьер запроса', () => {
     expect(prisma.companyUniversityAccess.findMany).not.toHaveBeenCalled()
   })
 
+  it('действовать может только активная компания: почта подтверждена, блокировки нет', async () => {
+    const { service, prisma } = setup()
+    await expect(service.assertCompanyActive('co-1')).resolves.toBeUndefined()
+
+    prisma.company.findFirst.mockResolvedValue({ status: 'PENDING_EMAIL', blockedReason: null })
+    await expect(service.assertCompanyActive('co-1')).rejects.toMatchObject({ code: 'FORBIDDEN' })
+
+    prisma.company.findFirst.mockResolvedValue({ status: 'BLOCKED', blockedReason: 'спам' })
+    await expect(service.assertCompanyActive('co-1')).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'спам',
+    })
+
+    prisma.company.findFirst.mockResolvedValue(null)
+    await expect(service.assertCompanyActive('co-1')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
   it('аккаунт работодателя без компании не пускается дальше', () => {
     const { service } = setup()
     expect(() => service.requireCompany(employer(null))).toThrow(AppException)
@@ -117,6 +153,72 @@ describe('CareerAccessService — барьер запроса', () => {
   })
 })
 
+describe('activeAccessWhere — правило «допуск действует» для Prisma', () => {
+  it('совпадает с isAccessActive: одобрен и срок ещё не наступил', () => {
+    const now = new Date('2026-10-17T12:00:00Z')
+    expect(activeAccessWhere('uni-1', now)).toEqual({
+      universityId: 'uni-1',
+      status: 'APPROVED',
+      // Строго больше: в момент истечения допуск уже не действует, как и в isAccessActive.
+      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+    })
+  })
+})
+
+describe('CareerAccessService — граница воронки откликов', () => {
+  const now = new Date('2026-10-17T12:00:00Z')
+  const at = (iso: string) => new Date(iso)
+
+  function withRows(rows: Array<Record<string, unknown>>) {
+    const ctx = setup()
+    ctx.prisma.companyUniversityAccess.findMany.mockResolvedValue(
+      rows.map((r) => ({ expiresAt: null, decidedAt: null, requestedAt: at('2026-01-01'), ...r })),
+    )
+    return ctx
+  }
+
+  it('вуз с действующим допуском — все отклики, без допуска — только поданные до его конца', async () => {
+    const { service } = withRows([
+      { universityId: 'uni-active', status: 'APPROVED', expiresAt: at('2027-01-01') },
+      // Истёк, cron ещё не дошёл: граница — срок.
+      { universityId: 'uni-expired', status: 'APPROVED', expiresAt: at('2026-10-01') },
+      // Отозван вузом вручную: граница — момент решения.
+      { universityId: 'uni-revoked', status: 'REVOKED', decidedAt: at('2026-09-01') },
+      // Закрыт cron по сроку: срок сохранён и точнее момента обработки.
+      {
+        universityId: 'uni-cron',
+        status: 'REVOKED',
+        expiresAt: at('2026-08-01'),
+        decidedAt: at('2026-08-01T00:40:00Z'),
+      },
+      // Повторная заявка после потери допуска: к её подаче допуска уже не было.
+      { universityId: 'uni-again', status: 'REQUESTED', requestedAt: at('2026-07-01') },
+    ])
+
+    await expect(service.applicationScopeWhere('co-1', now)).resolves.toEqual({
+      OR: [
+        { universityId: { in: ['uni-active'] } },
+        { universityId: 'uni-expired', createdAt: { lte: at('2026-10-01') } },
+        { universityId: 'uni-revoked', createdAt: { lte: at('2026-09-01') } },
+        { universityId: 'uni-cron', createdAt: { lte: at('2026-08-01') } },
+        { universityId: 'uni-again', createdAt: { lte: at('2026-07-01') } },
+      ],
+    })
+  })
+
+  it('компания без единого допуска откликов не видит вовсе', async () => {
+    const { service, prisma } = withRows([])
+    await expect(service.applicationScopeWhere('co-1', now)).resolves.toEqual({ id: { in: [] } })
+    // Заблокированная компания откликов не видит: условие на её статус — в той же выборке.
+    expect(prisma.companyUniversityAccess.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { companyId: 'co-1', company: { status: 'ACTIVE', deletedAt: null } },
+        take: expect.any(Number),
+      }),
+    )
+  })
+})
+
 describe('CareerAccessService — кэш', () => {
   it('сброс кэша не падает, когда Redis недоступен', async () => {
     const { service, redis } = setup()
@@ -127,8 +229,115 @@ describe('CareerAccessService — кэш', () => {
 
   it('готовый ответ берётся из кэша без запроса в БД', async () => {
     const { service, prisma, redis } = setup()
-    redis.get.mockResolvedValueOnce(JSON.stringify(['uni-7']))
+    redis.get.mockResolvedValueOnce(JSON.stringify([{ universityId: 'uni-7', expiresAt: null }]))
     await expect(service.allowedUniversityIds('co-1')).resolves.toEqual(['uni-7'])
     expect(prisma.companyUniversityAccess.findMany).not.toHaveBeenCalled()
+  })
+
+  it('срок, наступивший внутри окна кэша, действует сразу', async () => {
+    const { service, redis } = setup()
+    const now = new Date('2026-10-17T12:00:00Z')
+    redis.get.mockResolvedValueOnce(
+      JSON.stringify([
+        { universityId: 'uni-gone', expiresAt: '2026-10-17T11:59:59.000Z' },
+        { universityId: 'uni-live', expiresAt: '2026-10-17T12:00:01.000Z' },
+      ]),
+    )
+    await expect(service.allowedUniversityIds('co-1', now)).resolves.toEqual(['uni-live'])
+  })
+})
+
+// ── Страница компании: кто видит её контент ─────────────────────────────────
+describe('companyContentVisibleWhere', () => {
+  const student: JwtPayload = {
+    sub: 's-1',
+    role: Role.STUDENT,
+    universityId: 'uni-1',
+    facultyId: null,
+    groupId: null,
+  }
+
+  it('вуз смотрящего — только действующая компания с действующим допуском в этот вуз', () => {
+    const now = new Date('2026-11-02T10:00:00Z')
+    expect(companyContentVisibleWhere(student, now)).toEqual({
+      status: 'ACTIVE',
+      deletedAt: null,
+      universityAccess: { some: activeAccessWhere('uni-1', now) },
+    })
+  })
+
+  it('сотрудник — только своя компания; работодатель без компании — ничего', () => {
+    expect(companyContentVisibleWhere(employer('co-1'))).toEqual({ id: 'co-1', deletedAt: null })
+    expect(companyContentVisibleWhere(employer(null))).toBeNull()
+  })
+
+  it('платформа — любая неудалённая; роль вне вуза — ничего', () => {
+    expect(companyContentVisibleWhere({ ...student, role: Role.PLATFORM_MODERATOR })).toEqual({
+      deletedAt: null,
+    })
+    expect(companyContentVisibleWhere({ ...student, universityId: null })).toBeNull()
+  })
+
+  it('isCompanyMember — по роли и компании из токена', () => {
+    expect(isCompanyMember(employer('co-1'), 'co-1')).toBe(true)
+    expect(isCompanyMember(employer('co-1'), 'co-2')).toBe(false)
+    expect(isCompanyMember({ ...student, companyId: 'co-1' }, 'co-1')).toBe(false)
+    expect(isCompanyMember(employer('co-1'), null)).toBe(false)
+  })
+})
+
+describe('CareerAccessService.assertCanViewCompany', () => {
+  it('невидимая компания — NOT_FOUND, без похода в базу для чужого работодателя', async () => {
+    const { service, prisma } = setup()
+    prisma.company.count.mockResolvedValue(0)
+    const err = await service
+      .assertCanViewCompany(employer('co-1'), 'co-2')
+      .catch((e: AppException) => e)
+    expect((err as AppException).code).toBe('NOT_FOUND')
+    const lost = await service
+      .assertCanViewCompany(employer(null), 'co-2')
+      .catch((e: AppException) => e)
+    expect((lost as AppException).code).toBe('NOT_FOUND')
+    expect(prisma.company.count).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('universityPageVisibleWhere / isUniversityPageEditor', () => {
+  const admin: JwtPayload = {
+    sub: 'a-1',
+    role: Role.UNIVERSITY_ADMIN,
+    universityId: 'uni-1',
+    facultyId: null,
+    groupId: null,
+  }
+
+  it('свои видят только свой вуз, платформа — любой', () => {
+    expect(universityPageVisibleWhere({ ...admin, role: Role.STUDENT })).toEqual({ id: 'uni-1' })
+    expect(universityPageVisibleWhere({ ...admin, role: Role.PLATFORM_ADMIN })).toEqual({})
+  })
+
+  it('работодатель — вузы с действующим допуском своей компании', () => {
+    const now = new Date('2026-11-02T10:00:00Z')
+    const where = universityPageVisibleWhere(employer('co-1'), now)
+    expect(where).toMatchObject({
+      status: 'ACTIVE',
+      companyAccess: { some: { companyId: 'co-1', status: 'APPROVED' } },
+    })
+    expect(universityPageVisibleWhere(employer(null))).toBeNull()
+  })
+
+  it('публикуют от имени вуза админ и модератор своего вуза, не декан и не чужой', () => {
+    expect(isUniversityPageEditor(admin, 'uni-1')).toBe(true)
+    expect(isUniversityPageEditor({ ...admin, role: Role.UNIVERSITY_MODERATOR }, 'uni-1')).toBe(
+      true,
+    )
+    expect(isUniversityPageEditor({ ...admin, role: Role.DEAN }, 'uni-1')).toBe(false)
+    expect(isUniversityPageEditor(admin, 'uni-2')).toBe(false)
+  })
+
+  it('чужой работодатель от имени вуза не публикует', async () => {
+    const { service } = setup()
+    expect(() => service.requirePublishingUniversity(employer('co-1'))).toThrow(AppException)
+    expect(service.requirePublishingUniversity(admin)).toBe('uni-1')
   })
 })

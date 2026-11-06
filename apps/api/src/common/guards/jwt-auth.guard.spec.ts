@@ -31,6 +31,12 @@ describe('JwtAuthGuard', () => {
     }
   })
 
+  it('handleRequest пропускает код отказа стратегии (вуз заблокирован) без подмены', () => {
+    const guard = new JwtAuthGuard(makeReflector(false))
+    const denial = new AppException('UNIVERSITY_BLOCKED', 'Университет заблокирован')
+    expect(() => guard.handleRequest(denial, false, undefined)).toThrow(denial)
+  })
+
   it('handleRequest → UNAUTHORIZED, если пользователя нет', () => {
     const guard = new JwtAuthGuard(makeReflector(false))
     try {

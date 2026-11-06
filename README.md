@@ -6,10 +6,15 @@
 
 Закрытая многоролевая образовательная платформа для университетов: академическая жизнь
 (расписание, заявки в деканат, учебные материалы) и социальная активность (лента, чаты,
-события) в одном приложении. 8 ролей, регистрация **только по инвайтам**.
+события) в одном приложении. Плюс карьера (работодатели и вакансии), библиотека, пост
+охраны с камерами, помещения с QR, документы. 11 ролей — от администратора платформы до
+студента, а также работодатель, охранник и библиотекарь (`docs/PROJECT.md §2`).
+Регистрация **только по инвайтам**; единственное исключение — саморегистрация работодателя,
+который видит студентов вуза только после допуска от этого вуза.
 
 Монорепо (Turborepo + pnpm): `apps/api` — NestJS + Fastify + Prisma; `apps/web` — Next.js
-(App Router, Feature-Sliced Design). Инфраструктура: PostgreSQL 16, Redis 7, MinIO.
+(App Router, Feature-Sliced Design); рядом — лендинг, Telegram Mini App для админов платформы,
+нативные клиенты iOS и Android и агент камер. Инфраструктура: PostgreSQL 16, Redis 7, MinIO.
 
 > Источник истины по продукту, данным и API — [`docs/PROJECT.md`](docs/PROJECT.md).
 > Правила разработки — [`docs/BACKEND_RULES.md`](docs/BACKEND_RULES.md),
@@ -23,11 +28,15 @@
   TanStack Query, React Hook Form + Zod, axios, socket.io-client, recharts, next-intl (ru/kk/en).
 - **Shared**: `packages/shared-types`, `shared-schemas` (единый Zod-контракт API↔формы),
   `shared-utils`, `shared-config`.
+- **Прочие приложения**: `apps/landing` — Next.js + framer-motion; `apps/mini-app` — Vite +
+  React (Telegram Mini App); `apps/ios` — Swift (XcodeGen, GRDB, Socket.IO);
+  `apps/android` — Kotlin + Jetpack Compose + Material 3; `apps/camera-agent` — Node.js без
+  зависимостей. Сборка и запуск мобильных клиентов — в их `README.md`.
 
 ## Предварительные требования
 
 - Node.js 24+ (Active LTS), `pnpm` 10+
-- Docker (для PostgreSQL / Redis / MinIO) — либо уже поднятые локальные инстансы
+- Docker (для PostgreSQL / Redis / MinIO / Mailpit) — либо уже поднятые локальные инстансы
 
 ## Первый запуск (с чистого клона)
 
@@ -35,21 +44,20 @@
 # 1. Зависимости
 pnpm install
 
-# 2. Инфраструктура (postgres:16, redis:7, minio)
-docker compose -f docker/docker-compose.yml up -d postgres redis minio
-#    Дождитесь healthy: docker compose -f docker/docker-compose.yml ps
+# 2. Инфраструктура (postgres:16, redis:7, minio, mailpit) — подробнее в docker/README.md
+cp docker/dev/.env.example docker/dev/.env    # заполните пароли
+pnpm infra:up                                 # ждёт, пока все сервисы станут healthy
 
 # 3. Переменные окружения
 cp apps/api/.env.example apps/api/.env        # проверьте DATABASE_URL / REDIS / MINIO
 cp apps/web/.env.example apps/web/.env.local  # NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1
 
-# 4. Схема БД (миграции) + демо-данные
-export DATABASE_URL="postgresql://<user>:<pass>@localhost:5432/studenthub"
-pnpm --filter api exec prisma migrate deploy
-node prisma/seed.mjs        # создаёт PLATFORM_ADMIN + демо-вуз/факультет/группу + dev-инвайт
+# 4. Схема БД (миграции) + демо-данные — из корня; DATABASE_URL берётся из apps/api/.env
+pnpm db:deploy              # prisma migrate deploy
+pnpm db:seed                # PLATFORM_ADMIN + демо-вуз/факультет/группа + dev-инвайт + КАТО
 
 # 5. Запуск в dev
-pnpm dev                    # api:3001 (/api/v1), web:3000
+pnpm dev                    # api:3001 (/api/v1), web:3000, landing:3002, mini-app:3003
 ```
 
 Проверка здоровья: `curl http://localhost:3001/api/v1/health` → `status: ok` по Prisma/Redis/MinIO.
@@ -68,20 +76,34 @@ STAROSTA/STUDENT. Отозвать dev-инвайт из seed.
 ## Команды
 
 ```bash
-pnpm dev                              # api + web
+pnpm dev                              # api, web, landing, mini-app
 pnpm build                            # сборка всего монорепо
+pnpm start                            # собранное: api:3001, web:3000, landing:3002, mini-app:3003
 pnpm lint                             # eslint по всему монорепо
+pnpm typecheck                        # tsc --noEmit во всех пакетах
 
 pnpm --filter api test                # unit
-pnpm --filter api test:e2e            # e2e (нужен PostgreSQL; схема через db push)
+pnpm --filter api test:e2e            # e2e (нужен PostgreSQL: DATABASE_URL_TEST, схема через db push)
 pnpm --filter api build               # nest build
 pnpm --filter web build               # next build
+pnpm --filter web test                # vitest
+pnpm --filter web e2e                 # Playwright (DATABASE_URL_TEST, база сбрасывается)
 
-# Prisma (multi-file схема в prisma/schema/, prisma.config.ts НЕ грузит .env автоматически)
-export DATABASE_URL=...               # обязательно перед prisma-командами
-pnpm --filter api exec prisma migrate deploy
-node prisma/seed.mjs                  # seed (либо корневой скрипт: pnpm db:seed)
+pnpm infra:up | infra:down | infra:ps | infra:logs   # dev-стек docker/dev
+pnpm cameras:up | cameras:down        # стенд камер (docker/camera-sim)
+pnpm relay:up | relay:down            # ретранслятор видео камер (docker/media-relay)
+
+# Prisma — только из корня (multi-file схема в prisma/schema/, конфиг prisma.config.ts).
+# prisma.config.ts сам подхватывает DATABASE_URL из apps/api/.env, если он не задан окружением.
+pnpm db:validate | db:format | db:status
+pnpm db:deploy                        # prisma migrate deploy
+pnpm db:seed                          # демо-сид (SEED_SCALE=demo)
+pnpm db:seed:small | db:seed:full     # 5 / 100 вузов (full — ~22 млн строк)
+pnpm db:seed:test                     # тестовый стенд: 1 вуз (docs/PROJECT.md §14.1)
 pnpm db:seed:kato                     # только справочник КАТО (обычно уже залит db:seed)
+pnpm db:seed:media                    # только медиа-пул сида в MinIO
+pnpm db:seed:library                  # библиотека для уже засеянного вуза
+pnpm db:reset:admin                   # очистить данные, оставить одного PLATFORM_ADMIN
 ```
 
 Генерация новой миграции (интерактивный `migrate dev` не используем):
@@ -89,23 +111,31 @@ pnpm db:seed:kato                     # только справочник КАТ
 ```bash
 # ВНИМАНИЕ: --shadow-database-url должен указывать на ОТДЕЛЬНУЮ пустую БД, НЕ на dev
 # (migrate diff сбрасывает shadow-БД). См. docs/RUNBOOK.md.
-pnpm --filter api exec prisma migrate diff \
+pnpm exec prisma migrate diff \
   --from-migrations prisma/migrations --to-schema-datamodel prisma/schema \
   --shadow-database-url postgresql://.../studenthub_shadow --script > \
   prisma/migrations/<ts>_<name>/migration.sql
-pnpm --filter api exec prisma migrate deploy
+pnpm db:deploy
 ```
 
 ## Структура
 
 ```
 apps/
-  api/   NestJS: modules/<feature> (controller/service/dto/spec), common/ (guards, interceptors, prisma, queue, realtime)
-  web/   Next.js FSD: app/ · shared/ · entities/ · features/ · widgets/ · views/ · messages/ (i18n)
+  api/           NestJS: src/modules/<feature> (controller/service/dto/spec), src/common/ (guards, interceptors,
+                 prisma, queue, realtime); main.ts — HTTP, worker.ts — процесс-воркер медиа; openapi.json
+  web/           Next.js FSD: src/{app,shared,entities,features,widgets,views,i18n} · messages/ (ru/kk/en) · e2e/
+  landing/       публичный лендинг (Next.js, порт 3002)
+  mini-app/      Telegram Mini App для PLATFORM_ADMIN / PLATFORM_MODERATOR (Vite + React, порт 3003)
+  ios/           нативный клиент iPhone (Swift, project.yml для XcodeGen)
+  android/       нативный клиент Android (Kotlin, Jetpack Compose)
+  camera-agent/  агент камер в сети вуза: опрос платформы, проверка камер, видео на ретранслятор
 packages/  shared-types · shared-schemas · shared-utils · shared-config
-prisma/    schema/ (multi-file) · migrations/ · seed.mjs
-docker/    docker-compose.yml · docker-compose.prod.yml · nginx/
-docs/      PROJECT.md · BACKEND_RULES.md · FRONTEND_RULES.md · IMPLEMENTATION_PLAN.md · RUNBOOK.md
+prisma/    schema/ (multi-file) · migrations/ · seed.mjs · seed/ (шаги генератора) · seed-test.mjs ·
+           seed-library.mjs · reset-to-admin.mjs · e2e-fixture.mjs
+docker/    README.md · dev/ · prod/ · shared/ · camera-sim/ · media-relay/
+docs/      PROJECT.md · BACKEND_RULES.md · FRONTEND_RULES.md · IMPLEMENTATION_PLAN.md · DESIGN_SYSTEM.md ·
+           RUNBOOK.md · RAILWAY.md · PERSONAL_DATA.md · SECURITY_AUDIT.md · RELEASE*.md · …
 ```
 
 ## Тестирование
@@ -137,7 +167,9 @@ NEXT_PUBLIC_SENTRY_DSN=https://<key>@o<org>.ingest.sentry.io/<project>
 
 ## Осталось к продакшн-деплою
 
-Функционально v1.0 готов (Ф0–Ф13, Ф15). К моменту деплоя остаются организационные шаги:
+Функционально v1.0 готов (Ф0–Ф13); сверх него сделаны документы, помещения с QR, КАТО,
+карьера и библиотека (Ф15–Ф18, Ф20) — состояние по фазам в `docs/IMPLEMENTATION_PLAN.md §0.4`.
+К моменту деплоя остаются организационные шаги:
 
 - **Push-уведомления** — сгенерировать VAPID-ключи
   (`pnpm --filter api exec web-push generate-vapid-keys`) и положить в env api + web.

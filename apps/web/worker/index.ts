@@ -7,7 +7,12 @@ interface PushPayload {
   title?: string
   body?: string
   url?: string
+  // Ключ группы: уведомления одного источника (сообщения одного чата) заменяют друг друга.
+  tag?: string
 }
+
+// `renotify` есть не во всех браузерах и не во всех версиях lib.dom — объявляем сами.
+type GroupedNotificationOptions = NotificationOptions & { renotify?: boolean }
 
 // Команда от страницы «активируйся сейчас»: новый SW по умолчанию ждёт, пока закроются
 // все вкладки со старым, а установленное приложение не закрывают неделями. Страница
@@ -27,14 +32,19 @@ self.addEventListener('push', (event: PushEvent) => {
   }
   const title = payload.title || 'StudentHub'
   const url = payload.url || '/'
-  event.waitUntil(
-    self.registration.showNotification(title, {
-      body: payload.body || '',
-      icon: '/icons/icon-192.png',
-      badge: '/icons/icon-192.png',
-      data: { url },
-    }),
-  )
+  const options: GroupedNotificationOptions = {
+    body: payload.body || '',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
+    data: { url },
+  }
+  // Десять сообщений чата — одна плашка с последним, а не десять (F-F25). `renotify` —
+  // чтобы замена плашки всё же звучала: иначе второе сообщение пришло бы молча.
+  if (payload.tag) {
+    options.tag = payload.tag
+    options.renotify = true
+  }
+  event.waitUntil(self.registration.showNotification(title, options))
 })
 
 self.addEventListener('notificationclick', (event: NotificationEvent) => {

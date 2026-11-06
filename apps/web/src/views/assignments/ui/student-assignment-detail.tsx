@@ -30,6 +30,7 @@ import {
   STUDENT_STATUS_KEY,
   canEditSubmission,
 } from '../lib/assignment-status'
+import { SubmissionFiles } from './submission-files'
 
 interface Props {
   id: string
@@ -59,12 +60,14 @@ export function StudentAssignmentDetail({ id, onBack, asModal = false }: Props) 
   const [text, setText] = useState('')
   const [linkUrl, setLinkUrl] = useState('')
 
+  // Синхронизация по значениям, а не по объекту сдачи: после загрузки файла сдача
+  // приходит заново (новый объект), и набранный, но не сохранённый ответ стирался бы.
+  const serverText = a?.mySubmission?.text ?? ''
+  const serverLink = a?.mySubmission?.linkUrl ?? ''
   useEffect(() => {
-    if (a?.mySubmission) {
-      setText(a.mySubmission.text ?? '')
-      setLinkUrl(a.mySubmission.linkUrl ?? '')
-    }
-  }, [a?.mySubmission])
+    setText(serverText)
+    setLinkUrl(serverLink)
+  }, [id, serverText, serverLink])
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: assignmentKeys.detail(id) })
@@ -100,7 +103,7 @@ export function StudentAssignmentDetail({ id, onBack, asModal = false }: Props) 
     const loading = (
       <>
         <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-64 w-full rounded-xl" />
+        <Skeleton fill className="min-h-64 rounded-xl" />
       </>
     )
     if (asModal) {
@@ -118,6 +121,10 @@ export function StudentAssignmentDetail({ id, onBack, asModal = false }: Props) 
   const showText = a.submissionType === 'TEXT' || a.submissionType === 'MIXED'
   const showLink = a.submissionType === 'LINK' || a.submissionType === 'MIXED'
   const sub = a.mySubmission
+  const files = sub?.files ?? []
+  // Файлы — у «Файла» и «Смешанного»; уже приложенные показываем при любом типе, чтобы
+  // смена типа преподавателем не прятала сданное.
+  const showFiles = a.submissionType === 'FILE' || a.submissionType === 'MIXED' || files.length > 0
 
   const body = (
     <>
@@ -202,6 +209,14 @@ export function StudentAssignmentDetail({ id, onBack, asModal = false }: Props) 
             </div>
           )}
 
+          {showFiles && (
+            <SubmissionFiles
+              files={files}
+              submissionId={sub?.id ?? null}
+              editable={editable ? { assignmentId: a.id, onChanged: invalidate } : undefined}
+            />
+          )}
+
           {sub && (
             <p className="text-xs text-muted-foreground">
               {t('attempt', { n: sub.attemptNumber })}
@@ -215,6 +230,13 @@ export function StudentAssignmentDetail({ id, onBack, asModal = false }: Props) 
                     }),
                   })}`
                 : ''}
+            </p>
+          )}
+
+          {/* Почему формы нет: срок истёк или приём закрыт — иначе «Отправить» вело бы к 409. */}
+          {(st === 'OVERDUE' || st === 'CLOSED') && (
+            <p className="text-sm text-muted-foreground">
+              {st === 'CLOSED' ? t('closedHint') : t('deadlinePassedHint')}
             </p>
           )}
 

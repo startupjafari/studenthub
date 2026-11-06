@@ -1,3 +1,4 @@
+import type { MediaInfo } from '../../../shared/api'
 import type { AxiosProgressEvent } from 'axios'
 import { FILE_UPLOAD } from '@studenthub/shared-config'
 import type {
@@ -5,6 +6,7 @@ import type {
   AssignAlbumMediaInput,
   CreateAlbumInput,
   CreateProfileArticleInput,
+  ProfileContentCounts,
   UpdateAlbumInput,
   UpdateProfileArticleInput,
 } from '@studenthub/shared-schemas'
@@ -17,16 +19,59 @@ export interface ContentComment {
   authorId: string
   author: { id: string; firstName: string; lastName: string; avatarUrl: string | null }
 }
-import { api } from '../../../shared/api'
+import { api, type ResponseWithMeta } from '../../../shared/api'
 
-// Фабрика ключей React Query (docs/FRONTEND_RULES.md §5.5).
+/** Страница обсуждения: свежие сверху, `cursor` — самый старый комментарий страницы. */
+export interface ContentCommentsPage {
+  items: ContentComment[]
+  cursor?: string
+  hasNext: boolean
+  /** Сколько комментариев всего — для заголовка, не зависит от догруженных страниц. */
+  total?: number
+}
+
+/**
+ * Чей контент: личный профиль пользователя или страница компании (её контент публикуют
+ * сотрудники, сервер берёт компанию из токена — `?as=company`).
+ */
+export interface ContentOwner {
+  kind: 'user' | 'company' | 'university'
+  id: string
+}
+
+/**
+ * Идентификатор владельца в ключах кэша. У компании — с префиксом: id пользователя и
+ * компании — оба uuid, и без него списки разных владельцев могли бы делить кэш.
+ */
+export function contentOwnerKey(owner: ContentOwner): string {
+  return owner.kind === 'user' ? owner.id : `${owner.kind}:${owner.id}`
+}
+
+/** Параметр создания от имени владельца: у личного профиля его нет. */
+export function contentOwnerParams(owner?: ContentOwner): { as?: 'company' | 'university' } {
+  return owner && owner.kind !== 'user' ? { as: owner.kind } : {}
+}
+
+/** Путь списков владельца: `/profile/:userId/…` или `/profile/<company|university>/:id/…`. */
+function ownerBase(owner: ContentOwner): string {
+  return owner.kind === 'user' ? `/profile/${owner.id}` : `/profile/${owner.kind}/${owner.id}`
+}
+
+// Фабрика ключей React Query (docs/FRONTEND_RULES.md §5.5). Аргумент — id пользователя или
+// contentOwnerKey(владельца).
 export const profileContentKeys = {
   media: (userId: string) => ['profile-content', 'media', userId] as const,
   articles: (userId: string) => ['profile-content', 'articles', userId] as const,
+  // Статья целиком (с текстом) — для читалки и редактора; список несёт только плитки.
+  article: (id: string) => ['profile-content', 'article', id] as const,
   albums: (userId: string) => ['profile-content', 'albums', userId] as const,
+  // Итоги вкладок (фото, видео, статьи, опросы) — когда список дошёл до потолка.
+  counts: (userId: string) => ['profile-content', 'counts', userId] as const,
 }
 
-export interface ProfileMedia {
+// Поля описания медиа (заглушка, копии, постер, HLS) — от медиа-системы; у ответа старого
+// API их нет, отсюда Partial.
+export interface ProfileMedia extends Partial<MediaInfo> {
   id: string
   type: 'PHOTO' | 'VIDEO'
   mime: string
@@ -46,9 +91,22 @@ export interface Album {
   createdAt: string
 }
 
+/** Компания, от чьего имени опубликован контент (страница компании). */
+export interface ContentCompany {
+  id: string
+  name: string
+  logoUrl: string | null
+}
+
 export interface ProfileArticle {
   id: string
   userId: string
+  // Статья страницы компании; null — личная статья.
+  companyId?: string | null
+  company?: ContentCompany | null
+  // Статья страницы университета; null — не страница вуза.
+  universityPageId?: string | null
+  universityPage?: ContentCompany | null
   title: string
   description: string | null
   content: string
@@ -65,14 +123,35 @@ export interface ProfileArticle {
   commentCount: number
   bookmarksCount: number
   bookmarked: boolean
+  /** Лайки статьи: сколько всего и стоит ли свой. Нет полей — ответ старого API. */
+  likesCount?: number
+  liked?: boolean
   createdAt: string
   updatedAt: string
 }
 
+/** Плитка статьи из списка профиля — без полного текста (`view=card`). */
+export type ProfileArticleCard = Omit<ProfileArticle, 'content'>
+
 // ── Медиа (фото/видео) ─────────────────────────────────────────────────────
 
 export async function fetchProfileMedia(userId: string): Promise<ProfileMedia[]> {
-  const { data } = await api.get<ProfileMedia[]>(`/profile/${userId}/media`)
+  return fetchOwnerMedia({ kind: 'user', id: userId })
+}
+
+export async function fetchOwnerMedia(owner: ContentOwner): Promise<ProfileMedia[]> {
+  const { data } = await api.get<ProfileMedia[]>(`${ownerBase(owner)}/media`)
+  return data
+}
+
+// Настоящие итоги вкладок профиля: списки медиа, статей и опросов приходят с потолком
+// (PROFILE_LIST_LIMITS), и их длина у большого профиля — не итог.
+export async function fetchProfileCounts(userId: string): Promise<ProfileContentCounts> {
+  return fetchOwnerCounts({ kind: 'user', id: userId })
+}
+
+export async function fetchOwnerCounts(owner: ContentOwner): Promise<ProfileContentCounts> {
+  const { data } = await api.get<ProfileContentCounts>(`${ownerBase(owner)}/counts`)
   return data
 }
 
@@ -87,10 +166,12 @@ export async function attachVideoCover(mediaId: string, poster: File): Promise<P
 export async function uploadProfileMedia(
   file: File,
   onProgress?: (percent: number) => void,
+  owner?: ContentOwner,
 ): Promise<ProfileMedia> {
   const form = new FormData()
   form.append('file', file)
   const { data } = await api.post<ProfileMedia>('/profile/media', form, {
+    params: contentOwnerParams(owner),
     onUploadProgress: (event: AxiosProgressEvent) => {
       if (onProgress && event.total) {
         onProgress(Math.round((event.loaded / event.total) * 100))
@@ -108,16 +189,26 @@ export async function deleteProfileMedia(fileId: string): Promise<void> {
 async function presignProfileMedia(
   mime: string,
   size: number,
+  owner?: ContentOwner,
 ): Promise<{ key: string; url: string }> {
-  const { data } = await api.post<{ key: string; url: string }>('/profile/media/presign', {
-    mime,
-    size,
-  })
+  const { data } = await api.post<{ key: string; url: string }>(
+    '/profile/media/presign',
+    { mime, size },
+    { params: contentOwnerParams(owner) },
+  )
   return data
 }
 
-async function confirmProfileMedia(key: string, mime: string): Promise<ProfileMedia> {
-  const { data } = await api.post<ProfileMedia>('/profile/media/confirm', { key, mime })
+async function confirmProfileMedia(
+  key: string,
+  mime: string,
+  owner?: ContentOwner,
+): Promise<ProfileMedia> {
+  const { data } = await api.post<ProfileMedia>(
+    '/profile/media/confirm',
+    { key, mime },
+    { params: contentOwnerParams(owner) },
+  )
   return data
 }
 
@@ -138,13 +229,14 @@ async function putToPresignedUrl(url: string, file: File): Promise<void> {
 export async function uploadProfileMediaAuto(
   file: File,
   onProgress?: (percent: number) => void,
+  owner?: ContentOwner,
 ): Promise<ProfileMedia> {
   if (file.size <= FILE_UPLOAD.DIRECT_UPLOAD_THRESHOLD_BYTES) {
-    return uploadProfileMedia(file, onProgress)
+    return uploadProfileMedia(file, onProgress, owner)
   }
-  const { key, url } = await presignProfileMedia(file.type, file.size)
+  const { key, url } = await presignProfileMedia(file.type, file.size, owner)
   await putToPresignedUrl(url, file)
-  return confirmProfileMedia(key, file.type)
+  return confirmProfileMedia(key, file.type, owner)
 }
 
 // Загрузка обложки статьи (изображение) → публичный URL.
@@ -157,15 +249,32 @@ export async function uploadArticleCover(file: File): Promise<{ url: string }> {
 
 // ── Статьи ──────────────────────────────────────────────────────────────────
 
-export async function fetchProfileArticles(userId: string): Promise<ProfileArticle[]> {
-  const { data } = await api.get<ProfileArticle[]>(`/profile/${userId}/articles`)
+// Статьи профиля плитками — без полного текста: сотня статей до 20 000 символов превращала
+// открытие профиля в мегабайты ради мозаики и цифры на вкладке. Текст — fetchProfileArticle.
+export async function fetchProfileArticles(userId: string): Promise<ProfileArticleCard[]> {
+  return fetchOwnerArticles({ kind: 'user', id: userId })
+}
+
+export async function fetchOwnerArticles(owner: ContentOwner): Promise<ProfileArticleCard[]> {
+  const { data } = await api.get<ProfileArticleCard[]>(`${ownerBase(owner)}/articles`, {
+    params: { view: 'card' },
+  })
+  return data
+}
+
+// Статья целиком — для читалки и редактора (по видимости смотрящего).
+export async function fetchProfileArticle(id: string): Promise<ProfileArticle> {
+  const { data } = await api.get<ProfileArticle>(`/profile/articles/${id}`)
   return data
 }
 
 export async function createProfileArticle(
   input: CreateProfileArticleInput,
+  owner?: ContentOwner,
 ): Promise<ProfileArticle> {
-  const { data } = await api.post<ProfileArticle>('/profile/articles', input)
+  const { data } = await api.post<ProfileArticle>('/profile/articles', input, {
+    params: contentOwnerParams(owner),
+  })
   return data
 }
 
@@ -196,12 +305,18 @@ export async function fetchRelatedArticles(id: string): Promise<ProfileArticle[]
 // ── Альбомы фото ──────────────────────────────────────────────────────────────
 
 export async function fetchAlbums(userId: string): Promise<Album[]> {
-  const { data } = await api.get<Album[]>(`/profile/${userId}/albums`)
+  return fetchOwnerAlbums({ kind: 'user', id: userId })
+}
+
+export async function fetchOwnerAlbums(owner: ContentOwner): Promise<Album[]> {
+  const { data } = await api.get<Album[]>(`${ownerBase(owner)}/albums`)
   return data
 }
 
-export async function createAlbum(input: CreateAlbumInput): Promise<Album> {
-  const { data } = await api.post<Album>('/profile/albums', input)
+export async function createAlbum(input: CreateAlbumInput, owner?: ContentOwner): Promise<Album> {
+  const { data } = await api.post<Album>('/profile/albums', input, {
+    params: contentOwnerParams(owner),
+  })
   return data
 }
 
@@ -224,9 +339,23 @@ export async function removeAlbumMedia(id: string, fileId: string): Promise<void
 
 // ── Комментарии и закладки статей ─────────────────────────────────────────────
 
-export async function fetchArticleComments(id: string): Promise<ContentComment[]> {
-  const { data } = await api.get<ContentComment[]>(`/profile/articles/${id}/comments`)
-  return data
+// Размер страницы обсуждения статьи; более ранние — по «Показать предыдущие».
+const COMMENTS_PAGE_SIZE = 20
+
+// Страница комментариев статьи: свежие сверху, `cursor` — самый старый из пришедших.
+export async function fetchArticleComments(
+  id: string,
+  cursor?: string,
+): Promise<ContentCommentsPage> {
+  const res = (await api.get<ContentComment[]>(`/profile/articles/${id}/comments`, {
+    params: { limit: COMMENTS_PAGE_SIZE, ...(cursor ? { cursor } : {}) },
+  })) as ResponseWithMeta & { data: ContentComment[] }
+  return {
+    items: res.data,
+    cursor: res.meta?.cursor,
+    hasNext: res.meta?.hasNext ?? false,
+    total: res.meta?.total,
+  }
 }
 
 export async function addArticleComment(id: string, content: string): Promise<ContentComment> {
@@ -236,6 +365,18 @@ export async function addArticleComment(id: string, content: string): Promise<Co
 
 export async function deleteArticleComment(id: string, commentId: string): Promise<void> {
   await api.delete(`/profile/articles/${id}/comments/${commentId}`)
+}
+
+/** Лайк статьи или его снятие — идемпотентно; ответ — итоговое состояние и число лайков. */
+export async function setArticleLike(
+  id: string,
+  liked: boolean,
+): Promise<{ liked: boolean; likesCount: number }> {
+  const url = `/profile/articles/${id}/like`
+  const { data } = liked
+    ? await api.post<{ liked: boolean; likesCount: number }>(url)
+    : await api.delete<{ liked: boolean; likesCount: number }>(url)
+  return data
 }
 
 export async function toggleArticleBookmark(id: string): Promise<boolean> {

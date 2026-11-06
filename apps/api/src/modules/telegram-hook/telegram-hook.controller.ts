@@ -1,4 +1,4 @@
-import { Body, Controller, Headers, HttpCode, Post } from '@nestjs/common'
+import { Body, Controller, Headers, HttpCode, Logger, Post } from '@nestjs/common'
 import { Throttle } from '@nestjs/throttler'
 import { ApiExcludeController } from '@nestjs/swagger'
 import { Public, MaintenanceExempt } from '../../common/decorators'
@@ -25,6 +25,8 @@ import {
 @MaintenanceExempt()
 @Controller('telegram')
 export class TelegramHookController {
+  private readonly logger = new Logger(TelegramHookController.name)
+
   constructor(private readonly hook: TelegramHookService) {}
 
   @Post('webhook')
@@ -37,10 +39,16 @@ export class TelegramHookController {
     @Body() body: { callback_query?: CallbackQuery; message?: TelegramMessage } | undefined,
   ): Promise<{ ok: true }> {
     if (!this.hook.secretMatches(secret)) return { ok: true }
-    if (body?.callback_query) await this.hook.handleCallback(body.callback_query)
-    // Сообщения приходят тем же вебхуком. Если у бота сужен allowed_updates, в нём должен
-    // быть `message` — иначе команды до нас просто не доедут (docs/RAILWAY.md).
-    else if (body?.message) await this.hook.handleMessage(body.message)
+    // Последняя линия «ответ всегда 200»: обработчики свои сбои ловят сами, но любой
+    // непредусмотренный (база, разбор тела) иначе стал бы 500 и цепочкой повторов.
+    try {
+      if (body?.callback_query) await this.hook.handleCallback(body.callback_query)
+      // Сообщения приходят тем же вебхуком. Если у бота сужен allowed_updates, в нём должен
+      // быть `message` — иначе команды до нас просто не доедут (docs/RAILWAY.md).
+      else if (body?.message) await this.hook.handleMessage(body.message)
+    } catch (error) {
+      this.logger.warn(`Обновление Telegram не обработано: ${String(error)}`)
+    }
     return { ok: true }
   }
 }

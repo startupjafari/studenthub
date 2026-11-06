@@ -3,16 +3,18 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { useTranslations } from 'next-intl'
 import {
+  Check,
   Maximize2,
   Minimize2,
   Pause,
   PictureInPicture2,
   Play,
+  Settings2,
   Volume1,
   Volume2,
   VolumeX,
 } from 'lucide-react'
-import { cn } from '../lib'
+import { cn, useHls } from '../lib'
 
 // Видеоплеер платформы: свои контролы вместо системных, в раскладке Telegram — тонкая
 // полоса прогресса во всю ширину кадра, под ней слева пауза, звук и время «0:04 / 1:33»,
@@ -28,6 +30,10 @@ import { cn } from '../lib'
 // Панель показывается при движении мыши и прячется сама, пока видео играет; на паузе
 // остаётся. Разметка контролов помечена `data-gesture-skip`: жесты просмотрщика (листание,
 // зум) на ней не начинаются, иначе перемотка превращалась бы в листание.
+//
+// `hls` — адаптивное видео медиа-системы: качество подбирается по скорости сети (hls.js), а
+// кнопка качества позволяет зафиксировать его вручную. `src` тогда — запасной путь: на нём
+// играет браузер без HLS и любое видео, чей HLS упал.
 
 /** Через сколько бездействия прячем панель во время воспроизведения. */
 const HIDE_AFTER_MS = 2500
@@ -78,6 +84,8 @@ const iconButton =
 
 export function VideoPlayer({
   src,
+  hls,
+  poster,
   autoPlay = false,
   className,
   videoClassName,
@@ -87,6 +95,10 @@ export function VideoPlayer({
   onLoadedMetadata,
 }: {
   src: string
+  /** Мастер-плейлист HLS из описания медиа; нет — играет `src`. */
+  hls?: string | null
+  /** Кадр до старта воспроизведения (постер медиа-системы). */
+  poster?: string
   autoPlay?: boolean
   className?: string
   videoClassName?: string
@@ -115,6 +127,8 @@ export function VideoPlayer({
   const [scrubbing, setScrubbing] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const [pipSupported, setPipSupported] = useState(false)
+  const [qualityOpen, setQualityOpen] = useState(false)
+  const quality = useHls(video, hls, src)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const playedRef = useRef<HTMLDivElement | null>(null)
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -208,7 +222,8 @@ export function VideoPlayer({
   }, [])
 
   useEffect(() => {
-    if (!playing || scrubbing) {
+    // Открытое меню качества тоже держит панель: выбирающему не до таймера.
+    if (!playing || scrubbing || qualityOpen) {
       if (hideTimer.current) clearTimeout(hideTimer.current)
       setVisible(true)
       return
@@ -217,7 +232,7 @@ export function VideoPlayer({
     return () => {
       if (hideTimer.current) clearTimeout(hideTimer.current)
     }
-  }, [playing, scrubbing, keepVisible])
+  }, [playing, scrubbing, qualityOpen, keepVisible])
 
   const toggle = useCallback((): void => {
     if (!video) return
@@ -283,6 +298,11 @@ export function VideoPlayer({
     }
   }, [video])
 
+  // Панель спряталась — меню качества уходит вместе с ней, а не висит в пустоте.
+  useEffect(() => {
+    if (!visible) setQualityOpen(false)
+  }, [visible])
+
   const progress = duration > 0 ? Math.min(100, (current / duration) * 100) : 0
   const shown = visible && !controlsHidden
   const volumeLevel = muted ? 0 : volume
@@ -316,7 +336,9 @@ export function VideoPlayer({
       <div className="relative" style={frameStyle}>
         <video
           ref={attach}
-          src={src}
+          // При HLS источник ставит useHls (hls.js, нативный HLS или запасной `src`).
+          src={hls ? undefined : src}
+          poster={poster}
           autoPlay={autoPlay}
           playsInline
           preload="metadata"
@@ -474,6 +496,62 @@ export function VideoPlayer({
             </span>
 
             <div className="ml-auto flex items-center gap-1">
+              {quality.levels.length > 1 && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    tabIndex={shown ? 0 : -1}
+                    aria-label={t('quality')}
+                    title={t('quality')}
+                    aria-haspopup="menu"
+                    aria-expanded={qualityOpen}
+                    onClick={() => {
+                      setQualityOpen((open) => !open)
+                      keepVisible()
+                    }}
+                    className={cn(
+                      iconButton,
+                      'w-auto gap-1 px-1 text-[11px] font-bold tabular-nums',
+                    )}
+                  >
+                    <Settings2 className="size-4" aria-hidden />
+                    {quality.level === -1
+                      ? quality.playingShort
+                        ? t('qualityAutoWith', { short: quality.playingShort })
+                        : t('qualityAuto')
+                      : `${quality.levels.find((l) => l.index === quality.level)?.short ?? ''}p`}
+                  </button>
+                  {/* Меню внутри корня плеера, а не в портале: в полноэкранном режиме видно
+                      только содержимое полноэкранного элемента. */}
+                  {qualityOpen && (
+                    <div
+                      role="menu"
+                      aria-label={t('quality')}
+                      className="absolute right-0 bottom-full mb-2 min-w-32 overflow-hidden rounded-lg bg-black/85 py-1 text-sm backdrop-blur-sm"
+                    >
+                      {[{ index: -1, short: 0 }, ...quality.levels].map((l) => (
+                        <button
+                          key={l.index}
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={quality.level === l.index}
+                          onClick={() => {
+                            quality.setLevel(l.index)
+                            setQualityOpen(false)
+                            keepVisible()
+                          }}
+                          className="flex w-full cursor-pointer items-center justify-between gap-3 px-3 py-1.5 text-left text-white/90 hover:bg-white/10 hover:text-white"
+                        >
+                          <span className="tabular-nums">
+                            {l.index === -1 ? t('qualityAuto') : `${l.short}p`}
+                          </span>
+                          {quality.level === l.index && <Check className="size-4" aria-hidden />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               <button
                 type="button"
                 tabIndex={shown ? 0 : -1}

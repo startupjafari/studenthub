@@ -27,6 +27,8 @@ model Exam {
   @@index([groupId, date])
   @@index([courseId])
   @@index([examinerId])
+  @@index([createdById])
+  @@index([roomId])
   @@map("exams")
 }
 

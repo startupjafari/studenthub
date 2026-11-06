@@ -111,14 +111,7 @@ struct MessageOutbox: Sendable {
                 replyToID: message.replyToId
             )
             try await database.writer.write { db in
-                guard var local = try MessageRecord.fetchOne(db, key: message.id) else { return }
-                // Ключ строки не меняем: на него уже ссылается лента. Серверный id
-                // кладём рядом — по нему сообщение узнаётся, когда придёт из сокета.
-                local.remoteId = sent.id
-                local.seq = sent.seq
-                local.createdAt = sent.createdAt
-                local.sendState = .sent
-                try local.update(db)
+                try MessageStore.confirm(localID: message.id, with: sent, in: db)
             }
             return true
         } catch {

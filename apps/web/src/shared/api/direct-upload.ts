@@ -15,6 +15,42 @@ export interface PresignedTarget {
   expiresAt: string
 }
 
+/**
+ * Сбой шага хранилища в контракте UI (`code` из реестра ошибок).
+ *
+ * Запрос к MinIO идёт мимо интерцептора приложения, и до экрана доходил сырой AxiosError:
+ * его `code` — 'ERR_NETWORK', 'ERR_BAD_REQUEST' — уходил в перевод ключом, и человек видел
+ * «Errors.ERR_NETWORK». Наследник Error: текст причины сохраняется для логов и тестов.
+ */
+export class StorageUploadError extends Error {
+  readonly code = 'INTERNAL_ERROR'
+  /**
+   * Статус ответа хранилища — в той же форме, что у AxiosError: по нему докачка узнаёт, что
+   * загрузки больше нет (404), а повтор части — что подпись протухла (403).
+   */
+  readonly response?: { status: number }
+
+  constructor(message: string, status?: number) {
+    super(message)
+    this.name = 'StorageUploadError'
+    if (status !== undefined) this.response = { status }
+  }
+}
+
+/**
+ * Привести ошибку шага хранилища к {@link StorageUploadError}. Отмену не трогаем: её узнают
+ * по сигналу.
+ */
+export function toStorageError(error: unknown, signal?: AbortSignal): unknown {
+  if (signal?.aborted || (error instanceof Error && error.name === 'CanceledError')) return error
+  if (error instanceof StorageUploadError) return error
+  const status = (error as { response?: { status?: unknown } } | undefined)?.response?.status
+  return new StorageUploadError(
+    error instanceof Error ? error.message : String(error),
+    typeof status === 'number' ? status : undefined,
+  )
+}
+
 /** Порог, выше которого нужен прямой путь. */
 export function needsDirectUpload(size: number): boolean {
   return size > FILE_UPLOAD.DIRECT_UPLOAD_THRESHOLD_BYTES
@@ -38,13 +74,17 @@ export async function putPresigned(
   onProgress?: (fraction: number) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  await axios.put(url, file, {
-    headers: { 'Content-Type': file.type || 'application/octet-stream' },
-    signal,
-    onUploadProgress: (event: AxiosProgressEvent) => {
-      if (onProgress && event.total) onProgress(Math.min(1, event.loaded / event.total))
-    },
-  })
+  try {
+    await axios.put(url, file, {
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      signal,
+      onUploadProgress: (event: AxiosProgressEvent) => {
+        if (onProgress && event.total) onProgress(Math.min(1, event.loaded / event.total))
+      },
+    })
+  } catch (error) {
+    throw toStorageError(error, signal)
+  }
 }
 
 async function putToStorage(
@@ -52,16 +92,20 @@ async function putToStorage(
   file: File,
   onProgress?: (percent: number) => void,
 ): Promise<void> {
-  await axios.put(target.url, file, {
-    headers: { 'Content-Type': file.type || 'application/octet-stream' },
-    // Прогресс по факту отправленных байт: для 25 МБ по мобильной сети это единственный
-    // способ показать пользователю, что что-то происходит.
-    onUploadProgress: (event: AxiosProgressEvent) => {
-      if (onProgress && event.total) {
-        onProgress(Math.round((event.loaded / event.total) * 100))
-      }
-    },
-  })
+  try {
+    await axios.put(target.url, file, {
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      // Прогресс по факту отправленных байт: для 25 МБ по мобильной сети это единственный
+      // способ показать пользователю, что что-то происходит.
+      onUploadProgress: (event: AxiosProgressEvent) => {
+        if (onProgress && event.total) {
+          onProgress(Math.round((event.loaded / event.total) * 100))
+        }
+      },
+    })
+  } catch (error) {
+    throw toStorageError(error)
+  }
 }
 
 /**

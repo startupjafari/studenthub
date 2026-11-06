@@ -17,6 +17,12 @@ final class PushRoutingTests: XCTestCase {
         XCTAssertEqual(link, .application(id: "app-3"))
     }
 
+    /// Уведомления библиотеки ведут в «Мои книги» и на карточку книги.
+    func testLibraryPushes() {
+        XCTAssertEqual(PushRouting.link(from: ["url": "/my-books"]), .myBooks)
+        XCTAssertEqual(PushRouting.link(from: ["url": "/books/book-1"]), .book(id: "book-1"))
+    }
+
     /// Пуш без адреса просто открывает приложение: гадать, куда он вёл, нельзя.
     func testPushWithoutUrlLeadsNowhere() {
         XCTAssertNil(PushRouting.link(from: [:]))

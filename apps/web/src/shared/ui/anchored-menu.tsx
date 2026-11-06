@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { prefersReducedMotion } from '../lib'
+import { MOTION, prefersReducedMotion } from '../lib'
 import { cn } from '../lib/utils'
 
 /**
@@ -27,7 +27,7 @@ const GAP = 8
 /** Ниже этого снимок не ужимаем — он становится прокручиваемым. */
 const MIN_SNAPSHOT = 96
 /** Длительность ухода слоя — столько же ждёт `useDismissAnimation` перед размонтированием. */
-const EXIT_MS = 150
+const EXIT_MS = MOTION.exit
 
 /**
  * Снимок элемента над затемнением: клон живого узла, а не пересборка разметки.
@@ -196,7 +196,7 @@ export function AnchoredMenuLayer({
             width: anchor.rect.width,
             maxHeight: place?.snapshotHeight,
             transform: lift ? `translateY(${lift}px)` : undefined,
-            transition: move ? 'transform 280ms cubic-bezier(0.22, 1, 0.36, 1)' : undefined,
+            transition: move ? `transform ${MOTION.panel}ms ${MOTION.ease}` : undefined,
           }}
           onClick={onBackdropTap}
         >
@@ -210,7 +210,7 @@ export function AnchoredMenuLayer({
           ref={aboveRef}
           style={{
             top: place?.aboveTop ?? 0,
-            transition: move ? 'top 200ms ease-out' : undefined,
+            transition: move ? `top ${MOTION.menu}ms ${MOTION.ease}` : undefined,
           }}
           className={cn(
             'pointer-events-none absolute inset-x-3 flex',
@@ -233,7 +233,7 @@ export function AnchoredMenuLayer({
         ref={cardRef}
         style={{
           top: place?.cardTop ?? 0,
-          transition: move ? 'top 200ms ease-out' : undefined,
+          transition: move ? `top ${MOTION.menu}ms ${MOTION.ease}` : undefined,
         }}
         className={cn(
           'pointer-events-none absolute inset-x-3 flex',

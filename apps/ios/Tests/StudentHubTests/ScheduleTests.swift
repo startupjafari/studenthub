@@ -4,36 +4,51 @@ import XCTest
 @testable import StudentHub
 
 final class WeekParityTests: XCTestCase {
+    private let utc = TimeZone(identifier: "UTC")!
+
     /// Чётность обязана совпадать с вебом день в день: разойдись она — и у человека
-    /// в приложении и в браузере разные пары.
-    ///
-    /// Значения закреплены по формуле веба (`isoWeekParity`), а не по ISO 8601: в
-    /// ней опущена поправка на день недели 4 января, и в 2026 году номер недели на
-    /// единицу меньше стандартного. Это расхождение воспроизведено намеренно —
-    /// подробности в комментарии к `WeekParity`.
-    func testParityMatchesWebFormula() {
+    /// в приложении и в браузере разные пары. Значения — по ISO 8601, те же, что в
+    /// тесте веба (`tz-date.test.ts`).
+    func testParityMatchesIsoWeek() {
         let calendar = Calendar.iso8601UTC
         let cases: [(DateComponents, WeekParity, Int)] = [
-            (DateComponents(year: 2026, month: 1, day: 5), .odd, 1),
-            (DateComponents(year: 2026, month: 1, day: 12), .even, 2),
-            (DateComponents(year: 2026, month: 10, day: 7), .even, 40),
+            (DateComponents(year: 2026, month: 10, day: 23), .odd, 43),
+            (DateComponents(year: 2026, month: 10, day: 26), .even, 44),
+            (DateComponents(year: 2026, month: 1, day: 5), .even, 2),
+            (DateComponents(year: 2026, month: 1, day: 12), .odd, 3),
+            (DateComponents(year: 2026, month: 10, day: 7), .odd, 41),
             (DateComponents(year: 2024, month: 1, day: 4), .odd, 1),
+            // Конец декабря — уже 1-я неделя следующего года, начало января — ещё 53-я.
+            (DateComponents(year: 2025, month: 12, day: 29), .odd, 1),
+            (DateComponents(year: 2027, month: 1, day: 3), .odd, 53),
         ]
 
         for (components, parity, week) in cases {
             let date = calendar.date(from: components)!
-            XCTAssertEqual(WeekParity.weekNumber(of: date), week, "неделя для \(components)")
-            XCTAssertEqual(WeekParity.current(date), parity, "чётность для \(components)")
+            XCTAssertEqual(WeekParity.weekNumber(of: date, in: utc), week, "неделя для \(components)")
+            XCTAssertEqual(WeekParity.current(date, in: utc), parity, "чётность для \(components)")
         }
     }
 
-    /// Расхождение с ISO 8601 — не случайность, а зафиксированное решение: тест
-    /// упадёт, если кто-то «починит» формулу в одном месте и забудет про второе.
-    func testDivergenceFromIsoIsDeliberate() {
-        let date = Calendar.iso8601UTC.date(from: DateComponents(year: 2026, month: 1, day: 5))!
+    /// Не-ISO календарь (неделя с воскресенья) не должен сдвигать номер недели.
+    func testNonIsoCalendarStillGivesIsoWeek() {
+        let date = Calendar.iso8601UTC.date(from: DateComponents(year: 2026, month: 10, day: 25))!
 
-        XCTAssertEqual(WeekParity.weekNumber(of: date), 1)
-        XCTAssertEqual(Calendar.iso8601UTC.component(.weekOfYear, from: date), 2)
+        XCTAssertEqual(WeekParity.weekNumber(of: date, in: utc, calendar: Calendar(identifier: .gregorian)), 43)
+    }
+
+    /// Неделя — по дате в поясе вуза: понедельник 02:00 в Алматы (в UTC ещё
+    /// воскресенье) — уже новая неделя, как в вебе и Android.
+    func testWeekFollowsUniversityTimeZone() {
+        let almaty = TimeZone(identifier: "Asia/Almaty")!
+        // 2026-10-25 21:00Z = 2026-10-26 02:00 в Алматы (UTC+5).
+        let date = Calendar.iso8601UTC.date(
+            from: DateComponents(year: 2026, month: 10, day: 25, hour: 21)
+        )!
+
+        XCTAssertEqual(WeekParity.weekNumber(of: date, in: almaty), 44)
+        XCTAssertEqual(WeekParity.current(date, in: almaty), .even)
+        XCTAssertEqual(WeekParity.weekNumber(of: date, in: utc), 43)
     }
 
     /// `BOTH` идёт каждую неделю — это самый частый случай в расписании.
@@ -127,5 +142,15 @@ final class SchedulePairTests: XCTestCase {
         XCTAssertEqual(item.startTime, "14:00")
         XCTAssertEqual(item.endTime, "15:30")
         XCTAssertFalse(item.isCancelled)
+    }
+
+    /// «Ближайшая пара» сравнивает конец пары с часами в той же форме «HH:mm»:
+    /// 09:05 должно быть раньше 10:00, а не позже из-за отсутствующего нуля.
+    func testClockIsZeroPadded() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let date = calendar.date(from: DateComponents(year: 2026, month: 10, day: 24, hour: 9, minute: 5))!
+
+        XCTAssertEqual(ScheduleModel.clock(of: date, calendar: calendar), "09:05")
     }
 }

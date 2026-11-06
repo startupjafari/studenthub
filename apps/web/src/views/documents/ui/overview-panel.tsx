@@ -237,7 +237,7 @@ function Panel({
         {loading ? (
           <div className="flex flex-col gap-2 p-4">
             {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-8 w-full rounded-lg" />
+              <Skeleton key={i} fill className="min-h-8 rounded-lg" />
             ))}
           </div>
         ) : empty ? (

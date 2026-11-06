@@ -34,3 +34,10 @@ export async function updatePortfolioItem(
 export async function deletePortfolioItem(id: string): Promise<void> {
   await api.delete(`/portfolio/${id}`)
 }
+
+// Порядок записей: id в нужном порядке; не перечисленные встают следом. Ответ — всё
+// портфолио в новом порядке, как у fetchMyPortfolio.
+export async function reorderPortfolio(ids: string[]): Promise<PortfolioItem[]> {
+  const { data } = await api.put<PortfolioItem[]>('/portfolio/order', { ids })
+  return data
+}

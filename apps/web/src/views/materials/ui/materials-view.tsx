@@ -1,27 +1,30 @@
 'use client'
 
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { ChevronRight, FolderOpen, Link2, Paperclip, Plus } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
+import type { MaterialSort } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
-import { fetchMaterials, materialKeys, type Material } from '../../../entities/material'
+import { fetchMaterialsPage, materialKeys, type Material } from '../../../entities/material'
 import {
   Button,
   Card,
   EmptyState,
   PageHeader,
+  SegmentedTabs,
   Table,
   TableBody,
   TableCell,
   TableEmpty,
   TableHead,
   TableHeader,
+  TablePagination,
   TableRow,
   TableSkeletonRows,
   TableText,
-  useTableSort,
+  usePagedSort,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { CreateMaterialModal } from './create-material-modal'
@@ -40,6 +43,14 @@ const HIDE = {
 } as const
 const SKELETON_COLS = [undefined, HIDE.subject, HIDE.teacher, undefined, HIDE.created, undefined]
 
+// «Мои» — по умолчанию: раньше экран показывал общий поток материалов всего вуза, и свой
+// материал недельной давности оказывался за пределами выдачи — ни найти, ни удалить.
+type TabId = 'mine' | 'all'
+const TAB_ORDER: TabId[] = ['mine', 'all']
+const TAB_LABEL: Record<TabId, string> = { mine: 'tabMine', all: 'tabAll' }
+// Размер страницы — как у остальных таблиц с номерами страниц; предел серверной схемы — 100.
+const PAGE_SIZES = [20, 50, 100] as const
+
 /**
  * «Материалы»: таблица материалов, создание и содержимое — в модальных окнах.
  *
@@ -53,29 +64,29 @@ export function MaterialsView() {
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const role = useAppSelector((s) => s.auth.role)
+  const myId = useAppSelector((s) => s.auth.user?.id)
   const canCreate = role !== null && AUTHOR_ROLES.includes(role)
+  // Преподаватель управляет только своими материалами (так же решает сервер).
+  const canManage = (m: Material): boolean =>
+    canCreate && (role !== Role.TEACHER || m.teacher.id === myId)
 
-  const materials = useQuery({ queryKey: materialKeys.list(), queryFn: () => fetchMaterials() })
+  const [tab, setTab] = useState<TabId>('mine')
+  // Страница и порядок — на сервере: упорядочены все материалы вкладки, а не загруженная
+  // часть. Сортировки по умолчанию нет — сервер отдаёт свежие сверху, и стрелка в шапке
+  // означала бы выбор, которого не делали. Прежняя страница видна, пока грузится следующая.
+  const paged = usePagedSort<MaterialSort>(PAGE_SIZES[0])
+  const filters = { ...(tab === 'mine' ? { mine: true } : {}), ...paged.query }
+  const materials = useQuery({
+    queryKey: materialKeys.page(filters),
+    queryFn: () => fetchMaterialsPage(filters),
+    placeholderData: keepPreviousData,
+  })
   const [creating, setCreating] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
 
-  const rows = materials.data ?? []
-  // Сортировки по умолчанию нет: сервер отдаёт материалы в своём порядке, и стрелка
-  // в шапке означала бы выбор, которого не делали.
-  const {
-    rows: sorted,
-    sort,
-    toggle,
-  } = useTableSort<Material>(rows, (m, key) => {
-    if (key === 'title') return m.title
-    if (key === 'subject') return m.subject
-    if (key === 'teacher') return `${m.teacher.lastName} ${m.teacher.firstName}`
-    if (key === 'files') return m.media.length
-    if (key === 'created') return m.createdAt
-    return null
-  })
-
-  const open = sorted.find((m) => m.id === openId) ?? null
+  const rows = materials.data?.items ?? []
+  const total = materials.data?.total ?? 0
+  const open = rows.find((m) => m.id === openId) ?? null
 
   return (
     // Сквозная flex-цепочка до таблицы: `fill` требует, чтобы каждый предок отдавал ей
@@ -83,6 +94,18 @@ export function MaterialsView() {
     <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader
         title={t('title')}
+        tabs={
+          <SegmentedTabs
+            aria-label={t('title')}
+            value={tab}
+            onChange={(next) => {
+              // Другая вкладка — другая выборка: листать её начинают с первой страницы.
+              setTab(next)
+              paged.setPage(1)
+            }}
+            items={TAB_ORDER.map((id) => ({ value: id, label: t(TAB_LABEL[id]) }))}
+          />
+        }
         actions={
           canCreate && (
             <Button size="md" className="gap-1.5" onClick={() => setCreating(true)}>
@@ -95,26 +118,41 @@ export function MaterialsView() {
 
       {materials.isError ? (
         <EmptyState title={tErr('INTERNAL_ERROR')} />
-      ) : !materials.isLoading && rows.length === 0 ? (
+      ) : !materials.isLoading && total === 0 ? (
         <EmptyState icon={<FolderOpen className="size-6" aria-hidden />} title={t('empty')} />
       ) : (
         <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
           <Table fixed scrollBody fill cols={COLS} colsNarrow={COLS_NARROW}>
             <TableHeader>
               <TableRow>
-                <TableHead sortKey="title" sort={sort} onSort={toggle}>
+                <TableHead sortKey="title" sort={paged.sort} onSort={paged.toggle}>
                   {t('materialTitle')}
                 </TableHead>
-                <TableHead sortKey="subject" sort={sort} onSort={toggle} className={HIDE.subject}>
+                <TableHead
+                  sortKey="subject"
+                  sort={paged.sort}
+                  onSort={paged.toggle}
+                  className={HIDE.subject}
+                >
                   {t('subject')}
                 </TableHead>
-                <TableHead sortKey="teacher" sort={sort} onSort={toggle} className={HIDE.teacher}>
+                <TableHead
+                  sortKey="teacher"
+                  sort={paged.sort}
+                  onSort={paged.toggle}
+                  className={HIDE.teacher}
+                >
                   {t('colTeacher')}
                 </TableHead>
-                <TableHead sortKey="files" sort={sort} onSort={toggle}>
+                <TableHead sortKey="files" sort={paged.sort} onSort={paged.toggle}>
                   {t('colFiles')}
                 </TableHead>
-                <TableHead sortKey="created" sort={sort} onSort={toggle} className={HIDE.created}>
+                <TableHead
+                  sortKey="createdAt"
+                  sort={paged.sort}
+                  onSort={paged.toggle}
+                  className={HIDE.created}
+                >
                   {t('colCreated')}
                 </TableHead>
                 <TableHead>
@@ -124,7 +162,7 @@ export function MaterialsView() {
             </TableHeader>
             <TableBody>
               {materials.isLoading && <TableSkeletonRows columns={SKELETON_COLS} />}
-              {sorted.map((m) => (
+              {rows.map((m) => (
                 <TableRow
                   key={m.id}
                   onClick={() => setOpenId(m.id)}
@@ -171,6 +209,14 @@ export function MaterialsView() {
               ))}
             </TableBody>
           </Table>
+          <TablePagination
+            page={paged.page}
+            total={total}
+            limit={paged.limit}
+            onPageChange={paged.setPage}
+            limitOptions={PAGE_SIZES}
+            onLimitChange={paged.setLimit}
+          />
         </Card>
       )}
 
@@ -179,7 +225,7 @@ export function MaterialsView() {
         <MaterialDetailModal
           key={open.id}
           material={open}
-          canManage={canCreate}
+          canManage={canManage(open)}
           onClose={() => setOpenId(null)}
         />
       )}

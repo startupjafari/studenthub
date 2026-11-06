@@ -3,6 +3,7 @@ import type { ApplicationListItem } from '../../../entities/application-service'
 import { pickLocale } from '../../../entities/application-service'
 import type { EventItem } from '../../../entities/event'
 import { studentAssignmentStatus, type AssignmentItem } from '../../../entities/assignment'
+import { wallClockInTz } from '../../../shared/lib'
 
 // «Мои задачи» — автоматический todo-центр. Система формирует задачи из других
 // модулей; пользователь не создаёт их вручную. Сейчас источники — заявки и события
@@ -39,16 +40,25 @@ const APP_ACTION: Partial<Record<ApplicationServiceStatus, TaskKind>> = {
 }
 const APP_DONE: ApplicationServiceStatus[] = ['ISSUED', 'DELIVERED']
 
-function dayDiff(iso: string, todayDate: string): number {
-  const a = new Date(`${iso.slice(0, 10)}T00:00:00Z`).getTime()
+// Разница в календарных днях по поясу вуза. Срок — момент времени: «23:59 31.10» по
+// Алматы в UTC уже 18:59, а «00:30 1.11» — ещё 31.10, и префикс ISO-строки раскладывал
+// такие сроки не в тот день. Чистая дата (YYYY-MM-DD) уже календарная — берём как есть.
+function dayDiff(iso: string, todayDate: string, timezone: string | null): number {
+  const day = iso.length === 10 ? iso : wallClockInTz(new Date(iso), timezone).date
+  const a = new Date(`${day}T00:00:00Z`).getTime()
   const b = new Date(`${todayDate}T00:00:00Z`).getTime()
   return Math.round((a - b) / 86400000)
 }
 
 // Бакет по дедлайну: просрочено/без срока-но-срочно → urgent; сегодня; в течение недели; позже.
-function bucketByDue(dueAt: string | null, todayDate: string, urgentIfNoDue = false): TaskBucket {
+function bucketByDue(
+  dueAt: string | null,
+  todayDate: string,
+  timezone: string | null,
+  urgentIfNoDue = false,
+): TaskBucket {
   if (!dueAt) return urgentIfNoDue ? 'urgent' : 'later'
-  const d = dayDiff(dueAt, todayDate)
+  const d = dayDiff(dueAt, todayDate, timezone)
   if (d < 0) return 'urgent'
   if (d === 0) return 'today'
   if (d <= 7) return 'week'
@@ -60,6 +70,8 @@ interface BuildInput {
   events: EventItem[]
   assignments: AssignmentItem[]
   todayDate: string
+  /** Пояс вуза, в котором посчитан `todayDate`; null — пояс браузера. */
+  timezone: string | null
   locale: string
 }
 
@@ -68,13 +80,15 @@ export function buildTasks({
   events,
   assignments,
   todayDate,
+  timezone,
   locale,
 }: BuildInput): TaskItem[] {
   const items: TaskItem[] = []
 
   for (const a of assignments) {
     const st = studentAssignmentStatus(a)
-    if (st === 'SUBMITTED') continue // ждём проверку — не задача пользователя
+    // Ждём проверку или задание закрыто (сдать уже нельзя) — не задача пользователя.
+    if (st === 'SUBMITTED' || st === 'CLOSED') continue
     if (st === 'GRADED') {
       items.push({
         id: `assignment-${a.id}`,
@@ -90,7 +104,7 @@ export function buildTasks({
     const fix = st === 'RETURNED'
     items.push({
       id: `assignment-${a.id}`,
-      bucket: bucketByDue(a.dueAt, todayDate, fix),
+      bucket: bucketByDue(a.dueAt, todayDate, timezone, fix),
       kind: fix ? 'assignmentFix' : 'assignmentDue',
       title: a.title,
       href: '/assignments',
@@ -119,7 +133,7 @@ export function buildTasks({
     const urgentNoDue = kind !== 'submitApplication'
     items.push({
       id: `app-${app.id}`,
-      bucket: bucketByDue(app.dueAt, todayDate, urgentNoDue),
+      bucket: bucketByDue(app.dueAt, todayDate, timezone, urgentNoDue),
       kind,
       title,
       href: '/applications',
@@ -130,11 +144,11 @@ export function buildTasks({
 
   for (const ev of events) {
     if (!ev.isRegistered) continue
-    const d = dayDiff(ev.startsAt, todayDate)
+    const d = dayDiff(ev.startsAt, todayDate, timezone)
     if (d < 0 || d > 30) continue
     items.push({
       id: `event-${ev.id}`,
-      bucket: bucketByDue(ev.startsAt, todayDate),
+      bucket: bucketByDue(ev.startsAt, todayDate, timezone),
       kind: 'attendEvent',
       title: ev.title,
       href: '/events',

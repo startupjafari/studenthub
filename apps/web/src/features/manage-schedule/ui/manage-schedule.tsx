@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import { CalendarPlus, Check, Layers, MousePointerClick, Plus } from 'lucide-react'
 import type { UpdatePairInput } from '@studenthub/shared-schemas'
 import type { ApiErrorBody } from '@studenthub/shared-types'
@@ -21,8 +21,7 @@ import {
   PageHeader,
 } from '../../../shared/ui'
 import { useFormAlert } from '../../../shared/lib'
-import { fetchGroups, groupKeys } from '../../../entities/group'
-import { fetchRooms, roomKeys } from '../../../entities/room'
+import { GroupSelect } from '../../../entities/group'
 import { fetchMe, userKeys } from '../../../entities/user'
 import {
   fetchScheduleContainer,
@@ -37,6 +36,7 @@ import { AddPairModal } from './add-pair-modal'
 import { CreateVersionModal } from './create-version-modal'
 import { ScheduleDayList } from './schedule-day-list'
 import { PairDetailsModal } from './pair-details-modal'
+import { conflictDescription } from '../lib/conflict-description'
 
 function apiErr(e: unknown): ApiErrorBody {
   return e as ApiErrorBody
@@ -55,16 +55,14 @@ function addMinutes(hhmm: string, delta: number): string {
 export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' }) {
   const isTeacher = mode === 'teacher'
   const t = useTranslations('Schedule')
+  const locale = useLocale()
   const qc = useQueryClient()
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
 
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
-  const groups = useQuery({ queryKey: groupKeys.list(), queryFn: () => fetchGroups() })
-  const rooms = useQuery({
-    queryKey: roomKeys.list({ universityId: me.data?.universityId ?? undefined }),
-    queryFn: () => fetchRooms(me.data?.universityId ?? undefined),
-    enabled: !!me.data,
-  })
+  // Вуз для выбора аудитории: платформенной роли его надо указать, вуз-ролям сервер
+  // подставит свой из JWT.
+  const universityId = me.data?.universityId ?? undefined
 
   const [groupId, setGroupId] = useState<string>('')
   const [containerId, setContainerId] = useState<string>('')
@@ -86,10 +84,16 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
     enabled: !!groupId,
   })
 
+  // Выбранную версию не сбрасываем на активную при обновлении списка: только что созданный
+  // черновик (C-F13) остаётся открытым. На активную переключаемся, когда выбранной в списке
+  // нет — другая группа или версию удалили.
   useEffect(() => {
-    if (!containers.data) return
-    const active = containers.data.find((c) => c.isActive) ?? containers.data[0]
-    setContainerId(active?.id ?? '')
+    const list = containers.data
+    if (!list) return
+    setContainerId((current) => {
+      if (list.some((c) => c.id === current)) return current
+      return (list.find((c) => c.isActive) ?? list[0])?.id ?? ''
+    })
   }, [containers.data])
 
   const container = useQuery({
@@ -110,7 +114,15 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
       void qc.invalidateQueries({ queryKey: scheduleKeys.containers(groupId) })
       toast.success(t('containerActivated'))
     },
-    onError: (e) => showApiError(e),
+    // Пары версии сверяются с активными сетками других групп (C-F13): конфликт — с перечнем.
+    onError: (e) => {
+      const err = apiErr(e)
+      if (err.code === 'CONFLICT') {
+        toast.error(t('conflictTitle'), {
+          description: conflictDescription(err.details, locale, (k) => t(k)),
+        })
+      } else showApiError(e)
+    },
   })
 
   const movePair = useMutation({
@@ -124,13 +136,12 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
       const err = apiErr(e)
       if (err.code === 'CONFLICT') {
         toast.error(t('conflictTitle'), {
-          description: err.details?.map((d) => d.message).join('; ') ?? t('conflictGeneric'),
+          description: conflictDescription(err.details, locale, (k) => t(k)),
         })
       } else showApiError(e)
     },
   })
 
-  const roomItems = rooms.data ?? []
   const pairs = container.data?.pairs ?? []
   // Преподаватель правит только свои пары (бэк это enforce'ит; здесь — прячем действия
   // и запрещаем перетаскивание, чтобы не предлагать заведомо отказной запрос).
@@ -178,29 +189,22 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {/* Группа и версия — в шапке: это выбор области, а не настройка внутри
-                экрана, и отдельный тулбар под заголовком дублировал полосу. */}
-            {groups.isLoading ? (
-              <Skeleton className="h-9 w-40" />
-            ) : (
-              <Select
-                value={groupId}
-                onValueChange={(v) => {
-                  setGroupId(v)
+                экрана, и отдельный тулбар под заголовком дублировал полосу. Группа —
+                с поиском на сервере: в списке первых 100 групп хвоста алфавита не было. */}
+            <div className="w-48">
+              <label htmlFor="schedule-group" className="sr-only">
+                {t('selectGroup')}
+              </label>
+              <GroupSelect
+                id="schedule-group"
+                size="md"
+                value={groupId || null}
+                onChange={(next) => {
+                  setGroupId(next ?? '')
                   setSelectedPair(null)
                 }}
-              >
-                <SelectTrigger size="md" className="w-40" aria-label={t('selectGroup')}>
-                  <SelectValue placeholder={t('selectGroupPlaceholder')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {(groups.data ?? []).map((g) => (
-                    <SelectItem key={g.id} value={g.id}>
-                      {g.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
+              />
+            </div>
 
             {groupId && (
               <Select value={containerId} onValueChange={setContainerId}>
@@ -273,7 +277,7 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
           description={isTeacher ? t('noScheduleTeacherHint') : t('createContainerHint')}
         />
       ) : container.isLoading ? (
-        <Skeleton className="min-h-0 w-full flex-1" />
+        <Skeleton fill className="min-h-0" />
       ) : (
         <>
           {/* Телефон: один день списком. Недельная сетка на 360 px нечитаема. */}
@@ -329,10 +333,11 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
       {selectedPair && (
         <PairDetailsModal
           pair={selectedPair}
-          rooms={roomItems}
+          universityId={universityId}
           canEdit={canEditPair(selectedPair)}
           isTeacher={isTeacher}
           containerId={containerId}
+          containerActive={containers.data?.find((c) => c.id === containerId)?.isActive ?? false}
           onClose={() => setSelectedPair(null)}
         />
       )}
@@ -340,7 +345,7 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
       {addDraft && containerId && (
         <AddPairModal
           scheduleId={containerId}
-          rooms={roomItems}
+          universityId={universityId}
           isTeacher={isTeacher}
           meId={me.data?.id}
           initial={addDraft}
@@ -351,6 +356,7 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
       {versionOpen && groupId && (
         <CreateVersionModal
           groupId={groupId}
+          hasActive={containers.data?.some((c) => c.isActive) ?? false}
           onCreated={setContainerId}
           onClose={() => setVersionOpen(false)}
         />

@@ -25,7 +25,11 @@ export function FeedList({ filter = 'ALL' }: { filter?: FeedFilterValue }) {
   const tc = useTranslations('Common')
   // Полный просмотр: индекс поста и нужно ли сразу поставить курсор в поле
   // комментария (кнопка «Комментировать» ведёт именно туда — писать можно только там).
-  const [open, setOpen] = useState<{ index: number; focusComment: boolean } | null>(null)
+  const [open, setOpen] = useState<{
+    index: number
+    focusComment: boolean
+    media?: number
+  } | null>(null)
 
   const query = useInfiniteQuery({
     queryKey: postKeys.feed(filter),
@@ -49,7 +53,7 @@ export function FeedList({ filter = 'ALL' }: { filter?: FeedFilterValue }) {
     return (
       <div className="flex flex-col gap-4">
         {Array.from({ length: 3 }).map((_, i) => (
-          <Skeleton key={i} className="h-64 w-full rounded-2xl" />
+          <Skeleton key={i} fill className="min-h-64 rounded-xl" />
         ))}
       </div>
     )
@@ -85,7 +89,7 @@ export function FeedList({ filter = 'ALL' }: { filter?: FeedFilterValue }) {
         <PostCard
           key={post.id}
           post={post}
-          onOpenMedia={() => setOpen({ index: i, focusComment: false })}
+          onOpenMedia={(media) => setOpen({ index: i, focusComment: false, media })}
           onOpenComments={() => setOpen({ index: i, focusComment: true })}
         />
       ))}
@@ -95,7 +99,7 @@ export function FeedList({ filter = 'ALL' }: { filter?: FeedFilterValue }) {
           полосе прокрутки дёрнуться в момент, когда посты придут. */}
       {query.hasNextPage && (
         <div ref={loadMoreRef} aria-hidden>
-          <Skeleton className="h-64 w-full rounded-2xl" />
+          <Skeleton className="h-64 w-full rounded-xl" />
         </div>
       )}
 
@@ -104,6 +108,7 @@ export function FeedList({ filter = 'ALL' }: { filter?: FeedFilterValue }) {
           posts={posts}
           index={open.index}
           focusComment={open.focusComment}
+          initialMedia={open.media}
           onIndex={(i) => setOpen({ index: i, focusComment: false })}
           onClose={() => setOpen(null)}
         />

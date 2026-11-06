@@ -16,7 +16,9 @@ export const CreateSlotSchema = z
     isOnline: z.boolean().optional(),
   })
   .strict()
-  .refine((v) => v.endsAt > v.startsAt, {
+  // Моменты, а не строки: «10:00+05:00» и «06:00Z» лексикографически сравнивались неверно
+  // при разных смещениях.
+  .refine((v) => new Date(v.endsAt).getTime() > new Date(v.startsAt).getTime(), {
     message: 'endsAt must be after startsAt',
     path: ['endsAt'],
   })

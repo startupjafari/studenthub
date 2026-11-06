@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import {
-  APPLICATION_TRANSITIONS,
-  STUDENT_CANCELLABLE_STATUSES,
+  canTransition,
   type DeliveryType,
   type ApplicationServiceStatus,
   type UpdateDraftInput,
@@ -12,32 +11,31 @@ import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import { visibleServicesWhere } from './service-visibility'
 import { ApplicationPolicy } from './application.policy'
+import { ApplicationNotifier, OVERDUE_STATUSES } from './application-notifier'
+import { formDataError, pickFormFields, type FormFieldRule } from './form-validation'
+import { rethrowStaleStatus } from '../../common/prisma/stale-status'
+import { advisoryXactLock } from '../../common/prisma/advisory-lock'
+import { localDateString, localDayRange } from '../../common/time/local-label'
 
 // Поля заявки для scope-проверок (без загрузки всей записи).
 // Потолки на выборки (BACKEND_RULES §7.2). Анкета услуги и её список требований —
 // справочники, которые заводит вуз: они малы, но не ограничены схемой.
 const SERVICE_FORM_FIELDS_LIMIT = 100
 const SERVICE_REQUIREMENTS_LIMIT = 100
+// Страниц у одного документа — тот же потолок, что в домене «Документы».
+const DOCUMENT_FILES_LIMIT = 30
+// История заявки: десятки событий за жизнь заявки, потолок — с большим запасом. Берутся
+// последние, чтобы при упоре в потолок обрезалось начало истории, а не свежие шаги.
+const APPLICATION_EVENTS_LIMIT = 500
+// Результатов по заявке — единицы (справка, перевыпуск после отзыва, бумажный оригинал).
+const APPLICATION_RESULTS_LIMIT = 100
 
 const SCOPE_SELECT = {
   studentId: true,
   facultyId: true,
   universityId: true,
-} satisfies Prisma.ApplicationSelect
-
-// Урезанная проекция для старосты (§2.2): только то, что рисует его список — кто, какая услуга и
-// на каком шаге. Без formData, дат обработки и назначенного сотрудника: это чужие данные, в
-// интерфейсе они не показываются, а в formData попадает свободный текст вроде причины
-// академического отпуска (docs/BACKEND_RULES.md §14.7).
-const GROUP_REQUEST_SELECT = {
-  id: true,
-  number: true,
-  status: true,
-  createdAt: true,
-  submittedAt: true,
-  service: { select: { id: true, code: true, nameRu: true, nameKk: true, nameEn: true } },
-  student: { select: { id: true, firstName: true, lastName: true, groupId: true } },
 } satisfies Prisma.ApplicationSelect
 
 // Карточка заявки в списках/деталях.
@@ -80,6 +78,7 @@ export class ApplicationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly policy: ApplicationPolicy,
+    private readonly notifier: ApplicationNotifier,
   ) {}
 
   /** Создать черновик заявки на услугу (§8/§30). Заполняется правкой черновика. */
@@ -88,12 +87,10 @@ export class ApplicationsService {
     if (!viewer.universityId) {
       throw new AppException('BAD_REQUEST', 'Профиль без университета не может подавать заявки')
     }
+    // Та же видимость, что в каталоге: шаблон, заменённый копией вуза, недоступен и по id.
+    const visible = await visibleServicesWhere(this.prisma, viewer.universityId)
     const service = await this.prisma.applicationService.findFirst({
-      where: {
-        id: serviceId,
-        active: true,
-        OR: [{ universityId: null }, { universityId: viewer.universityId }],
-      },
+      where: { AND: [{ id: serviceId }, visible] },
       select: { id: true, facultyScoped: true },
     })
     if (!service) {
@@ -118,9 +115,17 @@ export class ApplicationsService {
     })
   }
 
-  /** Правка черновика (способ получения + ответы формы). Только владелец, только DRAFT (§8). */
+  /**
+   * Правка способа получения и ответов формы (§8). Только владелец: черновик — и заявка,
+   * возвращённая на исправление (NEEDS_CORRECTION): сотрудник мог попросить уточнить поле
+   * анкеты, а не только заменить документ, — раньше править было негде, и оставалось
+   * отправить без изменений или подать заново с новым номером и сроком.
+   */
   async updateDraft(viewer: JwtPayload, id: string, dto: UpdateDraftInput) {
-    const app = await this.loadOwnedDraft(viewer, id)
+    const app = await this.loadOwned(viewer, id)
+    if (!ANSWERS_EDITABLE.includes(app.status as ApplicationServiceStatus)) {
+      throw new AppException('BAD_REQUEST', 'Заявку уже нельзя редактировать')
+    }
     const data: Prisma.ApplicationUpdateInput = {}
     if (dto.deliveryType !== undefined) {
       const service = await this.serviceOf(app.serviceId)
@@ -128,35 +133,76 @@ export class ApplicationsService {
       data.deliveryType = dto.deliveryType
     }
     if (dto.formData !== undefined) {
-      data.formData = dto.formData as Prisma.InputJsonValue
+      // В черновик — только ответы на поля анкеты: лишние ключи не храним. Тип и правила
+      // полей проверяются при отправке — черновик заполняется по шагам и бывает неполным.
+      const fields = await this.formFieldsOf(app.serviceId)
+      data.formData = pickFormFields(fields, dto.formData) as Prisma.InputJsonValue
     }
-    return this.prisma.application.update({ where: { id }, data, select: APP_SELECT })
+    // Статус — в условии записи: черновик, отправленный параллельным запросом (или
+    // исправление, уже отправленное повторно), не правится.
+    if (app.status === 'DRAFT') {
+      return this.prisma.application
+        .update({ where: { id, status: 'DRAFT' }, data, select: APP_SELECT })
+        .catch(rethrowStaleStatus)
+    }
+    // Поданную заявку сотрудник уже читал: правка ответов — шаг её истории.
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.application
+        .update({ where: { id, status: app.status }, data, select: APP_SELECT })
+        .catch(rethrowStaleStatus)
+      await tx.applicationEvent.create({
+        data: { applicationId: id, actorId: viewer.sub, action: 'FORM_UPDATED' },
+      })
+      return updated
+    })
   }
 
   /** Отправить заявку: DRAFT → SUBMITTED. Присваивает номер, срок по SLA, валидирует форму (§13/§14/§40). */
   async submit(viewer: JwtPayload, id: string) {
     const app = await this.loadOwnedDraft(viewer, id)
-    const service = await this.serviceOf(app.serviceId)
+    // Та же видимость, что в каталоге и при создании черновика: черновик услуги, которую
+    // вуз или платформа потом выключили (или заменили копией вуза), больше не отправляется.
+    const service = await this.visibleServiceOf(viewer, app.serviceId)
 
     // Способ получения обязателен и должен быть допустим для услуги.
     if (!app.deliveryType) {
       throw new AppException('BAD_REQUEST', 'Выберите способ получения')
     }
     this.assertDeliveryAllowed(app.deliveryType as DeliveryType, service.deliveryModes)
-    await this.assertFormValid(app.serviceId, app.formData)
+    const fields = await this.formFieldsOf(app.serviceId)
+    const formError = formDataError(fields, app.formData)
+    if (formError) throw new AppException('BAD_REQUEST', formError)
     await this.assertRequiredDocuments(app.serviceId, id)
 
     const now = new Date()
     const dueAt = new Date(now.getTime() + service.slaHours * 3_600_000)
-    // Номер SH-YYYY-NNNNNN. Уникальность гарантирует БД; при гонке — повтор транзакции.
-    return this.withNumberRetry(now.getFullYear(), (number) =>
-      this.prisma.$transaction(async (tx) => {
-        const updated = await tx.application.update({
-          where: { id },
-          data: { status: 'SUBMITTED', number, submittedAt: now, dueAt },
-          select: APP_SELECT,
-        })
-        await tx.applicationEvent.create({
+    // Год номера — по часам вуза: заявка, поданная в новогоднюю ночь, относится к новому году.
+    const year = Number(
+      localDateString(now, await this.timezoneOf(viewer.universityId)).slice(0, 4),
+    )
+    const { updated, eventId } = await this.prisma
+      .$transaction(async (tx) => {
+        const number = await this.nextNumber(tx, year)
+        // Условие на DRAFT в самой записи: двойное «Отправить» (или повтор после таймаута)
+        // проходило проверку чтением дважды и перевыпускало номер, а отправка, опоздавшая к
+        // взятию заявки в работу, возвращала её из IN_REVIEW в SUBMITTED. Теперь второй
+        // запрос получает CONFLICT.
+        const u = await tx.application
+          .update({
+            where: { id, status: 'DRAFT' },
+            data: {
+              status: 'SUBMITTED',
+              number,
+              submittedAt: now,
+              dueAt,
+              // Поданная заявка хранит ответы только на поля анкеты (черновики, сохранённые до
+              // этой проверки, могли нести что угодно).
+              formData: pickFormFields(fields, app.formData) as Prisma.InputJsonValue,
+            },
+            select: APP_SELECT,
+          })
+          .catch(rethrowStaleStatus)
+        const event = await tx.applicationEvent.create({
           data: {
             applicationId: id,
             actorId: viewer.sub,
@@ -164,28 +210,32 @@ export class ApplicationsService {
             fromStatus: 'DRAFT',
             toStatus: 'SUBMITTED',
           },
+          select: { id: true },
         })
-        return updated
-      }),
-    )
+        return { updated: u, eventId: event.id }
+      })
+      .catch(rethrowNumberTaken)
+    await this.notifier.notifyHandlers(updated, 'submitted', eventId)
+    return updated
   }
 
   /** Отозвать заявку (§9): статус → CANCELLED. Только владелец и до начала подготовки. */
   async cancel(viewer: JwtPayload, id: string, reason?: string) {
     const app = await this.loadOwned(viewer, id)
     const status = app.status as ApplicationServiceStatus
-    if (!STUDENT_CANCELLABLE_STATUSES.includes(status)) {
+    // Одна проверка по графу (SSOT): тот же canTransition, по которому клиенты решают,
+    // показывать ли «Отозвать». Два списка раньше расходились, и кнопка вела в отказ.
+    if (!canTransition(status, 'CANCELLED')) {
       throw new AppException('BAD_REQUEST', 'Эту заявку уже нельзя отозвать')
     }
-    if (!APPLICATION_TRANSITIONS[status].includes('CANCELLED')) {
-      throw new AppException('BAD_REQUEST', 'Недопустимый переход')
-    }
     return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.application.update({
-        where: { id },
-        data: { status: 'CANCELLED', cancelledAt: new Date() },
-        select: APP_SELECT,
-      })
+      const updated = await tx.application
+        .update({
+          where: { id, status },
+          data: { status: 'CANCELLED', cancelledAt: new Date() },
+          select: APP_SELECT,
+        })
+        .catch(rethrowStaleStatus)
       await tx.applicationEvent.create({
         data: {
           applicationId: id,
@@ -212,13 +262,22 @@ export class ApplicationsService {
     if (pending > 0) {
       throw new AppException('BAD_REQUEST', 'Замените все документы, отмеченные к исправлению')
     }
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.application.update({
-        where: { id },
-        data: { status: 'RESUBMITTED' },
-        select: APP_SELECT,
-      })
-      await tx.applicationEvent.create({
+    // Ответы в исправлении правятся (updateDraft) — и проверяются заново, как при подаче.
+    const formError = formDataError(await this.formFieldsOf(app.serviceId), app.formData)
+    if (formError) throw new AppException('BAD_REQUEST', formError)
+    // Комплект проверяется заново, как при первой отправке: документ, отмеченный к замене,
+    // можно было просто удалить — строк REPLACEMENT_REQUIRED не оставалось, и заявка уходила
+    // дальше без обязательного документа.
+    await this.assertRequiredDocuments(app.serviceId, id)
+    const { updated, eventId } = await this.prisma.$transaction(async (tx) => {
+      const u = await tx.application
+        .update({
+          where: { id, status: 'NEEDS_CORRECTION' },
+          data: { status: 'RESUBMITTED' },
+          select: APP_SELECT,
+        })
+        .catch(rethrowStaleStatus)
+      const event = await tx.applicationEvent.create({
         data: {
           applicationId: id,
           actorId: viewer.sub,
@@ -226,47 +285,26 @@ export class ApplicationsService {
           fromStatus: 'NEEDS_CORRECTION',
           toStatus: 'RESUBMITTED',
         },
+        select: { id: true },
       })
-      return updated
+      return { updated: u, eventId: event.id }
     })
+    // Исправление ждёт того, кто его просил: без сигнала заявка лежала в очереди незамеченной.
+    await this.notifier.notifyHandlers(updated, 'resubmitted', eventId)
+    return updated
   }
 
   /** Список/очередь по scope роли (§16/§33): server-side пагинация + фильтры. */
   async list(viewer: JwtPayload, query: ApplicationQueryInput): Promise<Paginated<unknown>> {
-    const where = this.buildWhere(viewer, query)
+    const timezone = query.dueToday ? await this.timezoneOf(viewer.universityId) : null
+    const where = this.buildWhere(viewer, query, timezone)
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.application.findMany({
         where,
         select: APP_SELECT,
-        orderBy: { [query.sortBy]: query.sortOrder },
-        skip: (query.page - 1) * query.limit,
-        take: query.limit,
-      }),
-      this.prisma.application.count({ where }),
-    ])
-    return new Paginated(rows, { total })
-  }
-
-  /**
-   * Обращения своей группы для старосты (§2.2, только чтение). Scope жёстко ограничен группой
-   * старосты через связь student.groupId — политика/scopeWhere остальных ролей не затрагивается.
-   * Проекция — GROUP_REQUEST_SELECT: старосте отдаём ровно то, что рисует его список.
-   */
-  async listGroupRequests(
-    viewer: JwtPayload,
-    query: ApplicationQueryInput,
-  ): Promise<Paginated<unknown>> {
-    if (!viewer.groupId) return new Paginated([], { total: 0 })
-    const where: Prisma.ApplicationWhereInput = {
-      deletedAt: null,
-      student: { is: { groupId: viewer.groupId } },
-      ...(query.status ? { status: query.status } : {}),
-    }
-    const [rows, total] = await this.prisma.$transaction([
-      this.prisma.application.findMany({
-        where,
-        select: GROUP_REQUEST_SELECT,
-        orderBy: { [query.sortBy]: query.sortOrder },
+        // Тай-брейкер по id: у статуса и дат много равных значений, и без уникального ключа
+        // порядок строк между запросами страниц не определён — дубли и пропуски на стыках.
+        orderBy: [{ [query.sortBy]: query.sortOrder }, { id: query.sortOrder }],
         skip: (query.page - 1) * query.limit,
         take: query.limit,
       }),
@@ -277,21 +315,25 @@ export class ApplicationsService {
 
   /** Деталь заявки + человеческий timeline. Scope проверяется политикой (§22, защита от IDOR). */
   async getById(viewer: JwtPayload, id: string) {
+    // Чужой черновик для сотрудника не существует (404), как и в списке.
     const scope = await this.prisma.application.findFirst({
-      where: { id, deletedAt: null },
+      where: { id, deletedAt: null, AND: [this.policy.submittedOnlyWhere(viewer)] },
       select: SCOPE_SELECT,
     })
     if (!scope) {
       throw new AppException('NOT_FOUND', 'Заявка не найдена')
     }
     this.policy.assertCanRead(viewer, scope)
-    return this.prisma.application.findUnique({
+    const app = await this.prisma.application.findUnique({
       where: { id },
       select: {
         ...APP_SELECT,
         rejectionReason: true,
         pickupLocation: true,
         pickupInstructions: true,
+        // Код получения оригинала: студент называет его при выдаче, сотрудник сверяет
+        // (POST …/issue с pickupCode). Отдаётся только владельцу — см. ниже.
+        pickupCode: true,
         service: {
           select: {
             id: true,
@@ -303,10 +345,51 @@ export class ApplicationsService {
             descriptionRu: true,
             descriptionKk: true,
             descriptionEn: true,
+            // Способы получения — для правки ответов в исправлении (NEEDS_CORRECTION).
+            deliveryModes: true,
+            // Действующие требования услуги: чек-лист исправления строится по ним, а не по
+            // приложенным строкам — иначе убранный документ пропадал из списка вместе со
+            // своим требованием, и приложить его заново было негде.
+            requirements: {
+              where: { active: true },
+              orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
+              take: SERVICE_REQUIREMENTS_LIMIT,
+              select: {
+                id: true,
+                documentType: true,
+                titleRu: true,
+                titleKk: true,
+                titleEn: true,
+                required: true,
+              },
+            },
+            // Поля анкеты — чтобы показать ответы formData с подписями (обработчику и
+            // студенту): сами ответы хранятся кодами полей. Выключенные поля тоже нужны —
+            // ответы на них в поданных заявках остались; `active` отличает действующие.
+            formFields: {
+              orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
+              take: SERVICE_FORM_FIELDS_LIMIT,
+              select: {
+                id: true,
+                code: true,
+                type: true,
+                labelRu: true,
+                labelKk: true,
+                labelEn: true,
+                placeholderRu: true,
+                placeholderKk: true,
+                placeholderEn: true,
+                required: true,
+                options: true,
+                validation: true,
+                active: true,
+              },
+            },
           },
         },
         events: {
-          orderBy: { createdAt: 'asc' },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: APPLICATION_EVENTS_LIMIT,
           select: {
             id: true,
             action: true,
@@ -315,10 +398,13 @@ export class ApplicationsService {
             comment: true,
             actorId: true,
             createdAt: true,
+            metadata: true,
           },
         },
         documents: {
           orderBy: { submittedAt: 'asc' },
+          // Строка документа — одна на требование услуги (unique), требований не больше потолка.
+          take: SERVICE_REQUIREMENTS_LIMIT,
           select: {
             id: true,
             requirementId: true,
@@ -336,10 +422,22 @@ export class ApplicationsService {
                 required: true,
               },
             },
+            // Страницы документа (паспорт — разворот и прописка, диплом — с приложением):
+            // обработчик открывает каждую, а не только первую.
+            document: {
+              select: {
+                files: {
+                  orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+                  select: { id: true, mime: true, order: true },
+                  take: DOCUMENT_FILES_LIMIT,
+                },
+              },
+            },
           },
         },
         results: {
           orderBy: { createdAt: 'desc' },
+          take: APPLICATION_RESULTS_LIMIT,
           select: {
             id: true,
             type: true,
@@ -347,22 +445,67 @@ export class ApplicationsService {
             documentNumber: true,
             note: true,
             createdAt: true,
+            // Отозвана ли выданная справка: документ студента в статусе REJECTED.
+            document: { select: { status: true, issuedByUniversity: true } },
           },
         },
       },
     })
+    if (!app) return app
+    // Поле `files` у строки документа — добавочное: прежние поля ответа не меняются (тот же
+    // ответ читают веб, iOS, Android). Ссылку на страницу выдаёт GET …/documents/:docId/url?fileId=.
+    return {
+      ...app,
+      // Код получения — только студенту: обработчик, видящий код сам, сверял бы его сам с
+      // собой, и выдать оригинал можно было, не видя студента.
+      pickupCode: scope.studentId === viewer.sub ? app.pickupCode : null,
+      // Выбраны последние события — клиенту история нужна по порядку, от первого шага.
+      // У назначений, записанных до переноса id в metadata, в comment лежит id сотрудника —
+      // это не текст для истории, наружу его не отдаём.
+      // metadata наружу не отдаётся целиком (у назначения там id сотрудника) — только
+      // требование, к которому относится событие документа: по нему клиент подписывает
+      // событие названием требования на языке интерфейса.
+      events: [...app.events].reverse().map(({ metadata, ...e }) => ({
+        ...e,
+        comment: e.action === 'ASSIGNED' ? null : e.comment,
+        requirementId: requirementIdOf(metadata),
+      })),
+      documents: app.documents.map(({ document, ...doc }) => ({
+        ...doc,
+        files: document?.files ?? [],
+      })),
+      // `revoked` — добавочное поле: отозванный результат ничего не подтверждает, и клиент
+      // помечает его, а не показывает как действующий (ApplicationProcessService.ACTIVE_RESULT_WHERE).
+      results: app.results.map(({ document, ...result }) => ({
+        ...result,
+        revoked: !!document?.issuedByUniversity && document.status === 'REJECTED',
+      })),
+    }
   }
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
+  /** Часовой пояс вуза (null — у платформенных ролей вуза нет, считаем в UTC). */
+  private async timezoneOf(universityId: string | null | undefined): Promise<string | null> {
+    if (!universityId) return null
+    const university = await this.prisma.university.findUnique({
+      where: { id: universityId },
+      select: { timezone: true },
+    })
+    return university?.timezone ?? null
+  }
+
   private buildWhere(
     viewer: JwtPayload,
     query: ApplicationQueryInput,
+    timezone: string | null = null,
   ): Prisma.ApplicationWhereInput {
     const now = new Date()
     const and: Prisma.ApplicationWhereInput[] = [
       { deletedAt: null },
       this.policy.scopeWhere(viewer),
+      // Чужие черновики в очередь не попадают (см. ApplicationPolicy.submittedOnlyWhere).
+      this.policy.submittedOnlyWhere(viewer),
     ]
     if (query.status) and.push({ status: query.status })
     if (query.serviceId) and.push({ serviceId: query.serviceId })
@@ -370,14 +513,14 @@ export class ApplicationsService {
     if (query.facultyId) and.push({ facultyId: query.facultyId })
     if (query.assignedToId) and.push({ assignedToId: query.assignedToId })
     if (query.search) and.push({ number: { contains: query.search, mode: 'insensitive' } })
-    // overdue: срок прошёл и заявка ещё в работе (не терминальная, не готова к выдаче).
+    // overdue: срок прошёл и заявка ещё в работе у вуза — тот же набор статусов, что у
+    // счётчика очереди и ежедневной сводки (ожидание исправления от студента не просрочка).
     if (query.overdue) {
-      and.push({ dueAt: { lt: now }, status: { notIn: DONE_OR_READY } })
+      and.push({ dueAt: { lt: now }, status: { in: OVERDUE_STATUSES } })
     }
+    // «Сегодня» — по часам вуза, а не сервера.
     if (query.dueToday) {
-      const start = new Date(now)
-      start.setHours(0, 0, 0, 0)
-      const end = new Date(start.getTime() + 86_400_000)
+      const { start, end } = localDayRange(now, timezone)
       and.push({ dueAt: { gte: start, lt: end } })
     }
     return { AND: and }
@@ -400,33 +543,39 @@ export class ApplicationsService {
     return service
   }
 
-  // Проверка ответов формы: обязательные поля заполнены; для SELECT/RADIO — значение из options.
-  private async assertFormValid(serviceId: string, formData: Prisma.JsonValue): Promise<void> {
-    const fields = await this.prisma.serviceFormField.findMany({
+  /** Услуга черновика, если зритель её всё ещё видит (service-visibility.ts). */
+  private async visibleServiceOf(viewer: JwtPayload, serviceId: string) {
+    const visible = await visibleServicesWhere(this.prisma, viewer.universityId)
+    const service = await this.prisma.applicationService.findFirst({
+      where: { AND: [{ id: serviceId }, visible] },
+      select: { deliveryModes: true, slaHours: true },
+    })
+    if (!service) {
+      throw new AppException('BAD_REQUEST', 'Услуга больше недоступна — заявку отправить нельзя')
+    }
+    return service
+  }
+
+  /** Действующие поля анкеты услуги — по ним сверяются и сохраняются ответы. */
+  private formFieldsOf(serviceId: string): Promise<FormFieldRule[]> {
+    return this.prisma.serviceFormField.findMany({
       where: { serviceId, active: true },
-      select: { code: true, required: true, type: true, options: true, labelRu: true },
+      select: {
+        code: true,
+        required: true,
+        type: true,
+        options: true,
+        validation: true,
+        labelRu: true,
+      },
+      orderBy: { sortOrder: 'asc' },
       take: SERVICE_FORM_FIELDS_LIMIT,
     })
-    const data = (formData && typeof formData === 'object' ? formData : {}) as Record<
-      string,
-      unknown
-    >
-    for (const f of fields) {
-      const value = data[f.code]
-      const empty = value === undefined || value === null || value === ''
-      if (f.required && empty) {
-        throw new AppException('BAD_REQUEST', `Заполните поле: ${f.labelRu}`)
-      }
-      if (!empty && (f.type === 'SELECT' || f.type === 'RADIO') && Array.isArray(f.options)) {
-        const allowed = (f.options as Array<{ value?: unknown }>).map((o) => o?.value)
-        if (!allowed.includes(value)) {
-          throw new AppException('BAD_REQUEST', `Недопустимое значение поля: ${f.labelRu}`)
-        }
-      }
-    }
   }
 
   // Все обязательные требования услуги должны иметь приложенный документ (не «требует замены»).
+  // Документ при этом должен быть жив: приложенный и затем удалённый из хранилища (или
+  // лишившийся всех страниц) открыть по заявке нельзя — сотрудник получил бы пустое место.
   private async assertRequiredDocuments(serviceId: string, applicationId: string): Promise<void> {
     const reqs = await this.prisma.serviceRequirement.findMany({
       where: { serviceId, active: true, required: true },
@@ -439,6 +588,7 @@ export class ApplicationsService {
         applicationId,
         requirementId: { in: reqs.map((r) => r.id) },
         status: { not: 'REPLACEMENT_REQUIRED' },
+        document: { is: { deletedAt: null, files: { some: {} } } },
       },
       select: { requirementId: true },
       // Документов не больше, чем требований, по которым мы их и спрашиваем.
@@ -475,32 +625,50 @@ export class ApplicationsService {
     return app
   }
 
-  // Генерация номера с повтором при гонке (unique на number).
-  private async withNumberRetry<T>(year: number, run: (number: string) => Promise<T>): Promise<T> {
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const count = await this.prisma.application.count({
-        where: { number: { startsWith: `SH-${year}-` } },
-      })
-      const number = `SH-${year}-${String(count + 1 + attempt).padStart(6, '0')}`
-      try {
-        return await run(number)
-      } catch (error) {
-        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-          continue
-        }
-        throw error
-      }
-    }
-    throw new AppException('CONFLICT', 'Не удалось присвоить номер заявки, повторите')
+  /**
+   * Следующий номер заявки SH-YYYY-NNNNNN — внутри транзакции подачи, под advisory-локом года.
+   *
+   * Раньше номер был «число заявок года + 1 + попытка»: COUNT по префиксу на каждую подачу, а
+   * при одновременных подачах (начало семестра, сто вузов на одном счётчике) пять попыток
+   * упирались в одни и те же номера, и студент получал «Не удалось присвоить номер». Теперь
+   * подачи одного года выстраиваются в очередь на время короткой транзакции, и номер — это
+   * последний выданный + 1: без пропусков и без повторов. Последний берётся по unique-индексу
+   * номера (ORDER BY number DESC LIMIT 1), а не подсчётом строк.
+   *
+   * Шесть разрядов — миллион заявок в год на платформу; дальше строковый порядок номеров
+   * перестаёт совпадать с числовым, и формат придётся расширять.
+   */
+  private async nextNumber(tx: Prisma.TransactionClient, year: number): Promise<string> {
+    const prefix = `SH-${year}-`
+    await advisoryXactLock(tx, `application-number:${year}`)
+    const last = await tx.application.findFirst({
+      where: { number: { startsWith: prefix } },
+      orderBy: { number: 'desc' },
+      select: { number: true },
+    })
+    const tail = Number.parseInt(last?.number?.slice(prefix.length) ?? '', 10)
+    const next = Number.isFinite(tail) ? tail + 1 : 1
+    return `${prefix}${String(next).padStart(6, '0')}`
   }
 }
 
-// Статусы, при которых заявка «не просрочена по смыслу» (готова/выдана/завершена).
-const DONE_OR_READY: ApplicationServiceStatus[] = [
-  'READY',
-  'READY_FOR_PICKUP',
-  'ISSUED',
-  'DELIVERED',
-  'REJECTED',
-  'CANCELLED',
-]
+/** Требование из metadata события документа (DOCUMENT_ADDED / DOCUMENT_ACCEPTED). */
+function requirementIdOf(metadata: Prisma.JsonValue | null): string | null {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null
+  const id = (metadata as Record<string, unknown>).requirementId
+  return typeof id === 'string' ? id : null
+}
+
+/**
+ * Номер всё же занят (unique на number) — под локом это возможно только при ручной правке
+ * данных. Отвечаем CONFLICT: повтор подачи возьмёт следующий номер.
+ */
+function rethrowNumberTaken(error: unknown): never {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+    throw new AppException('CONFLICT', 'Не удалось присвоить номер заявки, повторите')
+  }
+  throw error
+}
+
+// Статусы, в которых владелец правит способ получения и ответы анкеты.
+const ANSWERS_EDITABLE: ApplicationServiceStatus[] = ['DRAFT', 'NEEDS_CORRECTION']

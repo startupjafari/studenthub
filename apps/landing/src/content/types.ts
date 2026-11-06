@@ -50,7 +50,6 @@ export interface Dictionary {
   meta: {
     title: string
     description: string
-    languageName: string
   }
 
   nav: {
@@ -63,6 +62,11 @@ export interface Dictionary {
     /** Подписи кнопки-бургера — она иконочная, и без них у неё нет доступного имени. */
     menu: string
     close: string
+    /**
+     * Метка навигации по разделам страницы. Своя, а не подпись одного из пунктов: у трёх
+     * <nav> на странице была одна метка «Что внутри», и скринридер не различал их.
+     */
+    sections: string
   }
 
   hero: {
@@ -150,5 +154,7 @@ export interface Dictionary {
     language: string
     /** Подпись двери работодателя в подвале — короче, чем заголовок той же двери выше. */
     company: string
+    /** Метка навигации подвала: вход, дверь работодателя и почта. */
+    links: string
   }
 }

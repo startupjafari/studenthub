@@ -15,10 +15,18 @@ import {
   Skeleton,
 } from '../../../shared/ui'
 import { nowInTz } from '../../../shared/lib'
-import { scheduleKeys, fetchSchedule } from '../../../entities/schedule'
-import { materialKeys, fetchMaterials } from '../../../entities/material'
+import { scheduleKeys, fetchSchedule, fetchScheduleChanges } from '../../../entities/schedule'
+import { materialKeys, fetchMaterials, fetchMaterialSubjects } from '../../../entities/material'
 import { courseKeys, fetchCourses } from '../../../entities/course'
-import { buildCourses, mergeApiCourses, type CourseNextLesson } from '../lib/build-courses'
+import {
+  buildCourses,
+  courseHref,
+  courseKey,
+  mergeApiCourses,
+  nextLessonRange,
+  type CourseNextLesson,
+} from '../lib/build-courses'
+import { MaterialRow } from './material-row'
 
 // «Дисциплины» студента — единое пространство каждого предмета (задача 2).
 export function CoursesView() {
@@ -26,7 +34,13 @@ export function CoursesView() {
   const locale = useLocale()
 
   const schedule = useQuery({ queryKey: scheduleKeys.view({}), queryFn: () => fetchSchedule({}) })
+  // Свежие материалы — только для «Прочих» ниже; счётчики на карточках считает сервер по всей
+  // выборке, иначе они занижались, как только материалов становилось больше одной страницы.
   const materials = useQuery({ queryKey: materialKeys.list(), queryFn: () => fetchMaterials() })
+  const materialCounts = useQuery({
+    queryKey: materialKeys.subjects(),
+    queryFn: () => fetchMaterialSubjects(),
+  })
   // Backend-домен «Дисциплины»: до применения миграции эндпоинт может быть недоступен —
   // не ретраим и мягко откатываемся на агрегацию из расписания/материалов.
   const apiCourses = useQuery({
@@ -35,12 +49,35 @@ export function CoursesView() {
     retry: false,
   })
 
+  // «Ближайшее занятие» — с отменами и переносами своей даты.
+  const now = useMemo(() => nowInTz(schedule.data?.timezone ?? null), [schedule.data?.timezone])
+  const changesRange = useMemo(() => nextLessonRange(now), [now])
+  const changes = useQuery({
+    queryKey: scheduleKeys.changes(changesRange),
+    queryFn: () => fetchScheduleChanges(changesRange),
+    enabled: !!schedule.data,
+  })
+
   const courses = useMemo(() => {
     if (!schedule.data) return []
-    const now = nowInTz(schedule.data.timezone ?? null)
-    const base = buildCourses(schedule.data.pairs, materials.data ?? [], now)
-    return mergeApiCourses(base, apiCourses.data ?? [])
-  }, [schedule.data, materials.data, apiCourses.data])
+    const base = buildCourses(
+      schedule.data.pairs,
+      materialCounts.data ?? [],
+      now,
+      changes.data ?? [],
+    )
+    return mergeApiCourses(base, apiCourses.data ?? [], materialCounts.data ?? [])
+  }, [schedule.data, materialCounts.data, apiCourses.data, now, changes.data])
+
+  // Материалы, которые не попали ни в одну дисциплину: без предмета или с предметом, которого
+  // нет в расписании студента. Во вкладке дисциплины их не найти — показываем здесь, иначе
+  // студент не увидел бы их нигде.
+  const otherMaterials = useMemo(() => {
+    // Пока расписание не пришло, дисциплин ещё нет — «прочими» оказались бы все материалы.
+    if (!schedule.data) return []
+    const subjects = new Set(courses.map((c) => c.subject))
+    return (materials.data ?? []).filter((m) => !m.subject || !subjects.has(m.subject))
+  }, [schedule.data, courses, materials.data])
 
   return (
     <div className="flex w-full flex-1 flex-col gap-4">
@@ -62,7 +99,7 @@ export function CoursesView() {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {courses.map((c) => (
-            <Link key={c.subject} href={`/courses/${encodeURIComponent(c.subject)}`}>
+            <Link key={courseKey(c)} href={courseHref(c)}>
               <Card className="h-full transition-colors hover:bg-muted/40">
                 <CardContent className="flex h-full flex-col gap-3 p-4">
                   <div className="flex items-start gap-3">
@@ -103,6 +140,21 @@ export function CoursesView() {
             </Link>
           ))}
         </div>
+      )}
+
+      {otherMaterials.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <h2 className="font-heading text-base font-semibold">{t('otherMaterials')}</h2>
+          <Card className="py-0">
+            <CardContent className="p-4">
+              <ul className="flex flex-col gap-1.5">
+                {otherMaterials.map((m) => (
+                  <MaterialRow key={m.id} material={m} locale={locale} t={t} />
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        </section>
       )}
     </div>
   )

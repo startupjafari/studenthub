@@ -39,7 +39,7 @@ export function ProfileCompletion({
       </div>
       <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
         <div
-          className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out motion-reduce:transition-none"
+          className="h-full rounded-full bg-primary transition-[width] duration-(--motion-large) motion-reduce:transition-none"
           style={{ width: `${percent}%` }}
         />
       </div>

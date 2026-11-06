@@ -155,6 +155,20 @@ describe('CareerAnalyticsService — вуз', () => {
     expect(result.rates.hired).toBeNull()
   })
 
+  it('«на модерации» — только опубликованные вакансии, как в самой очереди', async () => {
+    const { service, prisma } = setup()
+    await service.forUniversity(staff('uni-9'))
+
+    const live = { vacancy: { deletedAt: null, status: 'PUBLISHED' } }
+    expect(prisma.vacancyUniversityReview.groupBy.mock.calls[0][0].where).toMatchObject(live)
+    expect(prisma.vacancyUniversityReview.count.mock.calls[0][0].where).toMatchObject({
+      universityId: 'uni-9',
+      status: 'PENDING',
+      ...live,
+    })
+    expect(prisma.vacancyUniversityReview.findFirst.mock.calls[0][0].where).toMatchObject(live)
+  })
+
   it('возраст очереди — прочерк, когда на модерации пусто', async () => {
     const { service } = setup()
     const result = await service.forUniversity(staff())
@@ -218,6 +232,14 @@ describe('CareerAnalyticsService — вуз', () => {
     const { service } = setup()
     const result = await service.forUniversity(staff())
     expect(result.profiles).toEqual({ visible: 120, total: 400 })
+  })
+
+  it('числитель и знаменатель доли профилей — студенты вместе со старостами (D-F31)', async () => {
+    const { service, prisma } = setup()
+    await service.forUniversity(staff())
+    const roles = { in: [Role.STUDENT, Role.STAROSTA] }
+    expect(prisma.user.count.mock.calls[0][0].where).toMatchObject({ role: roles })
+    expect(prisma.careerProfile.count.mock.calls[0][0].where.user).toMatchObject({ role: roles })
   })
 
   it('сотрудник без вуза в токене получает WRONG_SCOPE', async () => {

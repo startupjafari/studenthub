@@ -8,6 +8,7 @@ import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import { CreatePostForm } from '../../../features/create-post'
 import { FeedList } from '../../../widgets/feed-list'
+import { StoriesRail } from '../../../widgets/stories-rail'
 import { FriendsPanel, useFriendsSummary } from '../../../widgets/friends-panel'
 import { Button, Modal, PageHeader, SegmentedTabs } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
@@ -30,9 +31,21 @@ const FILTER_LABEL: Record<FeedFilterValue, string> = {
   TEACHERS: 'filterTeachers',
   IMPORTANT: 'filterImportant',
   SAVED: 'filterSaved',
+  MODERATION: 'filterModeration',
 }
 // Модераторы посты не пишут — только читают и модерируют.
 const READONLY_ROLES: Role[] = [Role.PLATFORM_MODERATOR, Role.UNIVERSITY_MODERATOR]
+// Раздел «Модерация» — не срез личной ленты, а всё, что роль вправе снимать: платформа —
+// все вузы, вуз — свой вуз, декан — свой факультет (сервер, filter=MODERATION). Личная
+// лента для этого не годилась: модератор платформы видел в ней лишь посты для всех, а
+// админ вуза — ни одного поста групп.
+const MODERATOR_ROLES: Role[] = [
+  Role.PLATFORM_ADMIN,
+  Role.PLATFORM_MODERATOR,
+  Role.UNIVERSITY_ADMIN,
+  Role.UNIVERSITY_MODERATOR,
+  Role.DEAN,
+]
 
 /**
  * Экран ленты для ролей вне студенческой главной.
@@ -45,10 +58,21 @@ const READONLY_ROLES: Role[] = [Role.PLATFORM_MODERATOR, Role.UNIVERSITY_MODERAT
 export function FeedView() {
   const t = useTranslations('Nav')
   const tFeed = useTranslations('Feed')
-  const [filter, setFilter] = useState<FeedFilterValue>('ALL')
+  const [picked, setFilter] = useState<FeedFilterValue | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const role = useAppSelector((s) => s.auth.role)
   const canPost = role !== null && !READONLY_ROLES.includes(role)
+  const canModerate = role !== null && MODERATOR_ROLES.includes(role)
+  // Модератору без права публиковать модерация — основная работа: раздел первым и открыт
+  // сразу. Админу и декану лента остаётся своей, а «Модерация» — последним разделом.
+  // Выбор по умолчанию считается от роли, а не замораживается в useState: роль приходит
+  // после восстановления сессии, уже после первой отрисовки.
+  const filters: readonly FeedFilterValue[] = !canModerate
+    ? FILTERS
+    : canPost
+      ? [...FILTERS, 'MODERATION']
+      : ['MODERATION', ...FILTERS]
+  const filter = picked ?? (canModerate && !canPost ? 'MODERATION' : 'ALL')
   // Боковая колонка есть только при непустом блоке друзей — иначе ленту незачем сдвигать.
   const { hasAny: hasFriendsPanel } = useFriendsSummary()
 
@@ -61,7 +85,7 @@ export function FeedView() {
             aria-label={t('posts')}
             value={filter}
             onChange={setFilter}
-            items={FILTERS.map((f) => ({ value: f, label: tFeed(FILTER_LABEL[f]) }))}
+            items={filters.map((f) => ({ value: f, label: tFeed(FILTER_LABEL[f]) }))}
           />
         }
         actions={
@@ -74,13 +98,14 @@ export function FeedView() {
         }
       />
 
-      {/* Колонка ленты — 36rem: на 42rem строка получалась длиннее удобной для чтения,
-          а квадратные плитки коллажа раздувались вместе с ней. Ширина ленты не зависит
-          от боковой колонки — иначе на широком мониторе посты выглядели бы иначе, чем
-          на ноутбуке; поэтому у самой ленты фиксированный максимум, а не `flex-1`.
+      {/* Колонка ленты — до 44rem (704px): на 36rem большой монитор оставлял узкую полосу,
+          а снимки выходили мелкими; шире — строка текста становится неудобной. Плитки
+          коллажа держат высоту пропорцией, поэтому с колонкой не раздуваются. Ширина
+          ленты не зависит от боковой колонки — иначе на широком мониторе посты выглядели
+          бы иначе, чем на ноутбуке; поэтому у самой ленты максимум, а не `flex-1`.
 
-          От xl справа встаёт колонка 20rem, и центрируется уже связка «лента + колонка»
-          (36 + 1.5 + 20 = 57.5rem) — как во ВК: колонка не приклеена к краю экрана.
+          От xl справа встаёт колонка (18rem, с 2xl — 20rem), и центрируется уже связка
+          «лента + колонка» (до 44 + 1.5 + 20 = 65.5rem) — колонка не приклеена к краю экрана.
           Ниже xl места на неё нет, а без друзей и заявок её нет вовсе — в обоих случаях
           `justify-center` возвращает ленту ровно в центр страницы. */}
       {/* `shrink-0` и НЕ `flex-1 min-h-0`: высота ряда обязана считаться по содержимому,
@@ -92,12 +117,16 @@ export function FeedView() {
           возвращалась. */}
       <div
         className={cn(
-          'mx-auto flex w-full max-w-xl shrink-0 justify-center gap-6',
-          hasFriendsPanel && 'xl:max-w-[57.5rem]',
+          'mx-auto flex w-full max-w-[44rem] shrink-0 justify-center gap-6',
+          hasFriendsPanel && 'xl:max-w-[65.5rem]',
         )}
       >
         {/* `flex-1` здесь про ШИРИНУ (ряд горизонтальный), высоту колонка берёт по ленте. */}
-        <div className="flex w-full max-w-xl min-w-0 flex-1 flex-col">
+        {/* `gap-4` — тот же шаг, что между постами: полоса сторис стоит в общем ритме ленты. */}
+        <div className="flex w-full max-w-[44rem] min-w-0 flex-1 flex-col gap-4">
+          {/* Кольца сторис — только в общей ленте: в срезах («Важное», «Сохранённое»)
+              они не про тот контент, который человек там ищет. */}
+          {filter === 'ALL' && <StoriesRail />}
           <FeedList filter={filter} />
         </div>
 
@@ -111,7 +140,7 @@ export function FeedView() {
           // когда содержимого мало — полосы прокрутки нет вовсе. 2rem — отступ сверху
           // (`top-4`) и такой же зазор снизу; `main` занимает всю высоту окна, других
           // полос над ним нет.
-          <aside className="hidden w-80 shrink-0 flex-col gap-4 self-start xl:sticky xl:top-4 xl:flex xl:max-h-[calc(100dvh-2rem)] xl:overflow-y-auto">
+          <aside className="sh-scroll hidden w-72 shrink-0 flex-col gap-4 self-start xl:sticky xl:top-4 xl:flex xl:max-h-[calc(100dvh-2rem)] xl:overflow-y-auto 2xl:w-80">
             <FriendsPanel />
           </aside>
         )}

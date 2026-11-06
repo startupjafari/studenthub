@@ -47,10 +47,37 @@ describe('NotificationsService', () => {
     it('hasNext=true и cursor выставляются при переполнении лимита', async () => {
       const { service, prisma } = makeService()
       // limit 2 → запрашиваем 3; вернулось 3 → есть следующая
-      prisma.notification.findMany.mockResolvedValue([{ id: 'n1' }, { id: 'n2' }, { id: 'n3' }])
+      const at = new Date(5_000)
+      prisma.notification.findMany.mockResolvedValue([
+        { id: 'n1', createdAt: at },
+        { id: 'n2', createdAt: at },
+        { id: 'n3', createdAt: at },
+      ])
       const res = await service.list('u1', { limit: 2 })
       expect(res.items).toHaveLength(2)
-      expect(res.meta).toEqual({ cursor: 'n2', hasNext: true })
+      // Курсор — момент и id последней строки страницы (keyset), а не голый id.
+      expect(res.meta).toEqual({ cursor: '5000.n2', hasNext: true })
+    })
+
+    // Свёрнутая строка «подпрыгивает» наверх, курсорную могут удалить: условие по самим
+    // значениям сортировки не зависит от судьбы строки — ни дублей, ни пустой страницы.
+    it('следующая страница — строго раньше позиции курсора, без Prisma-курсора', async () => {
+      const { service, prisma } = makeService()
+      prisma.notification.findMany.mockResolvedValue([])
+      await service.list('u1', { limit: 2, cursor: '5000.n2' })
+      const args = prisma.notification.findMany.mock.calls[0][0]
+      expect(args.cursor).toBeUndefined()
+      expect(args.where).toEqual({
+        AND: [
+          { userId: 'u1' },
+          {
+            OR: [
+              { createdAt: { lt: new Date(5_000) } },
+              { createdAt: new Date(5_000), id: { lt: 'n2' } },
+            ],
+          },
+        ],
+      })
     })
 
     it('последняя страница: hasNext=false, cursor undefined', async () => {
@@ -110,6 +137,32 @@ describe('NotificationsService', () => {
       const arg = prisma.notificationSettings.upsert.mock.calls[0][0]
       expect(arg.where).toEqual({ userId: 'u1' })
       expect(arg.update).toEqual({ emailEnabled: false })
+    })
+  })
+
+  // F-F08: письмо о сообщениях чата — не чаще раза в окно на ключ свёрнутого уведомления.
+  describe('claimEmailSlot', () => {
+    it('свободное окно занимается атомарно (SET NX с TTL)', async () => {
+      const { service, redis } = makeService()
+      redis.set.mockResolvedValue('OK')
+      await expect(service.claimEmailSlot('u1', 'new-message:chat:c1')).resolves.toBe(true)
+      const [key, , ex, ttl, nx] = redis.set.mock.calls[0]
+      expect(key).toBe('notif:email:u1:new-message:chat:c1')
+      expect(ex).toBe('EX')
+      expect(ttl).toBeGreaterThan(0)
+      expect(nx).toBe('NX')
+    })
+
+    it('окно занято — письма нет', async () => {
+      const { service, redis } = makeService()
+      redis.set.mockResolvedValue(null)
+      await expect(service.claimEmailSlot('u1', 'k')).resolves.toBe(false)
+    })
+
+    it('Redis недоступен — письма нет, без исключения', async () => {
+      const { service, redis } = makeService()
+      redis.set.mockRejectedValue(new Error('down'))
+      await expect(service.claimEmailSlot('u1', 'k')).resolves.toBe(false)
     })
   })
 })

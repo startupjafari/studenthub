@@ -23,8 +23,11 @@ export function searchVacancies(params: Partial<VacancySearchInput> = {}): Promi
   return getPaged<Vacancy>('/career/vacancies', { page: 1, limit: 20, ...params })
 }
 
-export async function fetchVacancy(id: string): Promise<Vacancy> {
-  const { data } = await api.get<Vacancy>(`/career/vacancies/${id}`)
+// universityId — только для платформенных ролей: они смотрят витрину выбранного вуза.
+export async function fetchVacancy(id: string, universityId?: string | null): Promise<Vacancy> {
+  const { data } = await api.get<Vacancy>(`/career/vacancies/${id}`, {
+    params: universityId ? { universityId } : undefined,
+  })
   return data
 }
 

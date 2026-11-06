@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common'
 import type Redis from 'ioredis'
-import { resolveUniversityScope } from './career-scope'
+import { CAREER_STUDENT_ROLES, resolveUniversityScope } from './career-scope'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -36,6 +36,14 @@ const SKILLS_LIMIT = 8
  */
 const CACHE_TTL_SECONDS = 60
 
+/**
+ * Вакансия, решение по которой ещё что-то значит: опубликована и не удалена. Очередь
+ * модерации (VacanciesService.reviewQueue) показывает только такие, и сводка обязана
+ * считать по тому же условию: решения по снятым и закрытым вакансиям давали «2 на
+ * модерации» при пустой очереди.
+ */
+const LIVE_VACANCY = { deletedAt: null, status: 'PUBLISHED' } as const
+
 const HOUR_MS = 3_600_000
 const DAY_MS = 24 * HOUR_MS
 
@@ -64,7 +72,7 @@ export class CareerAnalyticsService {
       }),
       this.prisma.vacancyUniversityReview.groupBy({
         by: ['status'],
-        where: { universityId },
+        where: { universityId, vacancy: LIVE_VACANCY },
         _count: { _all: true },
       }),
       this.prisma.careerApplication.groupBy({
@@ -72,10 +80,16 @@ export class CareerAnalyticsService {
         where: { universityId },
         _count: { _all: true },
       }),
+      // Числитель и знаменатель — по одним и тем же людям (D-F31).
       this.prisma.careerProfile.count({
-        where: { visibility: 'EMPLOYERS', user: { universityId, deletedAt: null } },
+        where: {
+          visibility: 'EMPLOYERS',
+          user: { universityId, deletedAt: null, role: { in: CAREER_STUDENT_ROLES } },
+        },
       }),
-      this.prisma.user.count({ where: { universityId, role: 'STUDENT', deletedAt: null } }),
+      this.prisma.user.count({
+        where: { universityId, role: { in: CAREER_STUDENT_ROLES }, deletedAt: null },
+      }),
     ])
 
     const [reached, queue, weekly, skills] = await Promise.all([
@@ -168,9 +182,11 @@ export class CareerAnalyticsService {
    */
   private async queue(universityId: string, now: Date) {
     const [pending, oldest, decision, requested, expiring, stale] = await Promise.all([
-      this.prisma.vacancyUniversityReview.count({ where: { universityId, status: 'PENDING' } }),
+      this.prisma.vacancyUniversityReview.count({
+        where: { universityId, status: 'PENDING', vacancy: LIVE_VACANCY },
+      }),
       this.prisma.vacancyUniversityReview.findFirst({
-        where: { universityId, status: 'PENDING' },
+        where: { universityId, status: 'PENDING', vacancy: LIVE_VACANCY },
         orderBy: { createdAt: 'asc' },
         select: { createdAt: true },
       }),
@@ -298,7 +314,7 @@ export class CareerAnalyticsService {
           FROM users u
           CROSS JOIN LATERAL unnest(u.skills) AS us(skill)
          WHERE u.university_id = ${universityId}
-           AND u.role::text = 'STUDENT'
+           AND u.role::text IN ('STUDENT', 'STAROSTA')
            AND u.deleted_at IS NULL
          GROUP BY 1
       ),

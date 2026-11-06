@@ -1,15 +1,18 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import type { FastifyRequest } from 'fastify'
+import { RESTRICTED_ROLES } from '@studenthub/shared-types'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { PushService } from './push.service'
 import { PushSubscribeDto, PushUnsubscribeDto } from './dto/push-subscribe.dto'
 import { RegisterDeviceDto, UnregisterDeviceDto } from './dto/register-device.dto'
+import { RestrictedAllowed } from '../../common/decorators/restricted-allowed.decorator'
 
 // Подписки на Web Push (Ф13.3). Все ручки — под JwtAuthGuard (глобальный).
 @ApiTags('Push')
 @ApiBearerAuth()
+@RestrictedAllowed(...RESTRICTED_ROLES)
 @Controller('push')
 export class PushController {
   constructor(private readonly push: PushService) {}

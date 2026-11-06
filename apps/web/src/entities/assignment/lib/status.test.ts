@@ -51,6 +51,25 @@ function asg(o: Partial<AssignmentItem> = {}): AssignmentItem {
 }
 
 describe('studentAssignmentStatus', () => {
+  it('закрытое задание без сданной работы → CLOSED, а не «Не начато»', () => {
+    expect(studentAssignmentStatus(asg({ status: 'CLOSED' }), NOW)).toBe('CLOSED')
+    expect(
+      studentAssignmentStatus(asg({ status: 'CLOSED', mySubmission: sub('DRAFT') }), NOW),
+    ).toBe('CLOSED')
+    expect(
+      studentAssignmentStatus(asg({ status: 'CLOSED', mySubmission: sub('RETURNED') }), NOW),
+    ).toBe('CLOSED')
+  })
+
+  it('в закрытом задании сданная и оценённая работа сохраняют свой статус', () => {
+    expect(
+      studentAssignmentStatus(asg({ status: 'CLOSED', mySubmission: sub('SUBMITTED') }), NOW),
+    ).toBe('SUBMITTED')
+    expect(
+      studentAssignmentStatus(asg({ status: 'CLOSED', mySubmission: sub('GRADED') }), NOW),
+    ).toBe('GRADED')
+  })
+
   it('без сдачи и срока → NOT_STARTED', () => {
     expect(studentAssignmentStatus(asg(), NOW)).toBe('NOT_STARTED')
   })

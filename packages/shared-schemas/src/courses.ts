@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
+import { OffsetPaginationSchema, SortOrderSchema, queryBoolean } from './pagination.js'
 
 // Дисциплины (docs/ACADEMIC_CORE.md, задача 2): Subject (справочник вуза), Term
 // (семестр как сущность), Course (преподавание дисциплины группе в семестре).
@@ -119,6 +119,6 @@ export const CourseListQuerySchema = OffsetPaginationSchema.extend({
   groupId: z.string().min(1).optional(),
   termId: z.string().min(1).optional(),
   teacherId: z.string().min(1).optional(),
-  mine: z.coerce.boolean().optional(),
+  mine: queryBoolean.optional(),
 })
 export type CourseListQueryInput = z.infer<typeof CourseListQuerySchema>

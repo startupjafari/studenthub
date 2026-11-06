@@ -103,11 +103,13 @@ export const RoomSortSchema = z.enum(ROOM_SORT_FIELDS)
 export type RoomSortValue = z.infer<typeof RoomSortSchema>
 
 // sort/order — по всей выборке, а не по открытой странице.
+// search — подстрока названия без учёта регистра (выбор аудитории в расписании).
 export const RoomListQuerySchema = OffsetPaginationSchema.extend({
   sort: RoomSortSchema.optional(),
   order: SortOrderSchema.optional(),
   universityId: z.string().min(1).optional(),
   kind: RoomKindSchema.optional(),
+  search: z.string().trim().min(1).max(100).optional(),
 })
 export type RoomListQueryInput = z.infer<typeof RoomListQuerySchema>
 

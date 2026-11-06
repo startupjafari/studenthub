@@ -11,6 +11,8 @@
 // TEACHER (по нагрузке), STAROSTA (по одному на группу), STUDENT (остальные).
 // PLATFORM_ADMIN/PLATFORM_MODERATOR — платформенные, их создаёт основной сид.
 
+import { createHash, randomUUID } from 'node:crypto'
+
 import { ACADEMIC_TITLES, POSITIONS_TEACHER, person, translit } from '../data/people.mjs'
 import { staffProfile, studentProfile } from '../data/profiles.mjs'
 import { child, emailFor, id, uniPrefix, usernameFor } from '../lib/ids.mjs'
@@ -221,20 +223,42 @@ export async function seedPeople(prisma, writer, ctx) {
   for (const [i, role] of inviteRoles.entries()) {
     const status = i % 3 === 0 ? 'PENDING' : i % 3 === 1 ? 'USED' : 'EXPIRED'
     const faculty = people.faculties[i % people.faculties.length]
+    const group = faculty.groups[0]
+    // Scope инвайта — как у сервиса выдачи: факультет у всех ролей факультета (декану
+    // тоже), группа — у учащихся.
+    const inFaculty = ['STUDENT', 'STAROSTA', 'TEACHER', 'DEAN'].includes(role)
+    const inGroup = ['STUDENT', 'STAROSTA'].includes(role)
+    // Использованный инвайт закрыт человеком ТОЙ ЖЕ роли и из того же scope: регистрация
+    // берёт роль из инвайта, и «студенческий инвайт использовал преподаватель» — состояние,
+    // которого в живой базе не бывает.
+    const usedBy = {
+      STUDENT: group.studentIds[1],
+      STAROSTA: group.starostaId,
+      TEACHER: faculty.teacherIds[0],
+      DEAN: faculty.deanId,
+      UNIVERSITY_MODERATOR: people.moderatorIds[0],
+    }[role]
     await writer.add('invite', {
       id: id(index, 'inv', i),
-      // Токен уникален глобально; он же ключ ссылки-приглашения.
-      token: `${id(index, 'invite', i)}-${status.toLowerCase()}`,
+      // Токен уникален глобально; он же ключ ссылки-приглашения. У живого (PENDING)
+      // инвайта он не должен быть выводим из репозитория: сид гоняют и по боевой базе, и
+      // `u001-invite-3-pending` был бы готовой регистрацией старостой. Поэтому в колонку
+      // кладём хэш случайного токена (так хранит и сервис, invite-token.ts) — сам токен
+      // нигде не сохраняется, и ссылкой по такому инвайту не воспользоваться никому.
+      // Использованным и истёкшим предсказуемый токен ничего не даёт.
+      token:
+        status === 'PENDING'
+          ? createHash('sha256').update(randomUUID()).digest('hex')
+          : `${id(index, 'invite', i)}-${status.toLowerCase()}`,
       role,
       email: `invite.${i}@${uniId}.example.kz`,
       universityId: uniId,
-      facultyId:
-        role === 'STUDENT' || role === 'STAROSTA' || role === 'TEACHER' ? faculty.id : null,
-      groupId: role === 'STUDENT' || role === 'STAROSTA' ? faculty.groups[0].id : null,
+      facultyId: inFaculty ? faculty.id : null,
+      groupId: inGroup ? group.id : null,
       status,
       expiresAt: status === 'EXPIRED' ? random.randomDate(-30, -2) : random.randomDate(2, 30),
       createdById: adminId,
-      usedById: status === 'USED' ? faculty.teacherIds[0] : null,
+      usedById: status === 'USED' ? usedBy : null,
       usedAt: status === 'USED' ? random.randomDate(-20, -1) : null,
     })
   }

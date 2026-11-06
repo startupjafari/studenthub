@@ -157,9 +157,15 @@ describe('Users & Notifications (e2e)', () => {
       const id = await makeStudent('bye@e2e.io', { phone: '+70000000001', bio: 'секрет' })
       const { token } = await login('bye@e2e.io')
 
+      // Без повторной аутентификации удаление не проходит.
       await request(server)
         .delete('/api/v1/users/me')
         .set('Authorization', `Bearer ${token}`)
+        .expect(400)
+      await request(server)
+        .delete('/api/v1/users/me')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ password: PASSWORD })
         .expect(200)
 
       const row = await prisma.user.findUnique({ where: { id } })

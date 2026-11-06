@@ -166,8 +166,36 @@ export function UniversityModeratorDashboard() {
     }
     return { fresh, days, older }
   }, [pendingItems])
-  // Просрочка — всё, что ждёт дольше суток.
-  const overdue = aging.days + aging.older
+  // Просрочка — всё, что ждёт дольше суток. Среди 200 самых старых: если не все они
+  // просрочены, просроченные все здесь и счёт точный.
+  const overdueOldest = aging.days + aging.older
+  // Очередь длиннее страницы, а вся страница старых просрочена: плитка упиралась в 200.
+  // Досчитываем с другого конца — всё, что не свежее суток, просрочено.
+  const total = pending.data?.total ?? 0
+  const oldestSaturated =
+    pendingItems.length > 0 && overdueOldest === pendingItems.length && total > pendingItems.length
+  const newestQuery = {
+    status: 'PENDING',
+    sort: 'createdAt',
+    order: 'desc',
+    limit: SCAN_LIMIT,
+  } as const
+  const newest = useQuery({
+    queryKey: complaintKeys.list(newestQuery),
+    queryFn: () => fetchComplaints(newestQuery),
+    enabled: oldestSaturated,
+  })
+  const overdue = useMemo((): { value: number; atLeast: boolean } | null => {
+    if (!oldestSaturated) return { value: overdueOldest, atLeast: false }
+    const items = newest.data?.items
+    if (!items) return null
+    const now = Date.now()
+    const fresh = items.filter((c) => now - new Date(c.createdAt).getTime() < DAY_MS).length
+    // Свежих меньше страницы — они все здесь, остальная очередь просрочена.
+    if (fresh < items.length) return { value: total - fresh, atLeast: false }
+    // Обе страницы упёрлись в потолок: точнее «не меньше» не сказать.
+    return { value: overdueOldest, atLeast: true }
+  }, [oldestSaturated, overdueOldest, newest.data, total])
 
   // На что жалуются — по категориям цели, только непустые: нулевой столбец говорит
   // «жалоб этого вида нет», и на графике сравнения величин он лишний.
@@ -261,9 +289,15 @@ export function UniversityModeratorDashboard() {
           icon={Clock}
           tone="text-warning"
           label={t('kpiOverdue')}
-          value={pending.isLoading ? null : overdue}
-          valueTone={overdue > 0 ? 'text-warning' : undefined}
-          loading={pending.isLoading}
+          value={
+            overdue === null
+              ? null
+              : overdue.atLeast
+                ? t('kpiOverdueAtLeast', { n: overdue.value })
+                : overdue.value
+          }
+          valueTone={(overdue?.value ?? 0) > 0 ? 'text-warning' : undefined}
+          loading={pending.isLoading || (oldestSaturated && newest.isLoading)}
           href={QUEUE_HREF}
         />
         <MetricTile
@@ -287,7 +321,7 @@ export function UniversityModeratorDashboard() {
 
       <SectionPanel title={t('chartFlow')} subtitle={t('chartFlowHint')}>
         {recent.isLoading ? (
-          <Skeleton className="h-56 w-full" />
+          <Skeleton fill className="min-h-56" />
         ) : flowEmpty ? (
           <EmptyState title={t('chartFlowEmpty')} className="border-0 p-6" />
         ) : (
@@ -340,7 +374,7 @@ export function UniversityModeratorDashboard() {
       <div className="grid gap-4 lg:grid-cols-2">
         <SectionPanel title={t('chartTargets')} subtitle={t('chartTargetsHint')}>
           {pending.isLoading ? (
-            <Skeleton className="h-48 w-full" />
+            <Skeleton fill className="min-h-48" />
           ) : targets.length === 0 ? (
             <EmptyState title={t('chartQueueEmpty')} className="border-0 p-6" />
           ) : (
@@ -357,8 +391,8 @@ export function UniversityModeratorDashboard() {
 
         <SectionPanel title={t('chartAging')} subtitle={t('chartAgingHint')}>
           {pending.isLoading ? (
-            <Skeleton className="h-48 w-full" />
-          ) : overdue === 0 && aging.fresh === 0 ? (
+            <Skeleton fill className="min-h-48" />
+          ) : overdueOldest === 0 && aging.fresh === 0 ? (
             <EmptyState title={t('chartQueueEmpty')} className="border-0 p-6" />
           ) : (
             <BarChart
@@ -387,7 +421,7 @@ export function UniversityModeratorDashboard() {
           {pending.isLoading ? (
             <div className="flex flex-col gap-2">
               {Array.from({ length: LIST_ROWS }).map((_, i) => (
-                <Skeleton key={i} className="h-11 w-full" />
+                <Skeleton key={i} fill className="min-h-11" />
               ))}
             </div>
           ) : oldest.length === 0 ? (
@@ -439,7 +473,7 @@ export function UniversityModeratorDashboard() {
           {audit.isLoading ? (
             <div className="flex flex-col gap-2">
               {Array.from({ length: LIST_ROWS }).map((_, i) => (
-                <Skeleton key={i} className="h-11 w-full" />
+                <Skeleton key={i} fill className="min-h-11" />
               ))}
             </div>
           ) : actions.length === 0 ? (

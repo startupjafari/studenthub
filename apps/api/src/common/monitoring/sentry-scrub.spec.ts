@@ -1,5 +1,6 @@
 import type { ErrorEvent } from '@sentry/nestjs'
-import { scrubEvent } from './sentry-scrub'
+import { LINK_PREVIEW_USER_AGENT } from '../link-preview/link-preview-agent'
+import { scrubBreadcrumb, scrubEvent, scrubTransaction } from './sentry-scrub'
 
 // Ф13.8. Этот тест — гарантия §14.9/§11.3 для внешнего трекера: если он падает,
 // значит в Sentry может уехать секрет или персональные данные. Ослаблять нельзя.
@@ -120,5 +121,72 @@ describe('scrubEvent', () => {
     const event = scrubEvent({ ...baseEvent(), request: { url: '/register?Token=abc' } })
 
     expect(event?.request?.url).toBe('/register?Token=[Filtered]')
+  })
+})
+
+describe('scrubBreadcrumb', () => {
+  it('маскирует токен бота Telegram в пути исходящего запроса', () => {
+    const crumb = scrubBreadcrumb({
+      category: 'http',
+      data: { url: 'https://api.telegram.org/bot123456:AAH-secret_Token/sendMessage' },
+    })
+
+    expect(crumb?.data?.url).toBe('https://api.telegram.org/bot[token]/sendMessage')
+  })
+
+  it('убирает строку запроса и якорь, которые SDK пишет отдельными полями', () => {
+    const crumb = scrubBreadcrumb({
+      category: 'http',
+      data: { url: 'https://minio/x', 'http.query': '?t=secret', 'http.fragment': '#a' },
+    })
+
+    expect(crumb?.data).toEqual({ url: 'https://minio/x' })
+  })
+
+  it('не пишет запросы превью ссылок: их адрес — содержимое личной переписки', () => {
+    const request = {
+      getHeader: (name: string) => (name === 'user-agent' ? LINK_PREVIEW_USER_AGENT : undefined),
+    }
+
+    expect(
+      scrubBreadcrumb(
+        { category: 'http', data: { url: 'https://private.example/x' } },
+        { request },
+      ),
+    ).toBeNull()
+  })
+})
+
+describe('scrubTransaction', () => {
+  it('чистит описание и адрес HTTP-спана, SQL-спаны не трогает', () => {
+    const event = scrubTransaction({
+      type: 'transaction',
+      spans: [
+        {
+          span_id: 's1',
+          trace_id: 't1',
+          start_timestamp: 0,
+          op: 'http.client',
+          description: 'POST https://api.telegram.org/bot1:abc/sendMessage',
+          data: { url: 'https://api.telegram.org/bot1:abc/sendMessage', 'url.query': '?t=1' },
+        },
+        {
+          span_id: 's2',
+          trace_id: 't1',
+          start_timestamp: 0,
+          op: 'db',
+          description: 'SELECT 1 WHERE a = ? & b = ?',
+          data: {},
+        },
+      ],
+    })
+
+    expect(event?.spans?.[0]?.description).toBe(
+      'POST https://api.telegram.org/bot[token]/sendMessage',
+    )
+    expect(event?.spans?.[0]?.data).toEqual({
+      url: 'https://api.telegram.org/bot[token]/sendMessage',
+    })
+    expect(event?.spans?.[1]?.description).toBe('SELECT 1 WHERE a = ? & b = ?')
   })
 })

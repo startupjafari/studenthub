@@ -294,7 +294,7 @@ describe('Career (e2e) — сквозной поток работодателя 
         .expect(404)
     })
 
-    it('неподтверждённая компания не может подать заявку в вуз', async () => {
+    it('неподтверждённая компания не может войти, а значит и подать заявку в вуз', async () => {
       await request(server)
         .post('/api/v1/career/companies/signup')
         .send({
@@ -306,12 +306,12 @@ describe('Career (e2e) — сквозной поток работодателя 
         })
         .expect(202)
 
-      const token = await login('hr@company.kz')
-      await request(server)
-        .post('/api/v1/career/companies/me/access')
-        .set(auth(token))
-        .send({ universityId: UNI_A })
+      // Доступ закрыт уже на входе: без токена до заявки в вуз не дойти.
+      const res = await request(server)
+        .post('/api/v1/auth/login')
+        .send({ identifier: 'hr@company.kz', password: PASSWORD })
         .expect(403)
+      expect(res.body.error.code).toBe('EMAIL_NOT_VERIFIED')
     })
   })
 
@@ -755,12 +755,13 @@ describe('Career (e2e) — сквозной поток работодателя 
         .expect(200)
     }
 
+    // 404, а не 403: «чужой вуз» отвечает так же, как несуществующий id (BUG-222).
     it('без допуска к вузу карточка не отдаётся', async () => {
       await openProfile()
       await request(server)
         .get(`/api/v1/career/profile/candidates/${studentId}`)
         .set(auth(employerToken))
-        .expect(403)
+        .expect(404)
     })
 
     it('скрытый профиль отвечает как несуществующий', async () => {
@@ -833,7 +834,7 @@ describe('Career (e2e) — сквозной поток работодателя 
       await request(server)
         .get(`/api/v1/career/profile/candidates/${studentId}`)
         .set(auth(employerToken))
-        .expect(403)
+        .expect(404)
     })
   })
 

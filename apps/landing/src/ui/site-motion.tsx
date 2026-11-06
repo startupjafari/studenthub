@@ -59,6 +59,12 @@ export function SiteMotion() {
     if (calm) {
       counters.forEach(runCounter)
     } else if ('IntersectionObserver' in window) {
+      // В разметке стоит готовое число — для роботов и для страницы без JavaScript. Разбег
+      // начинается с нуля, поэтому сбрасываем его сразу: блок со счётчиком в этот момент
+      // ещё не проявился (.sh-reveal), и готовое число не мелькает.
+      counters.forEach((el) => {
+        el.textContent = '0'
+      })
       const io = new IntersectionObserver(
         (entries) => {
           entries.forEach((entry) => {

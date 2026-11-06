@@ -25,6 +25,7 @@ import {
 import { toApiError } from '../../../shared/lib'
 import { appointmentKeys, createAppointmentRequest } from '../../../entities/appointment'
 import { APPT_TYPE_KEY } from '../lib/visuals'
+import { nowWallInput, useUniversityTimezone, wallInputToIso } from '../lib/university-time'
 
 // Модалка записи в деканат (студент): тип приёма, желаемое время, тема.
 export function CreateAppointmentModal({ onClose }: { onClose: () => void }) {
@@ -32,20 +33,29 @@ export function CreateAppointmentModal({ onClose }: { onClose: () => void }) {
   const tCommon = useTranslations('Common')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  // Желаемое время вводится и сравнивается с «сейчас» по часам вуза, а не браузера.
+  const timezone = useUniversityTimezone()
   const [type, setType] = useState<CreateAppointmentInput['type']>('CONSULTATION')
   const [whenLocal, setWhenLocal] = useState('')
   const [topic, setTopic] = useState('')
   const [pending, setPending] = useState(false)
   // Ошибку показываем после первой попытки отправки, а не на пустой форме.
   const [submitted, setSubmitted] = useState(false)
-  const whenError = !whenLocal ? tCommon('dateRequired') : null
+  // Сервер не принимает время в прошлом — ловим это здесь же, у поля, а не тостом после
+  // отправки. Строки "YYYY-MM-DDTHH:mm" сравниваются лексикографически как даты.
+  const minLocal = nowWallInput(timezone)
+  const whenError = !whenLocal
+    ? tCommon('dateRequired')
+    : whenLocal < nowWallInput(timezone)
+      ? t('timeInPast')
+      : null
 
   async function onSubmit() {
     setSubmitted(true)
     if (whenError) return
     const payload = {
       type,
-      requestedAt: whenLocal ? new Date(whenLocal).toISOString() : '',
+      requestedAt: whenLocal ? wallInputToIso(whenLocal, timezone) : '',
       ...(topic.trim() ? { topic: topic.trim() } : {}),
     }
     const parsed = CreateAppointmentSchema.safeParse(payload)
@@ -60,7 +70,15 @@ export function CreateAppointmentModal({ onClose }: { onClose: () => void }) {
       toast.success(t('created'))
       onClose()
     } catch (e) {
-      toast.error(tErr(toApiError(e).code))
+      const code = toApiError(e).code
+      // CONFLICT здесь — потолок открытых записей студента (C-F24).
+      toast.error(
+        code === 'CONFLICT'
+          ? t('tooManyActive')
+          : code === 'VALIDATION_ERROR'
+            ? t('formInvalid')
+            : tErr(code),
+      )
     } finally {
       setPending(false)
     }
@@ -89,6 +107,7 @@ export function CreateAppointmentModal({ onClose }: { onClose: () => void }) {
           <DateTimePicker
             value={whenLocal}
             onChange={setWhenLocal}
+            min={minLocal}
             aria-invalid={submitted && !!whenError}
           />
           <FieldError>{submitted ? whenError : null}</FieldError>

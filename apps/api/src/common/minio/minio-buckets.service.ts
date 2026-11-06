@@ -59,6 +59,11 @@ export class MinioBucketsService implements OnModuleInit {
         access: 'private',
         expireDays: Math.ceil(TTL.STORY_HOURS / 24),
       },
+      // «Актуальное» — без TTL: копия живёт, пока автор не уберёт её из подборки.
+      {
+        name: this.config.get('MINIO_BUCKET_STORY_HIGHLIGHTS', { infer: true }),
+        access: 'private',
+      },
       { name: this.config.get('MINIO_BUCKET_APPLICATIONS', { infer: true }), access: 'private' },
       { name: this.config.get('MINIO_BUCKET_MATERIALS', { infer: true }), access: 'private' },
       { name: this.config.get('MINIO_BUCKET_CHAT', { infer: true }), access: 'private' },
@@ -92,6 +97,11 @@ export class MinioBucketsService implements OnModuleInit {
       await this.minio.setBucketPolicy(spec.name, publicReadPolicy(spec.name))
     }
 
+    // Правила `AbortIncompleteMultipartUpload` здесь нет намеренно: MinIO отвечает на него
+    // `InvalidArgument`, а `setBucketLifecycle` заменяет конфигурацию целиком — вместе с ним не
+    // встал бы и TTL сторис. Брошенные многочастные загрузки убирают встроенная уборка MinIO
+    // (`MINIO_API_STALE_UPLOADS_EXPIRY`) и ночная задача `sweepIncompleteUploads`
+    // (docs/RAILWAY.md §4, «Том под крупные файлы»).
     if (spec.expireDays !== undefined) {
       await this.minio.setBucketLifecycle(spec.name, {
         Rule: [

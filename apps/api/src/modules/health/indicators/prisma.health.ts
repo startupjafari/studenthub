@@ -1,21 +1,23 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import { HealthIndicatorResult, HealthIndicatorService } from '@nestjs/terminus'
 import { PrismaService } from '../../../common/prisma/prisma.service'
+import { probe } from './probe'
 
 @Injectable()
 export class PrismaHealthIndicator {
+  private readonly logger = new Logger(PrismaHealthIndicator.name)
+
   constructor(
     private readonly healthIndicatorService: HealthIndicatorService,
     private readonly prisma: PrismaService,
   ) {}
 
-  async isHealthy(key: string): Promise<HealthIndicatorResult> {
-    const indicator = this.healthIndicatorService.check(key)
-    try {
-      await this.prisma.$queryRaw`SELECT 1`
-      return indicator.up()
-    } catch (error) {
-      return indicator.down({ message: (error as Error).message })
-    }
+  isHealthy(key: string): Promise<HealthIndicatorResult> {
+    return probe(
+      this.healthIndicatorService,
+      key,
+      this.logger,
+      () => this.prisma.$queryRaw`SELECT 1`,
+    )
   }
 }

@@ -11,6 +11,7 @@ export {
   fetchVacancyReviewQueue,
   decideVacancyReview,
 } from './api/vacancy-api'
+export { VACANCY_REVIEW_DECIDERS } from './model/permissions'
 export type {
   Vacancy,
   EmployerVacancy,

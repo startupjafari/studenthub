@@ -236,6 +236,7 @@ export function GradingWorkspace({ assignmentId, onBack }: Props) {
           key={open.id}
           assignmentId={assignmentId}
           maxScore={assignment.data?.maxScore ?? null}
+          returnable={assignment.data?.status === 'PUBLISHED'}
           submission={open}
           onClose={() => setOpenId(null)}
           onGraded={() => goNext(open.id)}

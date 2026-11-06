@@ -15,10 +15,11 @@ import {
   GROUP_PICKER_ROLES,
   REPOST_AUDIENCES_BY_ROLE,
   postKeys,
+  repostArticleRequest,
   repostRequest,
   type FeedPost,
 } from '../../../entities/post'
-import { fetchGroups, groupKeys } from '../../../entities/group'
+import { GroupSelect } from '../../../entities/group'
 import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
 import { UserPicker, type PickedUser } from '../../../entities/user'
 import {
@@ -31,14 +32,20 @@ import {
   SelectTrigger,
   SelectValue,
   Textarea,
+  FieldError,
 } from '../../../shared/ui'
 
 // Какая цель не выбрана — ошибка показывается под соответствующим полем (FRONTEND_RULES §7).
 type Missing = 'user' | 'group' | 'faculty' | null
 
-// Репост поста со своим комментарием: POST /posts/:id/repost. Аудиторию выбирает репостящий —
-// от аудитории оригинала она не наследуется (её считает сервер по роли).
-export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () => void }) {
+/** Что репостят: пост ленты или статью (тогда в ленту уходит пост со ссылкой на неё). */
+type RepostSource =
+  { post: FeedPost; article?: never } | { article: { id: string; title: string }; post?: never }
+
+// Репост поста или статьи со своим комментарием: POST /posts/:id/repost или
+// /posts/articles/:id/repost. Аудиторию выбирает репостящий — от аудитории оригинала она не
+// наследуется (её считает сервер по роли).
+export function RepostDialog({ post, article, onClose }: RepostSource & { onClose: () => void }) {
   const t = useTranslations('Feed')
   const tCommon = useTranslations('Common')
   const tPeople = useTranslations('People')
@@ -60,11 +67,6 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
     audience === 'FACULTY' && role !== null && FACULTY_PICKER_ROLES.includes(role)
   const showPersonal = audience === 'PERSONAL'
 
-  const groups = useQuery({
-    queryKey: groupKeys.list(),
-    queryFn: () => fetchGroups(),
-    enabled: showGroupPicker,
-  })
   const faculties = useQuery({
     queryKey: facultyKeys.list(),
     queryFn: () => fetchFaculties(),
@@ -72,7 +74,8 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
   })
 
   const mutation = useMutation({
-    mutationFn: (input: RepostInput) => repostRequest(post.id, input),
+    mutationFn: (input: RepostInput) =>
+      article ? repostArticleRequest(article.id, input) : repostRequest(post.id, input),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: postKeys.all })
       toast.success(t('reposted'))
@@ -82,7 +85,7 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
   })
 
   // Пост-первоисточник для цитаты: репост репоста ссылается на оригинал (так же считает сервер).
-  const source = post.original ?? { author: post.author, content: post.content }
+  const source = post ? (post.original ?? { author: post.author, content: post.content }) : null
 
   const submit = form.handleSubmit((v) => {
     if (showPersonal && !target) return setMissing('user')
@@ -111,9 +114,11 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
         <div className="rounded-xl border border-border bg-muted/30 p-3 text-sm">
           <p className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
             <Repeat2 className="size-3.5" aria-hidden />
-            {source.author.lastName} {source.author.firstName}
+            {source ? `${source.author.lastName} ${source.author.firstName}` : t('articleRepost')}
           </p>
-          <p className="line-clamp-4 whitespace-pre-wrap">{source.content || t('mediaPost')}</p>
+          <p className="line-clamp-4 whitespace-pre-wrap">
+            {source ? source.content || t('mediaPost') : article?.title}
+          </p>
         </div>
 
         <div className="flex flex-col gap-1.5">
@@ -145,27 +150,20 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
             <Label className="text-xs" htmlFor="repost-group">
               {t('group')}
             </Label>
+            {/* Поиск по группам на сервере, а не первые 100 по алфавиту. */}
             <Controller
               control={form.control}
               name="groupId"
               render={({ field }) => (
-                <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                  <SelectTrigger id="repost-group" className="w-full">
-                    <SelectValue placeholder={t('selectGroup')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(groups.data ?? []).map((g) => (
-                      <SelectItem key={g.id} value={g.id}>
-                        {g.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <GroupSelect
+                  id="repost-group"
+                  value={field.value ?? null}
+                  onChange={(v) => field.onChange(v ?? undefined)}
+                  placeholder={t('selectGroup')}
+                />
               )}
             />
-            {missing === 'group' && (
-              <p className="text-xs text-destructive">{t('targetRequired')}</p>
-            )}
+            <FieldError>{missing === 'group' && t('targetRequired')}</FieldError>
           </div>
         )}
 
@@ -192,9 +190,7 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
                 </Select>
               )}
             />
-            {missing === 'faculty' && (
-              <p className="text-xs text-destructive">{t('targetRequired')}</p>
-            )}
+            <FieldError>{missing === 'faculty' && t('targetRequired')}</FieldError>
           </div>
         )}
 
@@ -202,9 +198,7 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
           <div className="flex flex-col gap-1.5">
             <Label className="text-xs">{tPeople('pickUser')}</Label>
             <UserPicker value={target} onSelect={setTarget} />
-            {missing === 'user' && (
-              <p className="text-xs text-destructive">{t('targetRequired')}</p>
-            )}
+            <FieldError>{missing === 'user' && t('targetRequired')}</FieldError>
           </div>
         )}
 
@@ -218,9 +212,7 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
             placeholder={t('repostPlaceholder')}
             {...form.register('content')}
           />
-          {form.formState.errors.content && (
-            <p className="text-xs text-destructive">{t('contentTooLong')}</p>
-          )}
+          <FieldError>{form.formState.errors.content && t('contentTooLong')}</FieldError>
         </div>
 
         <div className="flex items-center justify-between gap-2">

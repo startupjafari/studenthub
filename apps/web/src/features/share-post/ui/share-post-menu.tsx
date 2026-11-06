@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import { Check, Copy, Send, Share2 } from 'lucide-react'
@@ -68,12 +68,19 @@ export function SharePostMenu({ postId, className }: { postId: string; className
     }
   }, [open])
 
+  const qc = useQueryClient()
   const chats = useQuery({ queryKey: chatKeys.list(), queryFn: fetchChats, enabled: picking })
+  // Все выбранные чаты — одной мутацией: одно подтверждение вместо N одинаковых тостов.
   const sendMut = useMutation({
-    mutationFn: (chatId: string) => sharePostRequest(chatId, postId),
+    mutationFn: (chatIds: string[]) =>
+      Promise.all(chatIds.map((chatId) => sharePostRequest(chatId, postId))),
     onSuccess: () => {
       setPicking(false)
       toast.success(t('sharedToChat'))
+      // Список, загруженный для выбора, считался свежим (staleTime) и показывал прежнее
+      // последнее сообщение — сбрасываем.
+      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      void qc.invalidateQueries({ queryKey: chatKeys.unread() })
     },
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
@@ -160,7 +167,7 @@ export function SharePostMenu({ postId, className }: { postId: string; className
           chats={chats.data ?? []}
           currentChatId={null}
           titleOf={(c) => chatLabel(c, tChats)}
-          onSubmit={(chatIds) => chatIds.forEach((chatId) => sendMut.mutate(chatId))}
+          onSubmit={(chatIds) => sendMut.mutate(chatIds)}
           onClose={() => setPicking(false)}
         />
       )}
