@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { floorMesh, slabMesh, type MeshBuffers } from '../src/mesh/index.js'
+import { ceilingMesh, floorMesh, slabMesh, type MeshBuffers } from '../src/mesh/index.js'
 import { generateFloor } from '../src/fixtures/generate.js'
 import { PlanBuilder } from '../src/fixtures/edge-cases.js'
 
@@ -260,6 +260,31 @@ describe('slabMesh', () => {
     expect(facingOk(m)).toBe(true)
     // Четыре торца проёма — по два треугольника; плюс сам верх стал сложнее.
     expect(m.indices.length).toBeGreaterThan(plain.indices.length + 4 * 6)
+  })
+})
+
+describe('ceilingMesh', () => {
+  it('потолок смотрит вниз, на высоте низа плиты, с проёмом над лестницей', () => {
+    const outline = [
+      { x: 0, y: 0 },
+      { x: 10_000, y: 0 },
+      { x: 10_000, y: 5_000 },
+      { x: 0, y: 5_000 },
+    ]
+    const hole = [
+      { x: 2_000, y: 1_000 },
+      { x: 4_000, y: 1_000 },
+      { x: 4_000, y: 3_000 },
+      { x: 2_000, y: 3_000 },
+    ]
+    const plain = ceilingMesh(outline, 3300, 150)
+    const m = ceilingMesh(outline, 3300, 150, undefined, [hole])
+    expect(facingOk(m)).toBe(true)
+    const ny = [...m.normals].filter((_, i) => i % 3 === 1)
+    expect(ny.every((v) => v === -1)).toBe(true)
+    const ys = [...m.positions].filter((_, i) => i % 3 === 1)
+    expect(ys.every((v) => Math.abs(v - 3.15) < 1e-9)).toBe(true)
+    expect(m.indices.length).toBeGreaterThan(plain.indices.length)
   })
 })
 

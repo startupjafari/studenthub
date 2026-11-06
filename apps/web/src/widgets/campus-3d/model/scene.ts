@@ -14,6 +14,7 @@ import {
 } from '@studenthub/campus-core'
 import {
   floorMesh,
+  ceilingMesh,
   slabMesh,
   spaceHighlightMesh,
   verticalOpening,
@@ -1073,6 +1074,9 @@ export class CampusSceneController {
     // Лестницы — светлым камнем, шахты лифтов — тёмным металлом: видно сквозь окна и сверху.
     const stairsMat = this.material(new THREE.MeshLambertMaterial({ color: '#d6d3d1' }))
     const liftMat = this.material(new THREE.MeshLambertMaterial({ color: '#475569' }))
+    // Потолок светлый: его видно изнутри (проход по маршруту), снизу он в тени — свет
+    // полусферы сюда почти не доходит, поэтому свой тон, а не цвет плиты.
+    const ceilingMat = this.material(new THREE.MeshBasicMaterial({ color: '#d7dce3' }))
     // Двери лифта — шлифованная сталь: блик от солнца отличает их от тёмной шахты.
     const liftDoorMat = this.material(
       new THREE.MeshPhongMaterial({ color: '#c3cad4', specular: '#ffffff', shininess: 70 }),
@@ -1122,6 +1126,17 @@ export class CampusSceneController {
             : best,
         null,
       )
+    // Этаж над данным (того же корпуса) среди видимых — его плита даёт потолок.
+    const above = (f: SceneFloor): SceneFloor | null =>
+      visible.reduce<SceneFloor | null>(
+        (best, x) =>
+          x.buildingId === f.buildingId &&
+          x.elevationMm > f.elevationMm &&
+          (!best || x.elevationMm < best.elevationMm)
+            ? x
+            : best,
+        null,
+      )
     this.shaftMeshes.length = 0
     for (const f of visible) {
       const under = below(f)
@@ -1166,6 +1181,26 @@ export class CampusSceneController {
           new THREE.Mesh(
             this.geometry(slabMesh(f.outline, f.elevationMm, 150, f.transform, openings)),
             slabMat,
+          ),
+        )
+        // Потолок — у каждого видимого этажа: низ плиты этажа выше, а если его нет (верхний
+        // этаж корпуса или верх срезан уровнем показа) — на высоте этажа. Лицом вниз: сверху
+        // («кукольный домик») его не видно, изнутри видно. Над лестницами и шахтами этого
+        // этажа — проёмы, как в плите над ними.
+        const over = above(f)
+        const own = Object.values(f.doc.verticals).map((v) => verticalOpening(v, f.heightMm / 1000))
+        this.content.add(
+          new THREE.Mesh(
+            this.geometry(
+              ceilingMesh(
+                f.outline,
+                over ? over.elevationMm : f.elevationMm + f.heightMm,
+                150,
+                f.transform,
+                own,
+              ),
+            ),
+            ceilingMat,
           ),
         )
       }
