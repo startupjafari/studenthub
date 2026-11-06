@@ -4912,6 +4912,9 @@
     "issuedOn": "Checked out {date} · {name}",
     "renewedTimes": "{count, plural, one {renewed once} other {renewed # times}}",
     "disputed": "Disputed by reader",
+    "readerExpelled": "Expelled",
+    "readerGraduated": "Graduated",
+    "readerTransferred": "Transferred",
     "error": {
       "status": "The student is expelled, graduated or transferred — no loans",
       "overdue": "The reader has an overdue book — it must be returned first",
