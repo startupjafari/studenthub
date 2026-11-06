@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { Footprints, Map as MapIcon, Navigation, X } from 'lucide-react'
+import { Accessibility, Footprints, Map as MapIcon, Navigation, X } from 'lucide-react'
 import {
   centerWalls,
   emptyFloorPlan,
@@ -114,6 +114,8 @@ function Viewer({
   const [from, setFrom] = useState<Place | null>(null)
   const [to, setTo] = useState<Place | null>(null)
   const [routing, setRouting] = useState(false)
+  // «Без лестниц»: маршрут только лифтами и пандусами (коляска, тележка, травма).
+  const [stepFree, setStepFree] = useState(false)
   // Проход камерой по маршруту (3D): кнопка в сводке маршрута, прерывается мышью и клавишами.
   const [touring, setTouring] = useState(false)
   // Клик по помещению на карте в режиме маршрута — кандидат в «Откуда/Куда» (см. ниже).
@@ -323,16 +325,16 @@ function Viewer({
   const route = useMemo(
     () =>
       index && from && to
-        ? routeBetweenSpaces(index, from.spaceId, to.spaceId, { stepFree: false, staff })
+        ? routeBetweenSpaces(index, from.spaceId, to.spaceId, { stepFree, staff })
         : null,
-    [index, from, to, staff],
+    [index, from, to, stepFree, staff],
   )
   const reason = useMemo(
     () =>
       nav.data && from && to && !route
-        ? explainNoRoute(index, from.spaceId, to.spaceId, { stepFree: false, staff })
+        ? explainNoRoute(index, from.spaceId, to.spaceId, { stepFree, staff })
         : null,
-    [nav.data, index, from, to, route, staff],
+    [nav.data, index, from, to, route, stepFree, staff],
   )
   const steps = useMemo(() => (index && route ? routeSteps(index, route) : []), [index, route])
 
@@ -666,11 +668,23 @@ function Viewer({
           )}
           {routing ? (
             <Card className="gap-3 p-4 lg:flex-1" role="region" aria-label={t('route')}>
-              <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
                 <h2 className="flex items-center gap-2 text-sm font-semibold">
                   <Navigation className="size-4 text-primary" aria-hidden />
                   {t('route')}
                 </h2>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={stepFree ? 'default' : 'outline'}
+                  aria-pressed={stepFree}
+                  title={t('stepFreeHint')}
+                  onClick={() => setStepFree((v) => !v)}
+                  className="ml-auto"
+                >
+                  <Accessibility aria-hidden />
+                  {t('stepFree')}
+                </Button>
                 <Button
                   type="button"
                   variant="ghost"
@@ -712,6 +726,8 @@ function Viewer({
                 loading={nav.isFetching}
                 hasRoute={!!route}
                 reason={reason}
+                stepFree={stepFree}
+                onAllowStairs={() => setStepFree(false)}
               />
               {route && (
                 <RouteSummary

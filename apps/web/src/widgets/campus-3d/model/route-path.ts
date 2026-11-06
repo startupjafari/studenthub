@@ -157,8 +157,14 @@ export function routePath(route: RoutePoint[], floors: readonly SceneFloor[]): R
     const climb = stairGeometry(found.box, found.landing, rise).path.map(
       ({ p: [x, z], y }) => new THREE.Vector3(x, low.y + y, z),
     )
-    for (const q of up ? climb : climb.reverse()) push(q)
-    push(p)
+    const steps = up ? climb : climb.reverse()
+    // Через несколько этажей подряд — не выходить на каждом транзитном этаже к двери клетки
+    // и обратно: с марша на марш прямо по этажной площадке. Дверь и площадку этажа проходим
+    // только там, где на лестницу вошли и где с неё сошли.
+    const fromStairs = prev.via === r.via
+    const toStairs = route[i + 1]?.via === r.via && route[i + 1]!.y > p.y === up
+    for (const q of steps.slice(fromStairs ? 1 : 0, toStairs ? -1 : undefined)) push(q)
+    if (!toStairs) push(p)
   })
 
   // Скругление по земле — только на горизонтальных стыках: марш, шахта и перепады высоты
