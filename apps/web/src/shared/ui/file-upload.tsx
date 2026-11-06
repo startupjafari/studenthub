@@ -81,11 +81,13 @@ export function FileUpload<T>({
   function selectFile(picked: File) {
     if (previewUrl) URL.revokeObjectURL(previewUrl)
 
-    // Тип от браузера бывает пустым (Windows без Office не знает .docx) — тогда решает
-    // расширение из `accept`. Сервер всё равно проверит содержимое по сигнатуре.
-    const byExtension = accept?.extensions.some((ext) => picked.name.toLowerCase().endsWith(ext))
-    const typeAllowed = picked.type ? allowedMimes.includes(picked.type) : byExtension
-    if (!typeAllowed || (accept && !byExtension)) {
+    // С `accept` решает расширение: тип от браузера ненадёжен — пустой (Windows без Office
+    // не знает .docx) или общий (`application/octet-stream`, `application/zip`). Сервер всё
+    // равно проверит содержимое по сигнатуре.
+    const typeAllowed = accept
+      ? accept.extensions.some((ext) => picked.name.toLowerCase().endsWith(ext))
+      : allowedMimes.includes(picked.type)
+    if (!typeAllowed) {
       setError(t('invalidType'))
       setStatus('error')
       setFile(null)
