@@ -262,7 +262,7 @@ export const en: Dictionary = {
         id: 'install',
         question: 'Do we need to install an app?',
         answer:
-          'No. The platform runs in the browser and installs on a phone from the home screen — straight from the browser, with no app store involved.',
+          'No. The platform runs in the browser and installs on a phone from the home screen — straight from the browser, with no app store involved. Native apps for iPhone and Android are being prepared for release.',
       },
       {
         id: 'access',
@@ -297,7 +297,7 @@ export const en: Dictionary = {
         id: 'integrations',
         question: 'Are there integrations with university systems?',
         answer:
-          'Not yet. Zoom and Meet video calls are planned; anything else we discuss during the rollout.',
+          'There are no ready-made connectors to university record systems yet — data moves as files. Student lists and the library collection are imported from CSV or Excel, user lists and analytics reports export to Excel and CSV, and documents are produced on the university’s own Word letterhead. For online events the organiser pastes a Zoom, Google Meet or Teams link; creating the meeting from inside the platform is not available yet. Anything else we discuss during the rollout.',
       },
       {
         id: 'price',
