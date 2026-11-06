@@ -11014,6 +11014,183 @@
         ]
       }
     },
+    "/assignments/{id}/submission/files/multipart/start": {
+      "post": {
+        "operationId": "AssignmentsController_startSubmissionFileMultipart",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmissionFileMultipartStartDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "key + uploadId + размер и число частей"
+          },
+          "400": {
+            "description": "BAD_REQUEST — файл или число частей за пределом"
+          },
+          "403": {
+            "description": "WRONG_SCOPE — задание другой группы"
+          },
+          "409": {
+            "description": "CONFLICT — работа отправлена или файлов уже 10"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Открыть многочастную загрузку файла работы (шаг 1 из 4)",
+        "tags": [
+          "Задания"
+        ]
+      }
+    },
+    "/assignments/{id}/submission/files/multipart/urls": {
+      "post": {
+        "operationId": "AssignmentsController_submissionFilePartUrls",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmissionFileMultipartUrlsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Ссылки по номерам частей + срок действия"
+          },
+          "403": {
+            "description": "FORBIDDEN / WRONG_SCOPE — ключ не свой или чужое задание"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Подписи на диапазон частей файла работы (шаг 2 из 4)",
+        "tags": [
+          "Задания"
+        ]
+      }
+    },
+    "/assignments/{id}/submission/files/multipart/complete": {
+      "post": {
+        "operationId": "AssignmentsController_completeSubmissionFileMultipart",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmissionFileMultipartCompleteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ id, name, mime, size, createdAt }"
+          },
+          "400": {
+            "description": "BAD_REQUEST — части не сходятся"
+          },
+          "403": {
+            "description": "FORBIDDEN — ключ не принадлежит вызывающему"
+          },
+          "409": {
+            "description": "CONFLICT — работа отправлена или файлов уже 10"
+          },
+          "413": {
+            "description": "FILE_TOO_LARGE — больше лимита категории"
+          },
+          "415": {
+            "description": "FILE_TYPE_NOT_ALLOWED — тип по содержимому не подходит"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Собрать файл работы из частей и приложить (шаг 4 из 4)",
+        "tags": [
+          "Задания"
+        ]
+      }
+    },
+    "/assignments/{id}/submission/files/multipart/abort": {
+      "post": {
+        "operationId": "AssignmentsController_abortSubmissionFileMultipart",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmissionFileMultipartAbortDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Залитые части удалены"
+          },
+          "403": {
+            "description": "FORBIDDEN — ключ не принадлежит вызывающему"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отменить многочастную загрузку файла работы",
+        "tags": [
+          "Задания"
+        ]
+      }
+    },
     "/assignments/{id}/submission/files/{fileId}": {
       "delete": {
         "operationId": "AssignmentsController_removeSubmissionFile",
@@ -14148,6 +14325,150 @@
           }
         ],
         "summary": "Подтвердить прямую загрузку — вернёт id файла для прикрепления (шаг 3 из 3)",
+        "tags": [
+          "Документы"
+        ]
+      }
+    },
+    "/documents/upload/multipart/start": {
+      "post": {
+        "operationId": "DocumentsController_startUploadMultipart",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentFileMultipartStartDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "key + uploadId + размер и число частей"
+          },
+          "400": {
+            "description": "BAD_REQUEST — файл или число частей за пределом"
+          },
+          "415": {
+            "description": "FILE_TYPE_NOT_ALLOWED — только PDF/JPG/PNG"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Открыть многочастную загрузку крупного скана (шаг 1 из 4)",
+        "tags": [
+          "Документы"
+        ]
+      }
+    },
+    "/documents/upload/multipart/urls": {
+      "post": {
+        "operationId": "DocumentsController_uploadMultipartUrls",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentFileMultipartUrlsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Ссылки по номерам частей + срок действия"
+          },
+          "403": {
+            "description": "FORBIDDEN — ключ не принадлежит вызывающему"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Подписи на диапазон частей скана (шаг 2 из 4)",
+        "tags": [
+          "Документы"
+        ]
+      }
+    },
+    "/documents/upload/multipart/complete": {
+      "post": {
+        "operationId": "DocumentsController_completeUploadMultipart",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentFileMultipartCompleteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "id, реальный mime и размер"
+          },
+          "400": {
+            "description": "BAD_REQUEST — части не сходятся"
+          },
+          "403": {
+            "description": "FORBIDDEN — ключ не принадлежит вызывающему"
+          },
+          "413": {
+            "description": "FILE_TOO_LARGE — больше лимита категории"
+          },
+          "415": {
+            "description": "FILE_TYPE_NOT_ALLOWED — тип по содержимому не подходит"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Собрать скан из частей — вернёт id файла для прикрепления (шаг 4 из 4)",
+        "tags": [
+          "Документы"
+        ]
+      }
+    },
+    "/documents/upload/multipart/abort": {
+      "post": {
+        "operationId": "DocumentsController_abortUploadMultipart",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentFileMultipartAbortDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Залитые части удалены"
+          },
+          "403": {
+            "description": "FORBIDDEN — ключ не принадлежит вызывающему"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отменить многочастную загрузку скана",
         "tags": [
           "Документы"
         ]
@@ -23145,6 +23466,180 @@
         ]
       }
     },
+    "/materials/{id}/files/multipart/start": {
+      "post": {
+        "operationId": "MaterialsController_startFileMultipart",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaterialFileMultipartStartDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "key + uploadId + размер и число частей"
+          },
+          "400": {
+            "description": "BAD_REQUEST — файл или число частей за пределом"
+          },
+          "403": {
+            "description": "FORBIDDEN — нет прав на материал"
+          },
+          "409": {
+            "description": "CONFLICT — у материала уже предельное число файлов"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Открыть многочастную загрузку файла материала (шаг 1 из 4)",
+        "tags": [
+          "Материалы"
+        ]
+      }
+    },
+    "/materials/{id}/files/multipart/urls": {
+      "post": {
+        "operationId": "MaterialsController_fileMultipartUrls",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaterialFileMultipartUrlsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Ссылки по номерам частей + срок действия"
+          },
+          "403": {
+            "description": "FORBIDDEN — нет прав или ключ не свой"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Подписи на диапазон частей файла материала (шаг 2 из 4)",
+        "tags": [
+          "Материалы"
+        ]
+      }
+    },
+    "/materials/{id}/files/multipart/complete": {
+      "post": {
+        "operationId": "MaterialsController_completeFileMultipart",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaterialFileMultipartCompleteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Файл прикреплён к материалу"
+          },
+          "400": {
+            "description": "BAD_REQUEST — части не сходятся"
+          },
+          "403": {
+            "description": "FORBIDDEN — нет прав или ключ не свой"
+          },
+          "413": {
+            "description": "FILE_TOO_LARGE — больше лимита категории"
+          },
+          "415": {
+            "description": "FILE_TYPE_NOT_ALLOWED — тип по содержимому не подходит"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Собрать файл материала из частей и прикрепить (шаг 4 из 4)",
+        "tags": [
+          "Материалы"
+        ]
+      }
+    },
+    "/materials/{id}/files/multipart/abort": {
+      "post": {
+        "operationId": "MaterialsController_abortFileMultipart",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaterialFileMultipartAbortDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Залитые части удалены"
+          },
+          "403": {
+            "description": "FORBIDDEN — ключ не свой"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отменить многочастную загрузку файла материала",
+        "tags": [
+          "Материалы"
+        ]
+      }
+    },
     "/materials/{id}/files": {
       "post": {
         "operationId": "MaterialsController_addFile",
@@ -29595,6 +30090,125 @@
         ],
         "additionalProperties": false
       },
+      "SubmissionFileMultipartStartDto": {
+        "type": "object",
+        "properties": {
+          "mime": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "exclusiveMinimum": true
+          }
+        },
+        "required": [
+          "mime",
+          "size"
+        ],
+        "additionalProperties": false
+      },
+      "SubmissionFileMultipartUrlsDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "from": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "to": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "key",
+          "uploadId",
+          "from",
+          "to"
+        ],
+        "additionalProperties": false
+      },
+      "SubmissionFileMultipartCompleteDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "part": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "etag": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "part",
+                "etag"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "key",
+          "uploadId",
+          "parts"
+        ],
+        "additionalProperties": false
+      },
+      "SubmissionFileMultipartAbortDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "key",
+          "uploadId"
+        ],
+        "additionalProperties": false
+      },
       "GradeSubmissionDto": {
         "type": "object",
         "properties": {
@@ -30646,6 +31260,125 @@
         },
         "required": [
           "key"
+        ],
+        "additionalProperties": false
+      },
+      "DocumentFileMultipartStartDto": {
+        "type": "object",
+        "properties": {
+          "mime": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "exclusiveMinimum": true
+          }
+        },
+        "required": [
+          "mime",
+          "size"
+        ],
+        "additionalProperties": false
+      },
+      "DocumentFileMultipartUrlsDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "from": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "to": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "key",
+          "uploadId",
+          "from",
+          "to"
+        ],
+        "additionalProperties": false
+      },
+      "DocumentFileMultipartCompleteDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "part": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "etag": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "part",
+                "etag"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "key",
+          "uploadId",
+          "parts"
+        ],
+        "additionalProperties": false
+      },
+      "DocumentFileMultipartAbortDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "key",
+          "uploadId"
         ],
         "additionalProperties": false
       },
@@ -33026,6 +33759,125 @@
         },
         "required": [
           "key"
+        ],
+        "additionalProperties": false
+      },
+      "MaterialFileMultipartStartDto": {
+        "type": "object",
+        "properties": {
+          "mime": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "exclusiveMinimum": true
+          }
+        },
+        "required": [
+          "mime",
+          "size"
+        ],
+        "additionalProperties": false
+      },
+      "MaterialFileMultipartUrlsDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "from": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "to": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "key",
+          "uploadId",
+          "from",
+          "to"
+        ],
+        "additionalProperties": false
+      },
+      "MaterialFileMultipartCompleteDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "part": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "etag": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "part",
+                "etag"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "key",
+          "uploadId",
+          "parts"
+        ],
+        "additionalProperties": false
+      },
+      "MaterialFileMultipartAbortDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "key",
+          "uploadId"
         ],
         "additionalProperties": false
       },

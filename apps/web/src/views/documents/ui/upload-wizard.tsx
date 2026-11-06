@@ -23,6 +23,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  UploadProgress,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { DocModal } from './doc-modal'
@@ -50,6 +51,9 @@ export function UploadWizard({ onClose }: { onClose: () => void }) {
   const [type, setType] = useState<string>('')
   const [files, setFiles] = useState<Picked[]>([])
   const [uploading, setUploading] = useState(false)
+  // Ход текущего файла и его отмена: крупный скан идёт частями минутами (21.B1).
+  const [progress, setProgress] = useState(0)
+  const abortRef = useRef<AbortController | null>(null)
   const [title, setTitle] = useState('')
   const [number, setNumber] = useState('')
   const [issuedAt, setIssuedAt] = useState('')
@@ -73,14 +77,18 @@ export function UploadWizard({ onClose }: { onClose: () => void }) {
 
   async function onPick(list: FileList | null): Promise<void> {
     if (!list || list.length === 0) return
+    const controller = new AbortController()
+    abortRef.current = controller
     setUploading(true)
     try {
       for (const file of Array.from(list)) {
-        const up = await uploadDocumentFile(file)
+        setProgress(0)
+        const up = await uploadDocumentFile(file, setProgress, controller.signal)
         setFiles((prev) => [...prev, { id: up.id, name: file.name }])
       }
     } catch (e) {
-      toast.error(tErr(errCode(e)))
+      // Отмена — решение человека, а не сбой: без тоста.
+      if (!controller.signal.aborted) toast.error(tErr(errCode(e)))
     } finally {
       setUploading(false)
     }
@@ -288,6 +296,9 @@ export function UploadWizard({ onClose }: { onClose: () => void }) {
               <Camera className="size-4" aria-hidden /> {t('fromCamera')}
             </Button>
           </div>
+          {uploading && (
+            <UploadProgress percent={progress} onCancel={() => abortRef.current?.abort()} />
+          )}
           <p className="text-xs text-muted-foreground">{t('filesHint')}</p>
           {files.length === 0 ? (
             <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">

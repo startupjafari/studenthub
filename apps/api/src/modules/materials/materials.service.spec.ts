@@ -27,7 +27,17 @@ function setup() {
     $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
-  const files = { upload: jest.fn(), findOrThrow: jest.fn(), getPresignedUrl: jest.fn() }
+  const files = {
+    upload: jest.fn(),
+    findOrThrow: jest.fn(),
+    getPresignedUrl: jest.fn(),
+    startMultipart: jest
+      .fn()
+      .mockResolvedValue({ key: 'u1/k.mp4', uploadId: 'up-1', partSize: 10, partCount: 6 }),
+    presignParts: jest.fn().mockResolvedValue({ parts: [], expiresAt: 'e' }),
+    completeMultipart: jest.fn(),
+    abortMultipart: jest.fn().mockResolvedValue(undefined),
+  }
   const config = { get: jest.fn().mockReturnValue('materials') }
   const media = { describeOne: jest.fn().mockResolvedValue({ status: 'READY', sources: [] }) }
   const service = new MaterialsService(
@@ -37,7 +47,7 @@ function setup() {
     config as unknown as ConfigService<EnvVars, true>,
     media as never,
   )
-  return { service, prisma, files, media }
+  return { service, prisma, files, media, audit }
 }
 
 const user = (role: Role, scope: Partial<JwtPayload> = {}): JwtPayload => ({
@@ -266,6 +276,110 @@ describe('MaterialsService.create — scope группы', () => {
       const res = await service.create(dean, { groupId: 'g1', title: 'T' }, ctx)
       expect(res.id).toBe('m-new')
       expect(prisma.course.findFirst).not.toHaveBeenCalled()
+    })
+  })
+})
+
+describe('MaterialsService — многочастная загрузка файла (21.B1)', () => {
+  const author = user(Role.TEACHER, { sub: 'u1', universityId: 'uni1' })
+  const parts = [{ part: 1, etag: 'e1' }]
+
+  it('start открывает загрузку в бакет материалов от имени автора', async () => {
+    const { service, prisma, files } = setup()
+    prisma.material.findUnique.mockResolvedValue({ id: 'm1', teacherId: 'u1', groupId: 'g1' })
+    await service.startFileMultipart(author, 'm1', 'video/mp4', 60_000_000)
+    expect(files.startMultipart).toHaveBeenCalledWith({
+      bucket: 'materials',
+      mime: 'video/mp4',
+      size: 60_000_000,
+      ownerId: 'u1',
+    })
+  })
+
+  it('чужой материал преподавателю — FORBIDDEN, загрузка не открывается', async () => {
+    const { service, prisma, files } = setup()
+    prisma.material.findUnique.mockResolvedValue({ id: 'm1', teacherId: 'other', groupId: 'g1' })
+    prisma.group.findUnique.mockResolvedValue({
+      facultyId: 'f1',
+      faculty: { universityId: 'uni1' },
+    })
+    await expect(
+      service.startFileMultipart(author, 'm1', 'video/mp4', 60_000_000),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(files.startMultipart).not.toHaveBeenCalled()
+  })
+
+  it('при предельном числе файлов start → CONFLICT(files)', async () => {
+    const { service, prisma, files } = setup()
+    prisma.material.findUnique.mockResolvedValue({ id: 'm1', teacherId: 'u1', groupId: 'g1' })
+    prisma.file.count.mockResolvedValue(30)
+    await expect(
+      service.startFileMultipart(author, 'm1', 'video/mp4', 60_000_000),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(files.startMultipart).not.toHaveBeenCalled()
+  })
+
+  it('подписи частей чужого материала не выдаются', async () => {
+    const { service, prisma, files } = setup()
+    prisma.material.findUnique.mockResolvedValue({ id: 'm1', teacherId: 'other', groupId: 'g1' })
+    prisma.group.findUnique.mockResolvedValue({
+      facultyId: 'f1',
+      faculty: { universityId: 'uni1' },
+    })
+    await expect(
+      service.fileMultipartUrls(author, 'm1', {
+        key: 'u1/k.mp4',
+        uploadId: 'up-1',
+        from: 1,
+        to: 6,
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(files.presignParts).not.toHaveBeenCalled()
+  })
+
+  it('complete собирает, привязывает к материалу и пишет аудит', async () => {
+    const { service, prisma, files, audit } = setup()
+    prisma.material.findUnique.mockResolvedValue({ id: 'm1', teacherId: 'u1', groupId: 'g1' })
+    files.completeMultipart.mockResolvedValue({
+      id: 'f9',
+      name: 'lecture.mp4',
+      mime: 'video/mp4',
+      size: 60_000_000,
+      createdAt: new Date(0),
+    })
+    const res = await service.completeFileMultipart(
+      author,
+      'm1',
+      { key: 'u1/k.mp4', uploadId: 'up-1', parts, name: 'lecture.mp4' },
+      ctx,
+    )
+    expect(files.completeMultipart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bucket: 'materials',
+        key: 'u1/k.mp4',
+        uploadId: 'up-1',
+        parts,
+        ownerId: 'u1',
+        materialId: 'm1',
+        name: 'lecture.mp4',
+      }),
+    )
+    // Архивы в материалах не принимаются — как у буферной загрузки и confirm.
+    expect(files.completeMultipart.mock.calls[0][0].allowArchives).toBeUndefined()
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'material_file_added', entityId: 'm1' }),
+    )
+    expect(res).toMatchObject({ id: 'f9', name: 'lecture.mp4' })
+  })
+
+  it('abort уходит в бакет материалов с владельцем-вызывающим', async () => {
+    const { service, files } = setup()
+    await service.abortFileMultipart(author, { key: 'u1/k.mp4', uploadId: 'up-1' })
+    expect(files.abortMultipart).toHaveBeenCalledWith({
+      bucket: 'materials',
+      ownerId: 'u1',
+      key: 'u1/k.mp4',
+      uploadId: 'up-1',
     })
   })
 })

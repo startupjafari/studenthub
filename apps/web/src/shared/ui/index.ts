@@ -142,6 +142,7 @@ export { LegalLinks, type LegalLinksProps } from './legal-links'
 export { Stepper, type StepperStep } from './stepper'
 export { Tabs, TabsList, TabsTrigger, TabsContent } from './tabs'
 export { Progress, type ProgressProps } from './progress'
+export { UploadProgress, type UploadProgressProps } from './upload-progress'
 export { MosaicGrid, MosaicTile, mosaicShape, type MosaicShape } from './mosaic-grid'
 export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from './tooltip'
 export {

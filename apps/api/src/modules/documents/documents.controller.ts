@@ -20,6 +20,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger'
+import { Throttle } from '@nestjs/throttler'
 import type { FastifyRequest } from 'fastify'
 import { Role } from '@studenthub/shared-types'
 import { Roles } from '../../common/decorators/roles.decorator'
@@ -28,6 +29,12 @@ import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { readSingleUpload } from '../../common/http/read-upload'
 import { DocumentsService } from './documents.service'
 import { ConfirmDocumentFileDto, PresignDocumentFileDto } from './dto/presign-document-file.dto'
+import {
+  DocumentFileMultipartAbortDto,
+  DocumentFileMultipartCompleteDto,
+  DocumentFileMultipartStartDto,
+  DocumentFileMultipartUrlsDto,
+} from './dto/document-file-multipart.dto'
 import { CreateDocumentDto } from './dto/create-document.dto'
 import { UpdateDocumentDto } from './dto/update-document.dto'
 import { DocumentListQueryDto } from './dto/document-list-query.dto'
@@ -78,6 +85,72 @@ export class DocumentsController {
   @ApiResponse({ status: 422, description: 'FILE_TYPE_NOT_ALLOWED / FILE_TOO_LARGE' })
   confirmUpload(@CurrentUser() user: CurrentUserData, @Body() dto: ConfirmDocumentFileDto) {
     return this.documents.confirmFile(user, dto.key, dto.name)
+  }
+
+  // ── Многочастная загрузка (21.B1) ──────────────────────────────────────────
+  // Файлы больше FILE_UPLOAD.MULTIPART_THRESHOLD_BYTES: start → urls → PUT частей → complete.
+  // Результат тот же, что у upload/confirm: id файла для прикрепления к документу или замены
+  // страницы. Троттлинг выдачи подписей — как у /files/multipart/* и вложений чата.
+
+  @Post('upload/multipart/start')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Открыть многочастную загрузку крупного скана (шаг 1 из 4)' })
+  @ApiResponse({ status: 201, description: 'key + uploadId + размер и число частей' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — файл или число частей за пределом' })
+  @ApiResponse({ status: 415, description: 'FILE_TYPE_NOT_ALLOWED — только PDF/JPG/PNG' })
+  startUploadMultipart(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: DocumentFileMultipartStartDto,
+  ) {
+    return this.documents.startFileMultipart(user, dto.mime, dto.size)
+  }
+
+  @Post('upload/multipart/urls')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Подписи на диапазон частей скана (шаг 2 из 4)' })
+  @ApiResponse({ status: 201, description: 'Ссылки по номерам частей + срок действия' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — ключ не принадлежит вызывающему' })
+  uploadMultipartUrls(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: DocumentFileMultipartUrlsDto,
+  ) {
+    return this.documents.fileMultipartUrls(user, {
+      key: dto.key,
+      uploadId: dto.uploadId,
+      from: dto.from,
+      to: dto.to,
+    })
+  }
+
+  @Post('upload/multipart/complete')
+  @ApiOperation({
+    summary: 'Собрать скан из частей — вернёт id файла для прикрепления (шаг 4 из 4)',
+  })
+  @ApiResponse({ status: 201, description: 'id, реальный mime и размер' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — части не сходятся' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — ключ не принадлежит вызывающему' })
+  @ApiResponse({ status: 413, description: 'FILE_TOO_LARGE — больше лимита категории' })
+  @ApiResponse({
+    status: 415,
+    description: 'FILE_TYPE_NOT_ALLOWED — тип по содержимому не подходит',
+  })
+  completeUploadMultipart(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: DocumentFileMultipartCompleteDto,
+  ) {
+    return this.documents.completeFileMultipart(user, dto)
+  }
+
+  @Post('upload/multipart/abort')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Отменить многочастную загрузку скана' })
+  @ApiResponse({ status: 204, description: 'Залитые части удалены' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — ключ не принадлежит вызывающему' })
+  async abortUploadMultipart(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: DocumentFileMultipartAbortDto,
+  ): Promise<void> {
+    await this.documents.abortFileMultipart(user, { key: dto.key, uploadId: dto.uploadId })
   }
 
   @Post()
