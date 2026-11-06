@@ -317,11 +317,19 @@ export function floorMesh(doc: FloorPlanDoc, options: FloorMeshOptions): FloorMe
         const q = p(k)
         return [q[0] + f.inner[0] * off, y, q[1] + f.inner[1] * off]
       }
-      const b0 = y0 + f.y0 + riser
-      const b1 = y0 + f.y1 + riser
+      // Не выше потолка этажа: у верхнего показанного этажа ограждение второго марша иначе
+      // торчало бы над крышей.
+      const ceil = y0 + top - 0.02
+      const b0 = Math.min(y0 + f.y0 + riser, ceil)
+      const b1 = Math.min(y0 + f.y1 + riser, ceil)
       const n: V3 = [f.inner[0], 0, f.inner[1]]
       const m: V3 = [-f.inner[0], 0, -f.inner[1]]
-      const quad = [edge(0, b0), edge(1, b1), edge(1, b1 + RAIL_M), edge(0, b0 + RAIL_M)] as const
+      const quad = [
+        edge(0, b0),
+        edge(1, b1),
+        edge(1, Math.min(b1 + RAIL_M, ceil)),
+        edge(0, Math.min(b0 + RAIL_M, ceil)),
+      ] as const
       glass.quad(quad[0], quad[1], quad[2], quad[3], n)
       glass.quad(quad[0], quad[1], quad[2], quad[3], m)
     }

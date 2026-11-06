@@ -46,8 +46,8 @@ export function MapHints({ mode }: { mode: '2d' | '3d' | 'campus' }) {
     { keys: [[t('keyClick')]], action: t('actSelect') },
     ...(scene
       ? [
-          { keys: [[t('keyLmb')]], action: t('actRotate') },
-          { keys: [[t('keyRmb')], ['Shift', t('keyLmb')]], action: t('actPan') },
+          { keys: [[t('keyLmb')]], action: t('actPan') },
+          { keys: [[t('keyRmb')], ['Shift', t('keyLmb')]], action: t('actRotateTilt') },
           { keys: [[t('keyWheel')]], action: t('actZoomCursor') },
           { keys: [[t('keyDblClick')]], action: t('actFlyTo') },
         ]

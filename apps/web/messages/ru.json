@@ -6265,6 +6265,7 @@
     "actSelect": "выбрать помещение",
     "actRotate": "повернуть",
     "actPan": "сдвинуть",
+    "actRotateTilt": "повернуть и наклонить",
     "actTilt": "наклонить",
     "actZoom": "масштаб",
     "actZoomCursor": "масштаб к курсору",

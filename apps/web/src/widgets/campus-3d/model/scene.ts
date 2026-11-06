@@ -303,13 +303,24 @@ export class CampusSceneController {
     // Колесо — своё, плавное (см. `wheel`): слушатель вешаем ДО OrbitControls, чтобы
     // остановить событие раньше его обработчика. Щипок на сенсоре остаётся за ним.
     this.renderer.domElement.addEventListener('wheel', this.wheel, { passive: false })
-    // ЛКМ — вращать, ПКМ / Shift+ЛКМ — сдвиг; инерция гасится сама за несколько кадров
+    // Инерция гасится сама за несколько кадров
     // (кадры идут, только пока камера движется — см. `tick`).
     this.controls = new OrbitControls(this.camera, this.renderer.domElement)
     this.controls.enableDamping = true
     this.controls.dampingFactor = 0.15
     this.controls.maxPolarAngle = Math.PI * 0.49
-    this.controls.screenSpacePanning = true
+    // Как на картах (2ГИС, Google Maps): левая кнопка двигает карту, правая (или с Shift/Ctrl)
+    // вращает и наклоняет; на сенсоре один палец двигает, два — масштаб и поворот.
+    this.controls.mouseButtons = {
+      LEFT: THREE.MOUSE.PAN,
+      MIDDLE: THREE.MOUSE.DOLLY,
+      RIGHT: THREE.MOUSE.ROTATE,
+    }
+    this.controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE }
+    this.controls.rotateSpeed = 0.7
+    // Сдвиг — по земле, а не в плоскости экрана: иначе на наклонном виде точка вращения
+    // уезжала в небо или под землю, и дальше вращение шло вокруг пустоты.
+    this.controls.screenSpacePanning = false
     this.controls.addEventListener('change', () => this.requestRender())
     this.controls.addEventListener('start', this.grab)
 
@@ -362,10 +373,14 @@ export class CampusSceneController {
     const center = box.getCenter(new THREE.Vector3())
     const size = box.getSize(new THREE.Vector3())
     const r = Math.max(size.x, size.z, size.y * 2, 5)
+    // Центр вращения — на земле (y = 0, но в пределах содержимого), а не в середине высоты
+    // зданий: вращение и наклон идут вокруг точки на карте, а не вокруг точки в воздухе.
+    center.y = THREE.MathUtils.clamp(0, box.min.y, box.max.y)
     // Буфер глубины логарифмический — ближнюю плоскость можно держать близко всегда.
     this.camera.near = 0.05
     this.camera.fov = ORBIT_FOV
-    this.camera.far = r * 20
+    // Не ближе 4 км: край земли должен тонуть в дымке, а не обрезаться.
+    this.camera.far = Math.max(r * 20, 4000)
     this.camera.updateProjectionMatrix()
     this.controls.minDistance = 2
     this.controls.maxDistance = r * 4
@@ -577,7 +592,9 @@ export class CampusSceneController {
         : this.zoomPending * (1 - Math.exp(-dt * WHEEL_SMOOTH))
     this.zoomPending -= take
     if (Math.abs(this.zoomPending) < 1e-4) this.zoomPending = 0
-    const anchor = this.zoomAnchor ?? this.controls.target
+    // Приближение — к точке под курсором, отдаление — от центра вида: иначе центр вращения
+    // с каждым щелчком уезжал бы в сторону и вращение шло бы вокруг случайной точки.
+    const anchor = take > 0 ? (this.zoomAnchor ?? this.controls.target) : this.controls.target
     const dist = this.camera.position.distanceTo(this.controls.target)
     const next = THREE.MathUtils.clamp(
       dist * Math.exp(-take),
@@ -1429,6 +1446,8 @@ export class CampusSceneController {
     const d = this.down
     this.down = null
     this.renderer.domElement.style.cursor = ''
+    // Выбор — только левой кнопкой: правой вращают, и щелчок ею помещение не выбирает.
+    if (e.button !== 0) return
     if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5 || !this.onPick || !this.input)
       return
     const hit = this.raycast(e.clientX, e.clientY, this.pickables)

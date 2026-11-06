@@ -6265,6 +6265,7 @@
     "actSelect": "select a room",
     "actRotate": "rotate",
     "actPan": "pan",
+    "actRotateTilt": "rotate and tilt",
     "actTilt": "tilt",
     "actZoom": "zoom",
     "actZoomCursor": "zoom to cursor",
