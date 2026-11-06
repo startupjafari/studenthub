@@ -629,7 +629,7 @@ function Viewer({
                 focusFloorId={floorId}
                 highlight={highlight}
                 route={sceneRoute}
-                site={mode === 'campus' ? (data.manifest.site ?? null) : null}
+                site={data.manifest.site ?? null}
                 onPick={onPick3d}
                 tour={touring}
                 routeMarkers={sceneMarkers}
