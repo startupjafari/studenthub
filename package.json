@@ -72,7 +72,7 @@
   },
   "pnpm": {
     "auditConfig": {
-      "_comment": "Находки, для которых совместимого обновления нет. (1) stream-json (GHSA-hqr4-qq8f-hg3x, GHSA-mjw6-4jj6-33hc) и decode-uri-component — транзитивные зависимости клиента minio. Патч stream-json есть (3.6.0), но взять его нельзя: minio 8.0.7 (последняя на 10.10.2026) делает require(\"stream-json/jsonl/Parser.js\"), а в 3.x файл называется parser.js и лежит под src/ — карта exports \"./*\": \"./src/*\" ведёт на ./src/jsonl/Parser.js, которого не существует. На регистрозависимой ФС это падение на старте. Сюда же decode-uri-component GHSA-qr28-fpjm-wq7f: патч только в 0.5.1, а с 0.4 пакет стал ESM-only, тогда как query-string из minio подключает его через require(). Снять, когда minio уедет с этих пакетов. (2) braces GHSA-vfj7-8cjw-p6xm: исправленной версии не существует вовсе — уязвимы все <=3.0.3, а 3.0.3 последняя; пакет приходит транзитивно через micromatch из сборочного инструментария. Снять, когда выйдет патч. (3) zod GHSA-mrhx-c7xc-m3w5: исправлен только в 4.6.6, в линейке 3.x патча нет — нужен переход на zod 4. Память исчерпывается лишь на огромных коллекциях, а тело запроса и так ограничено bodyLimit Fastify. Снять с переходом на zod 4.",
+      "_comment": "Находки, для которых совместимого обновления нет. (1) stream-json (GHSA-hqr4-qq8f-hg3x, GHSA-mjw6-4jj6-33hc) и decode-uri-component — транзитивные зависимости клиента minio. Патч stream-json есть (3.6.0), но взять его нельзя: minio 8.0.7 (последняя на 10.10.2026) делает require(\"stream-json/jsonl/Parser.js\"), а в 3.x файл называется parser.js и лежит под src/ — карта exports \"./*\": \"./src/*\" ведёт на ./src/jsonl/Parser.js, которого не существует. На регистрозависимой ФС это падение на старте. Сюда же decode-uri-component GHSA-qr28-fpjm-wq7f: патч только в 0.5.1, а с 0.4 пакет стал ESM-only, тогда как query-string из minio подключает его через require(). Снять, когда minio уедет с этих пакетов. (2) braces GHSA-vfj7-8cjw-p6xm: исправленной версии не существует вовсе — уязвимы все <=3.0.3, а 3.0.3 последняя; пакет приходит транзитивно через micromatch из сборочного инструментария. Снять, когда выйдет патч. (3) zod GHSA-mrhx-c7xc-m3w5: исправлен только в 4.6.6, в линейке 3.x патча нет — нужен переход на zod 4. Память исчерпывается лишь на огромных коллекциях, а тело запроса и так ограничено bodyLimit Fastify. Снять с переходом на zod 4. (4) Временно, с 06.11.2026: glob GHSA-3g3m-2fjr-6pw4 и minimatch GHSA-g3hv-75wg-m249 — транзитивно через @fastify/static (из @nestjs/platform-fastify). Исправлены только в glob 14 / minimatch 11, а @fastify/static перешёл на glob 14 в 10.1.9 (04.11) — моложе выдержки minimumReleaseAge (7 суток). Снять после 13.11.2026, обновив @fastify/static.",
       "ignoreGhsas": [
         "GHSA-vcc3-ghjq-m6fr",
         "GHSA-528h-pc64-c93x",
@@ -80,7 +80,9 @@
         "GHSA-mjw6-4jj6-33hc",
         "GHSA-vfj7-8cjw-p6xm",
         "GHSA-mrhx-c7xc-m3w5",
-        "GHSA-qr28-fpjm-wq7f"
+        "GHSA-qr28-fpjm-wq7f",
+        "GHSA-3g3m-2fjr-6pw4",
+        "GHSA-g3hv-75wg-m249"
       ]
     },
     "onlyBuiltDependencies": [
