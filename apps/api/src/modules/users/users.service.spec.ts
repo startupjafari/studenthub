@@ -2491,3 +2491,30 @@ describe('UserService.documentTemplatePerson — должность для ша�
     await expect(service.documentTemplatePerson('u1')).resolves.toMatchObject({ position: null })
   })
 })
+
+// Те же люди — аудитория живой очереди заявок (21.B3, ApplicationQueueEvents): кто вправе
+// вести заявку, тот её в очереди и видит. Чужой вуз и чужой факультет сюда попасть не должны.
+describe('UserService.listApplicationAssignees — обработчики заявки', () => {
+  it('админ и модератор вуза заявки плюс деканы её факультета, живые и не заблокированные', async () => {
+    const { service, prisma } = setup()
+    await service.listApplicationAssignees('uni', 'fac')
+    const args = prisma.user.findMany.mock.calls[0][0]
+    expect(args.where).toEqual({
+      universityId: 'uni',
+      deletedAt: null,
+      isBlocked: false,
+      OR: [
+        { role: { in: [Role.UNIVERSITY_ADMIN, Role.UNIVERSITY_MODERATOR] } },
+        { role: Role.DEAN, facultyId: 'fac' },
+      ],
+    })
+    expect(args.take).toBeGreaterThan(0)
+  })
+
+  it('заявка вузовской услуги — без деканов: факультета у неё нет', async () => {
+    const { service, prisma } = setup()
+    await service.listApplicationAssignees('uni', null)
+    const where = prisma.user.findMany.mock.calls[0][0].where
+    expect(where.OR).toEqual([{ role: { in: [Role.UNIVERSITY_ADMIN, Role.UNIVERSITY_MODERATOR] } }])
+  })
+})

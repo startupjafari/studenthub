@@ -386,6 +386,23 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       .emit(REALTIME_CHANNEL, this.envelope(type, entityId, data, version))
   }
 
+  /**
+   * Конверт в личные комнаты нескольких пользователей — одной отправкой: socket.io сам
+   * объединяет комнаты, и сокет, попавший сразу в несколько, получает событие один раз.
+   */
+  emitEventToUsers(
+    userIds: string[],
+    type: string,
+    entityId: string,
+    data: unknown,
+    version = 1,
+  ): void {
+    if (userIds.length === 0) return
+    this.server
+      .to(userIds.map((id) => `user:${id}`))
+      .emit(REALTIME_CHANNEL, this.envelope(type, entityId, data, version))
+  }
+
   /** Конверт в произвольную комнату (group:{id}, university:{id}, chat:{id}). */
   emitEventToRoom(room: string, type: string, entityId: string, data: unknown, version = 1): void {
     this.server.to(room).emit(REALTIME_CHANNEL, this.envelope(type, entityId, data, version))
