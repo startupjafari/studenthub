@@ -156,5 +156,14 @@ export interface Dictionary {
     company: string
     /** Метка навигации подвала: вход, дверь работодателя и почта. */
     links: string
+    /**
+     * Юридические документы платформы — названия те же, что в самой платформе
+     * (`Legal.privacyLink` / `Legal.termsLink` в apps/web/messages), чтобы ссылка и
+     * заголовок открывшейся страницы совпадали дословно.
+     */
+    privacy: string
+    terms: string
+    /** Метка навигации юридических ссылок в строке копирайта. */
+    legal: string
   }
 }
