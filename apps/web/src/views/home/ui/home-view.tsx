@@ -1,8 +1,7 @@
 import { getTranslations } from 'next-intl/server'
 import { PageHeader } from '../../../shared/ui/page-header'
 import { SeasonGreeting } from '../../../shared/ui/season-greeting'
-import { FeedList } from '../../../widgets/feed-list'
-import { StoriesRail } from '../../../widgets/stories-rail'
+import { HomeFeed } from './home-feed'
 import { HomeSidebar } from './home-sidebar'
 
 // Главная лента студента (дашборд): лента + сайдбар (пары на сегодня, ближайшие события).
@@ -27,10 +26,7 @@ export async function HomeView() {
           колонка уже (18rem), чтобы ленте на ноутбуке 1280px досталось около 40rem. */}
       <div className="mx-auto flex w-full max-w-[44rem] flex-col gap-6 xl:max-w-[65.5rem] xl:flex-row xl:justify-center">
         <section className="flex w-full min-w-0 flex-1 flex-col gap-4 xl:max-w-[44rem]">
-          {/* Кольца сторис стоят над лентой и сами решают, показываться ли:
-              раздел за флагом раскатки, а пустую полосу виджет не рисует. */}
-          <StoriesRail />
-          <FeedList />
+          <HomeFeed />
         </section>
 
         {/* `sticky`: колонка коротка, а лента бесконечна — без прилипания две трети
