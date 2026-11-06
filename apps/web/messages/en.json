@@ -655,7 +655,11 @@
     "reReviewWarning": "Changes to the text or terms send the vacancy back to moderation: students will not see it until the university approves it again.",
     "rejectReason": "{university}: reason — {reason}",
     "closeConfirm": "Close the vacancy?",
-    "closeConfirmText": "The vacancy will disappear from university listings. A closed vacancy cannot be edited or published again."
+    "closeConfirmText": "The vacancy will disappear from university listings. A closed vacancy cannot be edited or published again.",
+    "delete": "Delete",
+    "deleteConfirm": "Delete the draft?",
+    "deleteConfirmText": "The draft will be deleted permanently and cannot be restored. Only drafts can be deleted — a published vacancy is closed instead.",
+    "deleted": "Draft deleted"
   },
   "CareerApplications": {
     "title": "My applications",
@@ -1695,7 +1699,8 @@
     "EXPORT_TOO_LARGE": "Too many rows for Excel — over 5,000. Narrow the filter or download CSV",
     "MAINTENANCE": "Maintenance is in progress. Please try again a little later",
     "LOGIN_LOCKED": "Too many failed sign-in attempts. Sign-in to this account is temporarily locked — wait a few minutes",
-    "retryHint": "Could not load the data. Refresh the page or try again later."
+    "retryHint": "Could not load the data. Refresh the page or try again later.",
+    "VACANCY_NOT_DELETABLE": "Only a draft can be deleted. Close the vacancy instead — its application history will be kept"
   },
   "Notifications": {
     "title": "Notifications",
