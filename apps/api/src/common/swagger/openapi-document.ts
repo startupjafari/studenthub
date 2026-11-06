@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path'
 import type { INestApplication } from '@nestjs/common'
 import { DocumentBuilder, type OpenAPIObject, SwaggerModule } from '@nestjs/swagger'
 import type { ZodDto } from 'nestjs-zod'
+import type { ZodTypeAny } from 'zod'
 
 import { zodToOpenApi, zodToQueryParameters } from './zod-openapi'
 
@@ -47,7 +48,10 @@ interface ParametersMetadataMapperProto {
 
 const PATCHED = Symbol.for('studenthub.swagger.zod')
 
-const isZodDto = (type: unknown): type is ZodDto =>
+// nestjs-zod 5 типизирует schema у DTO как UnknownSchema (он принимает и zod 3, и zod 4).
+// Все DTO проекта собраны из схем zod 3 (packages/shared-schemas), поэтому сужаем сразу до
+// ZodTypeAny — конвертер zod-openapi.ts работает именно с ними.
+const isZodDto = (type: unknown): type is ZodDto<ZodTypeAny> =>
   typeof type === 'function' && (type as Partial<ZodDto>).isZodDto === true
 
 function loadSwaggerInternal<T>(relativePath: string, exportName: string): T {
