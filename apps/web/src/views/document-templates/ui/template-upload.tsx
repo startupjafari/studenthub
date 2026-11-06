@@ -18,18 +18,20 @@ const DOCX = {
 interface TemplateUploadProps {
   templateId: string
   onUploaded: (detail: DocumentTemplateDetail) => void
+  className?: string
 }
 
 // Загрузка DOCX новой версией. Общий FileUpload сужен до .docx и предела шаблона; что не так
 // с файлом (макросы, повреждён), объясняет текст по причине из ответа, а не общий «ошибка».
 // Точный предел задаёт сервер (DOCUMENT_TEMPLATE_MAX_BYTES), здесь — потолок, выше которого
 // отправлять бессмысленно.
-export function TemplateUpload({ templateId, onUploaded }: TemplateUploadProps) {
+export function TemplateUpload({ templateId, onUploaded, className }: TemplateUploadProps) {
   const qc = useQueryClient()
   const { errorText } = useTemplateTexts()
 
   return (
     <FileUpload
+      className={className}
       category="DOCUMENT"
       accept={DOCX}
       maxBytes={DOCUMENT_TEMPLATE_LIMITS.MAX_BYTES_CEILING}

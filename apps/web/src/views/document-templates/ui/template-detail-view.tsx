@@ -29,6 +29,7 @@ import {
   useConfirm,
 } from '../../../shared/ui'
 import { formatBytes, useByteUnitLabel } from '../../../shared/lib'
+import { cn } from '../../../shared/lib/utils'
 import {
   documentTemplateKeys,
   fetchDocumentTemplate,
@@ -175,11 +176,13 @@ export function TemplateDetailView({ templateId }: TemplateDetailViewProps) {
         </Card>
       )}
 
-      {/* Обе колонки — одинаковые карточки (p-4, заголовок text-base): с разными отступами
+      {/* Сетка занимает всю высоту под шапкой: пока файла нет, карточка загрузки тянется до
+          низа экрана, и зона перетаскивания вместе с ней. С файлом высоту задаёт содержимое.
+          Обе колонки — одинаковые карточки (p-4, заголовок text-base): с разными отступами
           заголовки левой и правой колонок стояли на разной высоте. */}
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <div className="flex min-w-0 flex-col gap-4">
-          <Card className="flex flex-col gap-4 p-4">
+      <div className="grid items-start gap-4 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <div className="flex min-w-0 flex-col gap-4 lg:self-stretch">
+          <Card className={cn('flex flex-col gap-4 p-4', !current && 'lg:flex-1')}>
             {/* «Заменить файл» — в строке заголовка: тремя кнопками внизу ряд не помещался и
                 переносился лесенкой. */}
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -202,9 +205,13 @@ export function TemplateDetailView({ templateId }: TemplateDetailViewProps) {
               archived ? (
                 <p className="text-sm text-muted-foreground">{t('noFileYet')}</p>
               ) : (
-                <div className="flex flex-col gap-3">
+                <div className="flex flex-1 flex-col gap-3">
                   <p className="text-sm text-muted-foreground">{t('uploadIntro')}</p>
-                  <TemplateUpload templateId={templateId} onUploaded={() => undefined} />
+                  <TemplateUpload
+                    templateId={templateId}
+                    onUploaded={() => undefined}
+                    className="flex-1"
+                  />
                 </div>
               )
             ) : (
