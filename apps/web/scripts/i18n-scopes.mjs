@@ -105,11 +105,16 @@ export function computeScopes() {
   return result
 }
 
-export const serializeScopes = (scopes) => `${JSON.stringify(scopes, null, 2)}\n`
+/** JSON в том виде, в каком его оставит prettier из pre-commit, — без лишних диффов. */
+async function serializeScopes(scopes) {
+  const prettier = await import('prettier')
+  const options = await prettier.resolveConfig(SCOPES_FILE)
+  return prettier.format(JSON.stringify(scopes), { ...options, filepath: SCOPES_FILE })
+}
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const scopes = computeScopes()
-  writeFileSync(SCOPES_FILE, serializeScopes(scopes))
+  writeFileSync(SCOPES_FILE, await serializeScopes(scopes))
   const dict = JSON.parse(readFileSync(path.join(SRC, '..', 'messages', 'ru.json'), 'utf8'))
   const kb = (list) =>
     Math.round(
