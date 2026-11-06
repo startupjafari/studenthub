@@ -571,6 +571,37 @@ export interface LibraryClearance {
   loans: LoanItem[]
 }
 
+// ── Справка с кодом проверки (21.C4) ───────────────────────────────────────────────
+
+/**
+ * Журнал выданных справок «задолженностей нет»: действующие, отозванные, все. Справку
+ * выпускает сам студент (PDF с кодом и QR), отзывает библиотекарь.
+ */
+export const CLEARANCE_STATUSES = ['active', 'revoked', 'all'] as const
+export const ClearanceListQuerySchema = z.object({
+  page: PageSchema,
+  limit: z.coerce.number().int().positive().max(100).default(20),
+  status: z.enum(CLEARANCE_STATUSES).default('all'),
+  readerId: z.string().min(1).optional(),
+})
+export type ClearanceListQueryInput = z.infer<typeof ClearanceListQuerySchema>
+
+/** Отзыв справки — с причиной: она уходит в журнал аудита. */
+export const RevokeClearanceSchema = z
+  .object({ reason: z.string().trim().min(3).max(300) })
+  .strict()
+export type RevokeClearanceInput = z.infer<typeof RevokeClearanceSchema>
+
+export interface ClearanceCertificateItem {
+  /** Код проверки из бланка — по нему `/verify/<код>`. */
+  code: string
+  number: string | null
+  issuedAt: string
+  revokedAt: string | null
+  /** Читатель снимком на момент выдачи (как на странице проверки — полностью). */
+  reader: { id: string | null; name: string | null }
+}
+
 // ── Удаление аккаунта (21.C1) ──────────────────────────────────────────────────────
 
 /**

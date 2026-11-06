@@ -135,6 +135,8 @@ function setup({
     }),
   }
   const notifier = { send: jest.fn().mockResolvedValue(undefined) }
+  // Отзыв справок «задолженностей нет» (Фаза 21.C4).
+  const exports = { revokeMatching: jest.fn().mockResolvedValue(0) }
   const service = new LibraryLoansService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
@@ -143,8 +145,9 @@ function setup({
     settings as unknown as LibrarySettingsService,
     notifier as unknown as LibraryNotifier,
     config,
+    exports as never,
   )
-  return { service, prisma, tx, audit, notifier, studentId }
+  return { service, prisma, tx, audit, notifier, studentId, exports }
 }
 
 const ticketFor = (librarianId = 'lib-1', readerId = 'stu-1') =>

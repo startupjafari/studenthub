@@ -58,6 +58,7 @@ const RU: ExportLabels = {
     'career-report': 'Отчёт карьерного центра',
     'my-data': 'Выгрузка моих данных',
     'analytics-report': 'Отчёт по сводке',
+    'library-clearance': 'Справка об отсутствии задолженности в библиотеке',
   },
 }
 
@@ -83,6 +84,7 @@ const KK: ExportLabels = {
     'career-report': 'Карьера орталығының есебі',
     'my-data': 'Жеке деректерімді жүктеу',
     'analytics-report': 'Жиынтық бойынша есеп',
+    'library-clearance': 'Кітапханадан берешегі жоқ екені туралы анықтама',
   },
 }
 
@@ -106,6 +108,7 @@ const EN: ExportLabels = {
     'career-report': 'Career centre report',
     'my-data': 'My data export',
     'analytics-report': 'Analytics summary report',
+    'library-clearance': 'Library clearance certificate',
   },
 }
 

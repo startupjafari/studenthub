@@ -18,6 +18,7 @@ import type {
   ReturnLoanResult,
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { ExportRegistryService } from '../../common/export/export-registry.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
@@ -143,6 +144,7 @@ export class LibraryLoansService {
     private readonly settings: LibrarySettingsService,
     private readonly notifier: LibraryNotifier,
     private readonly config: ConfigService<EnvVars, true>,
+    private readonly exports: ExportRegistryService,
   ) {}
 
   // ── Сверка читателя ──────────────────────────────────────────────────────────────
@@ -687,7 +689,18 @@ export class LibraryLoansService {
         data: { status: 'OPEN', returnedAt: null, returnedToId: null, returnCondition: null },
       })
       if (count === 0) throw libraryConflict('notReturned', 'Возврат уже отменён')
-      return tx.loan.findUniqueOrThrow({ where: { id: loanId }, select: LOAN_SELECT })
+      // Книга снова на руках — справка «задолженностей нет», выданная после ошибочного
+      // возврата, лжёт: она отзывается в той же транзакции (Фаза 21.C4).
+      const revokedClearances = loan.readerId
+        ? await this.exports.revokeMatching(
+            'library-clearance',
+            { universityId, readerId: loan.readerId },
+            { createdAfter: returnedAt },
+            tx,
+          )
+        : 0
+      const row = await tx.loan.findUniqueOrThrow({ where: { id: loanId }, select: LOAN_SELECT })
+      return { row, revokedClearances }
     })
     await this.audit.record({
       userId: actor.sub,
@@ -701,6 +714,7 @@ export class LibraryLoansService {
         reason: input.reason,
         returnedAt: returnedAt.toISOString(),
         returnedToId: loan.returnedToId,
+        ...(updated.revokedClearances > 0 ? { revokedClearances: updated.revokedClearances } : {}),
       },
       ...ctx,
     })
@@ -717,7 +731,7 @@ export class LibraryLoansService {
         dedupeKey: `library-return-cancelled:${loanId}:${returnedAt.getTime()}`,
       })
     }
-    const [item] = await this.toItems([updated], timezone)
+    const [item] = await this.toItems([updated.row], timezone)
     if (!item) throw new AppException('INTERNAL_ERROR', 'Выдача не найдена')
     return item
   }
