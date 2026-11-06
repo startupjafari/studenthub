@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { vm } from './validation-messages.js'
 
 // Логический вид бакета: клиент указывает назначение, сервер сам резолвит реальное имя
 // бакета из конфигурации (MINIO_BUCKET_*), не доверяя произвольной строке из запроса.
@@ -51,7 +52,7 @@ export const VideoTrimSchema = z
   })
   .strict()
   .refine((t) => t.endMs > t.startMs, {
-    message: 'Конец отрезка должен быть позже начала',
+    message: vm('validation.range.endAfterStart'),
     path: ['endMs'],
   })
 export type VideoTrimInput = z.infer<typeof VideoTrimSchema>
@@ -114,7 +115,7 @@ export const MultipartUrlsSchema = z
   .strict()
   .refine((v) => v.to >= v.from, {
     path: ['to'],
-    message: 'Конец диапазона частей не может быть меньше начала',
+    message: vm('validation.upload.partRangeReversed'),
   })
 export type MultipartUrlsInput = z.infer<typeof MultipartUrlsSchema>
 
@@ -174,7 +175,7 @@ export const MultipartDomainUrlsSchema = z
   .strict()
   .refine((v) => v.to >= v.from, {
     path: ['to'],
-    message: 'Конец диапазона частей не может быть меньше начала',
+    message: vm('validation.upload.partRangeReversed'),
   })
 export type MultipartDomainUrlsInput = z.infer<typeof MultipartDomainUrlsSchema>
 

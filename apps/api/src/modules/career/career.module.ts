@@ -4,6 +4,8 @@ import { CareerAccessService } from './career-access.service'
 import { CareerNotifier } from './career-notifier'
 import { CompaniesService } from './companies.service'
 import { CompaniesController } from './companies.controller'
+import { CompanyMembersService } from './company-members.service'
+import { CompanyMembersController } from './company-members.controller'
 import { CompanyPageService } from './company-page.service'
 import { UniversityCompaniesController } from './university-companies.controller'
 import { CareerProfileService } from './career-profile.service'
@@ -35,6 +37,8 @@ import { CareerEventsController } from './career-events.controller'
   imports: [FilesModule],
   controllers: [
     CompaniesController,
+    // Команда компании (21.D2): участники и приглашения коллег.
+    CompanyMembersController,
     UniversityCompaniesController,
     CareerProfileController,
     VacanciesController,
@@ -48,6 +52,7 @@ import { CareerEventsController } from './career-events.controller'
   ],
   providers: [
     CompaniesService,
+    CompanyMembersService,
     CompanyPageService,
     CareerAccessService,
     // Уведомления сторонам карьеры: вузу о заявке компании, компании о решениях и откликах.
@@ -63,7 +68,8 @@ import { CareerEventsController } from './career-events.controller'
   // CareerAccessService понадобится всем будущим карьерным сервисам, которые читают
   // данные студентов, — экспортируем сразу. CompaniesService — для cron истечения допусков и
   // уборки неподтверждённых компаний (расписание живёт в CleanupModule, логика — здесь) и
-  // для AuthModule: вход работодателя ждёт подтверждения почты компании.
-  exports: [CareerAccessService, CareerProfileService, CompaniesService],
+  // для AuthModule: вход работодателя ждёт подтверждения почты компании. CompanyMembersService —
+  // тоже для AuthModule: регистрация по приглашению в компанию выдаёт сессию там (21.D2).
+  exports: [CareerAccessService, CareerProfileService, CompaniesService, CompanyMembersService],
 })
 export class CareerModule {}

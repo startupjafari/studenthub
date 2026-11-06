@@ -128,8 +128,8 @@ final class LoginModel {
     }
 
     /// Куда попадает текст ошибки, решает её код, а не экран: сообщение про код 2FA
-    /// под полем кода, всё остальное — над формой (§10.3). Серверные тексты уже на
-    /// языке платформы, поэтому показываем их как есть.
+    /// под полем кода, всё остальное — над формой (§10.3). Ошибка поля приходит ключом
+    /// валидации и переводится каталогом; прочие серверные тексты — как есть.
     @MainActor
     private func handle(_ error: Error) {
         guard let apiError = error as? APIError else {
@@ -144,10 +144,10 @@ final class LoginModel {
 
         for detail in details {
             switch detail.field {
-            case "identifier": identifierError = detail.message
-            case "password": passwordError = detail.message
-            case "code": codeError = detail.message
-            default: formError = detail.message
+            case "identifier": identifierError = detail.displayMessage
+            case "password": passwordError = detail.displayMessage
+            case "code": codeError = detail.displayMessage
+            default: formError = detail.displayMessage
             }
         }
         guard details.isEmpty else { return }

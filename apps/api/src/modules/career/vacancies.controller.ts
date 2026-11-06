@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -142,6 +143,23 @@ export class EmployerVacanciesController {
   @ApiOperation({ summary: 'Закрыть вакансию' })
   close(@CurrentUser() user: CurrentUserData, @Param('id') id: string, @Req() req: FastifyRequest) {
     return this.vacancies.setStatus(user, id, 'CLOSED', this.ctx(req))
+  }
+
+  @Delete(':id')
+  @Roles(Role.EMPLOYER)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Удалить черновик вакансии (физически)' })
+  @ApiResponse({ status: 204, description: 'Черновик удалён' })
+  @ApiResponse({
+    status: 409,
+    description: 'VACANCY_NOT_DELETABLE — вакансия не черновик: её можно только закрыть',
+  })
+  remove(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.vacancies.remove(user, id, this.ctx(req))
   }
 
   private ctx(req: FastifyRequest): RequestContext {

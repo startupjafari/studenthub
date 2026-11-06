@@ -3,6 +3,7 @@ import { OffsetPaginationSchema, SortOrderSchema, queryBoolean } from './paginat
 import { PasswordSchema } from './auth.js'
 import { OrgPageFieldsShape } from './org-page.js'
 import { KatoCodeSchema } from './kato.js'
+import { vm } from './validation-messages.js'
 
 // Карьера (Фаза 18): компании-работодатели и их допуск к студентам вузов.
 // Единый источник истины для валидации на бэке и типов на фронте — дублировать
@@ -98,7 +99,7 @@ export const CompanySlugSchema = z
   .trim()
   .min(3)
   .max(48)
-  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Только строчная латиница, цифры и дефис')
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, vm('validation.career.slug'))
 
 export const CompanyNameSchema = z.string().trim().min(2).max(120)
 
@@ -108,7 +109,7 @@ const companyWebsiteUrl = z
   .trim()
   .max(200)
   .url()
-  .refine((v) => v.startsWith('http://') || v.startsWith('https://'), 'Ссылка должна быть http(s)')
+  .refine((v) => v.startsWith('http://') || v.startsWith('https://'), vm('validation.url.httpOnly'))
 
 export const CompanyWebsiteSchema = companyWebsiteUrl
   .optional()
@@ -153,6 +154,38 @@ export const ResendCompanyVerificationSchema = z
   })
   .strict()
 export type ResendCompanyVerificationInput = z.infer<typeof ResendCompanyVerificationSchema>
+
+// ── Приглашение коллеги в компанию (21.D2) ───────────────────────────────────
+
+/**
+ * Статус приглашения коллеги. Истечение не хранится: срок сверяется с `expiresAt` в
+ * момент чтения, как у допуска компании, — иначе «истёк» зависел бы от прохода cron.
+ */
+export const COMPANY_INVITE_STATUSES = ['PENDING', 'ACCEPTED', 'REVOKED'] as const
+export const CompanyInviteStatusSchema = z.enum(COMPANY_INVITE_STATUSES)
+export type CompanyInviteStatus = z.infer<typeof CompanyInviteStatusSchema>
+
+/** OWNER приглашает коллегу по почте. Роль не выбирается: приглашённый — всегда RECRUITER. */
+export const CreateCompanyInviteSchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email().max(160),
+  })
+  .strict()
+export type CreateCompanyInviteInput = z.infer<typeof CreateCompanyInviteSchema>
+
+/**
+ * Регистрация по приглашению компании. Почта — из приглашения (по ней пришла ссылка), роль
+ * и компания — тоже: тело принимает только имя и пароль, как регистрация по инвайту вуза.
+ */
+export const AcceptCompanyInviteSchema = z
+  .object({
+    token: z.string().min(16).max(200),
+    password: PasswordSchema,
+    firstName: z.string().trim().min(1).max(60),
+    lastName: z.string().trim().min(1).max(60),
+  })
+  .strict()
+export type AcceptCompanyInviteInput = z.infer<typeof AcceptCompanyInviteSchema>
 
 // ── Профиль компании ─────────────────────────────────────────────────────────
 
@@ -240,7 +273,7 @@ export const DecideCompanyAccessSchema = z
   })
   .strict()
   .refine((v) => v.status === 'APPROVED' || !!v.reason, {
-    message: 'Укажите причину',
+    message: vm('validation.common.reasonRequired'),
     path: ['reason'],
   })
 export type DecideCompanyAccessInput = z.infer<typeof DecideCompanyAccessSchema>
@@ -529,7 +562,7 @@ export const DecideVacancySchema = z
   })
   .strict()
   .refine((v) => v.status === 'APPROVED' || !!v.reason, {
-    message: 'Укажите причину',
+    message: vm('validation.common.reasonRequired'),
     path: ['reason'],
   })
 export type DecideVacancyInput = z.infer<typeof DecideVacancySchema>
@@ -692,6 +725,9 @@ export const CreateApplicationSchema = z
   .object({
     vacancyId: z.string().uuid(),
     coverLetter: optionalText(4000),
+    // Открыть скрытый карьерный профиль только компании этой вакансии (21.D1). Сам отклик
+    // профиль не раскрывает: без галочки компания видит лишь строку кандидата в воронке.
+    shareProfile: z.boolean().optional(),
   })
   .strict()
 export type CreateApplicationInput = z.infer<typeof CreateApplicationSchema>
@@ -707,7 +743,7 @@ export const ChangeApplicationStatusSchema = z
   })
   .strict()
   .refine((v) => v.status !== 'REJECTED' || !!v.comment, {
-    message: 'Укажите причину отказа',
+    message: vm('validation.common.rejectionReasonRequired'),
     path: ['comment'],
   })
 export type ChangeApplicationStatusInput = z.infer<typeof ChangeApplicationStatusSchema>

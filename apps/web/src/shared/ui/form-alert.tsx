@@ -3,6 +3,7 @@
 import { useTranslations } from 'next-intl'
 import { TriangleAlert } from 'lucide-react'
 import type { ApiErrorBody } from '@studenthub/shared-types'
+import { useValidationMessage } from 'shared/lib/validation-message'
 import { Alert, AlertDescription, AlertTitle } from './alert'
 
 export interface FormAlertProps {
@@ -14,6 +15,7 @@ export interface FormAlertProps {
 // для VALIDATION_ERROR дополнительно перечисляет поля из details[] (§7 — но списком, не под полями).
 export function FormAlert({ error, className }: FormAlertProps) {
   const tErr = useTranslations('Errors')
+  const translate = useValidationMessage()
   if (!error) return null
 
   const details = error.code === 'VALIDATION_ERROR' ? error.details : undefined
@@ -26,7 +28,7 @@ export function FormAlert({ error, className }: FormAlertProps) {
         <AlertDescription>
           <ul className="list-inside list-disc">
             {details.map((detail, index) => (
-              <li key={`${detail.field}-${index}`}>{detail.message}</li>
+              <li key={`${detail.field}-${index}`}>{translate(detail.message)}</li>
             ))}
           </ul>
         </AlertDescription>

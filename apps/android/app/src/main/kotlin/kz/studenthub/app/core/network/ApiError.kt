@@ -93,11 +93,14 @@ sealed class ApiError(cause: Throwable? = null) : Exception(cause) {
     /**
      * Текст для человека — по коду, на языке приложения (§8.2): серверное сообщение
      * по-русски, и казахскому интерфейсу оно не подходит. Сервер сказал код, которого
-     * сборка не знает, — тогда его текст как есть: это лучше, чем ничего.
+     * сборка не знает, — тогда его текст как есть: это лучше, чем ничего. Ошибка поля с
+     * ключом валидации (`validation.…`) конкретнее общего текста по коду — она первой.
      */
     val displayMessage: UiText
         get() = when (this) {
-            is Server -> code.messageRes?.let { UiText.Res(it) } ?: UiText.Raw(serverMessage)
+            is Server -> details.firstNotNullOfOrNull { it.validationText }
+                ?: code.messageRes?.let { UiText.Res(it) }
+                ?: UiText.Raw(serverMessage)
             is Transport -> UiText.Res(R.string.error_network)
             is Decoding, is Malformed -> UiText.Res(R.string.error_unexpected)
         }

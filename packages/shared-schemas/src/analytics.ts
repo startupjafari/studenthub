@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { vm } from './validation-messages.js'
 
 // Аналитика декана (docs/ACADEMIC_CORE.md, задача 14) — read-only агрегаты по факультету.
 export const FacultyAnalyticsQuerySchema = z
@@ -58,7 +59,7 @@ function checkPlatformRange(
   if (from.getTime() >= to.getTime()) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: 'Начало периода должно быть раньше конца',
+      message: vm('validation.range.endAfterStart'),
       path: [v.from ? 'from' : 'to'],
     })
     return
@@ -67,7 +68,7 @@ function checkPlatformRange(
   if (to.getTime() - from.getTime() > maxDays * DAY_MS) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: `Период длиннее допустимого: не больше ${maxDays} дн. для этого шага`,
+      message: vm('validation.range.tooLong'),
       path: ['from'],
     })
   }
@@ -122,7 +123,7 @@ export const TimeZoneSchema = z
   .string()
   .min(1)
   .max(64)
-  .refine(isKnownTimeZone, { message: 'Неизвестный часовой пояс' })
+  .refine(isKnownTimeZone, { message: vm('validation.timeZone.unknown') })
 
 /** Период + зона: только для активности по часам, остальные ряды режутся по UTC. */
 export const PlatformActivityQuerySchema = PlatformRangeObject.extend({

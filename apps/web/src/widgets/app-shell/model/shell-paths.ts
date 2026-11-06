@@ -29,6 +29,7 @@ const SHELL_FREE: readonly string[] = [
   '/join-chat',
   '/employer/signup',
   '/employer/verify',
+  '/employer/join',
   // Редактор кампуса: холсту нужен весь экран, своя шапка с возвратом к кампусу.
   '/campus-editor',
   // Каталог `app/%5Fdev`: Next исключает из роутинга папки на `_`, адрес — `/_dev`.

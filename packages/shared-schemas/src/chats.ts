@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { CursorPaginationSchema, queryBoolean } from './pagination.js'
+import { vm } from './validation-messages.js'
 
 // Чаты (docs/PROJECT.md §3.6, §9; Ф9). ChatType дублирует Prisma-enum.
 
@@ -39,7 +40,7 @@ const messageText = (max = 4000) =>
   z
     .string()
     .transform((v) => v.replace(INVISIBLE_RE, '').trim())
-    .pipe(z.string().min(1, 'Сообщение не может быть пустым').max(max))
+    .pipe(z.string().min(1, vm('validation.chats.emptyMessage')).max(max))
 
 /** То же, но текст необязателен: у сообщения с вложениями его может не быть вовсе. */
 const optionalMessageText = (max = 4000) =>
@@ -83,7 +84,7 @@ export const CreateChatSchema = z
   // чат не срабатывала — каждый вызов плодил новый «личный» чат на четверых.
   .refine((v) => v.type !== 'PRIVATE' || v.memberIds.length === 1, {
     path: ['memberIds'],
-    message: 'Личный чат создаётся ровно с одним собеседником',
+    message: vm('validation.chats.privateOneMember'),
   })
 export type CreateChatInput = z.infer<typeof CreateChatSchema>
 
@@ -101,7 +102,7 @@ export const EditChatSchema = z
   })
   .strict()
   .refine((v) => v.title !== undefined || v.description !== undefined, {
-    message: 'Нечего менять: укажите название или описание',
+    message: vm('validation.chats.nothingToChange'),
   })
 export type EditChatInput = z.infer<typeof EditChatSchema>
 
@@ -121,7 +122,7 @@ export const ChatMediaCalendarQuerySchema = z
   .strict()
   .refine((v) => new Date(v.from) <= new Date(v.to), {
     path: ['to'],
-    message: 'Конец окна раньше его начала',
+    message: vm('validation.range.endNotBeforeStart'),
   })
 export type ChatMediaCalendarQueryInput = z.infer<typeof ChatMediaCalendarQuerySchema>
 
@@ -158,11 +159,11 @@ export const ClearChatSchema = z
   })
   .strict()
   .refine((v) => (v.from === undefined) === (v.to === undefined), {
-    message: 'Период задаётся обеими границами',
+    message: vm('validation.range.bothBounds'),
   })
   .refine((v) => !v.from || !v.to || new Date(v.from) <= new Date(v.to), {
     path: ['to'],
-    message: 'Конец периода раньше его начала',
+    message: vm('validation.range.endNotBeforeStart'),
   })
 export type ClearChatInput = z.infer<typeof ClearChatSchema>
 
@@ -243,7 +244,7 @@ export const UpdateChatFolderSchema = z
   })
   .strict()
   .refine((v) => v.name !== undefined || v.chatIds !== undefined || v.position !== undefined, {
-    message: 'Нужно передать хотя бы одно поле',
+    message: vm('validation.common.nothingToChange'),
   })
 export type UpdateChatFolderInput = z.infer<typeof UpdateChatFolderSchema>
 
@@ -288,7 +289,7 @@ export const MessageSendRestSchema = z
     // `spoiler: true` остаётся коротким «скрыть всё» и старые клиенты не ломает.
     spoilerIndexes: z
       .string()
-      .regex(/^\d+(,\d+)*$/, 'Ожидались номера вложений через запятую')
+      .regex(/^\d+(,\d+)*$/, vm('validation.chats.spoilerIndexes'))
       .optional(),
     // §9: отправить вложения «без сжатия» — получатель видит строки файлов, а не превью,
     // даже если это картинки. Флаг всего сообщения: в одном сообщении вложения уходят
@@ -302,7 +303,7 @@ export const MessageSendRestSchema = z
   // Цитата без ответа не имеет смысла — из чего цитата, непонятно ни серверу, ни клиенту.
   .refine((v) => !v.replyQuote || !!v.replyToId, {
     path: ['replyQuote'],
-    message: 'Цитата возможна только вместе с ответом на сообщение',
+    message: vm('validation.chats.quoteWithoutReply'),
   })
 export type MessageSendRestInput = z.infer<typeof MessageSendRestSchema>
 
@@ -320,11 +321,11 @@ export const ScheduleMessageSchema = z
   .strict()
   .refine((v) => new Date(v.scheduledAt).getTime() > Date.now(), {
     path: ['scheduledAt'],
-    message: 'Время отправки должно быть в будущем',
+    message: vm('validation.chats.scheduleInPast'),
   })
   .refine((v) => new Date(v.scheduledAt).getTime() < Date.now() + 365 * 24 * 60 * 60 * 1000, {
     path: ['scheduledAt'],
-    message: 'Отложить можно не больше чем на год',
+    message: vm('validation.chats.scheduleTooFar'),
   })
 export type ScheduleMessageInput = z.infer<typeof ScheduleMessageSchema>
 
@@ -336,11 +337,11 @@ export const UpdateScheduledMessageSchema = z
   })
   .strict()
   .refine((v) => v.content !== undefined || v.scheduledAt !== undefined, {
-    message: 'Нечего менять',
+    message: vm('validation.common.nothingToChange'),
   })
   .refine((v) => !v.scheduledAt || new Date(v.scheduledAt).getTime() > Date.now(), {
     path: ['scheduledAt'],
-    message: 'Время отправки должно быть в будущем',
+    message: vm('validation.chats.scheduleInPast'),
   })
 export type UpdateScheduledMessageInput = z.infer<typeof UpdateScheduledMessageSchema>
 
@@ -401,7 +402,7 @@ export const MessageSendSchema = z
   // Цитата без ответа не имеет смысла — из чего цитата, непонятно ни серверу, ни клиенту.
   .refine((v) => !v.replyQuote || !!v.replyToId, {
     path: ['replyQuote'],
-    message: 'Цитата возможна только вместе с ответом на сообщение',
+    message: vm('validation.chats.quoteWithoutReply'),
   })
 export type MessageSendInput = z.infer<typeof MessageSendSchema>
 
@@ -493,7 +494,7 @@ export const ChatAttachmentMultipartUrlsSchema = z
   .strict()
   .refine((v) => v.to >= v.from, {
     path: ['to'],
-    message: 'Конец диапазона частей не может быть меньше начала',
+    message: vm('validation.upload.partRangeReversed'),
   })
 export type ChatAttachmentMultipartUrlsInput = z.infer<typeof ChatAttachmentMultipartUrlsSchema>
 
@@ -538,6 +539,6 @@ export const MessageSendUploadedSchema = z
   .strict()
   .refine((v) => !v.replyQuote || !!v.replyToId, {
     path: ['replyQuote'],
-    message: 'Цитата возможна только вместе с ответом на сообщение',
+    message: vm('validation.chats.quoteWithoutReply'),
   })
 export type MessageSendUploadedInput = z.infer<typeof MessageSendUploadedSchema>

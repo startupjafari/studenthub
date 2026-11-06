@@ -7,4 +7,9 @@ export {
   fetchPipeline,
   changeApplicationStatus,
 } from './api/career-application-api'
-export type { StudentApplication, PipelineApplication, ApplicationEvent } from './model/types'
+export type {
+  StudentApplication,
+  PipelineApplication,
+  ApplicationEvent,
+  ProfileAccess,
+} from './model/types'
