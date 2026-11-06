@@ -3485,7 +3485,7 @@
             "description": "INVALID_2FA_CODE — неверный код 2FA"
           },
           "409": {
-            "description": "CONFLICT — последний администратор платформы"
+            "description": "CONFLICT — последний администратор платформы; LIBRARY_DEBTS_OPEN — за человеком книги библиотеки (на руках или утерянные с непогашенным долгом), строка на книгу в details[]"
           },
           "429": {
             "description": "RATE_LIMIT — слишком много неверных паролей или кодов"
@@ -3686,6 +3686,21 @@
           }
         },
         "summary": "Удалить обложку профиля",
+        "tags": [
+          "Пользователи"
+        ]
+      }
+    },
+    "/users/me/deletion-check": {
+      "get": {
+        "operationId": "UsersController_deletionCheck",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "{ canDelete, blockers: (libraryDebts|lastPlatformAdmin)[], libraryDebts[] }"
+          }
+        },
+        "summary": "Что мешает удалить свой аккаунт (книги библиотеки на руках и т. п.)",
         "tags": [
           "Пользователи"
         ]
