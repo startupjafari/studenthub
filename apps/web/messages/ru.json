@@ -6595,5 +6595,143 @@
     "var_issuer_fullName_desc": "Сотрудник, который формирует документ.",
     "var_issuer_position_label": "Должность сотрудника",
     "var_issuer_position_desc": "Должность из профиля сотрудника, который формирует документ."
+  },
+  "Validation": {
+    "auth": {
+      "identifierRequired": "Введите email или имя пользователя",
+      "passwordRequired": "Введите пароль"
+    },
+    "username": {
+      "invalid": "Только латиница, цифры и _, 3–32 символа"
+    },
+    "password": {
+      "tooShort": "Минимум 8 символов",
+      "letterRequired": "Нужна хотя бы одна буква",
+      "digitRequired": "Нужна хотя бы одна цифра",
+      "specialRequired": "Нужен хотя бы один спецсимвол",
+      "tooLong": "Слишком длинный пароль: не больше 72 байт (около 36 букв кириллицей)"
+    },
+    "twoFactor": {
+      "codeFormat": "Код из 6 цифр"
+    },
+    "birthDate": {
+      "implausible": "Проверьте дату рождения"
+    },
+    "consent": {
+      "guardianRequired": "Нужно согласие законного представителя",
+      "required": "Требуется согласие"
+    },
+    "onboarding": {
+      "stepNotSkippable": "Этот шаг нельзя пропустить"
+    },
+    "date": {
+      "format": "Дата в формате ГГГГ-ММ-ДД",
+      "invalid": "Такой даты нет"
+    },
+    "time": {
+      "format": "Время в формате ЧЧ:ММ (00:00–23:59)"
+    },
+    "range": {
+      "endAfterStart": "Окончание должно быть позже начала",
+      "endNotBeforeStart": "Окончание не может быть раньше начала",
+      "startBeforeEnd": "Время начала должно быть раньше времени окончания",
+      "bothBounds": "Период задаётся обеими границами",
+      "tooLong": "Период длиннее допустимого для этого шага"
+    },
+    "timeZone": {
+      "unknown": "Неизвестный часовой пояс"
+    },
+    "common": {
+      "nothingToChange": "Нечего менять",
+      "duplicateIds": "Идентификаторы повторяются",
+      "reasonRequired": "Укажите причину",
+      "rejectionReasonRequired": "Укажите причину отказа",
+      "textOrAttachment": "Нужен текст или вложение",
+      "pageLimit": "При постраничной выдаче — не больше 100 записей"
+    },
+    "url": {
+      "httpOnly": "Ссылка должна быть http или https",
+      "website": "Укажите адрес сайта, например example.kz"
+    },
+    "phone": {
+      "format": "Номер в формате +7 (777) 777-77-77"
+    },
+    "version": {
+      "format": "Версия в формате 1.2.3"
+    },
+    "upload": {
+      "partRangeReversed": "Конец диапазона частей не может быть меньше начала"
+    },
+    "security": {
+      "documentLast4": "Четыре последние цифры документа",
+      "documentTypeRequired": "Укажите тип документа"
+    },
+    "kato": {
+      "code": "Код КАТО — 9 цифр"
+    },
+    "mini": {
+      "linkCodeLength": "Код привязки — {length} символов"
+    },
+    "support": {
+      "textTooShort": "Опишите вопрос подробнее"
+    },
+    "stories": {
+      "duplicateRecipients": "Получатели повторяются",
+      "recipientsOnlyForSelected": "Получатели указываются только для аудитории «выбранные»",
+      "duplicatePollOptions": "Варианты ответа не должны повторяться",
+      "tooManyMentions": "Слишком много упоминаний",
+      "tooManyCards": "Слишком много карточек",
+      "empty": "Сторис должна содержать медиа или текст",
+      "backgroundTextOnly": "Фон выбирается только для текстовой сторис",
+      "linkLabelWithoutUrl": "Подпись без ссылки"
+    },
+    "chats": {
+      "nothingToChange": "Нечего менять: укажите название или описание",
+      "emptyMessage": "Сообщение не может быть пустым",
+      "privateOneMember": "Личный чат создаётся ровно с одним собеседником",
+      "spoilerIndexes": "Ожидались номера вложений через запятую",
+      "quoteWithoutReply": "Цитата возможна только вместе с ответом на сообщение",
+      "scheduleInPast": "Время отправки должно быть в будущем",
+      "scheduleTooFar": "Отложить можно не больше чем на год"
+    },
+    "documents": {
+      "typeCode": "Код: заглавные латинские, цифры, подчёркивание"
+    },
+    "library": {
+      "isbn": "ISBN — 10 или 13 цифр",
+      "copiesOrCount": "Укажите инвентарные номера или количество",
+      "copyRefRequired": "Укажите код наклейки или инвентарный номер",
+      "popularPeriod": "Период: 30, 90 или 365 дней"
+    },
+    "applications": {
+      "tooManyFields": "Не больше {max} полей",
+      "fileOrDocument": "Укажите либо файл, либо существующий документ",
+      "documentTypeRequired": "Укажите вид документа",
+      "catalogCode": "Латиница, цифры и дефис, от 2 до 60 символов",
+      "choiceOptionsRequired": "У поля выбора нужен хотя бы один вариант",
+      "duplicateDeliveryMode": "Способ выдачи указан дважды",
+      "duplicateRequirementCodes": "Коды документов должны быть разными",
+      "duplicateFieldCodes": "Коды полей должны быть разными"
+    },
+    "org": {
+      "foundedYearFuture": "Год из будущего",
+      "telegram": "@имя или https://t.me/имя",
+      "instagram": "Ссылка вида https://instagram.com/имя",
+      "linkedin": "Ссылка вида https://linkedin.com/company/имя"
+    },
+    "cameras": {
+      "rtspScheme": "Адрес должен начинаться с rtsp://",
+      "credentialsInUrl": "Логин и пароль укажите в отдельных полях, а не в адресе",
+      "hostMissing": "В адресе нет хоста камеры"
+    },
+    "career": {
+      "slug": "Только строчная латиница, цифры и дефис"
+    },
+    "schedule": {
+      "newRoomRequired": "Нужна новая аудитория",
+      "substituteRequired": "Нужен заменяющий преподаватель",
+      "newStartRequired": "Нужно новое время начала",
+      "newEndRequired": "Нужно новое время окончания"
+    }
   }
 }
