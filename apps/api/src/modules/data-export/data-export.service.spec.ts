@@ -55,6 +55,7 @@ const MODELS = [
   'pollVote',
   'careerProfile',
   'careerConsent',
+  'careerProfileGrant',
   'careerApplication',
   'resume',
   'companyMember',
