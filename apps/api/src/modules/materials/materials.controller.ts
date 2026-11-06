@@ -18,6 +18,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger'
+import { Throttle } from '@nestjs/throttler'
 import { Role } from '@studenthub/shared-types'
 import type { FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
@@ -27,6 +28,12 @@ import { readNamedUpload } from '../../common/http/read-upload'
 import type { RequestContext } from '../auth/auth.service'
 import { MaterialsService } from './materials.service'
 import { ConfirmMaterialFileDto, PresignMaterialFileDto } from './dto/presign-material-file.dto'
+import {
+  MaterialFileMultipartAbortDto,
+  MaterialFileMultipartCompleteDto,
+  MaterialFileMultipartStartDto,
+  MaterialFileMultipartUrlsDto,
+} from './dto/material-file-multipart.dto'
 import { CreateMaterialDto } from './dto/create-material.dto'
 import { MaterialListQueryDto, MaterialSubjectsQueryDto } from './dto/material-list-query.dto'
 
@@ -93,6 +100,74 @@ export class MaterialsController {
     @Req() req: FastifyRequest,
   ) {
     return this.materials.confirmFile(user, id, dto.key, dto.name, this.ctx(req))
+  }
+
+  // ── Многочастная загрузка (21.B1) ──────────────────────────────────────────
+  // Файлы больше FILE_UPLOAD.MULTIPART_THRESHOLD_BYTES: start → urls → PUT частей → complete.
+  // Троттлинг выдачи подписей — как у /files/multipart/* и вложений чата.
+
+  @Post(':id/files/multipart/start')
+  @Roles(...AUTHOR_ROLES)
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Открыть многочастную загрузку файла материала (шаг 1 из 4)' })
+  @ApiResponse({ status: 201, description: 'key + uploadId + размер и число частей' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — файл или число частей за пределом' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — нет прав на материал' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — у материала уже предельное число файлов' })
+  startFileMultipart(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: MaterialFileMultipartStartDto,
+  ) {
+    return this.materials.startFileMultipart(user, id, dto.mime, dto.size)
+  }
+
+  @Post(':id/files/multipart/urls')
+  @Roles(...AUTHOR_ROLES)
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Подписи на диапазон частей файла материала (шаг 2 из 4)' })
+  @ApiResponse({ status: 201, description: 'Ссылки по номерам частей + срок действия' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — нет прав или ключ не свой' })
+  fileMultipartUrls(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: MaterialFileMultipartUrlsDto,
+  ) {
+    return this.materials.fileMultipartUrls(user, id, {
+      key: dto.key,
+      uploadId: dto.uploadId,
+      from: dto.from,
+      to: dto.to,
+    })
+  }
+
+  @Post(':id/files/multipart/complete')
+  @Roles(...AUTHOR_ROLES)
+  @ApiOperation({ summary: 'Собрать файл материала из частей и прикрепить (шаг 4 из 4)' })
+  @ApiResponse({ status: 201, description: 'Файл прикреплён к материалу' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — части не сходятся' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — нет прав или ключ не свой' })
+  @ApiResponse({ status: 422, description: 'FILE_TYPE_NOT_ALLOWED / FILE_TOO_LARGE' })
+  completeFileMultipart(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: MaterialFileMultipartCompleteDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.materials.completeFileMultipart(user, id, dto, this.ctx(req))
+  }
+
+  @Post(':id/files/multipart/abort')
+  @Roles(...AUTHOR_ROLES)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Отменить многочастную загрузку файла материала' })
+  @ApiResponse({ status: 204, description: 'Залитые части удалены' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — ключ не свой' })
+  async abortFileMultipart(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: MaterialFileMultipartAbortDto,
+  ): Promise<void> {
+    await this.materials.abortFileMultipart(user, { key: dto.key, uploadId: dto.uploadId })
   }
 
   @Post(':id/files')

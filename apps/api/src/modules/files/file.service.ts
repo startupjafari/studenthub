@@ -361,9 +361,11 @@ export class FileService {
     name?: string
     /** Привязка собранного объекта к сообщению чата (Ф19.0). */
     messageId?: string
+    /** Привязка собранного объекта к материалу (21.B1) — как у `confirmDirectUpload`. */
+    materialId?: string
     expectedCategory?: FileCategory
     allowedMimes?: ReadonlySet<string>
-    /** Принимать архивы — только вложения чата. */
+    /** Принимать архивы — вложения чата и файлы сдач. */
     allowArchives?: boolean
   }) {
     this.assertKeyOwner(params.key, params.ownerId)
@@ -382,6 +384,7 @@ export class FileService {
       ownerId: params.ownerId,
       name: params.name,
       messageId: params.messageId,
+      materialId: params.materialId,
       expectedCategory: params.expectedCategory,
       allowedMimes: params.allowedMimes,
       allowArchives: params.allowArchives,

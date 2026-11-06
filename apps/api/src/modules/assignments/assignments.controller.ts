@@ -20,6 +20,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger'
+import { Throttle } from '@nestjs/throttler'
 import { Role } from '@studenthub/shared-types'
 import type { FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
@@ -35,6 +36,12 @@ import { AssignmentListQueryDto } from './dto/assignment-list-query.dto'
 import { ReviewQueueQueryDto } from './dto/review-queue-query.dto'
 import { SaveSubmissionDto } from './dto/save-submission.dto'
 import { ConfirmSubmissionFileDto, PresignSubmissionFileDto } from './dto/submission-file.dto'
+import {
+  SubmissionFileMultipartAbortDto,
+  SubmissionFileMultipartCompleteDto,
+  SubmissionFileMultipartStartDto,
+  SubmissionFileMultipartUrlsDto,
+} from './dto/submission-file-multipart.dto'
 
 const TEACH_ROLES = [Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN, Role.TEACHER] as const
 const STUDENT_ROLES = [Role.STUDENT, Role.STAROSTA] as const
@@ -215,6 +222,79 @@ export class AssignmentsController {
     @Body() dto: ConfirmSubmissionFileDto,
   ) {
     return this.assignments.confirmSubmissionFile(user, id, dto.key, dto.name)
+  }
+
+  // Файлы больше FILE_UPLOAD.MULTIPART_THRESHOLD_BYTES — многочастной загрузкой (21.B1):
+  // start → urls → PUT частей → complete. Троттлинг выдачи подписей — как у /files/multipart/*.
+
+  @Post(':id/submission/files/multipart/start')
+  @Roles(...STUDENT_ROLES)
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Открыть многочастную загрузку файла работы (шаг 1 из 4)' })
+  @ApiResponse({ status: 201, description: 'key + uploadId + размер и число частей' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — файл или число частей за пределом' })
+  @ApiResponse({ status: 403, description: 'WRONG_SCOPE — задание другой группы' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — работа отправлена или файлов уже 10' })
+  startSubmissionFileMultipart(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: SubmissionFileMultipartStartDto,
+  ) {
+    return this.assignments.startSubmissionFileMultipart(user, id, dto.mime, dto.size)
+  }
+
+  @Post(':id/submission/files/multipart/urls')
+  @Roles(...STUDENT_ROLES)
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Подписи на диапазон частей файла работы (шаг 2 из 4)' })
+  @ApiResponse({ status: 201, description: 'Ссылки по номерам частей + срок действия' })
+  @ApiResponse({
+    status: 403,
+    description: 'FORBIDDEN / WRONG_SCOPE — ключ не свой или чужое задание',
+  })
+  submissionFilePartUrls(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: SubmissionFileMultipartUrlsDto,
+  ) {
+    return this.assignments.submissionFilePartUrls(user, id, {
+      key: dto.key,
+      uploadId: dto.uploadId,
+      from: dto.from,
+      to: dto.to,
+    })
+  }
+
+  @Post(':id/submission/files/multipart/complete')
+  @Roles(...STUDENT_ROLES)
+  @ApiOperation({ summary: 'Собрать файл работы из частей и приложить (шаг 4 из 4)' })
+  @ApiResponse({ status: 201, description: '{ id, name, mime, size, createdAt }' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — части не сходятся' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — ключ не принадлежит вызывающему' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — работа отправлена или файлов уже 10' })
+  @ApiResponse({ status: 422, description: 'FILE_TYPE_NOT_ALLOWED / FILE_TOO_LARGE' })
+  completeSubmissionFileMultipart(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: SubmissionFileMultipartCompleteDto,
+  ) {
+    return this.assignments.completeSubmissionFileMultipart(user, id, dto)
+  }
+
+  @Post(':id/submission/files/multipart/abort')
+  @Roles(...STUDENT_ROLES)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Отменить многочастную загрузку файла работы' })
+  @ApiResponse({ status: 204, description: 'Залитые части удалены' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — ключ не принадлежит вызывающему' })
+  async abortSubmissionFileMultipart(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: SubmissionFileMultipartAbortDto,
+  ): Promise<void> {
+    await this.assignments.abortSubmissionFileMultipart(user, {
+      key: dto.key,
+      uploadId: dto.uploadId,
+    })
   }
 
   @Delete(':id/submission/files/:fileId')

@@ -391,6 +391,23 @@ describe('FileService — многочастная загрузка', () => {
     )
   })
 
+  it('собранный файл материала сразу привязан к материалу (21.B1)', async () => {
+    const { service } = setup({ head: PDF, size: 1024 })
+
+    const file = await service.completeMultipart({
+      bucket: 'materials',
+      key: 'user-1/lecture.pdf',
+      uploadId: 'upload-1',
+      ownerId: 'user-1',
+      parts: [{ part: 1, etag: 'a' }],
+      materialId: 'mat-1',
+      name: 'Лекция 1.pdf',
+    })
+
+    expect(file.materialId).toBe('mat-1')
+    expect(file.name).toBe('Лекция 1.pdf')
+  })
+
   it('собранный объект проходит ту же проверку типа: SVG под видом видео не пройдёт', async () => {
     const { service, minio } = setup({ head: SVG, size: 1024 })
 
