@@ -27,6 +27,14 @@ export interface Door extends Item {
   action: string
 }
 
+/**
+ * Карточка модуля платформы. `id` — ключ иконки: иконка живёт в коде секции, а не в
+ * словаре, как и у вкладок ролей, — это часть интерфейса, а не текст для перевода.
+ */
+export interface ModuleCard extends Item {
+  id: string
+}
+
 export interface RoleTab {
   id: string
   /** Подпись вкладки, она же заголовок карточки. */
@@ -54,6 +62,7 @@ export interface Dictionary {
 
   nav: {
     product: string
+    modules: string
     security: string
     rollout: string
     faq: string
@@ -100,6 +109,17 @@ export interface Dictionary {
     /** Имя продукта в шапке макета — оно же и в интерфейсе платформы. */
     appName: string
     tabs: RoleTab[]
+  }
+
+  /**
+   * Разделы платформы сверх учебного процесса: кампус, библиотека, пост охраны, общение,
+   * карьера, документы на бланке вуза. Каждый текст сверен с кодом — карточка о том, чего
+   * в платформе нет, на демонстрации обернулась бы потерей доверия ко всей странице.
+   */
+  modules: {
+    title: string
+    subtitle: string
+    items: ModuleCard[]
   }
 
   security: {
