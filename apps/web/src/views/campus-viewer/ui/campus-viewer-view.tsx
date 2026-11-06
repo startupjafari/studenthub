@@ -13,6 +13,7 @@ import {
   nodePoint,
   routeBetweenSpaces,
   routeSteps,
+  SPACE_KINDS,
   type CenterWall,
   type FloorPlanDoc,
 } from '@studenthub/campus-core'
@@ -407,6 +408,11 @@ function Viewer({
     [routePoints, levelFloors, markerFrom, markerTo],
   )
   const sceneMarkers = useMemo(() => ({ from: markerFrom, to: markerTo }), [markerFrom, markerTo])
+  // Подписи типов помещений — для табличек у дверей, когда у помещения нет номера и названия.
+  const sceneKindLabels = useMemo(
+    () => Object.fromEntries(SPACE_KINDS.map((k) => [k, tk(`kind_${k}`)])),
+    [tk],
+  )
   // Все этажи корпусов — для кнопок в кабине лифта при проходе по маршруту.
   const sceneFloorIndex = useMemo(
     () =>
@@ -628,6 +634,7 @@ function Viewer({
                 tour={touring}
                 routeMarkers={sceneMarkers}
                 floorIndex={sceneFloorIndex}
+                kindLabels={sceneKindLabels}
                 onTourEnd={onTourEnd}
               />
             </div>

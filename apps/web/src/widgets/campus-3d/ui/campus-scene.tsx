@@ -108,7 +108,17 @@ export function CampusScene({
     c.onTourEnd = onTourEnd ?? null
   }, [onTourEnd])
 
-  const { floors, mode, focusFloorId, highlight, route, site, routeMarkers, floorIndex } = input
+  const {
+    floors,
+    mode,
+    focusFloorId,
+    highlight,
+    route,
+    site,
+    routeMarkers,
+    floorIndex,
+    kindLabels,
+  } = input
   const markerFrom = routeMarkers?.from
   const markerTo = routeMarkers?.to
   useEffect(() => {
@@ -121,8 +131,20 @@ export function CampusScene({
       site,
       routeMarkers: markerFrom && markerTo ? { from: markerFrom, to: markerTo } : undefined,
       floorIndex,
+      kindLabels,
     })
-  }, [floors, mode, focusFloorId, highlight, route, site, markerFrom, markerTo, floorIndex])
+  }, [
+    floors,
+    mode,
+    focusFloorId,
+    highlight,
+    route,
+    site,
+    markerFrom,
+    markerTo,
+    floorIndex,
+    kindLabels,
+  ])
 
   useEffect(() => {
     if (focusPoint) ctrl.current?.focusOn(focusPoint.x, focusPoint.y, focusPoint.z)
