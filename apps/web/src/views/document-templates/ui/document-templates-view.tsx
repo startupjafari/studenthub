@@ -122,7 +122,10 @@ export function DocumentTemplatesView() {
   )
 
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
+    // Высоту области отдаём только таблице (она прокручивается внутри карточки). Каталог —
+    // обычный поток: с `min-h-0` он вылезал за блок, и нижний отступ страницы оставался
+    // под блоком, а последние карточки прилипали к краю.
+    <div className={cn('flex w-full flex-col gap-4', tab === 'templates' && 'min-h-0 flex-1')}>
       <PageHeader
         title={t('title')}
         subtitle={t('subtitle')}
