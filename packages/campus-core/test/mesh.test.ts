@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { ceilingMesh, floorMesh, slabMesh, type MeshBuffers } from '../src/mesh/index.js'
+import {
+  ceilingMesh,
+  floorMesh,
+  liftWallOpenings,
+  slabMesh,
+  type MeshBuffers,
+} from '../src/mesh/index.js'
 import { generateFloor } from '../src/fixtures/generate.js'
 import { PlanBuilder } from '../src/fixtures/edge-cases.js'
 
@@ -224,6 +230,50 @@ describe('floorMesh — лестницы и лифты', () => {
     const cut = floorMesh(doc, { elevationMm: 0, heightMm: 3000, cutHeightMm: 1200 })
     expect(Math.max(...ys(cut.stairs))).toBeCloseTo(1.2, 5)
     expect(Math.max(...ys(cut.elevators))).toBeCloseTo(1.2, 5)
+  })
+})
+
+describe('liftWallOpenings', () => {
+  it('стена перед дверью лифта получает проём шириной двери; уже нарисованный — не дублируется', () => {
+    const b = new PlanBuilder().wall({ x: 0, y: 3000 }, { x: 6000, y: 3000 })
+    const doc = {
+      ...b.doc,
+      verticals: {
+        el: {
+          type: 'elevator' as const,
+          groupId: 'g',
+          outline: [
+            [2000, 3200],
+            [4000, 3200],
+            [4000, 5200],
+            [2000, 5200],
+          ] as [number, number][],
+          stepFree: true,
+          landing: { x: 3000, y: 2000 },
+        },
+      },
+    }
+    const cut = liftWallOpenings(doc)
+    expect(cut).toHaveLength(1)
+    // Дверь шириной 1 м по центру шахты (x = 3 м): проём 2,5…3,5 м от начала стены.
+    expect(cut[0]!.offsetMm).toBe(2500)
+    expect(cut[0]!.widthMm).toBe(1000)
+    const wall = b.wallIdAt({ x: 0, y: 3000 }, { x: 6000, y: 3000 })
+    const drawn = {
+      ...doc,
+      openings: {
+        d: {
+          type: 'door' as const,
+          wallId: wall,
+          offsetMm: 2400,
+          widthMm: 1200,
+          heightMm: 2100,
+          swing: 'left-in' as const,
+          access: 'public' as const,
+        },
+      },
+    }
+    expect(liftWallOpenings(drawn)).toHaveLength(0)
   })
 })
 
