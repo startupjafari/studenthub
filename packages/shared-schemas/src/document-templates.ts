@@ -70,6 +70,12 @@ export const GenerateDocumentFromTemplateSchema = z
   .strict()
 export type GenerateDocumentFromTemplateInput = z.infer<typeof GenerateDocumentFromTemplateSchema>
 
+/** Проверочный документ: по умолчанию — по рабочей (последней загруженной) версии. */
+export const DocumentTemplateTestQuerySchema = z
+  .object({ versionId: z.string().uuid().optional() })
+  .strict()
+export type DocumentTemplateTestQueryInput = z.infer<typeof DocumentTemplateTestQuerySchema>
+
 // ── Ответы ────────────────────────────────────────────────────────────────────
 
 /**
