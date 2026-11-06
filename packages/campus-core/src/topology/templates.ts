@@ -338,9 +338,18 @@ export function splitSpaceIntoRooms(
 
 /** Следующий свободный номер: «101» → «102», «А-09» → «А-10»; без цифр — null. */
 function nextNumber(number: string, used: Set<string>): string | undefined {
-  const m = /^(.*?)(\d+)(\D*)$/.exec(number)
-  if (!m) return undefined
-  const [, head = '', digits = '', tail = ''] = m
+  // Последняя группа цифр — разбором строки, а не регуляркой `^(.*?)(\d+)(\D*)$`: та на
+  // длинной строке из цифр без совпадения уходила в квадратичный перебор.
+  let end = number.length
+  while (end > 0 && !isDigit(number.charCodeAt(end - 1))) end--
+  let start = end
+  while (start > 0 && isDigit(number.charCodeAt(start - 1))) start--
+  if (start === end) return undefined
+  const head = number.slice(0, start)
+  const digits = number.slice(start, end)
+  const tail = number.slice(end)
+  // Как и прежде (`.` не захватывает перевод строки): перенос перед номером — номера нет.
+  if (/[\n\r\u2028\u2029]/.test(head)) return undefined
   let n = Number(digits)
   for (let guard = 0; guard < 1000; guard++) {
     n += 1
@@ -348,6 +357,11 @@ function nextNumber(number: string, used: Set<string>): string | undefined {
     if (!used.has(candidate)) return candidate
   }
   return undefined
+}
+
+/** ASCII-цифра 0–9 — ровно то, что понимает `\d`. */
+function isDigit(code: number): boolean {
+  return code >= 48 && code <= 57
 }
 
 function invertAssignments(assignments: Record<string, string>): Record<string, string> {

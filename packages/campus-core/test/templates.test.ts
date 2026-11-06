@@ -63,7 +63,7 @@ describe('шаблоны планировки', () => {
 
 describe('«Разбить на комнаты»', () => {
   // Корпус 30×12 м: полоса комнат снизу, коридор 2 м посередине.
-  function strip() {
+  function strip(number = 'А101') {
     const ids = sequentialIds()
     let doc = floorFromOutline(
       [
@@ -85,7 +85,7 @@ describe('«Разбить на комнаты»', () => {
           edges: [],
           kind: 'office',
           visibility: 'public',
-          number: 'А101',
+          number,
         },
         hall: { label: { x: 15000, y: 6000 }, edges: [], kind: 'corridor', visibility: 'public' },
       },
@@ -104,6 +104,32 @@ describe('«Разбить на комнаты»', () => {
     expect(r.doc.spaces.room?.number).toBe('А101')
     expect(Object.values(r.doc.openings).filter((o) => o.type === 'door')).toHaveLength(5)
     expect(hasErrors(validateFloor(r.doc))).toBe(false)
+  })
+
+  it('номера продолжают последнюю группу цифр с сохранением ширины и хвоста', () => {
+    const numbersAfterSplit = (number: string): (string | undefined)[] => {
+      const { doc, ids } = strip(number)
+      const r = splitSpaceIntoRooms(doc, 'room', { count: 3 }, undefined, ids)!
+      return Object.values(r.doc.spaces)
+        .filter((s) => s.kind === 'office')
+        .map((s) => s.number)
+        .sort()
+    }
+    expect(numbersAfterSplit('А-09')).toEqual(['А-09', 'А-10', 'А-11'])
+    expect(numbersAfterSplit('2-12б')).toEqual(['2-12б', '2-13б', '2-14б'])
+    expect(numbersAfterSplit('Холл')).toEqual(['Холл', undefined, undefined])
+    // Перенос строки перед цифрами — номера нет, как у прежней регулярки.
+    expect(numbersAfterSplit('А\n101')).toEqual(['А\n101', undefined, undefined])
+  })
+
+  it('длинный номер без продолжения разбирается за линейное время', () => {
+    // На такой строке регулярка `^(.*?)(\d+)(\D*)$` перебирала бы квадратично — секунды.
+    const long = '0'.repeat(50_000) + '\n0'
+    const { doc, ids } = strip(long)
+    const started = performance.now()
+    const r = splitSpaceIntoRooms(doc, 'room', { count: 3 }, undefined, ids)!
+    expect(performance.now() - started).toBeLessThan(1000)
+    expect(r.doc.spaces.room?.number).toBe(long)
   })
 
   it('наклонные стены: разрезы без хвостиков за контуром', () => {
