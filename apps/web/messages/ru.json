@@ -1034,6 +1034,13 @@
     "renameSpecialty": "Новое название специальности",
     "editGroup": "Изменить группу",
     "groupUpdated": "Группа сохранена",
+    "groupsSubtitle": "Академические группы вуза, их состав и старосты",
+    "colGroup": "Группа",
+    "starostaAssigned": "Назначен",
+    "starostaNone": "Не назначен",
+    "groupMembers": "Состав группы",
+    "groupMembersTitle": "Группа {name}",
+    "actionsColumn": "Действия",
     "save": "Сохранить",
     "cancel": "Отмена"
   },
