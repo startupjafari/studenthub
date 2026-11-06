@@ -72,6 +72,7 @@ model Company {
   universityAccess CompanyUniversityAccess[]
   vacancies        Vacancy[]
   profileGrants    CareerProfileGrant[]
+  invites          CompanyInvite[]
 
   // Контент страницы компании. Автор — сотрудник (authorId/userId/ownerId), компания —
   // от чьего имени он опубликован. Видимость — только вузам с действующим допуском
@@ -104,6 +105,41 @@ model CompanyMember {
   @@unique([userId])
   @@index([companyId])
   @@map("company_members")
+}
+
+// Приглашение коллеги в компанию (21.D2). OWNER приглашает по почте, по одноразовой ссылке
+// человек регистрируется как EMPLOYER и становится CompanyMember с ролью RECRUITER.
+//
+// Устроено как подтверждение почты компании и инвайт вуза: токен хранится ХЭШЕМ (SHA-256),
+// одноразовый, со сроком. status: PENDING | ACCEPTED | REVOKED; истечение не хранится —
+// срок сверяется с expiresAt при каждом обращении. Повторное приглашение того же адреса
+// не плодит строк, а выдаёт ожидающему приглашению новую ссылку (прежняя гаснет).
+model CompanyInvite {
+  id        String @id @default(uuid())
+  companyId String @map("company_id")
+  // Адрес в нижнем регистре: регистрация по ссылке создаёт аккаунт ровно на него.
+  email     String
+  role      String @default("RECRUITER")
+
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  status    String   @default("PENDING")
+
+  // Кто пригласил и кто зарегистрировался. Скаляры без FK — как decidedById у допуска:
+  // приглашение — журнал, и он переживает удаление аккаунтов.
+  invitedById  String    @map("invited_by_id")
+  acceptedById String?   @map("accepted_by_id")
+  acceptedAt   DateTime? @map("accepted_at")
+  revokedAt    DateTime? @map("revoked_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([companyId, status])
+  @@index([email])
+  @@map("company_invites")
 }
 
 // Заявка компании на допуск к студентам конкретного вуза и решение по ней.
