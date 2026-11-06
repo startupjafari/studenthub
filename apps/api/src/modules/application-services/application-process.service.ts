@@ -23,6 +23,7 @@ import { RealtimeGateway } from '../../common/realtime'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { DocumentsService } from '../documents/documents.service'
 import { ApplicationPolicy } from './application.policy'
+import { ApplicationQueueEvents } from './application-queue-events'
 import { OVERDUE_STATUSES } from './application-notifier'
 import { rethrowStaleStatus } from '../../common/prisma/stale-status'
 
@@ -99,6 +100,7 @@ export class ApplicationProcessService {
     private readonly users: UserService,
     private readonly branding: ExportBrandingService,
     private readonly exports: ExportRegistryService,
+    private readonly queueEvents: ApplicationQueueEvents,
   ) {}
 
   /** Взять в работу: SUBMITTED/RESUBMITTED → IN_REVIEW, назначить на себя. */
@@ -170,6 +172,8 @@ export class ApplicationProcessService {
       })
       return u
     })
+    // Ответственный — колонка очереди и фильтр «мои»: коллеги видят назначение сразу.
+    await this.queueEvents.changed(updated)
     return updated
   }
 
@@ -678,6 +682,8 @@ export class ApplicationProcessService {
     this.realtime.emitEventToUser(app.studentId, REALTIME_EVENTS.applicationStatusChanged, app.id, {
       status: to,
     })
+    // И очередям обработчиков: заявку, взятую или закрытую коллегой, видно без перезагрузки.
+    await this.queueEvents.changed(updated)
     return updated
   }
 
