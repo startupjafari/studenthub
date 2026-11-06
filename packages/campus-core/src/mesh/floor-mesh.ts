@@ -83,8 +83,8 @@ class Builder {
     else this.idx.push(base, base + 2, base + 1, base, base + 3, base + 2)
   }
 
-  /** Плоский многоугольник (с дырами) на высоте y, нормаль вверх. */
-  polygon(outer: Pt3[], holes: Pt3[][], y: number): void {
+  /** Плоский многоугольник (с дырами) на высоте y, нормаль вверх (`down` — вниз). */
+  polygon(outer: Pt3[], holes: Pt3[][], y: number, down = false): void {
     const flat: number[] = []
     const holeStarts: number[] = []
     for (const p of outer) flat.push(p[0], p[1])
@@ -96,7 +96,7 @@ class Builder {
     const base = this.pos.length / 3
     for (let i = 0; i < flat.length; i += 2) {
       this.pos.push(flat[i]!, y, flat[i + 1]!)
-      this.nor.push(0, 1, 0)
+      this.nor.push(0, down ? -1 : 1, 0)
     }
     // Обход earcut зависит от ориентации контура, а план → сцена ещё и отражает ось: каждый
     // треугольник разворачиваем так, чтобы лицевая сторона смотрела вверх (+Y).
@@ -106,7 +106,7 @@ class Builder {
       const uz = flat[b * 2 + 1]! - flat[a * 2 + 1]!
       const vx = flat[c * 2]! - flat[a * 2]!
       const vz = flat[c * 2 + 1]! - flat[a * 2 + 1]!
-      const up = uz * vx - ux * vz > 0
+      const up = uz * vx - ux * vz > 0 !== down
       this.idx.push(base + a, base + (up ? b : c), base + (up ? c : b))
     }
   }
@@ -635,6 +635,32 @@ export function orientedBox(
     t1: Math.max(...t),
   }
   return box.s1 - box.s0 < 1e-6 || box.t1 - box.t0 < 1e-6 ? null : box
+}
+
+/**
+ * Потолок этажа ниже — низ плиты перекрытия, лицом вниз: изнутри видно его, а не небо.
+ * Проёмы те же, что в плите: над лестницами и в шахтах лифтов потолка нет.
+ */
+export function ceilingMesh(
+  outline: readonly Pt[],
+  elevationMm: number,
+  thicknessMm: number,
+  transform?: BuildingTransform,
+  holes: readonly (readonly Pt[])[] = [],
+): MeshBuffers {
+  const tr = transform ?? { x: 0, y: 0, rotationDeg: 0 }
+  const scene = (p: Pt): Pt3 => {
+    const c = toCampus(p, tr)
+    return [c.x / 1000, -c.y / 1000]
+  }
+  const m = new Builder()
+  m.polygon(
+    outline.map(scene),
+    holes.filter((h) => h.length >= 3 && insidePoly(h, outline)).map((h) => h.map(scene)),
+    (elevationMm - thicknessMm) / 1000,
+    true,
+  )
+  return m.build()
 }
 
 /**
