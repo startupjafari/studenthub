@@ -55,7 +55,10 @@ CI: `.github/workflows/ios.yml` — сборка и тесты на симуля
 
 ### Один раз: окружение
 
-1. Swift 6.4 — через swiftly по инструкции https://swift.org/install/linux.
+1. Swift 6.4 — через swiftly по инструкции https://swift.org/install/linux. Команду
+   `apt-get install` из вывода `swiftly init` не пропускать: без неё `swift` падает на
+   `libncurses.so.6`. swiftly прописывает себя только в `~/.profile`, который терминал
+   VS Code не читает, — добавить `. "$HOME/.local/share/swiftly/env.sh"` в `~/.bashrc`.
 2. `sudo apt-get install usbmuxd libimobiledevice-utils libfuse2t64` — связь с телефоном
    и запуск AppImage на Ubuntu 24.04.
 3. Xcode.xip той версии, что указана в
@@ -65,11 +68,22 @@ CI: `.github/workflows/ios.yml` — сборка и тесты на симуля
 4. xtool — AppImage в `/usr/local/bin/xtool` по той же инструкции, затем `xtool setup`:
    вход `Password` для бесплатного Apple ID (`API Key` — для платного), путь к xip.
    Проверка: `swift sdk list` показывает `darwin`.
-5. Только WSL: проброс USB. В PowerShell от администратора — `winget install usbipd`,
-   `usbipd list` (строка «Apple Mobile Device USB Composite Device»),
-   `usbipd bind --busid <BUSID>` один раз, `usbipd attach --wsl --busid <BUSID> --auto-attach`
-   при каждом подключении. В Ubuntu `ideviceinfo` должен показать телефон. Не видит —
-   запустить `sudo usbmuxd -f -v` в отдельном терминале.
+5. Только WSL: связь с телефоном через Windows. Проброс USB через usbipd не годится —
+   xtool зависает на шаге `[Connecting]`
+   ([xtool#19](https://github.com/xtool-org/xtool/issues/19)). Вместо него:
+   - из Microsoft Store поставить «Устройства Apple» (Apple Devices), открыть, подключить
+     iPhone кабелем, на телефоне «Доверять»;
+   - пробросить порт службы Apple в WSL. Адрес Windows со стороны WSL —
+     `ip route list default` в Ubuntu (ниже `172.25.128.1`); PowerShell от администратора:
+
+     ```powershell
+     netsh interface portproxy add v4tov4 listenaddress=172.25.128.1 listenport=27015 connectaddress=127.0.0.1 connectport=27015
+     New-NetFirewallRule -DisplayName "WSL usbmuxd" -Direction Inbound -InterfaceAlias "vEthernet (WSL)" -Protocol TCP -LocalPort 27015 -Action Allow
+     ```
+
+   - проверка в Ubuntu: `USBMUXD_SOCKET_ADDRESS=172.25.128.1:27015 ideviceinfo -k DeviceName`.
+     `scripts/device.sh` находит службу сам. Адрес может смениться после перезагрузки
+     Windows — тогда пересоздать проброс с новым.
 
 ### Один раз: сеть до `pnpm dev`
 
