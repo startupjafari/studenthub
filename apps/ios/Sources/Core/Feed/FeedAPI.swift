@@ -437,7 +437,14 @@ struct FeedAPI: FeedFetching {
             try .post("files/presign", json: Presign(bucket: bucket.rawValue, mime: mime)),
             as: AttachmentUploadTicket.self
         )
-        try await ChatsAPI(client: client).upload(data, to: ticket.url, mime: mime)
+        do {
+            try await ChatsAPI(client: client).upload(data, to: ticket.url, mime: mime)
+        } catch let error as URLError {
+            // Хранилище недоступно с телефона — обычно подпись выдана на адрес, который
+            // видит только сервер (`MINIO_PUBLIC_ENDPOINT` не задан). Это ошибка связи, а
+            // не «неожиданный ответ»: так человек и разработчик ищут причину там, где она.
+            throw APIError.transport(error)
+        }
         return try await client.send(
             try .post("files/confirm", json: Confirm(bucket: bucket.rawValue, key: ticket.key, name: filename)),
             as: UploadedFileDTO.self
