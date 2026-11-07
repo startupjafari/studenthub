@@ -55,6 +55,11 @@ actor APIClient {
         }
     }
 
+    /// Ответ как есть, без конверта: файл выгрузки отдаётся телом, а не в `data`.
+    func data(_ endpoint: Endpoint) async throws -> Data {
+        try await perform(endpoint)
+    }
+
     /// Запрос без тела ответа (204 и операции, у которых ответ не нужен).
     func send(_ endpoint: Endpoint) async throws {
         _ = try await perform(endpoint)

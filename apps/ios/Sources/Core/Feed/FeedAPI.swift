@@ -279,6 +279,39 @@ struct UserProfileDTO: Decodable, Equatable {
     /// Учебный статус — свободная строка из карточки студента.
     var academicStatus: String? = nil
 
+    // Поля карточки `PROFILE_SELECT`. Все необязательны: чужую карточку сервер режет
+    // по правам смотрящего (`access: limited` — только визитка), и отсутствие поля —
+    // норма, а не ошибка разбора.
+    var middleName: String? = nil
+    var coverUrl: String? = nil
+    /// Короткая строка под именем — ближайшее к «статусу», что есть в профиле.
+    var headline: String? = nil
+    var phone: String? = nil
+    var telegram: String? = nil
+    var instagram: String? = nil
+    var website: String? = nil
+    var skills: [String]? = nil
+    var interests: [String]? = nil
+    var languages: [String]? = nil
+    var course: Int? = nil
+    var specialty: String? = nil
+    var gpa: Double? = nil
+    var groupId: String? = nil
+    var twoFactorEnabled: Bool? = nil
+    var profileVisibility: String? = nil
+    var showEmail: Bool? = nil
+    var showPhone: Bool? = nil
+    var locale: String? = nil
+    var position: String? = nil
+    var department: String? = nil
+    var academicDegree: String? = nil
+    var officeRoom: String? = nil
+    var officeHours: String? = nil
+    /// `limited` — профиль закрыт настройкой приватности, видна только визитка.
+    var access: String? = nil
+
+    var isLimited: Bool { access == "limited" }
+
     var name: String {
         [lastName, firstName].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
     }
@@ -315,17 +348,36 @@ protocol FeedFetching: Sendable {
     func uploadAvatar(_ data: Data, mime: String) async throws
 }
 
+/// Срез ленты. Один и тот же `GET /posts` отдаёт и общую ленту, и посты автора на
+/// вкладке профиля, и сохранённое — различаются только параметры.
+enum FeedScope: Equatable {
+    case all
+    case author(id: String)
+    case saved
+
+    var query: [URLQueryItem] {
+        switch self {
+        case .all: return []
+        case .author(let id): return [URLQueryItem(name: "authorId", value: id)]
+        case .saved: return [URLQueryItem(name: "filter", value: "SAVED")]
+        }
+    }
+}
+
 struct FeedAPI: FeedFetching {
     private let client: APIClient
+    private let scope: FeedScope
 
-    init(client: APIClient = AppServices.api) {
+    init(client: APIClient = AppServices.api, scope: FeedScope = .all) {
         self.client = client
+        self.scope = scope
     }
 
     func posts(cursor: String?) async throws -> Page<PostDTO> {
         // `reactions=summary` — без построчного списка «кто что поставил»: приложению
         // нужна только сводка, а список растёт с каждой реакцией.
         var query = [URLQueryItem(name: "limit", value: "20"), URLQueryItem(name: "reactions", value: "summary")]
+        query += scope.query
         if let cursor { query.append(URLQueryItem(name: "cursor", value: cursor)) }
         return try await client.page(.get("posts", query: query), of: PostDTO.self)
     }
