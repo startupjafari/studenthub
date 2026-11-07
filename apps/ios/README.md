@@ -93,10 +93,14 @@ CI: `.github/workflows/ios.yml` — сборка и тесты на симуля
 не достучаться — нужен проброс портов в Windows. PowerShell от администратора:
 
 ```powershell
-netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=3001 connectaddress=127.0.0.1 connectport=3001
+netsh interface portproxy add v4tov6 listenaddress=0.0.0.0 listenport=3001 connectaddress=::1 connectport=3001
 netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=9000 connectaddress=127.0.0.1 connectport=9000
 New-NetFirewallRule -DisplayName "StudentHub dev" -Direction Inbound -Protocol TCP -LocalPort 3001,9000 -Action Allow -Profile Private
 ```
+
+Порты разные намеренно. API слушает `::`, и WSL пробрасывает его в Windows только на
+`[::1]`; проброс на `127.0.0.1:3001` попал бы обратно в сам себя, и запрос висел бы до
+таймаута. MinIO из Docker слушает IPv4 — ему `127.0.0.1`.
 
 Сеть Wi-Fi в Windows должна быть «Частной», телефон — в той же сети. 9000 — MinIO: чтобы
 на телефоне открывались аватары и вложения, в `apps/api/.env` нужны
