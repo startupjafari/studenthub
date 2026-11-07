@@ -202,6 +202,16 @@ extension AppDatabase {
             }
         }
 
+        migrator.registerMigration("v6.pairRefs") { db in
+            // Ссылки занятия на аудиторию и преподавателя: из карточки пары — на карту
+            // кампуса и в профиль. Старые строки остаются без них до следующей
+            // синхронизации расписания.
+            try db.alter(table: PairRecord.databaseTableName) { table in
+                table.add(column: "roomId", .text)
+                table.add(column: "teacherId", .text)
+            }
+        }
+
         return migrator
     }
 }

@@ -203,6 +203,9 @@ struct PairRecord: Codable, FetchableRecord, PersistableRecord, Hashable {
     var teacherName: String?
     var roomName: String?
     var groupId: String?
+    /// Аудитория и преподаватель по id — для перехода на карту и в профиль.
+    var roomId: String? = nil
+    var teacherId: String? = nil
 
     enum Columns {
         static let dayOfWeek = Column(CodingKeys.dayOfWeek)

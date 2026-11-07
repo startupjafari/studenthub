@@ -38,7 +38,7 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
 
     /// Общие для всех ролей MVP.
     static let common: [MoreSection] = [
-        .profile, .applications, .serviceCatalog, .events, .documents, .consultations, .portfolio,
+        .profile, .applications, .serviceCatalog, .events, .documents, .consultations, .portfolio, .campusMap,
         .settings,
     ]
 
