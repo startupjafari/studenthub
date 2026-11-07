@@ -1039,6 +1039,39 @@
         }
       }
     },
+    "chats.admin": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "админ"
+          }
+        }
+      }
+    },
+    "chats.admin.grant": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сделать админом"
+          }
+        }
+      }
+    },
+    "chats.admin.revoke": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Снять админа"
+          }
+        }
+      }
+    },
     "chats.archive": {
       "extractionState": "manual",
       "localizations": {
@@ -1090,6 +1123,17 @@
         }
       }
     },
+    "chats.attachMedia": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фото или видео"
+          }
+        }
+      }
+    },
     "chats.attachPhoto": {
       "extractionState": "manual",
       "localizations": {
@@ -1107,6 +1151,138 @@
         }
       }
     },
+    "chats.attachmentPreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вложение"
+          }
+        }
+      }
+    },
+    "chats.block": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заблокировать"
+          }
+        }
+      }
+    },
+    "chats.block.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Он не сможет писать вам, дружба будет удалена."
+          }
+        }
+      }
+    },
+    "chats.block.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заблокировать пользователя?"
+          }
+        }
+      }
+    },
+    "chats.blockedByMe": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы заблокировали этого пользователя"
+          }
+        }
+      }
+    },
+    "chats.blockedMe": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пользователь ограничил переписку"
+          }
+        }
+      }
+    },
+    "chats.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистить историю"
+          }
+        }
+      }
+    },
+    "chats.clear.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У собеседников переписка останется."
+          }
+        }
+      }
+    },
+    "chats.clear.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистить историю у себя?"
+          }
+        }
+      }
+    },
+    "chats.delete.chat": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить чат"
+          }
+        }
+      }
+    },
+    "chats.delete.chat.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить чат?"
+          }
+        }
+      }
+    },
+    "chats.delete.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить сообщение у всех?"
+          }
+        }
+      }
+    },
     "chats.deletedMessage": {
       "extractionState": "manual",
       "localizations": {
@@ -1118,6 +1294,17 @@
         }
       }
     },
+    "chats.draft": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Черновик: "
+          }
+        }
+      }
+    },
     "chats.edited": {
       "extractionState": "manual",
       "localizations": {
@@ -1125,6 +1312,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "изм."
+          }
+        }
+      }
+    },
+    "chats.editing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Редактирование"
           }
         }
       }
@@ -1142,6 +1340,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Әзірге чат жоқ"
+          }
+        }
+      }
+    },
+    "chats.empty.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Напишите однокурснику или преподавателю"
           }
         }
       }
@@ -1174,6 +1383,303 @@
         }
       }
     },
+    "chats.forward": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переслать"
+          }
+        }
+      }
+    },
+    "chats.forward.search": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск"
+          }
+        }
+      }
+    },
+    "chats.forwarded": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пересланное сообщение"
+          }
+        }
+      }
+    },
+    "chats.forwardedFrom": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переслано от %@"
+          }
+        }
+      }
+    },
+    "chats.group.create": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Создать"
+          }
+        }
+      }
+    },
+    "chats.group.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Описание"
+          }
+        }
+      }
+    },
+    "chats.group.members": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Участники"
+          }
+        }
+      }
+    },
+    "chats.group.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Название группы"
+          }
+        }
+      }
+    },
+    "chats.info.content": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Содержимое"
+          }
+        }
+      }
+    },
+    "chats.info.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Здесь пока пусто"
+          }
+        }
+      }
+    },
+    "chats.info.files": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файлы"
+          }
+        }
+      }
+    },
+    "chats.info.links": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ссылки"
+          }
+        }
+      }
+    },
+    "chats.info.media": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Медиа"
+          }
+        }
+      }
+    },
+    "chats.info.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Информация о чате"
+          }
+        }
+      }
+    },
+    "chats.info.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Информация"
+          }
+        }
+      }
+    },
+    "chats.info.voice": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Голосовые"
+          }
+        }
+      }
+    },
+    "chats.invite.copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать ссылку-приглашение"
+          }
+        }
+      }
+    },
+    "chats.kind.dean": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Деканат"
+          }
+        }
+      }
+    },
+    "chats.kind.faculty": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Факультет"
+          }
+        }
+      }
+    },
+    "chats.kind.group": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат группы"
+          }
+        }
+      }
+    },
+    "chats.kind.support": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поддержка"
+          }
+        }
+      }
+    },
+    "chats.lastSeen": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "был(а) %@"
+          }
+        }
+      }
+    },
+    "chats.leave": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Покинуть группу"
+          }
+        }
+      }
+    },
+    "chats.markRead": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прочитано"
+          }
+        }
+      }
+    },
+    "chats.member.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить участника"
+          }
+        }
+      }
+    },
+    "chats.member.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Исключить"
+          }
+        }
+      }
+    },
+    "chats.members": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Участников: %lld"
+          }
+        }
+      }
+    },
     "chats.mute": {
       "extractionState": "manual",
       "localizations": {
@@ -1191,6 +1697,83 @@
         }
       }
     },
+    "chats.mute.1d": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На сутки"
+          }
+        }
+      }
+    },
+    "chats.mute.1h": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На час"
+          }
+        }
+      }
+    },
+    "chats.mute.3d": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На 3 дня"
+          }
+        }
+      }
+    },
+    "chats.mute.4h": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На 4 часа"
+          }
+        }
+      }
+    },
+    "chats.mute.8h": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На 8 часов"
+          }
+        }
+      }
+    },
+    "chats.mute.forever": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Навсегда"
+          }
+        }
+      }
+    },
+    "chats.mute.important": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только важное"
+          }
+        }
+      }
+    },
     "chats.mutedBadge": {
       "extractionState": "manual",
       "localizations": {
@@ -1198,6 +1781,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "Уведомления выключены"
+          }
+        }
+      }
+    },
+    "chats.new": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новый чат"
+          }
+        }
+      }
+    },
+    "chats.newGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новая группа"
+          }
+        }
+      }
+    },
+    "chats.official": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Официальный чат"
+          }
+        }
+      }
+    },
+    "chats.online": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "в сети"
           }
         }
       }
@@ -1247,6 +1874,28 @@
         }
       }
     },
+    "chats.pinnedCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закреплённое %lld из %lld"
+          }
+        }
+      }
+    },
+    "chats.pinnedMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закреплено"
+          }
+        }
+      }
+    },
     "chats.placeholder": {
       "extractionState": "manual",
       "localizations": {
@@ -1260,6 +1909,127 @@
           "stringUnit": {
             "state": "translated",
             "value": "Хабарлама"
+          }
+        }
+      }
+    },
+    "chats.poll.anonymous": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Анонимный опрос"
+          }
+        }
+      }
+    },
+    "chats.poll.closed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Опрос завершён"
+          }
+        }
+      }
+    },
+    "chats.poll.public": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открытый опрос"
+          }
+        }
+      }
+    },
+    "chats.poll.retract": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отменить голос"
+          }
+        }
+      }
+    },
+    "chats.poll.vote": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Голосовать"
+          }
+        }
+      }
+    },
+    "chats.poll.votes": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Голосов: %lld"
+          }
+        }
+      }
+    },
+    "chats.preview.file": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файл"
+          }
+        }
+      }
+    },
+    "chats.preview.photo": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фото"
+          }
+        }
+      }
+    },
+    "chats.preview.video": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Видео"
+          }
+        }
+      }
+    },
+    "chats.preview.voice": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Голосовое сообщение"
+          }
+        }
+      }
+    },
+    "chats.read": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прочитано"
           }
         }
       }
@@ -1281,6 +2051,17 @@
         }
       }
     },
+    "chats.reply.jump": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перейти к сообщению"
+          }
+        }
+      }
+    },
     "chats.replyingTo": {
       "extractionState": "manual",
       "localizations": {
@@ -1298,6 +2079,50 @@
         }
       }
     },
+    "chats.replyingToName": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ответ %@"
+          }
+        }
+      }
+    },
+    "chats.report.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что не так с сообщением?"
+          }
+        }
+      }
+    },
+    "chats.request.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот человек хочет начать с вами переписку"
+          }
+        }
+      }
+    },
+    "chats.request.preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запрос на переписку"
+          }
+        }
+      }
+    },
     "chats.retrySend": {
       "extractionState": "manual",
       "localizations": {
@@ -1305,6 +2130,61 @@
           "stringUnit": {
             "state": "translated",
             "value": "Отправить ещё раз"
+          }
+        }
+      }
+    },
+    "chats.saved": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Избранное"
+          }
+        }
+      }
+    },
+    "chats.saved.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заметки и пересланное себе"
+          }
+        }
+      }
+    },
+    "chats.search.chats": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чаты"
+          }
+        }
+      }
+    },
+    "chats.search.messages": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сообщения"
+          }
+        }
+      }
+    },
+    "chats.search.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чаты, люди и сообщения"
           }
         }
       }
@@ -1365,6 +2245,171 @@
         }
       }
     },
+    "chats.storyExpired": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "История больше недоступна"
+          }
+        }
+      }
+    },
+    "chats.storyReply": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ответ на историю"
+          }
+        }
+      }
+    },
+    "chats.storyShared": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "История"
+          }
+        }
+      }
+    },
+    "chats.system.added": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ добавил(а) %@"
+          }
+        }
+      }
+    },
+    "chats.system.adminGranted": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ назначил(а) %@ администратором"
+          }
+        }
+      }
+    },
+    "chats.system.adminRevoked": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ снял(а) %@ с администраторов"
+          }
+        }
+      }
+    },
+    "chats.system.avatarChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ сменил(а) фото чата"
+          }
+        }
+      }
+    },
+    "chats.system.banned": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ заблокировал(а) %@"
+          }
+        }
+      }
+    },
+    "chats.system.joined": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ присоединился(ась) к чату"
+          }
+        }
+      }
+    },
+    "chats.system.left": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ покинул(а) чат"
+          }
+        }
+      }
+    },
+    "chats.system.ownerChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ теперь владелец чата"
+          }
+        }
+      }
+    },
+    "chats.system.pinned": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ закрепил(а) сообщение"
+          }
+        }
+      }
+    },
+    "chats.system.removed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ удалил(а) %@"
+          }
+        }
+      }
+    },
+    "chats.system.titleChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ переименовал(а) чат в «%@»"
+          }
+        }
+      }
+    },
+    "chats.system.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Событие в чате"
+          }
+        }
+      }
+    },
     "chats.tab.all": {
       "extractionState": "manual",
       "localizations": {
@@ -1399,6 +2444,28 @@
         }
       }
     },
+    "chats.tab.groups": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Группы"
+          }
+        }
+      }
+    },
+    "chats.tab.personal": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Личные"
+          }
+        }
+      }
+    },
     "chats.tab.requests": {
       "extractionState": "manual",
       "localizations": {
@@ -1412,6 +2479,39 @@
           "stringUnit": {
             "state": "translated",
             "value": "Сұраныстар"
+          }
+        }
+      }
+    },
+    "chats.tab.subjects": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предметы"
+          }
+        }
+      }
+    },
+    "chats.tab.university": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вуз"
+          }
+        }
+      }
+    },
+    "chats.tab.unread": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Непрочитанные"
           }
         }
       }
@@ -1446,6 +2546,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Қайтару"
+          }
+        }
+      }
+    },
+    "chats.unblock": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разблокировать"
+          }
+        }
+      }
+    },
+    "chats.unblock.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разблокировать?"
           }
         }
       }
