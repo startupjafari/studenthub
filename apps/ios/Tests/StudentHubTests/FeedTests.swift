@@ -134,6 +134,7 @@ private final class StubFeed: FeedFetching, @unchecked Sendable {
     var posts: [PostDTO] = []
     var events: [EventDTO] = []
     var failure: APIError?
+    var bookmarkResult = true
 
     func posts(cursor: String?) async throws -> Page<PostDTO> {
         Page(items: lock.withLock { posts }, meta: nil)
@@ -144,14 +145,51 @@ private final class StubFeed: FeedFetching, @unchecked Sendable {
         }
         return post
     }
-    func comments(postID: String) async throws -> [PostCommentDTO] { [] }
-    func comment(postID: String, text: String) async throws -> PostCommentDTO {
+    func comments(postID: String, cursor: String?) async throws -> Page<PostCommentDTO> {
+        Page(items: [], meta: nil)
+    }
+    func comment(postID: String, text: String, parentID: String?) async throws -> PostCommentDTO {
         if let failure = lock.withLock({ failure }) { throw failure }
-        return PostCommentDTO(id: "c-1", content: text, createdAt: Date(), author: nil)
+        return PostCommentDTO(id: "c-1", content: text, createdAt: Date(), author: nil, parentId: parentID)
+    }
+    func deleteComment(postID: String, commentID: String) async throws {
+        if let failure = lock.withLock({ failure }) { throw failure }
     }
     func react(postID: String, emoji: String, on: Bool) async throws {
         if let failure = lock.withLock({ failure }) { throw failure }
     }
+    func toggleBookmark(postID: String) async throws -> Bool {
+        if let failure = lock.withLock({ failure }) { throw failure }
+        return lock.withLock { bookmarkResult }
+    }
+    func repost(postID: String, note: String?) async throws -> PostDTO {
+        if let failure = lock.withLock({ failure }) { throw failure }
+        return PostDTO(
+            id: "r-1", content: note, createdAt: Date(), author: nil, media: nil, reactionSummary: nil,
+            counts: nil, originalPostId: postID
+        )
+    }
+    func editPost(id: String, content: String) async throws -> PostDTO {
+        if let failure = lock.withLock({ failure }) { throw failure }
+        return PostDTO(
+            id: id, content: content, createdAt: Date(), author: nil, media: nil, reactionSummary: nil,
+            counts: nil
+        )
+    }
+    func deletePost(id: String) async throws {
+        if let failure = lock.withLock({ failure }) { throw failure }
+    }
+    func markViewed(postID: String) async throws {}
+    func createPost(content: String, mediaIDs: [String], targetUserID: String?) async throws -> PostDTO {
+        PostDTO(id: "n-1", content: content, createdAt: Date(), author: nil, media: nil, reactionSummary: nil, counts: nil)
+    }
+    func upload(_ data: Data, mime: String, filename: String, bucket: UploadBucket) async throws -> UploadedFileDTO {
+        UploadedFileDTO(id: "f-1", mime: mime)
+    }
+    func report(_ target: ComplaintTarget, id: String, reason: String) async throws {}
+    func upcomingEvents() async throws -> [EventDTO] { lock.withLock { events } }
+    func unreadNotifications() async throws -> Int { 0 }
+    func search(_ query: String) async throws -> SearchResultsDTO { SearchResultsDTO(people: [], events: []) }
     func events(onlyMine: Bool) async throws -> Page<EventDTO> {
         Page(items: lock.withLock { events }, meta: nil)
     }
