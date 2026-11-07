@@ -21,6 +21,10 @@ final class RealtimeCoordinator {
     /// перечитывает себя: держать копию заявок в координаторе незачем. Время в
     /// поле — чтобы повторный тот же статус тоже считался новостью.
     private(set) var applicationStatus: ApplicationStatusChange?
+    /// Счётчики перемен: экран смотрит на своё значение и перечитывает закреплённые
+    /// сообщения или результаты опроса, когда оно выросло.
+    private(set) var pinnedVersions: [String: Int] = [:]
+    private(set) var pollVersions: [String: Int] = [:]
 
     private let transport: RealtimeTransport
     private let session: SessionStore
@@ -45,15 +49,19 @@ final class RealtimeCoordinator {
     private var expiry: [String: Task<Void, Never>] = [:]
     /// Чат, открытый на экране: его сообщения не увеличивают счётчик непрочитанного.
     private var openChatID: String?
+    private var listRefresh: Task<Void, Never>?
+    private let api: ChatsFetching?
 
     init(
         transport: RealtimeTransport,
         session: SessionStore = AppServices.session,
-        database: AppDatabase = AppServices.database
+        database: AppDatabase = AppServices.database,
+        api: ChatsFetching? = nil
     ) {
         self.transport = transport
         self.session = session
         self.database = database
+        self.api = api
         store = ChatStore(database: database)
     }
 
@@ -92,6 +100,10 @@ final class RealtimeCoordinator {
         onlineUsers = []
         openChatID = nil
         applicationStatus = nil
+        listRefresh?.cancel()
+        listRefresh = nil
+        pinnedVersions = [:]
+        pollVersions = [:]
         for task in expiry.values { task.cancel() }
         expiry = [:]
         await transport.disconnect()
@@ -123,6 +135,16 @@ final class RealtimeCoordinator {
     @MainActor
     func send(action: String?, chatID: String) async {
         await transport.send(action: action, chatID: chatID)
+    }
+
+    @MainActor
+    func edit(messageID: String, content: String) async {
+        await transport.edit(messageID: messageID, content: content)
+    }
+
+    @MainActor
+    func delete(messageID: String) async {
+        await transport.delete(messageID: messageID)
     }
 
     // MARK: - События
@@ -161,13 +183,19 @@ final class RealtimeCoordinator {
                 try row.update(db)
             }
 
-        case .chatRead(let chatID, _):
-            // Прочитано на другом устройстве — счётчик гаснет и здесь.
-            try? await database.writer.write { db in
-                guard var chat = try ChatRecord.fetchOne(db, key: chatID), chat.unreadCount != 0 else { return }
+        case .chatRead(let chatID, let readAt):
+            // Прочитано на другом устройстве — счётчик гаснет и здесь, но только если
+            // отметка дошла до последнего сообщения: иначе непрочитанное ещё есть, и
+            // точное число скажет список.
+            let cleared = (try? await database.writer.write { db -> Bool in
+                guard var chat = try ChatRecord.fetchOne(db, key: chatID), chat.unreadCount != 0 else { return true }
+                let last = try chat.lastMessageId.flatMap { try MessageRecord.fetchOne(db, key: $0) }
+                guard (last?.createdAt ?? .distantPast) <= readAt else { return false }
                 chat.unreadCount = 0
                 try chat.update(db)
-            }
+                return true
+            }) ?? true
+            if !cleared { scheduleListRefresh() }
 
         case .messageRead(let chatID, _, let readAt):
             try? await database.writer.write { db in
@@ -183,8 +211,22 @@ final class RealtimeCoordinator {
         case .presence(let userID, let online):
             if online { onlineUsers.insert(userID) } else { onlineUsers.remove(userID) }
 
-        case .chatUpdated(let chat):
-            try? await store.save(chats: [chat])
+        case .chatUpdated(let chatID, let title, let avatar):
+            try? await database.writer.write { db in
+                guard var chat = try ChatRecord.fetchOne(db, key: chatID) else { return }
+                if let title { chat.title = title }
+                if let avatar { chat.avatarUrl = avatar }
+                try chat.update(db)
+            }
+
+        case .chatActivity, .blockChanged:
+            scheduleListRefresh()
+
+        case .chatPinned(let chatID):
+            pinnedVersions[chatID, default: 0] += 1
+
+        case .pollUpdated(let pollID, _):
+            pollVersions[pollID, default: 0] += 1
 
         case .applicationStatusChanged(let id, let status):
             applicationStatus = ApplicationStatusChange(id: id, status: status, at: Date())
@@ -209,6 +251,21 @@ final class RealtimeCoordinator {
                 chat.unreadCount += 1
             }
             try chat.update(db)
+        }
+    }
+
+    /// Обновить верх списка: в одном из чатов что-то произошло. События идут пачками
+    /// (сообщение, затем прочтение), поэтому запрос — после короткой паузы, один на
+    /// пачку. Первой страницы хватает: изменившийся чат поднимается наверх.
+    @MainActor
+    private func scheduleListRefresh() {
+        listRefresh?.cancel()
+        listRefresh = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(700))
+            guard let self, !Task.isCancelled else { return }
+            let api = self.api ?? ChatsAPI()
+            guard let page = try? await api.chats(cursor: nil, limit: 50) else { return }
+            try? await self.store.save(chats: page.items)
         }
     }
 

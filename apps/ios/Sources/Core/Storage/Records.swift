@@ -38,6 +38,12 @@ struct ChatRecord: Codable, FetchableRecord, PersistableRecord, Equatable {
     var lastSeq: Int
     /// Порядок списка задаёт сервер — по нему же страницы и приходят.
     var updatedAt: Date
+    /// Собеседник в сети (личный чат). Живое значение — `RealtimeCoordinator.onlineUsers`.
+    var online: Bool = false
+    var isOwner: Bool = false
+    var isAdmin: Bool = false
+    var blocked: Bool = false
+    var blockedBy: Bool = false
 
     var kind: ChatKind { ChatKind.from(type) }
 
@@ -86,6 +92,12 @@ struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Hashable {
     var pinnedAt: Date?
     var createdAt: Date
     var sendState: MessageSendState
+    /// Автор — для подписи и аватара в групповых чатах.
+    var senderName: String? = nil
+    var senderAvatar: String? = nil
+    /// Реакции, пересылка, превью ссылки, карточки, опрос. `nil` у своего
+    /// неотправленного: подробностей у него ещё нет.
+    var extras: MessageExtras? = nil
 
     enum Columns {
         static let id = Column(CodingKeys.id)
@@ -159,6 +171,8 @@ struct AttachmentRecord: Codable, FetchableRecord, PersistableRecord, Hashable {
     /// Путь к файлу на устройстве: он есть у своих вложений до отправки и у
     /// скачанных. Ключ кэша — id файла, а не ссылка: presigned-ссылка протухает.
     var localPath: String?
+    var placeholder: String? = nil
+    var durationMs: Int? = nil
 
     enum Columns {
         static let messageId = Column(CodingKeys.messageId)

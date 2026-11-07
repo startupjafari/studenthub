@@ -25,6 +25,13 @@ struct ChatListItemDTO: Decodable, Equatable {
     let requestOutgoing: Bool?
     let lastMessage: ChatMessageDTO?
     let updatedAt: Date
+    /// Собеседник в сети — только у личного чата.
+    var online: Bool? = nil
+    var isOwner: Bool? = nil
+    var isAdmin: Bool? = nil
+    /// Я заблокировал собеседника / он меня.
+    var blocked: Bool? = nil
+    var blockedBy: Bool? = nil
 }
 
 /// Вложение сообщения. Вид (картинка, файл, голосовое) выводится при рендере из
@@ -39,6 +46,21 @@ struct ChatAttachmentDTO: Decodable, Equatable {
     let asDocument: Bool?
     let width: Int?
     let height: Int?
+    /// Размытое превью (LQIP) и длительность — у фото и видео, пока не скачан файл.
+    var placeholder: String? = nil
+    var durationMs: Int? = nil
+}
+
+/// Человек в сообщении: автор, автор ответа, автор пересланного.
+struct ChatPersonDTO: Codable, Hashable {
+    let id: String
+    let firstName: String?
+    let lastName: String?
+    var avatarUrl: String? = nil
+
+    var name: String {
+        [lastName, firstName].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
+    }
 }
 
 struct ChatMessageDTO: Decodable, Equatable {
@@ -55,6 +77,152 @@ struct ChatMessageDTO: Decodable, Equatable {
     let pinnedAt: Date?
     let createdAt: Date
     let media: [ChatAttachmentDTO]?
+    var sender: ChatPersonDTO? = nil
+    /// Каждая реакция отдельной строкой: у человека одна реакция на сообщение.
+    var reactions: [Reaction]? = nil
+    var replyTo: Reply? = nil
+    var forwardedFromId: String? = nil
+    var forwardedFrom: Forwarded? = nil
+    var linkPreview: MessageExtras.LinkPreview? = nil
+    var systemMeta: MessageExtras.SystemMeta? = nil
+    var sharedPost: SharedPost? = nil
+    var sharedStory: SharedStory? = nil
+    var sharedStoryReply: Bool? = nil
+    var poll: MessageExtras.Poll? = nil
+
+    struct Reaction: Decodable, Equatable {
+        let emoji: String
+        let userId: String
+        var user: ChatPersonDTO? = nil
+    }
+
+    struct Reply: Decodable, Equatable {
+        let id: String
+        let content: String?
+        let senderId: String?
+        var sender: ChatPersonDTO? = nil
+    }
+
+    struct Forwarded: Decodable, Equatable {
+        let id: String
+        let senderId: String?
+        var sender: ChatPersonDTO? = nil
+    }
+
+    struct SharedPost: Decodable, Equatable {
+        let id: String
+        let title: String?
+        let content: String?
+        var author: ChatPersonDTO? = nil
+        var deletedAt: Date? = nil
+    }
+
+    struct SharedStory: Decodable, Equatable {
+        let id: String
+        let text: String?
+        let background: String?
+        var author: ChatPersonDTO? = nil
+    }
+
+    /// Всё, что лента рисует сверх текста, — одним значением для базы.
+    var extras: MessageExtras {
+        MessageExtras(
+            reactions: Dictionary(grouping: reactions ?? [], by: \.emoji)
+                .map { MessageExtras.ReactionGroup(emoji: $0.key, userIds: $0.value.map(\.userId)) }
+                .sorted { $0.userIds.count == $1.userIds.count ? $0.emoji < $1.emoji : $0.userIds.count > $1.userIds.count },
+            replySenderName: replyTo?.sender?.name,
+            replyContent: replyTo?.content,
+            forwardedFromName: forwardedFrom?.sender?.name,
+            isForwarded: forwardedFromId != nil,
+            linkPreview: linkPreview,
+            systemMeta: systemMeta,
+            sharedPost: sharedPost.map {
+                MessageExtras.SharedPostCard(
+                    id: $0.id,
+                    title: $0.title,
+                    excerpt: $0.content,
+                    authorName: $0.author?.name,
+                    isDeleted: $0.deletedAt != nil
+                )
+            },
+            sharedStory: sharedStory.map {
+                MessageExtras.SharedStoryCard(
+                    id: $0.id,
+                    text: $0.text,
+                    background: $0.background,
+                    authorName: $0.author?.name,
+                    isReply: sharedStoryReply == true
+                )
+            },
+            poll: poll
+        )
+    }
+}
+
+/// Подробности сообщения сверх текста. Лежат в базе одной JSON-колонкой: по ним не
+/// ищут и не сортируют, а отдельные таблицы на каждую — это джойны на каждом кадре
+/// ленты.
+struct MessageExtras: Codable, Hashable {
+    struct ReactionGroup: Codable, Hashable {
+        let emoji: String
+        let userIds: [String]
+    }
+
+    struct LinkPreview: Codable, Hashable {
+        let url: String
+        let title: String?
+        let description: String?
+        let siteName: String?
+    }
+
+    /// Подробности системного сообщения: чьё имя и какое название подставить.
+    struct SystemMeta: Codable, Hashable {
+        let targetName: String?
+        let title: String?
+    }
+
+    struct SharedPostCard: Codable, Hashable {
+        let id: String
+        let title: String?
+        let excerpt: String?
+        let authorName: String?
+        let isDeleted: Bool
+    }
+
+    struct SharedStoryCard: Codable, Hashable {
+        let id: String
+        let text: String?
+        let background: String?
+        let authorName: String?
+        let isReply: Bool
+    }
+
+    struct Poll: Codable, Hashable {
+        struct Option: Codable, Hashable, Identifiable {
+            let id: String
+            let text: String
+            let order: Int?
+        }
+
+        let id: String
+        let question: String
+        let multiple: Bool?
+        let anonymous: Bool?
+        let allowRevote: Bool?
+        let closed: Bool?
+        let options: [Option]
+    }
+
+    var reactions: [ReactionGroup] = []
+    var replySenderName: String?
+    var replyContent: String?
+    var forwardedFromName: String?
+    var isForwarded = false
+    var linkPreview: LinkPreview?
+    var systemMeta: SystemMeta?
+    var sharedPost: SharedPostCard?
+    var sharedStory: SharedStoryCard?
+    var poll: Poll?
 }
 
 /// Папка чатов (§2 эпика «Чаты»): имя, позиция вкладки и состав.

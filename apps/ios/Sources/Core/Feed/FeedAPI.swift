@@ -166,6 +166,7 @@ enum ComplaintTarget: String {
     case post = "POST"
     case comment = "COMMENT"
     case story = "STORY"
+    case message = "MESSAGE"
 }
 
 /// Бакет хранилища (`FileBucketKind`).

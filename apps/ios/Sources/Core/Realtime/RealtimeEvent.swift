@@ -20,7 +20,18 @@ enum RealtimeEvent: Equatable {
     /// `action == nil` означает «закончил».
     case action(chatID: String, userID: String, action: String?)
     case presence(userID: String, online: Bool)
-    case chatUpdated(ChatListItemDTO)
+    /// Переименование или смена аватара группы. Сервер шлёт только изменённое поле:
+    /// `avatarURL == .some(nil)` — аватар убран, `nil` — не менялся.
+    case chatUpdated(chatID: String, title: String?, avatarURL: String??)
+    /// В чате что-то произошло (новое сообщение, участники, запрос) — повод обновить
+    /// строку списка. Приходит в личные комнаты, в том числе по закрытым чатам.
+    case chatActivity(chatID: String)
+    /// Закрепили или открепили сообщение — плашку закреплённого нужно перечитать.
+    case chatPinned(chatID: String)
+    /// Кто-то проголосовал: результаты опроса перечитываются.
+    case pollUpdated(pollID: String, chatID: String)
+    /// Блокировка в одну из сторон — меняется доступность личного чата.
+    case blockChanged(userID: String)
     /// Единый конверт `event` (PROJECT.md §9.2a). Приложению из него нужен пока
     /// один тип — смена статуса заявки: человек ждёт справку и хочет узнать о ней
     /// без обновления экрана.
@@ -37,6 +48,17 @@ enum RealtimeEvent: Equatable {
         static let chatAction = "chat:action"
         static let presenceChanged = "presence:changed"
         static let chatUpdated = "chat:updated"
+        static let chatActivity = "chat:activity"
+        static let chatPinned = "chat:pinned"
+        static let chatBlock = "chat:block"
+        static let memberAdded = "chat:member-added"
+        static let memberRemoved = "chat:member-removed"
+        static let messageReaction = "message:reaction"
+        static let messagePinned = "message:pinned"
+        static let messageUnpinned = "message:unpinned"
+        static let pollUpdated = "poll:updated"
+        static let edit = "message:edit"
+        static let delete = "message:delete"
         /// Единый канал событий поверх именованных.
         static let envelope = "event"
         static let applicationStatusChanged = "application.status.changed"

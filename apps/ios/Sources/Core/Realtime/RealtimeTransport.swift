@@ -20,6 +20,9 @@ protocol RealtimeTransport: Sendable {
     func markRead(chatID: String, messageID: String) async
     /// Что человек делает сейчас; `nil` — закончил.
     func send(action: String?, chatID: String) async
+    /// Правка и удаление — только через сокет: REST-маршрутов у них нет (§9.1).
+    func edit(messageID: String, content: String) async
+    func delete(messageID: String) async
 }
 
 /// Реализация на socket.io-client-swift.
@@ -83,6 +86,14 @@ actor SocketIORealtimeTransport: RealtimeTransport {
             RealtimeEvent.Name.action,
             ["chatId": chatID, "action": action as Any]
         )
+    }
+
+    func edit(messageID: String, content: String) async {
+        socket.emit(RealtimeEvent.Name.edit, ["messageId": messageID, "content": content])
+    }
+
+    func delete(messageID: String) async {
+        socket.emit(RealtimeEvent.Name.delete, ["messageId": messageID])
     }
 
     // MARK: - Подписка
@@ -152,11 +163,45 @@ actor SocketIORealtimeTransport: RealtimeTransport {
             return .applicationStatusChanged(applicationID: id, status: status)
         }
         on(RealtimeEvent.Name.chatUpdated) { payload in
+            // `{chatId, title}` или `{chatId, avatarUrl}` — объекта чата в событии нет.
+            guard let chatID = payload["chatId"] as? String else { return nil }
+            let avatar: String?? = payload.keys.contains("avatarUrl")
+                ? .some(payload["avatarUrl"] as? String)
+                : nil
+            return .chatUpdated(chatID: chatID, title: payload["title"] as? String, avatarURL: avatar)
+        }
+        // Реакция и закрепление присылают сообщение целиком — оно ложится тем же путём,
+        // что и правка.
+        for name in [
+            RealtimeEvent.Name.messageReaction,
+            RealtimeEvent.Name.messagePinned,
+            RealtimeEvent.Name.messageUnpinned,
+        ] {
+            on(name) { payload in
+                Self.message(from: payload).map { RealtimeEvent.messageUpdated($0) }
+            }
+        }
+        for name in [
+            RealtimeEvent.Name.chatActivity,
+            RealtimeEvent.Name.memberAdded,
+            RealtimeEvent.Name.memberRemoved,
+        ] {
+            on(name) { payload in
+                (payload["chatId"] as? String).map { RealtimeEvent.chatActivity(chatID: $0) }
+            }
+        }
+        on(RealtimeEvent.Name.chatPinned) { payload in
+            (payload["chatId"] as? String).map { RealtimeEvent.chatPinned(chatID: $0) }
+        }
+        on(RealtimeEvent.Name.pollUpdated) { payload in
             guard
-                let raw = payload["chat"],
-                let chat: ChatListItemDTO = Self.decode(raw)
+                let pollID = payload["pollId"] as? String,
+                let chatID = payload["chatId"] as? String
             else { return nil }
-            return .chatUpdated(chat)
+            return .pollUpdated(pollID: pollID, chatID: chatID)
+        }
+        on(RealtimeEvent.Name.chatBlock) { payload in
+            (payload["userId"] as? String).map { RealtimeEvent.blockChanged(userID: $0) }
         }
     }
 

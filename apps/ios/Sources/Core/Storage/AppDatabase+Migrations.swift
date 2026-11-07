@@ -180,6 +180,28 @@ extension AppDatabase {
             )
         }
 
+        migrator.registerMigration("v5.chatExtras") { db in
+            // Подробности сообщения и флаги чата для полноценной переписки. Колонки
+            // только добавляются: старые строки получают значения по умолчанию и
+            // дозаполняются при следующей синхронизации.
+            try db.alter(table: MessageRecord.databaseTableName) { table in
+                table.add(column: "senderName", .text)
+                table.add(column: "senderAvatar", .text)
+                table.add(column: "extras", .jsonText)
+            }
+            try db.alter(table: ChatRecord.databaseTableName) { table in
+                table.add(column: "online", .boolean).notNull().defaults(to: false)
+                table.add(column: "isOwner", .boolean).notNull().defaults(to: false)
+                table.add(column: "isAdmin", .boolean).notNull().defaults(to: false)
+                table.add(column: "blocked", .boolean).notNull().defaults(to: false)
+                table.add(column: "blockedBy", .boolean).notNull().defaults(to: false)
+            }
+            try db.alter(table: AttachmentRecord.databaseTableName) { table in
+                table.add(column: "placeholder", .text)
+                table.add(column: "durationMs", .integer)
+            }
+        }
+
         return migrator
     }
 }
