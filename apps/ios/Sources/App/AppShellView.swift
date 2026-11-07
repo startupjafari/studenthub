@@ -143,6 +143,8 @@ struct AppShellView: View {
             LibraryCopyView(code: code)
         case .search:
             SearchView()
+        case .chatInfo(let id):
+            ChatInfoView(chatID: id)
         }
     }
 }
