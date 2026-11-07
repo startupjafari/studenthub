@@ -327,6 +327,105 @@
         }
       }
     },
+    "audience.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для всех"
+          }
+        }
+      }
+    },
+    "audience.faculty": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Факультет"
+          }
+        }
+      }
+    },
+    "audience.group": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Группа"
+          }
+        }
+      }
+    },
+    "audience.myGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Моя группа"
+          }
+        }
+      }
+    },
+    "audience.personal": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лично вам"
+          }
+        }
+      }
+    },
+    "audience.subject": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дисциплина"
+          }
+        }
+      }
+    },
+    "audience.teachers": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Преподаватели"
+          }
+        }
+      }
+    },
+    "audience.toPerson": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лично человеку…"
+          }
+        }
+      }
+    },
+    "audience.university": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вуз"
+          }
+        }
+      }
+    },
     "auth.error.challengeExpired": {
       "extractionState": "manual",
       "localizations": {
@@ -1526,6 +1625,17 @@
         }
       }
     },
+    "common.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Понятно"
+          }
+        }
+      }
+    },
     "common.openSettings": {
       "extractionState": "manual",
       "localizations": {
@@ -1533,6 +1643,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Открыть настройки"
+          }
+        }
+      }
+    },
+    "common.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повторить"
           }
         }
       }
@@ -1550,6 +1671,127 @@
           "stringUnit": {
             "state": "translated",
             "value": "Сақтау"
+          }
+        }
+      }
+    },
+    "complaint.explicit": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Непристойный контент"
+          }
+        }
+      }
+    },
+    "complaint.forbidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запрещённый контент"
+          }
+        }
+      }
+    },
+    "complaint.fraud": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мошенничество"
+          }
+        }
+      }
+    },
+    "complaint.hate": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оскорбления или травля"
+          }
+        }
+      }
+    },
+    "complaint.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Другое"
+          }
+        }
+      }
+    },
+    "complaint.spam": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спам или реклама"
+          }
+        }
+      }
+    },
+    "composer.addMedia": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить фото или видео"
+          }
+        }
+      }
+    },
+    "composer.audience": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кому видна публикация"
+          }
+        }
+      }
+    },
+    "composer.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что нового?"
+          }
+        }
+      }
+    },
+    "composer.removeMedia": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убрать вложение"
+          }
+        }
+      }
+    },
+    "composer.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новая публикация"
           }
         }
       }
@@ -1847,6 +2089,28 @@
         }
       }
     },
+    "feed.actionFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не получилось"
+          }
+        }
+      }
+    },
+    "feed.bookmark": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранить"
+          }
+        }
+      }
+    },
     "feed.comment": {
       "extractionState": "manual",
       "localizations": {
@@ -1864,6 +2128,94 @@
         }
       }
     },
+    "feed.comments": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Комментарии"
+          }
+        }
+      }
+    },
+    "feed.copyLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копировать ссылку"
+          }
+        }
+      }
+    },
+    "feed.copyText": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копировать текст"
+          }
+        }
+      }
+    },
+    "feed.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить"
+          }
+        }
+      }
+    },
+    "feed.delete.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Публикацию нельзя будет вернуть."
+          }
+        }
+      }
+    },
+    "feed.delete.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить публикацию?"
+          }
+        }
+      }
+    },
+    "feed.edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Редактировать"
+          }
+        }
+      }
+    },
+    "feed.more": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Действия с публикацией"
+          }
+        }
+      }
+    },
     "feed.noComments": {
       "extractionState": "manual",
       "localizations": {
@@ -1875,6 +2227,369 @@
         }
       }
     },
+    "feed.noComments.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Напишите первым"
+          }
+        }
+      }
+    },
+    "feed.olderComments": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать предыдущие"
+          }
+        }
+      }
+    },
+    "feed.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть публикацию"
+          }
+        }
+      }
+    },
+    "feed.openOriginal": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть публикацию"
+          }
+        }
+      }
+    },
+    "feed.originalUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Публикация недоступна"
+          }
+        }
+      }
+    },
+    "feed.photo": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фотография"
+          }
+        }
+      }
+    },
+    "feed.photo.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть на весь экран"
+          }
+        }
+      }
+    },
+    "feed.pinned": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закреплено"
+          }
+        }
+      }
+    },
+    "feed.react": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Реакция"
+          }
+        }
+      }
+    },
+    "feed.react.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Долгое нажатие — выбрать другую реакцию"
+          }
+        }
+      }
+    },
+    "feed.readMore": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ещё"
+          }
+        }
+      }
+    },
+    "feed.reply": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ответить"
+          }
+        }
+      }
+    },
+    "feed.reply.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отменить ответ"
+          }
+        }
+      }
+    },
+    "feed.replyingTo": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ответ:"
+          }
+        }
+      }
+    },
+    "feed.report": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пожаловаться"
+          }
+        }
+      }
+    },
+    "feed.report.comment": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что не так с комментарием?"
+          }
+        }
+      }
+    },
+    "feed.report.sent": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жалоба отправлена"
+          }
+        }
+      }
+    },
+    "feed.report.sent.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модераторы вуза рассмотрят её."
+          }
+        }
+      }
+    },
+    "feed.report.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что не так с публикацией?"
+          }
+        }
+      }
+    },
+    "feed.repost": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Репост"
+          }
+        }
+      }
+    },
+    "feed.repost.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Публикация появится в ленте вашей группы."
+          }
+        }
+      }
+    },
+    "feed.repost.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Комментарий (необязательно)"
+          }
+        }
+      }
+    },
+    "feed.repost.send": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Опубликовать"
+          }
+        }
+      }
+    },
+    "feed.repost.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Репост в группу"
+          }
+        }
+      }
+    },
+    "feed.reposted": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "репост"
+          }
+        }
+      }
+    },
+    "feed.share": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поделиться"
+          }
+        }
+      }
+    },
+    "feed.unbookmark": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убрать из сохранённого"
+          }
+        }
+      }
+    },
+    "feed.video.play": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Воспроизвести видео"
+          }
+        }
+      }
+    },
+    "feed.video.processing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Видео обрабатывается"
+          }
+        }
+      }
+    },
+    "feed.views": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Просмотры"
+          }
+        }
+      }
+    },
+    "friends.accept": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Принять"
+          }
+        }
+      }
+    },
+    "friends.decline": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отклонить"
+          }
+        }
+      }
+    },
+    "home.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все"
+          }
+        }
+      }
+    },
     "home.emptyFeed": {
       "extractionState": "manual",
       "localizations": {
@@ -1882,6 +2597,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "В ленте пока пусто"
+          }
+        }
+      }
+    },
+    "home.emptyFeed.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Здесь появятся публикации вуза, факультета и группы"
+          }
+        }
+      }
+    },
+    "home.events": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ближайшие события"
           }
         }
       }
@@ -1903,6 +2640,50 @@
         }
       }
     },
+    "home.feedEnd": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это все публикации"
+          }
+        }
+      }
+    },
+    "home.feedFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ленту не удалось загрузить"
+          }
+        }
+      }
+    },
+    "home.friendRequests": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заявки в друзья"
+          }
+        }
+      }
+    },
+    "home.friendRequests.more": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ещё заявок: %lld"
+          }
+        }
+      }
+    },
     "home.nextPair": {
       "extractionState": "manual",
       "localizations": {
@@ -1910,6 +2691,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ближайшая пара"
+          }
+        }
+      }
+    },
+    "home.nextPair.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть расписание"
           }
         }
       }
@@ -1927,6 +2719,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "Хабарламалар"
+          }
+        }
+      }
+    },
+    "home.notifications.unread": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Непрочитанных: %lld"
+          }
+        }
+      }
+    },
+    "home.nowPair": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сейчас идёт"
+          }
+        }
+      }
+    },
+    "home.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет связи"
+          }
+        }
+      }
+    },
+    "home.profile.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть профиль"
           }
         }
       }
@@ -3455,6 +4291,28 @@
         }
       }
     },
+    "media.tooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файл больше 50 МБ — загрузите его через веб-версию"
+          }
+        }
+      }
+    },
+    "media.unreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось прочитать файл"
+          }
+        }
+      }
+    },
     "more.applications": {
       "extractionState": "manual",
       "localizations": {
@@ -3794,6 +4652,72 @@
         }
       }
     },
+    "role.dean": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Деканат"
+          }
+        }
+      }
+    },
+    "role.employer": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Работодатель"
+          }
+        }
+      }
+    },
+    "role.platform": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "StudentHub"
+          }
+        }
+      }
+    },
+    "role.starosta": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Староста"
+          }
+        }
+      }
+    },
+    "role.teacher": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Преподаватель"
+          }
+        }
+      }
+    },
+    "role.university": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Администрация вуза"
+          }
+        }
+      }
+    },
     "schedule.cancelled": {
       "extractionState": "manual",
       "localizations": {
@@ -3918,6 +4842,72 @@
         }
       }
     },
+    "search.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Никого не нашли"
+          }
+        }
+      }
+    },
+    "search.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введите хотя бы две буквы"
+          }
+        }
+      }
+    },
+    "search.people": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Имя или логин"
+          }
+        }
+      }
+    },
+    "search.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Люди и события"
+          }
+        }
+      }
+    },
+    "search.section.people": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Люди"
+          }
+        }
+      }
+    },
+    "search.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск"
+          }
+        }
+      }
+    },
     "session.roleInWebHint": {
       "extractionState": "manual",
       "localizations": {
@@ -4026,6 +5016,237 @@
           "stringUnit": {
             "state": "translated",
             "value": "Жарияланым"
+          }
+        }
+      }
+    },
+    "stories.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить"
+          }
+        }
+      }
+    },
+    "stories.audience": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кому показать"
+          }
+        }
+      }
+    },
+    "stories.audience.friends": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Друзья"
+          }
+        }
+      }
+    },
+    "stories.audience.group": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Моя группа"
+          }
+        }
+      }
+    },
+    "stories.caption": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подпись (необязательно)"
+          }
+        }
+      }
+    },
+    "stories.delete.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить историю?"
+          }
+        }
+      }
+    },
+    "stories.mine": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Моя история"
+          }
+        }
+      }
+    },
+    "stories.more": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Действия с историей"
+          }
+        }
+      }
+    },
+    "stories.mute": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не показывать истории автора"
+          }
+        }
+      }
+    },
+    "stories.new": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новая история"
+          }
+        }
+      }
+    },
+    "stories.next": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Следующая история"
+          }
+        }
+      }
+    },
+    "stories.pickMedia": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фото или видео"
+          }
+        }
+      }
+    },
+    "stories.poll.votes": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Голосов: %lld"
+          }
+        }
+      }
+    },
+    "stories.previous": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предыдущая история"
+          }
+        }
+      }
+    },
+    "stories.publish": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Опубликовать"
+          }
+        }
+      }
+    },
+    "stories.replaceMedia": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заменить"
+          }
+        }
+      }
+    },
+    "stories.reply": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ответить автору"
+          }
+        }
+      }
+    },
+    "stories.report.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что не так с историей?"
+          }
+        }
+      }
+    },
+    "stories.sound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звук"
+          }
+        }
+      }
+    },
+    "stories.text": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Текст истории"
+          }
+        }
+      }
+    },
+    "stories.unseen": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Есть новые истории"
           }
         }
       }

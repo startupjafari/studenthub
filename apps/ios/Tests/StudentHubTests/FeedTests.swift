@@ -129,6 +129,81 @@ final class PostCommentsModelTests: XCTestCase {
     }
 }
 
+@MainActor
+final class FeedActionsTests: XCTestCase {
+    /// Закладка ставится сразу, а отказ сервера её снимает: иначе человек уверен, что
+    /// пост сохранён.
+    func testFailedBookmarkRollsBack() async {
+        let api = StubFeed()
+        api.posts = [PostDTO(
+            id: "p-1", content: "текст", createdAt: Date(), author: nil, media: nil, reactionSummary: nil,
+            counts: nil
+        )]
+        let model = FeedModel(api: api)
+        await model.refresh()
+        api.failure = .transport(URLError(.notConnectedToInternet))
+
+        await model.toggleBookmark("p-1")
+
+        XCTAssertFalse(model.isBookmarked("p-1"))
+        XCTAssertNotNil(model.actionFailure)
+    }
+
+    /// Ответ на ответ уходит на корень: вложенность у сервера одна.
+    func testReplyToReplyTargetsRoot() async {
+        let api = StubFeed()
+        let model = PostCommentsModel(postID: "p-1", api: api)
+        model.replyTo = PostCommentDTO(id: "c-2", content: "ответ", createdAt: Date(), author: nil, parentId: "c-1")
+        model.draft = "ещё ответ"
+
+        await model.send()
+
+        XCTAssertEqual(model.comments.last?.parentId, "c-1")
+        XCTAssertNil(model.replyTo)
+    }
+
+    /// Неизвестная наклейка истории не роняет разбор: сервер добавит тип раньше, чем
+    /// обновятся телефоны.
+    func testUnknownStoryElementIsSkipped() throws {
+        let json = Data(
+            """
+            [{"type":"sticker3d","x":0.2,"y":0.3,"scale":1,"rotation":0},
+             {"type":"mention","userId":"u-1","name":"Аян","x":0.5,"y":0.5,"scale":1,"rotation":10}]
+            """.utf8
+        )
+
+        let elements = try JSONCoding.decoder.decode([StoryElement].self, from: json)
+
+        XCTAssertEqual(elements.first?.kind, .unknown)
+        XCTAssertEqual(elements.last?.kind, .mention(userID: "u-1", name: "Аян"))
+        XCTAssertEqual(elements.last?.rotation, 10)
+    }
+
+    /// Пост ленты разбирает медиа с копиями и HLS, репост и права.
+    func testPostDecodesMediaAndRepost() throws {
+        let json = Data(
+            """
+            {"id":"p-2","content":"","createdAt":"2026-11-07T10:00:00.000Z","authorId":"u-1",
+            "author":{"id":"u-1","firstName":"Аян","lastName":"Серик","role":"TEACHER","avatarUrl":null},
+            "audience":"GROUP","originalPostId":"p-1","original":null,"bookmarked":true,"canDelete":false,
+            "media":[{"id":"m-1","mime":"video/mp4","width":1920,"height":1080,"placeholder":null,
+            "sources":[],"poster":[{"width":640,"height":360,"url":"https://cdn/p.webp"}],
+            "hls":"/api/v1/media/m-1/hls/master.m3u8?t=x","status":"READY","durationMs":12000}],
+            "reactionSummary":[],"_count":{"comments":0}}
+            """.utf8
+        )
+
+        let post = try JSONCoding.decoder.decode(PostDTO.self, from: json)
+
+        XCTAssertTrue(post.isRepost)
+        XCTAssertNil(post.original)
+        XCTAssertEqual(post.author?.role, "TEACHER")
+        XCTAssertEqual(post.media?.first?.isVideo, true)
+        XCTAssertEqual(post.media?.first?.aspectRatio, 1920.0 / 1080.0)
+        XCTAssertEqual(post.bookmarked, true)
+    }
+}
+
 private final class StubFeed: FeedFetching, @unchecked Sendable {
     private let lock = NSLock()
     var posts: [PostDTO] = []
