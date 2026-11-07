@@ -99,8 +99,7 @@ struct ApplicationFormView: View {
             values = draft?.formData ?? [:]
             failure = nil
         } catch {
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
         }
     }
 
@@ -114,8 +113,7 @@ struct ApplicationFormView: View {
             submitted = true
             failure = nil
         } catch {
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
         }
     }
 }
@@ -265,8 +263,7 @@ struct ApplicationDetailView: View {
             application = try await api.application(id: applicationID)
             failure = nil
         } catch {
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
         }
     }
 }

@@ -219,8 +219,7 @@ final class FeedModel {
     }
 
     private func message(for error: Error) -> String {
-        (error as? APIError)?.displayMessage
-            ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+        error.userMessage
     }
 
     @MainActor
@@ -366,8 +365,7 @@ final class PostCommentsModel {
     }
 
     private func message(for error: Error) -> String {
-        (error as? APIError)?.displayMessage
-            ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+        error.userMessage
     }
 }
 
@@ -395,8 +393,7 @@ final class EventsModel {
             registered = Set(page.items.filter { $0.isRegistered == true }.map(\.id))
             failure = nil
         } catch {
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
         }
     }
 
@@ -412,8 +409,7 @@ final class EventsModel {
             try await api.register(eventID: id, on: !was)
         } catch {
             if was { registered.insert(id) } else { registered.remove(id) }
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
         }
     }
 }
@@ -443,8 +439,7 @@ final class NotificationsModel {
             settings = try await api.notificationSettings()
             failure = nil
         } catch {
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
         }
     }
 
@@ -471,8 +466,7 @@ final class NotificationsModel {
         do {
             try await api.updateNotificationSettings(next)
         } catch {
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
             await refresh()
         }
     }

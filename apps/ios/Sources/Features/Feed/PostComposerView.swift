@@ -218,8 +218,7 @@ struct PostComposerView: View {
             published += 1
             dismiss()
         } catch {
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
         }
     }
 }

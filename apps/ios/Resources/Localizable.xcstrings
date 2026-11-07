@@ -1134,23 +1134,6 @@
         }
       }
     },
-    "chats.attachPhoto": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Фото"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Фото"
-          }
-        }
-      }
-    },
     "chats.attachmentPreview": {
       "extractionState": "manual",
       "localizations": {
@@ -2747,6 +2730,17 @@
         }
       }
     },
+    "common.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Загрузка"
+          }
+        }
+      }
+    },
     "common.ok": {
       "extractionState": "manual",
       "localizations": {
@@ -3156,6 +3150,23 @@
         }
       }
     },
+    "error.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что-то пошло не так. Попробуйте ещё раз"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бірдеңе дұрыс болмады. Қайталап көріңіз"
+          }
+        }
+      }
+    },
     "error.network": {
       "extractionState": "manual",
       "localizations": {
@@ -3173,7 +3184,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Неожиданный ответ сервера"
+            "value": "Не получилось обработать ответ сервера. Попробуйте ещё раз чуть позже"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сервер жауабын өңдеу мүмкін болмады. Сәл кейінірек қайталап көріңіз"
           }
         }
       }
@@ -3741,23 +3758,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ближайшие события"
-          }
-        }
-      }
-    },
-    "home.feed": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Лента"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Лента"
           }
         }
       }
@@ -6138,6 +6138,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Жарияланым"
+          }
+        }
+      }
+    },
+    "state.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось загрузить"
           }
         }
       }

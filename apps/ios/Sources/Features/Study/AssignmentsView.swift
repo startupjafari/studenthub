@@ -180,8 +180,7 @@ struct AssignmentDetailView: View {
             await model?.refresh()
             failure = nil
         } catch {
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
         }
     }
 }

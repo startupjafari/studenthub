@@ -118,7 +118,7 @@ final class LoginModel {
     @MainActor
     private func adopt(_ issued: AuthSession, into session: AppSessionModel) async {
         guard await session.adopt(issued) else {
-            formError = String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            formError = String(localized: "error.generic", defaultValue: "Что-то пошло не так. Попробуйте ещё раз")
             return
         }
         password = ""
@@ -133,7 +133,7 @@ final class LoginModel {
     @MainActor
     private func handle(_ error: Error) {
         guard let apiError = error as? APIError else {
-            formError = String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            formError = error.userMessage
             return
         }
 

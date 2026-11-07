@@ -79,6 +79,12 @@ enum Observability {
         breadcrumb("push", data: ["action": "register-failed", "error": error.localizedDescription])
     }
 
+    /// Ответ, который приложение не смогло прочитать. Только статус и тип ошибки:
+    /// тело ответа может содержать персональные данные и в трекер не уходит.
+    static func unexpectedResponse(statusCode: Int, kind: String) {
+        breadcrumb("api", data: ["status": String(statusCode), "kind": kind])
+    }
+
     private static func breadcrumb(_ category: String, data: [String: String]) {
         #if canImport(Sentry)
             let crumb = Breadcrumb(level: .info, category: category)

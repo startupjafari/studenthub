@@ -574,8 +574,7 @@ final class ChatThreadModel {
     }
 
     private func message(for error: Error) -> String {
-        (error as? APIError)?.displayMessage
-            ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+        error.userMessage
     }
 }
 

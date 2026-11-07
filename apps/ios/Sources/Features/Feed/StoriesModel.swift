@@ -170,8 +170,7 @@ final class StoriesModel {
     }
 
     private func message(for error: Error) -> String {
-        (error as? APIError)?.displayMessage
-            ?? (error as? LocalizedError)?.errorDescription
-            ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+        if error is APIError { return error.userMessage }
+        return (error as? LocalizedError)?.errorDescription ?? error.userMessage
     }
 }

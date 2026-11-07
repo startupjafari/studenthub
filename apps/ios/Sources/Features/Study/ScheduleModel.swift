@@ -114,8 +114,7 @@ final class ScheduleModel {
             failure = nil
         } catch {
             // Сеть недоступна — экран остаётся рабочим: он читает базу.
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
         }
     }
 

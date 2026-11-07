@@ -78,8 +78,7 @@ final class ChatListModel {
             try await store.save(folders: try await api.folders())
             failure = nil
         } catch {
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
         }
     }
 
@@ -170,8 +169,7 @@ final class ChatListModel {
     }
 
     private func message(for error: Error) -> String {
-        (error as? APIError)?.displayMessage
-            ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+        error.userMessage
     }
 
     // MARK: - Внутреннее
@@ -193,8 +191,7 @@ final class ChatListModel {
             failure = nil
         } catch {
             try? await rollback()
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
         }
     }
 

@@ -121,8 +121,7 @@ struct ProfileView: View {
             bio = profile?.bio ?? ""
             failure = nil
         } catch {
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
         }
     }
 
@@ -142,8 +141,7 @@ struct ProfileView: View {
             savedAt = Date()
             await load()
         } catch {
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
         }
     }
 
@@ -155,8 +153,7 @@ struct ProfileView: View {
             try await api.uploadAvatar(data, mime: "image/jpeg")
             await load()
         } catch {
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
         }
     }
 }

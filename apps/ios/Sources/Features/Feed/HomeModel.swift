@@ -62,8 +62,7 @@ final class HomeModel {
             try await call()
         } catch {
             friendRequests = snapshot
-            actionFailure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            actionFailure = error.userMessage
         }
     }
 }

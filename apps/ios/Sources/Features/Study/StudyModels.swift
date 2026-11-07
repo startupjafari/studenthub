@@ -31,8 +31,7 @@ final class StudySectionModel<Value> {
         } catch {
             // Данные с прошлого раза не стираем: пустой экран с ошибкой хуже, чем
             // вчерашние оценки с пометкой об ошибке обновления.
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
         }
     }
 }
@@ -75,8 +74,7 @@ final class AttendanceMarkingModel {
             )
             failure = nil
         } catch {
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
         }
     }
 
@@ -108,8 +106,7 @@ final class AttendanceMarkingModel {
             savedAt = Date()
             failure = nil
         } catch {
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
         }
     }
 }
