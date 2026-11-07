@@ -1,0 +1,11 @@
+# Упаковка Package.swift в приложение для `xtool dev`. Файлы из .device/ генерирует
+# scripts/device.sh — запускать сборку через него, а не голым `xtool dev`.
+version: 1
+# Свой идентификатор, не kz.studenthub.app: тот принадлежит команде, которая выпускает
+# приложение, и личный Apple ID его не зарегистрирует. Заодно отладочная копия встаёт
+# на телефон рядом со сборкой из TestFlight, не затирая её.
+bundleID: kz.studenthub.app.dev
+infoPath: .device/Info.plist
+resources:
+  - .device/ru.lproj
+  - .device/kk.lproj
