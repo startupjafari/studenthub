@@ -17,6 +17,7 @@ struct AppShellView: View {
     /// Действует ли согласие на обработку ПДн: без него приложение закрыто экраном
     /// согласия, как окном `ConsentGate` в вебе.
     @State private var consent = ConsentGateModel()
+    @State private var chatBadge = ChatBadgeModel()
 
     private var role: Role { viewer.role }
 
@@ -32,14 +33,18 @@ struct AppShellView: View {
                 .tabItem {
                     Label(tab.title, systemImage: tab.symbol)
                 }
+                // Ноль бейдж прячет: у остальных вкладок счётчика нет.
+                .badge(tab == .chats ? chatBadge.unread : 0)
                 .tag(tab)
             }
         }
+        .minimizesTabBarOnScroll()
         .tint(Palette.primary)
         .fullScreenCover(isPresented: Binding(get: { consent.isRequired }, set: { _ in })) {
             ConsentGateView(model: consent, session: session)
         }
         .task {
+            chatBadge.start()
             await consent.load()
         }
         .task {
