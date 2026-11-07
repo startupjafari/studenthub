@@ -20,6 +20,8 @@ enum AppRoute: Hashable {
     case libraryClearance
     case book(id: String)
     case bookCopy(code: String)
+    /// Поиск людей и событий из верхней панели главной.
+    case search
 }
 
 /// Навигация оболочки: выбранная вкладка и путь внутри каждой.

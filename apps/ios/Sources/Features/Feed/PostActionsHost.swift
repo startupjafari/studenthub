@@ -73,7 +73,7 @@ struct PostActionsHost<Content: View>: View {
                     repostNote = ""
                     Task { _ = await model.repost(post.id, note: note.isEmpty ? nil : note) }
                 }
-                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {
+                Button(String(localized: "common.cancel", defaultValue: "Отменить"), role: .cancel) {
                     repostNote = ""
                 }
             } message: { _ in
@@ -158,7 +158,7 @@ private struct PostEditorSheet: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                        Button(String(localized: "common.cancel", defaultValue: "Отменить")) { dismiss() }
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         Button(String(localized: "common.save", defaultValue: "Сохранить")) {

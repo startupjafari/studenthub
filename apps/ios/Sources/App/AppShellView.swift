@@ -141,6 +141,8 @@ struct AppShellView: View {
             LibraryBookView(bookID: id)
         case .bookCopy(let code):
             LibraryCopyView(code: code)
+        case .search:
+            SearchView()
         }
     }
 }
