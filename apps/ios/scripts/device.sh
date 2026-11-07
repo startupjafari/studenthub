@@ -41,6 +41,11 @@ if [[ -z "${API_BASE_URL:-}" ]]; then
     exit 1
   fi
   API_BASE_URL="http://${ip}:${API_PORT:-3001}/api/v1"
+  # Свой адрес в сети из WSL не проверить: запрос изнутри на адрес Windows режет
+  # брандмауэр, даже когда телефон доходит. Поэтому проверяем сам `pnpm dev`.
+  health_url="http://localhost:${API_PORT:-3001}/api/v1/health"
+else
+  health_url="${API_BASE_URL%/}/health"
 fi
 
 python3 -I scripts/device_bundle.py "$API_BASE_URL"
@@ -54,10 +59,10 @@ if ! command -v xtool >/dev/null; then
   exit 1
 fi
 
-# Телефон ходит на API по сети: если `pnpm dev` не запущен или порт не проброшен,
-# приложение откроется на пустой экран входа с ошибкой связи. Предупреждаем заранее.
-if ! curl -fsS -m 3 -o /dev/null "${API_BASE_URL%/}/health" 2>/dev/null; then
-  echo "Внимание: ${API_BASE_URL} не отвечает с этого компьютера — проверьте pnpm dev и portproxy (README)." >&2
+# Если API не запущен, приложение откроется на экран входа с ошибкой связи.
+# Предупреждаем заранее.
+if ! curl -fsS -m 3 -o /dev/null "$health_url" 2>/dev/null; then
+  echo "Внимание: ${health_url} не отвечает — запущен ли pnpm dev?" >&2
 fi
 
 exec xtool dev "$@"
