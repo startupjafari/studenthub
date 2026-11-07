@@ -60,9 +60,9 @@ final class ChatListQueryTests: XCTestCase {
         XCTAssertEqual(row?.preview, "недописанное")
     }
 
-    /// Удалённое сообщение не показывается в превью: в ленте на его месте тоже
-    /// пусто, и строка списка не должна противоречить самому чату.
-    func testDeletedMessageIsNotPreviewed() throws {
+    /// Удалённое сообщение в превью — той же подписью, что в ленте: строка списка не
+    /// противоречит самому чату и не показывает стёртый текст.
+    func testDeletedMessageIsPreviewedAsDeleted() throws {
         let database = try AppDatabase.inMemory()
         try database.writer.write { db in
             try chat(id: "c-1").insert(db)
@@ -74,7 +74,7 @@ final class ChatListQueryTests: XCTestCase {
             try ChatListQuery.rows(for: .all).fetchOne(db)
         }
 
-        XCTAssertNil(row?.preview)
+        XCTAssertEqual(row?.preview, "Сообщение удалено")
     }
 
     /// Пустые вкладки не показываем: «Архив» без архива занимает место и ничего не
@@ -89,7 +89,8 @@ final class ChatListQueryTests: XCTestCase {
         }
 
         let tabs = try database.reader.read { db in try ChatListQuery.tabs(in: db) }
-        XCTAssertEqual(tabs, [.all, .folder(id: "f-1", name: "Учёба"), .requests, .archive])
+        // Чаты в наборе — групповые: появляется вкладка «Группы», других типов нет.
+        XCTAssertEqual(tabs, [.all, .groups, .folder(id: "f-1", name: "Учёба"), .requests, .archive])
     }
 
     // MARK: - Помощники

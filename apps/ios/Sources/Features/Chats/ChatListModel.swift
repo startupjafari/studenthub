@@ -20,6 +20,7 @@ final class ChatListModel {
     private let database: AppDatabase
     private let api: ChatsFetching
     private let store: ChatStore
+    private let actions: ChatActing
 
     private var rowsTask: Task<Void, Never>?
     private var tabsTask: Task<Void, Never>?
@@ -32,11 +33,13 @@ final class ChatListModel {
     init(
         database: AppDatabase = AppServices.database,
         api: ChatsFetching = ChatsAPI(),
-        store: ChatStore? = nil
+        store: ChatStore? = nil,
+        actions: ChatActing = ChatsAPI()
     ) {
         self.database = database
         self.api = api
         self.store = store ?? ChatStore(database: database)
+        self.actions = actions
     }
 
     deinit {
@@ -112,6 +115,63 @@ final class ChatListModel {
             remote: { try await api.setArchived(!archived, chatID: row.id) },
             rollback: { try await store.setArchived(archived, chatID: row.id) }
         )
+    }
+
+    /// Звук на время. Без срока — навсегда; «только важное» оставляет упоминания и
+    /// ответы мне.
+    @MainActor
+    func mute(_ row: ChatListRow, minutes: Int?, importantOnly: Bool = false) async {
+        await act(
+            local: { try await store.setMuted(true, chatID: row.id) },
+            remote: { try await actions.mute(chatID: row.id, minutes: minutes, importantOnly: importantOnly) },
+            rollback: { try await store.setMuted(row.muted, chatID: row.id) }
+        )
+    }
+
+    /// Прочитать всё, не открывая: отметка до последнего сообщения уходит сокетом.
+    @MainActor
+    func markRead(_ row: ChatListRow) async {
+        let id = row.id
+        let last: String?? = try? await database.reader.read { db in
+            try ChatRecord.fetchOne(db, key: id)?.lastMessageId
+        }
+        guard let messageID = last ?? nil else { return }
+        try? await database.writer.write { db in
+            guard var chat = try ChatRecord.fetchOne(db, key: id) else { return }
+            chat.unreadCount = 0
+            try chat.update(db)
+        }
+        await AppServices.realtime.markRead(chatID: id, messageID: messageID)
+    }
+
+    /// Очистить историю у себя: у собеседников переписка остаётся.
+    @MainActor
+    func clearHistory(_ row: ChatListRow) async {
+        do {
+            try await actions.clearHistory(chatID: row.id)
+            try await MessageStore(database: database).clearHistory(chatID: row.id)
+            failure = nil
+        } catch {
+            failure = message(for: error)
+        }
+    }
+
+    /// Удалить личный чат, выйти из группы или удалить свою группу — решает сервер.
+    @MainActor
+    func delete(_ row: ChatListRow) async {
+        do {
+            try await actions.deleteChat(chatID: row.id)
+            let id = row.id
+            _ = try await database.writer.write { db in try ChatRecord.deleteOne(db, key: id) }
+            failure = nil
+        } catch {
+            failure = message(for: error)
+        }
+    }
+
+    private func message(for error: Error) -> String {
+        (error as? APIError)?.displayMessage
+            ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
     }
 
     // MARK: - Внутреннее
