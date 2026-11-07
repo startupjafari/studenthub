@@ -165,6 +165,34 @@ final class ScheduleModel {
         }
     }
 
+    /// Понедельник показанной недели — от него полоса дней и режим «Неделя».
+    var weekStart: Date {
+        calendar.date(byAdding: .day, value: 1 - selectedDay, to: dateOfSelectedDay()) ?? dateOfSelectedDay()
+    }
+
+    /// Пары всей показанной недели по дням — для режима «Неделя». Чтение разовое, а
+    /// не наблюдение: неделю смотрят обзорно, а за живыми изменениями — в день.
+    @MainActor
+    func weekPairs() async -> [(day: Int, date: Date, pairs: [SchedulePair])] {
+        let start = weekStart
+        let parity = parity
+        let dates = (1...7).map { day in (day, calendar.date(byAdding: .day, value: day - 1, to: start) ?? start) }
+        let requests = dates.map { day, date in (day, date, store.pairs(dayOfWeek: day), store.changes(on: date, calendar: calendar)) }
+        let rows = (try? await database.reader.read { db in
+            try requests.map { day, date, pairs, changes in
+                (day, date, try pairs.fetchAll(db), try changes.fetchAll(db))
+            }
+        }) ?? []
+        return rows.compactMap { day, date, pairs, changes in
+            let byPair = Dictionary(changes.map { ($0.pairId, $0) }, uniquingKeysWith: { first, _ in first })
+            let items = pairs
+                .filter { parity.includes(weekType: $0.weekType) }
+                .map { SchedulePair(pair: $0, change: byPair[$0.id]) }
+                .sorted { $0.startTime < $1.startTime }
+            return items.isEmpty ? nil : (day, date, items)
+        }
+    }
+
     /// Дата выбранного дня внутри показанной недели — по ней ищутся разовые изменения.
     private func dateOfSelectedDay() -> Date {
         let today = Date()

@@ -150,14 +150,14 @@ struct LessonDetailView: View {
 
     @MainActor
     private func load() async {
-        let calendar = Calendar.current
-        let found = try? await AppServices.database.reader.read { [pairID] db -> (PairRecord?, [PairChangeRecord]) in
-            let pair = try PairRecord.fetchOne(db, key: pairID)
-            let changes = try PairChangeRecord.filter(PairChangeRecord.Columns.pairId == pairID).fetchAll(db)
-            return (pair, changes)
+        // Изменения дня — тем же запросом, что у расписания: даты в базе — полночь UTC.
+        let changesOfDay = ScheduleStore(database: AppServices.database).changes(on: date)
+            .filter(PairChangeRecord.Columns.pairId == pairID)
+        let found = try? await AppServices.database.reader.read { [pairID] db -> (PairRecord?, PairChangeRecord?) in
+            (try PairRecord.fetchOne(db, key: pairID), try changesOfDay.fetchOne(db))
         }
         pair = found?.0
-        change = found?.1.first { calendar.isDate($0.date, inSameDayAs: date) }
+        change = found?.1
         isMissing = pair == nil
         guard let subject = pair?.subject.lowercased() else { return }
 

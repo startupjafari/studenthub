@@ -7809,6 +7809,39 @@
         }
       }
     },
+    "schedule.mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим"
+          }
+        }
+      }
+    },
+    "schedule.mode.day": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "День"
+          }
+        }
+      }
+    },
+    "schedule.mode.week": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неделя"
+          }
+        }
+      }
+    },
     "schedule.moved": {
       "extractionState": "manual",
       "localizations": {
@@ -7884,6 +7917,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Жаңартылды: %@"
+          }
+        }
+      }
+    },
+    "schedule.weekEmpty": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На этой неделе пар нет"
           }
         }
       }
