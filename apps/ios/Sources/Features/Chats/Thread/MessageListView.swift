@@ -10,30 +10,36 @@ struct MessageListView: UIViewControllerRepresentable {
     let days: [MessageTimeline.Day]
     /// Куда прокрутить после применения среза.
     let anchor: String?
+    var bubbleContext = BubbleContext()
+    /// Просьба прокрутить к сообщению (закреплённое, ответ, найденное).
+    var focus: MessageFocus?
+    var capabilities: (MessageRecord) -> MessageCapabilities = { _ in MessageCapabilities() }
     let onReachTop: () -> Void
-    let onRetry: (MessageRecord) -> Void
-    let onReply: (MessageRecord) -> Void
+    let onAction: (MessageAction, MessageRecord) -> Void
 
     func makeUIViewController(context: Context) -> MessageListViewController {
         let controller = MessageListViewController()
         controller.onReachTop = onReachTop
-        controller.onRetry = onRetry
-        controller.onReply = onReply
+        controller.onAction = onAction
+        controller.capabilities = capabilities
         return controller
     }
 
     func updateUIViewController(_ controller: MessageListViewController, context: Context) {
         controller.onReachTop = onReachTop
-        controller.onRetry = onRetry
-        controller.onReply = onReply
-        controller.apply(days: days, anchor: anchor)
+        controller.onAction = onAction
+        controller.capabilities = capabilities
+        controller.apply(days: days, anchor: anchor, context: bubbleContext)
+        controller.focus(focus)
     }
 }
 
 final class MessageListViewController: UIViewController {
     var onReachTop: (() -> Void)?
-    var onRetry: ((MessageRecord) -> Void)?
-    var onReply: ((MessageRecord) -> Void)?
+    var onAction: ((MessageAction, MessageRecord) -> Void)?
+    var capabilities: ((MessageRecord) -> MessageCapabilities)?
+    private var bubbleContext = BubbleContext()
+    private var appliedFocus: MessageFocus?
 
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Date, String>!
@@ -53,7 +59,10 @@ final class MessageListViewController: UIViewController {
     /// нижнего края, новое сообщение подматывает ленту за ним. Второе: если сверху
     /// доехала страница старых сообщений, позиция не должна шевельнуться — поэтому
     /// после применения смещаем `contentOffset` ровно на выросшую высоту.
-    func apply(days: [MessageTimeline.Day], anchor: String?) {
+    func apply(days: [MessageTimeline.Day], anchor: String?, context: BubbleContext) {
+        let previous = itemsByID
+        let contextChanged = context != bubbleContext
+        bubbleContext = context
         itemsByID = Dictionary(
             uniqueKeysWithValues: days.flatMap(\.items).map { ($0.id, $0) }
         )
@@ -63,6 +72,13 @@ final class MessageListViewController: UIViewController {
         for day in days {
             snapshot.appendItems(day.items.map(\.id), toSection: day.id)
         }
+        // Снимок сравнивает только идентификаторы: правка, удаление, реакция или
+        // прочтение без этого не перерисовали бы уже показанную ячейку.
+        let changed = snapshot.itemIdentifiers.filter { id in
+            guard let old = previous[id] else { return false }
+            return contextChanged || old != itemsByID[id]
+        }
+        if !changed.isEmpty { snapshot.reconfigureItems(changed) }
 
         let wasAtBottom = isNearBottom
         let oldHeight = collectionView.contentSize.height
@@ -121,18 +137,12 @@ final class MessageListViewController: UIViewController {
             [weak self] cell, _, id in
             guard let item = self?.itemsByID[id] else { return }
             cell.contentConfiguration = UIHostingConfiguration {
-                MessageBubbleView(item: item) { [weak self] in
-                    self?.onRetry?(item.message)
-                }
-                .contextMenu {
-                    Button {
-                        self?.onReply?(item.message)
-                    } label: {
-                        Label(
-                            String(localized: "chats.reply", defaultValue: "Ответить"),
-                            systemImage: "arrowshape.turn.up.left"
-                        )
-                    }
+                MessageBubbleView(
+                    item: item,
+                    context: self?.bubbleContext ?? BubbleContext(),
+                    capabilities: self?.capabilities?(item.message) ?? MessageCapabilities()
+                ) { [weak self] action in
+                    self?.onAction?(action, item.message)
                 }
             }
             .margins(.vertical, item.isLastInGroup ? 6 : 1)
@@ -159,6 +169,25 @@ final class MessageListViewController: UIViewController {
     }
 
     // MARK: - Прокрутка
+
+    /// Прокрутить к сообщению и коротко подсветить его. Сообщение могло ещё не
+    /// доехать до ленты (окно истории только скачано) — тогда ждём следующего среза.
+    func focus(_ request: MessageFocus?) {
+        guard let request, request != appliedFocus else { return }
+        guard let indexPath = dataSource.indexPath(for: request.id) else { return }
+        appliedFocus = request
+        collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            guard let cell = self?.collectionView.cellForItem(at: indexPath) else { return }
+            UIView.animate(withDuration: 0.25, animations: {
+                cell.contentView.backgroundColor = UIColor.tintColor.withAlphaComponent(0.15)
+            }, completion: { _ in
+                UIView.animate(withDuration: 0.6, delay: 0.6) {
+                    cell.contentView.backgroundColor = .clear
+                }
+            })
+        }
+    }
 
     private var isNearBottom: Bool {
         let distance = collectionView.contentSize.height

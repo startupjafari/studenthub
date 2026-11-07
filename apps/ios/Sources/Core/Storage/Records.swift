@@ -228,3 +228,6 @@ struct PairChangeRecord: Codable, FetchableRecord, PersistableRecord, Hashable {
         static let pairId = Column(CodingKeys.pairId)
     }
 }
+
+// Сообщение открывается листом (пересылка) — листу нужен идентификатор строки.
+extension MessageRecord: Identifiable {}

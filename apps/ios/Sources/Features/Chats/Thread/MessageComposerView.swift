@@ -16,8 +16,22 @@ struct MessageComposerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if let replyTo = model.replyTo {
-                ReplyBar(text: replyTo.content) { model.cancelReply() }
+            if let editing = model.editing {
+                ReplyBar(
+                    title: String(localized: "chats.editing", defaultValue: "Редактирование"),
+                    text: editing.content,
+                    symbol: "pencil"
+                ) { model.cancelEdit() }
+            } else if let replyTo = model.replyTo {
+                ReplyBar(
+                    title: replyTo.senderName.map {
+                        String(localized: "chats.replyingToName", defaultValue: "Ответ \($0)")
+                    } ?? String(localized: "chats.replyingTo", defaultValue: "Ответ"),
+                    text: replyTo.content.isEmpty
+                        ? String(localized: "chats.attachmentPreview", defaultValue: "Вложение")
+                        : replyTo.content,
+                    symbol: "arrowshape.turn.up.left"
+                ) { model.cancelReply() }
             }
 
             if recorder.isRecording {
@@ -34,9 +48,9 @@ struct MessageComposerView: View {
 
             HStack(alignment: .bottom, spacing: Spacing.md) {
                 Menu {
-                    PhotosPicker(selection: $photo, matching: .images) {
+                    PhotosPicker(selection: $photo, matching: .any(of: [.images, .videos])) {
                         Label(
-                            String(localized: "chats.attachPhoto", defaultValue: "Фото"),
+                            String(localized: "chats.attachMedia", defaultValue: "Фото или видео"),
                             systemImage: "photo"
                         )
                     }
@@ -103,7 +117,7 @@ struct MessageComposerView: View {
         Button {
             Task { await model.send() }
         } label: {
-            Image(systemName: "arrow.up")
+            Image(systemName: model.editing == nil ? "arrow.up" : "checkmark")
                         .font(Typography.body.weight(.semibold))
                         .foregroundStyle(Palette.primaryForeground)
                         .frame(width: ControlHeight.lg, height: ControlHeight.lg)
@@ -138,12 +152,22 @@ struct MessageComposerView: View {
             : String(localized: "chats.voice.record", defaultValue: "Записать голосовое")))
     }
 
+    /// Снимок камеры iPhone — HEIC, ролик — MOV. Сервер проверяет тип по содержимому
+    /// и такие не берёт, поэтому файл сначала переводится в JPEG или MP4 — так же, как
+    /// в ленте.
     private func sendPickedPhoto() async {
         guard let photo else { return }
         self.photo = nil
-        guard let data = try? await photo.loadTransferable(type: Data.self) else { return }
+        guard let prepared = try? await MediaPreparation.prepare(photo) else { return }
+        let size = prepared.preview?.size
         await model.attach(
-            OutgoingAttachment(data: data, mime: "image/jpeg", name: "photo.jpg", width: nil, height: nil)
+            OutgoingAttachment(
+                data: prepared.data,
+                mime: prepared.mime,
+                name: prepared.filename,
+                width: size.map { Int($0.width) },
+                height: size.map { Int($0.height) }
+            )
         )
     }
 
@@ -172,20 +196,25 @@ struct MessageComposerView: View {
     }
 }
 
-/// Полоска «отвечаю на…» над полем ввода.
+/// Полоска «отвечаю на…» или «редактирую» над полем ввода.
 private struct ReplyBar: View {
+    let title: String
     let text: String
+    var symbol = "arrowshape.turn.up.left"
     let onCancel: () -> Void
 
     var body: some View {
         HStack(spacing: Spacing.md) {
+            Image(systemName: symbol)
+                .foregroundStyle(Palette.primary)
             Rectangle()
                 .fill(Palette.primary)
                 .frame(width: 2, height: ControlHeight.sm)
             VStack(alignment: .leading, spacing: 0) {
-                Text(String(localized: "chats.replyingTo", defaultValue: "Ответ"))
-                    .font(Typography.meta)
+                Text(title)
+                    .font(Typography.meta.weight(.semibold))
                     .foregroundStyle(Palette.primary)
+                    .lineLimit(1)
                 Text(text)
                     .font(Typography.meta)
                     .foregroundStyle(Palette.mutedForeground)
@@ -213,7 +242,7 @@ struct ChatActionCaption: View {
     let action: String
 
     var body: some View {
-        Text(title)
+        Text(Self.title(for: action))
             .font(Typography.meta)
             .foregroundStyle(Palette.mutedForeground)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -222,7 +251,7 @@ struct ChatActionCaption: View {
             .accessibilityAddTraits(.updatesFrequently)
     }
 
-    private var title: String {
+    static func title(for action: String) -> String {
         switch action {
         case "RECORDING_VOICE":
             return String(localized: "chats.action.voice", defaultValue: "записывает голосовое…")
