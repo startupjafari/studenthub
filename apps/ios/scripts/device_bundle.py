@@ -13,7 +13,7 @@ xtool не знает ни XcodeGen, ни xcconfig, ни утилит Xcode, к�
 
 Каталог .device/ в git не попадает и пересобирается при каждом запуске scripts/device.sh.
 
-Запуск: python3 apps/ios/scripts/device_bundle.py http://192.168.0.10:3001/api/v1
+Запуск: python3 apps/ios/scripts/device_bundle.py http://192.168.0.10:3001/api/v1 http://192.168.0.10:3000
 """
 import json
 import pathlib
@@ -37,7 +37,7 @@ def project_setting(name: str) -> str:
     return match.group(1)
 
 
-def info_plist(api_base_url: str) -> dict:
+def info_plist(api_base_url: str, web_base_url: str) -> dict:
     """Копия `info.properties` из project.yml. Расходится намеренно в трёх местах:
 
     - нет `UIBackgroundModes: remote-notification` и права `aps-environment`: личный
@@ -67,6 +67,7 @@ def info_plist(api_base_url: str) -> dict:
         "UIDeviceFamily": [1],
         "UISupportedInterfaceOrientations": ["UIInterfaceOrientationPortrait"],
         "SHAPIBaseURL": api_base_url,
+        "SHWebBaseURL": web_base_url,
         "SHSentryDSN": "",
     }
 
@@ -94,21 +95,21 @@ def unit(localizations: dict, language: str) -> str | None:
 
 
 def main() -> None:
-    if len(sys.argv) != 2:
+    if len(sys.argv) != 3:
         sys.exit(__doc__)
-    api_base_url = sys.argv[1]
+    api_base_url, web_base_url = sys.argv[1], sys.argv[2]
 
     shutil.rmtree(OUT, ignore_errors=True)
     OUT.mkdir()
     with open(OUT / "Info.plist", "wb") as file:
-        plistlib.dump(info_plist(api_base_url), file, fmt=plistlib.FMT_XML)
+        plistlib.dump(info_plist(api_base_url, web_base_url), file, fmt=plistlib.FMT_XML)
     for language, table in string_tables().items():
         directory = OUT / f"{language}.lproj"
         directory.mkdir()
         with open(directory / "Localizable.strings", "wb") as file:
             plistlib.dump(table, file, fmt=plistlib.FMT_BINARY)
         print(f"{language}.lproj: {len(table)} строк")
-    print(f"Info.plist: SHAPIBaseURL = {api_base_url}")
+    print(f"Info.plist: SHAPIBaseURL = {api_base_url}, SHWebBaseURL = {web_base_url}")
 
 
 if __name__ == "__main__":

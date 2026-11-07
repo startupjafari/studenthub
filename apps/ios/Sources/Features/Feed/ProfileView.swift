@@ -160,35 +160,3 @@ struct ProfileView: View {
         }
     }
 }
-
-/// Аватар с запасным вариантом — буквой имени.
-struct AvatarView: View {
-    let url: String?
-    let name: String?
-
-    var body: some View {
-        Group {
-            if let raw = url, let link = URL(string: raw) {
-                AsyncImage(url: link) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    initials
-                }
-            } else {
-                initials
-            }
-        }
-        .frame(width: ControlHeight.island, height: ControlHeight.island)
-        .clipShape(Circle())
-        .accessibilityHidden(true)
-    }
-
-    private var initials: some View {
-        ZStack {
-            Circle().fill(Palette.muted)
-            Text(verbatim: name?.first.map { String($0).uppercased() } ?? "•")
-                .font(Typography.sectionTitle)
-                .foregroundStyle(Palette.mutedForeground)
-        }
-    }
-}

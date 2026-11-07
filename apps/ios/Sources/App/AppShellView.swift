@@ -40,6 +40,7 @@ struct AppShellView: View {
         }
         .minimizesTabBarOnScroll()
         .tint(Palette.primary)
+        .environment(\.viewerID, viewer.subject)
         .fullScreenCover(isPresented: Binding(get: { consent.isRequired }, set: { _ in })) {
             ConsentGateView(model: consent, session: session)
         }
@@ -188,5 +189,18 @@ struct PlaceholderScreen: View {
         .background(Palette.background)
         .navigationTitle(Text(title))
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// Кто смотрит: своё от чужого отличают лента, комментарии и истории. Ключ окружения,
+/// а не параметр — иначе id протаскивался бы через каждый промежуточный экран.
+private struct ViewerIDKey: EnvironmentKey {
+    static let defaultValue = ""
+}
+
+extension EnvironmentValues {
+    var viewerID: String {
+        get { self[ViewerIDKey.self] }
+        set { self[ViewerIDKey.self] = newValue }
     }
 }

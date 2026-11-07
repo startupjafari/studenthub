@@ -15,6 +15,8 @@
 #   API_BASE_URL  адрес API целиком (например https://api.example.kz/api/v1) — если
 #                 задан, адрес компьютера не ищется
 #   API_PORT      порт `pnpm dev` (по умолчанию 3001)
+#   WEB_BASE_URL  адрес веба для ссылок «Поделиться» (по умолчанию тот же компьютер,
+#                 порт WEB_PORT, 3000)
 
 set -euo pipefail
 
@@ -41,6 +43,7 @@ if [[ -z "${API_BASE_URL:-}" ]]; then
     exit 1
   fi
   API_BASE_URL="http://${ip}:${API_PORT:-3001}/api/v1"
+  WEB_BASE_URL="${WEB_BASE_URL:-http://${ip}:${WEB_PORT:-3000}}"
   # Свой адрес в сети из WSL не проверить: запрос изнутри на адрес Windows режет
   # брандмауэр, даже когда телефон доходит. Поэтому проверяем сам `pnpm dev`.
   health_url="http://localhost:${API_PORT:-3001}/api/v1/health"
@@ -48,7 +51,7 @@ else
   health_url="${API_BASE_URL%/}/health"
 fi
 
-python3 -I scripts/device_bundle.py "$API_BASE_URL"
+python3 -I scripts/device_bundle.py "$API_BASE_URL" "${WEB_BASE_URL:-}"
 
 if [[ "${1:-}" == "--prepare-only" ]]; then
   exit 0

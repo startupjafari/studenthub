@@ -1,97 +1,11 @@
-import PhotosUI
 import SwiftUI
 
-/// Пост с комментариями.
+/// Пост с комментариями — экран по ссылке из уведомления, пуша или репоста.
 struct PostDetailView: View {
     let postID: String
 
-    @State private var model: PostCommentsModel?
-
     var body: some View {
-        VStack(spacing: 0) {
-            List {
-                if let failure = model?.failure {
-                    FormAlert(message: failure)
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                }
-
-                if let post = model?.post {
-                    VStack(alignment: .leading, spacing: Spacing.md) {
-                        Text(post.author?.name ?? String(localized: "home.someone", defaultValue: "Кто-то"))
-                            .font(Typography.cardTitle)
-                        if let content = post.content, !content.isEmpty {
-                            Text(content)
-                                .font(Typography.body)
-                                .foregroundStyle(Palette.foreground)
-                        }
-                        if let media = post.media?.first, let raw = media.url, let url = URL(string: raw) {
-                            AsyncImage(url: url) { image in
-                                image.resizable().scaledToFit()
-                            } placeholder: {
-                                Rectangle().fill(Palette.muted).frame(height: 180)
-                            }
-                            .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
-                        }
-                        Text(verbatim: post.createdAt.formatted(date: .abbreviated, time: .shortened))
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.mutedForeground)
-                    }
-                    .padding(.vertical, Spacing.sm)
-                    .listRowBackground(Palette.card)
-                }
-
-                ForEach(model?.comments ?? []) { comment in
-                    VStack(alignment: .leading, spacing: Spacing.xs) {
-                        Text(comment.author?.name ?? String(localized: "home.someone", defaultValue: "Кто-то"))
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.mutedForeground)
-                        Text(comment.content)
-                            .font(Typography.body)
-                    }
-                    .padding(.vertical, Spacing.xs)
-                    .listRowBackground(Palette.card)
-                }
-
-                if model?.comments.isEmpty ?? true {
-                    EmptyRow(text: String(localized: "feed.noComments", defaultValue: "Комментариев пока нет"))
-                }
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-
-            if let model {
-                HStack(spacing: Spacing.md) {
-                    TextField(text: Binding(get: { model.draft }, set: { model.draft = $0 }), axis: .vertical) {
-                        Text(verbatim: String(localized: "feed.comment", defaultValue: "Комментарий"))
-                    }
-                    .lineLimit(1...4)
-                    .padding(.horizontal, Spacing.lg)
-                    .padding(.vertical, Spacing.md)
-                    .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xl))
-
-                    Button {
-                        Task { await model.send() }
-                    } label: {
-                        Image(systemName: "arrow.up")
-                            .foregroundStyle(Palette.primaryForeground)
-                            .frame(width: ControlHeight.lg, height: ControlHeight.lg)
-                            .background(Palette.primary, in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Text(String(localized: "chats.send", defaultValue: "Отправить")))
-                }
-                .padding(Spacing.xl)
-                .background(Palette.background)
-            }
-        }
-        .background(Palette.background)
-        .navigationTitle(Text(String(localized: "shell.post", defaultValue: "Публикация")))
-        .navigationBarTitleDisplayMode(.inline)
-        .task {
-            if model == nil { model = PostCommentsModel(postID: postID) }
-            await model?.load()
-        }
+        PostCommentsView(postID: postID, showsPost: true)
     }
 }
 
