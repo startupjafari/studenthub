@@ -1,9 +1,9 @@
 import Foundation
 
-/// Разделы вкладки «Ещё».
+/// Разделы вкладки «Сервисы».
 ///
-/// Здесь роль и решает состав: у студента пять пунктов, у старосты к ним добавляется
-/// его группа, у преподавателя — предметы и группы. Список один и тот же и для
+/// Здесь роль и решает состав: студенту — деканат и его заявки, старосте к ним —
+/// его группа, преподавателю — дисциплины и группы. Список один и тот же и для
 /// экрана, и для разбора диплинка — иначе ссылка открывала бы раздел, которого у
 /// роли нет.
 enum MoreSection: String, CaseIterable, Identifiable, Hashable {
@@ -27,18 +27,27 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
     case serviceCatalog
     /// Библиотека вуза: студент и староста. Пункт за модулем — см. `modules(for:)`.
     case library
+    /// Консультации преподавателей: студент записывается, преподаватель открывает окна.
+    case consultations
+    /// Запись в деканат — только студент и староста (`/deanery-appointments`).
+    case deanery
+    case portfolio
+    case campusMap
 
     var id: String { rawValue }
 
     /// Общие для всех ролей MVP.
-    static let common: [MoreSection] = [.profile, .applications, .events, .documents, .settings]
+    static let common: [MoreSection] = [
+        .profile, .applications, .serviceCatalog, .events, .documents, .consultations, .portfolio,
+        .settings,
+    ]
 
     static func sections(for role: Role) -> [MoreSection] {
         switch role {
         case .student:
-            return common
+            return common + [.deanery]
         case .starosta:
-            return common + [.classmates]
+            return common + [.deanery, .classmates]
         case .teacher:
             return common + [.subjects, .groups]
         default:
@@ -91,6 +100,14 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
             return String(localized: "applications.catalog", defaultValue: "Каталог услуг")
         case .library:
             return String(localized: "library.title", defaultValue: "Библиотека")
+        case .consultations:
+            return String(localized: "services.consultations", defaultValue: "Консультации")
+        case .deanery:
+            return String(localized: "services.deanery", defaultValue: "Деканат")
+        case .portfolio:
+            return String(localized: "services.portfolio", defaultValue: "Портфолио")
+        case .campusMap:
+            return String(localized: "services.campusMap", defaultValue: "Карта кампуса")
         }
     }
 
@@ -111,6 +128,10 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
         case .notifications: return "bell"
         case .serviceCatalog: return "square.grid.2x2"
         case .library: return "books.vertical"
+        case .consultations: return "person.2.wave.2"
+        case .deanery: return "building.columns"
+        case .portfolio: return "briefcase"
+        case .campusMap: return "map"
         }
     }
 }
