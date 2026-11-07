@@ -7,8 +7,8 @@ import Foundation
 struct StoryRingDTO: Decodable, Equatable, Identifiable {
     let author: PostDTO.Author
     /// От старых к новым — в этом порядке их и смотрят.
-    let stories: [StoryDTO]
-    let hasUnseen: Bool
+    var stories: [StoryDTO]
+    var hasUnseen: Bool
 
     var id: String { author.id }
 }
@@ -56,9 +56,9 @@ struct StoryDTO: Decodable, Equatable, Identifiable {
     let elements: [StoryElement]?
     let createdAt: Date
     let media: Media?
-    let poll: Poll?
-    let reactions: [Reaction]?
-    let seen: Bool?
+    var poll: Poll?
+    var reactions: [Reaction]?
+    var seen: Bool?
     /// Число просмотров — только автору.
     let viewsCount: Int?
     let canDelete: Bool?
