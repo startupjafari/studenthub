@@ -984,6 +984,259 @@
         }
       }
     },
+    "campus.capacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мест: %lld"
+          }
+        }
+      }
+    },
+    "campus.choose": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбрать кампус"
+          }
+        }
+      }
+    },
+    "campus.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Карты кампуса пока нет"
+          }
+        }
+      }
+    },
+    "campus.empty.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вуз ещё не опубликовал карту"
+          }
+        }
+      }
+    },
+    "campus.floor": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этаж"
+          }
+        }
+      }
+    },
+    "campus.floorNamed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этаж %@"
+          }
+        }
+      }
+    },
+    "campus.kind.auditorium": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аудитория"
+          }
+        }
+      }
+    },
+    "campus.kind.canteen": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Столовая"
+          }
+        }
+      }
+    },
+    "campus.kind.computerLab": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Компьютерный класс"
+          }
+        }
+      }
+    },
+    "campus.kind.corridor": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коридор"
+          }
+        }
+      }
+    },
+    "campus.kind.deanOffice": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Деканат"
+          }
+        }
+      }
+    },
+    "campus.kind.elevatorHall": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лифтовый холл"
+          }
+        }
+      }
+    },
+    "campus.kind.hall": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Холл"
+          }
+        }
+      }
+    },
+    "campus.kind.lab": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лаборатория"
+          }
+        }
+      }
+    },
+    "campus.kind.lectureHall": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лекционный зал"
+          }
+        }
+      }
+    },
+    "campus.kind.office": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кабинет"
+          }
+        }
+      }
+    },
+    "campus.kind.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Помещение"
+          }
+        }
+      }
+    },
+    "campus.kind.restroom": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Туалет"
+          }
+        }
+      }
+    },
+    "campus.kind.sportHall": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спортзал"
+          }
+        }
+      }
+    },
+    "campus.kind.stairwell": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лестница"
+          }
+        }
+      }
+    },
+    "campus.planLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "План этажа"
+          }
+        }
+      }
+    },
+    "campus.roomNotOnMap": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этой аудитории пока нет на карте"
+          }
+        }
+      }
+    },
+    "campus.search": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аудитория или помещение"
+          }
+        }
+      }
+    },
     "chats.action.file": {
       "extractionState": "manual",
       "localizations": {
@@ -4560,6 +4813,105 @@
         }
       }
     },
+    "lesson.course": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дисциплина"
+          }
+        }
+      }
+    },
+    "lesson.everyWeek": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждую неделю"
+          }
+        }
+      }
+    },
+    "lesson.missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Занятие не найдено"
+          }
+        }
+      }
+    },
+    "lesson.missing.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расписание могли изменить — обновите его"
+          }
+        }
+      }
+    },
+    "lesson.noLinks": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заданий по этой дисциплине нет"
+          }
+        }
+      }
+    },
+    "lesson.related": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По дисциплине"
+          }
+        }
+      }
+    },
+    "lesson.room": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аудитория"
+          }
+        }
+      }
+    },
+    "lesson.room.map": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать на карте кампуса"
+          }
+        }
+      }
+    },
+    "lesson.week": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неделя"
+          }
+        }
+      }
+    },
     "library.allOut": {
       "extractionState": "manual",
       "localizations": {
@@ -7379,6 +7731,39 @@
         }
       }
     },
+    "saved.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранённого пока нет"
+          }
+        }
+      }
+    },
+    "saved.empty.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите на закладку под публикацией, чтобы вернуться к ней позже"
+          }
+        }
+      }
+    },
+    "saved.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранённое"
+          }
+        }
+      }
+    },
     "schedule.cancelled": {
       "extractionState": "manual",
       "localizations": {
@@ -8632,17 +9017,6 @@
         }
       }
     },
-    "shell.placeholder": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Этот раздел появится в следующем обновлении"
-          }
-        }
-      }
-    },
     "shell.post": {
       "extractionState": "manual",
       "localizations": {
@@ -9015,6 +9389,39 @@
         }
       }
     },
+    "study.average": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Средний результат"
+          }
+        }
+      }
+    },
+    "study.deadlines": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ближайшие сроки"
+          }
+        }
+      }
+    },
+    "study.events": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "События и календарь"
+          }
+        }
+      }
+    },
     "study.excused": {
       "extractionState": "manual",
       "localizations": {
@@ -9028,6 +9435,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Дәлелді себеп"
+          }
+        }
+      }
+    },
+    "study.gpa": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPA"
           }
         }
       }
@@ -9343,6 +9761,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Тексерілуде"
+          }
+        }
+      }
+    },
+    "study.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Моя учёба"
+          }
+        }
+      }
+    },
+    "study.summary.course": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld курс"
           }
         }
       }

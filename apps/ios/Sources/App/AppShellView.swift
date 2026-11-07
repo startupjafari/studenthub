@@ -3,8 +3,7 @@ import SwiftUI
 /// Оболочка приложения: пять вкладок, у каждой свой стек.
 ///
 /// Наполнение вкладок приходит из ролей, а структура — нет: ни одна роль MVP не
-/// теряет и не добавляет вкладку. Экраны разделов появятся в Ф1–Ф4; пока за
-/// вкладками стоят заглушки, и это видно по названию.
+/// теряет и не добавляет вкладку.
 struct AppShellView: View {
     let session: AppSessionModel
     /// Разобранный токен: из него берутся роль для состава разделов и свой
@@ -126,8 +125,8 @@ struct AppShellView: View {
             TeacherGroupsView()
         case .section(.classmates):
             ClassmatesView()
-        case .section(let section):
-            PlaceholderScreen(title: section.title)
+        case .section(.campusMap):
+            CampusMapView()
         case .chat(let id):
             ChatThreadView(chatID: id, viewerID: viewer.subject)
         case .post(let id):
@@ -146,7 +145,7 @@ struct AppShellView: View {
             if role == .teacher {
                 AttendanceMarkingView(pairID: id, date: date ?? Date())
             } else {
-                PlaceholderScreen(title: String(localized: "shell.lesson", defaultValue: "Пара"), reference: id)
+                LessonDetailView(pairID: id, date: date ?? Date())
             }
         case .assignment(let id):
             AssignmentDetailView(assignmentID: id, isStudent: role != .teacher)
@@ -162,6 +161,8 @@ struct AppShellView: View {
             SearchView()
         case .chatInfo(let id):
             ChatInfoView(chatID: id)
+        case .campusRoom(let roomID):
+            CampusMapView(focusRoomID: roomID)
         }
     }
 }
@@ -174,42 +175,6 @@ extension Binding where Value == [AppTab: [AppRoute]] {
             get: { wrappedValue[tab] ?? [] },
             set: { wrappedValue[tab] = $0 }
         )
-    }
-}
-
-/// Заглушка раздела. Нужна до Ф1–Ф4 и исчезнет вместе с ними: пустой экран без
-/// объяснения человек читает как поломку.
-struct PlaceholderScreen: View {
-    let title: String
-    var reference: String?
-
-    var body: some View {
-        VStack(spacing: Spacing.md) {
-            Text(title)
-                .font(Typography.pageTitle)
-                .foregroundStyle(Palette.foreground)
-            Text(String(
-                localized: "shell.placeholder",
-                defaultValue: "Этот раздел появится в следующем обновлении"
-            ))
-            .font(Typography.meta)
-            .foregroundStyle(Palette.mutedForeground)
-            .multilineTextAlignment(.center)
-            #if DEBUG
-                // Идентификатор из ссылки — единственный способ убедиться, что
-                // диплинк довёл до нужной записи, пока экрана записи нет.
-                if let reference {
-                    Text(verbatim: reference)
-                        .font(Typography.tabular(Typography.meta))
-                        .foregroundStyle(Palette.mutedForeground)
-                }
-            #endif
-        }
-        .padding(Spacing.xl)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Palette.background)
-        .navigationTitle(Text(title))
-        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

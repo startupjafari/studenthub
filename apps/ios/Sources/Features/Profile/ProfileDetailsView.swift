@@ -205,3 +205,42 @@ struct FlowLayout: Layout {
         }
     }
 }
+
+/// Сохранённые публикации — та же лента со срезом `filter=SAVED`.
+struct SavedPostsView: View {
+    @Environment(\.viewerID) private var viewerID
+    @State private var feed = FeedModel(api: FeedAPI(scope: .saved))
+
+    var body: some View {
+        PostActionsHost(model: feed) { actions in
+            ScrollView {
+                LazyVStack(spacing: Spacing.lg) {
+                    if !feed.hasLoaded, feed.posts.isEmpty {
+                        ForEach(0..<2, id: \.self) { _ in PostCardSkeleton() }
+                    } else if let failure = feed.failure, feed.posts.isEmpty {
+                        ErrorStateView(message: failure, isOffline: feed.isOffline) { await feed.refresh() }
+                    } else if feed.posts.isEmpty {
+                        EmptyStateView(
+                            title: String(localized: "saved.empty", defaultValue: "Сохранённого пока нет"),
+                            symbol: "bookmark",
+                            hint: String(localized: "saved.empty.hint", defaultValue: "Нажмите на закладку под публикацией, чтобы вернуться к ней позже")
+                        )
+                    } else {
+                        ForEach(feed.posts) { post in
+                            PostCardView(post: post, model: feed, viewerID: viewerID, actions: actions)
+                                .onAppear {
+                                    if post.id == feed.posts.last?.id { Task { await feed.loadMore() } }
+                                }
+                        }
+                    }
+                }
+                .padding(Spacing.xl)
+            }
+        }
+        .background(Palette.background)
+        .navigationTitle(Text(String(localized: "saved.title", defaultValue: "Сохранённое")))
+        .navigationBarTitleDisplayMode(.inline)
+        .refreshable { await feed.refresh() }
+        .task { await feed.refresh() }
+    }
+}

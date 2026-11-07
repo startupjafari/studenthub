@@ -109,6 +109,15 @@ enum DeepLink: Equatable {
             self = .section(.documents)
         case ("settings", nil):
             self = .section(.settings)
+        case ("consultations", nil):
+            self = .section(.consultations)
+        // Запись в деканат в вебе живёт на `/appointments`.
+        case ("appointments", nil):
+            self = .section(.deanery)
+        case ("portfolio", nil):
+            self = .section(.portfolio)
+        case ("campus", nil):
+            self = .section(.campusMap)
         case ("starosta", "classmates"), ("starosta", "group"):
             self = .section(.classmates)
 

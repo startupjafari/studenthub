@@ -42,6 +42,14 @@ struct ProfileView: View {
         .toolbar {
             if model.isMine {
                 ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        SavedPostsView()
+                    } label: {
+                        Image(systemName: "bookmark")
+                    }
+                    .accessibilityLabel(Text(String(localized: "saved.title", defaultValue: "Сохранённое")))
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink(value: AppRoute.section(.settings)) {
                         Image(systemName: "gearshape")
                     }
