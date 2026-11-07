@@ -96,8 +96,8 @@ final class AppRouterTests: XCTestCase {
 
         XCTAssertTrue(router.open(.application(id: "app-1"), for: .student))
 
-        XCTAssertEqual(router.selectedTab, .more)
-        XCTAssertEqual(router.stack(for: .more), [.section(.applications), .application(id: "app-1")])
+        XCTAssertEqual(router.selectedTab, .services)
+        XCTAssertEqual(router.stack(for: .services), [.section(.applications), .application(id: "app-1")])
     }
 
     /// У каждой вкладки свой стек: уход в расписание и возврат оставляют открытый
@@ -127,14 +127,14 @@ final class AppRouterTests: XCTestCase {
         let router = AppRouter()
 
         XCTAssertTrue(router.open(.book(id: "book-1"), for: .student))
-        XCTAssertEqual(router.selectedTab, .more)
-        XCTAssertEqual(router.stack(for: .more), [.section(.library), .book(id: "book-1")])
+        XCTAssertEqual(router.selectedTab, .services)
+        XCTAssertEqual(router.stack(for: .services), [.section(.library), .book(id: "book-1")])
 
         XCTAssertTrue(router.open(.myBooks, for: .starosta))
-        XCTAssertEqual(router.stack(for: .more), [.section(.library), .myBooks])
+        XCTAssertEqual(router.stack(for: .services), [.section(.library), .myBooks])
 
         XCTAssertTrue(router.open(.bookCopy(code: "AB12CD34"), for: .student))
-        XCTAssertEqual(router.stack(for: .more), [.section(.library), .bookCopy(code: "AB12CD34")])
+        XCTAssertEqual(router.stack(for: .services), [.section(.library), .bookCopy(code: "AB12CD34")])
     }
 
     /// Библиотека — для читателей: у преподавателя в приложении её нет.
@@ -160,11 +160,11 @@ final class AppRouterTests: XCTestCase {
         let router = AppRouter()
 
         router.postpone(.myBooks)
-        XCTAssertTrue(router.stack(for: .more).isEmpty)
+        XCTAssertTrue(router.stack(for: .services).isEmpty)
 
         router.openPending(for: .student)
-        XCTAssertEqual(router.selectedTab, .more)
-        XCTAssertEqual(router.stack(for: .more), [.section(.library), .myBooks])
+        XCTAssertEqual(router.selectedTab, .services)
+        XCTAssertEqual(router.stack(for: .services), [.section(.library), .myBooks])
     }
 
     /// Выход: следующий человек начинает с главной и не получает ни открытого чата
@@ -183,8 +183,13 @@ final class AppRouterTests: XCTestCase {
 }
 
 final class MoreSectionTests: XCTestCase {
-    func testStudentSeesCommonSectionsOnly() {
-        XCTAssertEqual(MoreSection.sections(for: .student), MoreSection.common)
+    func testStudentSeesCommonSectionsAndDeanery() {
+        XCTAssertEqual(MoreSection.sections(for: .student), MoreSection.common + [.deanery])
+    }
+
+    /// Запись в деканат сервер принимает только от студента и старосты.
+    func testTeacherHasNoDeanery() {
+        XCTAssertFalse(MoreSection.sections(for: .teacher).contains(.deanery))
     }
 
     func testStarostaAndTeacherAddTheirOwn() {

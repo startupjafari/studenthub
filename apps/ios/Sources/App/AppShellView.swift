@@ -18,6 +18,7 @@ struct AppShellView: View {
     /// согласия, как окном `ConsentGate` в вебе.
     @State private var consent = ConsentGateModel()
     @State private var chatBadge = ChatBadgeModel()
+    @State private var viewerProfile = ViewerProfileModel()
 
     private var role: Role { viewer.role }
 
@@ -26,6 +27,7 @@ struct AppShellView: View {
             ForEach(AppTab.allCases) { tab in
                 NavigationStack(path: $router.stacks.stack(for: tab)) {
                     root(for: tab)
+                        .profileToolbarItem()
                         .navigationDestination(for: AppRoute.self) { route in
                             destination(for: route)
                         }
@@ -41,12 +43,15 @@ struct AppShellView: View {
         .minimizesTabBarOnScroll()
         .tint(Palette.primary)
         .environment(\.viewerID, viewer.subject)
+        .environment(viewerProfile)
         .fullScreenCover(isPresented: Binding(get: { consent.isRequired }, set: { _ in })) {
             ConsentGateView(model: consent, session: session)
         }
         .task {
             chatBadge.start()
-            await consent.load()
+            async let profile: Void = viewerProfile.refresh()
+            async let consentState: Void = consent.load()
+            _ = await (profile, consentState)
         }
         .task {
             // Соединение живёт, пока человек внутри приложения: вход в него делает
@@ -77,10 +82,8 @@ struct AppShellView: View {
             StudyView(role: role)
         case .home:
             HomeView(role: role)
-        case .more:
-            MoreView(session: session, role: role)
-        default:
-            PlaceholderScreen(title: tab.title)
+        case .services:
+            ServicesView(session: session, role: role)
         }
     }
 
@@ -109,6 +112,20 @@ struct AppShellView: View {
             DocumentsView()
         case .section(.library):
             LibraryCatalogView()
+        case .section(.settings):
+            SettingsView(session: session)
+        case .section(.consultations):
+            ConsultationsView(role: role)
+        case .section(.deanery):
+            DeaneryView()
+        case .section(.portfolio):
+            PortfolioView()
+        case .section(.subjects):
+            CoursesView(role: role)
+        case .section(.groups):
+            TeacherGroupsView()
+        case .section(.classmates):
+            ClassmatesView()
         case .section(let section):
             PlaceholderScreen(title: section.title)
         case .chat(let id):

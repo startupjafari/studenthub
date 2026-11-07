@@ -10,7 +10,8 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
     case schedule
     case chats
     case study
-    case more
+    /// Сервисы вуза: каталог разделов веба, сгруппированный по смыслу.
+    case services
 
     var id: AppTab { self }
 
@@ -24,8 +25,8 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
             return String(localized: "tab.chats", defaultValue: "Чаты")
         case .study:
             return String(localized: "tab.study", defaultValue: "Учёба")
-        case .more:
-            return String(localized: "tab.more", defaultValue: "Ещё")
+        case .services:
+            return String(localized: "tab.services", defaultValue: "Сервисы")
         }
     }
 
@@ -37,7 +38,7 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
         case .schedule: return "calendar"
         case .chats: return "bubble.left.and.bubble.right"
         case .study: return "graduationcap"
-        case .more: return "ellipsis"
+        case .services: return "square.grid.2x2"
         }
     }
 }

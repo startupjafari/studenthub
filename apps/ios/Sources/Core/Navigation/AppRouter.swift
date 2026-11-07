@@ -87,7 +87,7 @@ final class AppRouter {
                 MoreSection.sections(for: role).contains(section)
                     || MoreSection.modules(for: role).contains(section)
             else { return false }
-            push(.more, [.section(section)])
+            push(.services, [.section(section)])
         case .chat(let id):
             push(.chats, [.chat(id: id)])
         case .post(let id):
@@ -99,14 +99,14 @@ final class AppRouter {
         case .application(let id):
             // Под карточкой оставляем список: «назад» из заявки, открытой пушем,
             // должно вести к заявкам, а не выбрасывать на главную.
-            push(.more, [.section(.applications), .application(id: id)])
+            push(.services, [.section(.applications), .application(id: id)])
         case .event(let id):
-            push(.more, [.section(.events), .event(id: id)])
+            push(.services, [.section(.events), .event(id: id)])
         case .myBooks, .book, .bookCopy:
             // Под книгой и «Моими книгами» — каталог: «назад» из уведомления библиотеки
             // ведёт в библиотеку, а не выбрасывает на главную.
             guard MoreSection.modules(for: role).contains(.library) else { return false }
-            push(.more, [.section(.library), Self.libraryRoute(link)])
+            push(.services, [.section(.library), Self.libraryRoute(link)])
         }
         return true
     }

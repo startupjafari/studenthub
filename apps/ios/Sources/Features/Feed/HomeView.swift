@@ -1,15 +1,17 @@
 import SwiftUI
 
-/// Главная: кто я, ближайшая пара, истории и лента.
+/// Главная: истории, ближайшая пара, «Что нового?» и лента.
 ///
-/// Порядок не случаен: сверху то, ради чего открывают приложение («когда и где я
-/// должен быть»), ниже — то, что читают, если есть минута. Боковая колонка веба
-/// (события, заявки в друзья) превращена в компактные полосы над лентой и
-/// появляется, только когда в ней что-то есть.
+/// Порядок не случаен: сверху свежее у своих (истории) и то, ради чего открывают
+/// приложение («когда и где я должен быть»), ниже — то, что читают, если есть
+/// минута. Кто я — аватар в верхней панели, отдельная карточка ему не нужна.
+/// Боковая колонка веба (события, заявки в друзья) превращена в компактные полосы
+/// над лентой и появляется, только когда в ней что-то есть.
 struct HomeView: View {
     let role: Role
 
     @Environment(\.viewerID) private var viewerID
+    @Environment(ViewerProfileModel.self) private var viewer
     @State private var feed = FeedModel()
     @State private var schedule = ScheduleModel()
     @State private var home = HomeModel()
@@ -22,10 +24,9 @@ struct HomeView: View {
         PostActionsHost(model: feed) { actions in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Spacing.lg) {
-                    if let profile = home.profile {
-                        StudentOverviewCard(profile: profile)
-                            .padding(.horizontal, Spacing.xl)
-                    }
+                    // Истории — первыми, как в любой социальной ленте: свежее у друзей
+                    // и группы видно, не прокручивая.
+                    storiesSection
 
                     if let next = schedule.nextPair() {
                         NextClassCard(pair: next)
@@ -41,9 +42,7 @@ struct HomeView: View {
                         EventsStrip(events: home.events)
                     }
 
-                    storiesSection
-
-                    ComposerLauncher(profile: home.profile) { composingPost = true }
+                    ComposerLauncher(profile: viewer.profile) { composingPost = true }
                         .padding(.horizontal, Spacing.xl)
 
                     feedSection(actions: actions)
@@ -54,7 +53,16 @@ struct HomeView: View {
             .background(Palette.background)
         }
         .navigationTitle(Text(AppTab.home.title))
-        .navigationBarTitleDisplayMode(.large)
+        // Компактная панель: на главной место у историй и ленты, а не у заголовка.
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text(verbatim: "StudentHub")
+                    .font(.system(.headline, design: .rounded, weight: .bold))
+                    .foregroundStyle(Palette.foreground)
+                    .accessibilityAddTraits(.isHeader)
+            }
+        }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 NavigationLink(value: AppRoute.search) {
@@ -77,7 +85,8 @@ struct HomeView: View {
             async let pairs: Void = schedule.refresh()
             async let side: Void = home.refresh()
             async let rings: Void = stories.refresh()
-            _ = await (posts, pairs, side, rings)
+            async let me: Void = viewer.refresh()
+            _ = await (posts, pairs, side, rings, me)
         }
         .task {
             schedule.start()
@@ -126,8 +135,8 @@ struct HomeView: View {
             StoriesRail(
                 model: stories,
                 viewerID: viewerID,
-                viewerName: home.profile?.name,
-                viewerAvatar: home.profile?.avatarUrl,
+                viewerName: viewer.profile?.name,
+                viewerAvatar: viewer.profile?.avatarUrl,
                 open: { viewingRing = $0 },
                 create: { composingStory = true }
             )
@@ -220,48 +229,6 @@ private struct RingTarget: Identifiable {
 }
 
 // MARK: - Блоки над лентой
-
-/// Кто я: имя, вуз, группа, статус. Пустые поля не показываются — строка из
-/// одних разделителей хуже её отсутствия.
-private struct StudentOverviewCard: View {
-    let profile: UserProfileDTO
-
-    var body: some View {
-        NavigationLink(value: AppRoute.section(.profile)) {
-            HStack(spacing: Spacing.lg) {
-                AvatarView(url: profile.avatarUrl, name: profile.name, size: 48)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(profile.name)
-                        .font(Typography.cardTitle)
-                        .foregroundStyle(Palette.foreground)
-                        .lineLimit(2)
-                    let details = [profile.universityName, profile.groupName]
-                        .compactMap { $0 }
-                        .filter { !$0.isEmpty }
-                    if !details.isEmpty {
-                        Text(details.joined(separator: " · "))
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.mutedForeground)
-                            .lineLimit(2)
-                    }
-                    if let status = profile.academicStatus, !status.isEmpty {
-                        Text(status)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(Palette.success)
-                    }
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Palette.mutedForeground)
-            }
-            .padding(Spacing.lg)
-            .cardSurface()
-        }
-        .buttonStyle(.plain)
-        .accessibilityHint(Text(String(localized: "home.profile.open", defaultValue: "Открыть профиль")))
-    }
-}
 
 /// Ближайшая пара. Нажатие ведёт в расписание — там весь день и изменения.
 private struct NextClassCard: View {

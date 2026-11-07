@@ -1,11 +1,10 @@
 import Foundation
 import Observation
 
-/// Всё, что на главной не лента и не истории: кто я, сколько непрочитанного,
-/// ближайшие события и заявки в друзья — то, что в вебе стоит в боковой колонке.
+/// Всё, что на главной не лента и не истории: сколько непрочитанного, ближайшие
+/// события и заявки в друзья (свой профиль — у оболочки, `ViewerProfileModel`) — то, что в вебе стоит в боковой колонке.
 @Observable
 final class HomeModel {
-    private(set) var profile: UserProfileDTO?
     private(set) var unreadNotifications = 0
     private(set) var events: [EventDTO] = []
     private(set) var friendRequests: [FriendRequestDTO] = []
@@ -23,11 +22,9 @@ final class HomeModel {
     /// со своим `try?`, а не общий `throws` на весь экран.
     @MainActor
     func refresh() async {
-        async let profile = try? feed.me()
         async let unread = try? feed.unreadNotifications()
         async let events = try? feed.upcomingEvents()
         async let requests = try? friends.incomingRequests()
-        if let value = await profile { self.profile = value }
         if let value = await unread { unreadNotifications = value }
         if let value = await events { self.events = value }
         if let value = await requests { friendRequests = value }
