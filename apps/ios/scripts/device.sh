@@ -59,6 +59,24 @@ if ! command -v xtool >/dev/null; then
   exit 1
 fi
 
+# WSL: с проброшенным через usbipd телефоном xtool зависает на шаге Connecting. Если
+# в Windows работает служба Apple (приложение «Apple Devices») и её порт 27015
+# проброшен до WSL (README), ходим к телефону через неё.
+if [[ -z "${USBMUXD_SOCKET_ADDRESS:-}" ]] && grep -qi microsoft /proc/version; then
+  gateway="$(ip route list default | awk '{print $3; exit}')"
+  if timeout 2 bash -c ">/dev/tcp/${gateway}/27015" 2>/dev/null; then
+    # Открытый порт ещё не значит, что служба жива: portproxy принимает соединение и
+    # без неё. Спрашиваем у службы список устройств.
+    if USBMUXD_SOCKET_ADDRESS="${gateway}:27015" timeout 5 idevice_id -l >/dev/null 2>&1; then
+      export USBMUXD_SOCKET_ADDRESS="${gateway}:27015"
+      echo "Телефон — через службу Apple в Windows (${USBMUXD_SOCKET_ADDRESS})"
+    else
+      echo "Порт 27015 проброшен, но служба Apple в Windows не отвечает — запущено ли «Apple Devices»?" >&2
+      exit 1
+    fi
+  fi
+fi
+
 # Если API не запущен, приложение откроется на экран входа с ошибкой связи.
 # Предупреждаем заранее.
 if ! curl -fsS -m 3 -o /dev/null "$health_url" 2>/dev/null; then
