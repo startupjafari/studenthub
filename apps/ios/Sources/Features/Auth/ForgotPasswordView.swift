@@ -19,6 +19,7 @@ final class ForgotPasswordModel {
     private(set) var isSending = false
     private(set) var emailError: String?
     private(set) var formError: String?
+    private(set) var formErrorIsOffline = false
     /// До какого момента повторная отправка закрыта. Сервер пускает три письма в
     /// четверть часа; минута между попытками — чтобы не сжечь их подряд.
     private(set) var resendAvailableAt: Date?
@@ -39,6 +40,7 @@ final class ForgotPasswordModel {
     func send() async {
         guard !isSending else { return }
         formError = nil
+        formErrorIsOffline = false
         let address = normalizedEmail
         guard Self.isValidEmail(address) else {
             emailError = address.isEmpty
@@ -57,6 +59,7 @@ final class ForgotPasswordModel {
             emailError = String(localized: "auth.emailInvalid", defaultValue: "Введите корректный email")
         } catch {
             formError = error.userMessage
+            formErrorIsOffline = error.isOffline
         }
     }
 
@@ -95,7 +98,6 @@ struct ForgotPasswordView: View {
                     localized: "auth.forgot.description",
                     defaultValue: "Укажите email вашей учётной записи — мы пришлём ссылку для создания нового пароля."
                 ),
-                showsWordmark: false,
                 subtitleIsEssential: true
             )
         } panel: {
@@ -115,7 +117,7 @@ struct ForgotPasswordView: View {
 
     @ViewBuilder
     private var form: some View {
-        FormAlert(message: model.formError)
+        AuthFormError(message: model.formError, isOffline: model.formErrorIsOffline, retry: submit)
 
         StudentHubField(
             label: nil,
@@ -165,7 +167,9 @@ struct ForgotPasswordView: View {
             )
         }
 
-        FormAlert(message: model.formError)
+        AuthFormError(message: model.formError, isOffline: model.formErrorIsOffline) {
+            Task { await model.send() }
+        }
 
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let left = max(0, Int((model.resendAvailableAt ?? .distantPast).timeIntervalSince(context.date).rounded(.up)))

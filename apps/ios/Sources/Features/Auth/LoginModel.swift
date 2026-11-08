@@ -21,6 +21,8 @@ final class LoginModel {
     private(set) var isBusy = false
     /// Ошибка всей формы: неверная пара логин-пароль, блокировка, нет связи.
     private(set) var formError: String?
+    /// Ошибка формы — обрыв связи: экран показывает «нет связи» с повтором, а не текст сбоя.
+    private(set) var formErrorIsOffline = false
     private(set) var identifierError: String?
     private(set) var passwordError: String?
     private(set) var codeError: String?
@@ -132,6 +134,7 @@ final class LoginModel {
     /// валидации и переводится каталогом; прочие серверные тексты — как есть.
     @MainActor
     private func handle(_ error: Error) {
+        formErrorIsOffline = error.isOffline
         guard let apiError = error as? APIError else {
             formError = error.userMessage
             return
@@ -162,6 +165,7 @@ final class LoginModel {
     @MainActor
     private func clearErrors() {
         formError = nil
+        formErrorIsOffline = false
         identifierError = nil
         passwordError = nil
         codeError = nil

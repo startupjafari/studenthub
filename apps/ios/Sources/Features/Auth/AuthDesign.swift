@@ -50,11 +50,11 @@ struct AuthBackdrop: View {
                 startRadius: 0,
                 endRadius: 420
             )
-            // Низ экрана — цвет панели: при прокрутке и под полосой «Домой» панель
-            // продолжается до края, без тёмной щели.
+            // Под полосой «Домой» — цвет панели: панель продолжается до края, без тёмной
+            // щели. Полоса ниже любой панели — иначе она закрыла бы её верхние скругления.
             VStack(spacing: 0) {
                 Spacer(minLength: 0)
-                AuthPalette.panel.frame(height: 240)
+                AuthPalette.panel.frame(height: 60)
             }
         }
         .ignoresSafeArea()
@@ -124,12 +124,14 @@ struct StudentHubBrandHeader: View {
     /// Подзаголовок — инструкция, без которой экран непонятен: на низком экране он
     /// остаётся, а прячется знак.
     var subtitleIsEssential = false
+    /// Знак над заголовком. На экране QR его нет: место отдано коду.
+    var showsLogo = true
 
     @Environment(\.authIsCompact) private var isCompact
 
     var body: some View {
         VStack(alignment: .leading, spacing: isCompact ? Spacing.md : Spacing.xl) {
-            if !(isCompact && subtitleIsEssential) {
+            if showsLogo && !(isCompact && subtitleIsEssential) {
             HStack(spacing: Spacing.md) {
                 StudentHubLogo(size: isCompact ? 32 : 40)
                 if showsWordmark {
@@ -202,9 +204,10 @@ struct AuthScaffold<Header: View, Panel: View>: View {
             .scrollDismissesKeyboard(.interactively)
         }
         .background(AuthBackdrop())
-        // Белый статус-бар и стрелка «назад» на тёмно-синем фоне — в обеих темах.
+        // Белый статус-бар и стрелка «назад» на тёмно-синем фоне — в обеих темах; панель —
+        // тёмное матовое стекло, под которым размывается шапка при прокрутке.
         .toolbarColorScheme(.dark, for: .navigationBar)
-        .toolbarBackground(.hidden, for: .navigationBar)
+        .frostedTopBar()
     }
 }
 
@@ -426,6 +429,141 @@ struct StudentHubLegalLinks: View {
         }
         NavigationLink(value: AuthRoute.legal(.terms)) {
             Text(LegalDocument.terms.title).frame(minHeight: 36)
+        }
+    }
+}
+
+// MARK: - Состояния
+
+/// Карточка состояния экранов до входа: нет связи, ошибка, код истёк, готово.
+/// Одна на все экраны — человек узнаёт её сразу, а не разбирает каждый раз новую плашку.
+struct AuthNotice: View {
+    enum Kind {
+        case offline
+        case error
+        case expired
+        case success
+
+        var symbol: String {
+            switch self {
+            case .offline: return "wifi.slash"
+            case .error: return "exclamationmark.triangle.fill"
+            case .expired: return "clock.arrow.circlepath"
+            case .success: return "checkmark"
+            }
+        }
+
+        var tint: Color {
+            switch self {
+            case .offline: return Palette.warning
+            case .error: return Palette.destructive
+            case .expired: return Palette.mutedForeground
+            case .success: return Palette.success
+            }
+        }
+    }
+
+    let kind: Kind
+    let title: String
+    var message: String?
+    var actionTitle: String?
+    var action: (() -> Void)?
+    /// В квадрате кода — по центру, над формой — в строку.
+    var isCentered = false
+
+    var body: some View {
+        Group {
+            if isCentered {
+                VStack(spacing: Spacing.md) {
+                    icon(size: 56)
+                    texts(alignment: .center)
+                    button
+                }
+                .padding(Spacing.xl)
+            } else {
+                HStack(alignment: .top, spacing: Spacing.lg) {
+                    icon(size: 36)
+                    VStack(alignment: .leading, spacing: Spacing.md) {
+                        texts(alignment: .leading)
+                        button
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(Spacing.lg)
+                .background(kind.tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func icon(size: CGFloat) -> some View {
+        Image(systemName: kind.symbol)
+            .font(.system(size: size * 0.42, weight: .semibold))
+            .foregroundStyle(kind.tint)
+            .frame(width: size, height: size)
+            .background(kind.tint.opacity(0.14), in: Circle())
+            .accessibilityHidden(true)
+    }
+
+    private func texts(alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: 2) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Palette.foreground)
+            if let message {
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(Palette.mutedForeground)
+            }
+        }
+        .multilineTextAlignment(alignment == .center ? .center : .leading)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder
+    private var button: some View {
+        if let actionTitle, let action {
+            Button(action: action) {
+                Label(actionTitle, systemImage: "arrow.clockwise")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .glassProminentButton()
+            .controlSize(isCentered ? .large : .regular)
+        }
+    }
+}
+
+extension AuthNotice {
+    /// «Нет связи с сервером» — одним текстом на всех экранах.
+    static func offline(retry: (() -> Void)? = nil, centered: Bool = false) -> AuthNotice {
+        AuthNotice(
+            kind: .offline,
+            title: String(localized: "error.network", defaultValue: "Нет связи с сервером"),
+            message: String(
+                localized: "auth.offline.hint",
+                defaultValue: "Проверьте интернет — как только связь появится, попробуйте ещё раз."
+            ),
+            actionTitle: retry == nil ? nil : String(localized: "common.retry", defaultValue: "Повторить"),
+            action: retry,
+            isCentered: centered
+        )
+    }
+}
+
+/// Ошибка формы: «нет связи» — карточкой с подсказкой и повтором, остальное — той же
+/// карточкой с текстом сервера.
+struct AuthFormError: View {
+    let message: String?
+    var isOffline = false
+    var retry: (() -> Void)?
+
+    var body: some View {
+        if let message {
+            if isOffline {
+                AuthNotice.offline(retry: retry)
+            } else {
+                AuthNotice(kind: .error, title: message)
+            }
         }
     }
 }

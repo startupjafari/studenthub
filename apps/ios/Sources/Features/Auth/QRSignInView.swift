@@ -1,3 +1,4 @@
+import Network
 import Observation
 import SwiftUI
 
@@ -116,7 +117,8 @@ struct QRCodeView: View {
             context.fill(StudentHubGlyph().path(in: glyph), with: .color(AuthPalette.brandBlue))
         }
         .aspectRatio(1, contentMode: .fit)
-        .padding(Spacing.lg)
+        // Тихая зона уже внутри картинки сервера (2 модуля) — подложке хватает узкого поля.
+        .padding(Spacing.sm)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         // Белая подложка остаётся белой и в тёмной теме: камере нужен контраст.
         .environment(\.colorScheme, .light)
@@ -147,6 +149,9 @@ final class QRSignInModel {
     private(set) var state: State = .loading
     /// Когда код перестанет действовать — для обратного отсчёта.
     private(set) var expiresAt: Date?
+    /// Связь пропала, пока код на экране. Код ещё действует: показываем его дальше и
+    /// переспрашиваем сервер — подтверждение с телефона не потеряется.
+    private(set) var isReconnecting = false
 
     private let api: AuthRecovering
     private let pollInterval: Duration
@@ -161,6 +166,7 @@ final class QRSignInModel {
     func run(into session: AppSessionModel) async {
         state = .loading
         expiresAt = nil
+        isReconnecting = false
         let ticket: QRSignInTicket
         do {
             ticket = try await api.createQRSession()
@@ -190,6 +196,7 @@ final class QRSignInModel {
             }
             do {
                 let issued = try await api.claimQRSession(ticket)
+                isReconnecting = false
                 state = .signingIn
                 if await session.adopt(issued) { return }
                 state = .failed(
@@ -198,6 +205,7 @@ final class QRSignInModel {
                 )
                 return
             } catch let error as APIError where error.code == .badRequest {
+                isReconnecting = false
                 continue // ещё не подтверждено
             } catch let error as APIError where error.code == .notFound {
                 state = .expired
@@ -206,8 +214,12 @@ final class QRSignInModel {
                 continue // сервер просит реже — следующий круг и так через паузу
             } catch is CancellationError {
                 return
+            } catch where error.isOffline {
+                // Обрыв связи — не повод бросать код: он живёт на сервере до срока.
+                isReconnecting = true
+                continue
             } catch {
-                state = .failed(message: Self.message(for: error, creating: false), isOffline: error.isOffline)
+                state = .failed(message: Self.message(for: error, creating: false), isOffline: false)
                 return
             }
         }
@@ -223,6 +235,27 @@ final class QRSignInModel {
 
 // MARK: - Экран
 
+/// Есть ли сеть. Нужен, чтобы после «нет связи» повторить сам, как только она появится, —
+/// а не ждать, пока человек догадается нажать «Повторить».
+@MainActor
+@Observable
+private final class QRNetworkWatch {
+    private(set) var isOnline = true
+    private let monitor = NWPathMonitor()
+
+    init() {
+        monitor.pathUpdateHandler = { [weak self] path in
+            let online = path.status == .satisfied
+            Task { @MainActor in self?.isOnline = online }
+        }
+        monitor.start(queue: DispatchQueue(label: "kz.studenthub.qr-network"))
+    }
+
+    deinit {
+        monitor.cancel()
+    }
+}
+
 /// Вход по QR-коду: код показывает это устройство, подтверждает телефон, где человек
 /// уже вошёл («Настройки → Вход по QR» или камера).
 struct QRSignInView: View {
@@ -231,10 +264,12 @@ struct QRSignInView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var model = QRSignInModel()
+    @State private var network = QRNetworkWatch()
     /// Смена значения перезапускает `.task` — так работает «Обновить».
     @State private var attempt = 0
-    /// Высота экрана решает размер кода: на SE он меньше, но всё помещается без прокрутки.
-    @State private var isCompact = false
+    /// Высота экрана: код занимает всю ширину панели, а на низком экране — сколько
+    /// остаётся по высоте, чтобы всё поместилось без прокрутки.
+    @State private var screenHeight: CGFloat = 800
 
     var body: some View {
         AuthScaffold {
@@ -245,11 +280,12 @@ struct QRSignInView: View {
                     defaultValue: "Откройте StudentHub на телефоне, где вы уже вошли, и отсканируйте код камерой"
                 ),
                 showsWordmark: false,
-                subtitleIsEssential: true
+                subtitleIsEssential: true,
+                showsLogo: false
             )
         } panel: {
             codeArea
-                .frame(maxWidth: isCompact ? 190 : 250)
+                .frame(maxWidth: codeSide)
                 .frame(maxWidth: .infinity)
             status
                 .frame(maxWidth: .infinity)
@@ -261,18 +297,28 @@ struct QRSignInView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: model.state)
+        .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: model.isReconnecting)
         .task(id: attempt) { await model.run(into: session) }
-        .onGeometryChange(for: Bool.self) { $0.size.height < 650 } action: { isCompact = $0 }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { screenHeight = $0 }
+        // Связь вернулась после «нет связи» — новый код без нажатия.
+        .onChange(of: network.isOnline) { _, online in
+            if online, case .failed(_, true) = model.state { attempt += 1 }
+        }
+    }
+
+    /// Сторона кода: вся ширина панели, но не больше, чем оставляет высота экрана за
+    /// вычетом шапки и остальной формы (~330 pt).
+    private var codeSide: CGFloat {
+        max(200, screenHeight - 330)
     }
 
     /// Место под код одинакового размера во всех состояниях — экран не прыгает.
-    @ViewBuilder
     private var codeArea: some View {
         ZStack {
-            switch model.state {
-            case .waiting(let drawing):
+            if case .waiting(let drawing) = model.state {
                 QRCodeView(drawing: drawing)
-            default:
+                    .opacity(model.isReconnecting ? 0.35 : 1)
+            } else {
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .fill(AuthPalette.field)
                     .aspectRatio(1, contentMode: .fit)
@@ -284,50 +330,68 @@ struct QRSignInView: View {
     @ViewBuilder
     private var placeholder: some View {
         switch model.state {
-        case .loading, .signingIn:
-            ProgressView().controlSize(.large)
-        case .expired:
-            VStack(spacing: Spacing.lg) {
-                Image(systemName: "clock.badge.xmark")
-                    .font(.system(size: 40))
+        case .loading:
+            VStack(spacing: Spacing.md) {
+                ProgressView().controlSize(.large)
+                Text(String(localized: "auth.qr.creating", defaultValue: "Создаём код…"))
+                    .font(.footnote)
                     .foregroundStyle(Palette.mutedForeground)
-                    .accessibilityHidden(true)
-                refreshButton
             }
-        case .failed(_, let isOffline):
-            VStack(spacing: Spacing.lg) {
-                Image(systemName: isOffline ? "wifi.slash" : "exclamationmark.triangle")
-                    .font(.system(size: 40))
-                    .foregroundStyle(Palette.mutedForeground)
-                    .accessibilityHidden(true)
-                refreshButton
+        case .signingIn:
+            AuthNotice(
+                kind: .success,
+                title: String(localized: "auth.qr.approved", defaultValue: "Вход подтверждён — открываем StudentHub"),
+                isCentered: true
+            )
+        case .expired:
+            AuthNotice(
+                kind: .expired,
+                title: String(localized: "auth.qrExpired", defaultValue: "QR-код истёк"),
+                message: String(localized: "auth.qr.expiredHint", defaultValue: "Код действует две минуты. Создайте новый и отсканируйте его."),
+                actionTitle: String(localized: "auth.qrRefresh", defaultValue: "Обновить"),
+                action: { attempt += 1 },
+                isCentered: true
+            )
+        case .failed(let message, let isOffline):
+            if isOffline {
+                AuthNotice.offline(retry: { attempt += 1 }, centered: true)
+            } else {
+                AuthNotice(
+                    kind: .error,
+                    title: message,
+                    actionTitle: String(localized: "auth.qrRefresh", defaultValue: "Обновить"),
+                    action: { attempt += 1 },
+                    isCentered: true
+                )
             }
         case .waiting:
             EmptyView()
         }
     }
 
-    private var refreshButton: some View {
-        Button {
-            attempt += 1
-        } label: {
-            Label(String(localized: "auth.qrRefresh", defaultValue: "Обновить"), systemImage: "arrow.clockwise")
-        }
-        .glassProminentButton()
-        .controlSize(.large)
-    }
-
+    /// Строка под кодом — только пока код на экране: остальные состояния объясняет
+    /// карточка в самом квадрате.
     @ViewBuilder
     private var status: some View {
-        switch model.state {
-        case .loading:
-            statusLine(String(localized: "auth.qr.creating", defaultValue: "Создаём код…"), showsProgress: false)
-        case .waiting:
+        if case .waiting = model.state {
             VStack(spacing: Spacing.xs) {
-                statusLine(
-                    String(localized: "auth.qrWaiting", defaultValue: "Ожидаем подтверждения на телефоне…"),
-                    showsProgress: true
-                )
+                if model.isReconnecting {
+                    HStack(spacing: Spacing.md) {
+                        Image(systemName: "wifi.slash").foregroundStyle(Palette.warning).accessibilityHidden(true)
+                        Text(String(localized: "auth.qr.reconnecting", defaultValue: "Нет связи — пробуем снова…"))
+                            .font(.subheadline)
+                            .foregroundStyle(Palette.foreground)
+                    }
+                } else {
+                    HStack(spacing: Spacing.md) {
+                        ProgressView()
+                        Text(String(localized: "auth.qrWaiting", defaultValue: "Ожидаем подтверждения на телефоне…"))
+                            .font(.subheadline)
+                            .foregroundStyle(Palette.foreground)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
                 if let expiresAt = model.expiresAt {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         let left = max(0, Int(expiresAt.timeIntervalSince(context.date)))
@@ -340,29 +404,8 @@ struct QRSignInView: View {
                     }
                 }
             }
-        case .signingIn:
-            statusLine(String(localized: "auth.qr.approved", defaultValue: "Вход подтверждён — открываем StudentHub"), showsProgress: false, symbol: "checkmark.circle.fill", tint: Palette.success)
-        case .expired:
-            statusLine(String(localized: "auth.qrExpired", defaultValue: "QR-код истёк"), showsProgress: false, symbol: "clock", tint: Palette.mutedForeground)
-        case .failed(let message, _):
-            statusLine(message, showsProgress: false, symbol: "exclamationmark.triangle.fill", tint: Palette.destructive)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.updatesFrequently)
         }
-    }
-
-    private func statusLine(_ text: String, showsProgress: Bool, symbol: String? = nil, tint: Color = Palette.mutedForeground) -> some View {
-        HStack(spacing: Spacing.md) {
-            if showsProgress {
-                ProgressView()
-            } else if let symbol {
-                Image(systemName: symbol).foregroundStyle(tint).accessibilityHidden(true)
-            }
-            Text(text)
-                .font(.subheadline)
-                .foregroundStyle(Palette.foreground)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.updatesFrequently)
     }
 }

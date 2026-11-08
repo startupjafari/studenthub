@@ -87168,6 +87168,57 @@
           }
         }
       }
+    },
+    "auth.qr.expiredHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Код действует две минуты. Создайте новый и отсканируйте его."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Код екі минут жарамды. Жаңасын жасап, оны сканерлеңіз."
+          }
+        }
+      }
+    },
+    "auth.qr.reconnecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет связи — пробуем снова…"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Байланыс жоқ — қайта көрудеміз…"
+          }
+        }
+      }
+    },
+    "auth.offline.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверьте интернет — как только связь появится, попробуйте ещё раз."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Интернетті тексеріңіз — байланыс пайда болғанда, қайталап көріңіз."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

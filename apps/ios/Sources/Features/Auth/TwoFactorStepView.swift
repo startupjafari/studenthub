@@ -16,7 +16,7 @@ struct TwoFactorStepView: View {
             subtitle: String(localized: "auth.twoFactorPrompt", defaultValue: "Введите код из приложения-аутентификатора")
         )
 
-        FormAlert(message: model.formError)
+        AuthFormError(message: model.formError, isOffline: model.formErrorIsOffline, retry: submit)
 
         VStack(alignment: .leading, spacing: Spacing.sm) {
             StudentHubField(

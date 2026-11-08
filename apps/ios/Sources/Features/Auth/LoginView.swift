@@ -15,9 +15,6 @@ struct LoginView: View {
     @State private var path: [AuthRoute] = []
     @State private var showsEmployerSignup = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    #if DEBUG
-        @State private var showsTokenGallery = false
-    #endif
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -77,21 +74,6 @@ struct LoginView: View {
             }
             .accessibilityHint(Text(String(localized: "career.signup.entry", defaultValue: "Я работодатель — зарегистрироваться")))
         }
-        #if DEBUG
-            // Витрина дизайн-ядра — на экране входа: до сервера дотягивается не всякая
-            // отладочная сборка, а токены смотреть надо.
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    showsTokenGallery = true
-                } label: {
-                    Image(systemName: "paintpalette")
-                }
-                .accessibilityLabel(Text(verbatim: "Дизайн-ядро"))
-                .sheet(isPresented: $showsTokenGallery) {
-                    TokenGalleryView()
-                }
-            }
-        #endif
     }
 }
 
@@ -113,7 +95,7 @@ private struct CredentialsStepView: View {
     var body: some View {
         AuthPanelTitle(title: String(localized: "auth.panelTitle", defaultValue: "Вход в аккаунт"))
 
-        FormAlert(message: model.formError)
+        AuthFormError(message: model.formError, isOffline: model.formErrorIsOffline, retry: submit)
 
         StudentHubField(
             label: nil,
