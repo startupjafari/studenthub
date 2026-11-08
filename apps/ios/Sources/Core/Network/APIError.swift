@@ -124,6 +124,11 @@ extension Error {
         if let url = self as? URLError {
             return APIError.transport(url).displayMessage
         }
+        // Свой текст экрана (конфликт расписания, проверка формы до отправки) приходит
+        // через `LocalizedError` — его и показываем, без обёрток в `APIError`.
+        if let localized = self as? LocalizedError, let text = localized.errorDescription, !text.isEmpty {
+            return text
+        }
         Observability.unexpectedResponse(statusCode: 0, kind: String(describing: type(of: self)))
         return String(localized: "error.generic", defaultValue: "Что-то пошло не так. Попробуйте ещё раз")
     }
