@@ -111,6 +111,22 @@ struct AssignmentDTO: Decodable, Equatable, Identifiable {
         let text: String?
         let linkUrl: String?
         let submittedAt: Date?
+        /// Приложенные файлы. Старый сервер поля не отдавал.
+        var files: [StudentSubmissionFileDTO]? = nil
+        var attemptNumber: Int? = nil
+        var gradedAt: Date? = nil
+    }
+
+    /// Дисциплина и группа задания — так их отдаёт сервер (`course.subject.name`).
+    struct Course: Decodable, Equatable {
+        struct Named: Decodable, Equatable {
+            let id: String?
+            let name: String
+        }
+
+        let id: String
+        let subject: Named?
+        let group: Named?
     }
 
     let id: String
@@ -118,8 +134,78 @@ struct AssignmentDTO: Decodable, Equatable, Identifiable {
     let description: String?
     let dueAt: Date?
     let maxScore: Int?
+    /// Название дисциплины. Сервер отдаёт его внутри `course`; плоское поле `subject`
+    /// читается, если оно есть, — иначе берётся `course.subject.name`.
     let subject: String?
     let mySubmission: Submission?
+    /// `DRAFT`, `PUBLISHED`, `CLOSED`.
+    var status: String? = nil
+    /// `HOMEWORK`, `LAB`, `COURSEWORK`, `PROJECT`, `OTHER`.
+    var type: String? = nil
+    /// `TEXT`, `FILE`, `LINK`, `MIXED`.
+    var submissionType: String? = nil
+    var allowLate: Bool? = nil
+    var maxAttempts: Int? = nil
+    var course: Course? = nil
+    var createdBy: PersonRefDTO? = nil
+
+    init(
+        id: String,
+        title: String,
+        description: String?,
+        dueAt: Date?,
+        maxScore: Int?,
+        subject: String?,
+        mySubmission: Submission?,
+        status: String? = nil,
+        type: String? = nil,
+        submissionType: String? = nil,
+        allowLate: Bool? = nil,
+        maxAttempts: Int? = nil,
+        course: Course? = nil,
+        createdBy: PersonRefDTO? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.description = description
+        self.dueAt = dueAt
+        self.maxScore = maxScore
+        self.subject = subject
+        self.mySubmission = mySubmission
+        self.status = status
+        self.type = type
+        self.submissionType = submissionType
+        self.allowLate = allowLate
+        self.maxAttempts = maxAttempts
+        self.course = course
+        self.createdBy = createdBy
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, description, dueAt, maxScore, subject, mySubmission
+        case status, type, submissionType, allowLate, maxAttempts, course, createdBy
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        dueAt = try container.decodeIfPresent(Date.self, forKey: .dueAt)
+        maxScore = try container.decodeIfPresent(Int.self, forKey: .maxScore)
+        mySubmission = try container.decodeIfPresent(Submission.self, forKey: .mySubmission)
+        status = try container.decodeIfPresent(String.self, forKey: .status)
+        type = try container.decodeIfPresent(String.self, forKey: .type)
+        submissionType = try container.decodeIfPresent(String.self, forKey: .submissionType)
+        allowLate = try container.decodeIfPresent(Bool.self, forKey: .allowLate)
+        maxAttempts = try container.decodeIfPresent(Int.self, forKey: .maxAttempts)
+        // Вложенные части — без права уронить разбор задания: их форма шире, чем
+        // нужно экрану, и расхождение в ней не должно прятать само задание.
+        course = try? container.decodeIfPresent(Course.self, forKey: .course)
+        createdBy = try? container.decodeIfPresent(PersonRefDTO.self, forKey: .createdBy)
+        let flat = (try? container.decodeIfPresent(String.self, forKey: .subject)) ?? nil
+        subject = flat ?? course?.subject?.name
+    }
 }
 
 // MARK: - Материалы
@@ -137,7 +223,49 @@ struct MaterialDTO: Decodable, Equatable, Identifiable {
     let description: String?
     let subject: String?
     let createdAt: Date?
+    /// Файлы материала. Сервер отдаёт их полем `media`; `files` — прежнее имя, читаем оба.
     let files: [File]?
+    /// Внешняя ссылка материала.
+    var url: String? = nil
+    var teacher: PersonRefDTO? = nil
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, description, subject, createdAt, files, media, url, teacher
+    }
+
+    init(
+        id: String,
+        title: String,
+        description: String?,
+        subject: String?,
+        createdAt: Date?,
+        files: [File]?,
+        url: String? = nil,
+        teacher: PersonRefDTO? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.description = description
+        self.subject = subject
+        self.createdAt = createdAt
+        self.files = files
+        self.url = url
+        self.teacher = teacher
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        subject = try container.decodeIfPresent(String.self, forKey: .subject)
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt)
+        let media = try? container.decodeIfPresent([File].self, forKey: .media)
+        let legacy = try? container.decodeIfPresent([File].self, forKey: .files)
+        files = (media ?? nil) ?? (legacy ?? nil)
+        url = try container.decodeIfPresent(String.self, forKey: .url)
+        teacher = try? container.decodeIfPresent(PersonRefDTO.self, forKey: .teacher)
+    }
 }
 
 // MARK: - Маршруты

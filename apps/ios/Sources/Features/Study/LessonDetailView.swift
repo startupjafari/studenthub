@@ -15,6 +15,9 @@ struct LessonDetailView: View {
     @State private var isMissing = false
     @State private var course: CourseDTO?
     @State private var assignments: [AssignmentDTO]?
+    /// Разовое изменение на этот день с сервера — с новой аудиторией и заменяющим, как
+    /// в карточке пары веба. В локальной базе их нет: там только время и примечание.
+    @State private var remoteChange: StudentScheduleChangeDTO?
 
     private var item: SchedulePair? { pair.map { SchedulePair(pair: $0, change: change) } }
 
@@ -22,6 +25,10 @@ struct LessonDetailView: View {
         List {
             if let item {
                 header(item)
+
+                if let change = remoteChange {
+                    changeSection(change)
+                }
 
                 Section {
                     if let room = item.pair.roomName, !room.isEmpty {
@@ -140,6 +147,44 @@ struct LessonDetailView: View {
         .listRowBackground(Palette.card)
     }
 
+    /// Что поменялось на этот день: тип, новое время, аудитория, заменяющий, примечание.
+    private func changeSection(_ change: StudentScheduleChangeDTO) -> some View {
+        Section {
+            HStack {
+                StatusBadge(
+                    text: StudentChangeFormat.title(change.type),
+                    tint: change.type == "CANCELLED" ? Palette.destructive : Palette.warning
+                )
+                Spacer()
+            }
+            if let start = change.newStartTime, let end = change.newEndTime {
+                DetailRow(title: String(localized: "student.lesson.change.time", defaultValue: "Новое время"), value: "\(start) – \(end)", symbol: "clock")
+            }
+            if let room = change.newRoom {
+                NavigationLink(value: AppRoute.campusRoom(roomID: room.id)) {
+                    DetailRow(title: String(localized: "student.lesson.change.room", defaultValue: "Новая аудитория"), value: room.name, symbol: "mappin.and.ellipse")
+                }
+            }
+            if let teacher = change.newTeacher, !teacher.name.isEmpty {
+                if let id = teacher.id {
+                    NavigationLink(value: AppRoute.profile(id: id)) {
+                        DetailRow(title: String(localized: "student.lesson.change.teacher", defaultValue: "Заменяющий преподаватель"), value: teacher.name, symbol: "person.badge.clock")
+                    }
+                } else {
+                    DetailRow(title: String(localized: "student.lesson.change.teacher", defaultValue: "Заменяющий преподаватель"), value: teacher.name, symbol: "person.badge.clock")
+                }
+            }
+            if let note = change.note, !note.isEmpty {
+                Text(note)
+                    .font(Typography.meta)
+                    .foregroundStyle(Palette.mutedForeground)
+            }
+        } header: {
+            Text(String(localized: "student.lesson.change.title", defaultValue: "Изменение на этот день"))
+        }
+        .listRowBackground(Palette.card)
+    }
+
     static func weekTitle(_ raw: String) -> String {
         switch raw {
         case "ODD": return String(localized: "schedule.oddWeek", defaultValue: "Нечётная")
@@ -164,7 +209,10 @@ struct LessonDetailView: View {
         // Пара хранит дисциплину названием (так её отдаёт сервер) — связываем по нему.
         async let courses = try? CoursesAPI().courses(mine: false)
         async let tasks = try? StudyAPI().assignments().items
+        let day = ScheduleAPI.day(date, in: .current)
+        async let changes = try? StudentStudyAPI().scheduleChanges(from: day, to: day)
         course = (await courses ?? []).first { $0.subject.name.lowercased() == subject }
         assignments = (await tasks ?? []).filter { $0.subject?.lowercased() == subject }
+        remoteChange = StudentCalendarBuilder.mergedChanges((await changes ?? []).filter { $0.pairId == pairID })["\(pairID)|\(day)"]
     }
 }

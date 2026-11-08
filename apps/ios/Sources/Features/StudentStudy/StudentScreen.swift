@@ -12,6 +12,9 @@ enum StudentScreen: Hashable {
     case studyPlan
     case checkin
     case studentID
+    /// Оценки и посещаемость в полном виде веба (`/grades`, `/attendance`).
+    case grades
+    case attendance
 
     var title: String {
         switch self {
@@ -22,6 +25,8 @@ enum StudentScreen: Hashable {
         case .studyPlan: return String(localized: "student.screen.studyPlan", defaultValue: "Учебный план")
         case .checkin: return String(localized: "student.screen.checkin", defaultValue: "Отметка по QR")
         case .studentID: return String(localized: "student.screen.studentID", defaultValue: "Студенческий билет")
+        case .grades: return String(localized: "student.screen.grades", defaultValue: "Мои оценки")
+        case .attendance: return String(localized: "student.screen.attendance", defaultValue: "Моя посещаемость")
         }
     }
 
@@ -34,12 +39,24 @@ enum StudentScreen: Hashable {
         case .studyPlan: return "list.bullet.rectangle"
         case .checkin: return "qrcode.viewfinder"
         case .studentID: return "person.text.rectangle"
+        case .grades: return "graduationcap"
+        case .attendance: return "checkmark.circle"
         }
     }
 
     @MainActor @ViewBuilder
     var destination: some View {
-        PendingScreen(title: title, symbol: symbol)
+        switch self {
+        case .academic: StudentAcademicView()
+        case .calendar: StudentCalendarView()
+        case .tasks: StudentTasksView()
+        case .exams: StudentExamsView()
+        case .studyPlan: StudentStudyPlanView()
+        case .checkin: StudentCheckinView()
+        case .studentID: StudentIDView()
+        case .grades: StudentGradesView()
+        case .attendance: StudentAttendanceView()
+        }
     }
 
     /// Пункты вкладки «Учёба».
@@ -53,9 +70,11 @@ enum StudentScreen: Hashable {
         ]
     }
 
-    /// Пункты вкладки «Сервисы».
+    /// Пункты вкладки «Сервисы». Билет и самоотметка — только студенту и старосте:
+    /// остальным ролям `/student-id/me` и `/attendance/check-in` отвечают 403.
     static func serviceItems(for role: Role) -> [WorkspaceItem] {
-        [
+        guard role == .student || role == .starosta else { return [] }
+        return [
             WorkspaceItem(title: Self.studentID.title, symbol: Self.studentID.symbol, tint: TileTint.blue, route: .student(.studentID)),
             WorkspaceItem(title: Self.checkin.title, symbol: Self.checkin.symbol, tint: TileTint.green, route: .student(.checkin)),
         ]

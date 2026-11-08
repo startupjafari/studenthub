@@ -97,9 +97,9 @@ struct AppShellView: View {
     private func destination(for route: AppRoute) -> some View {
         switch route {
         case .section(.grades):
-            GradesView()
+            StudentGradesView()
         case .section(.attendance):
-            AttendanceView()
+            StudentAttendanceView()
         case .section(.assignments):
             AssignmentsView(isStudent: role != .teacher)
         case .section(.materials):
