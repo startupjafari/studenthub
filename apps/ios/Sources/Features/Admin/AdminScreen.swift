@@ -25,6 +25,8 @@ enum AdminScreen: Hashable {
     case platformServices
     case platformEvents
     case campusModeration
+    /// Карточка заявки вуза на демо.
+    case demoRequest(id: String)
 
     var title: String {
         switch self {
@@ -54,6 +56,7 @@ enum AdminScreen: Hashable {
         case .platformServices: return String(localized: "admin.screen.platformServices", defaultValue: "Каталог услуг")
         case .platformEvents: return String(localized: "admin.screen.platformEvents", defaultValue: "События")
         case .campusModeration: return String(localized: "admin.screen.campusModeration", defaultValue: "Кампус")
+        case .demoRequest: return String(localized: "admin.screen.demoRequest", defaultValue: "Заявка вуза")
         }
     }
 
@@ -79,12 +82,36 @@ enum AdminScreen: Hashable {
         case .platformServices: return "square.grid.2x2"
         case .platformEvents: return "calendar.badge.clock"
         case .campusModeration: return "map"
+        case .demoRequest: return "envelope.open"
         }
     }
 
     @MainActor @ViewBuilder
     var destination: some View {
-        PendingScreen(title: title, symbol: symbol)
+        switch self {
+        case .platformDashboard, .platformModeratorDashboard: AdminPlatformDashboardView()
+        case .universityModeratorDashboard: AdminUniversityModeratorDashboardView()
+        case .stats: AdminPlatformStatsView()
+        case .complaints: AdminComplaintsView()
+        case .complaint(let id): AdminComplaintView(id: id)
+        case .audit: AdminAuditView()
+        case .users(let role): AdminUsersView(role: role)
+        case .user(let id): AdminUserView(id: id)
+        case .invites: AdminInvitesView()
+        case .support: AdminSupportView()
+        case .supportTicket(let id): AdminSupportTicketView(id: id)
+        case .universities: AdminUniversitiesView()
+        case .university(let id): AdminUniversityView(id: id)
+        case .demoRequests: AdminDemoRequestsView()
+        case .demoRequest(let id): AdminDemoRequestView(id: id)
+        case .postsModeration: AdminPostsModerationView()
+        case .documentAccess: AdminDocumentAccessView()
+        // Тот же экран, что у сотрудников вуза (`EventsView`, `ServiceCatalogView`,
+        // `CampusListView` в вебе): права и охват решает сервер по роли.
+        case .platformEvents: StaffScreen.events.destination
+        case .platformServices: StaffScreen.serviceCatalog.destination
+        case .campusModeration: UniAdminScreen.campuses.destination
+        }
     }
 
     /// «Разделы» модераторов и администратора платформы — по их меню в вебе.
