@@ -14,6 +14,11 @@ struct MessageListView: UIViewControllerRepresentable {
     /// Просьба прокрутить к сообщению (закреплённое, ответ, найденное).
     var focus: MessageFocus?
     var capabilities: (MessageRecord) -> MessageCapabilities = { _ in MessageCapabilities() }
+    /// Просьба прокрутить к последнему сообщению: каждое новое значение — одна прокрутка
+    /// (кнопка «вниз»).
+    var scrollToBottomToken = 0
+    /// Лента дошла до низа или ушла от него — для кнопки «вниз».
+    var onBottomChange: (Bool) -> Void = { _ in }
     let onReachTop: () -> Void
     let onAction: (MessageAction, MessageRecord) -> Void
 
@@ -22,6 +27,7 @@ struct MessageListView: UIViewControllerRepresentable {
         controller.onReachTop = onReachTop
         controller.onAction = onAction
         controller.capabilities = capabilities
+        controller.onBottomChange = onBottomChange
         return controller
     }
 
@@ -29,8 +35,10 @@ struct MessageListView: UIViewControllerRepresentable {
         controller.onReachTop = onReachTop
         controller.onAction = onAction
         controller.capabilities = capabilities
+        controller.onBottomChange = onBottomChange
         controller.apply(days: days, anchor: anchor, context: bubbleContext)
         controller.focus(focus)
+        controller.scrollToBottom(token: scrollToBottomToken)
     }
 }
 
@@ -38,7 +46,10 @@ final class MessageListViewController: UIViewController {
     var onReachTop: (() -> Void)?
     var onAction: ((MessageAction, MessageRecord) -> Void)?
     var capabilities: ((MessageRecord) -> MessageCapabilities)?
+    var onBottomChange: ((Bool) -> Void)?
     private var bubbleContext = BubbleContext()
+    private var appliedBottomToken = 0
+    private var reportedAtBottom = true
     private var appliedFocus: MessageFocus?
 
     private var collectionView: UICollectionView!
@@ -109,15 +120,23 @@ final class MessageListViewController: UIViewController {
     // MARK: - Сборка
 
     private func configureCollectionView() {
-        var layout = UICollectionLayoutListConfiguration(appearance: .plain)
-        layout.showsSeparators = false
-        layout.backgroundColor = .clear
-        layout.headerMode = .supplementary
+        var configuration = UICollectionLayoutListConfiguration(appearance: .plain)
+        configuration.showsSeparators = false
+        configuration.backgroundColor = .clear
+        configuration.headerMode = .supplementary
+        configuration.headerTopPadding = 0
 
-        collectionView = UICollectionView(
-            frame: .zero,
-            collectionViewLayout: UICollectionViewCompositionalLayout.list(using: layout)
-        )
+        // Дата дня прилипает к верху, пока листаешь этот день, — как в Telegram.
+        let layout = UICollectionViewCompositionalLayout { _, environment in
+            let section = NSCollectionLayoutSection.list(using: configuration, layoutEnvironment: environment)
+            for header in section.boundarySupplementaryItems {
+                header.pinToVisibleBounds = true
+                header.zIndex = 2
+            }
+            return section
+        }
+
+        collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         collectionView.backgroundColor = .clear
         collectionView.keyboardDismissMode = .interactive
         collectionView.delegate = self
@@ -145,7 +164,9 @@ final class MessageListViewController: UIViewController {
                     self?.onAction?(action, item.message)
                 }
             }
-            .margins(.vertical, item.isLastInGroup ? 6 : 1)
+            // Как в Telegram: пузыри почти у краёв экрана, внутри группы — вплотную.
+            .margins(.horizontal, Spacing.md)
+            .margins(.vertical, item.isLastInGroup ? 5 : 1)
             cell.backgroundConfiguration = .clear()
         }
 
@@ -189,6 +210,24 @@ final class MessageListViewController: UIViewController {
         }
     }
 
+    /// Кнопка «вниз»: прокрутить к последнему сообщению.
+    func scrollToBottom(token: Int) {
+        guard token != appliedBottomToken else { return }
+        appliedBottomToken = token
+        scrollToBottom(animated: !UIAccessibility.isReduceMotionEnabled)
+    }
+
+    /// Сообщить SwiftUI, у низа ли лента. Только при смене и вне текущего прохода
+    /// обновления: прокрутка случается и внутри `updateUIViewController`.
+    private func reportBottom() {
+        let atBottom = isNearBottom
+        guard atBottom != reportedAtBottom else { return }
+        reportedAtBottom = atBottom
+        DispatchQueue.main.async { [weak self] in
+            self?.onBottomChange?(atBottom)
+        }
+    }
+
     private var isNearBottom: Bool {
         let distance = collectionView.contentSize.height
             - collectionView.contentOffset.y
@@ -217,25 +256,28 @@ final class MessageListViewController: UIViewController {
 
 extension MessageListViewController: UICollectionViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard hasContent else { return }
+        reportBottom()
         // Подгружаем заранее: к моменту, когда человек долистает, страница уже тут.
-        guard hasContent, scrollView.contentOffset.y < scrollView.bounds.height else { return }
+        guard scrollView.contentOffset.y < scrollView.bounds.height else { return }
         onReachTop?()
     }
 }
 
-/// Разделитель дня — та самая «пилюля» по центру.
+/// Разделитель дня — капсула по центру, на iOS 26 в стекле. Прилипает к верху ленты.
 private struct DaySeparatorView: View {
     let day: Date
 
     var body: some View {
         Text(title)
-            .font(Typography.meta)
-            .foregroundStyle(Palette.mutedForeground)
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(Palette.foreground)
             .padding(.horizontal, Spacing.lg)
             .padding(.vertical, Spacing.xs)
-            .background(Palette.muted, in: Capsule())
+            .chatCapsuleSurface()
             .frame(maxWidth: .infinity)
-            .padding(.vertical, Spacing.md)
+            .padding(.vertical, Spacing.sm)
+            .accessibilityAddTraits(.isHeader)
     }
 
     private var title: String {
@@ -246,6 +288,9 @@ private struct DaySeparatorView: View {
         if calendar.isDateInYesterday(day) {
             return String(localized: "chats.yesterday", defaultValue: "Вчера")
         }
-        return day.formatted(.dateTime.day().month(.wide))
+        if calendar.isDate(day, equalTo: Date(), toGranularity: .year) {
+            return day.formatted(.dateTime.day().month(.wide))
+        }
+        return day.formatted(.dateTime.day().month(.wide).year())
     }
 }

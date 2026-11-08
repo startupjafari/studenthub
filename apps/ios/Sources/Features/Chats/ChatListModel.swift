@@ -13,6 +13,8 @@ final class ChatListModel {
     private(set) var tabs: [ChatListTab] = [.all]
     private(set) var tab: ChatListTab = .all
     private(set) var isRefreshing = false
+    /// Архивные чаты — для строки «Архив» над списком, как в Telegram.
+    private(set) var archived: [ChatListRow] = []
     /// Сообщение о последней неудаче. Список при этом продолжает работать: он читает
     /// базу, и отсутствие сети ему не мешает.
     private(set) var failure: String?
@@ -24,6 +26,7 @@ final class ChatListModel {
 
     private var rowsTask: Task<Void, Never>?
     private var tabsTask: Task<Void, Never>?
+    private var archiveTask: Task<Void, Never>?
 
     /// Сколько страниц списка тянем за один заход. Страница — сотня чатов; пять
     /// страниц покрывают любого живого человека, а бесконечный цикл по курсору на
@@ -45,12 +48,21 @@ final class ChatListModel {
     deinit {
         rowsTask?.cancel()
         tabsTask?.cancel()
+        archiveTask?.cancel()
     }
 
+    /// Экран архива держит одну вкладку и за остальными не следит: иначе, разархивировав
+    /// последний чат, он молча переключился бы на «Все».
     @MainActor
-    func start() {
-        observeTabs()
-        observeRows()
+    func start(archive: Bool = false) {
+        if archive {
+            tab = .archive
+            observeRows()
+        } else {
+            observeTabs()
+            observeRows()
+            observeArchive()
+        }
     }
 
     @MainActor
@@ -168,6 +180,29 @@ final class ChatListModel {
         }
     }
 
+    // MARK: - Несколько чатов разом (режим правки)
+
+    @MainActor
+    func markRead(_ rows: [ChatListRow]) async {
+        for row in rows where row.unreadCount > 0 {
+            await markRead(row)
+        }
+    }
+
+    @MainActor
+    func setArchived(_ archived: Bool, rows: [ChatListRow]) async {
+        for row in rows where (row.archivedAt != nil) != archived {
+            await toggleArchived(row)
+        }
+    }
+
+    @MainActor
+    func delete(_ rows: [ChatListRow]) async {
+        for row in rows {
+            await delete(row)
+        }
+    }
+
     private func message(for error: Error) -> String {
         error.userMessage
     }
@@ -203,6 +238,18 @@ final class ChatListModel {
         rowsTask = Task { @MainActor [weak self, database] in
             for await rows in AsyncValues.stream(of: observation, in: database.reader) {
                 self?.rows = rows
+            }
+        }
+    }
+
+    @MainActor
+    private func observeArchive() {
+        archiveTask?.cancel()
+        let request = ChatListQuery.rows(for: .archive)
+        let observation = ValueObservation.tracking { db in try request.fetchAll(db) }
+        archiveTask = Task { @MainActor [weak self, database] in
+            for await rows in AsyncValues.stream(of: observation, in: database.reader) {
+                self?.archived = rows
             }
         }
     }

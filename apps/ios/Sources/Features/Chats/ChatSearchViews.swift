@@ -23,9 +23,12 @@ struct ChatSearchResults: View {
             if !chats.isEmpty {
                 Section(String(localized: "chats.search.chats", defaultValue: "Чаты")) {
                     ForEach(chats) { row in
-                        NavigationLink(value: AppRoute.chat(id: row.id)) {
-                            ChatRowView(row: row, isGroup: row.kind != .private)
-                        }
+                        ChatRowView(row: row, isGroup: row.kind != .private && row.kind != .saved)
+                            .background {
+                                NavigationLink(value: AppRoute.chat(id: row.id)) { EmptyView() }
+                                    .opacity(0)
+                            }
+                            .listRowInsets(ChatListView.rowInsets)
                     }
                 }
             }

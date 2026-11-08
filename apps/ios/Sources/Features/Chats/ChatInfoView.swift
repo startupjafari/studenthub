@@ -1,7 +1,9 @@
 import SwiftUI
 import UIKit
 
-/// Информация о чате: кто в нём, что в нём отправляли и что с ним можно сделать.
+/// Информация о чате в духе Telegram: крупный аватар по центру, имя и статус, ряд
+/// круглых стеклянных кнопок (звук, поиск, добавить, ещё), ниже — сгруппированные
+/// списки: описание, участники, содержимое, опасные действия.
 ///
 /// Набор действий зависит от вида чата и роли: группой управляют её админы,
 /// официальные чаты заводит система и их не переименовывают.
@@ -12,20 +14,33 @@ struct ChatInfoView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var chat: ChatRecord?
     @State private var members: [ChatMemberDTO] = []
+    @State private var membersLoaded = false
     @State private var section: ChatMediaKindTab = .media
     @State private var editing = false
     @State private var addingMember = false
+    @State private var searching = false
+    @State private var pickedMessage: String?
     @State private var confirmingLeave = false
     @State private var confirmingClear = false
     @State private var confirmingBlock = false
     @State private var copiedInvite = 0
     @State private var failure: String?
+    @ScaledMetric(relativeTo: .largeTitle) private var avatarSize: CGFloat = 100
     private let api: ChatActing = ChatsAPI()
     private var realtime: RealtimeCoordinator { AppServices.realtime }
 
     var body: some View {
+        withDialogs(list)
+            .task {
+                await reloadChat()
+                await loadMembers()
+            }
+    }
+
+    private var list: some View {
         List {
             header
+                .listRowInsets(EdgeInsets(top: 0, leading: Spacing.lg, bottom: Spacing.md, trailing: Spacing.lg))
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
 
@@ -36,7 +51,7 @@ struct ChatInfoView: View {
             }
 
             if let chat {
-                actionsSection(chat)
+                detailsSection(chat)
                 if chat.kind != .private, chat.kind != .saved {
                     membersSection(chat)
                 }
@@ -48,112 +63,168 @@ struct ChatInfoView: View {
                     }
                     .pickerStyle(.segmented)
                     .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: Spacing.sm, trailing: 0))
                     ChatContentList(chatID: chatID, tab: section)
                 }
                 dangerSection(chat)
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
         .navigationTitle(Text(String(localized: "chats.info.title", defaultValue: "Информация")))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if chat?.kind == .group, chat?.isAdmin == true || chat?.isOwner == true {
+            if canManageGroup {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(String(localized: "feed.edit", defaultValue: "Редактировать")) { editing = true }
+                    Button(String(localized: "chats.edit", defaultValue: "Изм.")) { editing = true }
                 }
             }
         }
-        .sheet(isPresented: $editing) {
-            if let chat { GroupEditSheet(chat: chat) { await reloadChat() } }
-        }
-        .sheet(isPresented: $addingMember) {
-            MemberPickerSheet(excluded: Set(members.map(\.id))) { userID in
-                do {
-                    try await api.addMember(chatID: chatID, userID: userID)
-                    await loadMembers()
-                } catch {
-                    failure = (error as? APIError)?.displayMessage
-                }
-            }
-        }
-        .confirmationDialog(
-            String(localized: "chats.clear.title", defaultValue: "Очистить историю у себя?"),
-            isPresented: $confirmingClear,
-            titleVisibility: .visible
-        ) {
-            Button(String(localized: "chats.clear", defaultValue: "Очистить историю"), role: .destructive) {
-                Task { await run { try await api.clearHistory(chatID: chatID) } }
-            }
-        }
-        .confirmationDialog(
-            String(localized: "chats.delete.chat.title", defaultValue: "Удалить чат?"),
-            isPresented: $confirmingLeave,
-            titleVisibility: .visible
-        ) {
-            Button(ChatLeaveTitle.title(for: chat?.kind ?? .private), role: .destructive) {
-                Task { await leave() }
-            }
-        }
-        .confirmationDialog(
-            chat?.blocked == true
-                ? String(localized: "chats.unblock.title", defaultValue: "Разблокировать?")
-                : String(localized: "chats.block.title", defaultValue: "Заблокировать пользователя?"),
-            isPresented: $confirmingBlock,
-            titleVisibility: .visible
-        ) {
-            Button(
-                chat?.blocked == true
-                    ? String(localized: "chats.unblock", defaultValue: "Разблокировать")
-                    : String(localized: "chats.block", defaultValue: "Заблокировать"),
-                role: chat?.blocked == true ? nil : .destructive
-            ) {
-                Task { await toggleBlock() }
-            }
-        } message: {
-            if chat?.blocked != true {
-                Text(String(localized: "chats.block.message", defaultValue: "Он не сможет писать вам, дружба будет удалена."))
-            }
-        }
-        .sensoryFeedback(.success, trigger: copiedInvite)
-        .task {
-            await reloadChat()
-            await loadMembers()
-        }
+    }
+
+    private var canManageGroup: Bool {
+        chat?.kind == .group && (chat?.isAdmin == true || chat?.isOwner == true)
+    }
+
+    private var displayTitle: String {
+        chat.map { $0.title ?? ChatTitle.fallback(for: $0) } ?? ""
     }
 
     // MARK: Шапка
 
     private var header: some View {
-        VStack(spacing: Spacing.md) {
+        VStack(spacing: Spacing.sm) {
             ChatAvatarView(
-                title: chat.map { $0.title ?? ChatTitle.fallback(for: $0) },
+                title: displayTitle,
                 kind: chat?.kind ?? .unknown,
                 avatarURL: chat?.avatarUrl,
                 online: chat?.kind == .private && peerOnline,
-                size: 96
+                size: min(avatarSize, 150)
             )
+            .padding(.bottom, Spacing.xs)
+
             HStack(spacing: Spacing.xs) {
-                Text(chat.map { $0.title ?? ChatTitle.fallback(for: $0) } ?? "")
+                Text(displayTitle)
                     .font(.title2.weight(.semibold))
-                    .multilineTextAlignment(.center)
-                if chat?.kind.isOfficial == true {
-                    Image(systemName: "checkmark.seal.fill").foregroundStyle(Palette.primary)
-                }
-            }
-            if let status {
-                Text(status)
-                    .font(Typography.meta)
-                    .foregroundStyle(peerOnline ? Palette.primary : Palette.mutedForeground)
-            }
-            if let description = chat?.chatDescription, !description.isEmpty {
-                Text(RichText.attributed(description))
-                    .font(Typography.body)
                     .foregroundStyle(Palette.foreground)
                     .multilineTextAlignment(.center)
+                if chat?.kind.isOfficial == true {
+                    Image(systemName: "checkmark.seal.fill")
+                        .foregroundStyle(Palette.primary)
+                        .accessibilityLabel(Text(String(localized: "chats.official", defaultValue: "Официальный чат")))
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
+
+            if let status {
+                Text(status)
+                    .font(.subheadline)
+                    .foregroundStyle(peerOnline && chat?.kind == .private ? Palette.primary : Palette.mutedForeground)
+            }
+
+            if let chat {
+                actionButtons(chat)
+                    .padding(.top, Spacing.lg)
             }
         }
         .frame(maxWidth: .infinity)
         .padding(.top, Spacing.md)
+    }
+
+    /// Ряд круглых стеклянных кнопок под именем, как в Telegram.
+    private func actionButtons(_ chat: ChatRecord) -> some View {
+        GlassGroup(spacing: Spacing.lg) {
+            HStack(alignment: .top, spacing: Spacing.md) {
+                if chat.kind != .saved {
+                    muteButton(chat)
+                }
+                ChatInfoActionButton(
+                    title: String(localized: "chats.info.search", defaultValue: "Поиск"),
+                    symbol: "magnifyingglass"
+                ) {
+                    searching = true
+                }
+                if canManageGroup {
+                    ChatInfoActionButton(
+                        title: String(localized: "chats.info.add", defaultValue: "Добавить"),
+                        symbol: "person.badge.plus"
+                    ) {
+                        addingMember = true
+                    }
+                }
+                Menu {
+                    moreMenu(chat)
+                } label: {
+                    ChatInfoActionLabel(
+                        title: String(localized: "chats.info.more", defaultValue: "Ещё"),
+                        symbol: "ellipsis"
+                    )
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func muteButton(_ chat: ChatRecord) -> some View {
+        if chat.muted {
+            ChatInfoActionButton(
+                title: String(localized: "chats.info.unmute", defaultValue: "Вкл. звук"),
+                symbol: "bell.slash.fill"
+            ) {
+                Task { await setMuted(false, minutes: nil, importantOnly: false) }
+            }
+        } else {
+            Menu {
+                MuteMenu.options { minutes, importantOnly in
+                    Task { await setMuted(true, minutes: minutes, importantOnly: importantOnly) }
+                }
+            } label: {
+                ChatInfoActionLabel(
+                    title: String(localized: "chats.info.sound", defaultValue: "Звук"),
+                    symbol: "bell.fill"
+                )
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private func moreMenu(_ chat: ChatRecord) -> some View {
+        if canManageGroup {
+            Button {
+                editing = true
+            } label: {
+                Label(String(localized: "feed.edit", defaultValue: "Редактировать"), systemImage: "pencil")
+            }
+            Button {
+                Task { await copyInvite() }
+            } label: {
+                Label(String(localized: "chats.invite.copy", defaultValue: "Скопировать ссылку-приглашение"), systemImage: "link")
+            }
+        }
+        if chat.kind == .private, peer != nil {
+            Button(role: chat.blocked ? nil : .destructive) {
+                confirmingBlock = true
+            } label: {
+                Label(blockTitle(chat), systemImage: "hand.raised")
+            }
+        }
+        Button(role: .destructive) {
+            confirmingClear = true
+        } label: {
+            Label(String(localized: "chats.clear", defaultValue: "Очистить историю"), systemImage: "eraser")
+        }
+        if chat.kind == .private || chat.kind == .group {
+            Button(role: .destructive) {
+                confirmingLeave = true
+            } label: {
+                Label(ChatLeaveTitle.title(for: chat.kind), systemImage: "rectangle.portrait.and.arrow.right")
+            }
+        }
     }
 
     private var peer: ChatMemberDTO? {
@@ -169,55 +240,52 @@ struct ChatInfoView: View {
         guard let chat else { return nil }
         switch chat.kind {
         case .private:
-            if peerOnline { return String(localized: "chats.online", defaultValue: "в сети") }
-            if let seen = peer?.lastSeenAt {
-                return String(localized: "chats.lastSeen", defaultValue: "был(а) \(seen.formatted(.relative(presentation: .named)))")
-            }
-            return nil
+            return ChatPresence.caption(online: peerOnline, lastSeen: peer?.lastSeenAt, known: peer != nil)
         case .saved:
             return String(localized: "chats.saved.hint", defaultValue: "Заметки и пересланное себе")
         default:
             let count = max(chat.memberCount, members.count)
-            return count > 0 ? String(localized: "chats.members", defaultValue: "Участников: \(count)") : nil
+            return count > 0 ? ChatPlural.members(count) : nil
         }
     }
 
-    // MARK: Действия
+    private func blockTitle(_ chat: ChatRecord) -> String {
+        chat.blocked
+            ? String(localized: "chats.unblock", defaultValue: "Разблокировать")
+            : String(localized: "chats.block", defaultValue: "Заблокировать")
+    }
+
+    // MARK: Списки
 
     @ViewBuilder
-    private func actionsSection(_ chat: ChatRecord) -> some View {
-        Section {
-            MuteMenu(isMuted: chat.muted) { minutes, importantOnly in
-                Task {
-                    await run { try await api.mute(chatID: chatID, minutes: minutes, importantOnly: importantOnly) }
-                    try? await ChatStore().setMuted(true, chatID: chatID)
+    private func detailsSection(_ chat: ChatRecord) -> some View {
+        let description = chat.chatDescription?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let showsProfile = chat.kind == .private && peer != nil
+        if !description.isEmpty || showsProfile || canManageGroup {
+            Section {
+                if !description.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(String(localized: "chats.group.description", defaultValue: "Описание"))
+                            .font(.footnote)
+                            .foregroundStyle(Palette.mutedForeground)
+                        Text(RichText.attributed(description))
+                            .font(Typography.body)
+                            .foregroundStyle(Palette.foreground)
+                            .tint(Palette.primary)
+                    }
+                    .padding(.vertical, 2)
                 }
-            } unmute: {
-                Task {
-                    await run { try await ChatsAPI().setMuted(false, chatID: chatID) }
-                    try? await ChatStore().setMuted(false, chatID: chatID)
+                if showsProfile, let peer {
+                    NavigationLink(value: AppRoute.profile(id: peer.id)) {
+                        Label(String(localized: "home.profile.open", defaultValue: "Открыть профиль"), systemImage: "person.crop.circle")
+                    }
                 }
-            }
-            if chat.kind == .private, let peer {
-                NavigationLink(value: AppRoute.profile(id: peer.id)) {
-                    Label(String(localized: "home.profile.open", defaultValue: "Открыть профиль"), systemImage: "person.crop.circle")
-                }
-                Button(role: chat.blocked ? nil : .destructive) {
-                    confirmingBlock = true
-                } label: {
-                    Label(
-                        chat.blocked
-                            ? String(localized: "chats.unblock", defaultValue: "Разблокировать")
-                            : String(localized: "chats.block", defaultValue: "Заблокировать"),
-                        systemImage: "hand.raised"
-                    )
-                }
-            }
-            if chat.kind == .group, chat.isAdmin || chat.isOwner {
-                Button {
-                    Task { await copyInvite() }
-                } label: {
-                    Label(String(localized: "chats.invite.copy", defaultValue: "Скопировать ссылку-приглашение"), systemImage: "link")
+                if canManageGroup {
+                    Button {
+                        Task { await copyInvite() }
+                    } label: {
+                        Label(String(localized: "chats.invite.copy", defaultValue: "Скопировать ссылку-приглашение"), systemImage: "link")
+                    }
                 }
             }
         }
@@ -232,42 +300,55 @@ struct ChatInfoView: View {
                     addingMember = true
                 } label: {
                     Label(String(localized: "chats.member.add", defaultValue: "Добавить участника"), systemImage: "person.badge.plus")
+                        .foregroundStyle(Palette.primary)
                 }
             }
             ForEach(members) { member in
-                MemberRow(member: member, isOnline: realtime.onlineUsers.contains(member.id) || member.online == true)
-                    .swipeActions(edge: .trailing) {
-                        if canManage, member.id != viewerID {
-                            Button(role: .destructive) {
-                                Task {
-                                    await run { try await api.removeMember(chatID: chatID, userID: member.id) }
-                                    await loadMembers()
-                                }
-                            } label: {
-                                Label(String(localized: "chats.member.remove", defaultValue: "Исключить"), systemImage: "person.badge.minus")
+                NavigationLink(value: AppRoute.profile(id: member.id)) {
+                    MemberRow(member: member, isOnline: realtime.onlineUsers.contains(member.id) || member.online == true)
+                }
+                .swipeActions(edge: .trailing) {
+                    if canManage, member.id != viewerID {
+                        Button(role: .destructive) {
+                            Task {
+                                await run { try await api.removeMember(chatID: chatID, userID: member.id) }
+                                await loadMembers()
                             }
+                        } label: {
+                            Label(String(localized: "chats.member.remove", defaultValue: "Исключить"), systemImage: "person.badge.minus")
                         }
                     }
-                    .contextMenu {
-                        NavigationLink(value: AppRoute.profile(id: member.id)) {
-                            Label(String(localized: "home.profile.open", defaultValue: "Открыть профиль"), systemImage: "person.crop.circle")
-                        }
-                        if chat.kind == .group, chat.isOwner, member.id != viewerID {
-                            Button {
-                                Task {
-                                    await run { try await api.setAdmin(member.isAdmin != true, chatID: chatID, userID: member.id) }
-                                    await loadMembers()
-                                }
-                            } label: {
-                                Label(
-                                    member.isAdmin == true
-                                        ? String(localized: "chats.admin.revoke", defaultValue: "Снять админа")
-                                        : String(localized: "chats.admin.grant", defaultValue: "Сделать админом"),
-                                    systemImage: "star"
-                                )
+                }
+                .contextMenu {
+                    if chat.kind == .group, chat.isOwner, member.id != viewerID {
+                        Button {
+                            Task {
+                                await run { try await api.setAdmin(member.isAdmin != true, chatID: chatID, userID: member.id) }
+                                await loadMembers()
                             }
+                        } label: {
+                            Label(
+                                member.isAdmin == true
+                                    ? String(localized: "chats.admin.revoke", defaultValue: "Снять админа")
+                                    : String(localized: "chats.admin.grant", defaultValue: "Сделать админом"),
+                                systemImage: "star"
+                            )
                         }
                     }
+                    if canManage, member.id != viewerID {
+                        Button(role: .destructive) {
+                            Task {
+                                await run { try await api.removeMember(chatID: chatID, userID: member.id) }
+                                await loadMembers()
+                            }
+                        } label: {
+                            Label(String(localized: "chats.member.remove", defaultValue: "Исключить"), systemImage: "person.badge.minus")
+                        }
+                    }
+                }
+            }
+            if members.isEmpty, !membersLoaded {
+                ProgressView().frame(maxWidth: .infinity)
             }
         } header: {
             Text(String(localized: "chats.group.members", defaultValue: "Участники"))
@@ -277,6 +358,13 @@ struct ChatInfoView: View {
     @ViewBuilder
     private func dangerSection(_ chat: ChatRecord) -> some View {
         Section {
+            if chat.kind == .private, peer != nil {
+                Button(role: chat.blocked ? nil : .destructive) {
+                    confirmingBlock = true
+                } label: {
+                    Label(blockTitle(chat), systemImage: "hand.raised")
+                }
+            }
             Button(role: .destructive) {
                 confirmingClear = true
             } label: {
@@ -292,6 +380,77 @@ struct ChatInfoView: View {
         }
     }
 
+    // MARK: Диалоги
+
+    private func withDialogs<V: View>(_ view: V) -> some View {
+        view
+            .sheet(isPresented: $editing) {
+                if let chat { GroupEditSheet(chat: chat) { await reloadChat() } }
+            }
+            .sheet(isPresented: $addingMember) {
+                MemberPickerSheet(excluded: Set(members.map(\.id))) { userID in
+                    do {
+                        try await api.addMember(chatID: chatID, userID: userID)
+                        await loadMembers()
+                    } catch {
+                        failure = (error as? APIError)?.displayMessage
+                    }
+                }
+            }
+            .sheet(isPresented: $searching, onDismiss: openPickedMessage) {
+                ChatInfoSearchSheet(chatID: chatID) { messageID in
+                    pickedMessage = messageID
+                }
+            }
+            .confirmationDialog(
+                String(localized: "chats.clear.title", defaultValue: "Очистить историю у себя?"),
+                isPresented: $confirmingClear,
+                titleVisibility: .visible
+            ) {
+                Button(String(localized: "chats.clear", defaultValue: "Очистить историю"), role: .destructive) {
+                    Task { await run { try await api.clearHistory(chatID: chatID) } }
+                }
+            }
+            .confirmationDialog(
+                String(localized: "chats.delete.chat.title", defaultValue: "Удалить чат?"),
+                isPresented: $confirmingLeave,
+                titleVisibility: .visible
+            ) {
+                Button(ChatLeaveTitle.title(for: chat?.kind ?? .private), role: .destructive) {
+                    Task { await leave() }
+                }
+            }
+            .confirmationDialog(
+                chat?.blocked == true
+                    ? String(localized: "chats.unblock.title", defaultValue: "Разблокировать?")
+                    : String(localized: "chats.block.title", defaultValue: "Заблокировать пользователя?"),
+                isPresented: $confirmingBlock,
+                titleVisibility: .visible
+            ) {
+                Button(
+                    chat?.blocked == true
+                        ? String(localized: "chats.unblock", defaultValue: "Разблокировать")
+                        : String(localized: "chats.block", defaultValue: "Заблокировать"),
+                    role: chat?.blocked == true ? nil : .destructive
+                ) {
+                    Task { await toggleBlock() }
+                }
+            } message: {
+                if chat?.blocked != true {
+                    Text(String(localized: "chats.block.message", defaultValue: "Он не сможет писать вам, дружба будет удалена."))
+                }
+            }
+            .sensoryFeedback(.success, trigger: copiedInvite)
+    }
+
+    /// Найденное сообщение: переписка под этим экраном откроется на нём.
+    private func openPickedMessage() {
+        guard let pickedMessage else { return }
+        self.pickedMessage = nil
+        ChatJumpRequests.shared.pending[chatID] = pickedMessage
+        dismiss()
+    }
+
     // MARK: Загрузка и действия
 
     private func reloadChat() async {
@@ -299,8 +458,12 @@ struct ChatInfoView: View {
     }
 
     private func loadMembers() async {
-        guard chat?.kind != .saved else { return }
+        guard chat?.kind != .saved else {
+            membersLoaded = true
+            return
+        }
         if let list = try? await api.members(chatID: chatID) { members = list }
+        membersLoaded = true
     }
 
     private func run(_ action: () async throws -> Void) async {
@@ -310,6 +473,16 @@ struct ChatInfoView: View {
         } catch {
             failure = error.userMessage
         }
+    }
+
+    private func setMuted(_ muted: Bool, minutes: Int?, importantOnly: Bool) async {
+        if muted {
+            await run { try await api.mute(chatID: chatID, minutes: minutes, importantOnly: importantOnly) }
+        } else {
+            await run { try await ChatsAPI().setMuted(false, chatID: chatID) }
+        }
+        try? await ChatStore().setMuted(muted, chatID: chatID)
+        await reloadChat()
     }
 
     private func toggleBlock() async {
@@ -352,6 +525,141 @@ struct ChatInfoView: View {
             AppServices.router.stacks[.chats] = []
         } catch {
             failure = (error as? APIError)?.displayMessage
+        }
+    }
+}
+
+/// Круглая стеклянная кнопка шапки с подписью снизу.
+private struct ChatInfoActionButton: View {
+    let title: String
+    let symbol: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ChatInfoActionLabel(title: title, symbol: symbol)
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+    }
+}
+
+private struct ChatInfoActionLabel: View {
+    let title: String
+    let symbol: String
+
+    @ScaledMetric(relativeTo: .body) private var size: CGFloat = 52
+
+    var body: some View {
+        VStack(spacing: Spacing.sm) {
+            Image(systemName: symbol)
+                .font(.title3.weight(.medium))
+                .foregroundStyle(Palette.primary)
+                .frame(width: min(size, 72), height: min(size, 72))
+                .glassSurface(in: Circle())
+            Text(title)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(Palette.primary)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(title))
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// Поиск по сообщениям этого чата. Выбранное открывается в переписке.
+private struct ChatInfoSearchSheet: View {
+    let chatID: String
+    let pick: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+    @State private var results: [ChatMessageDTO] = []
+    @State private var isSearching = false
+    @State private var failure: String?
+    private let api: ChatActing = ChatsAPI()
+
+    private var trimmed: String { query.trimmingCharacters(in: .whitespaces) }
+
+    var body: some View {
+        NavigationStack {
+            List(results, id: \.id) { message in
+                Button {
+                    pick(message.id)
+                    dismiss()
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(message.sender?.name ?? "")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Palette.foreground)
+                                .lineLimit(1)
+                            Spacer(minLength: Spacing.md)
+                            Text(ChatMoment.short(message.createdAt))
+                                .font(Typography.tabular(.footnote))
+                                .foregroundStyle(Palette.mutedForeground)
+                        }
+                        Text(message.content)
+                            .font(.subheadline)
+                            .foregroundStyle(Palette.mutedForeground)
+                            .lineLimit(2)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
+            .listStyle(.plain)
+            .overlay {
+                if results.isEmpty {
+                    if isSearching {
+                        ProgressView()
+                    } else if let failure {
+                        ContentUnavailableView(failure, systemImage: "exclamationmark.triangle")
+                    } else if trimmed.count >= 2 {
+                        ContentUnavailableView.search(text: trimmed)
+                    } else {
+                        ContentUnavailableView(
+                            String(localized: "chats.info.search.hint", defaultValue: "Найдите сообщение в этом чате"),
+                            systemImage: "magnifyingglass"
+                        )
+                    }
+                }
+            }
+            .searchable(
+                text: $query,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: Text(String(localized: "chats.info.search.prompt", defaultValue: "Поиск сообщений"))
+            )
+            .navigationTitle(Text(String(localized: "chats.info.search.title", defaultValue: "Поиск в чате")))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    SheetCloseButton { dismiss() }
+                }
+            }
+            .task(id: trimmed) { await search() }
+        }
+    }
+
+    private func search() async {
+        guard trimmed.count >= 2 else {
+            results = []
+            failure = nil
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(300))
+        guard !Task.isCancelled else { return }
+        isSearching = true
+        defer { isSearching = false }
+        do {
+            results = try await api.searchMessages(String(trimmed.prefix(100)), chatID: chatID)
+            failure = nil
+        } catch {
+            results = []
+            failure = error.userMessage
         }
     }
 }

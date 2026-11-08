@@ -26,11 +26,14 @@ enum MessageAction {
     case openPost(String)
 }
 
-/// Пузырь сообщения.
+/// Пузырь сообщения в духе Telegram.
 ///
-/// Своё справа и синим, чужое слева и на карточке — различение по положению и цвету,
-/// как во всех мессенджерах. В группе у чужих — имя автора у первого сообщения группы
-/// и аватар у последнего.
+/// Своё справа и фирменным синим, чужое слева на светлой (в тёмной теме — серой)
+/// подложке. Хвостик — только у последнего сообщения подряд идущей группы, углы между
+/// сообщениями группы со стороны автора — малые. Время, «изм.» и галочки — внутри
+/// пузыря в правом нижнем углу: если в последней строке текста хватает места, они
+/// встают в неё, иначе уходят на свою строку. В группе у чужих — имя автора у первого
+/// сообщения и аватар у последнего.
 struct MessageBubbleView: View {
     let item: MessageTimeline.Item
     var context = BubbleContext()
@@ -38,6 +41,8 @@ struct MessageBubbleView: View {
     var onAction: (MessageAction) -> Void = { _ in }
 
     @State private var reactionTick = 0
+    @Environment(\.colorScheme) private var scheme
+    @ScaledMetric(relativeTo: .body) private var avatarSize: CGFloat = 32
 
     private var message: MessageRecord { item.message }
     private var extras: MessageExtras { message.extras ?? MessageExtras() }
@@ -48,44 +53,49 @@ struct MessageBubbleView: View {
         if message.systemType != nil {
             SystemMessageView(text: SystemMessageText.text(for: message))
         } else {
-            VStack(alignment: item.isOwn ? .trailing : .leading, spacing: Spacing.xs) {
-                HStack(alignment: .bottom, spacing: Spacing.md) {
-                    if item.isOwn { Spacer(minLength: Spacing.xxl * 2) }
-                    if showsAvatarColumn {
-                        Group {
-                            if item.isLastInGroup {
-                                AvatarView(url: message.senderAvatar, name: message.senderName, size: 30)
-                            } else {
-                                Color.clear
-                            }
+            HStack(alignment: .bottom, spacing: Spacing.xs) {
+                if item.isOwn { Spacer(minLength: Spacing.xxl * 2) }
+                if showsAvatarColumn {
+                    Group {
+                        if item.isLastInGroup {
+                            AvatarView(url: message.senderAvatar, name: message.senderName, size: min(avatarSize, 44))
+                        } else {
+                            Color.clear
                         }
-                        .frame(width: 30, height: 30)
                     }
-                    bubble
-                        .contextMenu { menu }
-                        .onTapGesture(count: 2) {
-                            guard !isDeleted, message.remoteId != nil else { return }
-                            reactionTick += 1
-                            onAction(.react(ChatReactions.doubleTap))
-                        }
-                        .sensoryFeedback(.impact(weight: .light), trigger: reactionTick)
-                    if !item.isOwn { Spacer(minLength: Spacing.xxl * 2) }
+                    .frame(width: min(avatarSize, 44), height: min(avatarSize, 44))
+                    .accessibilityHidden(true)
                 }
-                if !extras.reactions.isEmpty, !isDeleted {
-                    reactionsRow
-                        .padding(.leading, showsAvatarColumn ? 30 + Spacing.md : 0)
-                }
+                bubble
+                    .contentShape(.contextMenuPreview, shape)
+                    .contextMenu { menu }
+                    .onTapGesture(count: 2) {
+                        guard !isDeleted, message.remoteId != nil else { return }
+                        reactionTick += 1
+                        onAction(.react(ChatReactions.doubleTap))
+                    }
+                    .sensoryFeedback(.impact(weight: .light), trigger: reactionTick)
+                if !item.isOwn { Spacer(minLength: Spacing.xxl * 2) }
             }
         }
     }
 
     // MARK: Пузырь
 
+    private var shape: ChatBubbleShape {
+        ChatBubbleShape(
+            isOwn: item.isOwn,
+            hasTail: item.isLastInGroup,
+            joinsAbove: !item.isFirstInGroup,
+            joinsBelow: !item.isLastInGroup
+        )
+    }
+
     private var bubble: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
+        ChatBubbleStack(spacing: Spacing.xs) {
             if context.isGroup, !item.isOwn, item.isFirstInGroup, let name = message.senderName, !name.isEmpty {
                 Text(name)
-                    .font(Typography.meta.weight(.semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(SenderColor.color(for: message.senderId))
                     .lineLimit(1)
             }
@@ -96,10 +106,10 @@ struct MessageBubbleView: View {
                         String(localized: "chats.forwardedFrom", defaultValue: "Переслано от \($0)")
                     } ?? String(localized: "chats.forwarded", defaultValue: "Пересланное сообщение"))
                 } icon: {
-                    Image(systemName: "arrowshape.turn.up.right")
+                    Image(systemName: "arrowshape.turn.up.right.fill")
                 }
-                .font(Typography.meta.italic())
-                .foregroundStyle(metaColor)
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(item.isOwn ? Palette.primaryForeground : Palette.primary)
                 .lineLimit(1)
             }
 
@@ -114,6 +124,7 @@ struct MessageBubbleView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .layoutValue(key: ChatStretches.self, value: true)
             }
 
             if !isDeleted {
@@ -122,65 +133,166 @@ struct MessageBubbleView: View {
                 }
                 if let post = extras.sharedPost {
                     SharedPostCard(post: post, isOwn: item.isOwn) { onAction(.openPost(post.id)) }
+                        .layoutValue(key: ChatStretches.self, value: true)
                 }
                 if let story = extras.sharedStory {
                     SharedStoryCard(story: story, isOwn: item.isOwn)
+                        .layoutValue(key: ChatStretches.self, value: true)
                 }
                 if let poll = extras.poll {
                     ChatPollView(poll: poll, isOwn: item.isOwn)
                 }
             }
 
-            // Подпись к вложению может быть пустой — тогда и строки нет.
-            if !message.content.isEmpty || (item.attachments.isEmpty && extras.poll == nil && extras.sharedPost == nil) {
-                Text(isDeleted ? AttributedString(deletedText) : RichText.attributed(message.content))
-                    .font(Typography.body)
-                    .foregroundStyle(textColor)
-                    .tint(item.isOwn ? Palette.primaryForeground : Palette.primary)
-                    .italic(isDeleted)
-                    .fixedSize(horizontal: false, vertical: true)
+            if hasText {
+                textBlock
             }
 
             if let preview = extras.linkPreview, !isDeleted {
                 LinkPreviewCard(preview: preview, isOwn: item.isOwn)
+                    .layoutValue(key: ChatStretches.self, value: true)
             }
 
-            HStack(spacing: Spacing.xs) {
-                if message.pinnedAt != nil, !isDeleted {
-                    Image(systemName: "pin.fill")
-                        .accessibilityLabel(Text(String(localized: "chats.pinnedMessage", defaultValue: "Закреплено")))
+            // Место под время: строкой реакций или отдельной строкой, если текста
+            // нет или он не последний в пузыре.
+            if showsReactions {
+                HStack(alignment: .bottom, spacing: Spacing.md) {
+                    reactions
+                    meta(metaColor).hidden()
                 }
-                if message.editedAt != nil, !isDeleted {
-                    Text(String(localized: "chats.edited", defaultValue: "изм."))
-                }
-                Text(message.createdAt.formatted(date: .omitted, time: .shortened))
-                    .font(Typography.tabular(Typography.meta))
-                if item.isOwn {
-                    stateMark
-                }
+            } else if !textCarriesMeta, !isMediaOnly {
+                meta(metaColor).hidden()
             }
-            .font(Typography.meta)
-            .foregroundStyle(metaColor)
-            .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .padding(.horizontal, Spacing.lg)
-        .padding(.vertical, Spacing.md)
-        .background(background, in: BubbleShape(isOwn: item.isOwn, hasTail: item.isLastInGroup))
-        .contentShape(BubbleShape(isOwn: item.isOwn, hasTail: item.isLastInGroup))
         .overlay(alignment: .bottomTrailing) {
+            if isMediaOnly {
+                meta(Palette.primaryForeground)
+                    .padding(.horizontal, Spacing.sm)
+                    .padding(.vertical, 2)
+                    .background(Palette.overlay.opacity(0.45), in: Capsule())
+                    .padding(Spacing.sm)
+            } else {
+                meta(metaColor)
+            }
+        }
+        .padding(.leading, padding(leading: true))
+        .padding(.trailing, padding(leading: false))
+        .padding(.vertical, isMediaOnly ? 3 : Spacing.sm)
+        .background {
+            shape
+                .fill(background)
+                .shadow(
+                    color: Palette.overlay.opacity(item.isOwn || scheme == .dark ? 0 : 0.10),
+                    radius: 0.6,
+                    x: 0,
+                    y: 0.6
+                )
+        }
+        .contentShape(shape)
+        .overlay(alignment: item.isOwn ? .bottomLeading : .bottomTrailing) {
             if message.sendState == .failed {
                 Button {
                     onAction(.retry)
                 } label: {
-                    Image(systemName: "arrow.clockwise.circle.fill")
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.title3)
                         .foregroundStyle(Palette.destructive)
                 }
                 .buttonStyle(.plain)
-                .offset(x: Spacing.lg, y: 0)
+                .offset(x: item.isOwn ? -(Spacing.xxl + Spacing.xs) : Spacing.xxl + Spacing.xs)
                 .accessibilityLabel(Text(String(localized: "chats.retrySend", defaultValue: "Отправить ещё раз")))
             }
         }
         .accessibilityElement(children: .combine)
+    }
+
+    /// Отступ содержимого: со стороны хвостика — плюс его ширина. Хвостик рисуется
+    /// внутри рамки пузыря у всех сообщений группы, поэтому края пузырей совпадают.
+    private func padding(leading: Bool) -> CGFloat {
+        let base: CGFloat = isMediaOnly ? 3 : Spacing.lg
+        let tailSide = leading ? !item.isOwn : item.isOwn
+        return base + (tailSide ? ChatBubbleShape.tailWidth : 0)
+    }
+
+    // MARK: Текст и время
+
+    /// Текстовая строка есть, если есть текст, сообщение удалено или в нём вообще
+    /// ничего другого нет. Подпись к вложению может быть пустой — тогда и строки нет.
+    private var hasText: Bool {
+        isDeleted || !message.content.isEmpty
+            || (item.attachments.isEmpty && extras.poll == nil && extras.sharedPost == nil && extras.sharedStory == nil)
+    }
+
+    private var showsReactions: Bool { !extras.reactions.isEmpty && !isDeleted }
+
+    /// Время встаёт в последнюю строку текста, если текст — последний в пузыре.
+    private var textCarriesMeta: Bool {
+        hasText && !showsReactions && (extras.linkPreview == nil || isDeleted)
+    }
+
+    /// Только фото без подписи — время поверх снимка, в тёмной капсуле.
+    private var isMediaOnly: Bool {
+        !isDeleted && !hasText && !showsReactions && !item.attachments.isEmpty
+            && item.attachments.allSatisfy(\.isImage)
+            && extras.poll == nil && extras.sharedPost == nil && extras.sharedStory == nil
+            && extras.linkPreview == nil && message.replyToId == nil && !extras.isForwarded
+            && !(context.isGroup && !item.isOwn && item.isFirstInGroup)
+    }
+
+    private var textBlock: some View {
+        let body = Text(isDeleted ? AttributedString(deletedText) : RichText.attributed(message.content))
+            .font(Typography.body)
+        let line = textCarriesMeta ? body + metaPlaceholder : body
+        return line
+            .foregroundStyle(textColor)
+            .tint(item.isOwn ? Palette.primaryForeground : Palette.primary)
+            .italic(isDeleted)
+            .fixedSize(horizontal: false, vertical: true)
+            // Невидимую копию времени VoiceOver прочитал бы второй раз.
+            .accessibilityLabel(Text(isDeleted ? deletedText : message.content))
+    }
+
+    private var time: String {
+        message.createdAt.formatted(date: .omitted, time: .shortened)
+    }
+
+    /// Время, «изм.», булавка и галочки.
+    private func meta(_ color: Color) -> some View {
+        HStack(spacing: 3) {
+            if message.pinnedAt != nil, !isDeleted {
+                Image(systemName: "pin.fill")
+                    .accessibilityLabel(Text(String(localized: "chats.pinnedMessage", defaultValue: "Закреплено")))
+            }
+            if message.editedAt != nil, !isDeleted {
+                Text(String(localized: "chats.edited", defaultValue: "изм."))
+            }
+            Text(verbatim: time)
+            if item.isOwn {
+                stateMark
+            }
+        }
+        .font(Typography.tabular(.caption2))
+        .foregroundStyle(color)
+        .fixedSize()
+    }
+
+    /// Невидимая копия подписи времени в конце текста: она держит место, куда сверху
+    /// ложится настоящая. Так время встаёт в последнюю строку, если там есть место.
+    private var metaPlaceholder: Text {
+        var text = Text(verbatim: "\u{2002}")
+        if message.pinnedAt != nil, !isDeleted {
+            text = text + Text(Image(systemName: "pin.fill")) + Text(verbatim: " ")
+        }
+        if message.editedAt != nil, !isDeleted {
+            text = text + Text(String(localized: "chats.edited", defaultValue: "изм.")) + Text(verbatim: " ")
+        }
+        text = text + Text(verbatim: time)
+        if item.isOwn {
+            text = text + Text(verbatim: " ") + Text(Image(systemName: "checkmark")) + Text(Image(systemName: "checkmark"))
+        }
+        return text
+            .font(Typography.tabular(.caption2))
+            .foregroundStyle(Color.clear)
     }
 
     // MARK: Меню
@@ -255,34 +367,48 @@ struct MessageBubbleView: View {
 
     // MARK: Реакции
 
-    private var reactionsRow: some View {
-        HStack(spacing: Spacing.xs) {
+    /// Реакции внутри пузыря, над временем, как в Telegram. Своя — залитая капсула.
+    private var reactions: some View {
+        ChatFlowLayout(spacing: Spacing.xs) {
             ForEach(extras.reactions, id: \.emoji) { group in
                 let mine = group.userIds.contains(context.viewerID)
                 Button {
                     reactionTick += 1
                     onAction(.react(group.emoji))
                 } label: {
-                    HStack(spacing: 2) {
+                    HStack(spacing: 3) {
                         Text(verbatim: group.emoji)
                         if group.userIds.count > 1 {
-                            Text(verbatim: String(group.userIds.count))
-                                .font(Typography.tabular(.caption))
+                            Text(verbatim: group.userIds.count.formatted())
+                                .font(Typography.tabular(.footnote).weight(.semibold))
                         }
                     }
                     .padding(.horizontal, Spacing.md)
                     .padding(.vertical, 3)
-                    .background(mine ? Palette.primary.opacity(0.18) : Palette.muted, in: Capsule())
-                    .overlay(Capsule().strokeBorder(mine ? Palette.primary : .clear, lineWidth: 1))
-                    .foregroundStyle(Palette.foreground)
+                    .foregroundStyle(reactionForeground(mine: mine))
+                    .background(reactionBackground(mine: mine), in: Capsule())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text(verbatim: group.emoji))
-                .accessibilityValue(Text(verbatim: String(group.userIds.count)))
+                .accessibilityValue(Text(verbatim: group.userIds.count.formatted()))
                 .accessibilityAddTraits(mine ? .isSelected : [])
             }
         }
-        .font(.footnote)
+        .font(.subheadline)
+    }
+
+    private func reactionBackground(mine: Bool) -> Color {
+        if item.isOwn {
+            return mine ? Palette.primaryForeground : Palette.primaryForeground.opacity(0.22)
+        }
+        return mine ? Palette.primary : Palette.primary.opacity(0.12)
+    }
+
+    private func reactionForeground(mine: Bool) -> Color {
+        if item.isOwn {
+            return mine ? Palette.primary : Palette.primaryForeground
+        }
+        return mine ? Palette.primaryForeground : Palette.primary
     }
 
     // MARK: Оформление
@@ -292,23 +418,19 @@ struct MessageBubbleView: View {
     }
 
     /// Состояние своей отправки: часы, одна галочка — доставлено, две — прочитано.
+    /// Прочтение известно только в личном чате: для групп сервер не говорит, кто
+    /// именно дочитал.
     @ViewBuilder
     private var stateMark: some View {
         switch message.sendState {
         case .sent:
-            if let readAt = context.othersReadAt, readAt >= message.createdAt, !context.isGroup {
-                Image(systemName: "checkmark.circle.fill")
-                    .accessibilityLabel(Text(String(localized: "chats.read", defaultValue: "Прочитано")))
-            } else {
-                Image(systemName: "checkmark")
-                    .accessibilityLabel(Text(String(localized: "chats.sent", defaultValue: "Отправлено")))
-            }
+            ChatReadChecks(isRead: !context.isGroup && (context.othersReadAt.map { $0 >= message.createdAt } ?? false))
         case .pending:
             Image(systemName: "clock")
                 .accessibilityLabel(Text(String(localized: "chats.sending", defaultValue: "Отправляется")))
         case .failed:
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(Palette.destructive)
+            Image(systemName: "exclamationmark.circle.fill")
+                .foregroundStyle(item.isOwn ? Palette.primaryForeground : Palette.destructive)
                 .accessibilityLabel(Text(String(localized: "chats.sendFailed", defaultValue: "Не отправлено")))
         }
     }
@@ -327,25 +449,91 @@ struct MessageBubbleView: View {
     }
 }
 
-/// Форма пузыря: скругление системы, у последнего в группе — меньший угол со стороны
-/// автора, как «хвостик». Без рисованного хвоста: он спорит со стеклом iOS 26.
-struct BubbleShape: Shape {
+/// Форма пузыря как в Telegram: крупное скругление, у последнего сообщения группы —
+/// хвостик со стороны автора, между сообщениями группы со стороны автора — малые углы.
+///
+/// Хвостик занимает полосу `tailWidth` внутри рамки у всех пузырей (с хвостом или без),
+/// поэтому их края в группе стоят ровно. Путь строится для своего сообщения (хвост
+/// справа) и зеркалится для чужого.
+struct ChatBubbleShape: Shape {
     let isOwn: Bool
     let hasTail: Bool
+    var joinsAbove = false
+    var joinsBelow = false
+
+    static let tailWidth: CGFloat = 6
+    static let radius: CGFloat = 18
+    static let joinedRadius: CGFloat = 6
 
     func path(in rect: CGRect) -> Path {
-        let big = Radius.xxl
-        let small = hasTail ? Radius.sm : big
-        return Path(
-            roundedRect: rect,
-            cornerRadii: RectangleCornerRadii(
-                topLeading: big,
-                bottomLeading: isOwn ? big : small,
-                bottomTrailing: isOwn ? small : big,
-                topTrailing: big
-            ),
-            style: .continuous
+        let width = rect.width
+        let height = rect.height
+        let body = width - Self.tailWidth
+        let radius = max(0, min(Self.radius, height / 2, body / 2))
+        let small = min(Self.joinedRadius, radius)
+        let top = joinsAbove ? small : radius
+        let bottom = joinsBelow ? small : radius
+
+        var path = Path()
+        path.move(to: CGPoint(x: radius, y: 0))
+        path.addLine(to: CGPoint(x: body - top, y: 0))
+        path.addArc(
+            center: CGPoint(x: body - top, y: top),
+            radius: top,
+            startAngle: .degrees(-90),
+            endAngle: .degrees(0),
+            clockwise: false
         )
+        if hasTail {
+            // Бок уходит вниз и загибается в острый кончик за краем тела, обратно —
+            // через небольшую выемку, как у хвостика в Telegram.
+            path.addLine(to: CGPoint(x: body, y: max(top, height - 14)))
+            path.addCurve(
+                to: CGPoint(x: width, y: height),
+                control1: CGPoint(x: body, y: height - 4),
+                control2: CGPoint(x: width - 1.5, y: height - 0.5)
+            )
+            path.addCurve(
+                to: CGPoint(x: body - 8, y: height - 2.5),
+                control1: CGPoint(x: width - 4.5, y: height),
+                control2: CGPoint(x: body - 4.5, y: height - 0.8)
+            )
+            path.addQuadCurve(
+                to: CGPoint(x: max(radius, body - 16), y: height),
+                control: CGPoint(x: body - 11, y: height)
+            )
+        } else {
+            path.addLine(to: CGPoint(x: body, y: height - bottom))
+            path.addArc(
+                center: CGPoint(x: body - bottom, y: height - bottom),
+                radius: bottom,
+                startAngle: .degrees(0),
+                endAngle: .degrees(90),
+                clockwise: false
+            )
+        }
+        path.addLine(to: CGPoint(x: radius, y: height))
+        path.addArc(
+            center: CGPoint(x: radius, y: height - radius),
+            radius: radius,
+            startAngle: .degrees(90),
+            endAngle: .degrees(180),
+            clockwise: false
+        )
+        path.addLine(to: CGPoint(x: 0, y: radius))
+        path.addArc(
+            center: CGPoint(x: radius, y: radius),
+            radius: radius,
+            startAngle: .degrees(180),
+            endAngle: .degrees(270),
+            clockwise: false
+        )
+        path.closeSubpath()
+
+        let transform = isOwn
+            ? CGAffineTransform(translationX: rect.minX, y: rect.minY)
+            : CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: rect.maxX, ty: rect.minY)
+        return path.applying(transform)
     }
 }
 
@@ -361,7 +549,8 @@ enum SenderColor {
     }
 }
 
-/// Цитата над текстом: полоска, автор и усечённый фрагмент.
+/// Цитата над текстом, как в Telegram: тонированная плашка с полоской слева, автор
+/// и фрагмент.
 private struct ReplyQuoteView: View {
     let author: String?
     let text: String?
@@ -369,26 +558,34 @@ private struct ReplyQuoteView: View {
 
     var body: some View {
         HStack(spacing: Spacing.md) {
-            Rectangle()
-                .fill(isOwn ? Palette.primaryForeground.opacity(0.6) : Palette.primary)
-                .frame(width: 2)
+            Capsule()
+                .fill(isOwn ? Palette.primaryForeground : Palette.primary)
+                .frame(width: 3)
             VStack(alignment: .leading, spacing: 0) {
                 if let author, !author.isEmpty {
                     Text(author)
-                        .font(Typography.meta.weight(.semibold))
+                        .font(.footnote.weight(.semibold))
                         .foregroundStyle(isOwn ? Palette.primaryForeground : Palette.primary)
                         .lineLimit(1)
                 }
                 Text(text?.isEmpty == false
                     ? text!
                     : String(localized: "chats.deletedMessage", defaultValue: "Сообщение удалено"))
-                    .font(Typography.meta)
+                    .font(.footnote)
                     .lineLimit(2)
-                    .foregroundStyle(isOwn ? Palette.primaryForeground.opacity(0.85) : Palette.mutedForeground)
+                    .foregroundStyle(isOwn ? Palette.primaryForeground.opacity(0.9) : Palette.foreground)
             }
+            Spacer(minLength: 0)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, Spacing.xs)
+        .padding(.trailing, Spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            (isOwn ? Palette.primaryForeground.opacity(0.18) : Palette.primary.opacity(0.1)),
+            in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+        .accessibilityElement(children: .combine)
         .accessibilityHint(Text(String(localized: "chats.reply.jump", defaultValue: "Перейти к сообщению")))
     }
 }
@@ -550,12 +747,12 @@ private struct SystemMessageView: View {
 
     var body: some View {
         Text(text)
-            .font(Typography.meta)
-            .foregroundStyle(Palette.mutedForeground)
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(Palette.foreground)
             .multilineTextAlignment(.center)
             .padding(.horizontal, Spacing.lg)
             .padding(.vertical, Spacing.xs)
-            .background(Palette.muted.opacity(0.7), in: Capsule())
+            .chatCapsuleSurface()
             .frame(maxWidth: .infinity)
             .padding(.vertical, Spacing.sm)
     }

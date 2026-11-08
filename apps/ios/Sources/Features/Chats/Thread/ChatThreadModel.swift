@@ -34,6 +34,8 @@ final class ChatThreadModel {
     private(set) var focus: MessageFocus?
     /// Неудавшееся действие над сообщением — показывается и закрывается.
     var actionFailure: String?
+    /// Собеседник личного чата — для статуса в шапке («был(а) недавно»).
+    private(set) var peer: ChatMemberDTO?
 
     private let viewerID: String
     private let database: AppDatabase
@@ -360,11 +362,41 @@ final class ChatThreadModel {
         }
     }
 
-    /// Собеседник личного чата — автор любого чужого сообщения. Идентификатора
-    /// собеседника в строке списка нет, а для онлайна нужен именно он.
+    /// Собеседник личного чата: из списка участников, а пока его нет — автор любого
+    /// чужого сообщения. Идентификатора собеседника в строке списка нет, а для онлайна
+    /// нужен именно он.
     var peerID: String? {
         guard chat?.kind == .private else { return nil }
+        if let peer { return peer.id }
         return messages.first { $0.senderId != viewerID && $0.systemType == nil }?.senderId
+    }
+
+    /// Участники личного чата — ради собеседника: время «был(а)» приходит только так.
+    /// У групп список не берём: он может быть на сотни человек, а шапке хватает числа.
+    @MainActor
+    func loadPeer() async {
+        let id = chatID
+        var kind = chat?.kind
+        if kind == nil {
+            kind = try? await database.reader.read { db in try ChatRecord.fetchOne(db, key: id)?.kind }
+        }
+        guard kind == .private, let list = try? await actions.members(chatID: chatID) else { return }
+        peer = list.first { $0.id != viewerID }
+    }
+
+    /// Дата сообщения, к которому лента открылась (первое непрочитанное).
+    var openingAnchorDate: Date? {
+        guard let openingAnchor else { return nil }
+        return messages.first { $0.id == openingAnchor }?.createdAt
+    }
+
+    /// Сколько чужих сообщений пришло позже отметки — счётчик на кнопке «вниз».
+    func unseenCount(after cutoff: Date) -> Int {
+        messages.reduce(0) { count, message in
+            let counts = message.senderId != viewerID && message.systemType == nil
+                && message.deletedAt == nil && message.createdAt > cutoff
+            return count + (counts ? 1 : 0)
+        }
     }
 
     var isPeerOnline: Bool {
