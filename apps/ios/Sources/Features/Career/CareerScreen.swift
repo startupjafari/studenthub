@@ -24,6 +24,8 @@ enum CareerScreen: Hashable {
     case access
     case team
     case companyProfile
+    /// Резюме так, как его видят по публичной ссылке (`/r/resume/[slug]`).
+    case publicResume(slug: String)
 
     var title: String {
         switch self {
@@ -46,6 +48,7 @@ enum CareerScreen: Hashable {
         case .access: return String(localized: "career.screen.access", defaultValue: "Доступ к вузам")
         case .team: return String(localized: "career.screen.team", defaultValue: "Команда")
         case .companyProfile: return String(localized: "career.screen.companyProfile", defaultValue: "Профиль компании")
+        case .publicResume: return String(localized: "career.screen.resume", defaultValue: "Резюме")
         }
     }
 
@@ -70,12 +73,34 @@ enum CareerScreen: Hashable {
         case .access: return "graduationcap"
         case .team: return "person.badge.plus"
         case .companyProfile: return "building.2"
+        case .publicResume: return "doc.richtext"
         }
     }
 
     @MainActor @ViewBuilder
     var destination: some View {
-        PendingScreen(title: title, symbol: symbol)
+        switch self {
+        case .home: CareerHomeView()
+        case .vacancies: CareerVacanciesView()
+        case .vacancy(let id): CareerVacancyView(id: id)
+        case .applications: CareerApplicationsView()
+        case .profile: CareerProfileView()
+        case .resume: CareerResumeView()
+        case .events: CareerEventsView()
+        case .companies: CareerCompaniesView()
+        case .company(let id): CareerCompanyView(id: id)
+        case .vacancyReview: CareerVacancyReviewView()
+        case .analytics: CareerAnalyticsView()
+        case .employerHome: CareerEmployerHomeView()
+        case .employerVacancies: CareerEmployerVacanciesView()
+        case .employerVacancy(let id): CareerEmployerVacancyView(id: id)
+        case .candidates: CareerCandidatesView()
+        case .candidate(let id): CareerCandidateView(id: id)
+        case .access: CareerAccessView()
+        case .team: CareerTeamView()
+        case .companyProfile: CareerCompanyProfileView()
+        case .publicResume(let slug): CareerPublicResumeView(slug: slug)
+        }
     }
 
     /// Карьерные разделы учебной роли (`careerNavFor` в вебе).
@@ -94,13 +119,21 @@ enum CareerScreen: Hashable {
         return cases.map { WorkspaceItem(title: $0.title, symbol: $0.symbol, tint: TileTint.purple, route: .career($0)) }
     }
 
-    /// «Разделы» работодателя.
+    /// «Разделы» работодателя. Своего вуза у него нет: студентов он видит только в вузах,
+    /// одобривших заявку компании, поэтому «Доступ к вузам» стоит рядом с кандидатами.
     static var employerWorkspace: [WorkspaceGroup] {
-        [
+        let hints: [CareerScreen: String] = [
+            .employerVacancies: String(localized: "career.hint.vacancies", defaultValue: "Создание, публикация и решения вузов"),
+            .candidates: String(localized: "career.hint.candidates", defaultValue: "Отклики на вакансии и карточки студентов"),
+            .access: String(localized: "career.hint.access", defaultValue: "Заявки в университеты и их статусы"),
+            .team: String(localized: "career.hint.team", defaultValue: "Коллеги и приглашения"),
+            .companyProfile: String(localized: "career.hint.company", defaultValue: "То, что видят студенты"),
+        ]
+        return [
             WorkspaceGroup(
                 title: String(localized: "career.group.employer", defaultValue: "Кабинет"),
                 items: [CareerScreen.employerVacancies, .candidates, .access, .team, .companyProfile].map {
-                    WorkspaceItem(title: $0.title, symbol: $0.symbol, tint: TileTint.purple, route: .career($0))
+                    WorkspaceItem(title: $0.title, symbol: $0.symbol, tint: TileTint.purple, hint: hints[$0], route: .career($0))
                 }
             ),
         ]

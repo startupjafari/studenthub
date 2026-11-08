@@ -1,0 +1,489 @@
+import SwiftUI
+
+// Саморегистрация работодателя — единственный путь на платформу без инвайта вуза. Всё здесь
+// происходит до входа: регистрация компании, подтверждение почты по ссылке из письма,
+// повторное письмо и вступление в команду компании по приглашению коллеги.
+
+/// Лист «Я работодатель» с экрана входа.
+struct CareerSignupSheet: View {
+    let session: AppSessionModel
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var resending = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    VStack(alignment: .leading, spacing: Spacing.sm) {
+                        Text(String(localized: "career.signup.slogan", defaultValue: "Студенты и выпускники — напрямую из вузов"))
+                            .font(Typography.sectionTitle)
+                            .foregroundStyle(Palette.foreground)
+                        Text(String(
+                            localized: "career.signup.brand",
+                            defaultValue: "Вы публикуете вакансии и стажировки, а университеты открывают компании доступ к своим студентам."
+                        ))
+                        .font(Typography.meta)
+                        .foregroundStyle(Palette.mutedForeground)
+                    }
+                    .padding(.vertical, Spacing.xs)
+                }
+                .listRowBackground(Palette.card)
+
+                Section {
+                    NavigationLink {
+                        CareerSignupForm()
+                    } label: {
+                        IconRow(
+                            title: String(localized: "career.signup.title", defaultValue: "Регистрация работодателя"),
+                            symbol: "building.2",
+                            tint: TileTint.purple,
+                            subtitle: String(localized: "career.signup.subtitle", defaultValue: "Создайте аккаунт компании и подайте заявку в университет")
+                        )
+                    }
+                    NavigationLink {
+                        CareerJoinView(session: session) { dismiss() }
+                    } label: {
+                        IconRow(
+                            title: String(localized: "career.signup.join", defaultValue: "У меня приглашение в команду"),
+                            symbol: "person.badge.plus",
+                            tint: TileTint.blue,
+                            subtitle: String(localized: "career.signup.joinHint", defaultValue: "Коллега пригласил вас в компанию по почте")
+                        )
+                    }
+                    NavigationLink {
+                        CareerVerifyView()
+                    } label: {
+                        IconRow(
+                            title: String(localized: "career.signup.verify", defaultValue: "Подтвердить email"),
+                            symbol: "envelope.badge",
+                            tint: TileTint.green,
+                            subtitle: String(localized: "career.signup.verifyHint", defaultValue: "По ссылке из письма после регистрации")
+                        )
+                    }
+                    Button {
+                        resending = true
+                    } label: {
+                        IconRow(
+                            title: String(localized: "career.signup.resend", defaultValue: "Отправить письмо ещё раз"),
+                            symbol: "arrow.clockwise",
+                            tint: TileTint.orange
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+                .listRowBackground(Palette.card)
+            }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(Palette.background)
+            .navigationTitle(Text(String(localized: "career.signup.employer", defaultValue: "Работодателям")))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                }
+            }
+            .sheet(isPresented: $resending) {
+                CareerResendForm(lookUpEmail: false)
+            }
+        }
+    }
+}
+
+/// Пароль по политике платформы (`PasswordSchema`): 8+ символов, буква, цифра, спецсимвол.
+private func careerPasswordProblem(_ password: String) -> String? {
+    if password.count < 8 {
+        return String(localized: "career.signup.passwordShort", defaultValue: "Пароль — не короче 8 символов")
+    }
+    if !password.contains(where: \.isLetter) {
+        return String(localized: "career.signup.passwordLetter", defaultValue: "В пароле нужна буква")
+    }
+    if !password.contains(where: \.isNumber) {
+        return String(localized: "career.signup.passwordDigit", defaultValue: "В пароле нужна цифра")
+    }
+    if !password.contains(where: { !$0.isLetter && !$0.isNumber }) {
+        return String(localized: "career.signup.passwordSpecial", defaultValue: "В пароле нужен спецсимвол")
+    }
+    return nil
+}
+
+private func careerEmailValid(_ email: String) -> Bool {
+    let value = email.trimmingCharacters(in: .whitespaces)
+    guard let at = value.firstIndex(of: "@") else { return false }
+    return value[value.index(after: at)...].contains(".") && value.count <= 160
+}
+
+/// Токен из вставленной ссылки письма или сам токен.
+private func careerToken(from text: String) -> String {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let components = URLComponents(string: trimmed),
+       let token = components.queryItems?.first(where: { $0.name == "token" })?.value {
+        return token
+    }
+    return trimmed
+}
+
+// MARK: - Регистрация компании
+
+private struct CareerSignupForm: View {
+    @State private var companyName = ""
+    @State private var website = ""
+    @State private var firstName = ""
+    @State private var lastName = ""
+    @State private var email = ""
+    @State private var password = ""
+    @State private var failure: String?
+    @State private var busy = false
+    @State private var sentTo: String?
+
+    private var problem: String? {
+        if !(2...120).contains(companyName.trimmingCharacters(in: .whitespaces).count) {
+            return String(localized: "career.signup.errCompany", defaultValue: "Название — от 2 до 120 символов")
+        }
+        let site = website.trimmingCharacters(in: .whitespaces)
+        if !site.isEmpty, !(site.hasPrefix("http://") || site.hasPrefix("https://")) {
+            return String(localized: "career.signup.errWebsite", defaultValue: "Ссылка должна начинаться с http:// или https://")
+        }
+        if firstName.trimmingCharacters(in: .whitespaces).isEmpty {
+            return String(localized: "career.signup.errFirstName", defaultValue: "Укажите имя")
+        }
+        if lastName.trimmingCharacters(in: .whitespaces).isEmpty {
+            return String(localized: "career.signup.errLastName", defaultValue: "Укажите фамилию")
+        }
+        if !careerEmailValid(email) {
+            return String(localized: "career.signup.errEmail", defaultValue: "Введите корректный email")
+        }
+        return careerPasswordProblem(password)
+    }
+
+    var body: some View {
+        Form {
+            if let sentTo {
+                Section {
+                    CareerNotice(
+                        title: String(localized: "career.signup.sentTitle", defaultValue: "Проверьте почту"),
+                        text: String(
+                            localized: "career.signup.sentText",
+                            defaultValue: "Письмо со ссылкой подтверждения отправлено на \(sentTo). Ссылка действует сутки."
+                        ),
+                        symbol: "envelope.open",
+                        tint: Palette.success
+                    )
+                    NavigationLink {
+                        CareerVerifyView()
+                    } label: {
+                        Text(String(localized: "career.signup.verify", defaultValue: "Подтвердить email"))
+                    }
+                }
+                .listRowBackground(Palette.card)
+            } else {
+                if let failure {
+                    FormAlert(message: failure)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
+                Section {
+                    TextField(String(localized: "career.signup.company", defaultValue: "Название компании"), text: $companyName)
+                        .textContentType(.organizationName)
+                    TextField(String(localized: "career.signup.website", defaultValue: "Сайт (необязательно)"), text: $website)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+                .listRowBackground(Palette.card)
+                Section {
+                    TextField(String(localized: "career.signup.firstName", defaultValue: "Имя"), text: $firstName)
+                        .textContentType(.givenName)
+                    TextField(String(localized: "career.signup.lastName", defaultValue: "Фамилия"), text: $lastName)
+                        .textContentType(.familyName)
+                    TextField(String(localized: "career.signup.email", defaultValue: "Рабочий email"), text: $email)
+                        .keyboardType(.emailAddress)
+                        .textContentType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    SecureField(String(localized: "career.signup.password", defaultValue: "Пароль"), text: $password)
+                        .textContentType(.newPassword)
+                } footer: {
+                    Text(problem ?? String(
+                        localized: "career.signup.note",
+                        defaultValue: "После регистрации подтвердите email, затем подайте заявку в университет. Доступ к студентам открывает вуз."
+                    ))
+                }
+                .listRowBackground(Palette.card)
+                Section {
+                    Button {
+                        Task { await submit() }
+                    } label: {
+                        Text(String(localized: "career.signup.submit", defaultValue: "Создать аккаунт"))
+                    }
+                    .buttonStyle(PrimaryButtonStyle(isLoading: busy))
+                    .disabled(problem != nil || busy)
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Palette.background)
+        .navigationTitle(Text(String(localized: "career.signup.title", defaultValue: "Регистрация работодателя")))
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    @MainActor
+    private func submit() async {
+        busy = true
+        defer { busy = false }
+        let address = email.trimmingCharacters(in: .whitespaces).lowercased()
+        do {
+            try await CareerAPI().signup(CareerSignupInput(
+                email: address,
+                password: password,
+                firstName: firstName.trimmingCharacters(in: .whitespaces),
+                lastName: lastName.trimmingCharacters(in: .whitespaces),
+                companyName: companyName.trimmingCharacters(in: .whitespaces),
+                website: website.trimmingCharacters(in: .whitespaces)
+            ))
+            password = ""
+            failure = nil
+            sentTo = address
+        } catch {
+            failure = error.userMessage
+        }
+    }
+}
+
+// MARK: - Подтверждение почты
+
+private struct CareerVerifyView: View {
+    @State private var link = ""
+    @State private var failure: String?
+    @State private var busy = false
+    @State private var verified = false
+    @State private var resending = false
+
+    var body: some View {
+        Form {
+            if verified {
+                Section {
+                    CareerNotice(
+                        title: String(localized: "career.signup.verifiedTitle", defaultValue: "Email подтверждён"),
+                        text: String(localized: "career.signup.verifiedText", defaultValue: "Войдите в аккаунт и подайте заявку в университет."),
+                        symbol: "checkmark.seal",
+                        tint: Palette.success
+                    )
+                }
+                .listRowBackground(Palette.card)
+            } else {
+                if let failure {
+                    FormAlert(message: failure)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
+                Section {
+                    TextField(
+                        String(localized: "career.signup.linkPlaceholder", defaultValue: "Ссылка из письма или код"),
+                        text: $link,
+                        axis: .vertical
+                    )
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    if UIPasteboard.general.hasStrings {
+                        Button(String(localized: "career.signup.paste", defaultValue: "Вставить из буфера")) {
+                            link = UIPasteboard.general.string ?? link
+                        }
+                    }
+                } footer: {
+                    Text(String(
+                        localized: "career.signup.linkHint",
+                        defaultValue: "Откройте письмо, скопируйте ссылку подтверждения и вставьте её сюда."
+                    ))
+                }
+                .listRowBackground(Palette.card)
+                Section {
+                    Button {
+                        Task { await verify() }
+                    } label: {
+                        Text(String(localized: "career.signup.verify", defaultValue: "Подтвердить email"))
+                    }
+                    .buttonStyle(PrimaryButtonStyle(isLoading: busy))
+                    .disabled(careerToken(from: link).count < 16 || busy)
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+                Section {
+                    Button(String(localized: "career.signup.resend", defaultValue: "Отправить письмо ещё раз")) { resending = true }
+                }
+                .listRowBackground(Palette.card)
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Palette.background)
+        .navigationTitle(Text(String(localized: "career.signup.verify", defaultValue: "Подтвердить email")))
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $resending) {
+            CareerResendForm(lookUpEmail: false)
+        }
+    }
+
+    @MainActor
+    private func verify() async {
+        busy = true
+        defer { busy = false }
+        do {
+            try await CareerAPI().verifyEmail(token: careerToken(from: link))
+            verified = true
+        } catch {
+            failure = error.userMessage
+        }
+    }
+}
+
+// MARK: - Вступление в команду по приглашению
+
+private struct CareerJoinView: View {
+    let session: AppSessionModel
+    let joined: () -> Void
+
+    @State private var link = ""
+    @State private var token = ""
+    @State private var preview: CareerInvitePreview?
+    @State private var firstName = ""
+    @State private var lastName = ""
+    @State private var password = ""
+    @State private var failure: String?
+    @State private var busy = false
+
+    private var problem: String? {
+        if firstName.trimmingCharacters(in: .whitespaces).isEmpty {
+            return String(localized: "career.signup.errFirstName", defaultValue: "Укажите имя")
+        }
+        if lastName.trimmingCharacters(in: .whitespaces).isEmpty {
+            return String(localized: "career.signup.errLastName", defaultValue: "Укажите фамилию")
+        }
+        return careerPasswordProblem(password)
+    }
+
+    var body: some View {
+        Form {
+            if let failure {
+                FormAlert(message: failure)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+            }
+            if let preview {
+                Section {
+                    let company = preview.companyName
+                    let email = preview.email
+                    let until = DisplayFormat.dateTime(preview.expiresAt)
+                    CareerNotice(
+                        title: String(localized: "career.join.title", defaultValue: "Приглашение в команду «\(company)»"),
+                        text: String(
+                            localized: "career.join.subtitle",
+                            defaultValue: "Аккаунт будет создан на адрес \(email). Ссылка действует до \(until)."
+                        ),
+                        symbol: "person.badge.plus"
+                    )
+                }
+                .listRowBackground(Palette.card)
+                Section {
+                    TextField(String(localized: "career.signup.firstName", defaultValue: "Имя"), text: $firstName)
+                        .textContentType(.givenName)
+                    TextField(String(localized: "career.signup.lastName", defaultValue: "Фамилия"), text: $lastName)
+                        .textContentType(.familyName)
+                    SecureField(String(localized: "career.signup.password", defaultValue: "Пароль"), text: $password)
+                        .textContentType(.newPassword)
+                } footer: {
+                    Text(problem ?? String(
+                        localized: "career.join.note",
+                        defaultValue: "Почта и компания берутся из приглашения. Студентов вы увидите в тех университетах, куда у компании открыт доступ."
+                    ))
+                }
+                .listRowBackground(Palette.card)
+                Section {
+                    Button {
+                        Task { await accept() }
+                    } label: {
+                        Text(String(localized: "career.join.submit", defaultValue: "Присоединиться к команде"))
+                    }
+                    .buttonStyle(PrimaryButtonStyle(isLoading: busy))
+                    .disabled(problem != nil || busy)
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+            } else {
+                Section {
+                    TextField(
+                        String(localized: "career.signup.linkPlaceholder", defaultValue: "Ссылка из письма или код"),
+                        text: $link,
+                        axis: .vertical
+                    )
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    if UIPasteboard.general.hasStrings {
+                        Button(String(localized: "career.signup.paste", defaultValue: "Вставить из буфера")) {
+                            link = UIPasteboard.general.string ?? link
+                        }
+                    }
+                } footer: {
+                    Text(String(
+                        localized: "career.join.linkHint",
+                        defaultValue: "Скопируйте ссылку из письма-приглашения и вставьте её сюда."
+                    ))
+                }
+                .listRowBackground(Palette.card)
+                Section {
+                    Button {
+                        Task { await open() }
+                    } label: {
+                        Text(String(localized: "career.join.open", defaultValue: "Открыть приглашение"))
+                    }
+                    .buttonStyle(PrimaryButtonStyle(isLoading: busy))
+                    .disabled(careerToken(from: link).count < 16 || busy)
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Palette.background)
+        .navigationTitle(Text(String(localized: "career.signup.join", defaultValue: "У меня приглашение в команду")))
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    @MainActor
+    private func open() async {
+        busy = true
+        defer { busy = false }
+        let value = careerToken(from: link)
+        do {
+            preview = try await CareerAPI().invitePreview(token: value)
+            token = value
+            failure = nil
+        } catch {
+            failure = error.userMessage
+        }
+    }
+
+    @MainActor
+    private func accept() async {
+        busy = true
+        defer { busy = false }
+        do {
+            let issued = try await CareerAPI().acceptInvite(
+                token: token,
+                password: password,
+                firstName: firstName.trimmingCharacters(in: .whitespaces),
+                lastName: lastName.trimmingCharacters(in: .whitespaces)
+            )
+            password = ""
+            if await session.adopt(issued) {
+                joined()
+            } else {
+                failure = String(localized: "error.generic", defaultValue: "Что-то пошло не так. Попробуйте ещё раз")
+            }
+        } catch {
+            failure = error.userMessage
+        }
+    }
+}

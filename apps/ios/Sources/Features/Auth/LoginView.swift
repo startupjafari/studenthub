@@ -8,6 +8,7 @@ struct LoginView: View {
     let session: AppSessionModel
 
     @State private var model = LoginModel()
+    @State private var showsEmployerSignup = false
     #if DEBUG
         @State private var showsTokenGallery = false
     #endif
@@ -21,6 +22,16 @@ struct LoginView: View {
                     CredentialsStepView(model: model, session: session)
                 case .twoFactor:
                     TwoFactorStepView(model: model, session: session)
+                }
+                // Саморегистрация работодателя — единственный вход без инвайта вуза.
+                Button {
+                    showsEmployerSignup = true
+                } label: {
+                    Text(String(localized: "career.signup.entry", defaultValue: "Я работодатель — зарегистрироваться"))
+                }
+                .buttonStyle(QuietButtonStyle())
+                .sheet(isPresented: $showsEmployerSignup) {
+                    CareerSignupSheet(session: session)
                 }
                 #if DEBUG
                     galleryLink
