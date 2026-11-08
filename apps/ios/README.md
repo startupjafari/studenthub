@@ -94,13 +94,15 @@ CI: `.github/workflows/ios.yml` — сборка и тесты на симуля
 
 ```powershell
 netsh interface portproxy add v4tov6 listenaddress=0.0.0.0 listenport=3001 connectaddress=::1 connectport=3001
-netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=9000 connectaddress=127.0.0.1 connectport=9000
+netsh interface portproxy add v4tov6 listenaddress=0.0.0.0 listenport=9000 connectaddress=::1 connectport=9000
 New-NetFirewallRule -DisplayName "StudentHub dev" -Direction Inbound -Protocol TCP -LocalPort 3001,9000 -Action Allow -Profile Private
 ```
 
-Порты разные намеренно. API слушает `::`, и WSL пробрасывает его в Windows только на
-`[::1]`; проброс на `127.0.0.1:3001` попал бы обратно в сам себя, и запрос висел бы до
-таймаута. MinIO из Docker слушает IPv4 — ему `127.0.0.1`.
+Оба порта — на `::1`, а не на `127.0.0.1`. WSL отдаёт свои порты в Windows только на
+`[::1]`, а `0.0.0.0` занимает сам проброс: проброс на `127.0.0.1` попадает обратно в
+себя, и запрос висит до таймаута. С MinIO это проявляется не сразу: пока WSL после
+запуска успевает занять `127.0.0.1:9000` раньше службы проброса, картинки грузятся, а
+после перезагрузки Windows перестают.
 
 Сеть Wi-Fi в Windows должна быть «Частной», телефон — в той же сети.
 
@@ -120,7 +122,30 @@ New-NetFirewallRule -DisplayName "StudentHub dev" -Direction Inbound -Protocol T
   Add-Content -Path "$env:windir\System32\drivers\etc\hosts" -Value "127.0.0.1 192.168.0.19.nip.io"
   ```
 
-Сменился адрес компьютера в сети — поменять его в обоих местах.
+- WSL — тоже через `hosts`. Подписывая первую ссылку, API спрашивает у MinIO регион по
+  публичному адресу, а до адреса Windows в сети из WSL не достучаться (брандмауэр): без
+  записи каждая лента ждала бы таймаут. WSL перечитывает `hosts` Windows только при
+  запуске, поэтому до перезапуска WSL — вручную:
+
+  ```sh
+  sudo sh -c 'echo "127.0.0.1 192.168.0.19.nip.io" >> /etc/hosts'
+  ```
+
+Сменился адрес компьютера в сети (после перезагрузки роутер может выдать другой) —
+поменять его во всех трёх местах и перезапустить API. Аватары, обложки профилей и статей
+хранят адрес целиком, с хостом, — их перезаписать в базе, подставив старый и новый адрес:
+
+```sql
+UPDATE users SET
+  avatar_url = replace(avatar_url, 'http://<старый>:9000/', 'http://<новый>:9000/'),
+  avatar_thumb_url = replace(avatar_thumb_url, 'http://<старый>:9000/', 'http://<новый>:9000/'),
+  cover_url = replace(cover_url, 'http://<старый>:9000/', 'http://<новый>:9000/')
+WHERE avatar_url LIKE 'http://<старый>:9000/%' OR cover_url LIKE 'http://<старый>:9000/%';
+UPDATE profile_articles SET cover_url = replace(cover_url, 'http://<старый>:9000/', 'http://<новый>:9000/')
+WHERE cover_url LIKE 'http://<старый>:9000/%';
+```
+
+Чтобы этого не делать, закрепить за компьютером адрес в роутере (резервирование DHCP).
 
 Убрать проброс: `netsh interface portproxy reset`.
 
