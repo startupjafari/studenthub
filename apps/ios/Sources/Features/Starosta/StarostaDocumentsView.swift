@@ -8,13 +8,6 @@ struct StarostaGroupDocumentsView: View {
     var body: some View {
         RemoteContent(reloadToken: reloadToken, load: { try await StarostaAPI().groupProgress() }) { requests in
             List {
-                Section {
-                    Text(String(localized: "starosta.documents.subtitle", defaultValue: "Кто из группы уже сдал комплект по запросам университета. Сами документы здесь не видны"))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
-                }
-                .listRowBackground(Color.clear)
-
                 if requests.isEmpty {
                     EmptyStateView(
                         title: String(localized: "starosta.documents.empty", defaultValue: "Открытых запросов для группы нет"),
@@ -29,6 +22,8 @@ struct StarostaGroupDocumentsView: View {
                                 StarostaProgressCard(request: request)
                             }
                         }
+                    } footer: {
+                        Text(String(localized: "starosta.documents.subtitle", defaultValue: "Кто из группы уже сдал комплект по запросам университета. Сами документы здесь не видны"))
                     }
                 }
             }
@@ -40,34 +35,59 @@ struct StarostaGroupDocumentsView: View {
     }
 }
 
-/// Карточка запроса: название, срок, вид, доля принятых и счётчики.
+/// Запрос строкой как чат: кольцо доли принятых, название, вид справа, ниже — срок
+/// и счётчики.
 private struct StarostaProgressCard: View {
     let request: StarostaGroupProgressDTO
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(request.title)
-                    .font(Typography.cardTitle)
-                    .foregroundStyle(Palette.foreground)
-                    .lineLimit(3)
-                Spacer(minLength: Spacing.md)
-                let kind = StarostaText.kind(request.kind)
-                StatusBadge(text: kind.text, tint: kind.tint)
-            }
-            Text(StarostaText.due(request))
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
-            ShareBar(
-                title: String(localized: "starosta.documents.accepted", defaultValue: "Принято \(request.counts.accepted.formatted()) из \(request.counts.total.formatted())"),
-                fraction: request.acceptedShare,
-                tint: Palette.success
-            )
-            Text(StarostaText.counts(request.counts))
-                .font(Typography.meta.monospacedDigit())
-                .foregroundStyle(Palette.mutedForeground)
+        let kind = StarostaText.kind(request.kind)
+        let accepted: String = String(localized: "starosta.documents.accepted", defaultValue: "Принято \(request.counts.accepted.formatted()) из \(request.counts.total.formatted())")
+        let subtitle: String = StarostaText.due(request) + "\n" + accepted
+        TelegramStyleRow(
+            title: request.title,
+            subtitle: subtitle,
+            meta: kind.text,
+            metaTint: kind.tint
+        ) {
+            StarostaShareRing(share: request.acceptedShare, size: 44)
         }
-        .padding(.vertical, Spacing.xs)
+    }
+}
+
+/// Доля принятых кольцом: заполнено — все сдали.
+private struct StarostaShareRing: View {
+    let share: Double
+    var size: CGFloat = 44
+    var lineWidth: CGFloat = 4
+    var showsValue = false
+
+    var body: some View {
+        let clamped: Double = min(max(share, 0), 1)
+        let label: String = "\(Int((clamped * 100).rounded()))%"
+        let iconSize: CGFloat = size * 0.34
+        let inset: CGFloat = lineWidth + Spacing.sm
+        ZStack {
+            Circle().stroke(Palette.success.opacity(0.18), lineWidth: lineWidth)
+            Circle()
+                .trim(from: 0, to: clamped)
+                .stroke(Palette.success, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            if showsValue {
+                Text(verbatim: label)
+                    .font(Typography.tabular(.title2.weight(.bold)))
+                    .foregroundStyle(Palette.foreground)
+                    .minimumScaleFactor(0.5)
+                    .lineLimit(1)
+                    .padding(inset)
+            } else {
+                Image(systemName: "tray.full.fill")
+                    .font(.system(size: iconSize, weight: .semibold))
+                    .foregroundStyle(Palette.success)
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 }
 
@@ -98,54 +118,27 @@ struct StarostaGroupDocumentRequestView: View {
     private func content(_ request: StarostaGroupProgressDTO) -> some View {
         List {
             Section {
-                VStack(alignment: .leading, spacing: Spacing.sm) {
+                VStack(spacing: Spacing.md) {
+                    StarostaShareRing(share: request.acceptedShare, size: 112, lineWidth: 10, showsValue: true)
                     Text(request.title)
-                        .font(Typography.sectionTitle)
+                        .font(.title3.weight(.semibold))
                         .foregroundStyle(Palette.foreground)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(StarostaText.due(request))
-                        .font(Typography.meta)
+                        .font(.subheadline)
                         .foregroundStyle(Palette.mutedForeground)
-                    ShareBar(
-                        title: String(localized: "starosta.documents.accepted", defaultValue: "Принято \(request.counts.accepted.formatted()) из \(request.counts.total.formatted())"),
-                        fraction: request.acceptedShare,
-                        tint: Palette.success
-                    )
+                        .multilineTextAlignment(.center)
+                    let kind = StarostaText.kind(request.kind)
+                    StatusBadge(text: kind.text, tint: kind.tint)
                 }
-                .padding(.vertical, Spacing.xs)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Spacing.sm)
+                .listRowBackground(Color.clear)
+                .accessibilityElement(children: .combine)
             }
 
-            Section {
-                StatGrid {
-                    StatTile(
-                        title: StarostaText.status("ACCEPTED").text,
-                        value: request.counts.accepted.formatted(),
-                        symbol: "checkmark.seal",
-                        tint: Palette.success
-                    )
-                    StatTile(
-                        title: StarostaText.status("SUBMITTED").text,
-                        value: request.counts.submitted.formatted(),
-                        symbol: "hourglass",
-                        tint: Palette.info
-                    )
-                    if let needsFix = request.counts.needsFix {
-                        StatTile(
-                            title: StarostaText.status("NEEDS_FIX").text,
-                            value: needsFix.formatted(),
-                            symbol: "exclamationmark.triangle",
-                            tint: Palette.destructive
-                        )
-                    }
-                    StatTile(
-                        title: String(localized: "starosta.documents.notSubmitted", defaultValue: "Не отправили"),
-                        value: request.counts.notSubmitted.formatted(),
-                        symbol: "tray",
-                        tint: Palette.warning
-                    )
-                }
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
-            }
+            DashboardMetricsSection(metrics: metrics(request))
 
             if let members = request.members {
                 FilterChipsRow(options: filterOptions(members), selection: $status)
@@ -158,9 +151,8 @@ struct StarostaGroupDocumentRequestView: View {
                             .foregroundStyle(Palette.mutedForeground)
                     }
                     ForEach(visible) { member in
-                        HStack {
-                            Text(member.name).font(Typography.body).foregroundStyle(Palette.foreground)
-                            Spacer(minLength: Spacing.md)
+                        HStack(spacing: Spacing.md) {
+                            PersonRow(name: member.name, size: 36)
                             let badge = StarostaText.status(member.status)
                             StatusBadge(text: badge.text, tint: badge.tint)
                         }
@@ -179,6 +171,23 @@ struct StarostaGroupDocumentRequestView: View {
         }
         .listStyle(.insetGrouped)
         .refreshable { reloadToken += 1 }
+    }
+
+    private func metrics(_ request: StarostaGroupProgressDTO) -> [DashboardMetric] {
+        var items = [
+            DashboardMetric(title: StarostaText.status("ACCEPTED").text, value: request.counts.accepted.formatted(), symbol: "checkmark.seal", tint: Palette.success),
+            DashboardMetric(title: StarostaText.status("SUBMITTED").text, value: request.counts.submitted.formatted(), symbol: "hourglass", tint: Palette.info),
+        ]
+        if let needsFix = request.counts.needsFix {
+            items.append(DashboardMetric(title: StarostaText.status("NEEDS_FIX").text, value: needsFix.formatted(), symbol: "exclamationmark.triangle", tint: Palette.destructive))
+        }
+        items.append(DashboardMetric(
+            title: String(localized: "starosta.documents.notSubmitted", defaultValue: "Не отправили"),
+            value: request.counts.notSubmitted.formatted(),
+            symbol: "tray",
+            tint: Palette.warning
+        ))
+        return items
     }
 
     private func filterOptions(_ members: [StarostaGroupProgressDTO.Member]) -> [(value: String?, title: String)] {

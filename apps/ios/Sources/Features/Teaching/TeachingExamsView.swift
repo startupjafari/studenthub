@@ -89,15 +89,8 @@ struct TeachingExamsView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle(Text(TeacherScreen.exams.title))
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    creating = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel(Text(String(localized: "teaching.exams.new", defaultValue: "Назначить экзамен")))
-            }
+        .floatingAction(String(localized: "teaching.exams.new", defaultValue: "Назначить экзамен")) {
+            creating = true
         }
         .sheet(isPresented: $creating) {
             TeachingExamForm(exam: nil) { await load() }
@@ -179,21 +172,25 @@ struct TeachingExamsView: View {
     }
 }
 
+/// Экзамен строкой как чат: листок календаря с датой, дисциплина, время справа,
+/// ниже — группа, формат, аудитория и экзаменатор.
 private struct TeachingExamRow: View {
     let exam: TeachingExamDTO
 
     var body: some View {
-        var details = [TeachingText.examFormat(exam.format)]
+        var details = [exam.group.name, TeachingText.examFormat(exam.format)]
         if let room = exam.room?.name { details.append(room) }
-        return ListCardRow(
+        var lines = [details.joined(separator: " · ")]
+        if let examiner = exam.examiner {
+            lines.append(String(localized: "teaching.exams.examinerLine", defaultValue: "Экзаменатор: \(examiner.name)"))
+        }
+        return TelegramStyleRow(
             title: exam.course.subject.name,
-            subtitle: exam.group.name,
-            lines: [
-                exam.date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()),
-                details.joined(separator: " · "),
-                exam.examiner.map { String(localized: "teaching.exams.examinerLine", defaultValue: "Экзаменатор: \($0.name)") } ?? "",
-            ]
-        )
+            subtitle: lines.joined(separator: "\n"),
+            meta: exam.date.formatted(date: .omitted, time: .shortened)
+        ) {
+            StudentExamDateTile(date: exam.date)
+        }
     }
 }
 
@@ -227,16 +224,29 @@ struct TeachingExamDetailView: View {
                         .listRowInsets(EdgeInsets())
                 }
                 Section {
-                    DetailRow(title: String(localized: "teaching.exams.group", defaultValue: "Группа"), value: exam.group.name)
-                    DetailRow(
-                        title: String(localized: "teaching.exams.date", defaultValue: "Дата и время"),
-                        value: exam.date.formatted(.dateTime.weekday(.wide).day().month(.wide).hour().minute())
-                    )
-                    DetailRow(title: String(localized: "teaching.exams.format", defaultValue: "Формат"), value: TeachingText.examFormat(exam.format))
-                    DetailRow(title: String(localized: "teaching.room", defaultValue: "Аудитория"), value: exam.room?.name ?? "—")
-                    DetailRow(title: String(localized: "teaching.exams.examiner", defaultValue: "Экзаменатор"), value: exam.examiner?.name ?? "—")
+                    HeroHeader(
+                        visual: HeroVisual.symbol("rosette", tint: ScheduleSubjectTint.color(for: exam.course.subject.name)),
+                        title: exam.course.subject.name,
+                        subtitle: Self.longDate(exam.date),
+                        actions: heroActions(exam)
+                    ) {
+                        HStack(spacing: Spacing.sm) {
+                            StatusBadge(text: exam.group.name, tint: Palette.primary)
+                            StatusBadge(text: TeachingText.examFormat(exam.format), tint: Palette.mutedForeground)
+                        }
+                    }
+                }
+                Section {
+                    if let room = exam.room {
+                        NavigationLink(value: AppRoute.campusRoom(roomID: room.id)) {
+                            DetailRow(title: String(localized: "teaching.room", defaultValue: "Аудитория"), value: room.name, symbol: "mappin.and.ellipse")
+                        }
+                    } else {
+                        DetailRow(title: String(localized: "teaching.room", defaultValue: "Аудитория"), value: "—", symbol: "mappin.and.ellipse")
+                    }
+                    DetailRow(title: String(localized: "teaching.exams.examiner", defaultValue: "Экзаменатор"), value: exam.examiner?.name ?? "—", symbol: "person")
                     if let max = exam.maxScore {
-                        DetailRow(title: String(localized: "teaching.exams.maxScore", defaultValue: "Макс. балл"), value: max.formatted())
+                        DetailRow(title: String(localized: "teaching.exams.maxScore", defaultValue: "Макс. балл"), value: max.formatted(), symbol: "star")
                     }
                     if let note = exam.note, !note.isEmpty {
                         Text(note).font(Typography.body).foregroundStyle(Palette.foreground)
@@ -277,25 +287,6 @@ struct TeachingExamDetailView: View {
                         .disabled(drafts.isEmpty)
                 }
             }
-            if let exam, exam.course.teacherId == viewerID {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            editing = true
-                        } label: {
-                            Label(String(localized: "teaching.edit", defaultValue: "Изменить"), systemImage: "pencil")
-                        }
-                        Button(role: .destructive) {
-                            deleting = exam
-                        } label: {
-                            Label(String(localized: "teaching.delete", defaultValue: "Удалить"), systemImage: "trash")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                    .accessibilityLabel(Text(String(localized: "teaching.actions", defaultValue: "Действия")))
-                }
-            }
         }
         .sheet(isPresented: $editing) {
             if let exam {
@@ -319,6 +310,19 @@ struct TeachingExamDetailView: View {
         .task { await load() }
     }
 
+    private static func longDate(_ date: Date) -> String {
+        date.formatted(Date.FormatStyle().weekday(.wide).day().month(.wide).hour().minute())
+    }
+
+    /// Изменить и удалить — только преподавателю дисциплины (так же решает сервер).
+    private func heroActions(_ exam: TeachingExamDTO) -> [HeroAction] {
+        guard exam.course.teacherId == viewerID else { return [] }
+        return [
+            HeroAction(title: String(localized: "teaching.edit", defaultValue: "Изменить"), symbol: "pencil") { editing = true },
+            HeroAction(title: String(localized: "teaching.delete", defaultValue: "Удалить"), symbol: "trash", role: .destructive) { deleting = exam },
+        ]
+    }
+
     private var visibleRoster: [TeachingExamRosterDTO.Entry] {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
         return needle.isEmpty ? roster : roster.filter { $0.name.lowercased().contains(needle) }
@@ -338,8 +342,9 @@ struct TeachingExamDetailView: View {
         let value = draft(entry)
         let errors = value.errors(ceiling: ceiling)
         return VStack(alignment: .leading, spacing: Spacing.sm) {
-            HStack {
-                Text(entry.name).font(Typography.body).foregroundStyle(Palette.foreground)
+            HStack(spacing: Spacing.md) {
+                AvatarView(url: nil, name: entry.name, size: 32)
+                Text(entry.name).font(.body.weight(.semibold)).foregroundStyle(Palette.foreground)
                 Spacer()
                 if let attempt = entry.attempt, attempt > 1 {
                     Text(String(localized: "teaching.exams.attempt", defaultValue: "Попытка \(attempt.formatted())"))

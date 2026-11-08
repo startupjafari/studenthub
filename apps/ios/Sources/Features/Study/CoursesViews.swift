@@ -46,7 +46,11 @@ struct CoursesView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle(Text(MoreSection.subjects.title))
-        .searchable(text: $query, prompt: Text(String(localized: "courses.search", defaultValue: "Найти дисциплину")))
+        .searchable(
+            text: $query,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: Text(String(localized: "courses.search", defaultValue: "Найти дисциплину"))
+        )
         .refreshable { await load() }
         .task { await load() }
     }
@@ -90,27 +94,20 @@ struct CoursesView: View {
     }
 }
 
+/// Дисциплина строкой как чат: значок её цвета (тот же, что в расписании), название,
+/// кредиты справа, ниже — кто ведёт (или группа у преподавателя) и код.
 private struct CourseRow: View {
     let course: CourseDTO
     let showsGroup: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(course.subject.name)
-                .font(Typography.body)
-                .foregroundStyle(Palette.foreground)
-                .fixedSize(horizontal: false, vertical: true)
-            let details = [
-                showsGroup ? course.group?.name : course.teacher?.name,
-                course.credits.map { String(localized: "courses.credits", defaultValue: "\($0) кр.") },
-            ].compactMap { $0 }.filter { !$0.isEmpty }
-            if !details.isEmpty {
-                Text(details.joined(separator: " · "))
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
-            }
+        TelegramStyleRow(
+            title: course.subject.name,
+            subtitle: StudyText.join([showsGroup ? course.group?.name : course.teacher?.name, course.subject.code]),
+            meta: course.credits.map(CoursesText.credits)
+        ) {
+            RowSymbol(symbol: "book.closed.fill", tint: ScheduleSubjectTint.color(for: course.subject.name))
         }
-        .padding(.vertical, 2)
     }
 }
 
@@ -124,19 +121,41 @@ struct CourseDetailView: View {
 
     @State private var assignments: [AssignmentDTO]?
     @State private var materials: [MaterialDTO]?
+    @State private var showsGroup = false
 
     private var isTeacher: Bool { role == .teacher }
 
     var body: some View {
         List {
             Section {
-                DetailRow(title: String(localized: "courses.subject", defaultValue: "Дисциплина"), value: course.subject.name, symbol: "book")
-                if let code = course.subject.code, !code.isEmpty {
-                    DetailRow(title: String(localized: "courses.code", defaultValue: "Код"), value: code, symbol: "number")
+                HeroHeader(
+                    visual: HeroVisual.symbol("book.closed.fill", tint: ScheduleSubjectTint.color(for: course.subject.name)),
+                    title: course.subject.name,
+                    subtitle: course.teacher?.name,
+                    actions: heroActions
+                ) {
+                    HStack(spacing: Spacing.sm) {
+                        if let code = course.subject.code, !code.isEmpty {
+                            StatusBadge(text: code, tint: Palette.mutedForeground)
+                        }
+                        if let credits = course.credits {
+                            StatusBadge(text: CoursesText.credits(credits), tint: Palette.primary)
+                        }
+                        if course.term?.isActive == true {
+                            StatusBadge(text: String(localized: "courses.current", defaultValue: "Текущий семестр"), tint: Palette.success)
+                        }
+                    }
                 }
+            }
+
+            Section {
                 if let teacher = course.teacher {
                     NavigationLink(value: AppRoute.profile(id: teacher.id)) {
-                        DetailRow(title: String(localized: "role.teacher", defaultValue: "Преподаватель"), value: teacher.name, symbol: "person")
+                        PersonRow(
+                            name: teacher.name,
+                            subtitle: String(localized: "role.teacher", defaultValue: "Преподаватель"),
+                            avatarURL: teacher.avatarUrl
+                        )
                     }
                 }
                 if let group = course.group {
@@ -146,11 +165,11 @@ struct CourseDetailView: View {
                         DetailRow(title: String(localized: "profile.group", defaultValue: "Группа"), value: group.name, symbol: "person.3")
                     }
                 }
-                if let credits = course.credits {
-                    DetailRow(title: String(localized: "courses.creditsTitle", defaultValue: "Кредиты"), value: String(credits), symbol: "rosette")
-                }
                 if let term = course.term?.name {
                     DetailRow(title: String(localized: "courses.term", defaultValue: "Семестр"), value: term, symbol: "calendar")
+                }
+                if let credits = course.credits {
+                    DetailRow(title: String(localized: "courses.creditsTitle", defaultValue: "Кредиты"), value: String(credits), symbol: "rosette")
                 }
             }
 
@@ -162,18 +181,18 @@ struct CourseDetailView: View {
                     }
                     ForEach(assignments) { assignment in
                         NavigationLink(value: AppRoute.assignment(id: assignment.id)) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(assignment.title).font(Typography.body)
-                                if let due = assignment.dueAt {
-                                    Text(String(localized: "courses.due", defaultValue: "Срок: \(due.formatted(date: .abbreviated, time: .shortened))"))
-                                        .font(Typography.meta)
-                                        .foregroundStyle(due < Date() ? Palette.destructive : Palette.mutedForeground)
-                                }
+                            TelegramStyleRow(
+                                title: assignment.title,
+                                subtitle: StudyText.due(assignment.dueAt),
+                                meta: assignment.dueAt.map { DisplayFormat.relative($0) },
+                                metaTint: StudyDue.tint(assignment.dueAt)
+                            ) {
+                                RowSymbol(symbol: AssignmentDetailView.typeSymbol(assignment.type), tint: TileTint.orange, size: 40)
                             }
                         }
                     }
                 } else {
-                    ProgressView()
+                    ProgressView().frame(maxWidth: .infinity)
                 }
             } header: {
                 Text(String(localized: "study.assignments", defaultValue: "Задания"))
@@ -186,22 +205,22 @@ struct CourseDetailView: View {
                             .foregroundStyle(Palette.mutedForeground)
                     }
                     ForEach(materials) { material in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(material.title).font(Typography.body)
-                            if let count = material.files?.count, count > 0 {
-                                Text(String(localized: "courses.files", defaultValue: "Файлов: \(count)"))
-                                    .font(Typography.meta)
-                                    .foregroundStyle(Palette.mutedForeground)
-                            }
+                        TelegramStyleRow(
+                            title: material.title,
+                            subtitle: Self.filesText(material.files?.count ?? 0),
+                            meta: material.createdAt.map { DisplayFormat.date($0) }
+                        ) {
+                            RowSymbol(symbol: "doc.fill", tint: TileTint.blue, size: 40)
                         }
                     }
                     if !materials.isEmpty {
                         NavigationLink(value: AppRoute.section(.materials)) {
                             Text(String(localized: "courses.allMaterials", defaultValue: "Все материалы и файлы"))
+                                .foregroundStyle(Palette.primary)
                         }
                     }
                 } else {
-                    ProgressView()
+                    ProgressView().frame(maxWidth: .infinity)
                 }
             } header: {
                 Text(String(localized: "study.materials", defaultValue: "Материалы"))
@@ -210,6 +229,11 @@ struct CourseDetailView: View {
         .listStyle(.insetGrouped)
         .navigationTitle(Text(course.subject.name))
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(isPresented: $showsGroup) {
+            if let group = course.group {
+                GroupMembersView(groupID: group.id, title: group.name)
+            }
+        }
         .task {
             let api = StudyAPI()
             let name = course.subject.name.lowercased()
@@ -219,6 +243,36 @@ struct CourseDetailView: View {
             materials = (await files ?? []).filter { $0.subject?.lowercased() == name }
         }
     }
+
+    private static func filesText(_ count: Int) -> String? {
+        guard count > 0 else { return nil }
+        return String(localized: "courses.files", defaultValue: "Файлов: \(count)")
+    }
+
+    private var heroActions: [HeroAction] {
+        var actions: [HeroAction] = []
+        if let teacher = course.teacher {
+            actions.append(HeroAction(title: String(localized: "role.teacher", defaultValue: "Преподаватель"), symbol: "person.fill") {
+                coursesPush(.profile(id: teacher.id))
+            })
+        }
+        if course.group != nil {
+            actions.append(HeroAction(title: String(localized: "profile.group", defaultValue: "Группа"), symbol: "person.3.fill") {
+                showsGroup = true
+            })
+        }
+        actions.append(HeroAction(title: String(localized: "study.materials", defaultValue: "Материалы"), symbol: "folder.fill") {
+            coursesPush(.section(.materials))
+        })
+        return actions
+    }
+}
+
+/// Открыть маршрут в стеке текущей вкладки — для круглых кнопок шапки.
+@MainActor
+private func coursesPush(_ route: AppRoute) {
+    let router = AppServices.router
+    router.stacks[router.selectedTab, default: []].append(route)
 }
 
 /// Участники группы: одногруппники старосты, группа преподавателя.
@@ -243,10 +297,8 @@ struct GroupMembersView: View {
                 Section {
                     ForEach(visible) { member in
                         NavigationLink(value: AppRoute.profile(id: member.id)) {
-                            HStack(spacing: Spacing.lg) {
-                                AvatarView(url: member.avatarUrl, name: member.name, size: 36)
-                                Text(member.name).font(Typography.body)
-                                Spacer(minLength: 0)
+                            HStack(spacing: Spacing.md) {
+                                PersonRow(name: member.name, avatarURL: member.avatarUrl, size: 40)
                                 if member.role == Role.starosta.rawValue {
                                     StatusBadge(text: String(localized: "role.starosta", defaultValue: "Староста"), tint: Palette.primary)
                                 }
@@ -265,7 +317,11 @@ struct GroupMembersView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle(Text(title))
-        .searchable(text: $query, prompt: Text(String(localized: "group.search", defaultValue: "Найти по имени")))
+        .searchable(
+            text: $query,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: Text(String(localized: "group.search", defaultValue: "Найти по имени"))
+        )
         .refreshable { await load() }
         .task { await load() }
     }
@@ -327,8 +383,13 @@ struct TeacherGroupsView: View {
             NavigationLink {
                 GroupMembersView(groupID: group.id, title: group.name)
             } label: {
-                HStack(spacing: Spacing.md) {
-                    IconRow(title: group.name, symbol: "person.3", tint: TileTint.teal, subtitle: group.faculty?.name)
+                TelegramStyleRow(
+                    title: group.name,
+                    subtitle: group.faculty?.name,
+                    meta: group.year.map { String($0) }
+                ) {
+                    RowSymbol(symbol: "person.3.fill", tint: TileTint.teal)
+                } accessory: {
                     if group.starostaId != nil {
                         StatusBadge(
                             text: String(localized: "groups.hasStarosta", defaultValue: "Есть староста"),
@@ -348,5 +409,13 @@ struct TeacherGroupsView: View {
                 return try await AppServices.api.page(.get("groups", query: items), of: Group.self)
             }
         }
+    }
+}
+
+/// Подписи дисциплин, общие для списков и карточек.
+enum CoursesText {
+    /// «5 кр.» — кредиты дисциплины.
+    static func credits(_ value: Int) -> String {
+        String(localized: "courses.credits", defaultValue: "\(value) кр.")
     }
 }

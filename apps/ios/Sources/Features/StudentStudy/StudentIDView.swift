@@ -67,8 +67,8 @@ struct StudentIDView: View {
                     .navigationTitle(Text(String(localized: "student.id.qrTitle", defaultValue: "QR студенческого")))
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button(String(localized: "common.ok", defaultValue: "Понятно")) { isQRExpanded = false }
+                        ToolbarItem(placement: .cancellationAction) {
+                            SheetCloseButton { isQRExpanded = false }
                         }
                     }
                 }
@@ -111,7 +111,7 @@ struct StudentIDView: View {
                             Label(String(localized: "student.id.qrExpired", defaultValue: "Код устарел — обновить"), systemImage: "arrow.clockwise")
                         }
                     }
-                    .buttonStyle(QuietButtonStyle())
+                    .glassProminentButton()
                 } else {
                     Label(
                         String(localized: "student.id.refreshIn", defaultValue: "Обновится через \(String(remaining)) с"),

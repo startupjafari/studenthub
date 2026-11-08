@@ -21,6 +21,8 @@ struct LessonDetailView: View {
 
     private var item: SchedulePair? { pair.map { SchedulePair(pair: $0, change: change) } }
 
+    @State private var showsCourse = false
+
     var body: some View {
         List {
             if let item {
@@ -31,6 +33,11 @@ struct LessonDetailView: View {
                 }
 
                 Section {
+                    DetailRow(
+                        title: String(localized: "lesson.time", defaultValue: "Время"),
+                        value: "\(item.startTime) – \(item.endTime)",
+                        symbol: "clock"
+                    )
                     if let room = item.pair.roomName, !room.isEmpty {
                         if let roomID = item.pair.roomId {
                             NavigationLink(value: AppRoute.campusRoom(roomID: roomID)) {
@@ -57,44 +64,7 @@ struct LessonDetailView: View {
                     )
                 }
 
-                Section {
-                    if let course {
-                        NavigationLink {
-                            CourseDetailView(course: course, role: .student)
-                        } label: {
-                            IconRow(
-                                title: String(localized: "lesson.course", defaultValue: "Дисциплина"),
-                                symbol: "book",
-                                tint: TileTint.indigo,
-                                subtitle: [course.teacher?.name, course.credits.map { String(localized: "courses.credits", defaultValue: "\($0) кр.") }]
-                                    .compactMap { $0 }.joined(separator: " · ")
-                            )
-                        }
-                    }
-                    if let assignments {
-                        ForEach(assignments.prefix(5)) { assignment in
-                            NavigationLink(value: AppRoute.assignment(id: assignment.id)) {
-                                IconRow(
-                                    title: assignment.title,
-                                    symbol: "list.clipboard",
-                                    tint: TileTint.orange,
-                                    subtitle: assignment.dueAt.map {
-                                        String(localized: "courses.due", defaultValue: "Срок: \($0.formatted(date: .abbreviated, time: .shortened))")
-                                    }
-                                )
-                            }
-                        }
-                        if assignments.isEmpty && course == nil {
-                            Text(String(localized: "lesson.noLinks", defaultValue: "Заданий по этой дисциплине нет"))
-                                .font(Typography.meta)
-                                .foregroundStyle(Palette.mutedForeground)
-                        }
-                    } else {
-                        ProgressView().frame(maxWidth: .infinity)
-                    }
-                } header: {
-                    Text(String(localized: "lesson.related", defaultValue: "По дисциплине"))
-                }
+                relatedSection
             } else if isMissing {
                 EmptyStateView(
                     title: String(localized: "lesson.missing", defaultValue: "Занятие не найдено"),
@@ -109,49 +79,104 @@ struct LessonDetailView: View {
         .listStyle(.insetGrouped)
         .navigationTitle(Text(String(localized: "shell.lesson", defaultValue: "Пара")))
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(isPresented: $showsCourse) {
+            if let course { CourseDetailView(course: course, role: .student) }
+        }
         .task { await load() }
     }
 
-    private func header(_ item: SchedulePair) -> some View {
+    /// Дисциплина и её задания — строками как в списке чатов.
+    @ViewBuilder
+    private var relatedSection: some View {
         Section {
-            VStack(alignment: .leading, spacing: Spacing.md) {
-                Text(item.pair.subject)
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(Palette.foreground)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .strikethrough(item.isCancelled)
-                HStack(spacing: Spacing.md) {
-                    Label {
-                        Text(verbatim: "\(item.startTime) – \(item.endTime)")
-                            .font(Typography.tabular(Typography.body.weight(.semibold)))
-                    } icon: {
-                        Image(systemName: "clock")
+            if let course {
+                NavigationLink {
+                    CourseDetailView(course: course, role: .student)
+                } label: {
+                    TelegramStyleRow(
+                        title: course.subject.name,
+                        subtitle: StudyText.join([course.teacher?.name, course.credits.map(CoursesText.credits)]),
+                        meta: course.subject.code
+                    ) {
+                        RowSymbol(symbol: "book.closed.fill", tint: TileTint.indigo, size: 40)
                     }
-                    Text(date, format: .dateTime.weekday(.wide).day().month())
-                        .foregroundStyle(Palette.mutedForeground)
-                }
-                .font(Typography.body)
-                if let note = item.changeNote {
-                    Label(note, systemImage: item.isCancelled ? "xmark.circle" : "exclamationmark.circle")
-                        .font(Typography.meta.weight(.medium))
-                        .foregroundStyle(item.isCancelled ? Palette.destructive : Palette.warning)
                 }
             }
-            .padding(.vertical, Spacing.xs)
-            .accessibilityElement(children: .combine)
+            if let assignments {
+                ForEach(assignments.prefix(5)) { assignment in
+                    NavigationLink(value: AppRoute.assignment(id: assignment.id)) {
+                        TelegramStyleRow(
+                            title: assignment.title,
+                            subtitle: StudyText.due(assignment.dueAt),
+                            meta: assignment.dueAt.map { DisplayFormat.relative($0) },
+                            metaTint: StudyDue.tint(assignment.dueAt)
+                        ) {
+                            RowSymbol(symbol: "list.clipboard.fill", tint: TileTint.orange, size: 40)
+                        }
+                    }
+                }
+                if assignments.isEmpty && course == nil {
+                    Text(String(localized: "lesson.noLinks", defaultValue: "Заданий по этой дисциплине нет"))
+                        .font(Typography.meta)
+                        .foregroundStyle(Palette.mutedForeground)
+                }
+            } else {
+                ProgressView().frame(maxWidth: .infinity)
+            }
+        } header: {
+            Text(String(localized: "lesson.related", defaultValue: "По дисциплине"))
         }
+    }
+
+    /// Шапка по центру, как карточка в Telegram: значок цвета дисциплины, название,
+    /// день и время, ниже — круглые кнопки «Карта», «Преподаватель», «Дисциплина».
+    private func header(_ item: SchedulePair) -> some View {
+        let tint: Color = item.isCancelled ? Color.gray : ScheduleSubjectTint.color(for: item.pair.subject)
+        let day: String = date.formatted(Date.FormatStyle().weekday(.wide).day().month())
+        let subtitle: String = day + " · " + item.startTime + " – " + item.endTime
+        let actions: [HeroAction] = heroActions(item)
+        return Section {
+            HeroHeader(
+                visual: HeroVisual.symbol("book.closed.fill", tint: tint),
+                title: item.pair.subject,
+                subtitle: subtitle,
+                actions: actions
+            ) {
+                if let note = item.changeNote {
+                    StatusBadge(text: note, tint: item.isCancelled ? Palette.destructive : Palette.warning)
+                }
+            }
+        }
+    }
+
+    private func heroActions(_ item: SchedulePair) -> [HeroAction] {
+        var actions: [HeroAction] = []
+        if let roomID = remoteChange?.newRoom?.id ?? item.pair.roomId {
+            actions.append(HeroAction(title: String(localized: "lesson.action.map", defaultValue: "На карте"), symbol: "map.fill") {
+                lessonPush(.campusRoom(roomID: roomID))
+            })
+        }
+        if let teacherID = remoteChange?.newTeacher?.id ?? item.pair.teacherId {
+            actions.append(HeroAction(title: String(localized: "role.teacher", defaultValue: "Преподаватель"), symbol: "person.fill") {
+                lessonPush(.profile(id: teacherID))
+            })
+        }
+        if course != nil {
+            actions.append(HeroAction(title: String(localized: "lesson.course", defaultValue: "Дисциплина"), symbol: "book.fill") {
+                showsCourse = true
+            })
+        }
+        return actions
     }
 
     /// Что поменялось на этот день: тип, новое время, аудитория, заменяющий, примечание.
     private func changeSection(_ change: StudentScheduleChangeDTO) -> some View {
         Section {
-            HStack {
-                StatusBadge(
-                    text: StudentChangeFormat.title(change.type),
-                    tint: change.type == "CANCELLED" ? Palette.destructive : Palette.warning
-                )
-                Spacer()
-            }
+            IconRow(
+                title: StudentChangeFormat.title(change.type),
+                symbol: change.type == "CANCELLED" ? "xmark" : "arrow.triangle.2.circlepath",
+                tint: change.type == "CANCELLED" ? TileTint.red : TileTint.orange
+            )
             if let start = change.newStartTime, let end = change.newEndTime {
                 DetailRow(title: String(localized: "student.lesson.change.time", defaultValue: "Новое время"), value: "\(start) – \(end)", symbol: "clock")
             }
@@ -209,4 +234,12 @@ struct LessonDetailView: View {
         assignments = (await tasks ?? []).filter { $0.subject?.lowercased() == subject }
         remoteChange = StudentCalendarBuilder.mergedChanges((await changes ?? []).filter { $0.pairId == pairID })["\(pairID)|\(day)"]
     }
+}
+
+/// Открыть маршрут в стеке текущей вкладки — для круглых кнопок шапки, которые не
+/// `NavigationLink`.
+@MainActor
+private func lessonPush(_ route: AppRoute) {
+    let router = AppServices.router
+    router.stacks[router.selectedTab, default: []].append(route)
 }

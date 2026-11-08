@@ -22,22 +22,7 @@ struct StudentStudyPlanView: View {
                     let credits = StudentPlan.credits(plan)
                     let progress = credits.total == 0 ? 0 : Int((Double(credits.done) / Double(credits.total) * 100).rounded())
                     Section {
-                        StatGrid {
-                            StatTile(
-                                title: String(localized: "student.plan.credits", defaultValue: "кредитов пройдено"),
-                                value: "\(credits.done) / \(credits.total)",
-                                symbol: "flag.checkered",
-                                tint: Palette.warning
-                            )
-                            StatTile(
-                                title: String(localized: "student.plan.progress", defaultValue: "Прогресс"),
-                                value: "\(progress)%",
-                                symbol: "chart.line.uptrend.xyaxis",
-                                tint: Palette.success
-                            )
-                        }
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
+                        StudentPlanProgressCard(done: credits.done, total: credits.total, progress: progress)
                     }
 
                     if sort == .term {
@@ -78,26 +63,25 @@ struct StudentStudyPlanView: View {
         }
     }
 
+    /// Дисциплина плана строкой как чат: кольцо результата, название, кредиты справа,
+    /// ниже — семестр и процент, плашка статуса.
     private func row(_ entry: StudentPlanEntry, showTerm: Bool) -> some View {
-        HStack(spacing: Spacing.md) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(entry.course.subject.name)
-                    .font(Typography.cardTitle)
-                    .foregroundStyle(Palette.foreground)
-                    .lineLimit(3)
-                Text(verbatim: [
-                    showTerm ? Self.termTitle(entry.course.term) : nil,
-                    entry.course.credits.map { String(localized: "student.grades.creditsN", defaultValue: "\(String($0)) кредитов") },
-                    entry.percent.map { "\($0)%" },
-                ].compactMap { $0 }.joined(separator: " · "))
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
-            }
-            Spacer(minLength: Spacing.md)
+        let term: String? = showTerm ? Self.termTitle(entry.course.term) : nil
+        let percent: String? = entry.percent.map { String($0) + "%" }
+        let credits: String? = entry.course.credits.map { Self.creditsText($0) }
+        return TelegramStyleRow(
+            title: entry.course.subject.name,
+            subtitle: StudyText.join([term, percent]),
+            meta: credits
+        ) {
+            StudentPercentRing(percent: entry.percent, size: 40)
+        } accessory: {
             StatusBadge(text: entry.status.title, tint: entry.status.tint)
         }
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .combine)
+    }
+
+    private static func creditsText(_ value: Int) -> String {
+        String(localized: "student.grades.creditsN", defaultValue: "\(String(value)) кредитов")
     }
 
     private func sorted(_ plan: [StudentPlanEntry]) -> [StudentPlanEntry] {
@@ -147,5 +131,36 @@ struct StudentStudyPlanView: View {
         async let examsValue = try? api.exams()
         let courses = try await coursesValue
         return StudentPlan.build(courses: courses, grades: await gradesValue ?? [], exams: await examsValue ?? [])
+    }
+}
+
+/// Прогресс плана: пройдено кредитов из всего и полоса — одной карточкой вместо двух плиток.
+private struct StudentPlanProgressCard: View {
+    let done: Int
+    let total: Int
+    let progress: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: "\(done) / \(total)")
+                        .font(Typography.tabular(.title.weight(.bold)))
+                        .foregroundStyle(Palette.foreground)
+                    Text(String(localized: "student.plan.credits", defaultValue: "кредитов пройдено"))
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.mutedForeground)
+                }
+                Spacer(minLength: Spacing.md)
+                Text(verbatim: "\(progress)%")
+                    .font(Typography.tabular(.title3.weight(.semibold)))
+                    .foregroundStyle(Palette.success)
+            }
+            ProgressView(value: Double(min(max(progress, 0), 100)), total: 100)
+                .tint(Palette.success)
+                .accessibilityLabel(Text(String(localized: "student.plan.progress", defaultValue: "Прогресс")))
+        }
+        .padding(.vertical, Spacing.sm)
+        .accessibilityElement(children: .combine)
     }
 }

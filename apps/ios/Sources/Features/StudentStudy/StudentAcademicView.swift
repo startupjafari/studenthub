@@ -8,36 +8,35 @@ struct StudentAcademicView: View {
     var body: some View {
         RemoteContent(reloadToken: reloadToken, load: Self.load) { summary in
             List {
-                Section {
-                    StatGrid {
-                        StatTile(
-                            title: String(localized: "student.academic.gpa", defaultValue: "Средний балл"),
-                            value: summary.gpa.map { "\($0)%" } ?? "—",
-                            symbol: "chart.line.uptrend.xyaxis",
-                            tint: summary.gpa.map(StudentGradeMath.tint) ?? Palette.primary
-                        )
-                        StatTile(
-                            title: String(localized: "student.academic.attendance", defaultValue: "Посещаемость"),
-                            value: summary.attendance.map { $0.total == 0 ? "—" : "\($0.rate)%" } ?? "—",
-                            symbol: "checklist.checked",
-                            tint: Palette.info
-                        )
-                        StatTile(
-                            title: String(localized: "student.academic.credits", defaultValue: "Кредиты"),
-                            value: summary.credits.total > 0 ? "\(summary.credits.done) / \(summary.credits.total)" : String(summary.credits.done),
-                            symbol: "flag.checkered",
-                            tint: Palette.warning
-                        )
-                        StatTile(
-                            title: summary.statusCaption,
-                            value: StudentAcademicStatus.title(summary.academicStatus),
-                            symbol: "graduationcap",
-                            tint: Palette.success
-                        )
-                    }
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                }
+                DashboardMetricsSection(metrics: [
+                    DashboardMetric(
+                        title: String(localized: "student.academic.gpa", defaultValue: "Средний балл"),
+                        value: summary.gpa.map { "\($0)%" },
+                        symbol: "chart.line.uptrend.xyaxis",
+                        tint: summary.gpa.map(StudentGradeMath.tint) ?? Palette.primary,
+                        route: .student(.grades)
+                    ),
+                    DashboardMetric(
+                        title: String(localized: "student.academic.attendance", defaultValue: "Посещаемость"),
+                        value: summary.attendance.flatMap { $0.total == 0 ? nil : "\($0.rate)%" },
+                        symbol: "checklist.checked",
+                        tint: Palette.info,
+                        route: .student(.attendance)
+                    ),
+                    DashboardMetric(
+                        title: String(localized: "student.academic.credits", defaultValue: "Кредиты"),
+                        value: summary.credits.total > 0 ? "\(summary.credits.done) / \(summary.credits.total)" : String(summary.credits.done),
+                        symbol: "flag.checkered",
+                        tint: Palette.warning,
+                        route: .student(.studyPlan)
+                    ),
+                    DashboardMetric(
+                        title: summary.statusCaption,
+                        value: StudentAcademicStatus.title(summary.academicStatus),
+                        symbol: "graduationcap.fill",
+                        tint: Palette.success
+                    ),
+                ])
 
                 Section {
                     if summary.bySubject.isEmpty {
@@ -62,65 +61,63 @@ struct StudentAcademicView: View {
                 }
 
                 if let attendance = summary.attendance {
-                    Section {
-                        StatGrid {
-                            StatTile(title: AttendanceStatus.title("PRESENT"), value: String(attendance.present), symbol: "checkmark", tint: Palette.success)
-                            StatTile(title: AttendanceStatus.title("LATE"), value: String(attendance.late), symbol: "clock", tint: Palette.warning)
-                            StatTile(title: AttendanceStatus.title("ABSENT"), value: String(attendance.absent), symbol: "xmark", tint: Palette.destructive)
-                            StatTile(title: AttendanceStatus.title("EXCUSED"), value: String(attendance.excused), symbol: "doc.badge.checkmark", tint: Palette.info)
-                        }
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
-                    } header: {
-                        Text(String(localized: "student.academic.attendanceBreakdown", defaultValue: "Посещаемость по отметкам"))
-                    }
+                    DashboardMetricsSection(
+                        metrics: [
+                            DashboardMetric(title: AttendanceStatus.title("PRESENT"), value: attendance.present.formatted(), symbol: "checkmark", tint: Palette.success),
+                            DashboardMetric(title: AttendanceStatus.title("LATE"), value: attendance.late.formatted(), symbol: "clock", tint: Palette.warning),
+                            DashboardMetric(title: AttendanceStatus.title("ABSENT"), value: attendance.absent.formatted(), symbol: "xmark", tint: Palette.destructive),
+                            DashboardMetric(title: AttendanceStatus.title("EXCUSED"), value: attendance.excused.formatted(), symbol: "doc.badge.checkmark", tint: Palette.info),
+                        ],
+                        title: String(localized: "student.academic.attendanceBreakdown", defaultValue: "Посещаемость по отметкам")
+                    )
                 }
 
-                Section {
-                    StatGrid {
-                        StatTile(
+                DashboardMetricsSection(
+                    metrics: [
+                        DashboardMetric(
                             title: String(localized: "student.academic.examsPassed", defaultValue: "Экзаменов сдано"),
-                            value: String(summary.examsPassed),
+                            value: summary.examsPassed.formatted(),
                             symbol: "rosette",
-                            tint: Palette.success
-                        )
-                        StatTile(
+                            tint: Palette.success,
+                            route: .student(.exams)
+                        ),
+                        DashboardMetric(
                             title: String(localized: "student.academic.examsUpcoming", defaultValue: "Впереди экзаменов"),
-                            value: String(summary.examsUpcoming),
+                            value: summary.examsUpcoming.formatted(),
                             symbol: "graduationcap",
-                            tint: Palette.info
-                        )
-                        StatTile(
+                            tint: Palette.info,
+                            route: .student(.exams)
+                        ),
+                        DashboardMetric(
                             title: String(localized: "student.academic.submitted", defaultValue: "Работ на проверке"),
-                            value: String(summary.submitted),
-                            symbol: "paperplane"
-                        )
-                        StatTile(
+                            value: summary.submitted.formatted(),
+                            symbol: "paperplane",
+                            route: .section(.assignments)
+                        ),
+                        DashboardMetric(
                             title: String(localized: "student.academic.overdue", defaultValue: "Просрочено работ"),
-                            value: String(summary.overdue),
+                            value: summary.overdue.formatted(),
                             symbol: "exclamationmark.triangle",
-                            tint: Palette.destructive
-                        )
-                    }
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                } header: {
-                    Text(String(localized: "student.academic.session", defaultValue: "Сессия и задания"))
-                }
+                            tint: Palette.destructive,
+                            route: .section(.assignments)
+                        ),
+                    ],
+                    title: String(localized: "student.academic.session", defaultValue: "Сессия и задания")
+                )
 
                 Section {
-                    link(.student(.grades), StudentScreen.grades)
-                    link(.student(.attendance), StudentScreen.attendance)
-                    link(.student(.studyPlan), StudentScreen.studyPlan)
-                    link(.student(.exams), StudentScreen.exams)
+                    link(.student(.grades), StudentScreen.grades, tint: TileTint.green)
+                    link(.student(.attendance), StudentScreen.attendance, tint: TileTint.teal)
+                    link(.student(.studyPlan), StudentScreen.studyPlan, tint: TileTint.indigo)
+                    link(.student(.exams), StudentScreen.exams, tint: TileTint.purple)
                     NavigationLink(value: AppRoute.section(.subjects)) {
-                        IconRow(title: String(localized: "student.academic.courses", defaultValue: "Дисциплины"), symbol: "book", tint: TileTint.indigo)
+                        IconRow(title: String(localized: "student.academic.courses", defaultValue: "Дисциплины"), symbol: "book.fill", tint: TileTint.orange)
                     }
                 } header: {
                     Text(String(localized: "student.academic.sections", defaultValue: "Разделы"))
                 }
             }
-            .listStyle(.insetGrouped)
+            .dashboardListStyle()
             .refreshable { reloadToken += 1 }
         }
         .background(Palette.background)
@@ -128,9 +125,9 @@ struct StudentAcademicView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private func link(_ route: AppRoute, _ screen: StudentScreen) -> some View {
+    private func link(_ route: AppRoute, _ screen: StudentScreen, tint: Color) -> some View {
         NavigationLink(value: route) {
-            IconRow(title: screen.title, symbol: screen.symbol, tint: TileTint.blue)
+            IconRow(title: screen.title, symbol: screen.symbol, tint: tint)
         }
     }
 

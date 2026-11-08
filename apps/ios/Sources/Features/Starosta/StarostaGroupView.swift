@@ -20,6 +20,16 @@ struct StarostaGroupView: View {
                 )
                 .listRowBackground(Color.clear)
             } else if let members {
+                if query.isEmpty {
+                    Section {
+                        HeroHeader(
+                            visual: HeroVisual.symbol("person.3.fill", tint: TileTint.teal),
+                            title: viewer.profile?.groupName ?? StarostaScreen.myGroup.title,
+                            subtitle: Self.membersText(members.count),
+                            actions: heroActions
+                        )
+                    }
+                }
                 FilterChipsRow(
                     options: [
                         (nil, String(localized: "starosta.group.all", defaultValue: "Все")),
@@ -38,16 +48,19 @@ struct StarostaGroupView: View {
                     Section {
                         ForEach(visible) { member in
                             NavigationLink(value: AppRoute.profile(id: member.id)) {
-                                PersonRow(
-                                    name: member.name,
-                                    subtitle: roleTitle(member.role),
-                                    avatarURL: member.avatarUrl,
-                                    size: 36
-                                )
+                                HStack(spacing: Spacing.md) {
+                                    PersonRow(
+                                        name: member.name,
+                                        subtitle: member.role == Role.starosta.rawValue ? nil : roleTitle(member.role),
+                                        avatarURL: member.avatarUrl,
+                                        size: 44
+                                    )
+                                    if member.role == Role.starosta.rawValue {
+                                        StatusBadge(text: String(localized: "starosta.role.starosta", defaultValue: "Староста"), tint: Palette.primary)
+                                    }
+                                }
                             }
                         }
-                    } header: {
-                        if let group = viewer.profile?.groupName, !group.isEmpty { Text(group) }
                     } footer: {
                         Text(String(localized: "starosta.group.count", defaultValue: "Всего: \(visible.count.formatted())"))
                     }
@@ -61,9 +74,27 @@ struct StarostaGroupView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle(Text(StarostaScreen.myGroup.title))
-        .searchable(text: $query, prompt: Text(String(localized: "starosta.group.search", defaultValue: "Найти по имени")))
+        .searchable(
+            text: $query,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: Text(String(localized: "starosta.group.search", defaultValue: "Найти по имени"))
+        )
         .refreshable { await load() }
         .task(id: viewer.profile?.groupId) { await load() }
+    }
+
+    private static func membersText(_ count: Int) -> String {
+        String(localized: "starosta.group.membersCount", defaultValue: "Участников: \(count.formatted())")
+    }
+
+    private var heroActions: [HeroAction] {
+        let documents = HeroAction(title: String(localized: "starosta.group.documents", defaultValue: "Документы"), symbol: "tray.full.fill") {
+            starostaPush(.starosta(.groupDocuments))
+        }
+        let invites = HeroAction(title: StarostaScreen.invites.title, symbol: "paperplane.fill") {
+            starostaPush(.starosta(.invites))
+        }
+        return [documents, invites]
     }
 
     private func filtered(_ members: [GroupMemberDTO]) -> [GroupMemberDTO] {
@@ -97,4 +128,11 @@ struct StarostaGroupView: View {
             isOffline = error.isOffline
         }
     }
+}
+
+/// Открыть маршрут в стеке текущей вкладки — для круглых кнопок шапки.
+@MainActor
+private func starostaPush(_ route: AppRoute) {
+    let router = AppServices.router
+    router.stacks[router.selectedTab, default: []].append(route)
 }

@@ -105,11 +105,14 @@ struct TeachingAttendanceJournalView: View {
     var body: some View {
         List {
             Section {
-                DatePicker(
-                    String(localized: "teaching.attendance.date", defaultValue: "Дата"),
-                    selection: $date,
-                    displayedComponents: .date
-                )
+                ScheduleDateStrip(selection: $date) { day in
+                    guard let pairs else { return false }
+                    let weekday = teachingWeekday(of: day)
+                    let parity = teachingWeekParity(of: day)
+                    return pairs.contains { $0.dayOfWeek == weekday && ($0.weekType == "BOTH" || $0.weekType == parity) }
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 0, leading: Spacing.xs, bottom: Spacing.xs, trailing: Spacing.xs))
             }
 
             if let pairs {
@@ -132,10 +135,20 @@ struct TeachingAttendanceJournalView: View {
                                 }
                             }
                         }
-                    } footer: {
+                    } header: {
                         let open = day.filter { !$0.isCancelled }
                         let done = open.filter { marked.contains($0.id) }.count
-                        Text(String(localized: "teaching.attendance.markedCount", defaultValue: "Отмечено \(done.formatted()) из \(open.count.formatted())"))
+                        HStack(spacing: Spacing.sm) {
+                            Text(date, format: .dateTime.weekday(.wide).day().month())
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Palette.foreground)
+                            Spacer(minLength: Spacing.sm)
+                            StatusBadge(
+                                text: String(localized: "teaching.attendance.markedCount", defaultValue: "Отмечено \(done.formatted()) из \(open.count.formatted())"),
+                                tint: done == open.count ? Palette.success : Palette.warning
+                            )
+                        }
+                        .textCase(nil)
                     }
                 }
             } else if let failure {
@@ -153,39 +166,55 @@ struct TeachingAttendanceJournalView: View {
         .onAppear { if pairs != nil { Task { await loadMarked() } } }
     }
 
+    /// Занятие как в расписании: время слева, полоса цвета дисциплины, название и
+    /// аудитория; справа — отмечено ли.
     private func row(_ item: TeachingDayPair) -> some View {
-        HStack(alignment: .top, spacing: Spacing.lg) {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .center, spacing: Spacing.md) {
+            VStack(alignment: .trailing, spacing: 2) {
                 Text(verbatim: item.start)
-                    .font(Typography.body.monospacedDigit())
+                    .font(Typography.tabular(.subheadline.weight(.semibold)))
                     .strikethrough(item.isCancelled)
                 Text(verbatim: item.end)
-                    .font(Typography.meta.monospacedDigit())
+                    .font(Typography.tabular(.footnote))
                     .foregroundStyle(Palette.mutedForeground)
             }
-            .frame(width: 52, alignment: .leading)
-            VStack(alignment: .leading, spacing: 2) {
+            .frame(minWidth: 46, alignment: .trailing)
+            Capsule()
+                .fill(item.isCancelled ? Color.gray : ScheduleSubjectTint.color(for: item.pair.subject))
+                .frame(width: 4)
+                .frame(maxHeight: .infinity)
+            VStack(alignment: .leading, spacing: 3) {
                 Text(item.pair.subject)
-                    .font(Typography.cardTitle)
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(Palette.foreground)
                     .lineLimit(2)
                 if let room = item.room {
-                    Text(room).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
+                    Label(room, systemImage: "mappin.and.ellipse")
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.mutedForeground)
                 }
-                if item.isSubstituting {
-                    StatusBadge(text: String(localized: "teaching.attendance.substitution", defaultValue: "Замена"), tint: Palette.warning)
+                HStack(spacing: Spacing.sm) {
+                    if item.isSubstituting {
+                        StatusBadge(text: String(localized: "teaching.attendance.substitution", defaultValue: "Замена"), tint: Palette.warning)
+                    }
+                    if item.isCancelled {
+                        StatusBadge(text: String(localized: "teaching.attendance.cancelled", defaultValue: "Отменено"), tint: Palette.mutedForeground)
+                    }
                 }
             }
             Spacer(minLength: Spacing.md)
-            if item.isCancelled {
-                StatusBadge(text: String(localized: "teaching.attendance.cancelled", defaultValue: "Отменено"), tint: Palette.mutedForeground)
-            } else if marked.contains(item.id) {
-                StatusBadge(text: String(localized: "teaching.attendance.marked", defaultValue: "Отмечено"), tint: Palette.success)
-            } else {
-                StatusBadge(text: String(localized: "teaching.attendance.notMarked", defaultValue: "Не отмечено"), tint: Palette.warning)
+            if !item.isCancelled {
+                let done = marked.contains(item.id)
+                Image(systemName: done ? "checkmark.circle.fill" : "circle.dashed")
+                    .font(.title3)
+                    .foregroundStyle(done ? Palette.success : Palette.warning)
+                    .accessibilityLabel(Text(done
+                        ? String(localized: "teaching.attendance.marked", defaultValue: "Отмечено")
+                        : String(localized: "teaching.attendance.notMarked", defaultValue: "Не отмечено")))
             }
         }
         .padding(.vertical, Spacing.xs)
+        .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .combine)
     }
 
@@ -313,7 +342,7 @@ struct TeachingAttendanceQRView: View {
                             .resizable()
                             .scaledToFit()
                             .padding(Spacing.lg)
-                            .background(Color.white, in: RoundedRectangle(cornerRadius: Radius.xl))
+                            .background(Color.white, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                             .accessibilityLabel(Text(String(localized: "teaching.attendance.qr.title", defaultValue: "QR для отметки")))
                     } else if failure != nil {
                         Text(String(localized: "teaching.attendance.qr.unavailable", defaultValue: "QR-отметка открыта только во время занятия: с 30 минут до начала до 15 минут после конца. На отменённую пару и на другую дату код не выдаётся."))
@@ -340,6 +369,8 @@ struct TeachingAttendanceQRView: View {
                 } label: {
                     Label(String(localized: "teaching.attendance.qr.refresh", defaultValue: "Обновить"), systemImage: "arrow.clockwise")
                 }
+                .controlSize(.large)
+                .glassButton()
                 .disabled(isLoading)
                 Spacer()
             }
@@ -349,8 +380,8 @@ struct TeachingAttendanceQRView: View {
             .navigationTitle(Text(String(localized: "teaching.attendance.qr.title", defaultValue: "QR для отметки")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(String(localized: "teaching.done", defaultValue: "Готово")) { dismiss() }
+                ToolbarItem(placement: .cancellationAction) {
+                    SheetCloseButton { dismiss() }
                 }
             }
             .task {

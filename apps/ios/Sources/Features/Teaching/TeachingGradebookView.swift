@@ -19,12 +19,13 @@ struct TeachingGradebookListView: View {
                         Section(section.title) {
                             ForEach(section.courses) { course in
                                 NavigationLink(value: AppRoute.teacher(.gradebookCourse(id: course.id))) {
-                                    IconRow(
+                                    TelegramStyleRow(
                                         title: course.subject.name,
-                                        symbol: "tablecells",
-                                        tint: TileTint.green,
-                                        subtitle: course.group?.name
-                                    )
+                                        subtitle: StudyText.join([course.group?.name, course.subject.code]),
+                                        meta: course.credits.map(CoursesText.credits)
+                                    ) {
+                                        RowSymbol(symbol: "tablecells.fill", tint: ScheduleSubjectTint.color(for: course.subject.name))
+                                    }
                                 }
                             }
                         }
@@ -90,16 +91,8 @@ struct TeachingGradebookCourseView: View {
         .listStyle(.insetGrouped)
         .navigationTitle(Text(courseTitle ?? TeacherScreen.gradebookCourse(id: courseID).title))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    addingColumn = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel(Text(String(localized: "teaching.gradebook.addColumn", defaultValue: "Добавить контрольную точку")))
-                .disabled(book == nil)
-            }
+        .floatingAction(String(localized: "teaching.gradebook.addColumn", defaultValue: "Добавить контрольную точку")) {
+            if book != nil { addingColumn = true }
         }
         .sheet(isPresented: $addingColumn) {
             TeachingColumnForm(courseID: courseID, column: nil) { await load() }
@@ -180,20 +173,37 @@ struct TeachingGradebookCourseView: View {
         }
     }
 
+    /// Контрольная точка строкой как чат: значок вида, название, «оценено N из M»
+    /// справа, ниже — вид и максимум; черновик — серым значком и плашкой.
     private func columnRow(_ column: TeachingGradebookDTO.Column, book: TeachingGradebookDTO) -> some View {
         let graded = book.grades.filter { $0.columnId == column.id && $0.score != nil }.count
         var lines = [TeachingText.columnKind(column.kind)]
         if let max = column.maxScore {
             lines.append(String(localized: "teaching.gradebook.max", defaultValue: "Макс. балл: \(max.formatted())"))
         }
-        lines.append(String(localized: "teaching.gradebook.graded", defaultValue: "Оценено: \(graded.formatted()) из \(book.students.count.formatted())"))
-        return ListCardRow(
+        let complete = graded == book.students.count && graded > 0
+        let progress: String = graded.formatted() + " / " + book.students.count.formatted()
+        return TelegramStyleRow(
             title: column.title,
-            status: column.published
-                ? nil
-                : (String(localized: "teaching.gradebook.draft", defaultValue: "Черновик"), Palette.mutedForeground),
-            lines: [lines.joined(separator: " · ")]
-        )
+            subtitle: lines.joined(separator: " · "),
+            meta: progress,
+            metaTint: complete ? Palette.success : Palette.mutedForeground
+        ) {
+            RowSymbol(symbol: Self.kindSymbol(column.kind), tint: column.published ? TileTint.indigo : Color.gray, size: 40)
+        } accessory: {
+            if !column.published {
+                StatusBadge(text: String(localized: "teaching.gradebook.draft", defaultValue: "Черновик"), tint: Palette.mutedForeground)
+            }
+        }
+    }
+
+    private static func kindSymbol(_ kind: String) -> String {
+        switch kind {
+        case "LAB": return "flask.fill"
+        case "CONTROL": return "checkmark.seal.fill"
+        case "EXAM": return "rosette"
+        default: return "doc.text.fill"
+        }
     }
 
     @ViewBuilder
@@ -245,26 +255,29 @@ struct TeachingGradebookCourseView: View {
                     NavigationLink {
                         TeachingStudentGradesView(book: book, student: row.student)
                     } label: {
-                        PersonRow(
-                            name: row.student.name,
-                            avatarURL: row.student.avatarUrl,
-                            trailing: row.total.map { "\($0)%" } ?? "—",
-                            size: 32
-                        )
+                        HStack(spacing: Spacing.md) {
+                            PersonRow(name: row.student.name, avatarURL: row.student.avatarUrl, size: 40)
+                            Text(verbatim: row.total.map { "\($0)%" } ?? "—")
+                                .font(Typography.tabular(.body.weight(.semibold)))
+                                .foregroundStyle(row.total.map(StudentGradeMath.tint) ?? Palette.mutedForeground)
+                        }
                     }
                 }
             } header: {
                 HStack {
                     Text(String(localized: "teaching.gradebook.total", defaultValue: "Итог"))
                     Spacer()
-                    Button(
-                        sortByTotal
-                            ? String(localized: "teaching.gradebook.sortByName", defaultValue: "По алфавиту")
-                            : String(localized: "teaching.gradebook.sortByTotal", defaultValue: "По итогу")
-                    ) {
+                    Button {
                         sortByTotal.toggle()
+                    } label: {
+                        Label(
+                            sortByTotal
+                                ? String(localized: "teaching.gradebook.sortByName", defaultValue: "По алфавиту")
+                                : String(localized: "teaching.gradebook.sortByTotal", defaultValue: "По итогу"),
+                            systemImage: "arrow.up.arrow.down"
+                        )
+                        .font(.footnote.weight(.semibold))
                     }
-                    .font(Typography.meta)
                     .textCase(nil)
                 }
             } footer: {
@@ -365,6 +378,7 @@ private struct TeachingColumnGradesView: View {
                     let value = binding(for: student.id)
                     let invalid = isInvalid(value.wrappedValue)
                     HStack(spacing: Spacing.lg) {
+                        AvatarView(url: student.avatarUrl, name: student.name, size: 36)
                         Text(student.name)
                             .font(Typography.body)
                             .foregroundStyle(Palette.foreground)
@@ -372,8 +386,14 @@ private struct TeachingColumnGradesView: View {
                         Spacer(minLength: Spacing.md)
                         TextField(String(localized: "teaching.gradebook.score", defaultValue: "Балл"), text: value)
                             .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 72)
+                            .multilineTextAlignment(.center)
+                            .font(Typography.tabular(.body.weight(.semibold)))
+                            .frame(width: 64)
+                            .padding(.vertical, Spacing.sm)
+                            .background(
+                                invalid ? Palette.destructive.opacity(0.12) : Palette.muted,
+                                in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+                            )
                             .foregroundStyle(invalid ? Palette.destructive : Palette.foreground)
                             .accessibilityLabel(Text(student.name))
                         if let max = column.maxScore {
@@ -457,21 +477,44 @@ private struct TeachingStudentGradesView: View {
     let book: TeachingGradebookDTO
     let student: TeachingPersonRef
 
+    private var profileActions: [HeroAction] {
+        let id = student.id
+        let profile = HeroAction(title: String(localized: "teaching.submissions.profile", defaultValue: "Профиль"), symbol: "person.fill") {
+            teachingPush(.profile(id: id))
+        }
+        return [profile]
+    }
+
     var body: some View {
         List {
             Section {
-                NavigationLink(value: AppRoute.profile(id: student.id)) {
-                    PersonRow(name: student.name, avatarURL: student.avatarUrl)
-                }
+                HeroHeader(
+                    visual: HeroVisual.avatar(url: student.avatarUrl, name: student.name),
+                    title: student.name,
+                    actions: profileActions
+                )
             }
             Section {
                 ForEach(book.columns.sorted { $0.position < $1.position }) { column in
                     let score = book.grades.first { $0.columnId == column.id && $0.studentId == student.id }?.score
-                    DetailRow(
-                        title: column.title,
-                        value: column.maxScore.map { "\(TeachingText.score(score)) / \($0)" } ?? TeachingText.score(score)
-                    )
+                    HStack(spacing: Spacing.lg) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(column.title)
+                                .font(.body.weight(.medium))
+                                .foregroundStyle(Palette.foreground)
+                            Text(TeachingText.columnKind(column.kind))
+                                .font(.footnote)
+                                .foregroundStyle(Palette.mutedForeground)
+                        }
+                        Spacer(minLength: Spacing.md)
+                        Text(verbatim: column.maxScore.map { "\(TeachingText.score(score)) / \($0)" } ?? TeachingText.score(score))
+                            .font(Typography.tabular(.body.weight(.semibold)))
+                            .foregroundStyle(score == nil ? Palette.mutedForeground : Palette.foreground)
+                    }
+                    .accessibilityElement(children: .combine)
                 }
+            } header: {
+                Text(String(localized: "teaching.gradebook.columns", defaultValue: "Контрольные точки"))
             }
         }
         .listStyle(.insetGrouped)

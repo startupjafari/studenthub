@@ -20,14 +20,9 @@ struct StudyView: View {
         List {
             if !isTeacher {
                 Section {
-                    AcademicSummaryCard(
-                        profile: viewer.profile,
-                        averagePercent: grades.flatMap(AcademicSummary.averagePercent),
-                        attendanceRate: attendance?.rate
-                    )
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
+                    AcademicSummaryHeader(profile: viewer.profile)
                 }
+                DashboardMetricsSection(metrics: metrics)
 
                 let upcoming = AcademicSummary.upcoming(assignments ?? [])
                 if !upcoming.isEmpty {
@@ -47,19 +42,44 @@ struct StudyView: View {
                 NavigationLink(value: AppRoute.section(.subjects)) {
                     IconRow(
                         title: String(localized: "more.subjects", defaultValue: "Дисциплины"),
-                        symbol: "book",
+                        symbol: "book.fill",
                         tint: TileTint.indigo
                     )
                 }
                 .accessibilityIdentifier("study.subjects")
-                // Оценки и посещаемость здесь — свои, студенческие (`/gradebook/me`,
-                // `/attendance/me`): преподавателю они отвечают 403. Отметка у него —
-                // с пары в расписании, журнал — в вебе.
-                if !isTeacher {
+                NavigationLink(value: AppRoute.section(.assignments)) {
+                    IconRow(
+                        title: String(localized: "study.assignments", defaultValue: "Задания"),
+                        symbol: "list.clipboard.fill",
+                        tint: TileTint.orange,
+                        value: pendingText
+                    )
+                }
+                NavigationLink(value: AppRoute.section(.materials)) {
+                    IconRow(
+                        title: String(localized: "study.materials", defaultValue: "Материалы"),
+                        symbol: "folder.fill",
+                        tint: TileTint.blue
+                    )
+                }
+                NavigationLink(value: AppRoute.section(.events)) {
+                    IconRow(
+                        title: String(localized: "study.events", defaultValue: "События и календарь"),
+                        symbol: "calendar",
+                        tint: TileTint.red
+                    )
+                }
+            }
+
+            // Оценки и посещаемость здесь — свои, студенческие (`/gradebook/me`,
+            // `/attendance/me`): преподавателю они отвечают 403. Отметка у него —
+            // с пары в расписании, журнал — в разделе «Преподавателю».
+            if !isTeacher {
+                Section {
                     NavigationLink(value: AppRoute.section(.grades)) {
                         IconRow(
                             title: String(localized: "study.grades", defaultValue: "Оценки"),
-                            symbol: "graduationcap",
+                            symbol: "graduationcap.fill",
                             tint: TileTint.green,
                             value: grades.flatMap(AcademicSummary.averagePercent).map { "\($0)%" }
                         )
@@ -67,32 +87,11 @@ struct StudyView: View {
                     NavigationLink(value: AppRoute.section(.attendance)) {
                         IconRow(
                             title: String(localized: "study.attendance", defaultValue: "Посещаемость"),
-                            symbol: "checkmark.circle",
+                            symbol: "checkmark.circle.fill",
                             tint: TileTint.teal,
                             value: attendance.map { "\($0.rate)%" }
                         )
                     }
-                }
-                NavigationLink(value: AppRoute.section(.assignments)) {
-                    IconRow(
-                        title: String(localized: "study.assignments", defaultValue: "Задания"),
-                        symbol: "list.clipboard",
-                        tint: TileTint.orange
-                    )
-                }
-                NavigationLink(value: AppRoute.section(.materials)) {
-                    IconRow(
-                        title: String(localized: "study.materials", defaultValue: "Материалы"),
-                        symbol: "folder",
-                        tint: TileTint.blue
-                    )
-                }
-                NavigationLink(value: AppRoute.section(.events)) {
-                    IconRow(
-                        title: String(localized: "study.events", defaultValue: "События и календарь"),
-                        symbol: "calendar.badge.clock",
-                        tint: TileTint.red
-                    )
                 }
             }
 
@@ -111,10 +110,51 @@ struct StudyView: View {
                 }
             }
         }
-        .listStyle(.insetGrouped)
+        .dashboardListStyle()
         .navigationTitle(Text(AppTab.study.title))
         .refreshable { await load() }
         .task { await load() }
+    }
+
+    /// Три главные цифры плитками, как на обзорах: GPA, средний результат, посещаемость.
+    private var metrics: [DashboardMetric] {
+        let isPending = grades == nil && attendance == nil
+        var items: [DashboardMetric] = []
+        if let gpa = viewer.profile?.gpa {
+            items.append(DashboardMetric(
+                title: String(localized: "study.gpa", defaultValue: "GPA"),
+                value: gpa.formatted(.number.precision(.fractionLength(2))),
+                symbol: "star.fill",
+                tint: TileTint.yellow
+            ))
+        }
+        items.append(DashboardMetric(
+            title: String(localized: "study.average", defaultValue: "Средний результат"),
+            value: grades.flatMap(AcademicSummary.averagePercent).map { "\($0)%" },
+            symbol: "graduationcap.fill",
+            tint: TileTint.green,
+            route: .section(.grades),
+            isPending: isPending
+        ))
+        items.append(DashboardMetric(
+            title: String(localized: "study.attendance", defaultValue: "Посещаемость"),
+            value: attendance.map { "\($0.rate)%" },
+            symbol: "checkmark.circle.fill",
+            tint: TileTint.teal,
+            route: .section(.attendance),
+            isPending: isPending
+        ))
+        return items
+    }
+
+    private var pendingText: String? {
+        guard let count = pendingCount, count > 0 else { return nil }
+        return count.formatted()
+    }
+
+    /// Сколько заданий ещё не сдано — счётчиком у строки «Задания».
+    private var pendingCount: Int? {
+        assignments.map { $0.filter { SubmissionState.of($0) == .notSubmitted }.count }
     }
 
     /// Сводка — подсказка, а не экран: отказ любого запроса прячет свою цифру, не
@@ -134,45 +174,32 @@ struct StudyView: View {
     }
 }
 
-/// Курс, группа, специальность, статус и две главные цифры — компактно, без
-/// таблиц веба.
-private struct AcademicSummaryCard: View {
+/// Курс, специальность и академический статус — строкой профиля с аватаром, как
+/// шапка «Настроек».
+private struct AcademicSummaryHeader: View {
     let profile: UserProfileDTO?
-    let averagePercent: Int?
-    let attendanceRate: Int?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.lg) {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: Spacing.lg) {
+            AvatarView(url: profile?.avatarUrl, name: DisplayFormat.name(first: profile?.firstName, last: profile?.lastName), size: 56)
+            VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(Typography.cardTitle)
+                    .font(.title3.weight(.semibold))
                     .foregroundStyle(Palette.foreground)
                 if let specialty = profile?.specialty, !specialty.isEmpty {
                     Text(specialty)
-                        .font(Typography.meta)
+                        .font(.subheadline)
                         .foregroundStyle(Palette.mutedForeground)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if let status = profile?.academicStatus, !status.isEmpty {
-                    Label(status, systemImage: "checkmark.seal.fill")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(Palette.success)
+                    StatusBadge(text: status, tint: Palette.success)
                 }
             }
-            HStack(spacing: Spacing.lg) {
-                if let gpa = profile?.gpa {
-                    metric(gpa.formatted(.number.precision(.fractionLength(2))), String(localized: "study.gpa", defaultValue: "GPA"))
-                }
-                if let averagePercent {
-                    metric("\(averagePercent)%", String(localized: "study.average", defaultValue: "Средний результат"))
-                }
-                if let attendanceRate {
-                    metric("\(attendanceRate)%", String(localized: "study.attendance", defaultValue: "Посещаемость"))
-                }
-            }
+            Spacer(minLength: 0)
         }
-        .padding(Spacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .cardSurface()
+        .padding(.vertical, Spacing.xs)
+        .accessibilityElement(children: .combine)
     }
 
     private var title: String {
@@ -181,48 +208,26 @@ private struct AcademicSummaryCard: View {
         }
         return String(localized: "study.summary", defaultValue: "Моя учёба")
     }
-
-    private func metric(_ value: String, _ title: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(verbatim: value)
-                .font(Typography.metric)
-                .foregroundStyle(Palette.foreground)
-            Text(title)
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
-                .lineLimit(2)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-    }
 }
 
+/// Срок задания строкой как в списке чатов: значок, название, дисциплина, срок справа.
 private struct DeadlineRow: View {
     let assignment: AssignmentDTO
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(assignment.title)
-                .font(Typography.body)
-                .foregroundStyle(Palette.foreground)
-            HStack(spacing: Spacing.md) {
-                if let subject = assignment.subject, !subject.isEmpty {
-                    Text(subject).lineLimit(1)
-                }
-                if let due = assignment.dueAt {
-                    let overdue = due < Date()
-                    Label {
-                        Text(due, format: .relative(presentation: .named))
-                    } icon: {
-                        Image(systemName: overdue ? "exclamationmark.circle.fill" : "clock")
-                    }
-                    .foregroundStyle(overdue ? Palette.destructive : Palette.mutedForeground)
-                }
-            }
-            .font(Typography.meta)
-            .foregroundStyle(Palette.mutedForeground)
+        let overdue: Bool = StudyDue.isPast(assignment.dueAt)
+        TelegramStyleRow(
+            title: assignment.title,
+            subtitle: assignment.subject,
+            meta: assignment.dueAt.map { DisplayFormat.relative($0) },
+            metaTint: overdue ? Palette.destructive : Palette.mutedForeground
+        ) {
+            RowSymbol(
+                symbol: overdue ? "exclamationmark" : "clock.fill",
+                tint: overdue ? TileTint.red : ScheduleSubjectTint.color(for: assignment.subject ?? assignment.title),
+                size: 40
+            )
         }
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -259,6 +264,15 @@ enum AttendanceStatus {
         }
     }
 
+    static func symbol(_ status: String) -> String {
+        switch status {
+        case "ABSENT": return "xmark.circle"
+        case "LATE": return "clock"
+        case "EXCUSED": return "doc.text"
+        default: return "checkmark.circle"
+        }
+    }
+
     static func color(_ status: String) -> Color {
         switch status {
         case "ABSENT": return Palette.destructive
@@ -280,5 +294,40 @@ struct EmptyRow: View {
             .padding(.vertical, Spacing.xxl)
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
+    }
+}
+
+/// Склейка подписей строки: пустые и отсутствующие части пропускаются. Отдельной
+/// функцией с явным типом — литерал массива опционалов внутри обобщённого вызова
+/// проверяется долго.
+enum StudyText {
+    static func join(_ parts: [String?], separator: String = " · ") -> String {
+        parts.compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: separator)
+    }
+
+    /// «Срок: 12 нояб., 18:00».
+    static func due(_ date: Date?) -> String? {
+        guard let date else { return nil }
+        let text: String = date.formatted(date: .abbreviated, time: .shortened)
+        return String(localized: "courses.due", defaultValue: "Срок: \(text)")
+    }
+
+    static func dateTime(_ date: Date?) -> String? {
+        guard let date else { return nil }
+        return date.formatted(date: .abbreviated, time: .shortened)
+    }
+}
+
+/// Срок задания: прошёл ли и каким цветом его показать. Отдельно, а не выражением в
+/// строке: `??` с `.distantFuture` и сравнением внутри обобщённого инициализатора
+/// заметно тормозит проверку типов.
+enum StudyDue {
+    static func isPast(_ date: Date?, now: Date = Date()) -> Bool {
+        guard let date else { return false }
+        return date < now
+    }
+
+    static func tint(_ date: Date?) -> Color {
+        isPast(date) ? Palette.destructive : Palette.mutedForeground
     }
 }

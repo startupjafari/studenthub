@@ -56,23 +56,17 @@ struct StarostaInvitesView: View {
                 if isChecking {
                     ProgressView()
                 } else {
-                    Menu {
-                        Button {
-                            creating = true
-                        } label: {
-                            Label(String(localized: "starosta.invites.create", defaultValue: "Создать приглашение"), systemImage: "plus")
-                        }
-                        Button {
-                            importing = true
-                        } label: {
-                            Label(String(localized: "starosta.invites.bulk", defaultValue: "Импорт из файла"), systemImage: "doc.badge.plus")
-                        }
+                    Button {
+                        importing = true
                     } label: {
-                        Image(systemName: "plus")
+                        Image(systemName: "doc.badge.plus")
                     }
-                    .accessibilityLabel(Text(String(localized: "starosta.invites.create", defaultValue: "Создать приглашение")))
+                    .accessibilityLabel(Text(String(localized: "starosta.invites.bulk", defaultValue: "Импорт из файла")))
                 }
             }
+        }
+        .floatingAction(String(localized: "starosta.invites.create", defaultValue: "Создать приглашение")) {
+            creating = true
         }
         .sheet(isPresented: $creating) {
             StarostaInviteForm(groupID: viewer.profile?.groupId) { invite in
@@ -154,15 +148,17 @@ private struct StarostaInviteRow: View {
 
     var body: some View {
         let status = Self.status(invite.status)
-        ListCardRow(
+        let pending = invite.status == "PENDING"
+        let tint: Color = pending ? TileTint.blue : (invite.status == "USED" ? TileTint.green : Color.gray)
+        TelegramStyleRow(
             title: invite.email ?? String(localized: "starosta.invites.noEmail", defaultValue: "Без адреса — по ссылке"),
-            subtitle: String(localized: "starosta.role.student", defaultValue: "Студент"),
-            status: (status.text, status.tint),
-            lines: [
-                String(localized: "starosta.invites.expires", defaultValue: "Действует до \(DisplayFormat.date(invite.expiresAt))"),
-                String(localized: "starosta.invites.createdAt", defaultValue: "Создано \(DisplayFormat.date(invite.createdAt))"),
-            ]
-        )
+            subtitle: String(localized: "starosta.invites.expires", defaultValue: "Действует до \(DisplayFormat.date(invite.expiresAt))"),
+            meta: DisplayFormat.date(invite.createdAt)
+        ) {
+            RowSymbol(symbol: invite.email == nil ? "link" : "envelope.fill", tint: tint)
+        } accessory: {
+            StatusBadge(text: status.text, tint: status.tint)
+        }
     }
 
     static func status(_ raw: String) -> (text: String, tint: Color) {

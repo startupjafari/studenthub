@@ -29,23 +29,18 @@ struct AssignmentsView: View {
                     .listRowBackground(Color.clear)
                 } else {
                     if isStudent {
-                        Picker(String(localized: "student.assignments.tabs", defaultValue: "Статус"), selection: $tab) {
-                            ForEach(AssignmentsTab.allCases, id: \.self) { tab in
-                                Text(verbatim: "\(tab.title) \(count(tab))").tag(tab)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets())
+                        FilterChipsRow(options: tabOptions, selection: tabSelection)
                     }
                     let visible = isStudent
                         ? loader.items.filter { tab.includes(StudentAssignmentStatus.of($0)) }
                         : loader.items
                     Section {
                         if visible.isEmpty {
-                            Text(String(localized: "student.assignments.tabEmpty", defaultValue: "Здесь пока пусто"))
-                                .font(Typography.meta)
-                                .foregroundStyle(Palette.mutedForeground)
+                            EmptyStateView(
+                                title: String(localized: "student.assignments.tabEmpty", defaultValue: "Здесь пока пусто"),
+                                symbol: "tray"
+                            )
+                            .listRowBackground(Color.clear)
                         }
                         ForEach(visible) { assignment in
                             NavigationLink(value: AppRoute.assignment(id: assignment.id)) {
@@ -80,6 +75,17 @@ struct AssignmentsView: View {
         .navigationTitle(Text(String(localized: "study.assignments", defaultValue: "Задания")))
     }
 
+    private var tabOptions: [(value: AssignmentsTab?, title: String)] {
+        AssignmentsTab.allCases.map { tab -> (value: AssignmentsTab?, title: String) in
+            let number: String = count(tab).formatted()
+            return (value: tab, title: tab.title + " " + number)
+        }
+    }
+
+    private var tabSelection: Binding<AssignmentsTab?> {
+        Binding(get: { tab }, set: { tab = $0 ?? .active })
+    }
+
     private func count(_ tab: AssignmentsTab) -> Int {
         loader.items.filter { tab.includes(StudentAssignmentStatus.of($0)) }.count
     }
@@ -109,51 +115,37 @@ private enum AssignmentsTab: CaseIterable, Hashable {
     }
 }
 
+/// Задание строкой как чат: значок цвета дисциплины, название, срок справа, ниже —
+/// дисциплина и плашка статуса (или балл, если проверено).
 private struct AssignmentRow: View {
     let assignment: AssignmentDTO
     let isStudent: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            HStack(alignment: .firstTextBaseline, spacing: Spacing.md) {
-                Text(assignment.title)
-                    .font(Typography.cardTitle)
-                    .foregroundStyle(Palette.foreground)
-                    .lineLimit(3)
-                Spacer(minLength: Spacing.md)
-                if isStudent, let score = assignment.mySubmission?.score, assignment.mySubmission?.status == "GRADED" {
-                    Text(verbatim: assignment.maxScore.map { "\(score) / \($0)" } ?? String(score))
-                        .font(Typography.tabular(Typography.body.weight(.semibold)))
-                        .foregroundStyle(Palette.foreground)
-                }
-            }
-
-            HStack(spacing: Spacing.md) {
-                if let subject = assignment.subject {
-                    Text(subject)
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
-                        .lineLimit(1)
-                }
-                if let dueAt = assignment.dueAt {
-                    Label(
-                        dueAt.formatted(date: .abbreviated, time: .shortened),
-                        systemImage: "clock"
-                    )
-                    .font(Typography.meta)
-                    // Просроченное выделяем цветом: это единственное, что человек
-                    // ищет в списке глазами.
-                    .foregroundStyle(dueAt < Date() ? Palette.destructive : Palette.mutedForeground)
-                }
-            }
-
+        let status = StudentAssignmentStatus.of(assignment)
+        let overdue: Bool = isStudent ? status == .overdue : StudyDue.isPast(assignment.dueAt)
+        TelegramStyleRow(
+            title: assignment.title,
+            subtitle: StudyText.join([assignment.subject, StudyText.dateTime(assignment.dueAt)], separator: "\n"),
+            meta: assignment.dueAt.map { DisplayFormat.relative($0) },
+            // Просроченное выделяем цветом: это единственное, что человек ищет в списке глазами.
+            metaTint: overdue ? Palette.destructive : Palette.mutedForeground
+        ) {
+            RowSymbol(
+                symbol: AssignmentDetailView.typeSymbol(assignment.type),
+                tint: ScheduleSubjectTint.color(for: assignment.subject ?? assignment.title)
+            )
+        } accessory: {
             if isStudent {
-                let status = StudentAssignmentStatus.of(assignment)
-                StatusBadge(text: status.title, tint: status.tint)
+                if let score = assignment.mySubmission?.score, assignment.mySubmission?.status == "GRADED" {
+                    Text(verbatim: assignment.maxScore.map { "\(score) / \($0)" } ?? String(score))
+                        .font(Typography.tabular(.subheadline.weight(.semibold)))
+                        .foregroundStyle(Palette.success)
+                } else {
+                    StatusBadge(text: status.title, tint: status.tint)
+                }
             }
         }
-        .padding(.vertical, Spacing.xs)
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -223,27 +215,30 @@ struct AssignmentDetailView: View {
 
     // MARK: Разделы
 
+    @ViewBuilder
     private func summary(_ assignment: AssignmentDTO) -> some View {
         Section {
-            VStack(alignment: .leading, spacing: Spacing.sm) {
-                Text(assignment.title)
-                    .font(Typography.sectionTitle)
-                    .foregroundStyle(Palette.foreground)
+            HeroHeader(
+                visual: HeroVisual.symbol(Self.typeSymbol(assignment.type), tint: ScheduleSubjectTint.color(for: assignment.subject ?? assignment.title)),
+                title: assignment.title,
+                subtitle: assignment.subject
+            ) {
                 HStack(spacing: Spacing.sm) {
-                    if let subject = assignment.subject {
-                        Text(subject)
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.mutedForeground)
-                    }
                     if isStudent {
                         let status = StudentAssignmentStatus.of(assignment)
                         StatusBadge(text: status.title, tint: status.tint)
                     }
+                    if let type = assignment.type {
+                        StatusBadge(text: Self.typeTitle(type), tint: Palette.mutedForeground)
+                    }
                 }
             }
-            .padding(.vertical, Spacing.xs)
+        }
+        Section {
             if let author = assignment.createdBy, !author.name.isEmpty {
-                DetailRow(title: String(localized: "student.assignment.author", defaultValue: "Преподаватель"), value: author.name, symbol: "person")
+                NavigationLink(value: AppRoute.profile(id: author.id)) {
+                    DetailRow(title: String(localized: "student.assignment.author", defaultValue: "Преподаватель"), value: author.name, symbol: "person")
+                }
             }
             if let due = assignment.dueAt {
                 DetailRow(title: String(localized: "student.assignment.due", defaultValue: "Срок сдачи"), value: DisplayFormat.dateTime(due), symbol: "calendar.badge.clock")
@@ -251,14 +246,15 @@ struct AssignmentDetailView: View {
             if let max = assignment.maxScore {
                 DetailRow(title: String(localized: "student.assignment.maxScore", defaultValue: "Макс. балл"), value: String(max), symbol: "star")
             }
-            if let type = assignment.type {
-                DetailRow(title: String(localized: "student.assignment.type", defaultValue: "Тип"), value: Self.typeTitle(type), symbol: "tag")
-            }
-            if let description = assignment.description, !description.isEmpty {
+        }
+        if let description = assignment.description, !description.isEmpty {
+            Section {
                 Text(description)
                     .font(Typography.body)
                     .foregroundStyle(Palette.foreground)
                     .textSelection(.enabled)
+            } header: {
+                Text(String(localized: "student.assignment.description", defaultValue: "Описание"))
             }
         }
     }
@@ -427,6 +423,16 @@ struct AssignmentDetailView: View {
         }
     }
 
+    /// Значок по типу задания — в строке списка и в шапке карточки.
+    static func typeSymbol(_ type: String?) -> String {
+        switch type {
+        case "LAB": return "flask.fill"
+        case "COURSEWORK": return "doc.text.fill"
+        case "PROJECT": return "hammer.fill"
+        default: return "list.clipboard.fill"
+        }
+    }
+
     static func typeTitle(_ type: String) -> String {
         switch type {
         case "HOMEWORK": return String(localized: "student.assignment.type.homework", defaultValue: "Домашнее задание")
@@ -477,47 +483,48 @@ struct MaterialsView: View {
                 }
             },
             row: { material in
-                VStack(alignment: .leading, spacing: Spacing.xs) {
-                    Text(material.title)
-                        .font(Typography.cardTitle)
-                        .foregroundStyle(Palette.foreground)
-                    Text(verbatim: [
-                        material.subject,
-                        material.teacher?.name,
-                        material.createdAt.map { DisplayFormat.date($0) },
-                    ].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
-                    if let description = material.description, !description.isEmpty {
-                        Text(description)
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.foreground)
-                            .lineLimit(6)
+                VStack(alignment: .leading, spacing: Spacing.sm) {
+                    TelegramStyleRow(
+                        title: material.title,
+                        subtitle: StudyText.join([material.subject, material.teacher?.name]),
+                        meta: material.createdAt.map { DisplayFormat.date($0) }
+                    ) {
+                        RowSymbol(symbol: "folder.fill", tint: ScheduleSubjectTint.color(for: material.subject ?? material.title))
                     }
-                    if let raw = material.url, let url = URL(string: raw) {
-                        Button {
-                            openURL(url)
-                        } label: {
-                            Label(String(localized: "student.materials.openLink", defaultValue: "Открыть ссылку"), systemImage: "link")
-                                .font(Typography.meta)
+                    VStack(alignment: .leading, spacing: Spacing.sm) {
+                        if let description = material.description, !description.isEmpty {
+                            Text(description)
+                                .font(.subheadline)
+                                .foregroundStyle(Palette.foreground)
+                                .lineLimit(6)
                         }
-                        .buttonStyle(.borderless)
-                    }
-                    ForEach(material.files ?? []) { file in
-                        Button {
-                            open(material: material, file: file)
-                        } label: {
-                            Label {
-                                Text(verbatim: [file.name ?? String(localized: "student.files.file", defaultValue: "Файл"), DisplayFormat.fileSize(file.size)]
-                                    .filter { !$0.isEmpty }.joined(separator: " · "))
-                            } icon: {
-                                Image(systemName: StudentSubmissionFilesSection.symbol(for: file.mime))
+                        if let raw = material.url, let url = URL(string: raw) {
+                            Button {
+                                openURL(url)
+                            } label: {
+                                Label(String(localized: "student.materials.openLink", defaultValue: "Открыть ссылку"), systemImage: "link")
+                                    .font(.subheadline.weight(.medium))
                             }
-                            .font(Typography.meta)
-                            .lineLimit(2)
+                            .buttonStyle(.borderless)
                         }
-                        .buttonStyle(.borderless)
+                        ForEach(material.files ?? []) { file in
+                            Button {
+                                open(material: material, file: file)
+                            } label: {
+                                Label {
+                                    Text(verbatim: [file.name ?? String(localized: "student.files.file", defaultValue: "Файл"), DisplayFormat.fileSize(file.size)]
+                                        .filter { !$0.isEmpty }.joined(separator: " · "))
+                                } icon: {
+                                    Image(systemName: StudentSubmissionFilesSection.symbol(for: file.mime))
+                                }
+                                .font(.subheadline)
+                                .lineLimit(2)
+                            }
+                            .buttonStyle(.borderless)
+                        }
                     }
+                    // Под текстом строки, а не под значком — как вложения в чате.
+                    .padding(.leading, 44 + Spacing.lg)
                 }
                 .padding(.vertical, Spacing.xs)
             }

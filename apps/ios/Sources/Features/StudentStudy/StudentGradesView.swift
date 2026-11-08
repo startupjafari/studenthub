@@ -20,27 +20,21 @@ struct StudentGradesView: View {
                     .listRowBackground(Color.clear)
                 } else {
                     if let overall = StudentGradeMath.overall(courses) {
-                        Section {
-                            StatGrid {
-                                StatTile(
-                                    title: String(localized: "student.grades.overall", defaultValue: "Средний балл"),
-                                    value: "\(overall)%",
-                                    symbol: "chart.line.uptrend.xyaxis",
-                                    tint: StudentGradeMath.tint(overall)
-                                )
-                                let credits = courses.reduce(0) { $0 + (StudentGradeMath.percent($1.columns) != nil ? ($1.credits ?? 0) : 0) }
-                                if credits > 0 {
-                                    StatTile(
-                                        title: String(localized: "student.grades.colCredits", defaultValue: "Кредиты"),
-                                        value: String(credits),
-                                        symbol: "flag.checkered",
-                                        tint: Palette.warning
-                                    )
-                                }
-                            }
-                            .listRowInsets(EdgeInsets())
-                            .listRowBackground(Color.clear)
-                        }
+                        let credits = courses.reduce(0) { $0 + (StudentGradeMath.percent($1.columns) != nil ? ($1.credits ?? 0) : 0) }
+                        DashboardMetricsSection(metrics: [
+                            DashboardMetric(
+                                title: String(localized: "student.grades.overall", defaultValue: "Средний балл"),
+                                value: "\(overall)%",
+                                symbol: "chart.line.uptrend.xyaxis",
+                                tint: StudentGradeMath.tint(overall)
+                            ),
+                            DashboardMetric(
+                                title: String(localized: "student.grades.colCredits", defaultValue: "Кредиты"),
+                                value: credits > 0 ? credits.formatted() : nil,
+                                symbol: "flag.checkered",
+                                tint: Palette.warning
+                            ),
+                        ])
                     }
 
                     Section {
@@ -87,28 +81,23 @@ struct StudentGradesView: View {
         }
     }
 
+    /// Дисциплина строкой как чат: слева кольцо результата, справа — процент цветом.
     private func row(_ course: CourseGradesDTO) -> some View {
-        HStack(spacing: Spacing.md) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(course.subject.name)
-                    .font(Typography.cardTitle)
-                    .foregroundStyle(Palette.foreground)
-                    .lineLimit(3)
-                Text(subtitle(course))
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
-            }
-            Spacer(minLength: Spacing.md)
-            if let percent = StudentGradeMath.percent(course.columns) {
-                Text(verbatim: "\(percent)%")
-                    .font(Typography.tabular(Typography.body.weight(.semibold)))
-                    .foregroundStyle(StudentGradeMath.tint(percent))
-            } else {
+        let percent = StudentGradeMath.percent(course.columns)
+        let percentText: String? = percent.map { String($0) + "%" }
+        let tint: Color = percent.map { StudentGradeMath.tint($0) } ?? Palette.mutedForeground
+        return TelegramStyleRow(
+            title: course.subject.name,
+            subtitle: subtitle(course),
+            meta: percentText,
+            metaTint: tint
+        ) {
+            StudentPercentRing(percent: percent, size: 44)
+        } accessory: {
+            if percent == nil {
                 StatusBadge(text: String(localized: "student.grades.noGrades", defaultValue: "Нет оценок"), tint: Palette.mutedForeground)
             }
         }
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .combine)
     }
 
     private func subtitle(_ course: CourseGradesDTO) -> String {
@@ -129,34 +118,38 @@ private struct StudentCourseGradesView: View {
         List {
             Section {
                 let percent = StudentGradeMath.percent(course.columns)
-                HStack {
-                    if let credits = course.credits {
-                        Text(String(localized: "student.grades.creditsN", defaultValue: "\(String(credits)) кредитов"))
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.mutedForeground)
-                    }
-                    Spacer()
-                    if let percent {
-                        Text(verbatim: "\(percent)%")
-                            .font(Typography.tabular(Typography.metric))
-                            .foregroundStyle(Palette.foreground)
-                    } else {
-                        StatusBadge(text: String(localized: "student.grades.noGrades", defaultValue: "Нет оценок"), tint: Palette.mutedForeground)
+                VStack(spacing: Spacing.md) {
+                    StudentPercentRing(percent: percent, size: 112, lineWidth: 10, showsValue: true)
+                    Text(course.subject.name)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(Palette.foreground)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: Spacing.sm) {
+                        if let credits = course.credits {
+                            StatusBadge(text: String(localized: "student.grades.creditsN", defaultValue: "\(String(credits)) кредитов"), tint: Palette.primary)
+                        }
+                        StatusBadge(text: String(localized: "student.grades.worksN", defaultValue: "Работ: \(String(course.columns.count))"), tint: Palette.mutedForeground)
                     }
                 }
-                if let percent {
-                    ProgressView(value: Double(min(max(percent, 0), 100)), total: 100)
-                        .tint(StudentGradeMath.tint(percent))
-                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Spacing.sm)
+                .listRowBackground(Color.clear)
+                .accessibilityElement(children: .combine)
             }
 
             if !course.columns.isEmpty {
-                Section {
+                Section(String(localized: "student.grades.works", defaultValue: "Работы")) {
                     ForEach(course.columns) { column in
-                        HStack {
+                        HStack(spacing: Spacing.lg) {
+                            RowSymbol(
+                                symbol: Self.kindSymbol(column.kind),
+                                tint: column.score == nil ? Color.gray : TileTint.indigo,
+                                size: 36
+                            )
                             VStack(alignment: .leading, spacing: 0) {
                                 Text(column.title)
-                                    .font(Typography.body)
+                                    .font(.body.weight(.medium))
                                     .foregroundStyle(Palette.foreground)
                                 if let kind = GradeFormat.kindTitle(column.kind) {
                                     Text(kind)
@@ -167,7 +160,7 @@ private struct StudentCourseGradesView: View {
                             Spacer()
                             Text(verbatim: column.score.map { GradeFormat.score($0, max: column.maxScore) }
                                 ?? (column.maxScore.map { "— / \($0)" } ?? "—"))
-                                .font(Typography.tabular(Typography.body))
+                                .font(Typography.tabular(.body.weight(.semibold)))
                                 .foregroundStyle(column.score == nil ? Palette.mutedForeground : Palette.foreground)
                         }
                         .accessibilityElement(children: .combine)
@@ -178,5 +171,54 @@ private struct StudentCourseGradesView: View {
         .listStyle(.insetGrouped)
         .navigationTitle(Text(course.subject.name))
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private static func kindSymbol(_ kind: String) -> String {
+        switch kind {
+        case "LAB": return "flask.fill"
+        case "CONTROL": return "checkmark.seal.fill"
+        case "EXAM": return "rosette"
+        default: return "doc.text.fill"
+        }
+    }
+}
+
+/// Кольцо результата, как в «Активности»: доля от 100 цветом успеваемости. Без
+/// оценок — серое пустое кольцо.
+struct StudentPercentRing: View {
+    let percent: Int?
+    var size: CGFloat = 44
+    var lineWidth: CGFloat = 4
+    var showsValue = false
+
+    var body: some View {
+        let tint: Color = percent.map(StudentGradeMath.tint) ?? Palette.mutedForeground
+        let fraction: CGFloat = CGFloat(min(max(percent ?? 0, 0), 100)) / 100
+        let label: String = percent.map { "\($0)%" } ?? "—"
+        let iconSize: CGFloat = size * 0.36
+        let inset: CGFloat = lineWidth + Spacing.sm
+        ZStack {
+            Circle().stroke(tint.opacity(0.18), lineWidth: lineWidth)
+            if let percent {
+                Circle()
+                    .trim(from: 0, to: fraction)
+                    .stroke(tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            if showsValue {
+                Text(verbatim: label)
+                    .font(Typography.tabular(.title.weight(.bold)))
+                    .foregroundStyle(Palette.foreground)
+                    .minimumScaleFactor(0.5)
+                    .lineLimit(1)
+                    .padding(inset)
+            } else {
+                Image(systemName: "graduationcap.fill")
+                    .font(.system(size: iconSize, weight: .semibold))
+                    .foregroundStyle(tint)
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(!showsValue)
     }
 }

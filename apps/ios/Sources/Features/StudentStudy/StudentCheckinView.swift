@@ -41,13 +41,17 @@ struct StudentCheckinView: View {
                         Button {
                             state = .scanning
                         } label: {
-                            Text(String(localized: "student.checkin.again", defaultValue: "Сканировать ещё раз"))
+                            Label(String(localized: "student.checkin.again", defaultValue: "Сканировать ещё раз"), systemImage: "qrcode.viewfinder")
+                                .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(PrimaryButtonStyle())
+                        .controlSize(.large)
+                        .glassProminentButton()
                         NavigationLink(value: AppRoute.student(.attendance)) {
                             Text(String(localized: "student.checkin.toAttendance", defaultValue: "К посещаемости"))
+                                .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(QuietButtonStyle())
+                        .controlSize(.large)
+                        .glassButton()
                     }
                 }
             }
@@ -105,13 +109,13 @@ struct StudentCheckinView: View {
                     onUnavailable: { isCameraUnavailable = true }
                 )
                 .frame(maxWidth: .infinity)
-                .frame(height: 320)
-                .clipShape(RoundedRectangle(cornerRadius: Radius.xxl))
-                .overlay(RoundedRectangle(cornerRadius: Radius.xxl).strokeBorder(Palette.border, lineWidth: 1))
+                .aspectRatio(1, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                .overlay { StudentViewfinderFrame().padding(Spacing.xxl * 1.5) }
                 .accessibilityLabel(Text(String(localized: "student.checkin.viewfinder", defaultValue: "Видоискатель камеры")))
 
                 Text(String(localized: "student.checkin.hint", defaultValue: "Наведите камеру на QR-код, который преподаватель показывает на занятии"))
-                    .font(Typography.meta)
+                    .font(.subheadline)
                     .foregroundStyle(Palette.mutedForeground)
                     .multilineTextAlignment(.center)
 
@@ -121,7 +125,8 @@ struct StudentCheckinView: View {
                 } label: {
                     Label(String(localized: "student.checkin.enterCode", defaultValue: "Ввести код"), systemImage: "keyboard")
                 }
-                .buttonStyle(QuietButtonStyle())
+                .controlSize(.large)
+                .glassButton()
             }
         }
     }
@@ -154,14 +159,15 @@ struct StudentCheckinView: View {
         VStack(spacing: Spacing.md) {
             if let symbol {
                 Image(systemName: symbol)
-                    .font(.system(size: 44))
+                    .font(.system(size: 56, weight: .semibold))
                     .foregroundStyle(tint)
+                    .symbolEffect(.bounce, value: title)
                     .accessibilityHidden(true)
             } else {
                 ProgressView().controlSize(.large)
             }
             Text(title)
-                .font(Typography.sectionTitle)
+                .font(.title3.weight(.semibold))
                 .foregroundStyle(Palette.foreground)
                 .multilineTextAlignment(.center)
             ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
@@ -217,6 +223,40 @@ struct StudentCheckinView: View {
             return String(localized: "student.checkin.error.forbidden", defaultValue: "Самоотметка доступна только студентам.")
         default:
             return error.userMessage
+        }
+    }
+}
+
+/// Уголки видоискателя поверх камеры — как у сканера кодов в системной «Камере».
+private struct StudentViewfinderFrame: View {
+    var body: some View {
+        GeometryReader { proxy in
+            Self.corners(in: proxy.size)
+                .stroke(.white, style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
+                .shadow(color: .black.opacity(0.3), radius: 2)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private static func corners(in size: CGSize) -> Path {
+        let side: CGFloat = min(size.width, size.height)
+        let arm: CGFloat = side * 0.16
+        let rect = CGRect(x: (size.width - side) / 2, y: (size.height - side) / 2, width: side, height: side)
+        return Path { path in
+            // Четыре угла: от края по горизонтали — к вершине — вниз по вертикали.
+            path.move(to: CGPoint(x: rect.minX, y: rect.minY + arm))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.minX + arm, y: rect.minY))
+            path.move(to: CGPoint(x: rect.maxX - arm, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + arm))
+            path.move(to: CGPoint(x: rect.maxX, y: rect.maxY - arm))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.maxX - arm, y: rect.maxY))
+            path.move(to: CGPoint(x: rect.minX + arm, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - arm))
         }
     }
 }

@@ -49,15 +49,8 @@ struct TeachingMaterialsView: View {
             }
         }
         .navigationTitle(Text(TeacherScreen.materials.title))
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    creating = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel(Text(String(localized: "teaching.materials.add", defaultValue: "Добавить материал")))
-            }
+        .floatingAction(String(localized: "teaching.materials.add", defaultValue: "Добавить материал")) {
+            creating = true
         }
         .sheet(isPresented: $creating) {
             TeachingMaterialForm { await loader.reload() }
@@ -86,20 +79,28 @@ struct TeachingMaterialsView: View {
     }
 }
 
+/// Материал строкой как чат: папка цвета дисциплины, название, дата справа, ниже —
+/// дисциплина и автор; число файлов — счётчиком.
 private struct TeachingMaterialRow: View {
     let material: TeachingMaterialDTO
 
     var body: some View {
-        var meta: [String] = []
-        if let teacher = material.teacher { meta.append(teacher.name) }
+        let subject = material.subject ?? String(localized: "teaching.materials.noSubject", defaultValue: "Без дисциплины")
         let files = material.media?.count ?? 0
-        if files > 0 { meta.append(String(localized: "teaching.materials.filesCount", defaultValue: "Файлов: \(files.formatted())")) }
-        if let created = material.createdAt { meta.append(DisplayFormat.date(created)) }
-        return ListCardRow(
+        TelegramStyleRow(
             title: material.title,
-            subtitle: material.subject ?? String(localized: "teaching.materials.noSubject", defaultValue: "Без дисциплины"),
-            lines: [meta.joined(separator: " · ")]
-        )
+            subtitle: StudyText.join([subject, material.teacher?.name], separator: "\n"),
+            meta: material.createdAt.map { DisplayFormat.date($0) }
+        ) {
+            RowSymbol(symbol: "folder.fill", tint: ScheduleSubjectTint.color(for: subject))
+        } accessory: {
+            if files > 0 {
+                Label(files.formatted(), systemImage: "paperclip")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(Palette.mutedForeground)
+                    .accessibilityLabel(Text(String(localized: "teaching.materials.filesCount", defaultValue: "Файлов: \(files.formatted())")))
+            }
+        }
     }
 }
 
@@ -115,25 +116,48 @@ private struct TeachingMaterialDetailView: View {
     @State private var deleting: TeachingMaterialDTO?
     @State private var actionFailure: String?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
 
     private var material: TeachingMaterialDTO? { loader.items.first { $0.id == materialID } }
+
+    /// Ссылка, прикрепить файл и удалить — круглыми кнопками шапки.
+    private func heroActions(_ material: TeachingMaterialDTO) -> [HeroAction] {
+        var actions: [HeroAction] = []
+        if let link = material.url, let url = URL(string: link) {
+            actions.append(HeroAction(title: String(localized: "teaching.materials.link", defaultValue: "Ссылка"), symbol: "link") {
+                openURL(url)
+            })
+        }
+        if canManage {
+            actions.append(HeroAction(title: String(localized: "teaching.materials.attachShort", defaultValue: "Файл"), symbol: "paperclip") {
+                importing = true
+            })
+            actions.append(HeroAction(title: String(localized: "teaching.delete", defaultValue: "Удалить"), symbol: "trash", role: .destructive) {
+                deleting = material
+            })
+        }
+        return actions
+    }
 
     var body: some View {
         List {
             if let material {
                 Section {
-                    ListCardRow(
+                    HeroHeader(
+                        visual: HeroVisual.symbol("folder.fill", tint: ScheduleSubjectTint.color(for: material.subject ?? material.title)),
                         title: material.title,
                         subtitle: material.subject ?? String(localized: "teaching.materials.noSubject", defaultValue: "Без дисциплины"),
-                        lines: [material.teacher?.name ?? "", DisplayFormat.date(material.createdAt)]
+                        actions: heroActions(material)
                     )
+                }
+                Section {
+                    if let teacher = material.teacher {
+                        NavigationLink(value: AppRoute.profile(id: teacher.id)) {
+                            PersonRow(name: teacher.name, subtitle: DisplayFormat.date(material.createdAt), avatarURL: teacher.avatarUrl)
+                        }
+                    }
                     if let description = material.description, !description.isEmpty {
                         Text(description).textSelection(.enabled)
-                    }
-                    if let link = material.url, let url = URL(string: link) {
-                        Link(destination: url) {
-                            Label(String(localized: "teaching.materials.openLink", defaultValue: "Открыть ссылку"), systemImage: "link")
-                        }
                     }
                 }
 
@@ -153,7 +177,7 @@ private struct TeachingMaterialDetailView: View {
                         } label: {
                             IconRow(
                                 title: file.name ?? String(localized: "teaching.materials.file", defaultValue: "Файл"),
-                                symbol: "doc",
+                                symbol: "doc.fill",
                                 tint: TileTint.indigo,
                                 value: DisplayFormat.fileSize(file.size)
                             )
@@ -185,18 +209,6 @@ private struct TeachingMaterialDetailView: View {
         .listStyle(.insetGrouped)
         .navigationTitle(Text(material?.title ?? TeacherScreen.materials.title))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if canManage, let material {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(role: .destructive) {
-                        deleting = material
-                    } label: {
-                        Image(systemName: "trash")
-                    }
-                    .accessibilityLabel(Text(String(localized: "teaching.delete", defaultValue: "Удалить")))
-                }
-            }
-        }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.item]) { result in
             Task { await upload(result) }
         }

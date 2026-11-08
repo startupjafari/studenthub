@@ -30,13 +30,16 @@ struct TeachingAssignmentsView: View {
                 Section {
                     ForEach(queue.items) { item in
                         NavigationLink(value: AppRoute.teacher(.assignmentSubmissions(assignmentID: item.id))) {
-                            IconRow(
+                            TelegramStyleRow(
                                 title: item.title,
-                                symbol: "tray.full",
-                                tint: TileTint.orange,
                                 subtitle: item.subject,
-                                value: item.pending.formatted()
-                            )
+                                meta: item.dueAt.map { DisplayFormat.date($0) },
+                                metaTint: StudyDue.tint(item.dueAt)
+                            ) {
+                                RowSymbol(symbol: "tray.full.fill", tint: TileTint.orange)
+                            } accessory: {
+                                TeachingCounter(count: item.pending, tint: TileTint.orange)
+                            }
                         }
                     }
                 } header: {
@@ -64,15 +67,8 @@ struct TeachingAssignmentsView: View {
             }
         }
         .navigationTitle(Text(String(localized: "teaching.assignments.title", defaultValue: "Задания")))
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    creating = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel(Text(String(localized: "teaching.assignments.new", defaultValue: "Создать задание")))
-            }
+        .floatingAction(String(localized: "teaching.assignments.new", defaultValue: "Создать задание")) {
+            creating = true
         }
         .sheet(isPresented: $creating) {
             TeachingAssignmentForm(assignment: nil) { await reload() }
@@ -174,24 +170,32 @@ struct TeachingAssignmentsView: View {
     }
 }
 
+/// Задание строкой как чат: значок типа, название, срок справа, ниже — дисциплина,
+/// группа и тип; статус плашкой.
 private struct TeachingAssignmentRow: View {
     let assignment: TeachingAssignmentDTO
 
     var body: some View {
         let status = TeachingText.assignmentStatus(assignment.status)
-        ListCardRow(
+        let overdue: Bool = assignment.status == "PUBLISHED" && StudyDue.isPast(assignment.dueAt)
+        let course: String = [assignment.course?.subject.name, assignment.course?.group?.name]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+        let lines: [String] = [course, TeachingText.assignmentType(assignment.type)].filter { !$0.isEmpty }
+        TelegramStyleRow(
             title: assignment.title,
-            subtitle: [assignment.course?.subject.name, assignment.course?.group?.name]
-                .compactMap { $0 }
-                .joined(separator: " · "),
-            status: (status.text, status.tint),
-            lines: [
-                assignment.dueAt.map {
-                    String(localized: "teaching.assignments.due", defaultValue: "Срок: \(DisplayFormat.dateTime($0))")
-                } ?? String(localized: "teaching.assignments.noDue", defaultValue: "Без срока"),
-                TeachingText.assignmentType(assignment.type),
-            ]
-        )
+            subtitle: lines.joined(separator: "\n"),
+            meta: assignment.dueAt.map { DisplayFormat.date($0) }
+                ?? String(localized: "teaching.assignments.noDue", defaultValue: "Без срока"),
+            metaTint: overdue ? Palette.destructive : Palette.mutedForeground
+        ) {
+            RowSymbol(
+                symbol: teachingAssignmentSymbol(assignment.type),
+                tint: assignment.status == "DRAFT" ? Color.gray : ScheduleSubjectTint.color(for: assignment.course?.subject.name ?? assignment.title)
+            )
+        } accessory: {
+            StatusBadge(text: status.text, tint: status.tint)
+        }
     }
 }
 
@@ -351,18 +355,31 @@ struct TeachingSubmissionsView: View {
             if let assignment {
                 Section {
                     let status = TeachingText.assignmentStatus(assignment.status)
-                    ListCardRow(
+                    HeroHeader(
+                        visual: Self.visual(assignment),
                         title: assignment.title,
-                        subtitle: [assignment.course?.subject.name, assignment.course?.group?.name].compactMap { $0 }.joined(separator: " · "),
-                        status: (status.text, status.tint),
-                        lines: [
-                            assignment.dueAt.map {
-                                String(localized: "teaching.assignments.due", defaultValue: "Срок: \(DisplayFormat.dateTime($0))")
-                            } ?? String(localized: "teaching.assignments.noDue", defaultValue: "Без срока"),
-                            assignment.maxScore.map {
-                                String(localized: "teaching.assignments.maxScore", defaultValue: "Макс. балл: \($0.formatted())")
-                            } ?? "",
-                        ]
+                        subtitle: StudyText.join([assignment.course?.subject.name, assignment.course?.group?.name]),
+                        actions: editActions
+                    ) {
+                        HStack(spacing: Spacing.sm) {
+                            StatusBadge(text: status.text, tint: status.tint)
+                            StatusBadge(text: TeachingText.assignmentType(assignment.type), tint: Palette.mutedForeground)
+                        }
+                    }
+                }
+                Section {
+                    DetailRow(
+                        title: String(localized: "student.assignment.due", defaultValue: "Срок сдачи"),
+                        value: assignment.dueAt.map { DisplayFormat.dateTime($0) } ?? String(localized: "teaching.assignments.noDue", defaultValue: "Без срока"),
+                        symbol: "calendar.badge.clock"
+                    )
+                    if let max = assignment.maxScore {
+                        DetailRow(title: String(localized: "student.assignment.maxScore", defaultValue: "Макс. балл"), value: max.formatted(), symbol: "star")
+                    }
+                    DetailRow(
+                        title: String(localized: "teaching.assignments.field.submissionType", defaultValue: "Способ сдачи"),
+                        value: TeachingText.submissionType(assignment.submissionType),
+                        symbol: "tray.and.arrow.up"
                     )
                     if let description = assignment.description, !description.isEmpty {
                         Text(description)
@@ -409,18 +426,6 @@ struct TeachingSubmissionsView: View {
         .listStyle(.insetGrouped)
         .navigationTitle(Text(TeacherScreen.assignmentSubmissions(assignmentID: assignmentID).title))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if let assignment {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        editing = true
-                    } label: {
-                        Image(systemName: "pencil")
-                    }
-                    .accessibilityLabel(Text(String(localized: "teaching.assignments.edit", defaultValue: "Изменить задание")))
-                }
-            }
-        }
         .sheet(isPresented: $editing) {
             if let assignment {
                 TeachingAssignmentForm(assignment: assignment) { await load() }
@@ -428,6 +433,16 @@ struct TeachingSubmissionsView: View {
         }
         .refreshable { await load() }
         .task { await load() }
+    }
+
+    private static func visual(_ assignment: TeachingAssignmentDTO) -> HeroVisual {
+        let tint: Color = ScheduleSubjectTint.color(for: assignment.course?.subject.name ?? assignment.title)
+        return HeroVisual.symbol(teachingAssignmentSymbol(assignment.type), tint: tint)
+    }
+
+    private var editActions: [HeroAction] {
+        let edit = HeroAction(title: String(localized: "teaching.edit", defaultValue: "Изменить"), symbol: "pencil") { editing = true }
+        return [edit]
     }
 
     private func filterOptions(_ submissions: [TeachingSubmissionDTO]) -> [(value: String?, title: String)] {
@@ -439,19 +454,26 @@ struct TeachingSubmissionsView: View {
         return options
     }
 
+    /// Работа строкой как чат: аватар студента, имя, время сдачи справа, ниже —
+    /// попытка и балл, статус плашкой.
     private func submissionRow(_ submission: TeachingSubmissionDTO) -> some View {
         let status = TeachingText.submissionStatus(submission.status)
         var lines: [String] = []
         if let attempt = submission.attemptNumber {
             lines.append(String(localized: "teaching.submissions.attempt", defaultValue: "Попытка \(attempt.formatted())"))
         }
-        if let submittedAt = submission.submittedAt {
-            lines.append(String(localized: "teaching.submissions.submittedAt", defaultValue: "Сдано: \(DisplayFormat.dateTime(submittedAt))"))
-        }
         if let score = submission.score {
             lines.append(String(localized: "teaching.submissions.score", defaultValue: "Балл: \(score.formatted())"))
         }
-        return ListCardRow(title: submission.student.name, status: (status.text, status.tint), lines: [lines.joined(separator: " · ")])
+        return TelegramStyleRow(
+            title: submission.student.name,
+            subtitle: lines.joined(separator: " · "),
+            meta: submission.submittedAt.map { DisplayFormat.relative($0) }
+        ) {
+            AvatarView(url: submission.student.avatarUrl, name: submission.student.name, size: 44)
+        } accessory: {
+            StatusBadge(text: status.text, tint: status.tint)
+        }
     }
 
     @MainActor
@@ -499,6 +521,14 @@ private struct TeachingSubmissionReviewView: View {
     }
 
     private var gradable: Bool { submission.status == "SUBMITTED" }
+
+    private var profileActions: [HeroAction] {
+        let id = submission.student.id
+        let profile = HeroAction(title: String(localized: "teaching.submissions.profile", defaultValue: "Профиль"), symbol: "person.fill") {
+            teachingPush(.profile(id: id))
+        }
+        return [profile]
+    }
     private var formOpen: Bool { gradable || regrading }
     private var ceiling: Int { maxScore ?? 1000 }
 
@@ -510,15 +540,16 @@ private struct TeachingSubmissionReviewView: View {
                     .listRowInsets(EdgeInsets())
             }
             Section {
-                NavigationLink(value: AppRoute.profile(id: submission.student.id)) {
-                    PersonRow(name: submission.student.name, avatarURL: submission.student.avatarUrl)
-                }
                 let status = TeachingText.submissionStatus(submission.status)
-                HStack {
-                    Text(String(localized: "teaching.submissions.status", defaultValue: "Статус"))
-                    Spacer()
+                HeroHeader(
+                    visual: HeroVisual.avatar(url: submission.student.avatarUrl, name: submission.student.name),
+                    title: submission.student.name,
+                    actions: profileActions
+                ) {
                     StatusBadge(text: status.text, tint: status.tint)
                 }
+            }
+            Section {
                 if let attempt = submission.attemptNumber {
                     DetailRow(title: String(localized: "teaching.submissions.attemptTitle", defaultValue: "Попытка"), value: attempt.formatted())
                 }
@@ -555,7 +586,7 @@ private struct TeachingSubmissionReviewView: View {
                                 }
                             }
                         } label: {
-                            IconRow(title: name, symbol: "doc", tint: TileTint.indigo, value: DisplayFormat.fileSize(file.size))
+                            IconRow(title: name, symbol: "doc.fill", tint: TileTint.indigo, value: DisplayFormat.fileSize(file.size))
                         }
                     }
                 }
@@ -579,16 +610,19 @@ private struct TeachingSubmissionReviewView: View {
                     Button {
                         Task { await grade() }
                     } label: {
-                        Text(regrading
+                        Label(regrading
                             ? String(localized: "teaching.submissions.saveGrade", defaultValue: "Сохранить оценку")
-                            : String(localized: "teaching.submissions.publishGrade", defaultValue: "Поставить балл"))
+                            : String(localized: "teaching.submissions.publishGrade", defaultValue: "Поставить балл"),
+                            systemImage: "checkmark.circle.fill")
+                            .fontWeight(.semibold)
                     }
                     .disabled(isSaving)
                     if gradable && returnable {
                         Button {
                             Task { await returnForFix() }
                         } label: {
-                            Text(String(localized: "teaching.submissions.return", defaultValue: "Вернуть на исправление"))
+                            Label(String(localized: "teaching.submissions.return", defaultValue: "Вернуть на исправление"), systemImage: "arrow.uturn.backward.circle")
+                                .foregroundStyle(Palette.warning)
                         }
                         .disabled(isSaving)
                     }

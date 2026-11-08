@@ -99,12 +99,11 @@ private struct TeachingScheduleChangesList: View {
         }
     }
 
+    /// Изменение строкой как чат: значок вида изменения его цвета, дисциплина, время
+    /// пары справа, ниже — что именно поменялось и примечание.
     private func changeRow(_ change: TeachingScheduleChangeDTO) -> some View {
         let kind = TeachingText.changeType(change.type)
         var lines: [String] = []
-        if let pair = change.pair {
-            lines.append("\(pair.startTime)–\(pair.endTime)")
-        }
         switch change.type {
         case "MOVED":
             if let start = change.newStartTime, let end = change.newEndTime {
@@ -122,11 +121,25 @@ private struct TeachingScheduleChangesList: View {
             break
         }
         if let note = change.note, !note.isEmpty { lines.append(note) }
-        return ListCardRow(
+        return TelegramStyleRow(
             title: change.pair?.subject ?? "—",
-            status: (kind.text, kind.tint),
-            lines: lines
-        )
+            subtitle: lines.joined(separator: "\n"),
+            meta: change.pair.map { "\($0.startTime)–\($0.endTime)" }
+        ) {
+            RowSymbol(symbol: Self.symbol(change.type), tint: kind.tint, size: 40)
+        } accessory: {
+            StatusBadge(text: kind.text, tint: kind.tint)
+        }
+    }
+
+    private static func symbol(_ type: String) -> String {
+        switch type {
+        case "CANCELLED": return "xmark"
+        case "MOVED": return "arrow.right"
+        case "ROOM_CHANGED": return "mappin"
+        case "SUBSTITUTED": return "person.2.fill"
+        default: return "calendar"
+        }
     }
 
     @MainActor
@@ -218,18 +231,8 @@ private struct TeachingPairsEditor: View {
             }
         }
         .listStyle(.insetGrouped)
-        .toolbar {
-            if !containerID.isEmpty {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        adding = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .accessibilityLabel(Text(String(localized: "teaching.schedule.addPair", defaultValue: "Добавить пару")))
-                }
-            }
-        }
+        // Добавить пару можно только в выбранную версию расписания.
+        .modifier(TeachingAddPairButton(isShown: !containerID.isEmpty) { adding = true })
         .sheet(isPresented: $adding) {
             TeachingPairForm(scheduleID: containerID, pair: nil, viewerID: viewerID) { await loadDetail() }
         }
@@ -273,6 +276,8 @@ private struct TeachingPairsEditor: View {
         }
     }
 
+    /// Пара как в расписании: время слева, полоса цвета дисциплины, название и
+    /// подробности; чужие — приглушены, свои — с карандашом.
     private func pairRow(_ pair: PairDTO, mine: Bool) -> some View {
         var details: [String] = []
         if pair.weekType != "BOTH" { details.append(TeachingText.weekType(pair.weekType)) }
@@ -280,23 +285,33 @@ private struct TeachingPairsEditor: View {
         if !mine, let teacher = pair.teacher {
             details.append(DisplayFormat.name(first: teacher.firstName, last: teacher.lastName))
         }
-        return HStack(alignment: .top, spacing: Spacing.lg) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: pair.startTime).font(Typography.body.monospacedDigit())
-                Text(verbatim: pair.endTime).font(Typography.meta.monospacedDigit()).foregroundStyle(Palette.mutedForeground)
+        return HStack(alignment: .center, spacing: Spacing.md) {
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(verbatim: pair.startTime).font(Typography.tabular(.subheadline.weight(.semibold)))
+                Text(verbatim: pair.endTime).font(Typography.tabular(.footnote)).foregroundStyle(Palette.mutedForeground)
             }
-            .frame(width: 52, alignment: .leading)
+            .frame(minWidth: 46, alignment: .trailing)
+            Capsule()
+                .fill(mine ? ScheduleSubjectTint.color(for: pair.subject) : Color.gray.opacity(0.5))
+                .frame(width: 4)
+                .frame(maxHeight: .infinity)
             VStack(alignment: .leading, spacing: 2) {
-                Text(pair.subject).font(Typography.cardTitle).foregroundStyle(mine ? Palette.foreground : Palette.mutedForeground)
+                Text(pair.subject)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(mine ? Palette.foreground : Palette.mutedForeground)
                 if !details.isEmpty {
-                    Text(details.joined(separator: " · ")).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
+                    Text(details.joined(separator: " · ")).font(.subheadline).foregroundStyle(Palette.mutedForeground)
                 }
             }
             Spacer(minLength: 0)
             if mine {
-                Image(systemName: "pencil").font(Typography.meta).foregroundStyle(Palette.mutedForeground)
+                Image(systemName: "pencil")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Palette.primary)
+                    .accessibilityLabel(Text(String(localized: "teaching.edit", defaultValue: "Изменить")))
             }
         }
+        .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())
         .padding(.vertical, Spacing.xs)
     }
@@ -462,6 +477,21 @@ private struct TeachingPairForm: View {
             ]
             if let room { fields["roomId"] = .string(room.id) }
             try await api.createPair(JSONBody(fields))
+        }
+    }
+}
+
+/// Плавающая «Добавить пару» — только когда выбрана версия расписания.
+private struct TeachingAddPairButton: ViewModifier {
+    let isShown: Bool
+    let action: () -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isShown {
+            content.floatingAction(String(localized: "teaching.schedule.addPair", defaultValue: "Добавить пару"), action: action)
+        } else {
+            content
         }
     }
 }

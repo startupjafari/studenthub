@@ -29,8 +29,11 @@ struct StudentTasksView: View {
                         } header: {
                             HStack(spacing: Spacing.sm) {
                                 Text(bucket.title)
-                                StatusBadge(text: String(items.count), tint: bucket.tint)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(bucket == .urgent ? Palette.destructive : Palette.foreground)
+                                StatusBadge(text: items.count.formatted(), tint: bucket.tint)
                             }
+                            .textCase(nil)
                         }
                     }
                 }
@@ -200,33 +203,35 @@ struct StudentTask: Identifiable, Equatable {
     }
 }
 
+/// Задача строкой как чат: значок вида задачи цветом срока, название, срок справа,
+/// ниже — что сделать. Выполненное — с галочкой и приглушено.
 private struct StudentTaskRow: View {
     let task: StudentTask
 
     var body: some View {
-        HStack(spacing: Spacing.md) {
-            Image(systemName: task.isDone ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(task.isDone ? Palette.success : Palette.mutedForeground)
-                .accessibilityHidden(true)
-            Image(systemName: task.kind.symbol)
-                .font(.footnote)
-                .frame(width: 30, height: 30)
-                .foregroundStyle(Palette.mutedForeground)
-                .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.md))
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(task.title)
-                    .font(Typography.cardTitle)
-                    .foregroundStyle(task.isDone ? Palette.mutedForeground : Palette.foreground)
-                    .lineLimit(2)
-                Text(verbatim: [task.kind.title, task.dueAt.map { $0.formatted(.dateTime.day().month(.abbreviated)) }]
-                    .compactMap { $0 }.joined(separator: " · "))
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
-                    .lineLimit(2)
-            }
+        let tint: Color = task.isDone ? Palette.success : (task.bucket == .later ? Color.gray : task.bucket.tint)
+        let symbol: String = task.isDone ? "checkmark" : Self.filledSymbol(task.kind)
+        TelegramStyleRow(
+            title: task.title,
+            subtitle: task.kind.title,
+            meta: task.dueAt.map { Self.shortDay($0) },
+            metaTint: task.bucket == .urgent ? Palette.destructive : Palette.mutedForeground
+        ) {
+            RowSymbol(symbol: symbol, tint: tint, size: 40)
         }
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .combine)
+        .opacity(task.isDone ? 0.7 : 1)
+    }
+
+    private static func shortDay(_ date: Date) -> String {
+        date.formatted(Date.FormatStyle().day().month(.abbreviated))
+    }
+
+    private static func filledSymbol(_ kind: StudentTask.Kind) -> String {
+        switch kind {
+        case .submitApplication, .correctApplication, .applicationDone: return "doc.text.fill"
+        case .pickupDocument: return "shippingbox.fill"
+        case .attendEvent: return "calendar"
+        case .assignmentDue, .assignmentFix, .assignmentDone: return "list.clipboard.fill"
+        }
     }
 }

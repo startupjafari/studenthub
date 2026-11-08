@@ -32,14 +32,9 @@ struct StudentCalendarView: View {
         List {
             Section {
                 monthHeader
-                Picker(String(localized: "student.calendar.view", defaultValue: "Вид"), selection: $mode) {
-                    Text(String(localized: "student.calendar.view.month", defaultValue: "Месяц")).tag(Mode.month)
-                    Text(String(localized: "student.calendar.view.agenda", defaultValue: "Повестка")).tag(Mode.agenda)
-                }
-                .pickerStyle(.segmented)
             }
             .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: Spacing.xs, leading: 0, bottom: Spacing.xs, trailing: 0))
+            .listRowInsets(EdgeInsets(top: Spacing.xs, leading: Spacing.xs, bottom: 0, trailing: 0))
 
             FilterChipsRow(options: Self.filterOptions, selection: $filter)
 
@@ -85,37 +80,62 @@ struct StudentCalendarView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
         .navigationTitle(Text(StudentScreen.calendar.title))
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    mode = mode == .month ? .agenda : .month
+                } label: {
+                    Image(systemName: mode == .month ? "list.bullet" : "calendar")
+                }
+                .accessibilityLabel(Text(mode == .month
+                    ? String(localized: "student.calendar.view.agenda", defaultValue: "Повестка")
+                    : String(localized: "student.calendar.view.month", defaultValue: "Месяц")))
+            }
+        }
         .refreshable { await load() }
         .task(id: anchor) { await load() }
     }
 
     // MARK: Шапка
 
+    /// Месяц крупно слева, как в «Календаре»; справа — «Сегодня» и стрелки.
     private var monthHeader: some View {
-        HStack(spacing: Spacing.md) {
+        HStack(spacing: Spacing.xs) {
+            Text(anchor, format: .dateTime.month(.wide).year())
+                .font(.title2.weight(.bold))
+                .foregroundStyle(Palette.foreground)
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: Spacing.md)
+            if !Self.calendar.isDate(anchor, equalTo: Date(), toGranularity: .month) {
+                Button(String(localized: "schedule.today", defaultValue: "Сегодня")) {
+                    anchor = Self.monthStart(Date())
+                    selectedDay = nil
+                }
+                .font(.subheadline.weight(.semibold))
+                .padding(.trailing, Spacing.sm)
+            }
             Button {
                 shift(-1)
             } label: {
                 Image(systemName: "chevron.left")
-                    .frame(width: 44, height: 44)
+                    .frame(width: 40, height: 40)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel(Text(String(localized: "student.calendar.prev", defaultValue: "Предыдущий месяц")))
-            Spacer()
-            Text(anchor, format: .dateTime.month(.wide).year())
-                .font(Typography.sectionTitle)
-                .foregroundStyle(Palette.foreground)
-            Spacer()
             Button {
                 shift(1)
             } label: {
                 Image(systemName: "chevron.right")
-                    .frame(width: 44, height: 44)
+                    .frame(width: 40, height: 40)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel(Text(String(localized: "student.calendar.next", defaultValue: "Следующий месяц")))
         }
-        .buttonStyle(.plain)
+        .font(.body.weight(.semibold))
+        .buttonStyle(.borderless)
         .foregroundStyle(Palette.primary)
     }
 
@@ -142,9 +162,11 @@ struct StudentCalendarView: View {
                 .foregroundStyle(Palette.mutedForeground)
             }
             if items.isEmpty && showEmpty && holiday == nil {
-                Text(String(localized: "student.calendar.noItems", defaultValue: "Нет событий"))
-                    .font(Typography.meta)
+                Label(String(localized: "student.calendar.noItems", defaultValue: "Нет событий"), systemImage: "sun.max")
+                    .font(.subheadline)
                     .foregroundStyle(Palette.mutedForeground)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, Spacing.md)
             }
             ForEach(items) { item in
                 if let route = item.route {
@@ -155,7 +177,9 @@ struct StudentCalendarView: View {
             }
         } header: {
             Text(Self.date(day) ?? Date(), format: .dateTime.weekday(.wide).day().month(.wide))
-                .foregroundStyle(day == Self.dayKey(Date()) ? Palette.primary : Palette.mutedForeground)
+                .font(.subheadline.weight(.semibold))
+                .textCase(nil)
+                .foregroundStyle(day == Self.dayKey(Date()) ? Palette.primary : Palette.foreground)
         }
     }
 
@@ -600,28 +624,45 @@ struct StudentHoliday {
 
 // MARK: - Вид
 
+/// Элемент дня как событие «Календаря»: время столбцом слева, цветная полоса вида,
+/// название и подробности, плашка изменения.
 private struct StudentCalendarRow: View {
     let item: StudentCalendarItem
 
+    @ScaledMetric(relativeTo: .subheadline) private var timeWidth: CGFloat = 44
+
     var body: some View {
         HStack(alignment: .top, spacing: Spacing.md) {
-            RoundedRectangle(cornerRadius: 2)
+            VStack(alignment: .trailing, spacing: 2) {
+                if let start = item.start {
+                    Text(verbatim: start)
+                        .font(Typography.tabular(.subheadline.weight(.semibold)))
+                        .foregroundStyle(Palette.foreground)
+                    if let end = item.end {
+                        Text(verbatim: end)
+                            .font(Typography.tabular(.footnote))
+                            .foregroundStyle(Palette.mutedForeground)
+                    }
+                } else {
+                    Image(systemName: Self.symbol(item.kind))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(item.tint)
+                        .accessibilityHidden(true)
+                }
+            }
+            .frame(width: min(timeWidth, 72), alignment: .trailing)
+            Capsule()
                 .fill(item.tint)
                 .frame(width: 4)
-            VStack(alignment: .leading, spacing: 2) {
-                if let start = item.start {
-                    Text(verbatim: item.end.map { "\(start) – \($0)" } ?? start)
-                        .font(Typography.tabular(Typography.meta))
-                        .foregroundStyle(Palette.mutedForeground)
-                }
+            VStack(alignment: .leading, spacing: 3) {
                 Text(item.title)
-                    .font(Typography.cardTitle)
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(item.cancelled ? Palette.mutedForeground : Palette.foreground)
                     .strikethrough(item.cancelled)
                     .lineLimit(3)
                 if let subtitle = item.subtitle {
                     Text(subtitle)
-                        .font(Typography.meta)
+                        .font(.subheadline)
                         .foregroundStyle(Palette.mutedForeground)
                         .lineLimit(2)
                 }
@@ -632,9 +673,19 @@ private struct StudentCalendarRow: View {
                     }
                 }
             }
+            Spacer(minLength: 0)
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
+    }
+
+    private static func symbol(_ kind: StudentCalendarItem.Kind) -> String {
+        switch kind {
+        case .pair: return "book.closed.fill"
+        case .event: return "star.fill"
+        case .assignment: return "flag.fill"
+        case .exam: return "rosette"
+        }
     }
 }
 
@@ -653,16 +704,23 @@ private struct StudentMonthGrid: View {
     var body: some View {
         let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 7)
         LazyVGrid(columns: columns, spacing: Spacing.xs) {
-            ForEach(Array(Self.weekdays.enumerated()), id: \.offset) { _, title in
+            ForEach(Array(Self.weekdays.enumerated()), id: \.offset) { index, title in
                 Text(verbatim: title)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(Palette.mutedForeground)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(index >= 5 ? Palette.mutedForeground.opacity(0.6) : Palette.mutedForeground)
             }
             ForEach(cells, id: \.self) { date in
                 cell(date)
             }
         }
         .padding(.vertical, Spacing.sm)
+    }
+
+    private func numberColor(isToday: Bool, isSelected: Bool, outside: Bool, dayOff: Bool) -> Color {
+        if isSelected { return Color(uiColor: .systemBackground) }
+        if isToday { return Palette.primary }
+        if outside { return Palette.mutedForeground.opacity(0.5) }
+        return dayOff ? Palette.destructive : Palette.foreground
     }
 
     private func cell(_ date: Date) -> some View {
@@ -673,25 +731,31 @@ private struct StudentMonthGrid: View {
         let isSelected = selected == key || (selected == nil && isToday)
         let outside = calendar.component(.month, from: date) != month
         let holiday = StudentHoliday.on(key)
+        let dayOff = holiday?.dayOff == true
         return Button {
             selected = key
         } label: {
             VStack(spacing: 3) {
                 Text(verbatim: String(calendar.component(.day, from: date)))
-                    .font(Typography.tabular(.callout.weight(isToday ? .bold : .regular)))
-                    .foregroundStyle(isToday ? Palette.primaryForeground : (outside ? Palette.mutedForeground.opacity(0.6) : (holiday?.dayOff == true ? Palette.destructive : Palette.foreground)))
-                    .frame(width: 30, height: 30)
-                    .background(isToday ? Palette.primary : Color.clear, in: Circle())
+                    .font(Typography.tabular(.body.weight(isToday || isSelected ? .semibold : .regular)))
+                    .foregroundStyle(numberColor(isToday: isToday, isSelected: isSelected, outside: outside, dayOff: dayOff))
+                    .frame(width: 36, height: 36)
+                    .background {
+                        if isSelected {
+                            Circle().fill(isToday ? Palette.primary : Palette.foreground)
+                        }
+                    }
                 HStack(spacing: 2) {
                     ForEach(items.prefix(3)) { item in
                         Circle().fill(item.tint).frame(width: 5, height: 5)
                     }
                 }
                 .frame(height: 5)
+                .opacity(outside ? 0.4 : 1)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 3)
-            .background(isSelected ? Palette.primary.opacity(0.1) : Color.clear, in: RoundedRectangle(cornerRadius: Radius.md))
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(verbatim: "\(date.formatted(.dateTime.weekday(.wide).day().month(.wide))), \(items.count)"))

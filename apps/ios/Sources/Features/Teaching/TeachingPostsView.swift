@@ -48,16 +48,8 @@ struct TeachingPostsView: View {
         }
         .background(Palette.background)
         .navigationTitle(Text(TeacherScreen.myPosts.title))
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    composing = true
-                } label: {
-                    Image(systemName: "square.and.pencil")
-                }
-                .accessibilityLabel(Text(String(localized: "teaching.posts.new", defaultValue: "Новая публикация")))
-                .disabled(feed == nil)
-            }
+        .floatingAction(String(localized: "teaching.posts.new", defaultValue: "Новая публикация"), symbol: "square.and.pencil") {
+            if feed != nil { composing = true }
         }
         .task {
             guard feed == nil, !viewerID.isEmpty else { return }

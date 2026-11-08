@@ -302,3 +302,39 @@ func teachingFailure(_ error: Error, conflict: String? = nil) -> String {
     if let conflict, let api = error as? APIError, api.code == .conflict { return conflict }
     return error.userMessage
 }
+
+// MARK: - Оформление строк
+
+/// Счётчик справа снизу строки — как непрочитанные в списке чатов: залитая капсула
+/// с числом.
+struct TeachingCounter: View {
+    let count: Int
+    var tint: Color = Palette.primary
+
+    var body: some View {
+        Text(verbatim: count.formatted())
+            .font(Typography.tabular(.footnote.weight(.semibold)))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 7)
+            .frame(minWidth: 22, minHeight: 22)
+            .background(tint, in: Capsule())
+    }
+}
+
+/// Значок задания по типу — одинаковый в списках, очереди проверки и карточках.
+func teachingAssignmentSymbol(_ type: String?) -> String {
+    switch type {
+    case "LAB": return "flask.fill"
+    case "COURSEWORK": return "doc.text.fill"
+    case "PROJECT": return "hammer.fill"
+    default: return "list.clipboard.fill"
+    }
+}
+
+/// Открыть маршрут в стеке текущей вкладки — для круглых кнопок шапок карточек,
+/// которые не `NavigationLink`.
+@MainActor
+func teachingPush(_ route: AppRoute) {
+    let router = AppServices.router
+    router.stacks[router.selectedTab, default: []].append(route)
+}
