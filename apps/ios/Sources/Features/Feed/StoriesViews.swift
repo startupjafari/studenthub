@@ -162,6 +162,8 @@ struct StoryViewer: View {
     @State private var replySent = 0
     @State private var reporting = false
     @State private var confirmingDelete = false
+    @State private var showingViewers = false
+    @State private var addingToHighlight = false
     @State private var dragOffset: CGSize = .zero
     @FocusState private var replyFocused: Bool
 
@@ -181,7 +183,9 @@ struct StoryViewer: View {
 
     private var isOwn: Bool { ring?.author.id == viewerID }
 
-    private var paused: Bool { holding || pollExpanded || replyFocused || reporting || confirmingDelete }
+    private var paused: Bool {
+        holding || pollExpanded || replyFocused || reporting || confirmingDelete || showingViewers || addingToHighlight
+    }
 
     var body: some View {
         ZStack {
@@ -212,6 +216,18 @@ struct StoryViewer: View {
         }
         .onChange(of: rings.count) { _, count in
             if count == 0 || ring == nil { dismiss() }
+        }
+        .sheet(isPresented: $showingViewers) {
+            if let story {
+                CommunityStoryViewersView(storyID: story.id)
+                    .presentationDetents([.medium, .large])
+            }
+        }
+        .sheet(isPresented: $addingToHighlight) {
+            if let story {
+                CommunityHighlightPicker(storyID: story.id, ownerID: viewerID)
+                    .presentationDetents([.medium, .large])
+            }
         }
         .confirmationDialog(
             String(localized: "stories.report.title", defaultValue: "Что не так с историей?"),
@@ -253,6 +269,7 @@ struct StoryViewer: View {
     private func run() async {
         guard let story else { return }
         progress = 0
+        prefetchNeighbours()
         await model.markViewed(story, viewerID: viewerID)
         let seconds = story.media?.durationMs.map { min(Double($0) / 1000, 120) } ?? Self.frameSeconds
         let step = 0.05
@@ -262,6 +279,27 @@ struct StoryViewer: View {
             if !paused { progress += step / max(seconds, 1) }
         }
         advance()
+    }
+
+    /// Следующий и предыдущий кадры грузятся заранее: переход не ждёт сети.
+    private func prefetchNeighbours() {
+        var neighbours: [StoryDTO] = []
+        if let ring {
+            if ring.stories.indices.contains(storyIndex + 1) { neighbours.append(ring.stories[storyIndex + 1]) }
+            if ring.stories.indices.contains(storyIndex - 1) { neighbours.append(ring.stories[storyIndex - 1]) }
+        }
+        if rings.indices.contains(ringIndex + 1) {
+            let next = rings[ringIndex + 1]
+            if let first = next.stories.first(where: { $0.seen != true }) ?? next.stories.first { neighbours.append(first) }
+        }
+        let width = UIScreen.main.bounds.width
+        for story in neighbours {
+            guard let media = story.media, media.mime?.hasPrefix("video/") != true else { continue }
+            guard let url = (media.sources?.best(forPoints: width)?.url ?? media.url).flatMap(URL.init(string:)) else { continue }
+            let key = "story:\(media.id)"
+            guard ImageMemoryCache.shared.image(for: key) == nil else { continue }
+            Task.detached(priority: .utility) { _ = await ImageMemoryCache.shared.load(url, key: key) }
+        }
     }
 
     private func advance() {
@@ -377,6 +415,16 @@ struct StoryViewer: View {
                 }
                 Menu {
                     if isOwn {
+                        Button {
+                            addingToHighlight = true
+                        } label: {
+                            Label(String(localized: "community.highlights.add", defaultValue: "В актуальное"), systemImage: "sparkles")
+                        }
+                        Button {
+                            showingViewers = true
+                        } label: {
+                            Label(String(localized: "community.viewers.title", defaultValue: "Просмотры"), systemImage: "eye")
+                        }
                         if story.canDelete == true {
                             Button(role: .destructive) {
                                 confirmingDelete = true
@@ -452,11 +500,16 @@ struct StoryViewer: View {
 
             if isOwn {
                 if let views = story.viewsCount {
-                    Label {
-                        Text(verbatim: String(views))
-                    } icon: {
-                        Image(systemName: "eye")
+                    Button {
+                        showingViewers = true
+                    } label: {
+                        Label {
+                            Text(verbatim: String(views))
+                        } icon: {
+                            Image(systemName: "eye")
+                        }
                     }
+                    .buttonStyle(.plain)
                     .font(Typography.meta)
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -544,6 +597,17 @@ struct StoryViewer: View {
 // MARK: - Кадр
 
 /// Содержимое кадра: фон, медиа, текст и наклейки.
+/// Кадр истории для экранов вне просмотра историй: актуальное, превью в правке.
+struct CommunityStoryCanvas: View {
+    let story: StoryDTO
+    let paused: Bool
+    let muted: Bool
+
+    var body: some View {
+        StoryCanvas(story: story, paused: paused, muted: muted)
+    }
+}
+
 private struct StoryCanvas: View {
     let story: StoryDTO
     let paused: Bool
@@ -621,7 +685,7 @@ private struct StickerView: View {
             }
         case .event(let id, let title):
             chip(symbol: "calendar", text: title ?? String(localized: "more.events", defaultValue: "События")) {
-                open(.event(id: id))
+                open(.community(.event(id: id)))
             }
         case .post(let id, let title):
             chip(symbol: "doc.text", text: title ?? String(localized: "shell.post", defaultValue: "Публикация")) {
@@ -824,6 +888,14 @@ struct StoryComposerView: View {
     @State private var isPreparing = false
     @State private var isPublishing = false
     @State private var failure: String?
+    // Интерактив: ссылка, опрос, упоминания — как в редакторе историй веба.
+    @State private var linkURL = ""
+    @State private var linkLabel = ""
+    @State private var pollOn = false
+    @State private var pollQuestion = ""
+    @State private var pollOptions = ["", ""]
+    @State private var mentions: [SearchResultsDTO.Person] = []
+    @State private var pickingMention = false
 
     var body: some View {
         NavigationStack {
@@ -896,6 +968,8 @@ struct StoryComposerView: View {
                     }
                     .pickerStyle(.segmented)
 
+                    interactive
+
                     if let failure {
                         FormAlert(message: failure)
                     }
@@ -903,11 +977,16 @@ struct StoryComposerView: View {
                 .padding(Spacing.xl)
             }
             .background(Palette.background)
+            .sheet(isPresented: $pickingMention) {
+                CommunityPersonPicker(title: String(localized: "community.story.mention", defaultValue: "Упомянуть")) { person in
+                    if !mentions.contains(where: { $0.id == person.id }), mentions.count < 10 { mentions.append(person) }
+                }
+            }
             .navigationTitle(Text(String(localized: "stories.new", defaultValue: "Новая история")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отменить")) { dismiss() }
+                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(String(localized: "stories.publish", defaultValue: "Опубликовать")) {
@@ -951,7 +1030,131 @@ struct StoryComposerView: View {
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     private var canPublish: Bool {
-        !isPreparing && !isPublishing && (media != nil || !trimmed.isEmpty) && trimmed.count <= 600
+        !isPreparing && !isPublishing && (media != nil || !trimmed.isEmpty || !mentions.isEmpty)
+            && trimmed.count <= 600 && linkIsValid && pollIsValid
+    }
+
+    private var trimmedLink: String { linkURL.trimmingCharacters(in: .whitespaces) }
+    private var linkIsValid: Bool {
+        trimmedLink.isEmpty || ((trimmedLink.hasPrefix("https://") || trimmedLink.hasPrefix("http://")) && trimmedLink.count <= 500)
+    }
+
+    private var pollChoices: [String] {
+        pollOptions.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+    }
+
+    private var pollIsValid: Bool {
+        guard pollOn else { return true }
+        let question = pollQuestion.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !question.isEmpty && question.count <= 200 && pollChoices.count >= 2
+            && Set(pollChoices).count == pollChoices.count && pollChoices.allSatisfy { $0.count <= 100 }
+    }
+
+    private var extras: CommunityStoryExtras {
+        let label = linkLabel.trimmingCharacters(in: .whitespaces)
+        // Упоминания встают столбиком у верхней трети кадра — двигать пальцем их пока нельзя.
+        let placed = mentions.enumerated().map { index, person in
+            CommunityStoryMentionInput(userId: person.id, x: 0.5, y: min(0.2 + Double(index) * 0.08, 0.9))
+        }
+        return CommunityStoryExtras(
+            linkUrl: trimmedLink.isEmpty ? nil : trimmedLink,
+            linkLabel: label.isEmpty ? nil : String(label.prefix(60)),
+            poll: pollOn ? CommunityStoryPollInput(
+                question: pollQuestion.trimmingCharacters(in: .whitespacesAndNewlines),
+                options: pollChoices
+            ) : nil,
+            mentions: placed
+        )
+    }
+
+    private var interactive: some View {
+        VStack(alignment: .leading, spacing: Spacing.lg) {
+            Text(String(localized: "community.story.interactive", defaultValue: "Интерактив"))
+                .font(Typography.sectionTitle)
+            VStack(alignment: .leading, spacing: Spacing.md) {
+                Label(String(localized: "community.story.link", defaultValue: "Ссылка"), systemImage: "link")
+                    .font(Typography.meta.weight(.semibold))
+                TextField(String(localized: "community.story.linkURL", defaultValue: "https://…"), text: $linkURL)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                if !trimmedLink.isEmpty {
+                    TextField(String(localized: "community.story.linkLabel", defaultValue: "Подпись ссылки (необязательно)"), text: $linkLabel)
+                }
+                if !linkIsValid {
+                    FieldError(message: String(localized: "profile.website.invalid", defaultValue: "Адрес сайта должен начинаться с http:// или https://"))
+                }
+            }
+            .padding(Spacing.lg)
+            .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+
+            VStack(alignment: .leading, spacing: Spacing.md) {
+                Toggle(isOn: $pollOn) {
+                    Label(String(localized: "community.story.poll", defaultValue: "Опрос"), systemImage: "chart.bar")
+                        .font(Typography.meta.weight(.semibold))
+                }
+                if pollOn {
+                    TextField(String(localized: "community.story.pollQuestion", defaultValue: "Вопрос"), text: $pollQuestion)
+                    ForEach(pollOptions.indices, id: \.self) { index in
+                        HStack {
+                            TextField(
+                                String(localized: "community.story.pollOption", defaultValue: "Вариант \((index + 1).formatted())"),
+                                text: $pollOptions[index]
+                            )
+                            if pollOptions.count > 2 {
+                                Button {
+                                    pollOptions.remove(at: index)
+                                } label: {
+                                    Image(systemName: "minus.circle").foregroundStyle(Palette.destructive)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(Text(String(localized: "community.story.removeOption", defaultValue: "Убрать вариант")))
+                            }
+                        }
+                    }
+                    if pollOptions.count < 4 {
+                        Button {
+                            pollOptions.append("")
+                        } label: {
+                            Label(String(localized: "community.story.addOption", defaultValue: "Добавить вариант"), systemImage: "plus")
+                        }
+                        .font(Typography.meta)
+                    }
+                }
+            }
+            .padding(Spacing.lg)
+            .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+
+            VStack(alignment: .leading, spacing: Spacing.md) {
+                HStack {
+                    Label(String(localized: "community.story.mentions", defaultValue: "Упоминания"), systemImage: "at")
+                        .font(Typography.meta.weight(.semibold))
+                    Spacer()
+                    Button {
+                        pickingMention = true
+                    } label: {
+                        Image(systemName: "plus.circle")
+                    }
+                    .disabled(mentions.count >= 10)
+                    .accessibilityLabel(Text(String(localized: "community.story.mention", defaultValue: "Упомянуть")))
+                }
+                ForEach(mentions) { person in
+                    HStack {
+                        Text(person.name).font(Typography.body)
+                        Spacer()
+                        Button {
+                            mentions.removeAll { $0.id == person.id }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.mutedForeground)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(Text(String(localized: "community.story.removeMention", defaultValue: "Убрать упоминание")))
+                    }
+                }
+            }
+            .padding(Spacing.lg)
+            .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+        }
     }
 
     private func load() async {
@@ -974,7 +1177,8 @@ struct StoryComposerView: View {
             media: media,
             text: trimmed.isEmpty ? nil : trimmed,
             background: background,
-            audience: audience
+            audience: audience,
+            extras: extras
         )
         if ok {
             dismiss()

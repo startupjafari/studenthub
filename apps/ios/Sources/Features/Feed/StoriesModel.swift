@@ -122,6 +122,37 @@ final class StoriesModel {
     /// Новая история: файл в бакет историй, затем сама запись.
     @MainActor
     func publish(media: PreparedMedia?, text: String?, background: String?, audience: StoryAudience) async -> Bool {
+        await publish(media: media, text: text, background: background, audience: audience, extras: CommunityStoryExtras())
+    }
+
+    /// История с интерактивом (ссылка, опрос, упоминания) уходит полным телом `POST /stories`.
+    @MainActor
+    func publish(
+        media: PreparedMedia?, text: String?, background: String?, audience: StoryAudience, extras: CommunityStoryExtras
+    ) async -> Bool {
+        guard !extras.isEmpty else { return await publishPlain(media: media, text: text, background: background, audience: audience) }
+        do {
+            var fileID: String?
+            if let media {
+                fileID = try await feed.upload(media.data, mime: media.mime, filename: media.filename, bucket: .stories).id
+            }
+            try await CommunityAPI().createStory(
+                fileID: fileID,
+                text: text,
+                background: media == nil ? background : nil,
+                audience: audience,
+                extras: extras
+            )
+            await refresh()
+            return true
+        } catch {
+            actionFailure = message(for: error)
+            return false
+        }
+    }
+
+    @MainActor
+    private func publishPlain(media: PreparedMedia?, text: String?, background: String?, audience: StoryAudience) async -> Bool {
         do {
             var fileID: String?
             if let media {

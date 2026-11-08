@@ -42,6 +42,28 @@ struct ProfileView: View {
         .toolbar {
             if model.isMine {
                 ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        NavigationLink(value: AppRoute.community(.myPosts)) {
+                            Label(CommunityScreen.myPosts.title, systemImage: "clock.badge")
+                        }
+                        NavigationLink(value: AppRoute.community(.friends(userID: nil))) {
+                            Label(CommunityScreen.friends(userID: nil).title, systemImage: "person.2")
+                        }
+                        NavigationLink(value: AppRoute.community(.articles(userID: nil))) {
+                            Label(CommunityScreen.articles(userID: nil).title, systemImage: "doc.richtext")
+                        }
+                        NavigationLink(value: AppRoute.community(.albums(userID: nil))) {
+                            Label(CommunityScreen.albums(userID: nil).title, systemImage: "photo.stack")
+                        }
+                        NavigationLink(value: AppRoute.community(.highlights(userID: viewerID))) {
+                            Label(CommunityScreen.highlights(userID: viewerID).title, systemImage: "sparkles")
+                        }
+                    } label: {
+                        Image(systemName: "square.grid.2x2")
+                    }
+                    .accessibilityLabel(Text(String(localized: "community.profile.more", defaultValue: "Моё")))
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
                         SavedPostsView()
                     } label: {
@@ -110,6 +132,11 @@ struct ProfileView: View {
                         details: { showsDetails = true }
                     )
 
+                    if !profile.isLimited {
+                        CommunityHighlightsStrip(userID: profile.id)
+                            .padding(.bottom, Spacing.md)
+                    }
+
                     if profile.isLimited {
                         EmptyStateView(
                             title: String(localized: "profile.limited", defaultValue: "Профиль закрыт"),
@@ -146,7 +173,12 @@ struct ProfileView: View {
         case .articles:
             tabState(model.articles, tab: .articles) { articles in
                 LazyVStack(spacing: Spacing.lg) {
-                    ForEach(articles) { ArticleCardRow(article: $0) }
+                    ForEach(articles) { article in
+                        NavigationLink(value: AppRoute.community(.article(id: article.id))) {
+                            ArticleCardRow(article: article)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 .padding(.horizontal, Spacing.xl)
             }
@@ -195,6 +227,34 @@ struct ProfileView: View {
     }
 
     private func mediaGrid(_ items: [ProfileMediaDTO]?, tab: ProfileTab) -> some View {
+        VStack(spacing: Spacing.md) {
+            mediaActions(tab: tab)
+            mediaTiles(items, tab: tab)
+        }
+    }
+
+    /// Загрузка в профиль и альбомы — над сеткой фото и видео.
+    private func mediaActions(tab: ProfileTab) -> some View {
+        HStack(spacing: Spacing.md) {
+            if model.isMine {
+                CommunityMediaUploadButton(title: String(localized: "community.albums.uploadHere", defaultValue: "Загрузить")) { _ in
+                    await model.loadTab(tab, force: true)
+                }
+                .buttonStyle(.bordered)
+            }
+            if let owner = model.userID ?? (viewerID.isEmpty ? nil : viewerID) {
+                NavigationLink(value: AppRoute.community(.albums(userID: model.isMine ? nil : owner))) {
+                    Label(CommunityScreen.albums(userID: nil).title, systemImage: "photo.stack")
+                }
+                .buttonStyle(.bordered)
+            }
+            Spacer(minLength: 0)
+        }
+        .font(Typography.meta)
+        .padding(.horizontal, Spacing.xl)
+    }
+
+    private func mediaTiles(_ items: [ProfileMediaDTO]?, tab: ProfileTab) -> some View {
         tabState(items, tab: tab) { items in
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 3), spacing: 2) {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
@@ -301,6 +361,14 @@ private struct ProfileHeaderView: View {
                         .font(Typography.meta)
                         .foregroundStyle(Palette.mutedForeground)
                 }
+                if let universityID = profile.universityId, let university = profile.universityName, !university.isEmpty {
+                    NavigationLink(value: AppRoute.community(.university(id: universityID))) {
+                        Label(university, systemImage: "building.columns")
+                            .font(Typography.meta)
+                            .foregroundStyle(Palette.primary)
+                    }
+                    .buttonStyle(.plain)
+                }
                 if let status = profile.academicStatus, !status.isEmpty {
                     Label(status, systemImage: "checkmark.seal.fill")
                         .font(.caption.weight(.medium))
@@ -363,16 +431,23 @@ private struct ProfileHeaderView: View {
         ].filter { $0.1 != nil }
         if !items.isEmpty {
             HStack(spacing: Spacing.xl) {
-                ForEach(items, id: \.0) { title, value in
-                    HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
-                        Text(verbatim: "\(value ?? 0)")
+                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                    let cell = HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
+                        Text(verbatim: "\(item.1 ?? 0)")
                             .font(Typography.tabular(.subheadline.weight(.semibold)))
                             .foregroundStyle(Palette.foreground)
-                        Text(title)
+                        Text(item.0)
                             .font(Typography.meta)
                             .foregroundStyle(Palette.mutedForeground)
                     }
                     .accessibilityElement(children: .combine)
+                    // Список друзей сервер отдаёт только свой — у себя число ведёт в него.
+                    if index == 0, model.isMine, model.friendsCount != nil {
+                        NavigationLink(value: AppRoute.community(.friends(userID: nil))) { cell }
+                            .buttonStyle(.plain)
+                    } else {
+                        cell
+                    }
                 }
             }
         }
@@ -389,6 +464,7 @@ private struct ProfileHeaderView: View {
                 .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("profile.edit")
             } else if !profile.isLimited || model.friendship != nil {
+                if !CommunityPlatformState.shared.isDisabled("chats") {
                 Button {
                     Task { await openChat() }
                 } label: {
@@ -396,6 +472,7 @@ private struct ProfileHeaderView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                }
 
                 if let friendship = model.friendship {
                     Button {

@@ -87,13 +87,21 @@ struct PostDTO: Decodable, Equatable, Identifiable {
     var canDelete: Bool? = nil
     var universityPage: Organization? = nil
     var company: Organization? = nil
+    /// `PUBLISHED`, `DRAFT`, `SCHEDULED`. Черновики и отложенные видит только автор.
+    var status: String? = nil
+    var scheduledAt: Date? = nil
+    /// Может ли смотрящий закрепить пост (роль выше автора в его области).
+    var canPin: Bool? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, content, createdAt, author, media, reactionSummary
         case counts = "_count"
         case authorId, title, audience, publishedAt, pinnedAt, views, originalPostId, original
-        case bookmarked, canDelete, universityPage, company
+        case bookmarked, canDelete, universityPage, company, status, scheduledAt, canPin
     }
+
+    var isDraft: Bool { status == "DRAFT" }
+    var isScheduled: Bool { status == "SCHEDULED" }
 
     /// Чей голос в шапке: страница вуза и компания говорят от себя, а не от сотрудника.
     var speaker: Organization? { universityPage ?? company }
@@ -184,6 +192,8 @@ struct EventDTO: Decodable, Equatable, Identifiable {
     let location: String?
     let isRegistered: Bool?
     let participantsCount: Int?
+    var isOnline: Bool? = nil
+    var canManage: Bool? = nil
 }
 
 struct NotificationDTO: Decodable, Equatable, Identifiable {
@@ -297,6 +307,8 @@ struct UserProfileDTO: Decodable, Equatable {
     var specialty: String? = nil
     var gpa: Double? = nil
     var groupId: String? = nil
+    var facultyId: String? = nil
+    var universityId: String? = nil
     var twoFactorEnabled: Bool? = nil
     var profileVisibility: String? = nil
     var showEmail: Bool? = nil
@@ -354,12 +366,22 @@ enum FeedScope: Equatable {
     case all
     case author(id: String)
     case saved
+    /// Раздел ленты (`FeedFilterSchema`): `GROUP`, `UNIVERSITY`, `TEACHERS`, `IMPORTANT`, `MODERATION`.
+    case filter(String)
+    /// Свои посты по статусу: `DRAFT`, `SCHEDULED`, `PUBLISHED`.
+    case authorStatus(id: String, status: String)
+    /// Посты страницы вуза.
+    case universityPage(id: String)
 
     var query: [URLQueryItem] {
         switch self {
         case .all: return []
         case .author(let id): return [URLQueryItem(name: "authorId", value: id)]
         case .saved: return [URLQueryItem(name: "filter", value: "SAVED")]
+        case .filter(let value): return [URLQueryItem(name: "filter", value: value)]
+        case .authorStatus(let id, let status):
+            return [URLQueryItem(name: "authorId", value: id), URLQueryItem(name: "status", value: status)]
+        case .universityPage(let id): return [URLQueryItem(name: "universityPageId", value: id)]
         }
     }
 }

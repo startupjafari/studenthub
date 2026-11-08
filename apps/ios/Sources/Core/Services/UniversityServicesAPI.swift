@@ -191,3 +191,17 @@ struct UniversityServicesAPI: UniversityServicesFetching {
         try await client.send(Endpoint(method: .delete, path: "portfolio/\(id)"))
     }
 }
+
+// MARK: - Портфолио: правка и порядок
+
+extension UniversityServicesAPI {
+    /// Частичная правка записи: `null` очищает поле (`UpdatePortfolioItemSchema`).
+    func updatePortfolioItem(id: String, fields: [String: JSONValue]) async throws -> PortfolioItemDTO {
+        try await AppServices.api.send(try .patch("portfolio/\(id)", json: JSONBody(fields)), as: PortfolioItemDTO.self)
+    }
+
+    /// Новый порядок записей; не перечисленные встают после. Ответ — весь список.
+    func reorderPortfolio(ids: [String]) async throws -> [PortfolioItemDTO] {
+        try await AppServices.api.send(try .put("portfolio/order", json: ["ids": ids]), as: [PortfolioItemDTO].self)
+    }
+}

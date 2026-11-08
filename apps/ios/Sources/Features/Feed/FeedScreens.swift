@@ -9,67 +9,99 @@ struct PostDetailView: View {
     }
 }
 
-/// События: что будет и куда я иду.
+/// События: ближайшие, прошедшие и мои; запись, карточка события, создание своего.
 struct EventsView: View {
-    @State private var model = EventsModel()
+    var body: some View {
+        CommunitySectionGate(section: "events") { CommunityEventsList() }
+    }
+}
+
+/// Список событий с разделами, как вкладки страницы событий веба.
+private struct CommunityEventsList: View {
+    @Environment(\.viewerRole) private var role
+    @State private var scope: Scope = .upcoming
+    @State private var loader = PagedLoader<CommunityEventDTO>(limit: 20) { request in
+        try await CommunityAPI().events(filter: "upcoming", mine: false, page: request)
+    }
+    @State private var creating = false
+    @State private var failure: String?
+
+    enum Scope: Hashable {
+        case upcoming, past, mine
+    }
 
     var body: some View {
-        List {
-            if let failure = model.failure {
-                FormAlert(message: failure)
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
+        PagedList(
+            loader: loader,
+            empty: EmptyStateView(
+                title: String(localized: "events.empty", defaultValue: "Событий пока нет"),
+                symbol: "calendar"
+            )
+        ) {
+            Picker(String(localized: "community.events.scope", defaultValue: "Раздел"), selection: $scope) {
+                Text(String(localized: "community.events.upcoming", defaultValue: "Ближайшие")).tag(Scope.upcoming)
+                Text(String(localized: "community.events.past", defaultValue: "Прошедшие")).tag(Scope.past)
+                Text(String(localized: "community.events.mine", defaultValue: "Я иду")).tag(Scope.mine)
             }
-
-            ForEach(model.events) { event in
-                VStack(alignment: .leading, spacing: Spacing.xs) {
-                    Text(event.title)
-                        .font(Typography.cardTitle)
-                    HStack(spacing: Spacing.md) {
-                        Label(
-                            event.startsAt.formatted(date: .abbreviated, time: .shortened),
-                            systemImage: "calendar"
-                        )
-                        if let location = event.location {
-                            Label(location, systemImage: "mappin")
+            .pickerStyle(.segmented)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets())
+        } row: { event in
+            NavigationLink(value: AppRoute.community(.event(id: event.id))) {
+                CommunityEventRow(event: event)
+            }
+            .swipeActions {
+                if !event.isOver {
+                    Button {
+                        Task { await toggle(event) }
+                    } label: {
+                        if event.isRegistered == true {
+                            Label(String(localized: "events.cancel", defaultValue: "Не пойду"), systemImage: "xmark")
+                        } else {
+                            Label(String(localized: "events.join", defaultValue: "Пойду"), systemImage: "checkmark")
                         }
                     }
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
-
-                    Button {
-                        Task { await model.toggleRegistration(event.id) }
-                    } label: {
-                        Text(model.isRegistered(event.id)
-                            ? String(localized: "events.cancel", defaultValue: "Не пойду")
-                            : String(localized: "events.join", defaultValue: "Пойду"))
-                            .font(Typography.meta)
-                            .padding(.horizontal, Spacing.lg)
-                            .frame(height: ControlHeight.sm)
-                            .background(
-                                model.isRegistered(event.id) ? Palette.muted : Palette.primary.opacity(0.1),
-                                in: Capsule()
-                            )
-                            .foregroundStyle(
-                                model.isRegistered(event.id) ? Palette.mutedForeground : Palette.primary
-                            )
-                    }
-                    .buttonStyle(.plain)
+                    .tint(event.isRegistered == true ? Palette.mutedForeground : Palette.success)
                 }
-                .padding(.vertical, Spacing.xs)
-                .listRowBackground(Palette.card)
-            }
-
-            if model.events.isEmpty, !model.isLoading {
-                EmptyRow(text: String(localized: "events.empty", defaultValue: "Событий пока нет"))
             }
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "more.events", defaultValue: "События")))
-        .refreshable { await model.refresh() }
-        .task { await model.refresh() }
+        .toolbar {
+            if !CommunityEventText.audiences(for: role).isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        creating = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel(Text(String(localized: "community.event.new", defaultValue: "Новое событие")))
+                }
+            }
+        }
+        .onChange(of: scope) { _, next in
+            Task {
+                await loader.replace { request in
+                    try await CommunityAPI().events(filter: next == .past ? "past" : "upcoming", mine: next == .mine, page: request)
+                }
+            }
+        }
+        .sheet(isPresented: $creating) {
+            CommunityEventEditor(event: nil) { _ in Task { await loader.reload() } }
+        }
+        .actionFailureAlert($failure)
+    }
+
+    @MainActor
+    private func toggle(_ event: CommunityEventDTO) async {
+        let on = event.isRegistered != true
+        do {
+            try await CommunityAPI().setRegistered(eventID: event.id, on)
+            loader.update { items in
+                if let index = items.firstIndex(where: { $0.id == event.id }) { items[index].isRegistered = on }
+            }
+        } catch {
+            failure = error.userMessage
+        }
     }
 }
 

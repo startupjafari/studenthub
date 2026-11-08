@@ -17,6 +17,7 @@ struct PostActionsHost<Content: View>: View {
     @State private var reposting: PostDTO?
     @State private var repostNote = ""
     @State private var reported = false
+    @State private var sharing: PostDTO?
 
     var body: some View {
         content(actions)
@@ -29,6 +30,10 @@ struct PostActionsHost<Content: View>: View {
             }
             .sheet(item: $editing) { post in
                 PostEditorSheet(post: post, model: model)
+            }
+            .sheet(item: $sharing) { post in
+                CommunitySharePostView(postID: post.id)
+                    .presentationDetents([.medium, .large])
             }
             .confirmationDialog(
                 String(localized: "feed.report.title", defaultValue: "Что не так с публикацией?"),
@@ -73,7 +78,7 @@ struct PostActionsHost<Content: View>: View {
                     repostNote = ""
                     Task { _ = await model.repost(post.id, note: note.isEmpty ? nil : note) }
                 }
-                Button(String(localized: "common.cancel", defaultValue: "Отменить"), role: .cancel) {
+                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {
                     repostNote = ""
                 }
             } message: { _ in
@@ -112,7 +117,10 @@ struct PostActionsHost<Content: View>: View {
             repost: { reposting = $0 },
             edit: { editing = $0 },
             delete: { deleting = $0 },
-            report: { reporting = $0 }
+            report: { reporting = $0 },
+            shareToChat: { sharing = $0 },
+            pin: { post in Task { await model.setPinned(post.id, post.pinnedAt == nil) } },
+            publish: { post in Task { await model.publishDraft(post.id) } }
         )
     }
 }
@@ -158,7 +166,7 @@ private struct PostEditorSheet: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button(String(localized: "common.cancel", defaultValue: "Отменить")) { dismiss() }
+                        Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         Button(String(localized: "common.save", defaultValue: "Сохранить")) {

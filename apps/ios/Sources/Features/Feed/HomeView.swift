@@ -19,6 +19,8 @@ struct HomeView: View {
     @State private var viewingRing: String?
     @State private var composingStory = false
     @State private var composingPost = false
+    /// Раздел ленты (`filter` сервера); `nil` — вся лента.
+    @State private var filter: String?
 
     var body: some View {
         PostActionsHost(model: feed) { actions in
@@ -38,11 +40,16 @@ struct HomeView: View {
                             .padding(.horizontal, Spacing.xl)
                     }
 
-                    if !home.events.isEmpty {
+                    if !home.events.isEmpty, !CommunityPlatformState.shared.isDisabled("events") {
                         EventsStrip(events: home.events)
                     }
 
-                    ComposerLauncher(profile: viewer.profile) { composingPost = true }
+                    if !CommunityPostAudience.allowed(for: role).isEmpty {
+                        ComposerLauncher(profile: viewer.profile) { composingPost = true }
+                            .padding(.horizontal, Spacing.xl)
+                    }
+
+                    FilterChips(options: feedFilters, selection: $filter)
                         .padding(.horizontal, Spacing.xl)
 
                     feedSection(actions: actions)
@@ -90,6 +97,8 @@ struct HomeView: View {
         }
         .task {
             schedule.start()
+            // Выключенные платформой разделы: от них зависят пункты меню постов и полосы.
+            await CommunityPlatformState.shared.refresh()
             async let posts: Void = feed.refresh()
             async let pairs: Void = schedule.refresh()
             async let side: Void = home.refresh()
@@ -99,6 +108,16 @@ struct HomeView: View {
         .onAppear {
             // Вернулись из уведомлений — точка на колокольчике должна погаснуть.
             Task { await home.refreshUnread() }
+        }
+        .onChange(of: filter) { _, next in
+            let scope: FeedScope
+            switch next {
+            case nil: scope = .all
+            case "SAVED": scope = .saved
+            case let value?: scope = .filter(value)
+            }
+            feed = FeedModel(api: FeedAPI(scope: scope))
+            Task { await feed.refresh() }
         }
         .fullScreenCover(item: Binding(
             get: { viewingRing.map(RingTarget.init) },
@@ -123,6 +142,23 @@ struct HomeView: View {
         } message: {
             Text(home.actionFailure ?? "")
         }
+    }
+
+    /// Разделы ленты, как вкладки над лентой веба. «Модерация» — только ролям, которые
+    /// снимают посты: это не срез личной ленты, а всё, что роль вправе модерировать.
+    private var feedFilters: [(value: String?, title: String)] {
+        var options: [(value: String?, title: String)] = [
+            (nil, String(localized: "community.feed.all", defaultValue: "Все")),
+            ("GROUP", String(localized: "community.feed.group", defaultValue: "Моя группа")),
+            ("UNIVERSITY", String(localized: "community.feed.university", defaultValue: "Университет")),
+            ("TEACHERS", String(localized: "community.feed.teachers", defaultValue: "Преподаватели")),
+            ("IMPORTANT", String(localized: "community.feed.important", defaultValue: "Важное")),
+            ("SAVED", String(localized: "community.feed.saved", defaultValue: "Сохранённое")),
+        ]
+        if [.platformAdmin, .platformModerator, .universityAdmin, .universityModerator, .dean].contains(role) {
+            options.append(("MODERATION", String(localized: "community.feed.moderation", defaultValue: "Модерация")))
+        }
+        return options
     }
 
     // MARK: Истории
@@ -373,7 +409,7 @@ private struct EventsStrip: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: Spacing.md) {
                     ForEach(events) { event in
-                        NavigationLink(value: AppRoute.event(id: event.id)) {
+                        NavigationLink(value: AppRoute.community(.event(id: event.id))) {
                             VStack(alignment: .leading, spacing: Spacing.xs) {
                                 Text(event.startsAt, format: .dateTime.day().month(.abbreviated).hour().minute())
                                     .font(.caption.weight(.semibold))

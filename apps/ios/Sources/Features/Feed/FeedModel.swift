@@ -181,6 +181,36 @@ final class FeedModel {
         }
     }
 
+    /// Закрепить или открепить — только роль выше автора (`canPin`).
+    @MainActor
+    func setPinned(_ postID: String, _ pinned: Bool) async {
+        do {
+            try await CommunityAPI().setPinned(postID: postID, pinned: pinned)
+            if let index = posts.firstIndex(where: { $0.id == postID }) {
+                posts[index].pinnedAt = pinned ? Date() : nil
+            }
+        } catch {
+            actionFailure = message(for: error)
+        }
+    }
+
+    /// Опубликовать свой черновик сейчас. Из списка черновиков он уходит.
+    @MainActor
+    func publishDraft(_ postID: String) async {
+        do {
+            let published = try await CommunityAPI().publishDraft(postID: postID)
+            if let index = posts.firstIndex(where: { $0.id == postID }) {
+                if posts[index].isDraft || posts[index].isScheduled {
+                    posts.remove(at: index)
+                } else {
+                    posts[index] = published
+                }
+            }
+        } catch {
+            actionFailure = message(for: error)
+        }
+    }
+
     /// Пост, только что созданный на этом телефоне.
     @MainActor
     func insert(_ post: PostDTO) {

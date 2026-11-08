@@ -7,6 +7,7 @@ struct SettingsView: View {
     let session: AppSessionModel
 
     @Environment(ViewerProfileModel.self) private var viewer
+    @Environment(\.viewerRole) private var role
     @State private var showsQRApprove = false
     @State private var confirmsSignOut = false
 
@@ -81,6 +82,34 @@ struct SettingsView: View {
                     )
                 }
                 .accessibilityIdentifier("settings.notifications")
+            }
+            .listRowBackground(Palette.card)
+
+            Section {
+                NavigationLink(value: AppRoute.community(.username)) {
+                    IconRow(
+                        title: CommunityScreen.username.title,
+                        symbol: "at",
+                        tint: TileTint.teal,
+                        value: viewer.profile?.username.map { "@\($0)" }
+                    )
+                }
+                NavigationLink(value: AppRoute.community(.notificationLanguage)) {
+                    IconRow(
+                        title: CommunityScreen.notificationLanguage.title,
+                        symbol: "globe",
+                        tint: TileTint.blue,
+                        value: CommunityLanguageText.title(viewer.profile?.locale)
+                    )
+                }
+                // Mini-app в Telegram — инструмент команды платформы, другим ролям сервер откажет.
+                if role == .platformAdmin || role == .platformModerator {
+                    NavigationLink(value: AppRoute.community(.telegramLink)) {
+                        IconRow(title: CommunityScreen.telegramLink.title, symbol: "paperplane", tint: TileTint.teal)
+                    }
+                }
+            } header: {
+                Text(String(localized: "community.settings.account", defaultValue: "Аккаунт"))
             }
             .listRowBackground(Palette.card)
 

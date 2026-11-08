@@ -3,18 +3,29 @@ import SwiftUI
 
 /// Новая публикация.
 ///
-/// Студенту сервер разрешает две аудитории: свою группу и одного человека лично
-/// (`PERSONAL`). Текст — тот же ограниченный Markdown, что и в вебе; фото и видео —
-/// до десяти, с превью и удалением до отправки.
+/// Аудитории — по роли, как в вебе (`AUDIENCES_BY_ROLE`): студент и староста пишут в
+/// свою группу или лично человеку, преподаватель — в группу или по дисциплине, деканат и
+/// администрация вуза — шире. Есть заголовок, черновик и отложенная публикация. Текст —
+/// тот же ограниченный Markdown, что и в вебе; фото и видео — до десяти.
 struct PostComposerView: View {
     let feed: FeedModel
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.viewerRole) private var role
+    @State private var title = ""
     @State private var text = ""
     @State private var picks: [PhotosPickerItem] = []
     @State private var media: [PreparedMedia] = []
+    @State private var audience = ""
     @State private var recipient: SearchResultsDTO.Person?
     @State private var personal = false
+    @State private var groupID = ""
+    @State private var facultyID = ""
+    @State private var subject = ""
+    @State private var groups: [CommunityGroupDTO] = []
+    @State private var faculties: [CommunityFacultyDTO] = []
+    @State private var scheduling = false
+    @State private var scheduledAt = Date().addingTimeInterval(3600)
     @State private var isPreparing = false
     @State private var isPublishing = false
     @State private var failure: String?
@@ -30,6 +41,15 @@ struct PostComposerView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: Spacing.xl) {
                     audiencePicker
+                    targetPicker
+
+                    TextField(
+                        String(localized: "community.composer.title", defaultValue: "Заголовок (необязательно)"),
+                        text: $title,
+                        axis: .vertical
+                    )
+                    .font(Typography.sectionTitle)
+                    .lineLimit(1...3)
 
                     TextField(
                         String(localized: "composer.placeholder", defaultValue: "Что нового?"),
@@ -42,6 +62,21 @@ struct PostComposerView: View {
 
                     if !media.isEmpty || isPreparing {
                         attachments
+                    }
+
+                    if scheduling {
+                        VStack(alignment: .leading, spacing: Spacing.sm) {
+                            DatePicker(
+                                String(localized: "community.composer.scheduleAt", defaultValue: "Опубликовать"),
+                                selection: $scheduledAt,
+                                in: Date().addingTimeInterval(60)...
+                            )
+                            Text(String(localized: "community.composer.scheduleHint", defaultValue: "Пост выйдет сам в указанное время. До этого его видите только вы."))
+                                .font(Typography.meta)
+                                .foregroundStyle(Palette.mutedForeground)
+                        }
+                        .padding(Spacing.lg)
+                        .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
                     }
 
                     if let failure {
@@ -57,14 +92,16 @@ struct PostComposerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отменить")) { dismiss() }
+                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
-                        Task { await publish() }
+                        Task { await publish(status: "PUBLISHED") }
                     } label: {
                         if isPublishing {
                             ProgressView()
+                        } else if scheduling {
+                            Text(String(localized: "community.composer.schedule", defaultValue: "Запланировать"))
                         } else {
                             Text(String(localized: "stories.publish", defaultValue: "Опубликовать"))
                         }
@@ -75,6 +112,7 @@ struct PostComposerView: View {
             .navigationDestination(isPresented: $personal) {
                 RecipientPicker { person in
                     recipient = person
+                    audience = "PERSONAL"
                     personal = false
                 }
             }
@@ -83,27 +121,55 @@ struct PostComposerView: View {
             }
             .interactiveDismissDisabled(isPublishing || !trimmed.isEmpty || !media.isEmpty)
             .sensoryFeedback(.success, trigger: published)
-            .onAppear { focused = true }
+            .onAppear {
+                focused = true
+                if audience.isEmpty { audience = audiences.first ?? "GROUP" }
+            }
+            .task {
+                if CommunityPostAudience.picksGroup(role) { groups = (try? await CommunityAPI().groups()) ?? [] }
+                if role == .universityAdmin { faculties = (try? await CommunityAPI().faculties()) ?? [] }
+            }
         }
+    }
+
+    private var audiences: [String] {
+        let list = CommunityPostAudience.allowed(for: role)
+        return list.isEmpty ? ["GROUP", "PERSONAL"] : list
+    }
+
+    private var audienceTitle: String {
+        if audience == "PERSONAL", let recipient { return recipient.name }
+        if audience == "GROUP", !CommunityPostAudience.picksGroup(role) {
+            return String(localized: "audience.myGroup", defaultValue: "Моя группа")
+        }
+        return CommunityText.audience(audience.isEmpty ? (audiences.first ?? "GROUP") : audience)
     }
 
     private var audiencePicker: some View {
         Menu {
-            Button {
-                recipient = nil
-            } label: {
-                Label(String(localized: "audience.myGroup", defaultValue: "Моя группа"), systemImage: "person.3")
-            }
-            Button {
-                personal = true
-            } label: {
-                Label(String(localized: "audience.toPerson", defaultValue: "Лично человеку…"), systemImage: "lock")
+            ForEach(audiences, id: \.self) { option in
+                Button {
+                    if option == "PERSONAL" {
+                        personal = true
+                    } else {
+                        audience = option
+                        recipient = nil
+                    }
+                } label: {
+                    Label(
+                        option == "PERSONAL"
+                            ? String(localized: "audience.toPerson", defaultValue: "Лично человеку…")
+                            : option == "GROUP" && !CommunityPostAudience.picksGroup(role)
+                                ? String(localized: "audience.myGroup", defaultValue: "Моя группа")
+                                : CommunityText.audience(option),
+                        systemImage: CommunityText.audienceSymbol(option)
+                    )
+                }
             }
         } label: {
             HStack(spacing: Spacing.sm) {
-                Image(systemName: recipient == nil ? "person.3" : "lock")
-                Text(recipient?.name ?? String(localized: "audience.myGroup", defaultValue: "Моя группа"))
-                    .lineLimit(1)
+                Image(systemName: CommunityText.audienceSymbol(audience))
+                Text(audienceTitle).lineLimit(1)
                 Image(systemName: "chevron.down").font(.caption.weight(.bold))
             }
             .font(Typography.meta.weight(.medium))
@@ -113,6 +179,28 @@ struct PostComposerView: View {
             .foregroundStyle(Palette.primary)
         }
         .accessibilityLabel(Text(String(localized: "composer.audience", defaultValue: "Кому видна публикация")))
+    }
+
+    /// Уточнение аудитории: какая группа, какой факультет, какая дисциплина.
+    @ViewBuilder
+    private var targetPicker: some View {
+        if audience == "GROUP", CommunityPostAudience.picksGroup(role) {
+            Picker(String(localized: "community.event.group", defaultValue: "Группа"), selection: $groupID) {
+                Text(String(localized: "community.composer.chooseGroup", defaultValue: "Выберите группу")).tag("")
+                ForEach(groups) { Text($0.name).tag($0.id) }
+            }
+            .pickerStyle(.menu)
+        } else if audience == "FACULTY", role == .universityAdmin {
+            Picker(String(localized: "community.event.faculty", defaultValue: "Факультет"), selection: $facultyID) {
+                Text(String(localized: "community.composer.chooseFaculty", defaultValue: "Выберите факультет")).tag("")
+                ForEach(faculties) { Text($0.name).tag($0.id) }
+            }
+            .pickerStyle(.menu)
+        } else if audience == "SUBJECT" {
+            TextField(String(localized: "community.composer.subject", defaultValue: "Дисциплина"), text: $subject)
+                .padding(Spacing.md)
+                .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+        }
     }
 
     private var attachments: some View {
@@ -171,6 +259,25 @@ struct PostComposerView: View {
             .disabled(media.count >= Self.maxMedia || isPreparing)
             .accessibilityLabel(Text(String(localized: "composer.addMedia", defaultValue: "Добавить фото или видео")))
 
+            Button {
+                scheduling.toggle()
+            } label: {
+                Image(systemName: scheduling ? "clock.fill" : "clock")
+                    .font(.title3)
+                    .frame(width: ControlHeight.xl, height: ControlHeight.xl)
+            }
+            .accessibilityLabel(Text(String(localized: "community.composer.schedule", defaultValue: "Запланировать")))
+
+            Button {
+                Task { await publish(status: "DRAFT") }
+            } label: {
+                Image(systemName: "square.and.arrow.down")
+                    .font(.title3)
+                    .frame(width: ControlHeight.xl, height: ControlHeight.xl)
+            }
+            .disabled(!canPublish)
+            .accessibilityLabel(Text(String(localized: "community.composer.saveDraft", defaultValue: "Сохранить черновик")))
+
             Spacer()
 
             Text(verbatim: "\(trimmed.count)/\(Self.maxLength)")
@@ -183,9 +290,21 @@ struct PostComposerView: View {
     }
 
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var trimmedTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    private var targetReady: Bool {
+        switch audience {
+        case "PERSONAL": return recipient != nil
+        case "GROUP": return !CommunityPostAudience.picksGroup(role) || !groupID.isEmpty
+        case "FACULTY": return role != .universityAdmin || !facultyID.isEmpty
+        case "SUBJECT": return !subject.trimmingCharacters(in: .whitespaces).isEmpty
+        default: return true
+        }
+    }
 
     private var canPublish: Bool {
         !isPublishing && !isPreparing && !trimmed.isEmpty && trimmed.count <= Self.maxLength
+            && trimmedTitle.count <= 200 && targetReady
     }
 
     private func load(_ items: [PhotosPickerItem]) async {
@@ -204,7 +323,7 @@ struct PostComposerView: View {
         }
     }
 
-    private func publish() async {
+    private func publish(status: String) async {
         isPublishing = true
         defer { isPublishing = false }
         do {
@@ -212,14 +331,48 @@ struct PostComposerView: View {
             for item in media {
                 ids.append(try await api.upload(item.data, mime: item.mime, filename: item.filename, bucket: .posts).id)
             }
-            let post = try await api.createPost(content: trimmed, mediaIDs: ids, targetUserID: recipient?.id)
-            // В свою ленту пост встаёт сразу; личный — тоже: автор видит свои посты.
-            feed.insert(post)
+            let chosen = audience.isEmpty ? (audiences.first ?? "GROUP") : audience
+            let input = CommunityPostInput(
+                audience: chosen,
+                title: trimmedTitle.isEmpty ? nil : trimmedTitle,
+                content: trimmed,
+                facultyId: chosen == "FACULTY" && !facultyID.isEmpty ? facultyID : nil,
+                groupId: chosen == "GROUP" && !groupID.isEmpty ? groupID : nil,
+                targetUserId: chosen == "PERSONAL" ? recipient?.id : nil,
+                subject: chosen == "SUBJECT" ? subject.trimmingCharacters(in: .whitespaces) : nil,
+                mediaIds: ids.isEmpty ? nil : ids,
+                status: status,
+                scheduledAt: status == "PUBLISHED" && scheduling ? scheduledAt : nil
+            )
+            let post = try await CommunityAPI().createPost(input)
+            // В ленту встаёт только вышедший пост: черновик и отложенный живут в
+            // «Черновиках и отложенных» профиля.
+            if post.status == nil || post.status == "PUBLISHED" { feed.insert(post) }
             published += 1
             dismiss()
         } catch {
             failure = error.userMessage
         }
+    }
+}
+
+/// Аудитории публикации по роли — зеркало `ALLOWED_AUDIENCES` сервера.
+enum CommunityPostAudience {
+    static func allowed(for role: Role) -> [String] {
+        switch role {
+        case .platformAdmin: return ["ALL", "PERSONAL"]
+        case .universityAdmin: return ["UNIVERSITY", "FACULTY", "GROUP", "TEACHERS", "PERSONAL"]
+        case .dean: return ["FACULTY", "GROUP", "PERSONAL"]
+        case .teacher: return ["GROUP", "SUBJECT", "PERSONAL"]
+        case .starosta, .student: return ["GROUP", "PERSONAL"]
+        case .employer: return ["COMPANY"]
+        default: return []
+        }
+    }
+
+    /// Кто выбирает группу сам: у студента и старосты группа своя.
+    static func picksGroup(_ role: Role) -> Bool {
+        role == .universityAdmin || role == .dean || role == .teacher
     }
 }
 

@@ -9,6 +9,12 @@ struct PostCardActions {
     var edit: (PostDTO) -> Void = { _ in }
     var delete: (PostDTO) -> Void = { _ in }
     var report: (PostDTO) -> Void = { _ in }
+    /// Отправить в чат (`POST /chats/:id/share-post`).
+    var shareToChat: (PostDTO) -> Void = { _ in }
+    /// Закрепить или открепить (роль выше автора).
+    var pin: (PostDTO) -> Void = { _ in }
+    /// Опубликовать свой черновик или отложенный пост сейчас.
+    var publish: (PostDTO) -> Void = { _ in }
 }
 
 /// Карточка публикации: шапка, текст, медиа, репост и действия.
@@ -90,6 +96,16 @@ struct PostHeaderView: View {
                             .labelStyle(.iconOnly)
                             .accessibilityLabel(Text(audience))
                     }
+                    if post.isDraft {
+                        Text(verbatim: "·").accessibilityHidden(true)
+                        Text(String(localized: "community.post.draft", defaultValue: "черновик"))
+                            .foregroundStyle(Palette.warning)
+                    } else if post.isScheduled {
+                        Text(verbatim: "·").accessibilityHidden(true)
+                        Image(systemName: "clock")
+                            .foregroundStyle(Palette.warning)
+                            .accessibilityLabel(Text(String(localized: "community.post.scheduled", defaultValue: "Отложенная публикация")))
+                    }
                     if post.pinnedAt != nil {
                         Image(systemName: "pin.fill")
                             .accessibilityLabel(Text(String(localized: "feed.pinned", defaultValue: "Закреплено")))
@@ -150,6 +166,32 @@ private struct PostMenu: View {
                     UIPasteboard.general.url = url
                 } label: {
                     Label(String(localized: "feed.copyLink", defaultValue: "Копировать ссылку"), systemImage: "link")
+                }
+            }
+            if post.status == nil || post.status == "PUBLISHED", post.audience != "PERSONAL",
+               !CommunityPlatformState.shared.isDisabled("chats") {
+                Button {
+                    actions.shareToChat(post)
+                } label: {
+                    Label(String(localized: "community.share.title", defaultValue: "Отправить в чат"), systemImage: "paperplane")
+                }
+            }
+            if isOwn, post.isDraft || post.isScheduled {
+                Button {
+                    actions.publish(post)
+                } label: {
+                    Label(String(localized: "community.post.publishNow", defaultValue: "Опубликовать сейчас"), systemImage: "paperplane.circle")
+                }
+            }
+            if post.canPin == true {
+                Button {
+                    actions.pin(post)
+                } label: {
+                    if post.pinnedAt != nil {
+                        Label(String(localized: "community.post.unpin", defaultValue: "Открепить"), systemImage: "pin.slash")
+                    } else {
+                        Label(String(localized: "community.post.pin", defaultValue: "Закрепить"), systemImage: "pin")
+                    }
                 }
             }
             if isOwn {

@@ -45,7 +45,7 @@ struct SearchView: View {
             if let events = results?.events, !events.isEmpty {
                 Section(String(localized: "more.events", defaultValue: "События")) {
                     ForEach(events) { event in
-                        NavigationLink(value: AppRoute.event(id: event.id)) {
+                        NavigationLink(value: AppRoute.community(.event(id: event.id))) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(event.title).foregroundStyle(Palette.foreground)
                                 Text(event.startsAt, format: .dateTime.day().month().hour().minute())

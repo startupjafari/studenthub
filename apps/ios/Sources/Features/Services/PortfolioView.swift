@@ -2,7 +2,14 @@ import SwiftUI
 
 /// Портфолио: записи по видам — учёба, опыт, проекты, сертификаты, достижения.
 struct PortfolioView: View {
+    var body: some View {
+        CommunitySectionGate(section: "portfolio") { PortfolioContent() }
+    }
+}
+
+private struct PortfolioContent: View {
     @State private var items: [PortfolioItemDTO]?
+    @State private var editing: PortfolioItemDTO?
     @State private var failure: String?
     @State private var actionFailure: String?
     @State private var creating = false
@@ -27,7 +34,12 @@ struct PortfolioView: View {
                     if !group.isEmpty {
                         Section {
                             ForEach(group) { item in
-                                PortfolioRow(item: item)
+                                Button {
+                                    editing = item
+                                } label: {
+                                    PortfolioRow(item: item)
+                                }
+                                .buttonStyle(.plain)
                                     .swipeActions {
                                         Button(role: .destructive) {
                                             Task { await delete(item) }
@@ -36,6 +48,7 @@ struct PortfolioView: View {
                                         }
                                     }
                             }
+                            .onMove { source, destination in move(kind: kind, from: source, to: destination) }
                         } header: {
                             Label(PortfolioText.kind(kind), systemImage: PortfolioText.symbol(kind))
                         }
@@ -54,6 +67,9 @@ struct PortfolioView: View {
         .background(Palette.background)
         .navigationTitle(Text(MoreSection.portfolio.title))
         .toolbar {
+            if (items?.count ?? 0) > 1 {
+                ToolbarItem(placement: .topBarLeading) { EditButton() }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     creating = true
@@ -65,6 +81,9 @@ struct PortfolioView: View {
         }
         .sheet(isPresented: $creating) {
             NewPortfolioItemView { await load() }
+        }
+        .sheet(item: $editing) { item in
+            NewPortfolioItemView(existing: item) { await load() }
         }
         .actionFailureAlert($actionFailure)
         .refreshable { await load() }
@@ -78,6 +97,25 @@ struct PortfolioView: View {
             failure = nil
         } catch {
             failure = error.userMessage
+        }
+    }
+
+    /// Порядок общий для всех видов: собираем его в порядке показа — по видам, внутри
+    /// вида с учётом перестановки.
+    private func move(kind: String, from source: IndexSet, to destination: Int) {
+        guard let current = items else { return }
+        var group = current.filter { $0.kind == kind }
+        group.move(fromOffsets: source, toOffset: destination)
+        let ordered = PortfolioText.kinds.flatMap { name in name == kind ? group : current.filter { $0.kind == name } }
+            + current.filter { !PortfolioText.kinds.contains($0.kind) }
+        items = ordered
+        Task {
+            do {
+                items = try await UniversityServicesAPI().reorderPortfolio(ids: ordered.map(\.id))
+            } catch {
+                items = current
+                actionFailure = error.userMessage
+            }
         }
     }
 
@@ -170,6 +208,8 @@ private struct PortfolioRow: View {
 }
 
 private struct NewPortfolioItemView: View {
+    /// Правка существующей записи; `nil` — новая.
+    var existing: PortfolioItemDTO? = nil
     let created: () async -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -231,8 +271,11 @@ private struct NewPortfolioItemView: View {
             .scrollContentBackground(.hidden)
             .scrollDismissesKeyboard(.interactively)
             .background(Palette.background)
-            .navigationTitle(Text(String(localized: "portfolio.add", defaultValue: "Добавить запись")))
+            .navigationTitle(Text(existing == nil
+                ? String(localized: "portfolio.add", defaultValue: "Добавить запись")
+                : String(localized: "community.portfolio.edit", defaultValue: "Изменить запись")))
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear(perform: fill)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
@@ -263,11 +306,42 @@ private struct NewPortfolioItemView: View {
         body.startDate = hasDates ? start : nil
         body.endDate = hasDates ? end : nil
         do {
-            try await UniversityServicesAPI().addPortfolioItem(body)
+            if let existing {
+                func value(_ text: String?) -> JSONValue { text.map(JSONValue.string) ?? .null }
+                func date(_ value: Date?) -> JSONValue { value.map { .string(JSONCoding.isoString($0)) } ?? .null }
+                _ = try await UniversityServicesAPI().updatePortfolioItem(id: existing.id, fields: [
+                    "kind": .string(body.kind),
+                    "title": .string(body.title),
+                    "organization": value(body.organization),
+                    "description": value(body.description),
+                    "url": value(body.url),
+                    "startDate": date(body.startDate),
+                    "endDate": date(body.endDate),
+                    "visibility": .string(body.visibility ?? "UNIVERSITY"),
+                ])
+            } else {
+                try await UniversityServicesAPI().addPortfolioItem(body)
+            }
             await created()
             dismiss()
         } catch {
             failure = error.userMessage
+        }
+    }
+
+    @State private var didFill = false
+
+    private func fill() {
+        guard !didFill, let existing else { return }
+        didFill = true
+        item = NewPortfolioItem(kind: existing.kind, title: existing.title, visibility: existing.visibility ?? "UNIVERSITY")
+        organization = existing.organization ?? ""
+        details = existing.description ?? ""
+        link = existing.url ?? ""
+        if let startDate = existing.startDate {
+            hasDates = true
+            start = startDate
+            end = existing.endDate ?? startDate
         }
     }
 }

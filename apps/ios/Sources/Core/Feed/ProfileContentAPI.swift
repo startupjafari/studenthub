@@ -23,6 +23,8 @@ struct ProfileMediaDTO: Decodable, Equatable, Identifiable {
     var poster: [MediaSource]? = nil
     var hls: String? = nil
     let createdAt: Date
+    /// Альбом, в который снимок разложен; `nil` — вне альбомов.
+    var albumId: String? = nil
 
     var isVideo: Bool { type == "VIDEO" }
 
