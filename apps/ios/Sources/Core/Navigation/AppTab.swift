@@ -19,12 +19,24 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
     case dashboard
     /// Все разделы меню роли, сгруппированные как в боковом меню веба.
     case workspace
+    /// Поиск людей и событий. На iOS 18+ — отдельная кнопка у края панели вкладок
+    /// (`Tab(role: .search)`), на iOS 26 — стеклянный круг, в который превращается поле
+    /// поиска. На iOS 17 вкладки нет: поиск открывается из верхней панели главной.
+    case search
 
     var id: AppTab { self }
 
     /// Вкладки роли по порядку. Роли с запретом по умолчанию — без чатов и ленты, как
     /// в вебе (`hasChats`, `RESTRICTED_ROLE_PATHS`).
     static func tabs(for role: Role) -> [AppTab] {
+        let base = baseTabs(for: role)
+        // Поиск — у ролей с лентой: люди и события вуза. Роли платформы и работодатель
+        // своего вуза не имеют, охране и библиотеке поиск не открыт.
+        guard base.contains(.home), #available(iOS 18, *) else { return base }
+        return base + [.search]
+    }
+
+    private static func baseTabs(for role: Role) -> [AppTab] {
         switch role {
         case .student, .starosta, .teacher:
             return [.home, .schedule, .chats, .study, .services]
@@ -73,6 +85,8 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
             return String(localized: "tab.dashboard", defaultValue: "Обзор")
         case .workspace:
             return String(localized: "tab.workspace", defaultValue: "Разделы")
+        case .search:
+            return String(localized: "tab.search", defaultValue: "Поиск")
         }
     }
 
@@ -96,6 +110,7 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
         case .services: return "square.grid.2x2"
         case .dashboard: return "rectangle.3.group"
         case .workspace: return "square.grid.2x2"
+        case .search: return "magnifyingglass"
         }
     }
 

@@ -230,8 +230,18 @@ final class RoleTabsTests: XCTestCase {
     /// Учебные роли живут в прежних пяти вкладках.
     func testAcademicRolesKeepFiveTabs() {
         for role in [Role.student, .starosta, .teacher] {
-            XCTAssertEqual(AppTab.tabs(for: role), [.home, .schedule, .chats, .study, .services])
+            XCTAssertEqual(Array(AppTab.tabs(for: role).prefix(5)), [.home, .schedule, .chats, .study, .services])
         }
+    }
+
+    /// Поиск — отдельная вкладка у края панели (iOS 18+) у ролей с лентой; у ролей
+    /// платформы, работодателя, охраны и библиотеки его нет.
+    func testSearchTabOnlyForRolesWithFeed() {
+        guard #available(iOS 18, *) else { return }
+        XCTAssertEqual(AppTab.tabs(for: .student).last, .search)
+        XCTAssertEqual(AppTab.tabs(for: .dean).last, .search)
+        XCTAssertFalse(AppTab.tabs(for: .platformAdmin).contains(.search))
+        XCTAssertFalse(AppTab.tabs(for: .librarian).contains(.search))
     }
 
     /// У остальных первая вкладка — «Обзор», как стартовая страница роли в вебе.

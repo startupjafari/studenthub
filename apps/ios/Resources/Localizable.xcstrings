@@ -85944,6 +85944,23 @@
           }
         }
       }
+    },
+    "tab.search": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Іздеу"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

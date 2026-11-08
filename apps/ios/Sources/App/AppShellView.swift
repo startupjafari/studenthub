@@ -22,23 +22,7 @@ struct AppShellView: View {
     private var role: Role { viewer.role }
 
     var body: some View {
-        TabView(selection: $router.selectedTab) {
-            ForEach(AppTab.tabs(for: role)) { tab in
-                NavigationStack(path: $router.stacks.stack(for: tab)) {
-                    root(for: tab)
-                        .profileToolbarItem()
-                        .navigationDestination(for: AppRoute.self) { route in
-                            destination(for: route)
-                        }
-                }
-                .tabItem {
-                    Label(tab.title(for: role), systemImage: tab.symbol(for: role))
-                }
-                // Ноль бейдж прячет: у остальных вкладок счётчика нет.
-                .badge(tab == .chats ? chatBadge.unread : 0)
-                .tag(tab)
-            }
-        }
+        tabs
         .minimizesTabBarOnScroll()
         .tint(Palette.primary)
         .environment(\.viewerID, viewer.subject)
@@ -73,6 +57,48 @@ struct AppShellView: View {
         }
     }
 
+    /// Панель вкладок. С iOS 18 — API вкладок (`Tab`): поиск становится отдельной кнопкой
+    /// у края панели, на iOS 26 — стеклянной, как в приложениях Apple. На iOS 17 —
+    /// прежние `tabItem`.
+    @ViewBuilder
+    private var tabs: some View {
+        if #available(iOS 18, *) {
+            TabView(selection: $router.selectedTab) {
+                ForEach(AppTab.tabs(for: role)) { tab in
+                    Tab(value: tab, role: tab == .search ? .search : nil) {
+                        stack(for: tab)
+                    } label: {
+                        Label(tab.title(for: role), systemImage: tab.symbol(for: role))
+                    }
+                    // Ноль бейдж прячет: у остальных вкладок счётчика нет.
+                    .badge(tab == .chats ? chatBadge.unread : 0)
+                }
+            }
+        } else {
+            TabView(selection: $router.selectedTab) {
+                ForEach(AppTab.tabs(for: role)) { tab in
+                    stack(for: tab)
+                        .tabItem {
+                            Label(tab.title(for: role), systemImage: tab.symbol(for: role))
+                        }
+                        .badge(tab == .chats ? chatBadge.unread : 0)
+                        .tag(tab)
+                }
+            }
+        }
+    }
+
+    /// Стек вкладки: у каждой свой путь, профиль в верхней панели корня.
+    private func stack(for tab: AppTab) -> some View {
+        NavigationStack(path: $router.stacks.stack(for: tab)) {
+            root(for: tab)
+                .profileToolbarItem()
+                .navigationDestination(for: AppRoute.self) { route in
+                    destination(for: route)
+                }
+        }
+    }
+
     @ViewBuilder
     private func root(for tab: AppTab) -> some View {
         switch tab {
@@ -96,6 +122,8 @@ struct AppShellView: View {
             RoleDashboardView(role: role)
         case .workspace:
             WorkspaceView(role: role)
+        case .search:
+            SearchView()
         }
     }
 

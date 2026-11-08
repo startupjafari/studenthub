@@ -72,10 +72,15 @@ struct HomeView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                NavigationLink(value: AppRoute.search) {
-                    Image(systemName: "magnifyingglass")
+                // С iOS 18 поиск — своя вкладка у края панели; здесь он нужен только на iOS 17.
+                if #available(iOS 18, *) {
+                    EmptyView()
+                } else {
+                    NavigationLink(value: AppRoute.search) {
+                        Image(systemName: "magnifyingglass")
+                    }
+                    .accessibilityLabel(Text(String(localized: "search.title", defaultValue: "Поиск")))
                 }
-                .accessibilityLabel(Text(String(localized: "search.title", defaultValue: "Поиск")))
 
                 NavigationLink(value: AppRoute.section(.notifications)) {
                     Image(systemName: home.unreadNotifications > 0 ? "bell.badge" : "bell")
@@ -199,7 +204,7 @@ struct HomeView: View {
                 Button(String(localized: "common.retry", defaultValue: "Повторить")) {
                     Task { await feed.refresh() }
                 }
-                .buttonStyle(.borderedProminent)
+                .glassProminentButton()
             }
             .frame(maxWidth: .infinity)
         } else if feed.posts.isEmpty {
@@ -214,7 +219,7 @@ struct HomeView: View {
                 Button(String(localized: "composer.title", defaultValue: "Новая публикация")) {
                     composingPost = true
                 }
-                .buttonStyle(.borderedProminent)
+                .glassProminentButton()
             }
             .frame(maxWidth: .infinity)
         } else {
@@ -233,7 +238,7 @@ struct HomeView: View {
                 .font(Typography.meta)
                 .foregroundStyle(Palette.mutedForeground)
                 .padding(Spacing.lg)
-                .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+                .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xxl, style: .continuous))
             }
 
             ForEach(feed.posts) { post in
