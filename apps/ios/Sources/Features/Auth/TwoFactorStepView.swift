@@ -22,7 +22,8 @@ struct TwoFactorStepView: View {
             StudentHubField(
                 label: String(localized: "auth.twoFactorCodeLabel", defaultValue: "Код подтверждения"),
                 error: model.codeError,
-                isFocused: isCodeFocused
+                isFocused: isCodeFocused,
+                focus: { isCodeFocused = true }
             ) {
                 TextField(text: $model.code) {
                     Text(String(localized: "auth.twoFactorCodeLabel", defaultValue: "Код подтверждения"))

@@ -100,7 +100,8 @@ private struct CredentialsStepView: View {
         StudentHubField(
             label: nil,
             error: model.identifierError,
-            isFocused: focus == .identifier
+            isFocused: focus == .identifier,
+            focus: { focus = .identifier }
         ) {
             TextField(
                 text: $model.identifier,
@@ -122,7 +123,8 @@ private struct CredentialsStepView: View {
         StudentHubField(
             label: nil,
             error: model.passwordError,
-            isFocused: focus == .password
+            isFocused: focus == .password,
+            focus: { focus = .password }
         ) {
             passwordField
         } accessory: {

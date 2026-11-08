@@ -261,6 +261,8 @@ struct StudentHubField<Field: View, Accessory: View>: View {
     let label: String?
     var error: String?
     var isFocused = false
+    /// Поставить фокус в поле — по касанию коробки вокруг строки текста.
+    var focus: (() -> Void)?
     @ViewBuilder var field: () -> Field
     @ViewBuilder var accessory: () -> Accessory
 
@@ -280,6 +282,9 @@ struct StudentHubField<Field: View, Accessory: View>: View {
                 accessory()
             }
             .padding(.horizontal, Spacing.xl)
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .onTapGesture { focus?() }
+            .keepsKeyboardOnTap()
             .background(AuthPalette.field, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -296,8 +301,14 @@ struct StudentHubField<Field: View, Accessory: View>: View {
 }
 
 extension StudentHubField where Accessory == EmptyView {
-    init(label: String?, error: String? = nil, isFocused: Bool = false, @ViewBuilder field: @escaping () -> Field) {
-        self.init(label: label, error: error, isFocused: isFocused, field: field, accessory: { EmptyView() })
+    init(
+        label: String?,
+        error: String? = nil,
+        isFocused: Bool = false,
+        focus: (() -> Void)? = nil,
+        @ViewBuilder field: @escaping () -> Field
+    ) {
+        self.init(label: label, error: error, isFocused: isFocused, focus: focus, field: field, accessory: { EmptyView() })
     }
 }
 

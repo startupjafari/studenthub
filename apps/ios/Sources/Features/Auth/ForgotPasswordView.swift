@@ -122,7 +122,8 @@ struct ForgotPasswordView: View {
         StudentHubField(
             label: nil,
             error: model.emailError,
-            isFocused: isEmailFocused
+            isFocused: isEmailFocused,
+            focus: { isEmailFocused = true }
         ) {
             TextField(text: $model.email, prompt: Text(String(localized: "auth.email", defaultValue: "Email"))) {
                 Text(String(localized: "auth.email", defaultValue: "Email"))

@@ -103,6 +103,8 @@ struct MessageComposerView: View {
             }
         }
         .modifier(ComposerBarBackground())
+        // «Отправить», вложение, микрофон — клавиатура остаётся, как в мессенджерах.
+        .keepsKeyboardOnTap()
         .onChange(of: photo) {
             Task { await sendPickedPhoto() }
         }
