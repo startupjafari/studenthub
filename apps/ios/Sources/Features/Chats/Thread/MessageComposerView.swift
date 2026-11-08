@@ -227,7 +227,7 @@ private struct ReplyBar: View {
                     .foregroundStyle(Palette.mutedForeground)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(Text(String(localized: "common.cancel", defaultValue: "Отменить")))
+            .accessibilityLabel(Text(String(localized: "chats.cancelAction", defaultValue: "Отменить")))
         }
         .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.md)
@@ -284,7 +284,7 @@ struct RecordingBar: View {
                     .foregroundStyle(Palette.destructive)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(Text(String(localized: "common.cancel", defaultValue: "Отменить")))
+            .accessibilityLabel(Text(String(localized: "chats.cancelAction", defaultValue: "Отменить")))
 
             WaveformView(levels: levels)
                 .frame(maxWidth: .infinity)

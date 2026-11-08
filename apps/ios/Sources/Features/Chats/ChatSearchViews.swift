@@ -222,7 +222,7 @@ struct NewChatView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отменить")) { dismiss() }
+                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
                 }
                 if kind == .group {
                     ToolbarItem(placement: .confirmationAction) {

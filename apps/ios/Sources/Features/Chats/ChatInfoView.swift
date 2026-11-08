@@ -566,7 +566,7 @@ private struct GroupEditSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отменить")) { dismiss() }
+                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(String(localized: "common.save", defaultValue: "Сохранить")) {
@@ -636,7 +636,7 @@ private struct MemberPickerSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отменить")) { dismiss() }
+                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
                 }
             }
             .task(id: query) {
