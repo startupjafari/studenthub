@@ -282,3 +282,57 @@ final class RoleTabsTests: XCTestCase {
         }
     }
 }
+
+final class AreaDeepLinkTests: XCTestCase {
+    private func link(_ raw: String, _ role: Role) -> AreaDeepLink? {
+        AreaDeepLink(url: URL(string: raw)!, role: role)
+    }
+
+    /// Раздел роли открывается только у своей роли: `/dean/*` студенту не наш.
+    func testRoleSectionsOpenOnlyForTheirRole() {
+        XCTAssertEqual(
+            link("https://studenthub.kz/dean/applications", .dean),
+            AreaDeepLink(tab: .workspace, routes: [.staff(.applicationsQueue)])
+        )
+        XCTAssertNil(link("https://studenthub.kz/dean/applications", .student))
+        XCTAssertNil(link("https://studenthub.kz/library/loans", .student))
+        XCTAssertEqual(
+            link("https://studenthub.kz/library/loans", .librarian),
+            AreaDeepLink(tab: .workspace, routes: [.librarian(.loans)])
+        )
+    }
+
+    /// Корень раздела сотрудника — его «Обзор».
+    func testRoleRootOpensDashboard() {
+        XCTAssertEqual(link("https://studenthub.kz/university-admin", .universityAdmin), AreaDeepLink(tab: .dashboard, routes: []))
+    }
+
+    /// Модератор: префикс платформы или вуза должен совпасть с ролью.
+    func testModeratorPrefixMatchesRole() {
+        XCTAssertNotNil(link("https://studenthub.kz/moderator/platform/support", .platformModerator))
+        XCTAssertNil(link("https://studenthub.kz/moderator/platform/support", .universityModerator))
+    }
+
+    /// Ссылка из QR занятия начинает отметку сразу, без сканера.
+    func testCheckinLinkCarriesToken() {
+        XCTAssertEqual(
+            link("https://studenthub.kz/checkin?t=abc", .student),
+            AreaDeepLink(tab: .services, routes: [.student(.checkinToken("abc"))])
+        )
+        XCTAssertNil(link("https://studenthub.kz/checkin?t=abc", .teacher))
+    }
+
+    /// Карьера — по составу разделов роли: модерации вакансий у студента нет.
+    func testCareerFollowsRoleNavigation() {
+        XCTAssertNotNil(link("https://studenthub.kz/career/resume", .student))
+        XCTAssertNil(link("https://studenthub.kz/career/vacancy-review", .student))
+        XCTAssertNotNil(link("https://studenthub.kz/career/vacancy-review", .universityAdmin))
+    }
+
+    /// Учебные разделы преподавателя (`/teacher/schedule`, `/teacher/chats`) остаются
+    /// за общим разбором — вкладками.
+    func testTeacherTabsAreLeftToDeepLink() {
+        XCTAssertNil(link("https://studenthub.kz/teacher/schedule", .teacher))
+        XCTAssertNotNil(link("https://studenthub.kz/teacher/gradebook", .teacher))
+    }
+}
