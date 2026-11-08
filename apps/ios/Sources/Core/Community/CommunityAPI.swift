@@ -374,7 +374,7 @@ struct CommunityEventParticipantDTO: Decodable, Equatable, Identifiable {
 // MARK: - Заявки
 
 struct CommunityApplicationDTO: Decodable, Equatable, Identifiable {
-    struct Service: Decodable, Equatable {
+    struct Service: Decodable, Equatable, Identifiable {
         struct Requirement: Decodable, Equatable, Identifiable {
             let id: String
             var documentType: String? = nil
