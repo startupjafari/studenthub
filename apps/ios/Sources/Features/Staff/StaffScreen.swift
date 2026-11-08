@@ -14,6 +14,8 @@ enum StaffScreen: Hashable {
     case documentJournal
     case librarySettings
     case libraryCatalog
+    /// Книга с экземплярами глазами фонда — из каталога и отчётов.
+    case libraryBook(id: String)
     case libraryReports
     case libraryJournal
     case posts
@@ -32,6 +34,7 @@ enum StaffScreen: Hashable {
         case .documentJournal: return String(localized: "staff.screen.documentJournal", defaultValue: "Журнал документов")
         case .librarySettings: return String(localized: "staff.screen.librarySettings", defaultValue: "Настройки библиотеки")
         case .libraryCatalog: return String(localized: "staff.screen.libraryCatalog", defaultValue: "Каталог библиотеки")
+        case .libraryBook: return String(localized: "staff.screen.libraryBook", defaultValue: "Книга")
         case .libraryReports: return String(localized: "staff.screen.libraryReports", defaultValue: "Отчёты библиотеки")
         case .libraryJournal: return String(localized: "staff.screen.libraryJournal", defaultValue: "Журнал библиотеки")
         case .posts: return String(localized: "staff.screen.posts", defaultValue: "Публикации")
@@ -52,6 +55,7 @@ enum StaffScreen: Hashable {
         case .documentJournal: return "book.closed"
         case .librarySettings: return "gearshape"
         case .libraryCatalog: return "books.vertical"
+        case .libraryBook: return "book"
         case .libraryReports: return "chart.bar"
         case .libraryJournal: return "list.bullet.rectangle"
         case .posts: return "newspaper"
@@ -63,6 +67,23 @@ enum StaffScreen: Hashable {
 
     @MainActor @ViewBuilder
     var destination: some View {
-        PendingScreen(title: title, symbol: symbol)
+        switch self {
+        case .applicationsQueue: StaffApplicationsQueueView()
+        case .application(let id): StaffApplicationDetailView(applicationID: id)
+        case .serviceCatalog: StaffServiceCatalogView()
+        case .documentTypes: StaffDocumentTypesView()
+        case .documentTemplates: StaffTemplatesView()
+        case .documentTemplate(let id): StaffTemplateDetailView(templateID: id)
+        case .documentJournal: StaffDocumentJournalView()
+        case .librarySettings: StaffLibrarySettingsView()
+        case .libraryCatalog: StaffLibraryCatalogView()
+        case .libraryBook(let id): StaffBookDetailView(bookID: id)
+        case .libraryReports: StaffLibraryReportsView()
+        case .libraryJournal: StaffIdAccessView()
+        case .posts: StaffPostsView()
+        case .events: StaffEventsView()
+        case .event(let id): StaffEventDetailView(eventID: id)
+        case .securityJournals: StaffSecurityJournalsView()
+        }
     }
 }
