@@ -92,7 +92,8 @@ struct AppShellView: View {
     private func stack(for tab: AppTab) -> some View {
         NavigationStack(path: $router.stacks.stack(for: tab)) {
             root(for: tab)
-                .profileToolbarItem()
+                // В чатах левый край занят «Изм.», как в Telegram: профиль — с других вкладок.
+                .profileToolbarItem(isHidden: tab == .chats)
                 // Как в Telegram: компактный заголовок по центру панели, кнопки по краям
                 // в стекле. Вложенные экраны наследуют режим (`.automatic`).
                 .navigationBarTitleDisplayMode(.inline)

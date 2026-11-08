@@ -2381,23 +2381,6 @@
         }
       }
     },
-    "chats.members": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Участников: %lld"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Қатысушылар: %lld"
-          }
-        }
-      }
-    },
     "chats.mute": {
       "extractionState": "manual",
       "localizations": {
@@ -3108,23 +3091,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Хабарламалар"
-          }
-        }
-      }
-    },
-    "chats.search.prompt": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Чаты, люди и сообщения"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Чаттар, адамдар және хабарламалар"
           }
         }
       }
@@ -25795,23 +25761,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Жс"
-          }
-        }
-      }
-    },
-    "admin.chart.empty": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "За период данных нет"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Кезеңде деректер жоқ"
           }
         }
       }
@@ -57538,23 +57487,6 @@
         }
       }
     },
-    "security.metric.today": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "за сегодня"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "бүгін"
-          }
-        }
-      }
-    },
     "security.metric.denied": {
       "extractionState": "manual",
       "localizations": {
@@ -61954,23 +61886,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Воронка конверсиясы"
-          }
-        }
-      }
-    },
-    "career.staff.ratesHint": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Доли считаются от числа отправленных откликов. Прочерк означает, что считать пока не от чего."
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Үлестер жіберілген өтінімдер санынан есептеледі. Сызықша — әзірге есептейтін нәрсе жоқ дегенді білдіреді."
           }
         }
       }
@@ -87216,6 +87131,567 @@
           "stringUnit": {
             "state": "translated",
             "value": "Интернетті тексеріңіз — байланыс пайда болғанда, қайталап көріңіз."
+          }
+        }
+      }
+    },
+    "chats.search.prompt.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Іздеу"
+          }
+        }
+      }
+    },
+    "chats.archive.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В архиве пусто"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мұрағат бос"
+          }
+        }
+      }
+    },
+    "chats.edit.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Готово"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дайын"
+          }
+        }
+      }
+    },
+    "chats.edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изм."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Өзгерту"
+          }
+        }
+      }
+    },
+    "chats.bulk.readAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прочитать все"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Барлығын оқу"
+          }
+        }
+      }
+    },
+    "chats.bulk.read": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прочитать"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оқу"
+          }
+        }
+      }
+    },
+    "chats.delete.selected.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить выбранные чаты?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Таңдалған чаттарды жою керек пе?"
+          }
+        }
+      }
+    },
+    "chats.delete.selected": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить и покинуть"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жою және шығу"
+          }
+        }
+      }
+    },
+    "chats.delete.selected.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Личные чаты удалятся у вас, из групп вы выйдете."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жеке чаттар сізде жойылады, топтардан шығасыз."
+          }
+        }
+      }
+    },
+    "chats.you": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сіз"
+          }
+        }
+      }
+    },
+    "chats.unreadCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Непрочитанных: %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оқылмаған: %@"
+          }
+        }
+      }
+    },
+    "chats.info.search": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Іздеу"
+          }
+        }
+      }
+    },
+    "chats.info.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қосу"
+          }
+        }
+      }
+    },
+    "chats.info.more": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ещё"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тағы"
+          }
+        }
+      }
+    },
+    "chats.info.unmute": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкл. звук"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дыбысты қосу"
+          }
+        }
+      }
+    },
+    "chats.info.sound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звук"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дыбыс"
+          }
+        }
+      }
+    },
+    "chats.info.search.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Найдите сообщение в этом чате"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Осы чаттан хабарлама табыңыз"
+          }
+        }
+      }
+    },
+    "chats.info.search.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск сообщений"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хабарламаларды іздеу"
+          }
+        }
+      }
+    },
+    "chats.info.search.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск в чате"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чаттан іздеу"
+          }
+        }
+      }
+    },
+    "chats.members.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ участник"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ қатысушы"
+          }
+        }
+      }
+    },
+    "chats.members.few": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ участника"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ қатысушы"
+          }
+        }
+      }
+    },
+    "chats.members.many": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ участников"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ қатысушы"
+          }
+        }
+      }
+    },
+    "chats.lastSeen.recently": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "был(а) недавно"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "жақында болды"
+          }
+        }
+      }
+    },
+    "chats.scrollDown": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "К последним сообщениям"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Соңғы хабарламаларға"
+          }
+        }
+      }
+    },
+    "dashboard.noData": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет данных"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Деректер жоқ"
+          }
+        }
+      }
+    },
+    "dashboard.periodEmpty": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За период данных нет"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кезеңде деректер жоқ"
+          }
+        }
+      }
+    },
+    "security.metric.todayTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сегодня"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бүгін"
+          }
+        }
+      }
+    },
+    "career.staff.sections": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разделы"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бөлімдер"
+          }
+        }
+      }
+    },
+    "career.staff.ratesHintNoData": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доли считаются от числа отправленных откликов. «Нет данных» — считать пока не от чего."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Үлестер жіберілген өтінімдер санынан есептеледі. «Деректер жоқ» — әзірге есептейтін ештеңе жоқ."
+          }
+        }
+      }
+    },
+    "career.staff.week": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неделя"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Апта"
+          }
+        }
+      }
+    },
+    "career.staff.count": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Количество"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Саны"
+          }
+        }
+      }
+    },
+    "career.staff.stage": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шаг"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қадам"
+          }
+        }
+      }
+    },
+    "career.staff.skillGapValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "требуют: %@, указали: %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "талап етеді: %@, көрсетті: %@"
           }
         }
       }

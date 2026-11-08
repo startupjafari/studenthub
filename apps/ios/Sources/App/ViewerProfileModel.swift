@@ -47,10 +47,12 @@ struct ProfileToolbarButton: View {
 
 extension View {
     /// Аватар профиля в начале верхней панели корневого экрана вкладки.
-    func profileToolbarItem() -> some View {
+    func profileToolbarItem(isHidden: Bool = false) -> some View {
         toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                ProfileToolbarButton()
+            if !isHidden {
+                ToolbarItem(placement: .topBarLeading) {
+                    ProfileToolbarButton()
+                }
             }
         }
     }
