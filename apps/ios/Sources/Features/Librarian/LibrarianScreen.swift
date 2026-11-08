@@ -15,6 +15,10 @@ enum LibrarianScreen: Hashable {
     case inventory
     case reports
     case clearances
+    /// Экземпляр по коду с наклейки (веб `/c/<код>`).
+    case copy(code: String)
+    /// Общий сканер QR StudentHub (веб `/scan`).
+    case scan
 
     var title: String {
         switch self {
@@ -28,6 +32,8 @@ enum LibrarianScreen: Hashable {
         case .inventory: return String(localized: "librarian.screen.inventory", defaultValue: "Инвентаризация")
         case .reports: return String(localized: "librarian.screen.reports", defaultValue: "Отчёты")
         case .clearances: return String(localized: "librarian.screen.clearances", defaultValue: "Справки")
+        case .copy: return String(localized: "librarian.screen.copy", defaultValue: "Экземпляр")
+        case .scan: return String(localized: "librarian.screen.scan", defaultValue: "Сканер QR")
         }
     }
 
@@ -43,20 +49,40 @@ enum LibrarianScreen: Hashable {
         case .inventory: return "checklist"
         case .reports: return "chart.bar"
         case .clearances: return "checkmark.seal"
+        case .copy: return "qrcode"
+        case .scan: return "qrcode.viewfinder"
         }
     }
 
     @MainActor @ViewBuilder
     var destination: some View {
-        PendingScreen(title: title, symbol: symbol)
+        switch self {
+        case .home: LibrarianHomeView()
+        case .issue: LibrarianIssueView()
+        case .returnBooks: LibrarianReturnView()
+        case .loans: LibrarianLoansView()
+        case .reservations: LibrarianReservationsView()
+        case .catalog: LibrarianCatalogView()
+        case .book(let id): LibrarianBookView(bookID: id)
+        case .inventory: LibrarianInventoryView()
+        case .reports: LibrarianReportsView()
+        case .clearances: LibrarianClearancesView()
+        case .copy(let code): LibrarianCopyView(code: code)
+        case .scan: LibrarianScanView()
+        }
     }
 
     static var workspace: [WorkspaceGroup] {
-        let cases: [LibrarianScreen] = [.issue, .returnBooks, .loans, .reservations, .catalog, .inventory, .reports, .clearances]
+        let desk: [LibrarianScreen] = [.issue, .returnBooks, .scan]
+        let fund: [LibrarianScreen] = [.loans, .reservations, .catalog, .inventory, .reports, .clearances]
         return [
             WorkspaceGroup(
                 title: String(localized: "librarian.group", defaultValue: "Библиотека"),
-                items: cases.map { WorkspaceItem(title: $0.title, symbol: $0.symbol, tint: TileTint.yellow, route: .librarian($0)) }
+                items: desk.map { WorkspaceItem(title: $0.title, symbol: $0.symbol, tint: TileTint.yellow, route: .librarian($0)) }
+            ),
+            WorkspaceGroup(
+                title: String(localized: "librarian.group.fund", defaultValue: "Фонд и учёт"),
+                items: fund.map { WorkspaceItem(title: $0.title, symbol: $0.symbol, tint: TileTint.yellow, route: .librarian($0)) }
             ),
         ]
     }
