@@ -28,14 +28,19 @@ struct UAdminCampusListView: View {
                     Section {
                         ForEach(items) { campus in
                             NavigationLink(value: AppRoute.uniAdmin(.campus(id: campus.id))) {
-                                ListCardRow(
+                                TelegramStyleRow(
                                     title: campus.name,
                                     subtitle: campus.description,
-                                    status: campus.publishedVersionId == nil
-                                        ? (String(localized: "uadmin.campus.draft", defaultValue: "Черновик"), Palette.mutedForeground)
-                                        : (String(localized: "uadmin.campus.published", defaultValue: "Опубликован"), Palette.success),
-                                    lines: [String(localized: "uadmin.campus.buildingsCount", defaultValue: "Корпусов: \(campus.buildingsCount.formatted())")]
-                                )
+                                    meta: String(localized: "uadmin.campus.buildingsCount", defaultValue: "Корпусов: \(campus.buildingsCount.formatted())")
+                                ) {
+                                    RowSymbol(symbol: "map", tint: TileTint.green)
+                                } accessory: {
+                                    if campus.publishedVersionId == nil {
+                                        StatusBadge(text: String(localized: "uadmin.campus.draft", defaultValue: "Черновик"), tint: Palette.mutedForeground)
+                                    } else {
+                                        StatusBadge(text: String(localized: "uadmin.campus.published", defaultValue: "Опубликован"), tint: Palette.success)
+                                    }
+                                }
                             }
                         }
                     } footer: {
@@ -56,18 +61,10 @@ struct UAdminCampusListView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle(Text(UniAdminScreen.campuses.title))
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    creating = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel(Text(String(localized: "uadmin.campus.create", defaultValue: "Создать кампус")))
-            }
-        }
+        .floatingAction(String(localized: "uadmin.campus.create", defaultValue: "Создать кампус")) { creating = true }
         .sheet(isPresented: $creating) {
             CampusPropertiesForm(campus: nil) { await load() }
+                .presentationDetents([.medium, .large])
         }
         .refreshable { await load() }
         .task { await load() }
@@ -163,19 +160,13 @@ struct UAdminCampusDetailView: View {
                 LoadingStateView()
             }
         }
-        .background(Palette.background)
-        .navigationTitle(Text(tree?.name ?? UniAdminScreen.campus(id: campusID).title))
+        .navigationTitle(Text(UniAdminScreen.campus(id: campusID).title))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if let tree {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(String(localized: "uadmin.campus.publish", defaultValue: "Опубликовать")) { publishing = true }
-                        .disabled(tree.buildings.isEmpty)
-                }
-            }
-        }
         .sheet(isPresented: $editingProperties) {
-            if let tree { CampusPropertiesForm(campus: tree) { await load() } }
+            if let tree {
+                CampusPropertiesForm(campus: tree) { await load() }
+                    .presentationDetents([.medium, .large])
+            }
         }
         .sheet(isPresented: $publishing) {
             if let tree { PublishSheet(tree: tree) { message in notice = message; await load() } }
@@ -188,9 +179,11 @@ struct UAdminCampusDetailView: View {
         }
         .sheet(item: $addingFloorTo) { building in
             AddFloorForm(building: building) { await load() }
+                .presentationDetents([.medium, .large])
         }
         .sheet(item: $editingFloor) { floor in
             FloorForm(floor: floor) { await load() }
+                .presentationDetents([.medium, .large])
         }
         .confirmDestructive(
             $deletingBuilding,
@@ -241,6 +234,44 @@ struct UAdminCampusDetailView: View {
     private func content(_ tree: UAdminCampusTreeDTO) -> some View {
         List {
             Section {
+                HeroHeader(
+                    visual: .symbol("map.fill", tint: TileTint.green),
+                    title: tree.name,
+                    subtitle: tree.description,
+                    actions: [
+                        HeroAction(
+                            title: String(localized: "uadmin.campus.publishShort", defaultValue: "Публикация"),
+                            symbol: "paperplane"
+                        ) {
+                            if tree.buildings.isEmpty {
+                                actionFailure = String(localized: "uadmin.campus.publishNeedsBuilding", defaultValue: "Сначала добавьте корпус — публиковать пока нечего.")
+                            } else {
+                                publishing = true
+                            }
+                        },
+                        HeroAction(
+                            title: String(localized: "uadmin.campus.mapShort", defaultValue: "Карта"),
+                            symbol: "map"
+                        ) { UAdminNav.push(.section(.campusMap)) },
+                        HeroAction(
+                            title: String(localized: "uadmin.campus.buildingShort", defaultValue: "Корпус"),
+                            symbol: "building.2"
+                        ) { creatingBuilding = true },
+                        HeroAction(
+                            title: String(localized: "uadmin.edit", defaultValue: "Изменить"),
+                            symbol: "pencil"
+                        ) { editingProperties = true },
+                    ]
+                ) {
+                    if tree.publishedVersion == nil {
+                        StatusBadge(text: String(localized: "uadmin.campus.draft", defaultValue: "Черновик"), tint: Palette.mutedForeground)
+                    } else {
+                        StatusBadge(text: String(localized: "uadmin.campus.published", defaultValue: "Опубликован"), tint: Palette.success)
+                    }
+                }
+            }
+
+            Section {
                 DetailRow(
                     title: String(localized: "uadmin.campus.state", defaultValue: "Публикация"),
                     value: tree.publishedVersion.map {
@@ -248,19 +279,6 @@ struct UAdminCampusDetailView: View {
                     } ?? String(localized: "uadmin.campus.notPublished", defaultValue: "Ещё не опубликован — студенты карту не видят"),
                     symbol: "paperplane"
                 )
-                if let description = tree.description, !description.isEmpty {
-                    DetailRow(title: String(localized: "uadmin.campus.description", defaultValue: "Описание"), value: description, symbol: "text.alignleft")
-                }
-                Button {
-                    editingProperties = true
-                } label: {
-                    Label(String(localized: "uadmin.campus.properties", defaultValue: "Свойства кампуса"), systemImage: "pencil")
-                }
-                if tree.publishedVersion != nil {
-                    NavigationLink(value: AppRoute.section(.campusMap)) {
-                        Label(String(localized: "uadmin.campus.openMap", defaultValue: "Открыть карту"), systemImage: "map")
-                    }
-                }
             } footer: {
                 Text(String(localized: "uadmin.campus.editorHint", defaultValue: "Планы этажей рисуются в редакторе веб-версии. Здесь — корпуса, этажи, публикация и версии."))
             }
@@ -334,16 +352,6 @@ struct UAdminCampusDetailView: View {
                 }
             }
 
-            if !tree.buildings.isEmpty {
-                Section {
-                    Button {
-                        creatingBuilding = true
-                    } label: {
-                        Label(String(localized: "uadmin.campus.addBuilding", defaultValue: "Добавить корпус"), systemImage: "building.2")
-                    }
-                }
-            }
-
             Section {
                 if versions.isEmpty {
                     Text(String(localized: "uadmin.campus.noVersions", defaultValue: "Публикаций ещё не было"))
@@ -392,12 +400,14 @@ struct UAdminCampusDetailView: View {
                     deletingCampus = true
                 } label: {
                     Label(String(localized: "uadmin.campus.delete", defaultValue: "Удалить кампус"), systemImage: "trash")
+                        .foregroundStyle(Palette.destructive)
                 }
             } footer: {
                 Text(String(localized: "uadmin.campus.dangerHint", defaultValue: "Карта исчезнет у всех, корпуса и этажи удалятся вместе с ней"))
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
     }
 
     @MainActor
@@ -485,16 +495,24 @@ private struct FloorRow: View {
 private struct VersionRow: View {
     let version: UAdminCampusVersionDTO
 
+    private var details: String {
+        let spaces = String(localized: "uadmin.campus.spaces", defaultValue: "помещений: \(version.spaces.formatted())")
+        guard let note = version.note, !note.isEmpty else { return spaces }
+        return spaces + "\n" + note
+    }
+
     var body: some View {
-        ListCardRow(
+        TelegramStyleRow(
             title: String(localized: "uadmin.campus.versionN", defaultValue: "Версия №\(String(version.number))"),
-            subtitle: [
-                DisplayFormat.dateTime(version.publishedAt),
-                String(localized: "uadmin.campus.spaces", defaultValue: "помещений: \(version.spaces.formatted())"),
-            ].joined(separator: " · "),
-            status: version.current ? (String(localized: "uadmin.campus.current", defaultValue: "Текущая"), Palette.success) : nil,
-            lines: [version.note ?? ""]
-        )
+            subtitle: details,
+            meta: DisplayFormat.date(version.publishedAt)
+        ) {
+            RowSymbol(symbol: "clock.arrow.circlepath", tint: version.current ? TileTint.green : TileTint.gray, size: 36)
+        } accessory: {
+            if version.current {
+                StatusBadge(text: String(localized: "uadmin.campus.current", defaultValue: "Текущая"), tint: Palette.success)
+            }
+        }
     }
 }
 

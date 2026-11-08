@@ -39,11 +39,6 @@ struct DeanCoursesView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 if tab == .courses {
                     Menu {
-                        Button {
-                            creating = true
-                        } label: {
-                            Label(String(localized: "dean.courses.assign", defaultValue: "Назначить дисциплину"), systemImage: "plus")
-                        }
                         Picker(String(localized: "dean.sort.by", defaultValue: "Сортировать"), selection: $sort) {
                             Text(String(localized: "dean.sort.default", defaultValue: "Как на сервере")).tag(String?.none)
                             Text(String(localized: "dean.courses.col.subject", defaultValue: "Дисциплина")).tag(String?.some("subject"))
@@ -54,11 +49,13 @@ struct DeanCoursesView: View {
                         }
                         Toggle(String(localized: "dean.sort.ascending", defaultValue: "По возрастанию"), isOn: $ascending)
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        Image(systemName: "arrow.up.arrow.down")
                     }
+                    .accessibilityLabel(Text(String(localized: "dean.sort.by", defaultValue: "Сортировать")))
                 }
             }
         }
+        .modifier(DeanCoursesCreateButton(isOn: tab == .courses) { creating = true })
         .onChange(of: sort) { _, _ in Task { await resort() } }
         .onChange(of: ascending) { _, _ in Task { await resort() } }
         .sheet(isPresented: $creating) {
@@ -103,16 +100,7 @@ struct DeanCoursesView: View {
                 Button {
                     editing = course
                 } label: {
-                    ListCardRow(
-                        title: course.subject.name,
-                        subtitle: course.group.name,
-                        lines: [
-                            course.teacher?.name ?? String(localized: "dean.courses.noTeacher", defaultValue: "Преподаватель не назначен"),
-                            [course.term?.name, course.credits.map { String(localized: "dean.courses.credits", defaultValue: "Кредитов: \($0.formatted())") }]
-                                .compactMap { $0 }
-                                .joined(separator: " · "),
-                        ]
-                    )
+                    DeanCourseRow(course: course)
                 }
                 .buttonStyle(.plain)
                 .swipeActions {
@@ -132,6 +120,9 @@ struct DeanCoursesView: View {
                         editing = course
                     } label: {
                         Label(String(localized: "dean.edit", defaultValue: "Изменить"), systemImage: "pencil")
+                    }
+                    NavigationLink(value: AppRoute.dean(.group(id: course.group.id))) {
+                        Label(String(localized: "dean.student.openGroup", defaultValue: "Карточка группы"), systemImage: "person.3")
                     }
                     Button(role: .destructive) {
                         deleting = course
@@ -153,12 +144,8 @@ struct DeanCoursesView: View {
             ),
             header: { tabs },
             row: { subject in
-                HStack {
-                    Text(subject.name).font(Typography.body)
-                    Spacer(minLength: Spacing.md)
-                    if let code = subject.code, !code.isEmpty {
-                        StatusBadge(text: code, tint: Palette.mutedForeground)
-                    }
+                TelegramStyleRow(title: subject.name, meta: subject.code) {
+                    RowSymbol(symbol: "books.vertical.fill", tint: TileTint.teal, size: 40)
                 }
             }
         )
@@ -174,11 +161,7 @@ struct DeanCoursesView: View {
             ),
             header: { tabs },
             row: { term in
-                ListCardRow(
-                    title: term.name,
-                    status: term.isActive ? (String(localized: "dean.term.active", defaultValue: "Текущий семестр"), Palette.success) : nil,
-                    lines: ["\(DisplayFormat.date(DeanTime.parse(term.startsOn))) — \(DisplayFormat.date(DeanTime.parse(term.endsOn)))"]
-                )
+                DeanTermRow(term: term)
             }
         )
     }
@@ -203,6 +186,70 @@ struct DeanCoursesView: View {
                 actionFailure = error.userMessage
             }
         }
+    }
+}
+
+/// Плавающая кнопка «Назначить дисциплину» — только на вкладке курсов: справочник и
+/// семестры декан лишь смотрит.
+private struct DeanCoursesCreateButton: ViewModifier {
+    let isOn: Bool
+    let action: () -> Void
+
+    func body(content: Content) -> some View {
+        if isOn {
+            content.floatingAction(String(localized: "dean.courses.assign", defaultValue: "Назначить дисциплину"), action: action)
+        } else {
+            content
+        }
+    }
+}
+
+/// Дисциплина группы строкой: предмет, кредиты справа, группа и ведущий ниже.
+private struct DeanCourseRow: View {
+    let course: DeanCourse
+
+    var body: some View {
+        TelegramStyleRow(title: course.subject.name, subtitle: subtitle, meta: credits) {
+            RowSymbol(symbol: "book.fill", tint: TileTint.indigo, size: 44)
+        } accessory: {
+            if course.teacher == nil {
+                StatusBadge(text: String(localized: "dean.courses.noTeacherShort", defaultValue: "Без преподавателя"), tint: Palette.warning)
+            }
+        }
+    }
+
+    private var credits: String? {
+        guard let value = course.credits else { return nil }
+        let text = value.formatted()
+        return String(localized: "dean.courses.credits", defaultValue: "Кредитов: \(text)")
+    }
+
+    private var subtitle: String {
+        var lines = [course.group.name]
+        if let teacher = course.teacher?.name { lines[0] += " · " + teacher }
+        if let term = course.term?.name { lines.append(term) }
+        return lines.joined(separator: "\n")
+    }
+}
+
+/// Семестр строкой: даты ниже, текущий — с плашкой.
+private struct DeanTermRow: View {
+    let term: DeanTerm
+
+    var body: some View {
+        TelegramStyleRow(title: term.name, subtitle: dates) {
+            RowSymbol(symbol: "calendar", tint: term.isActive ? TileTint.green : TileTint.gray, size: 40)
+        } accessory: {
+            if term.isActive {
+                StatusBadge(text: String(localized: "dean.term.active", defaultValue: "Текущий семестр"), tint: Palette.success)
+            }
+        }
+    }
+
+    private var dates: String {
+        let from = DisplayFormat.date(DeanTime.parse(term.startsOn))
+        let to = DisplayFormat.date(DeanTime.parse(term.endsOn))
+        return from + " — " + to
     }
 }
 

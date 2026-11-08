@@ -4,7 +4,8 @@ import SwiftUI
 // внимания, дисциплины и расписание группы. Создание и удаление групп — права админа
 // вуза; декан назначает старост своего факультета.
 
-/// Список групп факультета с поиском на сервере.
+/// Список групп факультета с поиском на сервере. Строки — как список чатов: инициалы
+/// группы, название, год набора справа, староста строкой ниже.
 struct DeanGroupsView: View {
     @State private var search = ""
     @State private var loader: PagedLoader<DeanGroup>
@@ -19,43 +20,66 @@ struct DeanGroupsView: View {
     }
 
     var body: some View {
-        PagedList(
-            loader: loader,
-            empty: EmptyStateView(
-                title: search.isEmpty
-                    ? String(localized: "dean.groups.empty", defaultValue: "Групп пока нет")
-                    : String(localized: "dean.picker.empty", defaultValue: "Ничего не найдено"),
-                symbol: search.isEmpty ? "person.3" : "magnifyingglass",
-                hint: search.isEmpty
-                    ? String(localized: "dean.groups.emptyHint", defaultValue: "Группы факультета заводит администратор вуза")
-                    : nil
-            )
-        ) { group in
+        PagedList(loader: loader, empty: emptyState) { group in
             NavigationLink(value: AppRoute.dean(.group(id: group.id))) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(group.name).font(Typography.cardTitle).foregroundStyle(Palette.foreground)
-                        Text(group.year.map { String($0) } ?? "—")
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.mutedForeground)
-                    }
-                    Spacer(minLength: Spacing.md)
-                    if group.starostaId != nil {
-                        StatusBadge(text: String(localized: "dean.groups.hasStarosta", defaultValue: "Есть староста"), tint: Palette.info)
-                    } else {
-                        StatusBadge(text: String(localized: "dean.groups.noStarosta", defaultValue: "Без старосты"), tint: Palette.warning)
-                    }
+                DeanGroupRow(group: group)
+            }
+            .contextMenu {
+                NavigationLink(value: AppRoute.dean(.groupSchedule(id: group.id))) {
+                    Label(String(localized: "dean.group.editSchedule", defaultValue: "Редактировать расписание"), systemImage: "calendar")
                 }
             }
         }
         .navigationTitle(Text(DeanScreen.groups.title))
-        .debouncedSearch($search, prompt: String(localized: "dean.groups.search", defaultValue: "Название группы")) { needle in
+        .deanDebouncedSearch($search, prompt: String(localized: "dean.groups.search", defaultValue: "Название группы")) { needle in
             await loader.replace { request in try await api.groups(request, search: needle) }
         }
     }
+
+    private var emptyState: EmptyStateView {
+        if search.isEmpty {
+            return EmptyStateView(
+                title: String(localized: "dean.groups.empty", defaultValue: "Групп пока нет"),
+                symbol: "person.3",
+                hint: String(localized: "dean.groups.emptyHint", defaultValue: "Группы факультета заводит администратор вуза")
+            )
+        }
+        return EmptyStateView(
+            title: String(localized: "dean.picker.empty", defaultValue: "Ничего не найдено"),
+            symbol: "magnifyingglass"
+        )
+    }
 }
 
-/// Карточка группы.
+/// Группа строкой списка: инициалы, название, год набора, есть ли староста.
+private struct DeanGroupRow: View {
+    let group: DeanGroup
+
+    var body: some View {
+        TelegramStyleRow(title: group.name, subtitle: subtitle, meta: meta) {
+            AvatarView(url: nil, name: group.name, size: 48)
+        } accessory: {
+            if group.starostaId == nil {
+                StatusBadge(text: String(localized: "dean.groups.noStarosta", defaultValue: "Без старосты"), tint: Palette.warning)
+            }
+        }
+    }
+
+    private var meta: String? {
+        guard let year = group.year else { return nil }
+        return String(year)
+    }
+
+    private var subtitle: String {
+        group.starostaId == nil
+            ? String(localized: "dean.group.noStarosta", defaultValue: "Староста не назначен")
+            : String(localized: "dean.groups.hasStarosta", defaultValue: "Есть староста")
+    }
+}
+
+/// Карточка группы в духе профиля Telegram: инициалы и название по центру, ряд круглых
+/// кнопок (расписание, посещаемость, староста), ниже — состав, кто требует внимания,
+/// посещаемость, дисциплины и неделя группы.
 struct DeanGroupView: View {
     let groupID: String
 
@@ -71,6 +95,7 @@ struct DeanGroupView: View {
             content(data)
         }
         .navigationTitle(Text(DeanScreen.group(id: groupID).title))
+        .navigationBarTitleDisplayMode(.inline)
         .actionFailureAlert($actionFailure)
         .confirmationDialog(
             pendingStarosta?.title ?? "",
@@ -93,6 +118,14 @@ struct DeanGroupView: View {
         var risk: [DeanAtRisk.Student]
         var courses: [DeanCourse]
         var pairs: [DeanPair]
+
+        var students: [DeanGroupMember] {
+            members.filter { $0.roleValue == .student || $0.roleValue == .starosta }
+        }
+
+        var starosta: DeanGroupMember? {
+            members.first { $0.id == group.starostaId }
+        }
     }
 
     private struct StarostaChange: Identifiable {
@@ -102,6 +135,8 @@ struct DeanGroupView: View {
         let actionTitle: String
         var id: String { studentID ?? "none" }
     }
+
+    private enum Anchor: Hashable { case attendance, schedule }
 
     @MainActor
     private func load() async throws -> Snapshot {
@@ -124,169 +159,289 @@ struct DeanGroupView: View {
 
     @ViewBuilder
     private func content(_ data: Snapshot) -> some View {
-        let students = data.members.filter { $0.roleValue == .student || $0.roleValue == .starosta }
-        let starosta = data.members.first { $0.id == data.group.starostaId }
-        List {
-            Section {
-                DetailRow(title: String(localized: "dean.group.name", defaultValue: "Группа"), value: data.group.name)
-                DetailRow(title: String(localized: "dean.group.year", defaultValue: "Год набора"), value: data.group.year.map { String($0) } ?? "—")
-                DetailRow(title: String(localized: "dean.group.students", defaultValue: "Студентов"), value: students.count.formatted())
+        ScrollViewReader { proxy in
+            List {
+                header(data, proxy: proxy)
+                starostaSection(data)
+                membersSection(data)
+                if !data.risk.isEmpty {
+                    riskSection(data)
+                }
+                attendanceSection(data)
+                    .id(Anchor.attendance)
+                coursesSection(data)
+                scheduleSection(data)
+                    .id(Anchor.schedule)
             }
+            .listStyle(.insetGrouped)
+            .listSectionSpacing(.compact)
+            .refreshable { reload += 1 }
+        }
+    }
 
-            Section {
-                if let starosta {
-                    NavigationLink(value: AppRoute.dean(.student(id: starosta.id))) {
-                        PersonRow(name: starosta.name, subtitle: Role.starosta.title, avatarURL: starosta.avatarUrl)
-                    }
-                } else {
-                    Text(String(localized: "dean.group.noStarosta", defaultValue: "Староста не назначен"))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
-                }
-                if !students.isEmpty {
-                    Menu {
-                        ForEach(students) { member in
-                            Button {
-                                requestStarosta(member.id, data: data)
-                            } label: {
-                                if member.id == data.group.starostaId {
-                                    Label(member.name, systemImage: "checkmark")
-                                } else {
-                                    Text(member.name)
-                                }
-                            }
-                        }
-                        if data.group.starostaId != nil {
-                            Divider()
-                            Button(role: .destructive) {
-                                requestStarosta(nil, data: data)
-                            } label: {
-                                Label(String(localized: "dean.starosta.clear", defaultValue: "Снять старосту"), systemImage: "person.badge.minus")
-                            }
-                        }
-                    } label: {
-                        if isSaving {
-                            ProgressView()
-                        } else {
-                            Label(
-                                data.group.starostaId == nil
-                                    ? String(localized: "dean.starosta.assign", defaultValue: "Назначить старосту")
-                                    : String(localized: "dean.starosta.change", defaultValue: "Сменить старосту"),
-                                systemImage: "star"
-                            )
-                        }
-                    }
-                    .disabled(isSaving)
-                }
-            } header: {
-                Text(Role.starosta.title)
-            } footer: {
-                Text(String(localized: "dean.starosta.hint", defaultValue: "Выбранный студент получает права старосты, прежний возвращается в студенты."))
-            }
+    // MARK: Шапка
 
-            Section {
-                if data.members.isEmpty {
-                    Text(String(localized: "dean.group.noMembers", defaultValue: "В группе никого нет"))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
-                }
-                ForEach(data.members) { member in
-                    NavigationLink(value: memberRoute(member)) {
-                        PersonRow(name: member.name, subtitle: member.roleValue.title, avatarURL: member.avatarUrl)
-                    }
-                }
-            } header: {
-                Text(String(localized: "dean.group.members", defaultValue: "Состав"))
-            }
+    private func header(_ data: Snapshot, proxy: ScrollViewProxy) -> some View {
+        HeroHeader(
+            visual: .avatar(url: nil, name: data.group.name),
+            title: data.group.name,
+            subtitle: headerSubtitle(data),
+            actions: [
+                HeroAction(
+                    title: String(localized: "dean.group.scheduleShort", defaultValue: "Расписание"),
+                    symbol: "calendar"
+                ) {
+                    DeanNav.push(.dean(.groupSchedule(id: groupID)))
+                },
+                HeroAction(
+                    title: String(localized: "dean.group.attendanceShort", defaultValue: "Посещаемость"),
+                    symbol: "chart.bar"
+                ) {
+                    withAnimation { proxy.scrollTo(Anchor.attendance, anchor: .top) }
+                },
+            ],
+            badges: { headerBadges(data) },
+            moreMenu: { starostaMenu(data) }
+        )
+    }
 
-            if !data.risk.isEmpty {
-                Section {
-                    ForEach(data.risk) { student in
-                        NavigationLink(value: AppRoute.dean(.student(id: student.studentId))) {
-                            ListCardRow(
-                                title: student.name,
-                                lines: student.reasons.map { DeanRiskText.line($0) }
-                            )
-                        }
-                    }
-                } header: {
-                    Text(String(localized: "dean.chart.risk", defaultValue: "Требуют внимания"))
-                }
-            }
+    private func headerSubtitle(_ data: Snapshot) -> String {
+        let count = data.students.count.formatted()
+        let students = String(localized: "dean.group.studentsCount", defaultValue: "Студентов: \(count)")
+        guard let year = data.group.year else { return students }
+        let yearText = String(year)
+        return String(localized: "dean.group.yearShort", defaultValue: "Набор \(yearText)") + " · " + students
+    }
 
-            Section {
-                if let attendance = data.attendance, !attendance.students.isEmpty {
-                    ForEach(attendance.students) { student in
-                        NavigationLink(value: AppRoute.dean(.student(id: student.studentId))) {
-                            DeanRateRow(
-                                title: student.name,
-                                subtitle: String(localized: "dean.attendance.tracked", defaultValue: "Отмечено занятий: \(student.tracked.formatted())"),
-                                rate: student.attendanceRate,
-                                badge: (student.attendanceRate ?? 100) < 60 ? String(localized: "dean.risk.badge", defaultValue: "Риск") : nil
-                            )
-                        }
-                    }
-                } else {
-                    Text(String(localized: "dean.chart.noAttendance", defaultValue: "Посещаемость ещё не отмечали"))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
+    @ViewBuilder
+    private func headerBadges(_ data: Snapshot) -> some View {
+        if data.group.starostaId == nil || !data.risk.isEmpty {
+            HStack(spacing: Spacing.sm) {
+                if data.group.starostaId == nil {
+                    StatusBadge(text: String(localized: "dean.groups.noStarosta", defaultValue: "Без старосты"), tint: Palette.warning)
                 }
-            } header: {
-                Text(String(localized: "dean.attendance.byStudent", defaultValue: "Посещаемость по студентам"))
-            }
-
-            Section {
-                if data.courses.isEmpty {
-                    Text(String(localized: "dean.courses.emptyGroup", defaultValue: "Группе ещё не назначены дисциплины"))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
+                if !data.risk.isEmpty {
+                    StatusBadge(text: riskBadge(data.risk.count), tint: Palette.destructive)
                 }
-                ForEach(data.courses) { course in
-                    ListCardRow(
-                        title: course.subject.name,
-                        subtitle: course.teacher?.name ?? String(localized: "dean.courses.noTeacher", defaultValue: "Преподаватель не назначен"),
-                        lines: [course.term?.name ?? ""]
-                    )
-                }
-            } header: {
-                Text(String(localized: "dean.group.courses", defaultValue: "Дисциплины"))
-            }
-
-            Section {
-                if data.pairs.isEmpty {
-                    Text(String(localized: "dean.group.noSchedule", defaultValue: "Действующего расписания нет"))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
-                }
-                ForEach(1...7, id: \.self) { day in
-                    let pairs = data.pairs.filter { $0.dayOfWeek == day }.sorted { $0.startTime < $1.startTime }
-                    if !pairs.isEmpty {
-                        VStack(alignment: .leading, spacing: Spacing.xs) {
-                            Text(DeanText.day(day)).font(Typography.cardTitle)
-                            ForEach(pairs) { pair in
-                                Text(verbatim: "\(pair.startTime)–\(pair.endTime) · \(pair.subject)" + (pair.weekType == "BOTH" ? "" : " · \(DeanText.weekType(pair.weekType))"))
-                                    .font(Typography.meta)
-                                    .foregroundStyle(Palette.mutedForeground)
-                            }
-                        }
-                        .padding(.vertical, 2)
-                    }
-                }
-                NavigationLink(value: AppRoute.dean(.groupSchedule(id: groupID))) {
-                    Label(String(localized: "dean.group.editSchedule", defaultValue: "Редактировать расписание"), systemImage: "calendar.badge.plus")
-                }
-            } header: {
-                Text(String(localized: "dean.group.schedule", defaultValue: "Расписание группы"))
             }
         }
-        .listStyle(.insetGrouped)
-        .refreshable { reload += 1 }
+    }
+
+    private func riskBadge(_ count: Int) -> String {
+        let value = count.formatted()
+        return String(localized: "dean.group.riskCount", defaultValue: "Требуют внимания: \(value)")
+    }
+
+    /// Староста — в «Ещё»: меняют его редко, а список студентов длинный.
+    @ViewBuilder
+    private func starostaMenu(_ data: Snapshot) -> some View {
+        if !data.students.isEmpty {
+            Menu {
+                ForEach(data.students) { member in
+                    Button {
+                        requestStarosta(member.id, data: data)
+                    } label: {
+                        if member.id == data.group.starostaId {
+                            Label(member.name, systemImage: "checkmark")
+                        } else {
+                            Text(member.name)
+                        }
+                    }
+                }
+            } label: {
+                Label(
+                    data.group.starostaId == nil
+                        ? String(localized: "dean.starosta.assign", defaultValue: "Назначить старосту")
+                        : String(localized: "dean.starosta.change", defaultValue: "Сменить старосту"),
+                    systemImage: "star"
+                )
+            }
+        }
+        if data.group.starostaId != nil {
+            Button(role: .destructive) {
+                requestStarosta(nil, data: data)
+            } label: {
+                Label(String(localized: "dean.starosta.clear", defaultValue: "Снять старосту"), systemImage: "person.badge.minus")
+            }
+        }
+        Button {
+            reload += 1
+        } label: {
+            Label(String(localized: "dean.refresh", defaultValue: "Обновить"), systemImage: "arrow.clockwise")
+        }
+    }
+
+    // MARK: Секции
+
+    private func starostaSection(_ data: Snapshot) -> some View {
+        Section {
+            if let starosta = data.starosta {
+                NavigationLink(value: AppRoute.dean(.student(id: starosta.id))) {
+                    PersonRow(name: starosta.name, subtitle: Role.starosta.title, avatarURL: starosta.avatarUrl)
+                }
+            } else {
+                IconRow(
+                    title: String(localized: "dean.group.noStarosta", defaultValue: "Староста не назначен"),
+                    symbol: "star",
+                    tint: TileTint.gray
+                )
+            }
+            if !data.students.isEmpty {
+                Menu {
+                    starostaMenu(data)
+                } label: {
+                    if isSaving {
+                        ProgressView()
+                    } else {
+                        Label(
+                            data.group.starostaId == nil
+                                ? String(localized: "dean.starosta.assign", defaultValue: "Назначить старосту")
+                                : String(localized: "dean.starosta.change", defaultValue: "Сменить старосту"),
+                            systemImage: "star"
+                        )
+                    }
+                }
+                .disabled(isSaving)
+            }
+        } header: {
+            Text(Role.starosta.title)
+        } footer: {
+            Text(String(localized: "dean.starosta.hint", defaultValue: "Выбранный студент получает права старосты, прежний возвращается в студенты."))
+        }
+    }
+
+    private func membersSection(_ data: Snapshot) -> some View {
+        Section {
+            if data.members.isEmpty {
+                EmptyStateView(
+                    title: String(localized: "dean.group.noMembers", defaultValue: "В группе никого нет"),
+                    symbol: "person.2"
+                )
+                .listRowBackground(Color.clear)
+            }
+            ForEach(data.members) { member in
+                NavigationLink(value: memberRoute(member)) {
+                    DeanMemberRow(member: member, isStarosta: member.id == data.group.starostaId)
+                }
+                .swipeActions(edge: .leading) {
+                    Button {
+                        Task { await openChat(member.id) }
+                    } label: {
+                        Label(String(localized: "dean.contact.message", defaultValue: "Написать"), systemImage: "bubble.left.fill")
+                    }
+                    .tint(Palette.primary)
+                }
+                .contextMenu {
+                    Button {
+                        Task { await openChat(member.id) }
+                    } label: {
+                        Label(String(localized: "dean.contact.message", defaultValue: "Написать"), systemImage: "bubble.left")
+                    }
+                    NavigationLink(value: AppRoute.profile(id: member.id)) {
+                        Label(String(localized: "dean.contact.profile", defaultValue: "Открыть профиль"), systemImage: "person.crop.circle")
+                    }
+                }
+            }
+        } header: {
+            Text(String(localized: "dean.group.members", defaultValue: "Состав"))
+        }
+    }
+
+    private func riskSection(_ data: Snapshot) -> some View {
+        Section {
+            ForEach(data.risk) { student in
+                NavigationLink(value: AppRoute.dean(.student(id: student.studentId))) {
+                    DeanRiskMemberRow(student: student)
+                }
+            }
+        } header: {
+            Text(String(localized: "dean.chart.risk", defaultValue: "Требуют внимания"))
+        }
+    }
+
+    private func attendanceSection(_ data: Snapshot) -> some View {
+        Section {
+            if let attendance = data.attendance, !attendance.students.isEmpty {
+                ForEach(attendance.students) { student in
+                    NavigationLink(value: AppRoute.dean(.student(id: student.studentId))) {
+                        DeanRateRow(
+                            title: student.name,
+                            subtitle: trackedLine(student.tracked),
+                            rate: student.attendanceRate,
+                            badge: (student.attendanceRate ?? 100) < 60 ? String(localized: "dean.risk.badge", defaultValue: "Риск") : nil
+                        )
+                    }
+                }
+            } else {
+                IconRow(
+                    title: String(localized: "dean.chart.noAttendance", defaultValue: "Посещаемость ещё не отмечали"),
+                    symbol: "chart.bar",
+                    tint: TileTint.gray
+                )
+            }
+        } header: {
+            Text(String(localized: "dean.attendance.byStudent", defaultValue: "Посещаемость по студентам"))
+        }
+    }
+
+    private func trackedLine(_ tracked: Int) -> String {
+        let value = tracked.formatted()
+        return String(localized: "dean.attendance.tracked", defaultValue: "Отмечено занятий: \(value)")
+    }
+
+    private func coursesSection(_ data: Snapshot) -> some View {
+        Section {
+            if data.courses.isEmpty {
+                IconRow(
+                    title: String(localized: "dean.courses.emptyGroup", defaultValue: "Группе ещё не назначены дисциплины"),
+                    symbol: "book",
+                    tint: TileTint.gray
+                )
+            }
+            ForEach(data.courses) { course in
+                DeanGroupCourseRow(course: course)
+            }
+        } header: {
+            Text(String(localized: "dean.group.courses", defaultValue: "Дисциплины"))
+        }
+    }
+
+    private func scheduleSection(_ data: Snapshot) -> some View {
+        Section {
+            if data.pairs.isEmpty {
+                IconRow(
+                    title: String(localized: "dean.group.noSchedule", defaultValue: "Действующего расписания нет"),
+                    symbol: "calendar",
+                    tint: TileTint.gray
+                )
+            }
+            ForEach(1...7, id: \.self) { day in
+                let pairs = data.pairs.filter { $0.dayOfWeek == day }.sorted { $0.startTime < $1.startTime }
+                if !pairs.isEmpty {
+                    DeanGroupDayRow(day: day, pairs: pairs)
+                }
+            }
+            NavigationLink(value: AppRoute.dean(.groupSchedule(id: groupID))) {
+                Label(String(localized: "dean.group.editSchedule", defaultValue: "Редактировать расписание"), systemImage: "calendar.badge.plus")
+            }
+        } header: {
+            Text(String(localized: "dean.group.schedule", defaultValue: "Расписание группы"))
+        }
     }
 
     private func memberRoute(_ member: DeanGroupMember) -> AppRoute {
         member.roleValue == .student || member.roleValue == .starosta
             ? .dean(.student(id: member.id))
             : .profile(id: member.id)
+    }
+
+    @MainActor
+    private func openChat(_ userID: String) async {
+        do {
+            try await DeanNav.openChat(userID: userID)
+        } catch {
+            actionFailure = error.userMessage
+        }
     }
 
     private func requestStarosta(_ studentID: String?, data: Snapshot) {
@@ -322,6 +477,121 @@ struct DeanGroupView: View {
         } catch {
             actionFailure = error.userMessage
         }
+    }
+}
+
+/// Участник группы: аватар, ФИО, роль; у старосты — звезда.
+private struct DeanMemberRow: View {
+    let member: DeanGroupMember
+    let isStarosta: Bool
+
+    var body: some View {
+        HStack(spacing: Spacing.lg) {
+            AvatarView(url: member.avatarUrl, name: member.name, size: 40)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(member.name)
+                    .font(Typography.body)
+                    .foregroundStyle(Palette.foreground)
+                    .lineLimit(2)
+                Text(member.roleValue.title)
+                    .font(Typography.meta)
+                    .foregroundStyle(isStarosta ? Palette.warning : Palette.mutedForeground)
+            }
+            Spacer(minLength: Spacing.md)
+            if isStarosta {
+                Image(systemName: "star.fill")
+                    .foregroundStyle(Palette.warning)
+                    .accessibilityHidden(true)
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Студент из «требуют внимания»: аватар и причины строкой ниже.
+private struct DeanRiskMemberRow: View {
+    let student: DeanAtRisk.Student
+
+    var body: some View {
+        TelegramStyleRow(title: student.name, subtitle: reasons) {
+            AvatarView(url: nil, name: student.name, size: 40)
+        } accessory: {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(Palette.destructive)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var reasons: String {
+        student.reasons.map { DeanRiskText.line($0) }.joined(separator: "\n")
+    }
+}
+
+/// Дисциплина группы: предмет, ведущий, семестр и кредиты.
+private struct DeanGroupCourseRow: View {
+    let course: DeanCourse
+
+    var body: some View {
+        TelegramStyleRow(title: course.subject.name, subtitle: subtitle, meta: course.term?.name) {
+            RowSymbol(symbol: "book.fill", tint: TileTint.indigo, size: 36)
+        }
+    }
+
+    private var subtitle: String {
+        course.teacher?.name ?? String(localized: "dean.courses.noTeacher", defaultValue: "Преподаватель не назначен")
+    }
+}
+
+/// День недели группы: короткое имя дня слева, пары строками справа.
+private struct DeanGroupDayRow: View {
+    let day: Int
+    let pairs: [DeanPair]
+
+    var body: some View {
+        HStack(alignment: .top, spacing: Spacing.lg) {
+            Text(DeanText.dayShort(day))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Palette.primary)
+                .frame(width: 32, alignment: .leading)
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                ForEach(pairs) { pair in
+                    DeanGroupPairLine(pair: pair)
+                }
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(DeanText.day(day)))
+    }
+}
+
+private struct DeanGroupPairLine: View {
+    let pair: DeanPair
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Spacing.md) {
+            Text(verbatim: pair.startTime)
+                .font(Typography.meta.monospacedDigit().weight(.semibold))
+                .foregroundStyle(Palette.foreground)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(pair.subject)
+                    .font(Typography.body)
+                    .foregroundStyle(Palette.foreground)
+                if let meta {
+                    Text(meta)
+                        .font(Typography.meta)
+                        .foregroundStyle(Palette.mutedForeground)
+                }
+            }
+        }
+    }
+
+    private var meta: String? {
+        var parts: [String] = []
+        if let room = pair.room?.name { parts.append(room) }
+        if pair.weekType != "BOTH" { parts.append(DeanText.weekType(pair.weekType)) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
 

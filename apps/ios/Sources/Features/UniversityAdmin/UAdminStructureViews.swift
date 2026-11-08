@@ -115,6 +115,12 @@ private struct NameCatalogView: View {
                         action: { creating = true }
                     )
                     .listRowBackground(Color.clear)
+                } else if visible.isEmpty {
+                    EmptyStateView(
+                        title: String(localized: "uadmin.picker.nothing", defaultValue: "Ничего не найдено"),
+                        symbol: "magnifyingglass"
+                    )
+                    .listRowBackground(Color.clear)
                 } else {
                     Section {
                         ForEach(visible) { item in
@@ -158,17 +164,8 @@ private struct NameCatalogView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle(Text(kind.title))
-        .searchable(text: $query, prompt: Text(String(localized: "uadmin.searchByName", defaultValue: "Поиск по названию")))
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    creating = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel(Text(kind.addTitle))
-            }
-        }
+        .uadminSearchable($query, prompt: String(localized: "uadmin.searchByName", defaultValue: "Поиск по названию"))
+        .floatingAction(kind.addTitle) { creating = true }
         .sheet(isPresented: $creating) {
             NameFormSheet(title: kind.addTitle, fieldTitle: kind.fieldTitle, placeholder: kind.placeholder, initial: "") { name in
                 try await kind.create(name)
@@ -199,10 +196,17 @@ private struct NameCatalogView: View {
     private func row(_ item: NameItem) -> some View {
         if facultyLinks {
             NavigationLink(value: AppRoute.uniAdmin(.facultyGroups(facultyID: item.id, name: item.name))) {
-                IconRow(title: item.name, symbol: kind.symbol, tint: TileTint.indigo)
+                TelegramStyleRow(
+                    title: item.name,
+                    subtitle: String(localized: "uadmin.faculty.openGroups", defaultValue: "Группы факультета")
+                ) {
+                    RowSymbol(symbol: kind.symbol, tint: TileTint.indigo)
+                }
             }
         } else {
-            IconRow(title: item.name, symbol: kind.symbol, tint: TileTint.blue)
+            TelegramStyleRow(title: item.name) {
+                RowSymbol(symbol: kind.symbol, tint: TileTint.blue)
+            }
         }
     }
 
@@ -306,7 +310,7 @@ struct UAdminGroupsView: View {
                     }
                 } row: { group in
                     NavigationLink(value: AppRoute.uniAdmin(.group(id: group.id))) {
-                        GroupRow(group: group, facultyName: facultyName(group.facultyId))
+                        GroupRow(group: group, facultyName: facultyID == nil ? facultyName(group.facultyId) : nil)
                     }
                     .swipeActions {
                         Button(role: .destructive) {
@@ -321,25 +325,38 @@ struct UAdminGroupsView: View {
                         }
                         .tint(Palette.primary)
                     }
+                    .contextMenu {
+                        Button {
+                            editing = group
+                        } label: {
+                            Label(String(localized: "uadmin.edit", defaultValue: "Изменить"), systemImage: "pencil")
+                        }
+                        Button {
+                            UAdminNav.push(.uniAdmin(.groupSchedule(groupID: group.id)))
+                        } label: {
+                            Label(String(localized: "uadmin.group.schedule", defaultValue: "Расписание группы"), systemImage: "calendar")
+                        }
+                        Button(role: .destructive) {
+                            deleting = group
+                        } label: {
+                            Label(String(localized: "uadmin.delete", defaultValue: "Удалить"), systemImage: "trash")
+                        }
+                    }
                 }
             } else {
                 LoadingStateView()
             }
         }
-        .background(Palette.background)
         .navigationTitle(Text(facultyName ?? UniAdminScreen.groups.title))
-        .debouncedSearch($query, prompt: String(localized: "uadmin.searchByName", defaultValue: "Поиск по названию")) { _ in
+        .uadminDebouncedSearch($query, prompt: String(localized: "uadmin.searchByName", defaultValue: "Поиск по названию")) { _ in
             await reload()
         }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    creating = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .disabled(faculties.isEmpty)
-                .accessibilityLabel(Text(String(localized: "uadmin.group.add", defaultValue: "Добавить группу")))
+        .floatingAction(String(localized: "uadmin.group.add", defaultValue: "Добавить группу")) {
+            // Без факультета группу не создать — говорим, что сделать сначала.
+            if faculties.isEmpty {
+                actionFailure = String(localized: "uadmin.group.needFaculty", defaultValue: "Сначала создайте факультет — группа привязывается к нему.")
+            } else {
+                creating = true
             }
         }
         .sheet(isPresented: $creating) {
@@ -399,14 +416,25 @@ private struct GroupRow: View {
     let group: UAdminGroupDTO
     let facultyName: String?
 
+    private var year: String? {
+        guard let year = group.year else { return nil }
+        return String(year)
+    }
+
     var body: some View {
-        ListCardRow(
+        TelegramStyleRow(
             title: group.name,
-            subtitle: [facultyName, group.year.map { String($0) }].compactMap { $0 }.joined(separator: " · "),
-            status: group.starostaId == nil
-                ? (String(localized: "uadmin.group.noStarosta", defaultValue: "Без старосты"), Palette.mutedForeground)
-                : (String(localized: "uadmin.group.hasStarosta", defaultValue: "Есть староста"), Palette.info)
-        )
+            subtitle: facultyName,
+            meta: year
+        ) {
+            AvatarView(url: nil, name: group.name, size: 48)
+        } accessory: {
+            if group.starostaId == nil {
+                StatusBadge(text: String(localized: "uadmin.group.noStarosta", defaultValue: "Без старосты"), tint: Palette.warning)
+            } else {
+                StatusBadge(text: String(localized: "uadmin.group.hasStarosta", defaultValue: "Есть староста"), tint: Palette.info)
+            }
+        }
     }
 }
 
@@ -527,33 +555,8 @@ struct UAdminGroupDetailView: View {
                 LoadingStateView()
             }
         }
-        .background(Palette.background)
-        .navigationTitle(Text(group?.name ?? UniAdminScreen.group(id: groupID).title))
+        .navigationTitle(Text(UniAdminScreen.group(id: groupID).title))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if group != nil {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            editing = true
-                        } label: {
-                            Label(String(localized: "uadmin.group.edit", defaultValue: "Изменить группу"), systemImage: "pencil")
-                        }
-                        NavigationLink(value: AppRoute.uniAdmin(.groupSchedule(groupID: groupID))) {
-                            Label(String(localized: "uadmin.group.schedule", defaultValue: "Расписание группы"), systemImage: "calendar")
-                        }
-                        Button(role: .destructive) {
-                            deleting = true
-                        } label: {
-                            Label(String(localized: "uadmin.group.delete", defaultValue: "Удалить группу"), systemImage: "trash")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                    .accessibilityLabel(Text(String(localized: "uadmin.actions", defaultValue: "Действия")))
-                }
-            }
-        }
         .sheet(isPresented: $editing) {
             if let group {
                 UAdminGroupForm(group: group, faculties: faculties, facultyID: group.facultyId) { await load() }
@@ -588,28 +591,79 @@ struct UAdminGroupDetailView: View {
     private func content(_ group: UAdminGroupDTO) -> some View {
         let starosta = members.first(where: { $0.id == group.starostaId })
         let candidates = members.filter { $0.role == "STUDENT" || $0.role == "STAROSTA" }
+        let subtitle = Self.subtitle(faculty: facultyName, year: group.year)
         return List {
+            Section {
+                HeroHeader(
+                    visual: .avatar(url: nil, name: group.name),
+                    title: group.name,
+                    subtitle: subtitle,
+                    actions: [
+                        HeroAction(
+                            title: String(localized: "uadmin.group.scheduleShort", defaultValue: "Расписание"),
+                            symbol: "calendar"
+                        ) { UAdminNav.push(.uniAdmin(.groupSchedule(groupID: groupID))) },
+                        HeroAction(
+                            title: String(localized: "uadmin.group.attendanceShort", defaultValue: "Посещаемость"),
+                            symbol: "chart.bar"
+                        ) { UAdminNav.push(.uniAdmin(.groupAttendance(groupID: groupID, name: group.name))) },
+                        HeroAction(
+                            title: String(localized: "uadmin.edit", defaultValue: "Изменить"),
+                            symbol: "pencil"
+                        ) { editing = true },
+                    ]
+                ) {
+                    HStack(spacing: Spacing.sm) {
+                        StatusBadge(
+                            text: String(localized: "uadmin.group.membersCount", defaultValue: "Участников: \(members.count.formatted())"),
+                            tint: Palette.mutedForeground
+                        )
+                        if group.starostaId == nil {
+                            StatusBadge(text: String(localized: "uadmin.group.noStarosta", defaultValue: "Без старосты"), tint: Palette.warning)
+                        }
+                    }
+                }
+            }
+
             Section {
                 DetailRow(title: String(localized: "uadmin.faculty", defaultValue: "Факультет"), value: facultyName ?? UAdminText.empty, symbol: "building.columns")
                 DetailRow(title: String(localized: "uadmin.group.year", defaultValue: "Год набора"), value: group.year.map { String($0) } ?? UAdminText.empty, symbol: "calendar")
-                DetailRow(title: String(localized: "uadmin.starosta", defaultValue: "Староста"), value: starosta?.name ?? String(localized: "uadmin.group.noStarosta", defaultValue: "Без старосты"), symbol: "star")
             }
 
-            if !candidates.isEmpty {
-                Section {
+            Section {
+                if let starosta {
+                    NavigationLink(value: AppRoute.profile(id: starosta.id)) {
+                        PersonRow(name: starosta.name, subtitle: UAdminText.role("STAROSTA"), avatarURL: starosta.avatarUrl)
+                    }
+                } else {
+                    Text(String(localized: "uadmin.group.noStarostaYet", defaultValue: "Староста не назначен"))
+                        .foregroundStyle(Palette.mutedForeground)
+                }
+                if !candidates.isEmpty {
                     Menu {
                         ForEach(candidates) { member in
-                            Button(member.name) {
+                            Button {
                                 guard member.id != group.starostaId else { return }
                                 starostaChange = StarostaChange(
                                     userID: member.id,
                                     name: member.name,
                                     previous: starosta?.name
                                 )
+                            } label: {
+                                if member.id == group.starostaId {
+                                    Label(member.name, systemImage: "checkmark")
+                                } else {
+                                    Text(member.name)
+                                }
                             }
                         }
                     } label: {
-                        Label(String(localized: "uadmin.starosta.assign", defaultValue: "Назначить старосту"), systemImage: "person.badge.plus")
+                        Label(
+                            starosta == nil
+                                ? String(localized: "uadmin.starosta.assign", defaultValue: "Назначить старосту")
+                                : String(localized: "uadmin.starosta.change", defaultValue: "Сменить старосту"),
+                            systemImage: "person.badge.plus"
+                        )
                     }
                     if let starosta {
                         Button(role: .destructive) {
@@ -618,7 +672,11 @@ struct UAdminGroupDetailView: View {
                             Label(String(localized: "uadmin.starosta.clear", defaultValue: "Снять старосту"), systemImage: "person.badge.minus")
                         }
                     }
-                } footer: {
+                }
+            } header: {
+                Text(String(localized: "uadmin.starosta", defaultValue: "Староста"))
+            } footer: {
+                if !candidates.isEmpty {
                     Text(String(localized: "uadmin.starosta.footer", defaultValue: "Староста — роль: выбранный студент получает права старосты, прежний возвращается в студенты."))
                 }
             }
@@ -645,8 +703,20 @@ struct UAdminGroupDetailView: View {
                     Text(String(localized: "common.totalCount", defaultValue: "Всего: \(members.count.formatted())"))
                 }
             }
+
+            Section {
+                Button(role: .destructive) {
+                    deleting = true
+                } label: {
+                    Label(String(localized: "uadmin.group.delete", defaultValue: "Удалить группу"), systemImage: "trash")
+                        .foregroundStyle(Palette.destructive)
+                }
+            } footer: {
+                Text(String(localized: "uadmin.group.deleteFooter", defaultValue: "Удалить можно только пустую группу: без студентов, расписания, курсов и экзаменов."))
+            }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
     }
 
     @MainActor
@@ -667,6 +737,17 @@ struct UAdminGroupDetailView: View {
             failure = error.userMessage
             isOffline = error.isOffline
         }
+    }
+
+    /// «ФИТ · набор 2024».
+    private static func subtitle(faculty: String?, year: Int?) -> String {
+        var parts: [String] = []
+        if let faculty { parts.append(faculty) }
+        if let year {
+            let value = String(year)
+            parts.append(String(localized: "uadmin.group.yearShort", defaultValue: "набор \(value)"))
+        }
+        return parts.joined(separator: " · ")
     }
 
     @MainActor

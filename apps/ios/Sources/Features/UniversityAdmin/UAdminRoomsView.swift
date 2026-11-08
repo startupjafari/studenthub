@@ -61,9 +61,8 @@ struct UAdminRoomsView: View {
                 LoadingStateView()
             }
         }
-        .background(Palette.background)
         .navigationTitle(Text(UniAdminScreen.rooms.title))
-        .debouncedSearch($query, prompt: String(localized: "uadmin.searchByName", defaultValue: "Поиск по названию")) { _ in
+        .uadminDebouncedSearch($query, prompt: String(localized: "uadmin.searchByName", defaultValue: "Поиск по названию")) { _ in
             await reload()
         }
         .toolbar {
@@ -84,15 +83,8 @@ struct UAdminRoomsView: View {
                 }
                 .accessibilityLabel(Text(String(localized: "uadmin.actions", defaultValue: "Действия")))
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    creating = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel(Text(String(localized: "uadmin.room.add", defaultValue: "Добавить помещение")))
-            }
         }
+        .floatingAction(String(localized: "uadmin.room.add", defaultValue: "Добавить помещение")) { creating = true }
         .overlay {
             if busy {
                 ProgressView()
@@ -113,6 +105,7 @@ struct UAdminRoomsView: View {
                 try? await Task.sleep(for: .milliseconds(600))
                 sheet = QrSheet(items: items)
             }
+            .presentationDetents([.medium, .large])
         }
         .sheet(item: $sheet) { sheet in
             QrStickerSheet(items: sheet.items)
@@ -254,25 +247,37 @@ private struct RoomRow: View {
     let room: UAdminRoomDTO
 
     var body: some View {
-        ListCardRow(
+        let look = UAdminText.roomSymbol(room.kind)
+        TelegramStyleRow(
             title: room.name,
-            subtitle: UAdminText.roomKind(room.kind),
-            status: room.qrCode.map { (UAdminRoomCode.format($0), Palette.info) }
-                ?? (String(localized: "uadmin.room.noQr", defaultValue: "QR не выдан"), Palette.mutedForeground),
-            lines: [details]
-        )
+            subtitle: details,
+            meta: capacity
+        ) {
+            RowSymbol(symbol: look.symbol, tint: look.tint)
+        } accessory: {
+            if let code = room.qrCode {
+                StatusBadge(text: UAdminRoomCode.format(code), tint: Palette.info)
+            } else {
+                StatusBadge(text: String(localized: "uadmin.room.noQr", defaultValue: "QR не выдан"), tint: Palette.mutedForeground)
+            }
+        }
     }
 
+    /// «30 мест»; у помещений без вместимости — ничего.
+    private var capacity: String? {
+        guard let capacity = room.capacity else { return nil }
+        let value = String(capacity)
+        return String(localized: "uadmin.room.capacityValue", defaultValue: "\(value) мест")
+    }
+
+    /// Назначение и место: «Аудитория · Корпус А · 3 этаж».
     private var details: String {
-        var parts: [String] = []
+        var parts: [String] = [UAdminText.roomKind(room.kind)]
         if let building = room.building, !building.isEmpty {
             parts.append(String(localized: "uadmin.room.buildingValue", defaultValue: "Корпус \(building)"))
         }
         if let floor = room.floor {
             parts.append(String(localized: "uadmin.room.floorValue", defaultValue: "\(String(floor)) этаж"))
-        }
-        if let capacity = room.capacity {
-            parts.append(String(localized: "uadmin.room.capacityValue", defaultValue: "\(String(capacity)) мест"))
         }
         return parts.joined(separator: " · ")
     }
@@ -444,7 +449,7 @@ private struct QrStickerSheet: View {
             .navigationTitle(Text(String(localized: "uadmin.room.stickers", defaultValue: "Наклейки")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button(String(localized: "uadmin.done", defaultValue: "Готово")) { dismiss() }
                 }
                 ToolbarItemGroup(placement: .bottomBar) {
@@ -556,7 +561,11 @@ private struct BatchPrintSheet: View {
                         Text(String(localized: "uadmin.room.batchHint", defaultValue: "Помещениям без наклейки выдадим код. У кого наклейка уже есть, код не меняется — висящие наклейки продолжат работать."))
                     }
                     Section {
-                        Text(String(localized: "uadmin.room.batchCount", defaultValue: "Помещений: \(picked(rooms).count.formatted())"))
+                        IconRow(
+                            title: String(localized: "uadmin.room.batchCount", defaultValue: "Помещений: \(picked(rooms).count.formatted())"),
+                            symbol: "qrcode",
+                            tint: TileTint.blue
+                        )
                     }
                 } else {
                     LoadingStateView().listRowBackground(Color.clear)

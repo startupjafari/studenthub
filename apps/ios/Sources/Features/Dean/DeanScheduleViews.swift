@@ -66,6 +66,20 @@ struct DeanScheduleManageView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle(Text(initialGroupID == nil ? DeanScreen.schedule.title : DeanScreen.groupSchedule(id: "").title))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    moreMenu
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .accessibilityLabel(Text(String(localized: "dean.more", defaultValue: "Ещё")))
+            }
+        }
+        .modifier(DeanAddPairButton(isOn: containerID != nil && detail?.id == containerID) {
+            addingDay = DeanTime.isoWeekday(Date())
+        })
         .refreshable { await reloadAll() }
         .task {
             guard !bootstrapped else { return }
@@ -120,25 +134,52 @@ struct DeanScheduleManageView: View {
                 }
             }
             if let current = containers.first(where: { $0.id == containerID }), !current.isActive {
-                Button {
-                    Task { await activate(current) }
-                } label: {
-                    if isBusy {
-                        ProgressView()
-                    } else {
-                        Label(String(localized: "dean.schedule.activate", defaultValue: "Сделать действующей"), systemImage: "checkmark.circle")
+                VStack(alignment: .leading, spacing: Spacing.sm) {
+                    HStack(spacing: Spacing.sm) {
+                        StatusBadge(text: String(localized: "dean.schedule.draftBadge", defaultValue: "Черновик"), tint: Palette.warning)
+                        Text(String(localized: "dean.schedule.draftHint", defaultValue: "Черновик: группа его не видит, пока версию не сделают действующей."))
+                            .font(.caption)
+                            .foregroundStyle(Palette.mutedForeground)
                     }
+                    Button {
+                        Task { await activate(current) }
+                    } label: {
+                        if isBusy {
+                            ProgressView()
+                                .frame(maxWidth: .infinity)
+                        } else {
+                            Label(String(localized: "dean.schedule.activate", defaultValue: "Сделать действующей"), systemImage: "checkmark.circle")
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .glassProminentButton()
+                    .disabled(isBusy)
                 }
-                .disabled(isBusy)
-                Text(String(localized: "dean.schedule.draftHint", defaultValue: "Черновик: группа его не видит, пока версию не сделают действующей."))
-                    .font(.caption)
-                    .foregroundStyle(Palette.mutedForeground)
+                .padding(.vertical, Spacing.xs)
             }
         }
+    }
+
+    /// Редкие действия экрана — в одном меню панели, как «Ещё» у чатов.
+    @ViewBuilder
+    private var moreMenu: some View {
         Button {
             creatingVersion = true
         } label: {
             Label(String(localized: "dean.schedule.newVersion", defaultValue: "Новая версия"), systemImage: "plus.square.on.square")
+        }
+        .disabled(group == nil)
+        if let detail, !detail.pairs.contains(where: { $0.dayOfWeek > 5 }) {
+            Button {
+                withAnimation { showWeekend.toggle() }
+            } label: {
+                Label(
+                    showWeekend
+                        ? String(localized: "dean.schedule.hideWeekend", defaultValue: "Скрыть выходные")
+                        : String(localized: "dean.schedule.showWeekend", defaultValue: "Показать выходные"),
+                    systemImage: showWeekend ? "eye.slash" : "eye"
+                )
+            }
         }
     }
 
@@ -151,6 +192,15 @@ struct DeanScheduleManageView: View {
         ForEach(days, id: \.self) { day in
             let pairs = detail.pairs.filter { $0.dayOfWeek == day }.sorted { $0.startTime < $1.startTime }
             Section {
+                if pairs.isEmpty {
+                    Button {
+                        addingDay = day
+                    } label: {
+                        Label(String(localized: "dean.schedule.addPair", defaultValue: "Добавить пару"), systemImage: "plus")
+                            .font(Typography.body)
+                            .foregroundStyle(Palette.mutedForeground)
+                    }
+                }
                 ForEach(pairs) { pair in
                     Button {
                         openedPair = pair
@@ -158,25 +208,39 @@ struct DeanScheduleManageView: View {
                         DeanPairRow(pair: pair)
                     }
                     .buttonStyle(.plain)
-                }
-                Button {
-                    addingDay = day
-                } label: {
-                    Label(String(localized: "dean.schedule.addPair", defaultValue: "Добавить пару"), systemImage: "plus")
-                        .font(Typography.meta)
+                    .contextMenu {
+                        Button {
+                            openedPair = pair
+                        } label: {
+                            Label(String(localized: "dean.edit", defaultValue: "Изменить"), systemImage: "pencil")
+                        }
+                        Button {
+                            addingDay = day
+                        } label: {
+                            Label(String(localized: "dean.schedule.addPair", defaultValue: "Добавить пару"), systemImage: "plus")
+                        }
+                    }
                 }
             } header: {
-                Text(DeanText.day(day))
+                HStack {
+                    Text(DeanText.day(day))
+                    Spacer()
+                    if !pairs.isEmpty {
+                        Button {
+                            addingDay = day
+                        } label: {
+                            Image(systemName: "plus.circle")
+                        }
+                        .accessibilityLabel(Text(addPairLabel(day)))
+                    }
+                }
             }
         }
-        if !hasWeekend {
-            Button(showWeekend
-                ? String(localized: "dean.schedule.hideWeekend", defaultValue: "Скрыть выходные")
-                : String(localized: "dean.schedule.showWeekend", defaultValue: "Показать выходные")) {
-                showWeekend.toggle()
-            }
-            .listRowBackground(Color.clear)
-        }
+    }
+
+    private func addPairLabel(_ day: Int) -> String {
+        let name = DeanText.day(day)
+        return String(localized: "dean.schedule.addPairDay", defaultValue: "Добавить пару: \(name)")
     }
 
     // MARK: Загрузка
@@ -247,32 +311,70 @@ private struct DeanDayToken: Identifiable {
     var id: Int { day }
 }
 
+/// Плавающая «Добавить пару» — когда версия открыта; день подставляется сегодняшний,
+/// в форме его можно сменить.
+private struct DeanAddPairButton: ViewModifier {
+    let isOn: Bool
+    let action: () -> Void
+
+    func body(content: Content) -> some View {
+        if isOn {
+            content.floatingAction(String(localized: "dean.schedule.addPair", defaultValue: "Добавить пару"), action: action)
+        } else {
+            content
+        }
+    }
+}
+
+/// Пара строкой: время столбиком слева, как в «Календаре», предмет и кто/где — справа.
 private struct DeanPairRow: View {
     let pair: DeanPair
 
     var body: some View {
         HStack(alignment: .top, spacing: Spacing.lg) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text(verbatim: pair.startTime).font(Typography.meta.monospacedDigit().weight(.semibold))
-                Text(verbatim: pair.endTime).font(Typography.meta.monospacedDigit()).foregroundStyle(Palette.mutedForeground)
+            VStack(alignment: .trailing, spacing: 0) {
+                Text(verbatim: pair.startTime)
+                    .font(Typography.meta.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(Palette.foreground)
+                Text(verbatim: pair.endTime)
+                    .font(Typography.meta.monospacedDigit())
+                    .foregroundStyle(Palette.mutedForeground)
             }
-            .frame(width: 52, alignment: .leading)
+            .frame(minWidth: 44, alignment: .trailing)
+            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                .fill(Palette.primary)
+                .frame(width: 3)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text(pair.subject).font(Typography.cardTitle).foregroundStyle(Palette.foreground)
-                let meta = [pair.teacher?.name, pair.room?.name].compactMap { $0 }.joined(separator: " · ")
-                if !meta.isEmpty {
-                    Text(meta).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
+                Text(pair.subject)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Palette.foreground)
+                if let meta {
+                    Text(meta)
+                        .font(Typography.meta)
+                        .foregroundStyle(Palette.mutedForeground)
+                        .lineLimit(2)
                 }
                 if pair.weekType != "BOTH" {
                     StatusBadge(text: DeanText.weekType(pair.weekType), tint: Palette.info)
                 }
             }
             Spacer(minLength: 0)
-            Image(systemName: "chevron.right").font(.caption).foregroundStyle(Palette.mutedForeground)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Palette.mutedForeground)
+                .accessibilityHidden(true)
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
+    }
+
+    private var meta: String? {
+        var parts: [String] = []
+        if let teacher = pair.teacher?.name { parts.append(teacher) }
+        if let room = pair.room?.name { parts.append(room) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
 
@@ -488,24 +590,28 @@ private struct DeanPairSheet: View {
 
                 DeanPairFields(draft: $draft, room: $room, teacher: $teacher)
 
-                Section {
-                    Button(role: .destructive) {
-                        confirmDelete = true
-                    } label: {
-                        Label(String(localized: "dean.schedule.deletePair", defaultValue: "Удалить пару"), systemImage: "trash")
-                    }
-                    .disabled(isSaving)
-                }
-
                 if containerActive {
                     changesSection
                     newChangeSection
                 } else {
                     Section {
-                        Text(String(localized: "dean.schedule.changeDraftHint", defaultValue: "Разовые изменения — только у пар действующей версии: черновик группа не видит."))
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.mutedForeground)
+                        IconRow(
+                            title: String(localized: "dean.schedule.changeDraftHint", defaultValue: "Разовые изменения — только у пар действующей версии: черновик группа не видит."),
+                            symbol: "calendar.badge.exclamationmark",
+                            tint: TileTint.gray
+                        )
                     }
+                }
+
+                // Опасное — последним, отдельной секцией, как в карточках чатов.
+                Section {
+                    Button(role: .destructive) {
+                        confirmDelete = true
+                    } label: {
+                        Label(String(localized: "dean.schedule.deletePair", defaultValue: "Удалить пару"), systemImage: "trash")
+                            .foregroundStyle(Palette.destructive)
+                    }
+                    .disabled(isSaving)
                 }
             }
             .navigationTitle(Text(pair.subject))
@@ -561,19 +667,8 @@ private struct DeanPairSheet: View {
                 }
                 ForEach(own) { item in
                     let kind = DeanText.changeType(item.type)
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(item.date, format: .dateTime.day().month(.abbreviated).weekday(.abbreviated))
-                                .font(Typography.meta.monospacedDigit())
-                            if let detail = detail(item) {
-                                Text(detail).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
-                            }
-                            if let note = item.note, !note.isEmpty {
-                                Text(note).font(.caption).foregroundStyle(Palette.mutedForeground)
-                            }
-                        }
-                        Spacer()
-                        StatusBadge(text: kind.0, tint: kind.1)
+                    TelegramStyleRow(title: kind.0, subtitle: changeSubtitle(item)) {
+                        DeanDateTile(date: item.date, tint: kind.1)
                     }
                     .swipeActions {
                         Button(role: .destructive) {
@@ -664,6 +759,11 @@ private struct DeanPairSheet: View {
         case "MOVED": return DeanTime.string(changeStart) < DeanTime.string(changeEnd)
         default: return true
         }
+    }
+
+    private func changeSubtitle(_ item: DeanScheduleChange) -> String? {
+        let parts = [detail(item), item.note].compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: "\n")
     }
 
     private func detail(_ item: DeanScheduleChange) -> String? {

@@ -28,23 +28,18 @@ struct UAdminScheduleView: View {
     var body: some View {
         List {
             Section {
-                UAdminPickerRow(
-                    title: String(localized: "uadmin.schedule.group", defaultValue: "Группа"),
-                    value: group?.name
-                ) { pickingGroup = true }
+                Button {
+                    pickingGroup = true
+                } label: {
+                    groupRow
+                }
+                .buttonStyle(.plain)
                 if let containers, !containers.isEmpty {
                     Picker(String(localized: "uadmin.schedule.version", defaultValue: "Версия"), selection: $containerID) {
                         ForEach(containers) { item in
                             Text(item.isActive ? "\(item.name) · \(String(localized: "uadmin.schedule.activeMark", defaultValue: "активна"))" : item.name)
                                 .tag(Optional(item.id))
                         }
-                    }
-                }
-                if group != nil {
-                    Button {
-                        creatingVersion = true
-                    } label: {
-                        Label(String(localized: "uadmin.schedule.newVersion", defaultValue: "Новая версия расписания"), systemImage: "plus.square.on.square")
                     }
                 }
                 if let container, !container.isActive {
@@ -71,15 +66,34 @@ struct UAdminScheduleView: View {
         .navigationTitle(Text(String(localized: "uadmin.schedule.title", defaultValue: "Управление расписанием")))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if detail != nil {
-                ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
                     Button {
-                        addingPair = true
+                        pickingGroup = true
                     } label: {
-                        Image(systemName: "plus")
+                        Label(String(localized: "uadmin.schedule.choose", defaultValue: "Выбрать группу"), systemImage: "person.3")
                     }
-                    .accessibilityLabel(Text(String(localized: "uadmin.schedule.addPair", defaultValue: "Добавить пару")))
+                    if group != nil {
+                        Button {
+                            creatingVersion = true
+                        } label: {
+                            Label(String(localized: "uadmin.schedule.newVersion", defaultValue: "Новая версия расписания"), systemImage: "plus.square.on.square")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
                 }
+                .accessibilityLabel(Text(String(localized: "uadmin.actions", defaultValue: "Действия")))
+            }
+        }
+        .floatingAction(String(localized: "uadmin.schedule.addPair", defaultValue: "Добавить пару")) {
+            // Пару добавляют в версию: без группы или версии ведём к недостающему шагу.
+            if group == nil {
+                pickingGroup = true
+            } else if detail == nil {
+                if containers?.isEmpty == true { creatingVersion = true }
+            } else {
+                addingPair = true
             }
         }
         .sheet(isPresented: $pickingGroup) {
@@ -99,6 +113,7 @@ struct UAdminScheduleView: View {
                 VersionForm(groupID: group.id, hasActive: containers?.contains(where: \.isActive) ?? false) { created in
                     await loadContainers(select: created)
                 }
+                .presentationDetents([.medium, .large])
             }
         }
         .sheet(isPresented: $addingPair) {
@@ -163,6 +178,13 @@ struct UAdminScheduleView: View {
                                 PairRow(pair: pair)
                             }
                             .buttonStyle(.plain)
+                            .contextMenu {
+                                Button {
+                                    editingPair = pair
+                                } label: {
+                                    Label(String(localized: "uadmin.edit", defaultValue: "Изменить"), systemImage: "pencil")
+                                }
+                            }
                         }
                     }
                 }
@@ -170,6 +192,39 @@ struct UAdminScheduleView: View {
         } else {
             LoadingStateView().listRowBackground(Color.clear)
         }
+    }
+
+    /// Выбранная группа строкой как чат: инициалы, название, состояние версии.
+    @ViewBuilder
+    private var groupRow: some View {
+        if let group {
+            TelegramStyleRow(title: group.name, subtitle: versionLine) {
+                AvatarView(url: nil, name: group.name, size: 48)
+            } accessory: {
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Palette.mutedForeground)
+                    .accessibilityHidden(true)
+            }
+        } else {
+            TelegramStyleRow(
+                title: String(localized: "uadmin.schedule.pickGroup", defaultValue: "Выберите группу"),
+                subtitle: String(localized: "uadmin.schedule.pickGroupHint", defaultValue: "Чтобы управлять расписанием, выберите группу")
+            ) {
+                RowSymbol(symbol: "person.3.fill", tint: TileTint.teal, size: 48)
+            }
+        }
+    }
+
+    private var versionLine: String {
+        guard let container else {
+            return String(localized: "uadmin.schedule.changeGroup", defaultValue: "Нажмите, чтобы выбрать другую группу")
+        }
+        let name = container.name
+        if container.isActive {
+            return String(localized: "uadmin.schedule.activeVersion", defaultValue: "Действующая версия: \(name)")
+        }
+        return String(localized: "uadmin.schedule.draftVersion", defaultValue: "Черновик: \(name)")
     }
 
     @MainActor
@@ -368,14 +423,6 @@ private struct PairForm: View {
                 }
 
                 if let pair {
-                    Section {
-                        Button(role: .destructive) {
-                            confirmDelete = true
-                        } label: {
-                            Label(String(localized: "uadmin.schedule.deletePair", defaultValue: "Удалить пару"), systemImage: "trash")
-                        }
-                    }
-
                     if containerActive {
                         changesSection(pair)
                     } else {
@@ -383,6 +430,16 @@ private struct PairForm: View {
                             Text(String(localized: "uadmin.schedule.changeDraftHint", defaultValue: "Разовые изменения на дату доступны только у действующей версии расписания — эту группа пока не видит."))
                                 .font(Typography.meta)
                                 .foregroundStyle(Palette.mutedForeground)
+                        }
+                    }
+
+                    // Опасное — последним, отдельно от правки.
+                    Section {
+                        Button(role: .destructive) {
+                            confirmDelete = true
+                        } label: {
+                            Label(String(localized: "uadmin.schedule.deletePair", defaultValue: "Удалить пару"), systemImage: "trash")
+                                .foregroundStyle(Palette.destructive)
                         }
                     }
                 }
@@ -461,15 +518,22 @@ private struct PairForm: View {
     private func changesSection(_ pair: UAdminPairDTO) -> some View {
         Section {
             ForEach(changes) { change in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: "\(UAdminDay.display(change.date)) · \(ChangeType.title(change.type))")
-                        .foregroundStyle(Palette.foreground)
-                    let detail = [Self.changeDetail(change), change.note].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
-                    if !detail.isEmpty {
-                        Text(detail).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
-                    }
+                let detail = [Self.changeDetail(change), change.note].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+                TelegramStyleRow(
+                    title: ChangeType.title(change.type),
+                    subtitle: detail,
+                    meta: UAdminDay.display(change.date)
+                ) {
+                    RowSymbol(symbol: Self.changeSymbol(change.type), tint: change.type == "CANCELLED" ? TileTint.red : TileTint.orange, size: 36)
                 }
                 .swipeActions {
+                    Button(role: .destructive) {
+                        removingChange = change
+                    } label: {
+                        Label(String(localized: "uadmin.schedule.removeChange", defaultValue: "Убрать изменение"), systemImage: "arrow.uturn.backward")
+                    }
+                }
+                .contextMenu {
                     Button(role: .destructive) {
                         removingChange = change
                     } label: {
@@ -486,6 +550,16 @@ private struct PairForm: View {
             Text(String(localized: "uadmin.schedule.changes", defaultValue: "Разовые изменения"))
         } footer: {
             Text(String(localized: "uadmin.schedule.changesHint", defaultValue: "Изменение на конкретную дату — постоянное расписание остаётся прежним"))
+        }
+    }
+
+    static func changeSymbol(_ type: String) -> String {
+        switch type {
+        case "CANCELLED": return "xmark"
+        case "MOVED": return "clock.arrow.circlepath"
+        case "ROOM_CHANGED": return "door.left.hand.open"
+        case "SUBSTITUTED": return "person.2.fill"
+        default: return "calendar"
         }
     }
 

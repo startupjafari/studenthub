@@ -32,6 +32,23 @@ enum UAdminText {
         }
     }
 
+    /// Значок и цвет помещения в строке списка — по назначению.
+    static func roomSymbol(_ raw: String) -> (symbol: String, tint: Color) {
+        switch raw {
+        case "AUDITORIUM": return ("door.left.hand.open", TileTint.blue)
+        case "LAB": return ("flask", TileTint.purple)
+        case "SPORT_HALL": return ("figure.run", TileTint.green)
+        case "LIBRARY": return ("books.vertical", TileTint.indigo)
+        case "ASSEMBLY_HALL": return ("theatermasks", TileTint.pink)
+        case "ADMIN_OFFICE": return ("briefcase", TileTint.gray)
+        case "DEAN_OFFICE": return ("building.columns", TileTint.teal)
+        case "ACCOUNTING": return ("banknote", TileTint.orange)
+        case "CANTEEN": return ("fork.knife", TileTint.orange)
+        case "DORMITORY": return ("bed.double", TileTint.yellow)
+        default: return ("square.grid.2x2", TileTint.gray)
+        }
+    }
+
     static func weekday(_ day: Int) -> String {
         switch day {
         case 1: return String(localized: "uadmin.day.1", defaultValue: "Понедельник")
@@ -368,5 +385,82 @@ enum UAdminClock {
     static func string(_ date: Date) -> String {
         let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
         return String(format: "%02ld:%02ld", parts.hour ?? 0, parts.minute ?? 0)
+    }
+}
+
+// MARK: - Переходы и панель
+
+/// Переход из кнопки шапки карточки: `HeroAction` — замыкание, а не `NavigationLink`,
+/// поэтому экран кладём в стек текущей вкладки сами.
+enum UAdminNav {
+    @MainActor
+    static func push(_ route: AppRoute) {
+        let router = AppServices.router
+        router.stacks[router.selectedTab, default: []].append(route)
+    }
+}
+
+/// «Сохранить» в панели экрана (не листа): на iOS 26 — системная галочка в синем стекле
+/// (`role: .confirm`), раньше — слово.
+struct UAdminConfirmButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        #if compiler(>=6.2)
+            if #available(iOS 26, *) {
+                Button(role: .confirm, action: action)
+                    .accessibilityLabel(Text(String(localized: "common.save", defaultValue: "Сохранить")))
+            } else {
+                legacy
+            }
+        #else
+            legacy
+        #endif
+    }
+
+    private var legacy: some View {
+        Button(String(localized: "common.save", defaultValue: "Сохранить"), action: action)
+    }
+}
+
+extension View {
+    /// Поиск с задержкой, как `debouncedSearch`, но с полем, всегда видным под заголовком:
+    /// в длинных справочниках вуза поиск — главный способ найти строку.
+    func uadminDebouncedSearch(
+        _ text: Binding<String>,
+        prompt: String,
+        delay: Duration = .milliseconds(350),
+        onChange: @escaping (String) async -> Void
+    ) -> some View {
+        modifier(UAdminDebouncedSearch(text: text, prompt: prompt, delay: delay, onChange: onChange))
+    }
+
+    /// Мгновенный поиск по уже загруженному списку — поле всегда видно.
+    func uadminSearchable(_ text: Binding<String>, prompt: String) -> some View {
+        searchable(text: text, placement: .navigationBarDrawer(displayMode: .always), prompt: Text(prompt))
+    }
+}
+
+private struct UAdminDebouncedSearch: ViewModifier {
+    @Binding var text: String
+    let prompt: String
+    let delay: Duration
+    let onChange: (String) async -> Void
+
+    @State private var lastSent = ""
+
+    func body(content: Content) -> some View {
+        content
+            .searchable(text: $text, placement: .navigationBarDrawer(displayMode: .always), prompt: Text(prompt))
+            .task(id: text) {
+                let needle = text.trimmingCharacters(in: .whitespaces)
+                guard needle != lastSent else { return }
+                if !needle.isEmpty {
+                    try? await Task.sleep(for: delay)
+                    guard !Task.isCancelled else { return }
+                }
+                lastSent = needle
+                await onChange(needle)
+            }
     }
 }

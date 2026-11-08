@@ -29,13 +29,19 @@ struct UAdminAnalyticsView: View {
                     )
                     .listRowBackground(Color.clear)
                     NavigationLink(value: AppRoute.uniAdmin(.faculties)) {
-                        Label(String(localized: "uadmin.analytics.openFaculties", defaultValue: "К факультетам"), systemImage: "building.columns")
+                        IconRow(
+                            title: String(localized: "uadmin.analytics.openFaculties", defaultValue: "К факультетам"),
+                            symbol: "building.columns",
+                            tint: TileTint.indigo
+                        )
                     }
                 } else {
-                    Section {
-                        Picker(String(localized: "uadmin.faculty", defaultValue: "Факультет"), selection: $facultyID) {
-                            ForEach(faculties) { Text($0.name).tag(Optional($0.id)) }
-                        }
+                    // Факультеты — капсулами, как папки чатов: переключение в одно касание.
+                    if faculties.count > 1 {
+                        FilterChipsRow(
+                            options: faculties.map { (value: Optional($0.id), title: $0.name) },
+                            selection: Binding(get: { facultyID }, set: { if let id = $0 { facultyID = id } })
+                        )
                     }
                     content
                 }
@@ -49,6 +55,18 @@ struct UAdminAnalyticsView: View {
         .listStyle(.insetGrouped)
         .navigationTitle(Text(String(localized: "uadmin.analytics.title", defaultValue: "Аналитика факультета")))
         .toolbar {
+            if tab == .students, risk != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Picker(String(localized: "uadmin.sort", defaultValue: "Сортировка"), selection: $sort) {
+                            ForEach(RiskSort.allCases) { Text($0.title).tag($0) }
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                    }
+                    .accessibilityLabel(Text(String(localized: "uadmin.sort", defaultValue: "Сортировка")))
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     exporting = true
@@ -59,7 +77,10 @@ struct UAdminAnalyticsView: View {
                 .accessibilityLabel(Text(String(localized: "uadmin.report.button", defaultValue: "Выгрузить отчёт")))
             }
         }
-        .sheet(isPresented: $exporting) { UAdminReportExportSheet(facultyID: facultyID) }
+        .sheet(isPresented: $exporting) {
+            UAdminReportExportSheet(facultyID: facultyID)
+                .presentationDetents([.medium, .large])
+        }
         .onChange(of: facultyID) { _, _ in Task { await loadFaculty() } }
         .refreshable { await loadFaculty() }
         .task { if faculties == nil { await loadFaculties() } }
@@ -84,15 +105,13 @@ struct UAdminAnalyticsView: View {
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
             }
-            Section {
-                Picker(String(localized: "uadmin.analytics.slice", defaultValue: "Разрез"), selection: $tab) {
-                    Text(String(localized: "uadmin.analytics.tab.students", defaultValue: "Требуют внимания")).tag(AnalyticsTab.students)
-                    Text(String(localized: "uadmin.analytics.tab.groups", defaultValue: "Группы")).tag(AnalyticsTab.groups)
-                }
-                .pickerStyle(.segmented)
-            }
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets())
+            FilterChipsRow(
+                options: [
+                    (value: Optional(AnalyticsTab.students), title: String(localized: "uadmin.analytics.tab.students", defaultValue: "Требуют внимания")),
+                    (value: Optional(AnalyticsTab.groups), title: String(localized: "uadmin.analytics.tab.groups", defaultValue: "Группы")),
+                ],
+                selection: Binding(get: { Optional(tab) }, set: { tab = $0 ?? .students })
+            )
 
             switch tab {
             case .students: riskSection(totalStudents: overview.totals.students)
@@ -122,10 +141,9 @@ struct UAdminAnalyticsView: View {
             } else {
                 Section {
                     // Счётчики по причинам — «что именно происходит», до чтения строк.
-                    HStack(spacing: Spacing.sm) {
-                        StatusBadge(text: String(localized: "uadmin.analytics.countAttendance", defaultValue: "Посещаемость: \(Self.reasonCount(rows, .attendance))"), tint: Palette.destructive)
-                        StatusBadge(text: String(localized: "uadmin.analytics.countOverdue", defaultValue: "Просрочки: \(Self.reasonCount(rows, .overdue))"), tint: Palette.warning)
-                        StatusBadge(text: String(localized: "uadmin.analytics.countGrade", defaultValue: "Оценки: \(Self.reasonCount(rows, .grade))"), tint: Palette.destructive)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: Spacing.sm) { reasonBadges(rows) }
+                        VStack(alignment: .leading, spacing: Spacing.xs) { reasonBadges(rows) }
                     }
                     ForEach(rows) { student in
                         NavigationLink(value: AppRoute.profile(id: student.studentId)) {
@@ -133,18 +151,7 @@ struct UAdminAnalyticsView: View {
                         }
                     }
                 } header: {
-                    HStack {
-                        Text(String(localized: "uadmin.analytics.riskCount", defaultValue: "\(rows.count.formatted()) из \(totalStudents.formatted()) студентов"))
-                        Spacer()
-                        Menu {
-                            Picker(String(localized: "uadmin.sort", defaultValue: "Сортировка"), selection: $sort) {
-                                ForEach(RiskSort.allCases) { Text($0.title).tag($0) }
-                            }
-                        } label: {
-                            Image(systemName: "arrow.up.arrow.down")
-                        }
-                        .accessibilityLabel(Text(String(localized: "uadmin.sort", defaultValue: "Сортировка")))
-                    }
+                    Text(String(localized: "uadmin.analytics.riskCount", defaultValue: "\(rows.count.formatted()) из \(totalStudents.formatted()) студентов"))
                 } footer: {
                     Text(String(localized: "uadmin.analytics.riskHint", defaultValue: "Сверху — у кого проблем больше; при равном числе вперёд идёт худшее значение."))
                 }
@@ -161,28 +168,32 @@ struct UAdminAnalyticsView: View {
             }
             ForEach(groups) { group in
                 NavigationLink(value: AppRoute.uniAdmin(.groupAttendance(groupID: group.groupId, name: group.name))) {
-                    VStack(alignment: .leading, spacing: Spacing.xs) {
-                        HStack {
-                            Text(group.name).font(Typography.cardTitle).foregroundStyle(Palette.foreground)
-                            Spacer()
-                            Text(String(localized: "uadmin.analytics.groupStudents", defaultValue: "\(group.students.formatted()) студ."))
-                                .font(Typography.meta)
-                                .foregroundStyle(Palette.mutedForeground)
-                        }
-                        if let rate = group.attendanceRate {
-                            ShareBar(
-                                title: String(localized: "uadmin.analytics.attendance", defaultValue: "Посещаемость"),
-                                fraction: rate / 100,
-                                valueText: DisplayFormat.percent(rate),
-                                tint: rate >= 75 ? Palette.success : rate >= threshold ? Palette.warning : Palette.destructive
-                            )
-                        } else {
-                            Text(String(localized: "uadmin.analytics.notTracked", defaultValue: "Посещаемость ещё не отмечали"))
-                                .font(Typography.meta)
-                                .foregroundStyle(Palette.mutedForeground)
+                    HStack(alignment: .top, spacing: Spacing.lg) {
+                        AvatarView(url: nil, name: group.name, size: 44)
+                        VStack(alignment: .leading, spacing: Spacing.xs) {
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(group.name).font(.body.weight(.semibold)).foregroundStyle(Palette.foreground)
+                                Spacer()
+                                Text(String(localized: "uadmin.analytics.groupStudents", defaultValue: "\(group.students.formatted()) студ."))
+                                    .font(.subheadline)
+                                    .foregroundStyle(Palette.mutedForeground)
+                            }
+                            if let rate = group.attendanceRate {
+                                ShareBar(
+                                    title: String(localized: "uadmin.analytics.attendance", defaultValue: "Посещаемость"),
+                                    fraction: rate / 100,
+                                    valueText: DisplayFormat.percent(rate),
+                                    tint: rate >= 75 ? Palette.success : rate >= threshold ? Palette.warning : Palette.destructive
+                                )
+                            } else {
+                                Text(String(localized: "uadmin.analytics.notTracked", defaultValue: "Посещаемость ещё не отмечали"))
+                                    .font(Typography.meta)
+                                    .foregroundStyle(Palette.mutedForeground)
+                            }
                         }
                     }
                     .padding(.vertical, Spacing.xs)
+                    .accessibilityElement(children: .combine)
                 }
             }
         } footer: {
@@ -196,6 +207,13 @@ struct UAdminAnalyticsView: View {
         case attendance = "LOW_ATTENDANCE"
         case overdue = "OVERDUE_ASSIGNMENTS"
         case grade = "LOW_GRADES"
+    }
+
+    @ViewBuilder
+    private func reasonBadges(_ rows: [UAdminAtRiskStudentsDTO.Student]) -> some View {
+        StatusBadge(text: String(localized: "uadmin.analytics.countAttendance", defaultValue: "Посещаемость: \(Self.reasonCount(rows, .attendance))"), tint: Palette.destructive)
+        StatusBadge(text: String(localized: "uadmin.analytics.countOverdue", defaultValue: "Просрочки: \(Self.reasonCount(rows, .overdue))"), tint: Palette.warning)
+        StatusBadge(text: String(localized: "uadmin.analytics.countGrade", defaultValue: "Оценки: \(Self.reasonCount(rows, .grade))"), tint: Palette.destructive)
     }
 
     /// Сколько студентов отмечено этой причиной — строкой для подписи плашки.
@@ -303,25 +321,38 @@ private struct RiskRow: View {
     let student: UAdminAtRiskStudentsDTO.Student
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            Text(student.name).font(Typography.body).foregroundStyle(Palette.foreground)
-            if let group = student.groupName {
-                Text(group).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
-            }
-            HStack(spacing: Spacing.sm) {
-                if let value = student.value("LOW_ATTENDANCE") {
-                    StatusBadge(text: String(localized: "uadmin.analytics.reason.attendance", defaultValue: "Посещаемость \(DisplayFormat.percent(value))"), tint: Palette.destructive)
+        HStack(alignment: .top, spacing: Spacing.lg) {
+            AvatarView(url: nil, name: student.name, size: 44)
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(student.name).font(.body.weight(.semibold)).foregroundStyle(Palette.foreground).lineLimit(2)
+                    Spacer(minLength: Spacing.sm)
+                    if let group = student.groupName {
+                        Text(group).font(.subheadline).foregroundStyle(Palette.mutedForeground).lineLimit(1)
+                    }
                 }
-                if let value = student.value("OVERDUE_ASSIGNMENTS") {
-                    StatusBadge(text: String(localized: "uadmin.analytics.reason.overdue", defaultValue: "Просрочено: \(JSONValue.format(value))"), tint: Palette.warning)
-                }
-                if let value = student.value("LOW_GRADES") {
-                    StatusBadge(text: String(localized: "uadmin.analytics.reason.grade", defaultValue: "Балл \(JSONValue.format(value))"), tint: Palette.destructive)
+                // Причины переносом: с крупным шрифтом три плашки в строку не влезают.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: Spacing.sm) { reasons }
+                    VStack(alignment: .leading, spacing: Spacing.xs) { reasons }
                 }
             }
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private var reasons: some View {
+        if let value = student.value("LOW_ATTENDANCE") {
+            StatusBadge(text: String(localized: "uadmin.analytics.reason.attendance", defaultValue: "Посещаемость \(DisplayFormat.percent(value))"), tint: Palette.destructive)
+        }
+        if let value = student.value("OVERDUE_ASSIGNMENTS") {
+            StatusBadge(text: String(localized: "uadmin.analytics.reason.overdue", defaultValue: "Просрочено: \(JSONValue.format(value))"), tint: Palette.warning)
+        }
+        if let value = student.value("LOW_GRADES") {
+            StatusBadge(text: String(localized: "uadmin.analytics.reason.grade", defaultValue: "Балл \(JSONValue.format(value))"), tint: Palette.destructive)
+        }
     }
 }
 
@@ -344,14 +375,12 @@ struct UAdminGroupAttendanceView: View {
                     }
                     ForEach(data.students.sorted { ($0.attendanceRate ?? 101) < ($1.attendanceRate ?? 101) }) { student in
                         NavigationLink(value: AppRoute.profile(id: student.studentId)) {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(student.name).foregroundStyle(Palette.foreground)
-                                    Text(String(localized: "uadmin.analytics.tracked", defaultValue: "Отмечено занятий: \(student.tracked.formatted())"))
-                                        .font(Typography.meta)
-                                        .foregroundStyle(Palette.mutedForeground)
-                                }
-                                Spacer()
+                            TelegramStyleRow(
+                                title: student.name,
+                                subtitle: String(localized: "uadmin.analytics.tracked", defaultValue: "Отмечено занятий: \(student.tracked.formatted())")
+                            ) {
+                                AvatarView(url: nil, name: student.name, size: 44)
+                            } accessory: {
                                 if let rate = student.attendanceRate {
                                     StatusBadge(
                                         text: DisplayFormat.percent(rate),
@@ -369,7 +398,6 @@ struct UAdminGroupAttendanceView: View {
             }
             .listStyle(.insetGrouped)
         }
-        .background(Palette.background)
         .navigationTitle(Text(name))
         .navigationBarTitleDisplayMode(.inline)
     }

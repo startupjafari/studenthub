@@ -32,64 +32,23 @@ struct DeanExamsView: View {
                 selection: $tab
             )
 
-            Section {
-                Toggle(String(localized: "dean.exams.period", defaultValue: "Период"), isOn: $periodOn)
-                if periodOn {
+            if periodOn {
+                Section {
                     DatePicker(String(localized: "dean.exams.from", defaultValue: "С"), selection: $periodFrom, displayedComponents: .date)
                     DatePicker(String(localized: "dean.exams.to", defaultValue: "По"), selection: $periodTo, in: periodFrom..., displayedComponents: .date)
+                } header: {
+                    Text(String(localized: "dean.exams.period", defaultValue: "Период"))
                 }
             }
 
             if let exams {
                 if exams.isEmpty {
-                    EmptyStateView(
-                        title: tab == .past
-                            ? String(localized: "dean.exams.pastEmpty", defaultValue: "Прошедших экзаменов нет")
-                            : String(localized: "dean.exams.empty", defaultValue: "Экзаменов не назначено"),
-                        symbol: "graduationcap",
-                        hint: tab == .past ? nil : String(localized: "dean.exams.emptyHint", defaultValue: "Назначьте экзамен — группа получит уведомление"),
-                        actionTitle: tab == .past ? nil : String(localized: "dean.exams.new", defaultValue: "Назначить экзамен"),
-                        action: tab == .past ? nil : { creating = true }
-                    )
-                    .listRowBackground(Color.clear)
+                    emptyState
+                        .listRowBackground(Color.clear)
                 } else {
                     Section {
                         ForEach(exams) { exam in
-                            NavigationLink(value: AppRoute.dean(.examRoster(id: exam.id))) {
-                                ListCardRow(
-                                    title: exam.course.subject.name,
-                                    subtitle: DisplayFormat.dateTime(exam.date),
-                                    status: (DeanText.examFormat(exam.format), Palette.mutedForeground),
-                                    lines: [
-                                        [exam.group.name, exam.room?.name].compactMap { $0 }.joined(separator: " · "),
-                                        exam.examiner.map { String(localized: "dean.exams.examinerLine", defaultValue: "Экзаменатор: \($0.name)") } ?? "",
-                                    ]
-                                )
-                            }
-                            .swipeActions {
-                                Button(role: .destructive) {
-                                    deleting = exam
-                                } label: {
-                                    Label(String(localized: "dean.delete", defaultValue: "Удалить"), systemImage: "trash")
-                                }
-                                Button {
-                                    editing = exam
-                                } label: {
-                                    Label(String(localized: "dean.edit", defaultValue: "Изменить"), systemImage: "pencil")
-                                }
-                            }
-                            .contextMenu {
-                                Button {
-                                    editing = exam
-                                } label: {
-                                    Label(String(localized: "dean.edit", defaultValue: "Изменить"), systemImage: "pencil")
-                                }
-                                Button(role: .destructive) {
-                                    deleting = exam
-                                } label: {
-                                    Label(String(localized: "dean.delete", defaultValue: "Удалить"), systemImage: "trash")
-                                }
-                            }
+                            examRow(exam)
                         }
                     } footer: {
                         if exams.count >= Self.cap {
@@ -109,13 +68,17 @@ struct DeanExamsView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    creating = true
+                    withAnimation { periodOn.toggle() }
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: periodOn ? "calendar.badge.minus" : "calendar.badge.plus")
                 }
-                .accessibilityLabel(Text(String(localized: "dean.exams.new", defaultValue: "Назначить экзамен")))
+                .accessibilityLabel(Text(String(localized: "dean.exams.period", defaultValue: "Период")))
+                .accessibilityValue(Text(periodOn
+                    ? String(localized: "dean.exams.periodOn", defaultValue: "Включён")
+                    : String(localized: "dean.exams.periodOff", defaultValue: "Выключен")))
             }
         }
+        .floatingAction(String(localized: "dean.exams.new", defaultValue: "Назначить экзамен")) { creating = true }
         .refreshable { await load() }
         .task(id: QueryKey(tab: tab, periodOn: periodOn, from: periodFrom, to: periodTo)) { await load() }
         .sheet(isPresented: $creating) {
@@ -136,6 +99,57 @@ struct DeanExamsView: View {
             await delete(exam)
         }
         .actionFailureAlert($actionFailure)
+    }
+
+    @ViewBuilder
+    private var emptyState: some View {
+        if tab == .past {
+            EmptyStateView(
+                title: String(localized: "dean.exams.pastEmpty", defaultValue: "Прошедших экзаменов нет"),
+                symbol: "graduationcap"
+            )
+        } else {
+            EmptyStateView(
+                title: String(localized: "dean.exams.empty", defaultValue: "Экзаменов не назначено"),
+                symbol: "graduationcap",
+                hint: String(localized: "dean.exams.emptyHint", defaultValue: "Назначьте экзамен — группа получит уведомление"),
+                actionTitle: String(localized: "dean.exams.new", defaultValue: "Назначить экзамен"),
+                action: { creating = true }
+            )
+        }
+    }
+
+    private func examRow(_ exam: DeanExam) -> some View {
+        NavigationLink(value: AppRoute.dean(.examRoster(id: exam.id))) {
+            DeanExamRow(exam: exam, isPast: tab == .past)
+        }
+        .swipeActions {
+            Button(role: .destructive) {
+                deleting = exam
+            } label: {
+                Label(String(localized: "dean.delete", defaultValue: "Удалить"), systemImage: "trash")
+            }
+            Button {
+                editing = exam
+            } label: {
+                Label(String(localized: "dean.edit", defaultValue: "Изменить"), systemImage: "pencil")
+            }
+        }
+        .contextMenu {
+            Button {
+                editing = exam
+            } label: {
+                Label(String(localized: "dean.edit", defaultValue: "Изменить"), systemImage: "pencil")
+            }
+            NavigationLink(value: AppRoute.dean(.group(id: exam.group.id))) {
+                Label(String(localized: "dean.student.openGroup", defaultValue: "Карточка группы"), systemImage: "person.3")
+            }
+            Button(role: .destructive) {
+                deleting = exam
+            } label: {
+                Label(String(localized: "dean.delete", defaultValue: "Удалить"), systemImage: "trash")
+            }
+        }
     }
 
     private struct QueryKey: Equatable {
@@ -180,6 +194,32 @@ struct DeanExamsView: View {
                 actionFailure = error.userMessage
             }
         }
+    }
+}
+
+/// Экзамен строкой: плитка даты слева, дисциплина, время справа, группа и аудитория
+/// ниже, формат — плашкой.
+private struct DeanExamRow: View {
+    let exam: DeanExam
+    let isPast: Bool
+
+    var body: some View {
+        TelegramStyleRow(title: exam.course.subject.name, subtitle: subtitle, meta: time) {
+            DeanDateTile(date: exam.date, tint: isPast ? Palette.mutedForeground : Palette.primary)
+        } accessory: {
+            StatusBadge(text: DeanText.examFormat(exam.format), tint: Palette.mutedForeground)
+        }
+    }
+
+    private var time: String {
+        exam.date.formatted(.dateTime.hour().minute())
+    }
+
+    private var subtitle: String {
+        var first = exam.group.name
+        if let room = exam.room?.name { first += " · " + room }
+        guard let examiner = exam.examiner?.name else { return first }
+        return first + "\n" + String(localized: "dean.exams.examinerLine", defaultValue: "Экзаменатор: \(examiner)")
     }
 }
 
@@ -319,6 +359,7 @@ struct DeanExamRosterView: View {
     @State private var actionFailure: String?
     @State private var isSaving = false
     @State private var savedNotice = false
+    @State private var editingExam = false
 
     private let api = DeanAPI()
 
@@ -333,15 +374,7 @@ struct DeanExamRosterView: View {
     var body: some View {
         List {
             if let exam {
-                Section {
-                    DetailRow(title: String(localized: "dean.courses.col.subject", defaultValue: "Дисциплина"), value: exam.course.subject.name)
-                    DetailRow(title: String(localized: "dean.group.name", defaultValue: "Группа"), value: exam.group.name)
-                    DetailRow(title: String(localized: "dean.exams.dateTime", defaultValue: "Дата и время"), value: DisplayFormat.dateTime(exam.date))
-                    DetailRow(title: String(localized: "dean.exams.format", defaultValue: "Формат"), value: DeanText.examFormat(exam.format))
-                    if let max = exam.maxScore {
-                        DetailRow(title: String(localized: "dean.exams.maxScore", defaultValue: "Максимальный балл"), value: max.formatted())
-                    }
-                }
+                header(exam)
             }
 
             if let roster {
@@ -356,6 +389,8 @@ struct DeanExamRosterView: View {
                         ForEach(roster) { entry in
                             rosterRow(entry)
                         }
+                    } header: {
+                        Text(String(localized: "dean.roster.students", defaultValue: "Студенты"))
                     } footer: {
                         Text(String(localized: "dean.roster.hint", defaultValue: "«Сдал» и «Не сдал» — только у допущенных. Балл — от 0 до максимума."))
                     }
@@ -368,39 +403,129 @@ struct DeanExamRosterView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
         .scrollDismissesKeyboard(.interactively)
         .navigationTitle(Text(DeanScreen.examRoster(id: examID).title))
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 if isSaving {
                     ProgressView()
                 } else {
-                    Button(String(localized: "common.save", defaultValue: "Сохранить")) { Task { await save() } }
+                    DeanConfirmButton { Task { await save() } }
                         .disabled(dirty.isEmpty)
                 }
             }
         }
         .refreshable { await load() }
         .task { if roster == nil { await load() } }
+        .sheet(isPresented: $editingExam) {
+            if let exam {
+                DeanExamForm(exam: exam) { await load() }
+            }
+        }
         .actionFailureAlert($actionFailure)
         .alert(String(localized: "dean.roster.saved", defaultValue: "Ведомость сохранена"), isPresented: $savedNotice) {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}
         }
     }
 
+    // MARK: Шапка
+
+    private func header(_ exam: DeanExam) -> some View {
+        HeroHeader(
+            visual: .symbol("list.clipboard.fill", tint: TileTint.purple),
+            title: exam.course.subject.name,
+            subtitle: headerSubtitle(exam),
+            actions: [
+                HeroAction(title: String(localized: "dean.edit", defaultValue: "Изменить"), symbol: "pencil") {
+                    editingExam = true
+                },
+                HeroAction(title: String(localized: "dean.roster.group", defaultValue: "Группа"), symbol: "person.3") {
+                    DeanNav.push(.dean(.group(id: exam.group.id)))
+                },
+            ],
+            badges: { headerBadges(exam) }
+        )
+    }
+
+    private func headerSubtitle(_ exam: DeanExam) -> String {
+        var parts = [exam.group.name, DisplayFormat.dateTime(exam.date)]
+        if let room = exam.room?.name { parts.append(room) }
+        return parts.joined(separator: " · ")
+    }
+
+    @ViewBuilder
+    private func headerBadges(_ exam: DeanExam) -> some View {
+        let tally = self.tally
+        // Два ряда, а не один: с крупным шрифтом четыре плашки в строку не влезают.
+        VStack(spacing: Spacing.xs) {
+            HStack(spacing: Spacing.sm) {
+                StatusBadge(text: DeanText.examFormat(exam.format), tint: Palette.mutedForeground)
+                if let max = exam.maxScore {
+                    StatusBadge(text: maxLine(max), tint: Palette.info)
+                }
+            }
+            if tally.passed > 0 || tally.failed > 0 {
+                HStack(spacing: Spacing.sm) {
+                    if tally.passed > 0 {
+                        StatusBadge(text: countLine("PASSED", tally.passed), tint: Palette.success)
+                    }
+                    if tally.failed > 0 {
+                        StatusBadge(text: countLine("FAILED", tally.failed), tint: Palette.destructive)
+                    }
+                }
+            }
+        }
+    }
+
+    private func maxLine(_ max: Int) -> String {
+        let value = max.formatted()
+        return String(localized: "dean.roster.maxShort", defaultValue: "Макс. \(value)")
+    }
+
+    private func countLine(_ status: String, _ count: Int) -> String {
+        DeanText.examStatus(status).0 + ": " + count.formatted()
+    }
+
+    /// Сводка по ведомости — с учётом ещё не сохранённых правок.
+    private var tally: (passed: Int, failed: Int) {
+        var passed = 0
+        var failed = 0
+        for entry in roster ?? [] {
+            let status = rows[entry.studentId]?.status ?? entry.status
+            if status == "PASSED" { passed += 1 }
+            if status == "FAILED" { failed += 1 }
+        }
+        return (passed, failed)
+    }
+
+    // MARK: Строка
+
     @ViewBuilder
     private func rosterRow(_ entry: DeanExamRoster.Entry) -> some View {
         let row = rows[entry.studentId] ?? Row(admitted: entry.admitted, status: entry.status, score: "")
         let errors = Self.errors(row, ceiling: ceiling)
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            HStack {
-                Text(entry.name).font(Typography.cardTitle)
-                if let attempt = entry.attempt, attempt > 1 {
-                    StatusBadge(text: String(localized: "dean.roster.attempt", defaultValue: "Попытка \(attempt.formatted())"), tint: Palette.info)
+        let status = DeanText.examStatus(row.status)
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            HStack(spacing: Spacing.lg) {
+                AvatarView(url: nil, name: entry.name, size: 40)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.name)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Palette.foreground)
+                        .lineLimit(2)
+                    HStack(spacing: Spacing.sm) {
+                        StatusBadge(text: status.0, tint: status.1)
+                        if let attempt = entry.attempt, attempt > 1 {
+                            StatusBadge(text: attemptLine(attempt), tint: Palette.info)
+                        }
+                    }
                 }
-                Spacer()
+                Spacer(minLength: Spacing.sm)
                 if dirty.contains(entry.studentId) {
-                    Image(systemName: "pencil.circle.fill").foregroundStyle(Palette.warning)
+                    Image(systemName: "pencil.circle.fill")
+                        .foregroundStyle(Palette.warning)
                         .accessibilityLabel(Text(String(localized: "dean.roster.changed", defaultValue: "Изменено")))
                 }
             }
@@ -409,15 +534,17 @@ struct DeanExamRosterView: View {
                 Picker(String(localized: "dean.roster.status", defaultValue: "Статус"), selection: binding(entry) { $0.status } set: { $0.status = $1 }) {
                     ForEach(DeanText.examStatuses, id: \.self) { Text(DeanText.examStatus($0).0).tag($0) }
                 }
+                .pickerStyle(.menu)
                 .tint(errors.status ? Palette.destructive : Palette.primary)
                 Spacer()
                 TextField(String(localized: "dean.roster.score", defaultValue: "Балл"), text: binding(entry) { $0.score } set: { $0.score = $1 })
                     .keyboardType(.decimalPad)
                     .multilineTextAlignment(.trailing)
+                    .font(.body.monospacedDigit())
                     .frame(width: 80)
-                    .padding(.horizontal, Spacing.sm)
-                    .padding(.vertical, Spacing.xs)
-                    .background(errors.score ? Palette.destructive.opacity(0.12) : Palette.muted, in: RoundedRectangle(cornerRadius: Radius.md))
+                    .padding(.horizontal, Spacing.md)
+                    .padding(.vertical, Spacing.sm)
+                    .background(errors.score ? Palette.destructive.opacity(0.12) : Palette.muted, in: Capsule())
             }
             if errors.status {
                 Text(String(localized: "dean.roster.notAdmitted", defaultValue: "Недопущенному нельзя поставить «Сдал» или «Не сдал»"))
@@ -429,6 +556,11 @@ struct DeanExamRosterView: View {
             }
         }
         .padding(.vertical, Spacing.xs)
+    }
+
+    private func attemptLine(_ attempt: Int) -> String {
+        let value = attempt.formatted()
+        return String(localized: "dean.roster.attempt", defaultValue: "Попытка \(value)")
     }
 
     private func binding<T>(_ entry: DeanExamRoster.Entry, get: @escaping (Row) -> T, set: @escaping (inout Row, T) -> Void) -> Binding<T> {

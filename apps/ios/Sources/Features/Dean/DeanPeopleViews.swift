@@ -16,6 +16,7 @@ struct DeanPeopleView: View {
     @State private var academicFor: DeanUser?
     @State private var exporter = DeanFileExporter()
     @State private var groupFilter: DeanPickOption?
+    @State private var actionFailure: String?
 
     private let api = DeanAPI()
 
@@ -38,52 +39,11 @@ struct DeanPeopleView: View {
                 title: String(localized: "dean.people.empty", defaultValue: "Никого не нашлось"),
                 symbol: "person.2"
             ),
-            header: {
-                if let groupFilter {
-                    Section {
-                        HStack {
-                            Label(groupFilter.title, systemImage: "person.3")
-                            Spacer()
-                            Button(String(localized: "dean.filter.reset", defaultValue: "Сбросить")) {
-                                self.groupFilter = nil
-                                Task { await apply() }
-                            }
-                        }
-                    }
-                }
-            },
-            row: { user in
-                NavigationLink(value: route(user)) {
-                    HStack {
-                        PersonRow(name: user.name, subtitle: user.email, avatarURL: user.avatarThumbUrl ?? user.avatarUrl)
-                        if user.isBlocked == true {
-                            StatusBadge(text: String(localized: "dean.people.blocked", defaultValue: "Заблокирован"), tint: Palette.destructive)
-                        }
-                    }
-                }
-                .swipeActions {
-                    if isStudentList {
-                        Button {
-                            academicFor = user
-                        } label: {
-                            Label(String(localized: "dean.academic.title", defaultValue: "Учебные данные"), systemImage: "graduationcap")
-                        }
-                        .tint(Palette.primary)
-                    }
-                }
-                .contextMenu {
-                    if isStudentList {
-                        Button {
-                            academicFor = user
-                        } label: {
-                            Label(String(localized: "dean.academic.title", defaultValue: "Учебные данные"), systemImage: "graduationcap")
-                        }
-                    }
-                }
-            }
+            header: { header },
+            row: { user in row(user) }
         )
         .navigationTitle(Text(title))
-        .debouncedSearch($search, prompt: String(localized: "dean.people.search", defaultValue: "Имя или почта")) { needle in
+        .deanDebouncedSearch($search, prompt: String(localized: "dean.people.search", defaultValue: "Имя или почта")) { needle in
             query.search = needle
             await apply()
         }
@@ -92,7 +52,9 @@ struct DeanPeopleView: View {
                 Button {
                     filtersShown = true
                 } label: {
-                    Image(systemName: "line.3.horizontal.decrease.circle")
+                    Image(systemName: groupFilter == nil && query.ascending
+                        ? "line.3.horizontal.decrease.circle"
+                        : "line.3.horizontal.decrease.circle.fill")
                 }
                 .accessibilityLabel(Text(String(localized: "dean.filter.title", defaultValue: "Фильтры и порядок")))
                 Button {
@@ -126,11 +88,115 @@ struct DeanPeopleView: View {
                 query.ascending = ascending
                 await apply()
             }
+            .presentationDetents([.medium, .large])
         }
         .sheet(item: $academicFor) { user in
             DeanAcademicForm(userID: user.id) { await loader.reload() }
         }
         .deanExportSheet(exporter)
+        .actionFailureAlert($actionFailure)
+    }
+
+    // MARK: Шапка списка
+
+    /// Порядок — капсулами под поиском, как папки чатов; выбранная группа — строкой ниже,
+    /// чтобы фильтр было видно и можно было снять одним касанием.
+    @ViewBuilder
+    private var header: some View {
+        FilterChipsRow(options: sortOptions, selection: sortSelection)
+        if let groupFilter {
+            Section {
+                HStack(spacing: Spacing.lg) {
+                    AvatarView(url: nil, name: groupFilter.title, size: 32)
+                    Text(groupFilter.title)
+                        .font(Typography.body)
+                        .foregroundStyle(Palette.foreground)
+                    Spacer(minLength: Spacing.md)
+                    Button {
+                        self.groupFilter = nil
+                        Task { await apply() }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(Palette.mutedForeground)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text(String(localized: "dean.filter.reset", defaultValue: "Сбросить")))
+                }
+            }
+        }
+    }
+
+    private var sortOptions: [(value: String?, title: String)] {
+        [
+            (nil, String(localized: "dean.sort.defaultShort", defaultValue: "По умолчанию")),
+            ("name", String(localized: "dean.sort.name", defaultValue: "По имени")),
+            ("email", String(localized: "dean.sort.email", defaultValue: "По почте")),
+            ("createdAt", String(localized: "dean.sort.createdShort", defaultValue: "По дате")),
+            ("blocked", String(localized: "dean.sort.blocked", defaultValue: "По статусу")),
+        ]
+    }
+
+    private var sortSelection: Binding<String?> {
+        Binding(
+            get: { query.sort },
+            set: { value in
+                guard value != query.sort else { return }
+                query.sort = value
+                Task { await apply() }
+            }
+        )
+    }
+
+    // MARK: Строка
+
+    private func row(_ user: DeanUser) -> some View {
+        NavigationLink(value: route(user)) {
+            DeanPersonListRow(user: user)
+        }
+        .swipeActions(edge: .leading) {
+            Button {
+                Task { await openChat(user.id) }
+            } label: {
+                Label(String(localized: "dean.contact.message", defaultValue: "Написать"), systemImage: "bubble.left.fill")
+            }
+            .tint(Palette.primary)
+        }
+        .swipeActions(edge: .trailing) {
+            if isStudentList {
+                Button {
+                    academicFor = user
+                } label: {
+                    Label(String(localized: "dean.academic.title", defaultValue: "Учебные данные"), systemImage: "graduationcap")
+                }
+                .tint(TileTint.indigo)
+            }
+        }
+        .contextMenu {
+            Button {
+                Task { await openChat(user.id) }
+            } label: {
+                Label(String(localized: "dean.contact.message", defaultValue: "Написать"), systemImage: "bubble.left")
+            }
+            if isStudentList {
+                Button {
+                    academicFor = user
+                } label: {
+                    Label(String(localized: "dean.academic.title", defaultValue: "Учебные данные"), systemImage: "graduationcap")
+                }
+            }
+            NavigationLink(value: AppRoute.profile(id: user.id)) {
+                Label(String(localized: "dean.contact.profile", defaultValue: "Открыть профиль"), systemImage: "person.crop.circle")
+            }
+        }
+    }
+
+    @MainActor
+    private func openChat(_ userID: String) async {
+        do {
+            try await DeanNav.openChat(userID: userID)
+        } catch {
+            actionFailure = error.userMessage
+        }
     }
 
     private var title: String {
@@ -204,6 +270,23 @@ private struct DeanPeopleFilterSheet: View {
                 if sort != nil {
                     Toggle(String(localized: "dean.sort.ascending", defaultValue: "По возрастанию"), isOn: $ascending)
                 }
+            } header: {
+                Text(String(localized: "dean.sort.by", defaultValue: "Сортировать"))
+            }
+        }
+    }
+}
+
+/// Человек факультета строкой: аватар, ФИО, почта; заблокированный — с плашкой.
+private struct DeanPersonListRow: View {
+    let user: DeanUser
+
+    var body: some View {
+        TelegramStyleRow(title: user.name, subtitle: user.email) {
+            AvatarView(url: user.avatarThumbUrl ?? user.avatarUrl, name: user.name, size: 48)
+        } accessory: {
+            if user.isBlocked == true {
+                StatusBadge(text: String(localized: "dean.people.blocked", defaultValue: "Заблокирован"), tint: Palette.destructive)
             }
         }
     }
@@ -211,12 +294,16 @@ private struct DeanPeopleFilterSheet: View {
 
 // MARK: - Карточка студента
 
-/// Студент глазами деканата: учебные данные, посещаемость, причины риска, библиотека.
+/// Студент глазами деканата — карточка как профиль в Telegram: фото и ФИО по центру,
+/// группа и статус под ним, круглые кнопки связи и правки, ниже — учёба, посещаемость,
+/// причины риска и библиотека.
 struct DeanStudentView: View {
     let userID: String
 
+    @Environment(\.openURL) private var openURL
     @State private var reload = 0
     @State private var editing = false
+    @State private var actionFailure: String?
 
     private let api = DeanAPI()
 
@@ -233,14 +320,11 @@ struct DeanStudentView: View {
             content(data)
         }
         .navigationTitle(Text(DeanScreen.student(id: userID).title))
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(String(localized: "dean.academic.edit", defaultValue: "Изменить")) { editing = true }
-            }
-        }
+        .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $editing) {
             DeanAcademicForm(userID: userID) { reload += 1 }
         }
+        .actionFailureAlert($actionFailure)
     }
 
     @MainActor
@@ -261,22 +345,111 @@ struct DeanStudentView: View {
 
     @ViewBuilder
     private func content(_ data: Snapshot) -> some View {
-        let profile = data.profile
         List {
+            header(data)
+            contactsSection(data)
+            academicSection(data.profile)
+            progressSection(data)
+            if let debts = data.debts {
+                librarySection(debts)
+            }
+        }
+        .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
+        .refreshable { reload += 1 }
+    }
+
+    // MARK: Шапка
+
+    private func header(_ data: Snapshot) -> some View {
+        HeroHeader(
+            visual: .avatar(url: data.profile.avatarUrl, name: data.profile.name),
+            title: data.profile.name,
+            subtitle: subtitle(data),
+            actions: actions(data.profile),
+            badges: { badges(data) },
+            moreMenu: { moreMenu(data) }
+        )
+    }
+
+    private func subtitle(_ data: Snapshot) -> String {
+        var parts = [data.profile.roleValue.title]
+        if let group = data.group?.name { parts.append(group) }
+        if let course = data.profile.course {
+            let value = String(course)
+            parts.append(String(localized: "dean.student.courseShort", defaultValue: "\(value) курс"))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    @ViewBuilder
+    private func badges(_ data: Snapshot) -> some View {
+        let status = data.profile.academicStatus ?? ""
+        let reasons = data.risk?.reasons.count ?? 0
+        if !status.isEmpty || reasons > 0 {
+            HStack(spacing: Spacing.sm) {
+                if !status.isEmpty {
+                    StatusBadge(text: status, tint: DeanAcademic.leaving.contains(status) ? Palette.destructive : Palette.success)
+                }
+                if reasons > 0 {
+                    StatusBadge(text: String(localized: "dean.risk.badge", defaultValue: "Риск"), tint: Palette.destructive)
+                }
+            }
+        }
+    }
+
+    private func actions(_ profile: DeanUserProfile) -> [HeroAction] {
+        var list = [
+            HeroAction(title: String(localized: "dean.contact.message", defaultValue: "Написать"), symbol: "bubble.left.fill") {
+                Task { await openChat() }
+            },
+        ]
+        if let url = DeanNav.phoneURL(profile.phone) {
+            list.append(HeroAction(title: String(localized: "dean.contact.call", defaultValue: "Позвонить"), symbol: "phone.fill") {
+                openURL(url)
+            })
+        }
+        if let url = DeanNav.mailURL(profile.email) {
+            list.append(HeroAction(title: String(localized: "dean.contact.mail", defaultValue: "Почта"), symbol: "envelope.fill") {
+                openURL(url)
+            })
+        }
+        list.append(HeroAction(title: String(localized: "dean.academic.edit", defaultValue: "Изменить"), symbol: "square.and.pencil") {
+            editing = true
+        })
+        return list
+    }
+
+    @ViewBuilder
+    private func moreMenu(_ data: Snapshot) -> some View {
+        Button {
+            DeanNav.push(.profile(id: data.profile.id))
+        } label: {
+            Label(String(localized: "dean.contact.profile", defaultValue: "Открыть профиль"), systemImage: "person.crop.circle")
+        }
+        if let group = data.group {
+            Button {
+                DeanNav.push(.dean(.group(id: group.id)))
+            } label: {
+                Label(String(localized: "dean.student.openGroup", defaultValue: "Карточка группы"), systemImage: "person.3")
+            }
+        }
+    }
+
+    // MARK: Секции
+
+    @ViewBuilder
+    private func contactsSection(_ data: Snapshot) -> some View {
+        let profile = data.profile
+        let hasEmail = !(profile.email ?? "").isEmpty
+        let hasPhone = !(profile.phone ?? "").isEmpty
+        if hasEmail || hasPhone || data.group != nil {
             Section {
-                NavigationLink(value: AppRoute.profile(id: profile.id)) {
-                    PersonRow(
-                        name: profile.name,
-                        subtitle: [profile.roleValue.title, data.group?.name ?? ""].filter { !$0.isEmpty }.joined(separator: " · "),
-                        avatarURL: profile.avatarUrl,
-                        size: 56
-                    )
-                }
-                if let email = profile.email, !email.isEmpty {
-                    DetailRow(title: String(localized: "dean.student.email", defaultValue: "Почта"), value: email, symbol: "envelope")
-                }
-                if let phone = profile.phone, !phone.isEmpty {
+                if let phone = profile.phone, hasPhone {
                     DetailRow(title: String(localized: "dean.student.phone", defaultValue: "Телефон"), value: phone, symbol: "phone")
+                }
+                if let email = profile.email, hasEmail {
+                    DetailRow(title: String(localized: "dean.student.email", defaultValue: "Почта"), value: email, symbol: "envelope")
                 }
                 if let group = data.group {
                     NavigationLink(value: AppRoute.dean(.group(id: group.id))) {
@@ -284,69 +457,93 @@ struct DeanStudentView: View {
                     }
                 }
             }
-
-            Section {
-                if let status = profile.academicStatus, !status.isEmpty {
-                    HStack {
-                        Text(String(localized: "dean.academic.status", defaultValue: "Статус"))
-                        Spacer()
-                        StatusBadge(text: status, tint: DeanAcademic.leaving.contains(status) ? Palette.destructive : Palette.success)
-                    }
-                }
-                ForEach(DeanAcademic.detailRows(profile), id: \.0) { row in
-                    DetailRow(title: row.0, value: row.1)
-                }
-                Button {
-                    editing = true
-                } label: {
-                    Label(String(localized: "dean.academic.title", defaultValue: "Учебные данные"), systemImage: "square.and.pencil")
-                }
-            } header: {
-                Text(String(localized: "dean.student.academic", defaultValue: "Учёба"))
-            }
-
-            Section {
-                if let attendance = data.attendance {
-                    DeanRateRow(
-                        title: String(localized: "dean.kpi.attendance", defaultValue: "Посещаемость"),
-                        subtitle: String(localized: "dean.attendance.tracked", defaultValue: "Отмечено занятий: \(attendance.tracked.formatted())"),
-                        rate: attendance.attendanceRate
-                    )
-                } else {
-                    Text(String(localized: "dean.student.noAttendance", defaultValue: "Отметок посещаемости пока нет"))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
-                }
-                if let risk = data.risk, !risk.reasons.isEmpty {
-                    ForEach(risk.reasons, id: \.kind) { reason in
-                        Label(DeanRiskText.line(reason), systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(Palette.destructive)
-                    }
-                } else {
-                    Label(String(localized: "dean.student.noRisk", defaultValue: "Причин для беспокойства нет"), systemImage: "checkmark.seal")
-                        .foregroundStyle(Palette.success)
-                }
-            } header: {
-                Text(String(localized: "dean.student.progress", defaultValue: "Успеваемость и посещаемость"))
-            }
-
-            if let debts = data.debts {
-                Section {
-                    if debts.clear || debts.loans.isEmpty {
-                        Label(String(localized: "dean.student.libraryClear", defaultValue: "Задолженностей нет"), systemImage: "checkmark.circle")
-                            .foregroundStyle(Palette.success)
-                    } else {
-                        ForEach(debts.loans) { loan in
-                            DeanLoanRow(loan: loan)
-                        }
-                    }
-                } header: {
-                    Text(String(localized: "dean.student.library", defaultValue: "Библиотека"))
-                }
-            }
         }
-        .listStyle(.insetGrouped)
-        .refreshable { reload += 1 }
+    }
+
+    private func academicSection(_ profile: DeanUserProfile) -> some View {
+        Section {
+            let rows = DeanAcademic.detailRows(profile)
+            if rows.isEmpty {
+                IconRow(
+                    title: String(localized: "dean.student.noAcademic", defaultValue: "Учебные данные не заполнены"),
+                    symbol: "graduationcap",
+                    tint: TileTint.gray
+                )
+            }
+            ForEach(rows, id: \.0) { row in
+                DetailRow(title: row.0, value: row.1)
+            }
+            Button {
+                editing = true
+            } label: {
+                Label(String(localized: "dean.academic.title", defaultValue: "Учебные данные"), systemImage: "square.and.pencil")
+            }
+        } header: {
+            Text(String(localized: "dean.student.academic", defaultValue: "Учёба"))
+        }
+    }
+
+    private func progressSection(_ data: Snapshot) -> some View {
+        Section {
+            if let attendance = data.attendance {
+                DeanRateRow(
+                    title: String(localized: "dean.kpi.attendance", defaultValue: "Посещаемость"),
+                    subtitle: trackedLine(attendance.tracked),
+                    rate: attendance.attendanceRate
+                )
+            } else {
+                IconRow(
+                    title: String(localized: "dean.student.noAttendance", defaultValue: "Отметок посещаемости пока нет"),
+                    symbol: "chart.bar",
+                    tint: TileTint.gray
+                )
+            }
+            if let risk = data.risk, !risk.reasons.isEmpty {
+                ForEach(risk.reasons, id: \.kind) { reason in
+                    IconRow(title: DeanRiskText.line(reason), symbol: "exclamationmark.triangle.fill", tint: TileTint.red)
+                }
+            } else {
+                IconRow(
+                    title: String(localized: "dean.student.noRisk", defaultValue: "Причин для беспокойства нет"),
+                    symbol: "checkmark.seal.fill",
+                    tint: TileTint.green
+                )
+            }
+        } header: {
+            Text(String(localized: "dean.student.progress", defaultValue: "Успеваемость и посещаемость"))
+        }
+    }
+
+    private func trackedLine(_ tracked: Int) -> String {
+        let value = tracked.formatted()
+        return String(localized: "dean.attendance.tracked", defaultValue: "Отмечено занятий: \(value)")
+    }
+
+    private func librarySection(_ debts: DeanLibraryDebts) -> some View {
+        Section {
+            if debts.clear || debts.loans.isEmpty {
+                IconRow(
+                    title: String(localized: "dean.student.libraryClear", defaultValue: "Задолженностей нет"),
+                    symbol: "checkmark.circle.fill",
+                    tint: TileTint.green
+                )
+            } else {
+                ForEach(debts.loans) { loan in
+                    DeanLoanRow(loan: loan)
+                }
+            }
+        } header: {
+            Text(String(localized: "dean.student.library", defaultValue: "Библиотека"))
+        }
+    }
+
+    @MainActor
+    private func openChat() async {
+        do {
+            try await DeanNav.openChat(userID: userID)
+        } catch {
+            actionFailure = error.userMessage
+        }
     }
 }
 
@@ -354,16 +551,26 @@ private struct DeanLoanRow: View {
     let loan: DeanLibraryDebts.Loan
 
     var body: some View {
-        let lost = loan.status == "LOST"
-        ListCardRow(
-            title: loan.book?.title ?? "—",
-            subtitle: loan.copy?.inventoryNumber.map { String(localized: "dean.loan.inventory", defaultValue: "Инв. № \($0)") },
-            status: lost
-                ? (String(localized: "dean.loan.lost", defaultValue: "Утеряна"), Palette.destructive)
-                : (loan.overdue == true
-                    ? (String(localized: "dean.loan.overdue", defaultValue: "Просрочена"), Palette.destructive)
-                    : (String(localized: "dean.loan.open", defaultValue: "На руках"), Palette.warning))
-        )
+        TelegramStyleRow(title: loan.book?.title ?? "—", subtitle: inventory) {
+            RowSymbol(symbol: "book.closed.fill", tint: TileTint.orange, size: 36)
+        } accessory: {
+            StatusBadge(text: status.0, tint: status.1)
+        }
+    }
+
+    private var inventory: String? {
+        guard let number = loan.copy?.inventoryNumber else { return nil }
+        return String(localized: "dean.loan.inventory", defaultValue: "Инв. № \(number)")
+    }
+
+    private var status: (String, Color) {
+        if loan.status == "LOST" {
+            return (String(localized: "dean.loan.lost", defaultValue: "Утеряна"), Palette.destructive)
+        }
+        if loan.overdue == true {
+            return (String(localized: "dean.loan.overdue", defaultValue: "Просрочена"), Palette.destructive)
+        }
+        return (String(localized: "dean.loan.open", defaultValue: "На руках"), Palette.warning)
     }
 }
 

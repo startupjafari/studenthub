@@ -13,6 +13,7 @@ struct UAdminSetupView: View {
     @State private var cityName: String?
     @State private var busy: String?
     @State private var launched = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
@@ -24,7 +25,6 @@ struct UAdminSetupView: View {
                 LoadingStateView()
             }
         }
-        .background(Palette.background)
         .navigationTitle(Text(UniAdminScreen.setup.title))
         .actionFailureAlert($actionFailure)
         .alert(String(localized: "uadmin.setup.launched", defaultValue: "Вуз запущен"), isPresented: $launched) {
@@ -36,21 +36,36 @@ struct UAdminSetupView: View {
 
     private func content(_ state: UAdminOnboardingDTO) -> some View {
         let done = state.steps.filter { $0.done || $0.skipped }.count
+        let active = state.university.status == "ACTIVE"
         return List {
+            Section {
+                HeroHeader(
+                    visual: .symbol("wand.and.stars", tint: TileTint.purple),
+                    title: state.university.name,
+                    subtitle: String(localized: "uadmin.setup.subtitle", defaultValue: "Заполните структуру «\(state.university.name)» — платформа проведёт по шагам")
+                ) {
+                    StatusBadge(
+                        text: active
+                            ? String(localized: "uadmin.setup.statusActive", defaultValue: "Вуз запущен")
+                            : String(localized: "uadmin.setup.statusSetup", defaultValue: "Идёт настройка"),
+                        tint: active ? Palette.success : Palette.warning
+                    )
+                }
+            }
+
             Section {
                 ShareBar(
                     title: String(localized: "uadmin.setup.progress", defaultValue: "Пройдено шагов"),
                     fraction: state.steps.isEmpty ? 0 : Double(done) / Double(state.steps.count),
-                    valueText: String(localized: "uadmin.setup.progressValue", defaultValue: "\(done.formatted()) из \(state.steps.count.formatted())")
+                    valueText: String(localized: "uadmin.setup.progressValue", defaultValue: "\(done.formatted()) из \(state.steps.count.formatted())"),
+                    tint: done == state.steps.count ? Palette.success : Palette.primary
                 )
-            } footer: {
-                Text(String(localized: "uadmin.setup.subtitle", defaultValue: "Заполните структуру «\(state.university.name)» — платформа проведёт по шагам"))
             }
 
             ForEach(Array(state.steps.enumerated()), id: \.element.id) { index, step in
                 Section {
                     Button {
-                        withAnimation { open = open == step.step ? nil : step.step }
+                        withAnimation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion)) { open = open == step.step ? nil : step.step }
                     } label: {
                         StepHeader(index: index, step: step, isOpen: open == step.step)
                     }
@@ -73,6 +88,7 @@ struct UAdminSetupView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
     }
 
     @ViewBuilder
@@ -134,7 +150,7 @@ struct UAdminSetupView: View {
             let blocking = Set(state.blocking)
             ForEach(state.steps.filter { $0.step != "launch" }) { step in
                 Button {
-                    withAnimation { open = step.step }
+                    withAnimation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion)) { open = step.step }
                 } label: {
                     HStack {
                         Image(systemName: step.done ? "checkmark.circle.fill" : blocking.contains(step.step) ? "exclamationmark.circle" : "minus.circle")
@@ -168,7 +184,13 @@ struct UAdminSetupView: View {
                 }
             } label: {
                 Label(String(localized: "uadmin.setup.launch", defaultValue: "Запустить вуз"), systemImage: "paperplane")
+                    .font(.body.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, Spacing.xs)
             }
+            .glassProminentButton()
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: Spacing.sm, leading: 0, bottom: Spacing.sm, trailing: 0))
             .disabled(!state.canLaunch || busy != nil)
         }
     }
@@ -218,21 +240,21 @@ private struct StepHeader: View {
 
     var body: some View {
         HStack(spacing: Spacing.lg) {
-            ZStack {
-                RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                    .fill(step.done ? Palette.success.opacity(0.12) : isOpen ? Palette.primary.opacity(0.12) : Palette.muted)
-                if step.done {
-                    Image(systemName: "checkmark").foregroundStyle(Palette.success).font(.footnote.weight(.bold))
-                } else {
-                    Text(verbatim: String(index + 1))
-                        .font(.footnote.weight(.semibold).monospacedDigit())
-                        .foregroundStyle(isOpen ? Palette.primary : Palette.foreground)
-                }
+            // Как значок чата: пройденный шаг — зелёная галочка, текущий — синий номер.
+            if step.done {
+                RowSymbol(symbol: "checkmark", tint: TileTint.green, size: 36)
+            } else if step.skipped {
+                RowSymbol(symbol: "forward.fill", tint: TileTint.gray, size: 36)
+            } else {
+                Text(verbatim: String(index + 1))
+                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(isOpen ? Palette.primaryForeground : Palette.foreground)
+                    .frame(width: 36, height: 36)
+                    .background(isOpen ? Palette.primary : Palette.muted, in: Circle())
+                    .accessibilityHidden(true)
             }
-            .frame(width: 32, height: 32)
-            .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text(SetupText.title(step.step)).font(Typography.body.weight(.medium)).foregroundStyle(Palette.foreground)
+                Text(SetupText.title(step.step)).font(.body.weight(.semibold)).foregroundStyle(Palette.foreground)
                 Text(subtitle).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
             }
             Spacer(minLength: 0)

@@ -31,7 +31,6 @@ struct UAdminCoursesView: View {
             case .terms: termsList
             }
         }
-        .background(Palette.background)
         .navigationTitle(Text(UniAdminScreen.courses.title))
         .toolbar {
             if tab == .courses {
@@ -46,17 +45,12 @@ struct UAdminCoursesView: View {
                     .accessibilityLabel(Text(String(localized: "uadmin.sort", defaultValue: "Сортировка")))
                 }
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    switch tab {
-                    case .courses: editingCourse = CourseTarget(course: nil)
-                    case .subjects: editingSubject = SubjectTarget(subject: nil)
-                    case .terms: editingTerm = TermTarget(term: nil)
-                    }
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel(Text(tab.addTitle))
+        }
+        .floatingAction(tab.addTitle) {
+            switch tab {
+            case .courses: editingCourse = CourseTarget(course: nil)
+            case .subjects: editingSubject = SubjectTarget(subject: nil)
+            case .terms: editingTerm = TermTarget(term: nil)
             }
         }
         .sheet(item: $editingCourse) { target in
@@ -64,6 +58,7 @@ struct UAdminCoursesView: View {
         }
         .sheet(item: $editingSubject) { target in
             SubjectForm(subject: target.subject) { await subjects.reload() }
+                .presentationDetents([.medium, .large])
         }
         .sheet(item: $editingTerm) { target in
             TermForm(term: target.term) { await terms.reload() }
@@ -85,13 +80,12 @@ struct UAdminCoursesView: View {
         }
     }
 
+    /// Разделы — капсулами, как папки чатов.
     private var tabPicker: some View {
-        Picker(String(localized: "uadmin.courses.tab", defaultValue: "Раздел"), selection: $tab) {
-            ForEach(CoursesTab.allCases) { Text($0.title).tag($0) }
-        }
-        .pickerStyle(.segmented)
-        .listRowBackground(Color.clear)
-        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+        FilterChipsRow(
+            options: CoursesTab.allCases.map { (value: Optional($0), title: $0.title) },
+            selection: Binding(get: { Optional(tab) }, set: { tab = $0 ?? .courses })
+        )
     }
 
     private var coursesList: some View {
@@ -110,12 +104,13 @@ struct UAdminCoursesView: View {
             Button {
                 editingCourse = CourseTarget(course: course)
             } label: {
-                ListCardRow(
+                TelegramStyleRow(
                     title: course.subject.name,
-                    subtitle: course.group.name,
-                    status: course.credits.map { (String(localized: "uadmin.courses.creditsValue", defaultValue: "\(String($0)) кр."), Palette.info) },
-                    lines: [course.teacher?.name ?? "", course.term?.name ?? ""]
-                )
+                    subtitle: Self.courseDetails(course),
+                    meta: Self.credits(course.credits)
+                ) {
+                    RowSymbol(symbol: "book.fill", tint: TileTint.indigo)
+                }
             }
             .buttonStyle(.plain)
             .swipeActions {
@@ -123,6 +118,11 @@ struct UAdminCoursesView: View {
                     deleting = DeleteTarget(kind: .course, id: course.id, name: course.subject.name)
                 } label: {
                     Label(String(localized: "uadmin.delete", defaultValue: "Удалить"), systemImage: "trash")
+                }
+            }
+            .contextMenu {
+                rowMenu(edit: { editingCourse = CourseTarget(course: course) }) {
+                    deleting = DeleteTarget(kind: .course, id: course.id, name: course.subject.name)
                 }
             }
         }
@@ -142,7 +142,9 @@ struct UAdminCoursesView: View {
             Button {
                 editingSubject = SubjectTarget(subject: subject)
             } label: {
-                ListCardRow(title: subject.name, status: subject.code.map { ($0, Palette.mutedForeground) })
+                TelegramStyleRow(title: subject.name, meta: subject.code) {
+                    RowSymbol(symbol: "books.vertical.fill", tint: TileTint.blue)
+                }
             }
             .buttonStyle(.plain)
             .swipeActions {
@@ -152,8 +154,13 @@ struct UAdminCoursesView: View {
                     Label(String(localized: "uadmin.delete", defaultValue: "Удалить"), systemImage: "trash")
                 }
             }
+            .contextMenu {
+                rowMenu(edit: { editingSubject = SubjectTarget(subject: subject) }) {
+                    deleting = DeleteTarget(kind: .subject, id: subject.id, name: subject.name)
+                }
+            }
         }
-        .debouncedSearch($subjectQuery, prompt: String(localized: "uadmin.searchByName", defaultValue: "Поиск по названию")) { needle in
+        .uadminDebouncedSearch($subjectQuery, prompt: String(localized: "uadmin.searchByName", defaultValue: "Поиск по названию")) { needle in
             await subjects.replace { request in
                 try await UAdminAPI().subjects(request, search: needle.isEmpty ? nil : String(needle.prefix(200)))
             }
@@ -174,12 +181,17 @@ struct UAdminCoursesView: View {
             Button {
                 editingTerm = TermTarget(term: term)
             } label: {
-                ListCardRow(
+                TelegramStyleRow(
                     title: term.name,
                     subtitle: "\(UAdminDay.display(term.startsOn)) – \(UAdminDay.display(term.endsOn))",
-                    status: term.isActive ? (String(localized: "uadmin.terms.active", defaultValue: "Текущий"), Palette.success) : nil,
-                    lines: [term.number.map { String(localized: "uadmin.terms.number", defaultValue: "Семестр №\(String($0))") } ?? ""]
-                )
+                    meta: Self.termNumber(term.number)
+                ) {
+                    RowSymbol(symbol: "calendar", tint: term.isActive ? TileTint.green : TileTint.gray)
+                } accessory: {
+                    if term.isActive {
+                        StatusBadge(text: String(localized: "uadmin.terms.active", defaultValue: "Текущий"), tint: Palette.success)
+                    }
+                }
             }
             .buttonStyle(.plain)
             .swipeActions {
@@ -189,6 +201,44 @@ struct UAdminCoursesView: View {
                     Label(String(localized: "uadmin.delete", defaultValue: "Удалить"), systemImage: "trash")
                 }
             }
+            .contextMenu {
+                rowMenu(edit: { editingTerm = TermTarget(term: term) }) {
+                    deleting = DeleteTarget(kind: .term, id: term.id, name: term.name)
+                }
+            }
+        }
+    }
+
+    // Подписи меты — отдельными функциями: `map` с локализованной строкой внутри
+    // обобщённой строки списка заметно нагружает проверку типов.
+    private static func credits(_ credits: Int?) -> String? {
+        guard let credits else { return nil }
+        let value = String(credits)
+        return String(localized: "uadmin.courses.creditsValue", defaultValue: "\(value) кр.")
+    }
+
+    private static func termNumber(_ number: Int?) -> String? {
+        guard let number else { return nil }
+        let value = String(number)
+        return String(localized: "uadmin.terms.number", defaultValue: "Семестр №\(value)")
+    }
+
+    /// Группа, ниже — преподаватель и семестр.
+    private static func courseDetails(_ course: UAdminCourseDTO) -> String {
+        var second: [String] = []
+        if let teacher = course.teacher?.name, !teacher.isEmpty { second.append(teacher) }
+        if let term = course.term?.name, !term.isEmpty { second.append(term) }
+        guard !second.isEmpty else { return course.group.name }
+        return course.group.name + "\n" + second.joined(separator: " · ")
+    }
+
+    @ViewBuilder
+    private func rowMenu(edit: @escaping () -> Void, delete: @escaping () -> Void) -> some View {
+        Button(action: edit) {
+            Label(String(localized: "uadmin.edit", defaultValue: "Изменить"), systemImage: "pencil")
+        }
+        Button(role: .destructive, action: delete) {
+            Label(String(localized: "uadmin.delete", defaultValue: "Удалить"), systemImage: "trash")
         }
     }
 

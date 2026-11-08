@@ -431,3 +431,114 @@ struct DeanRateRow: View {
         .accessibilityElement(children: .combine)
     }
 }
+
+// MARK: - Навигация и связь
+
+/// Переход из кнопок шапки карточки: у `HeroAction` замыкание, а не `NavigationLink`,
+/// поэтому экран кладём в стек текущей вкладки сами.
+enum DeanNav {
+    @MainActor
+    static func push(_ route: AppRoute) {
+        let router = AppServices.router
+        router.stacks[router.selectedTab, default: []].append(route)
+    }
+
+    /// Личный чат с человеком: сервер вернёт уже существующий, если он есть.
+    @MainActor
+    static func openChat(userID: String) async throws {
+        let chatID = try await ChatsAPI().createPrivate(with: userID)
+        AppServices.router.select(.chats)
+        AppServices.router.stacks[.chats] = [.chat(id: chatID)]
+    }
+
+    static func mailURL(_ email: String?) -> URL? {
+        guard let email, !email.isEmpty else { return nil }
+        return URL(string: "mailto:\(email)")
+    }
+
+    static func phoneURL(_ phone: String?) -> URL? {
+        guard let phone, !phone.isEmpty else { return nil }
+        let digits = phone.filter { $0.isNumber || $0 == "+" }
+        return digits.isEmpty ? nil : URL(string: "tel:\(digits)")
+    }
+}
+
+/// «Сохранить» в панели экрана (не листа): на iOS 26 — системная галочка в синем стекле
+/// (`role: .confirm`), раньше — слово.
+struct DeanConfirmButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        #if compiler(>=6.2)
+            if #available(iOS 26, *) {
+                Button(role: .confirm, action: action)
+                    .accessibilityLabel(Text(String(localized: "common.save", defaultValue: "Сохранить")))
+            } else {
+                legacy
+            }
+        #else
+            legacy
+        #endif
+    }
+
+    private var legacy: some View {
+        Button(String(localized: "common.save", defaultValue: "Сохранить"), action: action)
+    }
+}
+
+extension View {
+    /// Поиск с задержкой, поле всегда видно под заголовком — для длинных списков
+    /// факультета. Общий `.debouncedSearch` места поля не принимает.
+    func deanDebouncedSearch(
+        _ text: Binding<String>,
+        prompt: String,
+        onChange: @escaping (String) async -> Void
+    ) -> some View {
+        modifier(DeanDebouncedSearch(text: text, prompt: prompt, onChange: onChange))
+    }
+}
+
+private struct DeanDebouncedSearch: ViewModifier {
+    @Binding var text: String
+    let prompt: String
+    let onChange: (String) async -> Void
+
+    @State private var lastSent = ""
+
+    func body(content: Content) -> some View {
+        content
+            .searchable(text: $text, placement: .navigationBarDrawer(displayMode: .always), prompt: Text(prompt))
+            .task(id: text) {
+                let needle = text.trimmingCharacters(in: .whitespaces)
+                guard needle != lastSent else { return }
+                if !needle.isEmpty {
+                    try? await Task.sleep(for: .milliseconds(350))
+                    guard !Task.isCancelled else { return }
+                }
+                lastSent = needle
+                await onChange(needle)
+            }
+    }
+}
+
+/// Плитка даты в строке: число крупно, месяц мелко — как в «Календаре». Экзамен ищут
+/// глазами по дню, а не по названию.
+struct DeanDateTile: View {
+    let date: Date
+    var tint: Color = Palette.primary
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text(date, format: .dateTime.month(.abbreviated))
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(tint)
+                .textCase(.uppercase)
+            Text(date, format: .dateTime.day())
+                .font(.title3.weight(.semibold).monospacedDigit())
+                .foregroundStyle(Palette.foreground)
+        }
+        .frame(width: 48, height: 48)
+        .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+        .accessibilityHidden(true)
+    }
+}

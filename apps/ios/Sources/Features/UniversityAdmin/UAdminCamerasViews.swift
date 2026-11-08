@@ -40,6 +40,7 @@ struct UAdminCamerasView: View {
         .navigationTitle(Text(UniAdminScreen.cameras.title))
         .sheet(isPresented: $creatingAgent) {
             AgentNameForm { token in issued = token } saved: { await load() }
+                .presentationDetents([.medium])
         }
         .sheet(item: Binding(get: { issued.map(IssuedToken.init) }, set: { if $0 == nil { issued = nil } })) { token in
             AgentTokenSheet(name: token.value.agent.name, token: token.value.token)
@@ -101,7 +102,11 @@ struct UAdminCamerasView: View {
                     }
                 )
             ) {
-                Label(String(localized: "uadmin.cameras.module", defaultValue: "Камеры вуза"), systemImage: "power")
+                HStack(spacing: Spacing.lg) {
+                    IconTile(symbol: "video.fill", tint: enabled ? TileTint.green : TileTint.gray)
+                    Text(String(localized: "uadmin.cameras.module", defaultValue: "Камеры вуза"))
+                        .foregroundStyle(Palette.foreground)
+                }
             }
             .disabled(togglingModule)
         } footer: {
@@ -117,15 +122,12 @@ struct UAdminCamerasView: View {
                     .foregroundStyle(Palette.mutedForeground)
             }
             ForEach(agents) { agent in
-                ListCardRow(
-                    title: agent.name,
-                    subtitle: [
-                        agent.version.map { String(localized: "uadmin.cameras.version", defaultValue: "Версия \($0)") },
-                        String(localized: "uadmin.cameras.count", defaultValue: "Камер: \(agent.cameraCount.formatted())"),
-                    ].compactMap { $0 }.joined(separator: " · "),
-                    status: Self.connection(agent.connection),
-                    lines: [agent.lastSeenAt.map { String(localized: "uadmin.cameras.lastSeen", defaultValue: "На связи: \(DisplayFormat.relative($0))") } ?? ""]
-                )
+                let connection = Self.connection(agent.connection)
+                TelegramStyleRow(title: agent.name, subtitle: Self.agentDetails(agent)) {
+                    RowSymbol(symbol: "server.rack", tint: agent.connection == "ONLINE" ? TileTint.green : TileTint.gray)
+                } accessory: {
+                    StatusBadge(text: connection.0, tint: connection.1)
+                }
                 .swipeActions {
                     Button(role: .destructive) {
                         deletingAgent = agent
@@ -168,7 +170,11 @@ struct UAdminCamerasView: View {
         Section {
             if enabled, !cameras.isEmpty {
                 NavigationLink(value: AppRoute.uniAdmin(.cameraWatch)) {
-                    Label(String(localized: "uadmin.cameras.watch", defaultValue: "Смотреть камеры"), systemImage: "play.rectangle")
+                    IconRow(
+                        title: String(localized: "uadmin.cameras.watch", defaultValue: "Смотреть камеры"),
+                        symbol: "play.rectangle.fill",
+                        tint: TileTint.blue
+                    )
                 }
             }
             if cameras.isEmpty {
@@ -184,19 +190,14 @@ struct UAdminCamerasView: View {
                 Button {
                     cameraForm = CameraFormTarget(camera: camera)
                 } label: {
-                    ListCardRow(
-                        title: camera.name,
-                        subtitle: [camera.room?.name, camera.agent?.name].compactMap { $0 }.joined(separator: " · "),
-                        status: camera.enabled
-                            ? UAdminCameraStatus.badge(camera.status)
-                            : (String(localized: "uadmin.cameras.disabledCamera", defaultValue: "Отключена"), Palette.mutedForeground),
-                        lines: [
-                            camera.hasCredentials == true
-                                ? String(localized: "uadmin.cameras.passwordSet", defaultValue: "Пароль задан")
-                                : String(localized: "uadmin.cameras.passwordNone", defaultValue: "Без пароля"),
-                        ]
-                    )
-                    .opacity(camera.enabled ? 1 : 0.6)
+                    let status = camera.enabled
+                        ? UAdminCameraStatus.badge(camera.status)
+                        : (String(localized: "uadmin.cameras.disabledCamera", defaultValue: "Отключена"), Palette.mutedForeground)
+                    TelegramStyleRow(title: camera.name, subtitle: Self.cameraDetails(camera), meta: camera.room?.name) {
+                        RowSymbol(symbol: camera.enabled ? "video.fill" : "video.slash.fill", tint: camera.enabled ? TileTint.indigo : TileTint.gray)
+                    } accessory: {
+                        StatusBadge(text: status.0, tint: status.1)
+                    }
                 }
                 .buttonStyle(.plain)
                 .swipeActions {
@@ -204,6 +205,24 @@ struct UAdminCamerasView: View {
                         deletingCamera = camera
                     } label: {
                         Label(String(localized: "uadmin.delete", defaultValue: "Удалить"), systemImage: "trash")
+                    }
+                    Button {
+                        cameraForm = CameraFormTarget(camera: camera)
+                    } label: {
+                        Label(String(localized: "uadmin.edit", defaultValue: "Изменить"), systemImage: "pencil")
+                    }
+                    .tint(Palette.primary)
+                }
+                .contextMenu {
+                    Button {
+                        cameraForm = CameraFormTarget(camera: camera)
+                    } label: {
+                        Label(String(localized: "uadmin.edit", defaultValue: "Изменить"), systemImage: "pencil")
+                    }
+                    Button(role: .destructive) {
+                        deletingCamera = camera
+                    } label: {
+                        Label(String(localized: "uadmin.cameras.deleteCamera", defaultValue: "Удалить камеру"), systemImage: "trash")
                     }
                 }
             }
@@ -218,6 +237,29 @@ struct UAdminCamerasView: View {
         } footer: {
             Text(String(localized: "uadmin.cameras.camerasHint", defaultValue: "Пароль камеры шифруется ключом агента — платформа его не видит."))
         }
+    }
+
+    /// «Версия 1.2 · Камер: 4» и ниже — когда агент был на связи.
+    private static func agentDetails(_ agent: UAdminCameraAgentDTO) -> String {
+        var first: [String] = []
+        if let version = agent.version {
+            first.append(String(localized: "uadmin.cameras.version", defaultValue: "Версия \(version)"))
+        }
+        first.append(String(localized: "uadmin.cameras.count", defaultValue: "Камер: \(agent.cameraCount.formatted())"))
+        var lines = [first.joined(separator: " · ")]
+        if let seen = agent.lastSeenAt {
+            lines.append(String(localized: "uadmin.cameras.lastSeen", defaultValue: "На связи: \(DisplayFormat.relative(seen))"))
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// «Агент · Пароль задан».
+    private static func cameraDetails(_ camera: UAdminCameraDTO) -> String {
+        let password: String = camera.hasCredentials == true
+            ? String(localized: "uadmin.cameras.passwordSet", defaultValue: "Пароль задан")
+            : String(localized: "uadmin.cameras.passwordNone", defaultValue: "Без пароля")
+        guard let agent = camera.agent?.name else { return password }
+        return agent + " · " + password
     }
 
     static func connection(_ raw: String) -> (String, Color) {
@@ -573,21 +615,15 @@ struct UAdminCameraWatchView: View {
                             Button {
                                 toggle(camera.id)
                             } label: {
-                                HStack {
-                                    Image(systemName: watched.contains(camera.id) ? "play.rectangle.fill" : "play.rectangle")
-                                        .foregroundStyle(watched.contains(camera.id) ? Palette.primary : Palette.mutedForeground)
-                                        .accessibilityHidden(true)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(camera.name).foregroundStyle(Palette.foreground)
-                                        if let room = camera.room {
-                                            Text(room.name).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
-                                        }
-                                    }
-                                    Spacer()
-                                    let status = UAdminCameraStatus.badge(camera.status)
+                                let isOn = watched.contains(camera.id)
+                                let status = UAdminCameraStatus.badge(camera.status)
+                                TelegramStyleRow(title: camera.name, subtitle: camera.room?.name) {
+                                    RowSymbol(symbol: isOn ? "play.fill" : "video.fill", tint: isOn ? TileTint.blue : TileTint.gray, size: 40)
+                                } accessory: {
                                     StatusBadge(text: status.0, tint: status.1)
                                 }
                             }
+                            .buttonStyle(.plain)
                             .accessibilityAddTraits(watched.contains(camera.id) ? .isSelected : [])
                         }
                     } header: {
