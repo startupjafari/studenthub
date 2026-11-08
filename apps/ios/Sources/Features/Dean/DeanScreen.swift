@@ -17,6 +17,10 @@ enum DeanScreen: Hashable {
     case analytics
     case appointments
     case schedule
+    /// Редактор расписания с уже выбранной группой — из карточки группы.
+    case groupSchedule(id: String)
+    /// Ведомость экзамена: допуск, статус, балл.
+    case examRoster(id: String)
 
     var title: String {
         switch self {
@@ -32,6 +36,8 @@ enum DeanScreen: Hashable {
         case .analytics: return String(localized: "dean.screen.analytics", defaultValue: "Аналитика")
         case .appointments: return String(localized: "dean.screen.appointments", defaultValue: "Запись на приём")
         case .schedule: return String(localized: "dean.screen.schedule", defaultValue: "Расписание факультета")
+        case .groupSchedule: return String(localized: "dean.screen.groupSchedule", defaultValue: "Расписание группы")
+        case .examRoster: return String(localized: "dean.screen.examRoster", defaultValue: "Ведомость")
         }
     }
 
@@ -49,12 +55,29 @@ enum DeanScreen: Hashable {
         case .analytics: return "chart.bar"
         case .appointments: return "calendar.badge.clock"
         case .schedule: return "calendar"
+        case .groupSchedule: return "calendar"
+        case .examRoster: return "list.clipboard"
         }
     }
 
     @MainActor @ViewBuilder
     var destination: some View {
-        PendingScreen(title: title, symbol: symbol)
+        switch self {
+        case .dashboard: DeanDashboardView()
+        case .groups: DeanGroupsView()
+        case .group(let id): DeanGroupView(groupID: id)
+        case .students: DeanPeopleView(role: .student)
+        case .student(let id): DeanStudentView(userID: id)
+        case .teachers: DeanPeopleView(role: .teacher)
+        case .starostas: DeanPeopleView(role: .starosta)
+        case .courses: DeanCoursesView()
+        case .exams: DeanExamsView()
+        case .examRoster(let id): DeanExamRosterView(examID: id)
+        case .analytics: DeanAnalyticsView()
+        case .appointments: DeanAppointmentsView()
+        case .schedule: DeanScheduleManageView()
+        case .groupSchedule(let id): DeanScheduleManageView(initialGroupID: id)
+        }
     }
 
     /// «Разделы» деканата — по группам меню веба (`DEAN_NAV`).

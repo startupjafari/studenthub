@@ -1,0 +1,258 @@
+import SwiftUI
+
+/// Аналитика факультета: показатели, «требуют внимания» поимённо с причинами по
+/// колонкам и группы по посещаемости с переходом в карточку группы. Факультет декана
+/// задаёт токен — выбора факультета здесь нет.
+struct DeanAnalyticsView: View {
+    private enum Tab: Hashable { case students, groups }
+    private enum RiskSort: Hashable { case risk, name, attendance, overdue, grades }
+
+    @State private var overview: DeanFacultyOverview?
+    @State private var risk: DeanAtRisk?
+    @State private var failure: String?
+    @State private var riskFailure: String?
+    @State private var tab: Tab? = .students
+    @State private var riskSort: RiskSort = .risk
+    @State private var reasonFilter: String?
+    @State private var exportOptions = false
+    @State private var exporter = DeanFileExporter()
+
+    private let api = DeanAPI()
+
+    var body: some View {
+        List {
+            if let overview {
+                summary(overview)
+                FilterChipsRow(
+                    options: [
+                        (Tab.students, String(localized: "dean.analytics.tabStudents", defaultValue: "Требуют внимания") + " · \((risk?.students.count ?? 0).formatted())"),
+                        (Tab.groups, String(localized: "dean.analytics.tabGroups", defaultValue: "Группы") + " · \(overview.groups.count.formatted())"),
+                    ],
+                    selection: $tab
+                )
+                if tab == .groups {
+                    groups(overview)
+                } else {
+                    students(total: overview.totals.students)
+                }
+            } else if let failure {
+                ErrorStateView(message: failure) { await load() }
+                    .listRowBackground(Color.clear)
+            } else {
+                LoadingStateView().listRowBackground(Color.clear)
+            }
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Palette.background)
+        .navigationTitle(Text(DeanScreen.analytics.title))
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    exportOptions = true
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .accessibilityLabel(Text(String(localized: "dean.report.export", defaultValue: "Отчёт факультета")))
+            }
+        }
+        .sheet(isPresented: $exportOptions) {
+            DeanReportExportSheet(exporter: exporter)
+        }
+        .deanExportSheet(exporter)
+        .refreshable { await load() }
+        .task { if overview == nil { await load() } }
+    }
+
+    private var threshold: Double { risk?.thresholds.attendance ?? 60 }
+
+    // MARK: Показатели
+
+    @ViewBuilder
+    private func summary(_ overview: DeanFacultyOverview) -> some View {
+        let totals = overview.totals
+        Section {
+            StatGrid {
+                StatTile(title: String(localized: "dean.kpi.students", defaultValue: "Студенты"), value: totals.students.formatted(), symbol: "person.2")
+                StatTile(title: String(localized: "dean.kpi.groups", defaultValue: "Группы"), value: totals.groups.formatted(), symbol: "person.3")
+                StatTile(
+                    title: String(localized: "dean.kpi.attendance", defaultValue: "Посещаемость"),
+                    value: DeanText.percent(totals.attendanceRate),
+                    symbol: "percent",
+                    tint: (totals.attendanceRate ?? 100) < threshold ? Palette.destructive : Palette.info
+                )
+                StatTile(title: String(localized: "dean.kpi.submissions", defaultValue: "Работ на проверке"), value: totals.submissionsPending.formatted(), symbol: "tray.full", tint: Palette.warning)
+                StatTile(title: String(localized: "dean.kpi.exams", defaultValue: "Экзамены впереди"), value: totals.examsUpcoming.formatted(), symbol: "graduationcap")
+            }
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets())
+        }
+    }
+
+    // MARK: Студенты в риске
+
+    @ViewBuilder
+    private func students(total: Int) -> some View {
+        if let riskFailure, risk == nil {
+            ErrorStateView(message: riskFailure) { await load() }
+                .listRowBackground(Color.clear)
+        } else if let risk {
+            if risk.students.isEmpty {
+                EmptyStateView(
+                    title: String(localized: "dean.chart.noRisk", defaultValue: "Никто не требует внимания"),
+                    symbol: "checkmark.seal",
+                    hint: String(localized: "dean.analytics.noRiskHint", defaultValue: "Посещаемость, сроки и оценки у всех в норме")
+                )
+                .listRowBackground(Color.clear)
+            } else {
+                let counts = ["LOW_ATTENDANCE", "OVERDUE_ASSIGNMENTS", "LOW_GRADES"].map { kind in
+                    (kind, risk.students.filter { $0.value(kind) != nil }.count)
+                }
+                Section {
+                    DeanCountChart(
+                        bars: counts.map { (DeanText.riskReason($0.0), $0.1) },
+                        tint: Palette.destructive
+                    )
+                    Picker(String(localized: "dean.analytics.reason", defaultValue: "Причина"), selection: $reasonFilter) {
+                        Text(String(localized: "dean.analytics.allReasons", defaultValue: "Все причины")).tag(String?.none)
+                        ForEach(counts, id: \.0) { item in
+                            Text(verbatim: "\(DeanText.riskReason(item.0)) · \(item.1.formatted())").tag(String?.some(item.0))
+                        }
+                    }
+                    Picker(String(localized: "dean.sort.by", defaultValue: "Сортировать"), selection: $riskSort) {
+                        Text(String(localized: "dean.analytics.sortRisk", defaultValue: "Сначала тяжёлые")).tag(RiskSort.risk)
+                        Text(String(localized: "dean.sort.name", defaultValue: "По имени")).tag(RiskSort.name)
+                        Text(String(localized: "dean.analytics.sortAttendance", defaultValue: "По посещаемости")).tag(RiskSort.attendance)
+                        Text(String(localized: "dean.analytics.sortOverdue", defaultValue: "По просрочкам")).tag(RiskSort.overdue)
+                        Text(String(localized: "dean.analytics.sortGrades", defaultValue: "По оценкам")).tag(RiskSort.grades)
+                    }
+                } header: {
+                    Text(String(localized: "dean.analytics.riskCount", defaultValue: "\(risk.students.count.formatted()) из \(total.formatted()) студентов"))
+                } footer: {
+                    Text(String(localized: "dean.analytics.riskHint", defaultValue: "Сначала те, у кого больше причин; при равном числе — у кого хуже само значение."))
+                }
+                .listRowBackground(Palette.card)
+
+                Section {
+                    ForEach(sortedRisk(risk.students)) { student in
+                        NavigationLink(value: AppRoute.dean(.student(id: student.studentId))) {
+                            DeanRiskRow(student: student)
+                        }
+                    }
+                }
+                .listRowBackground(Palette.card)
+            }
+        } else {
+            LoadingStateView().listRowBackground(Color.clear)
+        }
+    }
+
+    private func sortedRisk(_ list: [DeanAtRisk.Student]) -> [DeanAtRisk.Student] {
+        let filtered = reasonFilter.map { kind in list.filter { $0.value(kind) != nil } } ?? list
+        switch riskSort {
+        case .name: return filtered.sorted { $0.name < $1.name }
+        case .attendance: return filtered.sorted { ($0.value("LOW_ATTENDANCE") ?? 101) < ($1.value("LOW_ATTENDANCE") ?? 101) }
+        case .overdue: return filtered.sorted { ($0.value("OVERDUE_ASSIGNMENTS") ?? 0) > ($1.value("OVERDUE_ASSIGNMENTS") ?? 0) }
+        case .grades: return filtered.sorted { ($0.value("LOW_GRADES") ?? 101) < ($1.value("LOW_GRADES") ?? 101) }
+        case .risk:
+            // Не взвешенный балл, а объяснимый порядок: число причин, потом сами значения.
+            return filtered.sorted { a, b in
+                if a.reasons.count != b.reasons.count { return a.reasons.count > b.reasons.count }
+                let att = (a.value("LOW_ATTENDANCE") ?? 101, b.value("LOW_ATTENDANCE") ?? 101)
+                if att.0 != att.1 { return att.0 < att.1 }
+                let overdue = (a.value("OVERDUE_ASSIGNMENTS") ?? 0, b.value("OVERDUE_ASSIGNMENTS") ?? 0)
+                if overdue.0 != overdue.1 { return overdue.0 > overdue.1 }
+                let grade = (a.value("LOW_GRADES") ?? 101, b.value("LOW_GRADES") ?? 101)
+                if grade.0 != grade.1 { return grade.0 < grade.1 }
+                return a.name < b.name
+            }
+        }
+    }
+
+    // MARK: Группы
+
+    @ViewBuilder
+    private func groups(_ overview: DeanFacultyOverview) -> some View {
+        if overview.groups.isEmpty {
+            EmptyStateView(title: String(localized: "dean.groups.empty", defaultValue: "Групп пока нет"), symbol: "person.3")
+                .listRowBackground(Color.clear)
+        } else {
+            Section {
+                ForEach(overview.groups) { group in
+                    NavigationLink(value: AppRoute.dean(.group(id: group.groupId))) {
+                        DeanRateRow(
+                            title: group.name,
+                            subtitle: String(localized: "dean.analytics.groupStudents", defaultValue: "Студентов: \(group.students.formatted())"),
+                            rate: group.attendanceRate,
+                            badge: (group.attendanceRate.map { $0 < threshold } ?? false) ? String(localized: "dean.risk.badge", defaultValue: "Риск") : nil
+                        )
+                    }
+                }
+            } footer: {
+                Text(String(localized: "dean.analytics.groupsHint", defaultValue: "«Риск» — посещаемость ниже порога \(DeanText.percent(threshold)). Группа открывается поимённо."))
+            }
+            .listRowBackground(Palette.card)
+        }
+    }
+
+    @MainActor
+    private func load() async {
+        async let overviewTask = api.facultyOverview()
+        async let riskTask = api.atRisk()
+        do {
+            overview = try await overviewTask
+            failure = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            failure = error.userMessage
+        }
+        do {
+            risk = try await riskTask
+            riskFailure = nil
+        } catch {
+            riskFailure = error.userMessage
+        }
+    }
+}
+
+/// Студент в риске: причины по отдельным строкам, отсутствующая — не показана.
+private struct DeanRiskRow: View {
+    let student: DeanAtRisk.Student
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(student.name).font(Typography.cardTitle).foregroundStyle(Palette.foreground)
+                Spacer(minLength: Spacing.md)
+                if let group = student.groupName {
+                    Text(group).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
+                }
+            }
+            HStack(spacing: Spacing.lg) {
+                if let value = student.value("LOW_ATTENDANCE") {
+                    metric("percent", DeanText.percent(value), Palette.destructive)
+                }
+                if let value = student.value("OVERDUE_ASSIGNMENTS") {
+                    metric("clock.badge.exclamationmark", Int(value).formatted(), Palette.warning)
+                }
+                if let value = student.value("LOW_GRADES") {
+                    metric("chart.line.downtrend.xyaxis", DeanText.percent(value), Palette.destructive)
+                }
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(([student.name] + student.reasons.map { DeanRiskText.line($0) }).joined(separator: ", ")))
+    }
+
+    private func metric(_ symbol: String, _ value: String, _ tint: Color) -> some View {
+        Label {
+            Text(verbatim: value).monospacedDigit()
+        } icon: {
+            Image(systemName: symbol)
+        }
+        .font(Typography.meta)
+        .foregroundStyle(tint)
+    }
+}
