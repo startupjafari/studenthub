@@ -1,172 +1,234 @@
 # StudentHub iOS — соответствие веб-версии
 
-Сверка функций веба (`apps/web`) для ролей STUDENT, STAROSTA и TEACHER с приложением
-для iPhone (`apps/ios`). Другие роли приложение не ведёт, им показывается экран «откройте
-веб» (`UnsupportedRoleView`).
+Сверка страниц веба (`apps/web/src/app`, меню — `widgets/app-shell/model/nav.ts`) с приложением
+для iPhone (`apps/ios`) для всех 11 ролей платформы.
 
-Дата сверки: 2026-11-08, ветка `feat/ios-native-parity`.
+Дата сверки: 2026-11-08, ветка `feat/ios-all-roles`. Как устроена доработка и чем проверено —
+`docs/IOS_IMPLEMENTATION_REPORT.md`.
 
 ## Статусы
 
 | Статус | Что значит |
 |---|---|
 | **Implemented** | Экран есть, основные действия подключены к настоящему API, код собирается. На устройстве не проверялось. |
-| **Needs redesign** | Работает, но заметно уступает вебу или новой концепции. |
+| **Adapted** | Сделано иначе, чем в вебе, потому что на телефоне так удобнее или иначе нельзя (холст, перетаскивание, таблица с колонками). |
 | **Missing** | API есть, на iOS функции нет. |
 | **Blocked by API** | На сервере нет маршрута или модели. Без изменений бэкенда не сделать. |
 | **Verified** | Проверено вручную на устройстве или симуляторе. |
 
-Ни одна строка не помечена **Verified**. В этой работе код только собирался через
-`xtool dev build`. Запуска на симуляторе или телефоне не было, тестов XCTest тоже.
+Ни одна строка не помечена **Verified**: код собирался через `xtool dev build`, запуска на
+симуляторе или телефоне не было, тесты XCTest не прогонялись.
 
-## Навигация и оболочка
+## Роли и оболочка
 
-| Функция | Веб | iOS | Статус |
+| Роль | Вкладки | Стартовый экран («Обзор») | Статус |
 |---|---|---|---|
-| 5 вкладок: Главная, Расписание, Чаты, Учёба, Сервисы | боковое меню `widgets/app-shell/model/nav.ts` | `AppTab`, `AppShellView`; свой `NavigationStack` у каждой вкладки | Implemented |
-| Профиль из аватара в верхней панели | шапка | `ProfileToolbarButton` на корне каждой вкладки | Implemented |
-| Бейдж непрочитанных чатов | счётчик в меню | `ChatBadgeModel` | Implemented |
-| Бейджи уведомлений и заявок на вкладках | — | только колокольчик на главной | Needs redesign |
-| Диплинки | маршруты веба | `DeepLink`: чаты, посты, профили, заявки, события, библиотека, `/consultations`, `/appointments`, `/portfolio`, `/campus` | Implemented |
-| Сохранение пути и прокрутки вкладки | — | путь — в `AppRouter`; прокрутка — силами SwiftUI внутри сессии; после перезапуска не восстанавливается | Needs redesign |
-| Liquid Glass (iOS 26) | — | системная панель вкладок, `tabBarMinimizeBehavior`, `floatingGlass` для плавающих контролов | Implemented |
+| STUDENT, STAROSTA | Главная, Расписание, Чаты, Учёба, Сервисы | лента | Implemented |
+| TEACHER | Главная, Расписание, Чаты, Учёба, Сервисы | лента; обзор преподавателя — в «Учёбе» | Implemented |
+| DEAN | Обзор, Расписание (факультета), Чаты, Разделы, Лента | `DeanScreen.dashboard` | Implemented |
+| UNIVERSITY_ADMIN | Обзор, Чаты, Разделы, Лента | `UniAdminScreen.dashboard` | Implemented |
+| UNIVERSITY_MODERATOR | Обзор, Чаты, Разделы, Лента | `AdminScreen.universityModeratorDashboard` | Implemented |
+| PLATFORM_ADMIN | Обзор, Чаты, Разделы | `AdminScreen.platformDashboard` | Implemented |
+| PLATFORM_MODERATOR | Обзор, Чаты, Разделы | `AdminScreen.platformModeratorDashboard` | Implemented |
+| EMPLOYER | Обзор, Чаты, Разделы | `CareerScreen.employerHome` | Implemented |
+| SECURITY_GUARD | Обзор, Разделы (без чатов и ленты) | `SecurityScreen.post` | Implemented |
+| LIBRARIAN | Обзор, Разделы (без чатов и ленты) | `LibrarianScreen.home` | Implemented |
+
+| Функция | iOS | Статус |
+|---|---|---|
+| «Разделы» — меню роли из веба по тем же группам, с поиском; группа «Аккаунт» у всех | `WorkspaceView`, каталоги областей (`*Screen.workspace`) | Implemented |
+| Профиль из аватара в верхней панели любой вкладки | `ProfileToolbarButton` | Implemented |
+| Колокольчик уведомлений на «Обзоре» | `RoleDashboardView` | Implemented |
+| Бейдж непрочитанных чатов | `ChatBadgeModel` (кроме охраны и библиотеки) | Implemented |
+| Ссылки веба открывают раздел роли в приложении | `DeepLink`, `CommunityDeepLink`, `AreaDeepLink` (ролевой разбор) | Implemented |
+| Роль, которой сборка не знает | `UnsupportedRoleView`: «обновите приложение или откройте веб» | Implemented |
+| Отключение разделов платформой (`platform/state`) | `CommunitySectionGate` для событий, документов, заявок, портфолио, вступления в чат | Implemented |
+| Сохранение пути и прокрутки после перезапуска | — | Missing |
 
 ## Главная, лента, публикации
 
-| Функция | API | iOS | Статус |
-|---|---|---|---|
-| Лента с курсором и сводкой реакций | `GET /posts?reactions=summary` | `FeedModel`, `PostCardView` | Implemented |
-| Порядок главной: истории → пара → «Что нового?» → лента | — | `HomeView` | Implemented |
-| Создание поста с медиа | `POST /files/presign` → `/files/confirm` → `POST /posts` | `PostComposerView` | Implemented |
-| Выбор аудитории поста | `POST /posts {audience}` | композер без выбора аудитории | Needs redesign |
-| Правка и удаление своего поста | `PATCH`, `DELETE /posts/:id` | `PostActionsHost` | Implemented |
-| Закрепление, черновики, отложенные посты | `PATCH /posts/:id/pin`, `POST /posts/:id/publish` | — | Missing |
-| Реакции | `POST`, `DELETE /posts/:id/reactions` | Implemented | Implemented |
-| Комментарии и ответы | `GET`, `POST`, `DELETE /posts/:id/comments` | `PostCommentsView` (лист) | Implemented |
-| Правка комментария | маршрута нет | — | Blocked by API |
-| Репост | `POST /posts/:id/repost` | Implemented | Implemented |
-| Сохранить пост, список сохранённого | `POST /posts/:id/bookmark`, `GET /posts?filter=SAVED` | закладка в карточке; `SavedPostsView` из своего профиля | Implemented |
-| Поделиться в чат | `POST /chats/:id/share-post` | — | Missing |
-| Жалоба | `POST /complaints` | Implemented | Implemented |
-| Просмотры | `POST /posts/:id/view` | Implemented | Implemented |
-| Карусели, видео, HLS | `media[].sources`, `hls` | `PostMediaView`, `MediaViewer` | Implemented |
-| Фильтры ленты (группа, вуз, преподаватели, важное) | `GET /posts?filter=` | — | Missing |
-| Поиск людей и событий | `GET /search` | `SearchView` | Implemented |
-| Статьи (чтение, лайк, комментарии) | `/profile/articles/*` | только карточки во вкладке профиля, без чтения | Missing |
+| Функция | API | Статус |
+|---|---|---|
+| Лента с курсором, реакции, комментарии, репост, закладки, жалоба, просмотры, медиа | `/posts/*` | Implemented |
+| Фильтры: все, группа, вуз, преподаватели, важное, сохранённое, модерация | `GET /posts?filter=` | Implemented |
+| Пост: аудитория по роли, заголовок, черновик, отложенная публикация, «опубликовать сейчас» | `POST /posts`, `/posts/:id/publish` | Implemented |
+| Закрепление, отправка поста в чат | `PATCH /posts/:id/pin`, `POST /chats/:id/share-post` | Implemented |
+| Свои черновики и отложенные | `GET /posts?status&authorId` | Implemented |
+| Статьи: чтение, лайк, закладка, комментарии, похожие, репост, создание и правка | `/profile/articles/*` | Implemented |
+| Правка комментария к посту | маршрута нет | Blocked by API |
 
 ## Истории
 
-| Функция | API | iOS | Статус |
-|---|---|---|---|
-| Полоса историй, статусы просмотра | `GET /stories` | `StoriesRail` | Implemented |
-| Просмотр: прогресс, пауза удержанием, переход, закрытие свайпом | `POST /stories/:id/view` | `StoryViewer` | Implemented |
-| Реакции, ответ в личку, заглушить автора, удаление | `/stories/:id/reactions`, `POST /chats/story-reply`, `/stories/mutes/:userId` | Implemented | Implemented |
-| Опрос в истории, ссылка, упоминания | `POST /stories/:id/vote`, интерактивные элементы | голосование и показ элементов есть, создание элементов в редакторе — нет | Needs redesign |
-| Создание: фото или видео, текст, аудитория | `POST /stories` | `StoryComposerView` (PhotosPicker) | Implemented |
-| Кто посмотрел | `GET /stories/:id/viewers` | — | Missing |
-| Актуальное (highlights) | `/stories/highlights/*` | — | Missing |
-| Предзагрузка соседних историй | — | — | Missing |
+| Функция | Статус |
+|---|---|
+| Полоса, просмотр, реакции, ответ, заглушить, удаление | Implemented |
+| Кто посмотрел | Implemented |
+| Опрос, ссылка, упоминания в редакторе | Adapted — упоминания ставятся столбиком, без перетаскивания |
+| Актуальное: просмотр, создание, правка, порядок | Implemented |
+| Предзагрузка соседних историй | Implemented |
 
 ## Чаты
 
-| Функция | API | iOS | Статус |
-|---|---|---|---|
-| Список: поиск, папки, закрепление, архив, заглушение | `/chats`, `/chats/folders`, pin, archive, mute | `ChatListView` | Implemented |
-| Переписка: ответ, пересылка, реакции, правка, удаление, закрепление | `/chats/:id/messages` и др. | `ChatThreadView` | Implemented |
-| Вложения, фото, видео, голосовые | `/chats/:id/attachments/presign`, `/messages/uploaded` | `MessageComposerView`, `VoiceRecorder` | Implemented |
-| Опросы в чате | `/chats/polls/*` | `ChatPollView` | Implemented |
-| Группы: участники, админы, ссылка-приглашение | `/chats/:id/members` и др. | `ChatInfoView` | Implemented |
-| Реальное время, переподключение | socket.io | `RealtimeCoordinator` | Implemented |
-| Поддержка — чат с командой | `POST /support` | открывается из «Настройки → Поддержка» | Implemented |
+Без изменений в этой ветке: список, переписка, вложения, голосовые, опросы, группы, реальное
+время — Implemented. Вступление в чат по ссылке `/join-chat/<id>?k=` — Implemented.
 
-## Расписание
+## Расписание и календарь
 
-| Функция | API | iOS | Статус |
-|---|---|---|---|
-| День: полоса дней с датами, отметка «сегодня» | `GET /schedule`, `/schedule/changes` | `ScheduleView` | Implemented |
-| Неделя | то же | режим «Неделя» | Implemented |
-| Месяц | — | — | Missing (пары еженедельные, разовые изменения — на 14 дней вперёд) |
-| Работа без сети | — | локальная база GRDB | Implemented |
-| Карточка занятия: время, изменение, аудитория, преподаватель, дисциплина, задания | — | `LessonDetailView` | Implemented |
-| Переход к аудитории на карте | `GET /campus/rooms/:roomId/location` | из карточки занятия | Implemented |
-| Тип занятия (лекция или практика) | у пары нет поля | — | Blocked by API |
-| Отметка посещаемости (преподаватель) | `GET /attendance/roster`, `PUT /attendance` | `AttendanceMarkingView` | Implemented |
-| Правка своих пар преподавателем, разовые изменения | `POST`, `DELETE /schedule/changes` | — | Missing |
+| Функция | Статус |
+|---|---|
+| День и неделя, карточка пары с разовыми изменениями, работа без сети | Implemented |
+| Все страницы `GET /schedule` (по 500 пар, `nextCursor`) | Implemented |
+| Календарь (месяц и повестка) из пар, заданий, экзаменов, событий, праздников РК — студент, преподаватель, декан | Implemented |
+| Листание недельного расписания на любую неделю | Missing (изменения хранятся на 14 дней вперёд) |
+| Тип занятия (лекция или практика) | Blocked by API |
 
-## Учёба
+## Учёба студента
 
-| Функция | API | iOS | Статус |
-|---|---|---|---|
-| Сводка: курс, специальность, статус, GPA, средний результат, посещаемость | `/users/me`, `/gradebook/me`, `/attendance/me` | `StudyView` + `AcademicSummary`, по правилу веба | Implemented |
-| Ближайшие сроки | `GET /assignments` | `StudyView` | Implemented |
-| Дисциплины: семестры, поиск, карточка с заданиями и материалами | `GET /courses` | `CoursesView`, `CourseDetailView` | Implemented |
-| Оценки | `GET /gradebook/me` | `GradesView` | Implemented |
-| Посещаемость | `GET /attendance/me` | `AttendanceView` | Implemented |
-| Задания: список, карточка, черновик текста или ссылки, сдача | `/assignments/*` | `AssignmentsView` | Implemented |
-| Файлы к сдаче задания | `/assignments/:id/submission/files` | — | Missing |
-| Материалы, скачивание файлов | `/materials`, `.../files/:id/presigned` | список есть, скачивания нет | Needs redesign |
-| Экзамены, учебный план | `/exams` | — | Missing |
-| Отметка по QR (`/checkin`) | `POST /attendance/check-in` | — | Missing |
-| «Мои задачи» | модели нет; веб собирает список из заявок, событий, заданий | — | Blocked by API (своих задач нет); производный список — Missing |
-| Календарь | диапазона дат нет; веб собирает его из расписания, событий, заданий и экзаменов | события — `EventsView` | Needs redesign |
-| Преподаватель: журнал, проверка работ, экзамены, материалы | `/gradebook/course/*`, `/submissions/*` | — | Missing |
+| Страница веба | iOS | Статус |
+|---|---|---|
+| `/academic` | `StudentAcademicView` | Implemented |
+| `/grades`, `/attendance` | `StudentGradesView`, `StudentAttendanceView` | Implemented |
+| `/assignments` | вкладки по статусу, карточка, черновик, сдача, файлы к сдаче | Implemented |
+| материалы | фильтр по дисциплине, открытие файлов | Implemented |
+| `/exams`, `/study-plan` | `StudentExamsView`, `StudentStudyPlanView` | Implemented |
+| `/tasks` | `StudentTasksView` — производный список из заданий, заявок, событий | Implemented |
+| `/checkin` | сканер, ручной ввод, ссылка `/checkin?t=` | Implemented |
+| `/student-id` | QR с обновлением раз в 45 с | Implemented |
+| «Мои задачи» как своя сущность | модели нет | Blocked by API |
 
-## Профиль
+## Преподаватель
 
-| Функция | API | iOS | Статус |
-|---|---|---|---|
-| Шапка: обложка, аватар, ФИО, строка под именем, роль, курс, специальность, статус, о себе | `GET /users/me`, `/users/:id` | `ProfileView` | Implemented |
-| Счётчики | `GET /profile/:id/counts`, `/friends/count` | Implemented | Implemented |
-| Вкладки: посты, фото, видео, статьи, опросы | `/posts?authorId`, `/profile/:id/media`, `/profile/:id/articles`, `/polls/by-user/:id` | Implemented; голосование в опросе есть | Implemented |
-| Сведения: контакты, учёба или работа, навыки, интересы | поля профиля | `ProfileDetailsView` | Implemented |
-| Правка: аватар, обложка, ФИО, строка под именем, о себе, контакты, навыки, кабинет | `PATCH /users/me`, `/users/me/avatar`, `/users/me/cover` | `ProfileEditView` с учётом прав роли | Implemented |
-| Отдельный «статус» | поля нет, ближайшее — `headline` | строка под именем | Blocked by API |
-| Чужой профиль: «Написать», дружба | `POST /chats`, `/friends/*` | Implemented | Implemented |
-| Закрытый профиль | `access: limited` | «Профиль закрыт» | Implemented |
-| Друзья: список | `GET /friends` | только входящие заявки на главной | Missing |
-| Загрузка фото и видео в профиль, альбомы | `/profile/media`, `/profile/albums` | — | Missing |
-| Студенческий билет | `GET /student-id/me` | — | Missing |
-| Логин (username) | `PATCH /users/me/username` | метод в `AccountAPI`, экрана нет | Missing |
+| Страница веба | iOS | Статус |
+|---|---|---|
+| `/teacher` | `TeachingDashboardView`, выгрузка отчёта | Implemented |
+| `/teacher/gradebook` | журнал: контрольные точки, оценки, итог | Implemented |
+| `/teacher/assignments` | создание, публикация, проверка работ, возврат на исправление | Implemented |
+| `/teacher/attendance` | журнал по дням, отметка с примечаниями и QR самоотметки | Implemented |
+| `/teacher/exams` | экзамены и ведомость | Implemented |
+| `/teacher/materials` | материалы с файлами | Implemented |
+| `/teacher/schedule` | свои пары и изменения | Implemented |
+| `/teacher/posts`, `/teacher/events` | свои публикации; события — общий экран сотрудников | Implemented |
+| `/teacher/consultations`, `/teacher/groups` | «Предстоящие / Все»; группы с поиском и пометкой старосты | Implemented |
+| Разовые изменения расписания преподавателем | права только у админа и декана, веб их тоже не даёт | Blocked by API |
+| Правка названия материала | PATCH нет | Blocked by API |
+| Перетаскивание пар в недельной сетке | форма правки | Adapted |
 
-## Настройки
+## Староста
 
-| Функция | API | iOS | Статус |
-|---|---|---|---|
-| Личные данные | `PATCH /users/me` | `ProfileEditView` | Implemented |
-| Пароль (выход на всех устройствах) | `PATCH /users/me/password` | `SecuritySettingsView` | Implemented |
-| 2FA: включение по QR и ключу, резервные коды, отключение | `/auth/2fa/*` | Implemented | Implemented |
-| Список сессий, завершить сессию | маршрута нет (и в вебе нет) | — | Blocked by API |
-| Уведомления: каналы и 6 тем | `GET`, `PATCH /notifications/settings` | `NotificationSettingsView` | Implemented |
-| Конфиденциальность: кто видит профиль, почта, телефон | `PATCH /users/me` | `PrivacySettingsView` | Implemented |
-| Выгрузка персональных данных | `GET /me/export` | лист «Поделиться» с JSON | Implemented |
-| Тема оформления | на сервере нет | на устройстве (`@AppStorage`), применяется к корню | Implemented |
-| Язык | `locale` в `PATCH /users/me` | язык интерфейса — в настройках iOS; язык писем и пушей на сервере не меняется | Needs redesign |
-| Вход на другом устройстве по QR | `/auth/qr/*` | Implemented | Implemented |
-| Поддержка | `POST /support` | `SupportView` | Implemented |
-| Удаление аккаунта (с проверкой долгов) | `GET /users/me/deletion-check`, `DELETE /users/me` | `DeleteAccountView` | Implemented |
-| Привязка Telegram mini-app | `/mini/link-code` | — | Missing |
+| Страница веба | iOS | Статус |
+|---|---|---|
+| `/starosta/group`, `/starosta/classmates` | `StarostaGroupView` с фильтром «Одногруппники» | Implemented |
+| `/starosta/group-documents` | запросы и прогресс по студентам | Implemented |
+| `/starosta/invites` | создание, отзыв, импорт CSV/XLSX | Implemented |
+| `/starosta/applications`, `/events`, `/schedule` | те же экраны, что у студента | Implemented |
 
-## Сервисы
+## Профиль и настройки
 
-| Функция | API | iOS | Статус |
-|---|---|---|---|
-| Каталог сервисов с группами, поиском и составом по роли | — | `ServicesView` | Implemented |
-| Деканат: запись, мои записи, отмена | `/deanery-appointments` | `DeaneryView` | Implemented |
-| Консультации: преподаватели, окна, запись, отмена | `/consultations/*` | `ConsultationsView` | Implemented |
-| Консультации преподавателя: открыть и снять окно | `POST`, `DELETE /consultations/slots` | Implemented | Implemented |
-| Карта кампуса: кампус, корпус, этаж, поиск, план, сведения о помещении | `/campus`, `/campus/:id/published`, `.../floors/:id`, `/campus/search` | `CampusMapView`, `FloorPlanCanvas` | Implemented |
-| Маршрут по кампусу | граф есть (`/published/nav`), путь веб ищет у себя | — | Missing |
-| 3D-вид кампуса | three.js в вебе | — | Missing |
-| Заявки: каталог, черновик, отправка, отмена | `/application-categories`, `/applications` | `ApplicationsView`, `ApplicationFormView` | Implemented |
-| Документы к заявке, файлы результата | `/applications/:id/documents`, `/results/:id/url` | — | Missing |
-| Документы: просмотр и скачивание | `GET /documents`, `.../files/:id/url` | `DocumentsView` | Implemented |
-| Документы: загрузка, доступ, запросы документов | `/documents/upload`, `/document-requests` | — | Missing |
-| Библиотека: каталог, бронь, мои книги, справка | `/library/*` | Implemented | Implemented |
-| Портфолио: записи по видам, добавление, удаление | `/portfolio` | `PortfolioView` | Implemented |
-| Правка и порядок записей портфолио | `PATCH /portfolio/:id`, `PUT /portfolio/order` | — | Missing |
-| События: список, запись | `/events` | `EventsView` | Implemented |
-| События: создание, комментарии, онлайн-встреча | `POST /events`, `/events/:id/comments`, `/meeting` | — | Missing |
-| Одногруппники (староста), группы преподавателя | `GET /groups/:id/members`, `GET /courses?mine` | `ClassmatesView`, `TeacherGroupsView` | Implemented |
-| Староста: приглашения, сбор документов группы | `/invites`, `/document-requests/group-progress` | — | Missing |
-| Карьера: вакансии, резюме, отклики | `/career/*` | — | Missing |
-| Отключение разделов платформой | `GET /platform/state` (`disabledSections`) | не учитывается | Missing |
+| Функция | Статус |
+|---|---|
+| Шапка, счётчики, вкладки, сведения, правка, чужой профиль, дружба | Implemented |
+| Друзья: список, входящие, отправленные, поиск | Implemented |
+| Фото и видео профиля, альбомы | Implemented |
+| Логин, язык писем и пушей (`locale`), привязка Telegram (роли платформы) | Implemented |
+| Пароль, 2FA, уведомления, приватность, выгрузка данных, тема, поддержка, удаление аккаунта | Implemented |
+| Чужой список друзей | `GET /friends` без `userId` — Blocked by API |
+| Список сессий и завершение одной | Blocked by API |
+
+## Сервисы студента
+
+| Функция | Статус |
+|---|---|
+| Деканат, консультации, карта кампуса, библиотека читателя | Implemented |
+| Заявки: каталог, анкета, документы по требованиям, результат, история, повторная подача | Implemented |
+| Документы: мои, архив, мне открыли, загрузка, доступ, запросы документов | Implemented |
+| Портфолио: правка и порядок | Implemented |
+| События: вкладки, карточка, запись, встреча, обсуждение, создание | Implemented |
+| Страница вуза `/universities/[id]` | Implemented |
+| Маршрут по кампусу, 3D-вид | Missing |
+
+## Карьера
+
+| Страница веба | Статус |
+|---|---|
+| `/career`, `/career/vacancies` (+ карточка, отклик), `/applications`, `/profile`, `/resume`, `/events` | Implemented |
+| `/career/companies`, `/vacancy-review`, `/analytics` (сотрудники вуза и платформы, выбор вуза у платформы) | Implemented |
+| `/companies/[id]`, `/r/resume/[slug]` | Implemented |
+| Графики аналитики карьеры | Adapted — полосы долей и строки значений |
+
+## Работодатель
+
+| Страница веба | Статус |
+|---|---|
+| `/employer` (обзор), `/vacancies`, `/candidates`, `/access`, `/team`, профиль компании | Implemented |
+| Саморегистрация, подтверждение почты, вступление в команду | Implemented (с экрана входа) |
+| Ссылки из писем (`/employer/verify`, `/employer/join`) открывают приложение | Adapted — ссылка или код вставляются вручную |
+| Карточка своей вакансии отдельным запросом | GET нет, ищется в списке — Adapted |
+
+## Деканат
+
+| Страница веба | Статус |
+|---|---|
+| `/dean` — обзор дня, графики, выгрузка отчёта | Implemented |
+| `/dean/groups`, `/students`, `/teachers`, `/starostas` — назначение старосты, учебные данные, выгрузка | Implemented |
+| `/dean/courses`, `/exams` (ведомость), `/analytics`, `/appointments` | Implemented |
+| `/dean/schedule` — версии, пары, разовые изменения | Implemented; сетка — Adapted |
+| `/dean/invites`, `/applications`, `/posts`, `/events`, `/chats` | общие экраны — Implemented |
+| Время записи на приём в поясе вуза | показывается в поясе устройства — Adapted |
+
+## Администратор вуза
+
+| Страница веба | Статус |
+|---|---|
+| `/university-admin` (обзор), `/analytics`, `/setup` | Implemented |
+| `/faculties`, `/specialties`, `/groups` | Implemented |
+| `/rooms` — помещения, QR-наклейки (AirPrint, «Поделиться») | Implemented |
+| `/campus`, `/campus/[id]` — свойства, корпуса, этажи, публикация, версии | Implemented |
+| Холст-редактор этажа и территории (`/campus-editor/*`) | Adapted — план только просмотр |
+| `/cameras`, `/cameras/watch` — агенты, камеры, до 4 потоков | Implemented |
+| `/schedule`, `/courses` | Implemented |
+| `/users`, `/students`, `/teachers`, `/deans`, `/invites`, `/complaints`, `/audit` | общие экраны — Implemented |
+| `/applications`, `/services`, `/document-types`, `/document-templates`, `/document-journal`, `/library/*`, `/posts`, `/events`, `/security` | общие экраны сотрудников — Implemented |
+| Импорт списков факультетов, групп, расписания | маршрутов с файлом нет — Blocked by API |
+
+## Общие разделы сотрудников
+
+| Функция | Статус |
+|---|---|
+| Очередь заявок: фильтры, карточка, все решения, документы, результат и справка | Implemented |
+| Обновление очереди в реальном времени | Missing (обновление жестом) |
+| Каталог услуг, типы и шаблоны документов (загрузка DOCX, проверка, предпросмотр, публикация), журнал документов | Implemented |
+| Библиотека вуза: настройки, каталог, отчёты, журнал просмотра удостоверений | Implemented |
+| Публикации вуза и деканата, управление событиями, журналы охраны | Implemented |
+| Перестановка документов и вопросов услуги | Missing |
+
+## Администрирование и модерация
+
+| Страница веба | Статус |
+|---|---|
+| Обзоры администратора и модераторов платформы, модератора вуза; статистика | Implemented |
+| Жалобы: разбор, меры, переписка, «ко всем дублям» | Implemented |
+| Журнал аудита, пользователи (блокировка, сессии, сброс 2FA, выгрузка), приглашения (импорт) | Implemented |
+| Поддержка: переписка, ответ, темы, склейка, эскалация, закрытие | Implemented; голосовые и вложения — Missing |
+| Вузы, заявки на демо, доступ к документам, модерация публикаций | Implemented |
+| События и каталог услуг платформы, кампус модератора вуза | общие экраны — Implemented |
+| Администраторы в карточке вуза | `GET /users` без фильтра вуза — Blocked by API |
+| Повторная отправка приглашения | маршрута нет — Blocked by API |
+| Сортировка по колонкам таблиц | Adapted — фильтры, порядок сервера |
+
+## Охрана
+
+| Страница веба | Статус |
+|---|---|
+| `/security` — пост, проходы, посетители, журналы | Implemented |
+| `/security/cameras` — поток с водяным знаком, стена до 4 камер | Implemented |
+| `/security/rooms`, `/r/<код>` — статус помещения | Implemented |
+| `/verify-id`, `/scan` | Implemented |
+
+## Библиотекарь
+
+| Страница веба | Статус |
+|---|---|
+| `/library`, `/issue`, `/return`, `/loans`, `/reservations` | Implemented |
+| `/library/catalog` (+ карточка, экземпляры, импорт, наклейки в PDF) | Implemented |
+| `/library/inventory`, `/reports`, `/clearances`, `/c/<код>`, сканер QR и штрихкодов | Implemented |
+| Ручное кадрирование обложки | Adapted — обрезка по центру до 2:3 |
