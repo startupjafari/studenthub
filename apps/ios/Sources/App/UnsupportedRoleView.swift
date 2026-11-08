@@ -1,10 +1,8 @@
 import SwiftUI
 
-/// Роль вне MVP: деканат, администраторы вуза и платформы, работодатели.
-///
-/// Приложение дополняет веб, а не заменяет его (план, «Допущения»). Показать таким
-/// пользователям пустую оболочку было бы хуже, чем сказать прямо: их разделы живут
-/// в браузере, и там всё работает.
+/// Роль, которой эта сборка не знает: сервер завёл её раньше, чем человек обновил
+/// приложение. Пустая оболочка была бы хуже, чем прямой ответ: обновите приложение или
+/// откройте веб.
 struct UnsupportedRoleView: View {
     let session: AppSessionModel
 
@@ -16,18 +14,18 @@ struct UnsupportedRoleView: View {
                 .accessibilityHidden(true)
 
             Text(String(
-                localized: "session.roleInWebTitle",
-                defaultValue: "Эта роль работает в браузере"
+                localized: "session.roleUnknownTitle",
+                defaultValue: "Эта роль пока не поддерживается"
             ))
             .font(Typography.sectionTitle)
             .foregroundStyle(Palette.foreground)
             .multilineTextAlignment(.center)
 
             Text(String(
-                localized: "session.roleInWebHint",
+                localized: "session.roleUnknownHint",
                 defaultValue: """
-                    Приложение сделано для студентов, старост и преподавателей. \
-                    Остальные разделы платформы откройте в браузере.
+                    Обновите приложение до последней версии \
+                    или откройте платформу в браузере.
                     """
             ))
             .font(Typography.meta)

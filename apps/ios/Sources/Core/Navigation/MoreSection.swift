@@ -50,9 +50,14 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
             return common + [.deanery, .classmates]
         case .teacher:
             return common + [.subjects, .groups]
-        default:
-            // Роли вне MVP приложение не ведёт — им остаётся веб.
+        case .securityGuard, .librarian:
+            // Роли с запретом по умолчанию: только свой аккаунт и карта (у охраны).
+            return role == .securityGuard ? [.profile, .settings, .campusMap] : [.profile, .settings]
+        case .unknown:
             return []
+        default:
+            // Сотрудники и работодатель: общий аккаунт, документы, события и карта.
+            return [.profile, .settings, .documents, .events, .campusMap, .applications]
         }
     }
 

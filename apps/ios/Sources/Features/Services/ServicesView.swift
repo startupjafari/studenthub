@@ -35,7 +35,20 @@ struct ServicesView: View {
                 .listRowBackground(Palette.card)
             }
 
-            if visibleGroups.isEmpty {
+            ForEach(visibleExtras) { group in
+                Section {
+                    ForEach(group.items) { item in
+                        NavigationLink(value: item.route) {
+                            IconRow(title: item.title, symbol: item.symbol, tint: item.tint, subtitle: query.isEmpty ? item.hint : nil)
+                        }
+                    }
+                } header: {
+                    Text(group.title)
+                }
+                .listRowBackground(Palette.card)
+            }
+
+            if visibleGroups.isEmpty && visibleExtras.isEmpty {
                 EmptyStateView(
                     title: String(localized: "services.notFound", defaultValue: "Ничего не нашлось"),
                     symbol: "magnifyingglass",
@@ -53,6 +66,17 @@ struct ServicesView: View {
             prompt: Text(String(localized: "services.search", defaultValue: "Поиск сервиса"))
         )
         .task { await loadModules() }
+    }
+
+    /// Разделы областей сверх «Сервисов»: староста, карьера, студенческий билет.
+    private var visibleExtras: [WorkspaceGroup] {
+        let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
+        return Workspace.serviceExtras(for: role).compactMap { group in
+            let items = group.items.filter {
+                needle.isEmpty || $0.title.lowercased().contains(needle) || ($0.hint?.lowercased().contains(needle) ?? false)
+            }
+            return items.isEmpty ? nil : WorkspaceGroup(title: group.title, items: items)
+        }
     }
 
     /// Разделы роли и включённые модули.

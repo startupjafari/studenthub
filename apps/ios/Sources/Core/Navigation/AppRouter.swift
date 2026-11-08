@@ -26,6 +26,19 @@ enum AppRoute: Hashable {
     case chatInfo(id: String)
     /// Аудитория на карте кампуса — из занятия в расписании.
     case campusRoom(roomID: String)
+
+    // Экраны областей. Каждая область описывает свои экраны сама (`Features/<Область>`).
+    case student(StudentScreen)
+    case community(CommunityScreen)
+    case teacher(TeacherScreen)
+    case starosta(StarostaScreen)
+    case career(CareerScreen)
+    case dean(DeanScreen)
+    case uniAdmin(UniAdminScreen)
+    case staff(StaffScreen)
+    case admin(AdminScreen)
+    case security(SecurityScreen)
+    case librarian(LibrarianScreen)
 }
 
 /// Навигация оболочки: выбранная вкладка и путь внутри каждой.
@@ -79,9 +92,10 @@ final class AppRouter {
     @MainActor
     @discardableResult
     func open(_ link: DeepLink, for role: Role) -> Bool {
+        currentRole = role
         switch link {
         case .tab(let tab):
-            select(tab)
+            select(AppTab.resolve(tab, for: role))
         case .section(let section):
             // Ссылка на чужой раздел не должна открывать пустой экран: у студента
             // нет обращений группы, и показать их ему нечем.
@@ -133,9 +147,24 @@ final class AppRouter {
         stacks[tab] ?? []
     }
 
+    /// Роль, для которой открывалась последняя ссылка: вкладки у ролей разные, и пост
+    /// у администратора платформы открывается не в ленте, которой у него нет.
+    @ObservationIgnored private var currentRole: Role = .student
+
     @MainActor
     private func push(_ tab: AppTab, _ routes: [AppRoute]) {
-        selectedTab = tab
-        stacks[tab] = routes
+        let target = AppTab.resolve(tab, for: currentRole)
+        selectedTab = target
+        stacks[target] = routes
+    }
+
+    /// Первая вкладка роли — при входе и после выхода из аккаунта.
+    @MainActor
+    func adopt(role: Role) {
+        currentRole = role
+        let tabs = AppTab.tabs(for: role)
+        if !tabs.contains(selectedTab) {
+            selectedTab = tabs.first ?? .home
+        }
     }
 }

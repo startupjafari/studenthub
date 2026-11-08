@@ -95,15 +95,24 @@ struct StudyView: View {
                         tint: TileTint.red
                     )
                 }
-            } footer: {
-                if isTeacher {
-                    Text(String(
-                        localized: "study.teacherHint",
-                        defaultValue: "Посещаемость отмечается с пары в расписании, журнал оценок — в веб-версии."
-                    ))
-                }
             }
             .listRowBackground(Palette.card)
+
+            let extras = Workspace.studyExtras(for: role)
+            if !extras.isEmpty {
+                Section {
+                    ForEach(extras) { item in
+                        NavigationLink(value: item.route) {
+                            IconRow(title: item.title, symbol: item.symbol, tint: item.tint, subtitle: item.hint)
+                        }
+                    }
+                } header: {
+                    Text(isTeacher
+                        ? String(localized: "study.teacherTools", defaultValue: "Преподавателю")
+                        : String(localized: "study.more", defaultValue: "Ещё по учёбе"))
+                }
+                .listRowBackground(Palette.card)
+            }
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)

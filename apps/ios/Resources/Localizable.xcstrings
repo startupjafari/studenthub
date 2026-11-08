@@ -8229,28 +8229,6 @@
         }
       }
     },
-    "session.roleInWebHint": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Приложение сделано для студентов, старост и преподавателей. Остальные разделы платформы откройте в браузере."
-          }
-        }
-      }
-    },
-    "session.roleInWebTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Эта роль работает в браузере"
-          }
-        }
-      }
-    },
     "session.signOut": {
       "extractionState": "manual",
       "localizations": {
@@ -9827,23 +9805,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld курс"
-          }
-        }
-      }
-    },
-    "study.teacherHint": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Посещаемость отмечается с пары в расписании, журнал оценок — в веб-версии."
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Қатысу кестедегі сабақтан белгіленеді, бағалар журналы — веб-нұсқада."
           }
         }
       }
@@ -11778,6 +11739,1777 @@
           "stringUnit": {
             "state": "translated",
             "value": "Version in the 1.2.3 format"
+          }
+        }
+      }
+    },
+    "common.yes": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Да"
+          }
+        }
+      }
+    },
+    "common.no": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет"
+          }
+        }
+      }
+    },
+    "role.platformAdmin": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Администратор платформы"
+          }
+        }
+      }
+    },
+    "role.platformModerator": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модератор платформы"
+          }
+        }
+      }
+    },
+    "role.universityAdmin": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Администратор вуза"
+          }
+        }
+      }
+    },
+    "role.universityModerator": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модератор вуза"
+          }
+        }
+      }
+    },
+    "role.securityGuard": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Охрана"
+          }
+        }
+      }
+    },
+    "role.librarian": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Библиотекарь"
+          }
+        }
+      }
+    },
+    "role.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пользователь"
+          }
+        }
+      }
+    },
+    "tab.dashboard": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обзор"
+          }
+        }
+      }
+    },
+    "tab.workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разделы"
+          }
+        }
+      }
+    },
+    "tab.feed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лента"
+          }
+        }
+      }
+    },
+    "services.group.starosta": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Староста"
+          }
+        }
+      }
+    },
+    "services.group.more": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ещё"
+          }
+        }
+      }
+    },
+    "services.group.career": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Карьера"
+          }
+        }
+      }
+    },
+    "starosta.screen.myGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Моя группа"
+          }
+        }
+      }
+    },
+    "starosta.screen.groupDocuments": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сбор документов"
+          }
+        }
+      }
+    },
+    "starosta.screen.groupDocumentRequest": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запрос документов"
+          }
+        }
+      }
+    },
+    "starosta.screen.invites": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приглашения"
+          }
+        }
+      }
+    },
+    "dean.screen.dashboard": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обзор деканата"
+          }
+        }
+      }
+    },
+    "dean.screen.groups": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Группы"
+          }
+        }
+      }
+    },
+    "dean.screen.group": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Группа"
+          }
+        }
+      }
+    },
+    "dean.screen.students": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Студенты"
+          }
+        }
+      }
+    },
+    "dean.screen.student": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Студент"
+          }
+        }
+      }
+    },
+    "dean.screen.teachers": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Преподаватели"
+          }
+        }
+      }
+    },
+    "dean.screen.starostas": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Старосты"
+          }
+        }
+      }
+    },
+    "dean.screen.courses": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дисциплины"
+          }
+        }
+      }
+    },
+    "dean.screen.exams": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экзамены"
+          }
+        }
+      }
+    },
+    "dean.screen.analytics": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аналитика"
+          }
+        }
+      }
+    },
+    "dean.screen.appointments": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запись на приём"
+          }
+        }
+      }
+    },
+    "dean.screen.schedule": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расписание факультета"
+          }
+        }
+      }
+    },
+    "workspace.group.people": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Люди"
+          }
+        }
+      }
+    },
+    "workspace.group.study": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Учёба"
+          }
+        }
+      }
+    },
+    "workspace.group.services": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сервисы"
+          }
+        }
+      }
+    },
+    "workspace.group.communication": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коммуникации"
+          }
+        }
+      }
+    },
+    "admin.screen.platformDashboard": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обзор платформы"
+          }
+        }
+      }
+    },
+    "admin.screen.platformModeratorDashboard": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обзор модератора"
+          }
+        }
+      }
+    },
+    "admin.screen.universityModeratorDashboard": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обзор модератора вуза"
+          }
+        }
+      }
+    },
+    "admin.screen.complaints": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жалобы"
+          }
+        }
+      }
+    },
+    "admin.screen.complaint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жалоба"
+          }
+        }
+      }
+    },
+    "admin.screen.audit": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Журнал аудита"
+          }
+        }
+      }
+    },
+    "admin.screen.users.students": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Студенты"
+          }
+        }
+      }
+    },
+    "admin.screen.users.teachers": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Преподаватели"
+          }
+        }
+      }
+    },
+    "admin.screen.users.deans": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Деканы"
+          }
+        }
+      }
+    },
+    "admin.screen.users": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пользователи"
+          }
+        }
+      }
+    },
+    "admin.screen.user": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пользователь"
+          }
+        }
+      }
+    },
+    "admin.screen.invites": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приглашения"
+          }
+        }
+      }
+    },
+    "admin.screen.support": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поддержка"
+          }
+        }
+      }
+    },
+    "admin.screen.supportTicket": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обращение"
+          }
+        }
+      }
+    },
+    "admin.screen.stats": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Статистика"
+          }
+        }
+      }
+    },
+    "admin.screen.postsModeration": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Публикации"
+          }
+        }
+      }
+    },
+    "admin.screen.universities": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вузы"
+          }
+        }
+      }
+    },
+    "admin.screen.university": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вуз"
+          }
+        }
+      }
+    },
+    "admin.screen.demoRequests": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заявки на демо"
+          }
+        }
+      }
+    },
+    "admin.screen.documentAccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ к документам"
+          }
+        }
+      }
+    },
+    "admin.screen.platformServices": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каталог услуг"
+          }
+        }
+      }
+    },
+    "admin.screen.platformEvents": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "События"
+          }
+        }
+      }
+    },
+    "admin.screen.campusModeration": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кампус"
+          }
+        }
+      }
+    },
+    "workspace.group.platform": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Платформа"
+          }
+        }
+      }
+    },
+    "workspace.group.control": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контроль"
+          }
+        }
+      }
+    },
+    "workspace.group.moderation": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модерация"
+          }
+        }
+      }
+    },
+    "teaching.screen.dashboard": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обзор преподавателя"
+          }
+        }
+      }
+    },
+    "teaching.screen.gradebook": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Журнал оценок"
+          }
+        }
+      }
+    },
+    "teaching.screen.gradebookCourse": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Журнал дисциплины"
+          }
+        }
+      }
+    },
+    "teaching.screen.reviews": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверка работ"
+          }
+        }
+      }
+    },
+    "teaching.screen.assignmentSubmissions": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сданные работы"
+          }
+        }
+      }
+    },
+    "teaching.screen.attendanceJournal": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Журнал посещаемости"
+          }
+        }
+      }
+    },
+    "teaching.screen.exams": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экзамены"
+          }
+        }
+      }
+    },
+    "teaching.screen.exam": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экзамен"
+          }
+        }
+      }
+    },
+    "teaching.screen.materials": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Материалы"
+          }
+        }
+      }
+    },
+    "teaching.screen.scheduleChanges": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменения расписания"
+          }
+        }
+      }
+    },
+    "teaching.screen.myPosts": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мои публикации"
+          }
+        }
+      }
+    },
+    "student.screen.academic": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Успеваемость"
+          }
+        }
+      }
+    },
+    "student.screen.calendar": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Календарь"
+          }
+        }
+      }
+    },
+    "student.screen.tasks": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мои задачи"
+          }
+        }
+      }
+    },
+    "student.screen.exams": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экзамены"
+          }
+        }
+      }
+    },
+    "student.screen.studyPlan": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Учебный план"
+          }
+        }
+      }
+    },
+    "student.screen.checkin": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отметка по QR"
+          }
+        }
+      }
+    },
+    "student.screen.studentID": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Студенческий билет"
+          }
+        }
+      }
+    },
+    "community.screen.friends": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Друзья"
+          }
+        }
+      }
+    },
+    "community.screen.articles": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Статьи"
+          }
+        }
+      }
+    },
+    "community.screen.article": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Статья"
+          }
+        }
+      }
+    },
+    "community.screen.highlights": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Актуальное"
+          }
+        }
+      }
+    },
+    "community.screen.university": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Университет"
+          }
+        }
+      }
+    },
+    "community.screen.documentRequests": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запросы документов"
+          }
+        }
+      }
+    },
+    "community.screen.telegramLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telegram"
+          }
+        }
+      }
+    },
+    "workspace.search": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск раздела"
+          }
+        }
+      }
+    },
+    "staff.screen.applicationsQueue": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заявки"
+          }
+        }
+      }
+    },
+    "staff.screen.application": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заявка"
+          }
+        }
+      }
+    },
+    "staff.screen.serviceCatalog": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каталог услуг"
+          }
+        }
+      }
+    },
+    "staff.screen.documentTypes": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Типы документов"
+          }
+        }
+      }
+    },
+    "staff.screen.documentTemplates": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шаблоны документов"
+          }
+        }
+      }
+    },
+    "staff.screen.documentTemplate": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шаблон документа"
+          }
+        }
+      }
+    },
+    "staff.screen.documentJournal": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Журнал документов"
+          }
+        }
+      }
+    },
+    "staff.screen.librarySettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройки библиотеки"
+          }
+        }
+      }
+    },
+    "staff.screen.libraryCatalog": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каталог библиотеки"
+          }
+        }
+      }
+    },
+    "staff.screen.libraryReports": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отчёты библиотеки"
+          }
+        }
+      }
+    },
+    "staff.screen.libraryJournal": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Журнал библиотеки"
+          }
+        }
+      }
+    },
+    "staff.screen.posts": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Публикации"
+          }
+        }
+      }
+    },
+    "staff.screen.events": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "События"
+          }
+        }
+      }
+    },
+    "staff.screen.event": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Событие"
+          }
+        }
+      }
+    },
+    "staff.screen.securityJournals": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Журналы охраны"
+          }
+        }
+      }
+    },
+    "security.screen.post": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пост охраны"
+          }
+        }
+      }
+    },
+    "security.screen.cameras": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Камеры"
+          }
+        }
+      }
+    },
+    "security.screen.camera": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Камера"
+          }
+        }
+      }
+    },
+    "security.screen.rooms": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Помещения"
+          }
+        }
+      }
+    },
+    "security.screen.verifyID": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверка билета"
+          }
+        }
+      }
+    },
+    "security.group": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Охрана"
+          }
+        }
+      }
+    },
+    "career.screen.home": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Карьера"
+          }
+        }
+      }
+    },
+    "career.screen.vacancies": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вакансии"
+          }
+        }
+      }
+    },
+    "career.screen.vacancy": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вакансия"
+          }
+        }
+      }
+    },
+    "career.screen.applications": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мои отклики"
+          }
+        }
+      }
+    },
+    "career.screen.profile": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Карьерный профиль"
+          }
+        }
+      }
+    },
+    "career.screen.resume": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Резюме"
+          }
+        }
+      }
+    },
+    "career.screen.events": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Карьерные события"
+          }
+        }
+      }
+    },
+    "career.screen.companies": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Компании"
+          }
+        }
+      }
+    },
+    "career.screen.company": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Компания"
+          }
+        }
+      }
+    },
+    "career.screen.vacancyReview": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модерация вакансий"
+          }
+        }
+      }
+    },
+    "career.screen.analytics": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аналитика карьеры"
+          }
+        }
+      }
+    },
+    "career.screen.employerHome": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кабинет работодателя"
+          }
+        }
+      }
+    },
+    "career.screen.employerVacancies": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вакансии компании"
+          }
+        }
+      }
+    },
+    "career.screen.employerVacancy": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вакансия"
+          }
+        }
+      }
+    },
+    "career.screen.candidates": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кандидаты"
+          }
+        }
+      }
+    },
+    "career.screen.candidate": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кандидат"
+          }
+        }
+      }
+    },
+    "career.screen.access": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ к вузам"
+          }
+        }
+      }
+    },
+    "career.screen.team": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команда"
+          }
+        }
+      }
+    },
+    "career.screen.companyProfile": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Профиль компании"
+          }
+        }
+      }
+    },
+    "career.group.employer": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кабинет"
+          }
+        }
+      }
+    },
+    "study.teacherTools": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Преподавателю"
+          }
+        }
+      }
+    },
+    "study.more": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ещё по учёбе"
+          }
+        }
+      }
+    },
+    "uadmin.screen.dashboard": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обзор вуза"
+          }
+        }
+      }
+    },
+    "uadmin.screen.analytics": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аналитика"
+          }
+        }
+      }
+    },
+    "uadmin.screen.setup": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройка вуза"
+          }
+        }
+      }
+    },
+    "uadmin.screen.faculties": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Факультеты"
+          }
+        }
+      }
+    },
+    "uadmin.screen.specialties": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Специальности"
+          }
+        }
+      }
+    },
+    "uadmin.screen.groups": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Группы"
+          }
+        }
+      }
+    },
+    "uadmin.screen.group": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Группа"
+          }
+        }
+      }
+    },
+    "uadmin.screen.rooms": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аудитории"
+          }
+        }
+      }
+    },
+    "uadmin.screen.campuses": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кампусы"
+          }
+        }
+      }
+    },
+    "uadmin.screen.cameras": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Камеры"
+          }
+        }
+      }
+    },
+    "uadmin.screen.schedule": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расписание"
+          }
+        }
+      }
+    },
+    "uadmin.screen.courses": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дисциплины"
+          }
+        }
+      }
+    },
+    "workspace.group.main": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Главное"
+          }
+        }
+      }
+    },
+    "workspace.group.structure": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Структура"
+          }
+        }
+      }
+    },
+    "workspace.group.applications": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заявки и документы"
+          }
+        }
+      }
+    },
+    "workspace.group.library": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Библиотека"
+          }
+        }
+      }
+    },
+    "librarian.screen.home": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Библиотека"
+          }
+        }
+      }
+    },
+    "librarian.screen.issue": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выдача"
+          }
+        }
+      }
+    },
+    "librarian.screen.returnBooks": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Возврат"
+          }
+        }
+      }
+    },
+    "librarian.screen.loans": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выдачи"
+          }
+        }
+      }
+    },
+    "librarian.screen.reservations": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Брони"
+          }
+        }
+      }
+    },
+    "librarian.screen.catalog": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каталог"
+          }
+        }
+      }
+    },
+    "librarian.screen.book": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Книга"
+          }
+        }
+      }
+    },
+    "librarian.screen.inventory": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Инвентаризация"
+          }
+        }
+      }
+    },
+    "librarian.screen.reports": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отчёты"
+          }
+        }
+      }
+    },
+    "librarian.screen.clearances": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Справки"
+          }
+        }
+      }
+    },
+    "librarian.group": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Библиотека"
+          }
+        }
+      }
+    },
+    "session.roleUnknownTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта роль пока не поддерживается"
+          }
+        }
+      }
+    },
+    "session.roleUnknownHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновите приложение до последней версии или откройте платформу в браузере."
+          }
+        }
+      }
+    },
+    "common.totalCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всего: %@"
+          }
+        }
+      }
+    },
+    "common.reason": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Причина"
           }
         }
       }

@@ -215,6 +215,8 @@ extension Role {
         case .platformAdmin, .platformModerator:
             return String(localized: "role.platform", defaultValue: "StudentHub")
         case .employer: return String(localized: "role.employer", defaultValue: "Работодатель")
+        case .securityGuard: return String(localized: "role.securityGuard", defaultValue: "Охрана")
+        case .librarian: return String(localized: "role.librarian", defaultValue: "Библиотекарь")
         case .student, .unknown: return nil
         }
     }

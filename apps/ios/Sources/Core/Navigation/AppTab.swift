@@ -1,10 +1,12 @@
 import Foundation
 
-/// Пять вкладок оболочки (план, «Карта экранов»).
+/// Вкладки оболочки.
 ///
-/// Состав вкладок одинаков у всех трёх ролей — меняется наполнение. Так устроен и
-/// веб: роль решает, что показать, а не как устроено приложение. Трёх разных
-/// приложений под три роли не получается.
+/// Учебные роли (студент, староста, преподаватель) живут в пяти вкладках: главная,
+/// расписание, чаты, учёба, сервисы. У сотрудников вуза и платформы, работодателя,
+/// охраны и библиотеки своя главная — «Обзор» (как дашборд роли в вебе, `ROLE_HOME`),
+/// а все разделы меню веба собраны во вкладке «Разделы». Состав решает роль
+/// (`tabs(for:)`), устройство одно на всех.
 enum AppTab: String, CaseIterable, Identifiable, Hashable {
     case home
     case schedule
@@ -12,8 +14,48 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
     case study
     /// Сервисы вуза: каталог разделов веба, сгруппированный по смыслу.
     case services
+    /// Обзор роли: дашборд деканата, администратора, модератора, работодателя, поста
+    /// охраны, библиотеки.
+    case dashboard
+    /// Все разделы меню роли, сгруппированные как в боковом меню веба.
+    case workspace
 
     var id: AppTab { self }
+
+    /// Вкладки роли по порядку. Роли с запретом по умолчанию — без чатов и ленты, как
+    /// в вебе (`hasChats`, `RESTRICTED_ROLE_PATHS`).
+    static func tabs(for role: Role) -> [AppTab] {
+        switch role {
+        case .student, .starosta, .teacher:
+            return [.home, .schedule, .chats, .study, .services]
+        case .dean:
+            return [.dashboard, .schedule, .chats, .workspace, .home]
+        case .universityAdmin, .universityModerator:
+            return [.dashboard, .chats, .workspace, .home]
+        case .platformAdmin, .platformModerator, .employer:
+            return [.dashboard, .chats, .workspace]
+        case .securityGuard, .librarian:
+            return [.dashboard, .workspace]
+        case .unknown:
+            return [.home]
+        }
+    }
+
+    /// Куда открыть ссылку, если у роли нет нужной вкладки: лента у администратора
+    /// платформы не живёт, и пост из пуша откроется поверх «Разделов».
+    static func resolve(_ tab: AppTab, for role: Role) -> AppTab {
+        let available = tabs(for: role)
+        if available.contains(tab) { return tab }
+        switch tab {
+        case .services, .study:
+            if available.contains(.workspace) { return .workspace }
+        case .home:
+            if available.contains(.dashboard) { return .dashboard }
+        default:
+            break
+        }
+        return available.first ?? .home
+    }
 
     var title: String {
         switch self {
@@ -27,7 +69,20 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
             return String(localized: "tab.study", defaultValue: "Учёба")
         case .services:
             return String(localized: "tab.services", defaultValue: "Сервисы")
+        case .dashboard:
+            return String(localized: "tab.dashboard", defaultValue: "Обзор")
+        case .workspace:
+            return String(localized: "tab.workspace", defaultValue: "Разделы")
         }
+    }
+
+    /// Подпись вкладки у роли. Главная сотрудника — это лента вуза, а не его стартовый
+    /// экран: стартовый у него «Обзор».
+    func title(for role: Role) -> String {
+        if self == .home, !role.isAcademic {
+            return String(localized: "tab.feed", defaultValue: "Лента")
+        }
+        return title
     }
 
     /// Системные символы, а не свои иконки: в панели вкладок они совпадают по весу
@@ -39,6 +94,13 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
         case .chats: return "bubble.left.and.bubble.right"
         case .study: return "graduationcap"
         case .services: return "square.grid.2x2"
+        case .dashboard: return "rectangle.3.group"
+        case .workspace: return "square.grid.2x2"
         }
+    }
+
+    func symbol(for role: Role) -> String {
+        if self == .home, !role.isAcademic { return "newspaper" }
+        return symbol
     }
 }

@@ -1,0 +1,610 @@
+import QuickLook
+import SwiftUI
+
+// Общие кирпичи экранов-списков, форм и сводок. Админских разделов в вебе больше сотни,
+// и все они собраны из одного и того же: список с поиском и подгрузкой, лист с формой,
+// плитки цифр, строка человека, подтверждение опасного действия, открытие файла.
+// Здесь они один раз — экраны отличаются данными, а не поведением.
+
+// MARK: - Роль в окружении
+
+private struct ViewerRoleKey: EnvironmentKey {
+    static let defaultValue: Role = .unknown
+}
+
+extension EnvironmentValues {
+    /// Роль вошедшего: экраны, общие для нескольких ролей (жалобы, заявки, журнал),
+    /// по ней решают, какие действия показать. Решение о доступе всё равно за сервером.
+    var viewerRole: Role {
+        get { self[ViewerRoleKey.self] }
+        set { self[ViewerRoleKey.self] = newValue }
+    }
+}
+
+// MARK: - Список с подгрузкой
+
+/// `List` над `PagedLoader`: состояния, подгрузка у последней строки, обновление жестом.
+/// Шапку (фильтры, сводку) экран передаёт в `header` — она остаётся видна и при пустом
+/// списке, чтобы фильтр можно было снять.
+struct PagedList<Item: Decodable & Identifiable, Row: View, Header: View>: View {
+    let loader: PagedLoader<Item>
+    var empty: EmptyStateView
+    @ViewBuilder var header: () -> Header
+    @ViewBuilder var row: (Item) -> Row
+
+    init(
+        loader: PagedLoader<Item>,
+        empty: EmptyStateView,
+        @ViewBuilder header: @escaping () -> Header,
+        @ViewBuilder row: @escaping (Item) -> Row
+    ) {
+        self.loader = loader
+        self.empty = empty
+        self.header = header
+        self.row = row
+    }
+
+    var body: some View {
+        List {
+            header()
+            if loader.isLoaded {
+                if loader.items.isEmpty {
+                    empty.listRowBackground(Color.clear)
+                } else {
+                    if let failure = loader.failure {
+                        StaleDataBanner(message: failure, isOffline: loader.isOffline) { await loader.reload() }
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets())
+                    }
+                    Section {
+                        ForEach(loader.items) { item in
+                            row(item)
+                                .task { await loader.loadMore(after: item) }
+                        }
+                        if loader.hasMore {
+                            HStack {
+                                Spacer()
+                                ProgressView()
+                                Spacer()
+                            }
+                            .listRowBackground(Color.clear)
+                        }
+                    } footer: {
+                        if let total = loader.total, total > 0 {
+                            Text(String(localized: "common.totalCount", defaultValue: "Всего: \(total.formatted())"))
+                        }
+                    }
+                    .listRowBackground(Palette.card)
+                }
+            } else if let failure = loader.failure {
+                ErrorStateView(message: failure, isOffline: loader.isOffline) { await loader.reload() }
+                    .listRowBackground(Color.clear)
+            } else {
+                LoadingStateView().listRowBackground(Color.clear)
+            }
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Palette.background)
+        .refreshable { await loader.reload() }
+        .task { await loader.loadIfNeeded() }
+    }
+}
+
+extension PagedList where Header == EmptyView {
+    init(loader: PagedLoader<Item>, empty: EmptyStateView, @ViewBuilder row: @escaping (Item) -> Row) {
+        self.init(loader: loader, empty: empty, header: { EmptyView() }, row: row)
+    }
+}
+
+// MARK: - Экран с одной загрузкой
+
+/// Экран, который грузит одно значение: карточка, сводка, настройки. `reloadToken` —
+/// повод перечитать (сохранили форму — увеличили счётчик).
+struct RemoteContent<Value, Content: View>: View {
+    var reloadToken: Int = 0
+    let load: () async throws -> Value
+    @ViewBuilder let content: (Value) -> Content
+
+    @State private var value: Value?
+    @State private var failure: String?
+    @State private var isOffline = false
+
+    var body: some View {
+        Group {
+            if let value {
+                content(value)
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await run() }
+            } else {
+                LoadingStateView()
+            }
+        }
+        .task(id: reloadToken) { await run() }
+    }
+
+    @MainActor
+    private func run() async {
+        do {
+            value = try await load()
+            failure = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            failure = error.userMessage
+            isOffline = error.isOffline
+        }
+    }
+}
+
+// MARK: - Лист с формой
+
+/// Лист «Отмена — заголовок — Сохранить» над `Form`. Ошибка сохранения показывается
+/// над полями, лист не закрывается; успех закрывает его и зовёт `saved`.
+struct FormSheet<Content: View>: View {
+    let title: String
+    var saveTitle: String = String(localized: "common.save", defaultValue: "Сохранить")
+    var canSave: Bool = true
+    let save: () async throws -> Void
+    var saved: () async -> Void = {}
+    @ViewBuilder let content: () -> Content
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var failure: String?
+    @State private var isSaving = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let failure {
+                    FormAlert(message: failure)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
+                content()
+            }
+            .scrollContentBackground(.hidden)
+            .background(Palette.background)
+            .navigationTitle(Text(title))
+            .navigationBarTitleDisplayMode(.inline)
+            .interactiveDismissDisabled(isSaving)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                        .disabled(isSaving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if isSaving {
+                        ProgressView()
+                    } else {
+                        Button(saveTitle) { Task { await run() } }
+                            .disabled(!canSave)
+                            .accessibilityIdentifier("form.save")
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func run() async {
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            try await save()
+            await saved()
+            dismiss()
+        } catch {
+            failure = error.userMessage
+        }
+    }
+}
+
+// MARK: - Сводки
+
+/// Плитка цифры на обзоре: значение крупно, подпись мелко, иконка — для поиска глазом.
+struct StatTile: View {
+    let title: String
+    let value: String
+    var symbol: String?
+    var tint: Color = Palette.primary
+    var caption: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            HStack(spacing: Spacing.sm) {
+                if let symbol {
+                    Image(systemName: symbol)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(tint)
+                        .accessibilityHidden(true)
+                }
+                Text(title)
+                    .font(Typography.meta)
+                    .foregroundStyle(Palette.mutedForeground)
+                    .lineLimit(2)
+            }
+            Text(value)
+                .font(.title2.weight(.semibold).monospacedDigit())
+                .foregroundStyle(Palette.foreground)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            if let caption, !caption.isEmpty {
+                Text(caption)
+                    .font(.caption)
+                    .foregroundStyle(Palette.mutedForeground)
+                    .lineLimit(2)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Spacing.lg)
+        .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Сетка плиток в две колонки — помещается на самом узком iPhone с крупным шрифтом.
+struct StatGrid<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        LazyVGrid(
+            columns: [GridItem(.flexible(), spacing: Spacing.md), GridItem(.flexible(), spacing: Spacing.md)],
+            spacing: Spacing.md,
+            content: content
+        )
+    }
+}
+
+/// Полоса «доля»: посещаемость, заполненность, прогресс сбора документов.
+struct ShareBar: View {
+    let title: String
+    /// 0…1.
+    let fraction: Double
+    var valueText: String?
+    var tint: Color = Palette.primary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            HStack {
+                Text(title).font(Typography.body).foregroundStyle(Palette.foreground)
+                Spacer(minLength: Spacing.md)
+                Text(valueText ?? fraction.formatted(.percent.precision(.fractionLength(0))))
+                    .font(Typography.meta.monospacedDigit())
+                    .foregroundStyle(Palette.mutedForeground)
+            }
+            ProgressView(value: min(max(fraction, 0), 1))
+                .tint(tint)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: - Строки
+
+/// Человек в списке: аватар, ФИО, подпись. Длинное не обрезается до бессмыслицы:
+/// ФИО — в две строки, подпись — в две.
+struct PersonRow: View {
+    let name: String
+    var subtitle: String?
+    var avatarURL: String?
+    var trailing: String?
+    var size: CGFloat = 40
+
+    var body: some View {
+        HStack(spacing: Spacing.lg) {
+            AvatarView(url: avatarURL, name: name, size: size)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name)
+                    .font(Typography.body)
+                    .foregroundStyle(Palette.foreground)
+                    .lineLimit(2)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(Typography.meta)
+                        .foregroundStyle(Palette.mutedForeground)
+                        .lineLimit(2)
+                }
+            }
+            Spacer(minLength: Spacing.md)
+            if let trailing, !trailing.isEmpty {
+                Text(trailing)
+                    .font(Typography.meta)
+                    .foregroundStyle(Palette.mutedForeground)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Строка карточки списка: заголовок, плашка статуса справа, строки сведений ниже.
+struct ListCardRow: View {
+    let title: String
+    var subtitle: String?
+    var status: (text: String, tint: Color)?
+    var lines: [String] = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            HStack(alignment: .firstTextBaseline, spacing: Spacing.md) {
+                Text(title)
+                    .font(Typography.cardTitle)
+                    .foregroundStyle(Palette.foreground)
+                    .lineLimit(3)
+                Spacer(minLength: Spacing.md)
+                if let status {
+                    StatusBadge(text: status.text, tint: status.tint)
+                }
+            }
+            if let subtitle, !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(Typography.meta)
+                    .foregroundStyle(Palette.mutedForeground)
+                    .lineLimit(3)
+            }
+            ForEach(Array(lines.filter { !$0.isEmpty }.enumerated()), id: \.offset) { _, line in
+                Text(line)
+                    .font(Typography.meta)
+                    .foregroundStyle(Palette.mutedForeground)
+                    .lineLimit(2)
+            }
+        }
+        .padding(.vertical, Spacing.xs)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: - Фильтры
+
+/// Полоса фильтров-капсул над списком. Значение `nil` — «Все».
+struct FilterChips<Value: Hashable>: View {
+    let options: [(value: Value?, title: String)]
+    @Binding var selection: Value?
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Spacing.sm) {
+                ForEach(Array(options.enumerated()), id: \.offset) { _, option in
+                    let isOn = option.value == selection
+                    Button {
+                        selection = option.value
+                    } label: {
+                        Text(option.title)
+                            .font(Typography.meta.weight(.medium))
+                            .padding(.horizontal, Spacing.lg)
+                            .padding(.vertical, Spacing.sm)
+                            .foregroundStyle(isOn ? Palette.primaryForeground : Palette.foreground)
+                            .background(isOn ? Palette.primary : Palette.muted, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(isOn ? .isSelected : [])
+                }
+            }
+            .padding(.vertical, Spacing.xs)
+        }
+    }
+}
+
+/// Строка фильтров для `List`: без фона и отступов, чтобы капсулы шли от края.
+struct FilterChipsRow<Value: Hashable>: View {
+    let options: [(value: Value?, title: String)]
+    @Binding var selection: Value?
+
+    var body: some View {
+        FilterChips(options: options, selection: $selection)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 0, leading: Spacing.lg, bottom: 0, trailing: Spacing.lg))
+    }
+}
+
+// MARK: - Подтверждение
+
+extension View {
+    /// Подтверждение опасного действия над элементом: удалить, заблокировать, отклонить.
+    func confirmDestructive<Item>(
+        _ item: Binding<Item?>,
+        title: @escaping (Item) -> String,
+        actionTitle: String,
+        perform: @escaping (Item) async -> Void
+    ) -> some View {
+        confirmationDialog(
+            item.wrappedValue.map(title) ?? "",
+            isPresented: Binding(get: { item.wrappedValue != nil }, set: { if !$0 { item.wrappedValue = nil } }),
+            titleVisibility: .visible,
+            presenting: item.wrappedValue
+        ) { value in
+            Button(actionTitle, role: .destructive) {
+                Task { await perform(value) }
+            }
+        }
+    }
+
+    /// Ввод короткого текста перед действием: причина отклонения, комментарий.
+    func reasonPrompt(
+        _ isPresented: Binding<Bool>,
+        title: String,
+        message: String? = nil,
+        placeholder: String = String(localized: "common.reason", defaultValue: "Причина"),
+        actionTitle: String,
+        text: Binding<String>,
+        perform: @escaping () async -> Void
+    ) -> some View {
+        alert(title, isPresented: isPresented) {
+            TextField(placeholder, text: text)
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
+            Button(actionTitle) { Task { await perform() } }
+        } message: {
+            if let message { Text(message) }
+        }
+    }
+}
+
+// MARK: - Файлы
+
+/// Открыть файл по ссылке: скачать во временную папку и показать системным просмотром
+/// (PDF, картинки, документы Office). Ссылка на хранилище живёт минуты, поэтому её
+/// получают прямо перед открытием — `resolve` и делает этот запрос.
+@MainActor
+@Observable
+final class RemoteFileOpener {
+    var previewURL: URL?
+    var isLoading = false
+    var failure: String?
+
+    func open(name: String, resolve: @escaping () async throws -> URL) async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let remote = try await resolve()
+            let (temp, response) = try await URLSession.shared.download(from: remote)
+            if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                throw APIError.malformedResponse(statusCode: http.statusCode)
+            }
+            let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let safeName = name.replacingOccurrences(of: "/", with: "-")
+            let target = folder.appending(path: safeName.isEmpty ? remote.lastPathComponent : safeName)
+            try FileManager.default.moveItem(at: temp, to: target)
+            previewURL = target
+        } catch {
+            failure = error.userMessage
+        }
+    }
+}
+
+extension View {
+    /// Показ скачанного файла и ошибки скачивания. Экран держит `RemoteFileOpener` в
+    /// `@State` и зовёт `open` по нажатию.
+    func remoteFilePreview(_ opener: RemoteFileOpener) -> some View {
+        modifier(RemoteFilePreviewModifier(opener: opener))
+    }
+}
+
+private struct RemoteFilePreviewModifier: ViewModifier {
+    @Bindable var opener: RemoteFileOpener
+
+    func body(content: Content) -> some View {
+        content
+            .quickLookPreview($opener.previewURL)
+            .actionFailureAlert($opener.failure)
+            .overlay {
+                if opener.isLoading {
+                    ProgressView()
+                        .padding(Spacing.xl)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.xl))
+                }
+            }
+    }
+}
+
+// MARK: - Сведения из JSON
+
+/// Секция «подпись — значение» по объекту JSON: для сводок, полей журнала, деталей
+/// записи, форма которых шире, чем стоит описывать типом. Порядок — как задан в `keys`;
+/// без него — по алфавиту.
+struct JSONDetailsSection: View {
+    let title: String?
+    let value: JSONValue
+    var keys: [(key: String, title: String)]?
+
+    var body: some View {
+        Section {
+            ForEach(rows, id: \.0) { row in
+                DetailRow(title: row.0, value: row.1)
+            }
+        } header: {
+            if let title { Text(title) }
+        }
+        .listRowBackground(Palette.card)
+    }
+
+    private var rows: [(String, String)] {
+        guard let object = value.object else { return [] }
+        if let keys {
+            return keys.compactMap { entry in
+                guard let field = object[entry.key], !field.isNull else { return nil }
+                return (entry.title, field.display)
+            }
+        }
+        return object.keys.sorted().compactMap { key in
+            guard let field = object[key], !field.isNull, field.object == nil else { return nil }
+            return (key, field.display)
+        }
+    }
+}
+
+// MARK: - Форматы
+
+enum DisplayFormat {
+    /// «12 окт., 14:30».
+    static func dateTime(_ date: Date?) -> String {
+        guard let date else { return "—" }
+        return date.formatted(.dateTime.day().month(.abbreviated).hour().minute())
+    }
+
+    /// «12 окт. 2026».
+    static func date(_ date: Date?) -> String {
+        guard let date else { return "—" }
+        return date.formatted(.dateTime.day().month(.abbreviated).year())
+    }
+
+    /// «5 мин назад».
+    static func relative(_ date: Date?) -> String {
+        guard let date else { return "—" }
+        return date.formatted(.relative(presentation: .named))
+    }
+
+    static func name(first: String?, last: String?, middle: String? = nil) -> String {
+        let parts = [last, first, middle].compactMap { $0?.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        return parts.isEmpty ? "—" : parts.joined(separator: " ")
+    }
+
+    static func percent(_ value: Double?) -> String {
+        guard let value else { return "—" }
+        return "\(Int(value.rounded()))%"
+    }
+
+    static func fileSize(_ bytes: Int?) -> String {
+        guard let bytes else { return "" }
+        return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+    }
+}
+
+/// Поиск с задержкой: запрос уходит, когда человек перестал печатать, а не на каждую
+/// букву. Первый показ экрана поиск не запускает — первую страницу грузит сам список.
+extension View {
+    func debouncedSearch(
+        _ text: Binding<String>,
+        prompt: String,
+        delay: Duration = .milliseconds(350),
+        onChange: @escaping (String) async -> Void
+    ) -> some View {
+        modifier(DebouncedSearchModifier(text: text, prompt: prompt, delay: delay, onChange: onChange))
+    }
+}
+
+private struct DebouncedSearchModifier: ViewModifier {
+    @Binding var text: String
+    let prompt: String
+    let delay: Duration
+    let onChange: (String) async -> Void
+
+    @State private var lastSent = ""
+
+    func body(content: Content) -> some View {
+        content
+            .searchable(text: $text, prompt: Text(prompt))
+            .task(id: text) {
+                let needle = text.trimmingCharacters(in: .whitespaces)
+                guard needle != lastSent else { return }
+                if !needle.isEmpty {
+                    try? await Task.sleep(for: delay)
+                    guard !Task.isCancelled else { return }
+                }
+                lastSent = needle
+                await onChange(needle)
+            }
+    }
+}

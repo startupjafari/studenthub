@@ -23,7 +23,7 @@ struct AppShellView: View {
 
     var body: some View {
         TabView(selection: $router.selectedTab) {
-            ForEach(AppTab.allCases) { tab in
+            ForEach(AppTab.tabs(for: role)) { tab in
                 NavigationStack(path: $router.stacks.stack(for: tab)) {
                     root(for: tab)
                         .profileToolbarItem()
@@ -32,7 +32,7 @@ struct AppShellView: View {
                         }
                 }
                 .tabItem {
-                    Label(tab.title, systemImage: tab.symbol)
+                    Label(tab.title(for: role), systemImage: tab.symbol(for: role))
                 }
                 // Ноль бейдж прячет: у остальных вкладок счётчика нет.
                 .badge(tab == .chats ? chatBadge.unread : 0)
@@ -42,12 +42,15 @@ struct AppShellView: View {
         .minimizesTabBarOnScroll()
         .tint(Palette.primary)
         .environment(\.viewerID, viewer.subject)
+        .environment(\.viewerRole, role)
         .environment(viewerProfile)
         .fullScreenCover(isPresented: Binding(get: { consent.isRequired }, set: { _ in })) {
             ConsentGateView(model: consent, session: session)
         }
         .task {
-            chatBadge.start()
+            router.adopt(role: role)
+            // Чатов у охраны и библиотеки нет (`hasChats` в вебе): и счётчик им не нужен.
+            if !role.isRestricted { chatBadge.start() }
             async let profile: Void = viewerProfile.refresh()
             async let consentState: Void = consent.load()
             _ = await (profile, consentState)
@@ -83,6 +86,10 @@ struct AppShellView: View {
             HomeView(role: role)
         case .services:
             ServicesView(session: session, role: role)
+        case .dashboard:
+            RoleDashboardView(role: role)
+        case .workspace:
+            WorkspaceView(role: role)
         }
     }
 
@@ -163,6 +170,28 @@ struct AppShellView: View {
             ChatInfoView(chatID: id)
         case .campusRoom(let roomID):
             CampusMapView(focusRoomID: roomID)
+        case .student(let screen):
+            screen.destination
+        case .community(let screen):
+            screen.destination
+        case .teacher(let screen):
+            screen.destination
+        case .starosta(let screen):
+            screen.destination
+        case .career(let screen):
+            screen.destination
+        case .dean(let screen):
+            screen.destination
+        case .uniAdmin(let screen):
+            screen.destination
+        case .staff(let screen):
+            screen.destination
+        case .admin(let screen):
+            screen.destination
+        case .security(let screen):
+            screen.destination
+        case .librarian(let screen):
+            screen.destination
         }
     }
 }
