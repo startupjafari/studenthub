@@ -10,6 +10,7 @@ struct PortfolioView: View {
 private struct PortfolioContent: View {
     @State private var items: [PortfolioItemDTO]?
     @State private var editing: PortfolioItemDTO?
+    @State private var deleting: PortfolioItemDTO?
     @State private var failure: String?
     @State private var actionFailure: String?
     @State private var creating = false
@@ -34,23 +35,11 @@ private struct PortfolioContent: View {
                     if !group.isEmpty {
                         Section {
                             ForEach(group) { item in
-                                Button {
-                                    editing = item
-                                } label: {
-                                    PortfolioRow(item: item)
-                                }
-                                .buttonStyle(.plain)
-                                    .swipeActions {
-                                        Button(role: .destructive) {
-                                            Task { await delete(item) }
-                                        } label: {
-                                            Label(String(localized: "common.delete", defaultValue: "Удалить"), systemImage: "trash")
-                                        }
-                                    }
+                                row(item)
                             }
                             .onMove { source, destination in move(kind: kind, from: source, to: destination) }
                         } header: {
-                            Label(PortfolioText.kind(kind), systemImage: PortfolioText.symbol(kind))
+                            Text(PortfolioText.kind(kind))
                         }
                     }
                 }
@@ -64,17 +53,13 @@ private struct PortfolioContent: View {
         .listStyle(.insetGrouped)
         .navigationTitle(Text(MoreSection.portfolio.title))
         .toolbar {
+            // Порядок записей виден работодателю — переставляют его здесь.
             if (items?.count ?? 0) > 1 {
-                ToolbarItem(placement: .topBarLeading) { EditButton() }
+                ToolbarItem(placement: .topBarTrailing) { EditButton() }
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    creating = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel(Text(String(localized: "portfolio.add", defaultValue: "Добавить запись")))
-            }
+        }
+        .floatingAction(String(localized: "portfolio.add", defaultValue: "Добавить запись")) {
+            creating = true
         }
         .sheet(isPresented: $creating) {
             NewPortfolioItemView { await load() }
@@ -82,9 +67,67 @@ private struct PortfolioContent: View {
         .sheet(item: $editing) { item in
             NewPortfolioItemView(existing: item) { await load() }
         }
+        .confirmDestructive(
+            $deleting,
+            title: { item in
+                PortfolioText.fill(
+                    String(localized: "portfolio.delete.confirm", defaultValue: "Удалить «{title}» из портфолио?"),
+                    item.title
+                )
+            },
+            actionTitle: String(localized: "common.delete", defaultValue: "Удалить")
+        ) { item in
+            await delete(item)
+        }
         .actionFailureAlert($actionFailure)
         .refreshable { await load() }
         .task { await load() }
+    }
+
+    private func row(_ item: PortfolioItemDTO) -> some View {
+        Button {
+            editing = item
+        } label: {
+            PortfolioRow(item: item)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) {
+                deleting = item
+            } label: {
+                Label(String(localized: "common.delete", defaultValue: "Удалить"), systemImage: "trash")
+            }
+        }
+        .swipeActions(edge: .leading) {
+            Button {
+                editing = item
+            } label: {
+                Label(String(localized: "community.portfolio.edit", defaultValue: "Изменить запись"), systemImage: "pencil")
+            }
+            .tint(Palette.primary)
+        }
+        .contextMenu {
+            Button {
+                editing = item
+            } label: {
+                Label(String(localized: "community.portfolio.edit", defaultValue: "Изменить запись"), systemImage: "pencil")
+            }
+            if let link = item.url.flatMap(URL.init(string:)) {
+                Link(destination: link) {
+                    Label(String(localized: "portfolio.openLink", defaultValue: "Открыть ссылку"), systemImage: "safari")
+                }
+                ShareLink(item: link) {
+                    Label(String(localized: "portfolio.shareLink", defaultValue: "Поделиться ссылкой"), systemImage: "square.and.arrow.up")
+                }
+            }
+            Divider()
+            Button(role: .destructive) {
+                deleting = item
+            } label: {
+                Label(String(localized: "common.delete", defaultValue: "Удалить"), systemImage: "trash")
+            }
+        }
     }
 
     @MainActor
@@ -145,11 +188,21 @@ enum PortfolioText {
 
     static func symbol(_ raw: String) -> String {
         switch raw {
-        case "EDUCATION": return "graduationcap"
-        case "EXPERIENCE": return "briefcase"
-        case "PROJECT": return "hammer"
+        case "EDUCATION": return "graduationcap.fill"
+        case "EXPERIENCE": return "briefcase.fill"
+        case "PROJECT": return "hammer.fill"
         case "CERTIFICATE": return "rosette"
-        default: return "trophy"
+        default: return "trophy.fill"
+        }
+    }
+
+    static func tint(_ raw: String) -> Color {
+        switch raw {
+        case "EDUCATION": return TileTint.blue
+        case "EXPERIENCE": return TileTint.orange
+        case "PROJECT": return TileTint.purple
+        case "CERTIFICATE": return TileTint.teal
+        default: return TileTint.yellow
         }
     }
 
@@ -160,43 +213,55 @@ enum PortfolioText {
         default: return String(localized: "settings.visibility.public", defaultValue: "Все")
         }
     }
+
+    static func visibilitySymbol(_ raw: String) -> String {
+        switch raw {
+        case "PRIVATE": return "lock.fill"
+        case "UNIVERSITY": return "building.columns.fill"
+        default: return "globe"
+        }
+    }
+
+    /// Подстановка названия в шаблон с `{title}`: в локализованную строку — только строка.
+    static func fill(_ template: String, _ title: String) -> String {
+        template.replacingOccurrences(of: "{title}", with: title)
+    }
 }
 
+/// Запись как строка чата: значок вида, название, годы справа, организация и описание
+/// ниже; справа снизу — кто видит запись.
 private struct PortfolioRow: View {
     let item: PortfolioItemDTO
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            Text(item.title)
-                .font(Typography.cardTitle)
-                .foregroundStyle(Palette.foreground)
-            if let organization = item.organization, !organization.isEmpty {
-                Text(organization).font(Typography.body).foregroundStyle(Palette.foreground)
-            }
-            if let period {
-                Text(period)
-            }
-            if let description = item.description, !description.isEmpty {
-                Text(description).lineLimit(4)
-            }
-            if let link = item.url.flatMap(URL.init(string:)) {
-                Link(destination: link) {
-                    Label(link.host() ?? link.absoluteString, systemImage: "link")
-                }
-            }
+        TelegramStyleRow(title: item.title, subtitle: details, meta: period) {
+            RowSymbol(symbol: PortfolioText.symbol(item.kind), tint: PortfolioText.tint(item.kind))
+        } accessory: {
             if let visibility = item.visibility {
-                Label(PortfolioText.visibility(visibility), systemImage: "eye")
+                Image(systemName: PortfolioText.visibilitySymbol(visibility))
+                    .font(.caption)
+                    .foregroundStyle(Palette.mutedForeground)
+                    .accessibilityLabel(Text(PortfolioText.visibility(visibility)))
             }
         }
-        .font(Typography.meta)
-        .foregroundStyle(Palette.mutedForeground)
-        .padding(.vertical, Spacing.xs)
     }
 
+    private var details: String {
+        let link = item.url.flatMap(URL.init(string:)).flatMap { $0.host() }
+        return [item.organization, item.description, link]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+    }
+
+    /// Годы — коротко, чтобы мета справа не вытесняла название: «2023–2024», «с 2023».
     private var period: String? {
-        let style = Date.FormatStyle.dateTime.month(.abbreviated).year()
+        let style = Date.FormatStyle.dateTime.year()
         switch (item.startDate, item.endDate) {
-        case let (start?, end?): return "\(start.formatted(style)) – \(end.formatted(style))"
+        case let (start?, end?):
+            let from = start.formatted(style)
+            let to = end.formatted(style)
+            return from == to ? from : "\(from)–\(to)"
         case let (start?, nil): return String(localized: "portfolio.since", defaultValue: "с \(start.formatted(style))")
         case let (nil, end?): return end.formatted(style)
         default: return nil
@@ -204,12 +269,12 @@ private struct PortfolioRow: View {
     }
 }
 
+/// Лист записи портфолио: что это, подробности, период и кто видит.
 private struct NewPortfolioItemView: View {
     /// Правка существующей записи; `nil` — новая.
     var existing: PortfolioItemDTO? = nil
     let created: () async -> Void
 
-    @Environment(\.dismiss) private var dismiss
     @State private var item = NewPortfolioItem(kind: "PROJECT", title: "", visibility: "UNIVERSITY")
     @State private var organization = ""
     @State private var details = ""
@@ -217,8 +282,7 @@ private struct NewPortfolioItemView: View {
     @State private var hasDates = false
     @State private var start = Date()
     @State private var end = Date()
-    @State private var failure: String?
-    @State private var isSaving = false
+    @State private var didFill = false
 
     private var linkIsValid: Bool {
         let value = link.trimmingCharacters(in: .whitespaces)
@@ -226,68 +290,61 @@ private struct NewPortfolioItemView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                if let failure {
-                    FormAlert(message: failure).listRowBackground(Color.clear)
-                }
-                Section {
-                    Picker(String(localized: "portfolio.kind", defaultValue: "Вид"), selection: $item.kind) {
-                        ForEach(PortfolioText.kinds, id: \.self) { Text(PortfolioText.kind($0)).tag($0) }
-                    }
-                    TextField(String(localized: "portfolio.title", defaultValue: "Название"), text: $item.title)
-                    TextField(String(localized: "portfolio.organization", defaultValue: "Организация"), text: $organization)
-                    TextField(String(localized: "portfolio.description", defaultValue: "Описание"), text: $details, axis: .vertical)
-                        .lineLimit(3...8)
-                    TextField(String(localized: "portfolio.url", defaultValue: "Ссылка"), text: $link)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                } footer: {
-                    if !linkIsValid {
-                        FieldError(message: String(localized: "profile.website.invalid", defaultValue: "Адрес сайта должен начинаться с http:// или https://"))
+        FormSheet(
+            title: existing == nil
+                ? String(localized: "portfolio.add", defaultValue: "Добавить запись")
+                : String(localized: "community.portfolio.edit", defaultValue: "Изменить запись"),
+            canSave: !item.title.trimmingCharacters(in: .whitespaces).isEmpty && linkIsValid,
+            save: save,
+            saved: created
+        ) {
+            Section {
+                Picker(String(localized: "portfolio.kind", defaultValue: "Вид"), selection: $item.kind) {
+                    ForEach(PortfolioText.kinds, id: \.self) { kind in
+                        Label(PortfolioText.kind(kind), systemImage: PortfolioText.symbol(kind)).tag(kind)
                     }
                 }
+                TextField(String(localized: "portfolio.title", defaultValue: "Название"), text: $item.title)
+                TextField(String(localized: "portfolio.organization", defaultValue: "Организация"), text: $organization)
+            }
 
-                Section {
-                    Toggle(String(localized: "portfolio.dates", defaultValue: "Указать период"), isOn: $hasDates)
-                    if hasDates {
-                        DatePicker(String(localized: "portfolio.start", defaultValue: "Начало"), selection: $start, displayedComponents: .date)
-                        DatePicker(String(localized: "portfolio.end", defaultValue: "Окончание"), selection: $end, in: start..., displayedComponents: .date)
-                    }
-                    Picker(String(localized: "portfolio.visibility", defaultValue: "Кто видит"), selection: Binding(
-                        get: { item.visibility ?? "UNIVERSITY" },
-                        set: { item.visibility = $0 }
-                    )) {
-                        ForEach(PortfolioText.visibilities, id: \.self) { Text(PortfolioText.visibility($0)).tag($0) }
-                    }
+            Section {
+                TextField(String(localized: "portfolio.description", defaultValue: "Описание"), text: $details, axis: .vertical)
+                    .lineLimit(3...8)
+                TextField(String(localized: "portfolio.url", defaultValue: "Ссылка"), text: $link)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            } footer: {
+                if !linkIsValid {
+                    FieldError(message: String(localized: "profile.website.invalid", defaultValue: "Адрес сайта должен начинаться с http:// или https://"))
                 }
             }
-            .scrollDismissesKeyboard(.interactively)
-            .background(Palette.background)
-            .navigationTitle(Text(existing == nil
-                ? String(localized: "portfolio.add", defaultValue: "Добавить запись")
-                : String(localized: "community.portfolio.edit", defaultValue: "Изменить запись")))
-            .navigationBarTitleDisplayMode(.inline)
-            .onAppear(perform: fill)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    SheetCloseButton { dismiss() }
+
+            Section {
+                Toggle(String(localized: "portfolio.dates", defaultValue: "Указать период"), isOn: $hasDates)
+                if hasDates {
+                    DatePicker(String(localized: "portfolio.start", defaultValue: "Начало"), selection: $start, displayedComponents: .date)
+                    DatePicker(String(localized: "portfolio.end", defaultValue: "Окончание"), selection: $end, in: start..., displayedComponents: .date)
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(String(localized: "common.save", defaultValue: "Сохранить")) {
-                        Task { await save() }
+            }
+
+            Section {
+                Picker(String(localized: "portfolio.visibility", defaultValue: "Кто видит"), selection: Binding(
+                    get: { item.visibility ?? "UNIVERSITY" },
+                    set: { item.visibility = $0 }
+                )) {
+                    ForEach(PortfolioText.visibilities, id: \.self) { value in
+                        Label(PortfolioText.visibility(value), systemImage: PortfolioText.visibilitySymbol(value)).tag(value)
                     }
-                    .disabled(item.title.trimmingCharacters(in: .whitespaces).isEmpty || !linkIsValid || isSaving)
                 }
             }
         }
+        .scrollDismissesKeyboard(.interactively)
+        .onAppear(perform: fill)
     }
 
-    @MainActor
-    private func save() async {
-        isSaving = true
-        defer { isSaving = false }
+    private func save() async throws {
         func optional(_ value: String) -> String? {
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
@@ -299,31 +356,23 @@ private struct NewPortfolioItemView: View {
         body.url = optional(link)
         body.startDate = hasDates ? start : nil
         body.endDate = hasDates ? end : nil
-        do {
-            if let existing {
-                func value(_ text: String?) -> JSONValue { text.map(JSONValue.string) ?? .null }
-                func date(_ value: Date?) -> JSONValue { value.map { .string(JSONCoding.isoString($0)) } ?? .null }
-                _ = try await UniversityServicesAPI().updatePortfolioItem(id: existing.id, fields: [
-                    "kind": .string(body.kind),
-                    "title": .string(body.title),
-                    "organization": value(body.organization),
-                    "description": value(body.description),
-                    "url": value(body.url),
-                    "startDate": date(body.startDate),
-                    "endDate": date(body.endDate),
-                    "visibility": .string(body.visibility ?? "UNIVERSITY"),
-                ])
-            } else {
-                try await UniversityServicesAPI().addPortfolioItem(body)
-            }
-            await created()
-            dismiss()
-        } catch {
-            failure = error.userMessage
+        if let existing {
+            func value(_ text: String?) -> JSONValue { text.map(JSONValue.string) ?? .null }
+            func date(_ value: Date?) -> JSONValue { value.map { .string(JSONCoding.isoString($0)) } ?? .null }
+            _ = try await UniversityServicesAPI().updatePortfolioItem(id: existing.id, fields: [
+                "kind": .string(body.kind),
+                "title": .string(body.title),
+                "organization": value(body.organization),
+                "description": value(body.description),
+                "url": value(body.url),
+                "startDate": date(body.startDate),
+                "endDate": date(body.endDate),
+                "visibility": .string(body.visibility ?? "UNIVERSITY"),
+            ])
+        } else {
+            try await UniversityServicesAPI().addPortfolioItem(body)
         }
     }
-
-    @State private var didFill = false
 
     private func fill() {
         guard !didFill, let existing else { return }

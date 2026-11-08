@@ -16,15 +16,32 @@ struct ServicesView: View {
 
     var body: some View {
         List {
+            if isSearching {
+                if visibleGroups.isEmpty && visibleExtras.isEmpty {
+                    EmptyStateView(
+                        title: String(localized: "services.notFound", defaultValue: "Ничего не нашлось"),
+                        symbol: "magnifyingglass",
+                        hint: String(localized: "services.notFound.hint", defaultValue: "Попробуйте другое слово")
+                    )
+                    .listRowBackground(Color.clear)
+                }
+            } else {
+                // Как верхняя строка «Настроек»: кто я — и вход в профиль.
+                Section {
+                    WorkspaceProfileRow(role: role)
+                }
+            }
+
             ForEach(visibleGroups, id: \.group) { entry in
                 Section {
                     ForEach(entry.sections) { section in
                         NavigationLink(value: AppRoute.section(section)) {
+                            // Подсказка видна только в поиске: объясняет, почему пункт нашёлся.
                             IconRow(
                                 title: section.title,
                                 symbol: section.symbol,
                                 tint: ServiceGroup.tint(for: section),
-                                subtitle: query.isEmpty ? ServiceGroup.hint(for: section) : nil
+                                subtitle: isSearching ? ServiceGroup.hint(for: section) : nil
                             )
                         }
                         .accessibilityIdentifier("services.\(section.rawValue)")
@@ -38,21 +55,12 @@ struct ServicesView: View {
                 Section {
                     ForEach(group.items) { item in
                         NavigationLink(value: item.route) {
-                            IconRow(title: item.title, symbol: item.symbol, tint: item.tint, subtitle: query.isEmpty ? item.hint : nil)
+                            IconRow(title: item.title, symbol: item.symbol, tint: item.tint, subtitle: isSearching ? item.hint : nil)
                         }
                     }
                 } header: {
                     Text(group.title)
                 }
-            }
-
-            if visibleGroups.isEmpty && visibleExtras.isEmpty {
-                EmptyStateView(
-                    title: String(localized: "services.notFound", defaultValue: "Ничего не нашлось"),
-                    symbol: "magnifyingglass",
-                    hint: String(localized: "services.notFound.hint", defaultValue: "Попробуйте другое слово")
-                )
-                .listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
@@ -64,10 +72,15 @@ struct ServicesView: View {
         .task { await loadModules() }
     }
 
+    private var needle: String {
+        query.trimmingCharacters(in: .whitespaces).lowercased()
+    }
+
+    private var isSearching: Bool { !needle.isEmpty }
+
     /// Разделы областей сверх «Сервисов»: староста, карьера, студенческий билет.
     private var visibleExtras: [WorkspaceGroup] {
-        let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
-        return Workspace.serviceExtras(for: role).compactMap { group in
+        Workspace.serviceExtras(for: role).compactMap { group in
             let items = group.items.filter {
                 needle.isEmpty || $0.title.lowercased().contains(needle) || ($0.hint?.lowercased().contains(needle) ?? false)
             }
@@ -81,9 +94,10 @@ struct ServicesView: View {
     }
 
     private var visibleGroups: [(group: ServiceGroup, sections: [MoreSection])] {
-        let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
         let matching = sections.filter { section in
-            needle.isEmpty
+            // Профиль без поиска — карточкой сверху, второй строкой не повторяем.
+            if !isSearching, section == .profile { return false }
+            return needle.isEmpty
                 || section.title.lowercased().contains(needle)
                 || (ServiceGroup.hint(for: section)?.lowercased().contains(needle) ?? false)
         }

@@ -2,6 +2,9 @@ import SwiftUI
 
 /// Консультации. Студент видит свои записи и преподавателей со свободными окнами;
 /// преподаватель — свои окна и кто на них записан, и открывает новые.
+///
+/// Подача — как список чатов: аватар того, с кем встреча, день и время, место и тема
+/// ниже, статус плашкой. Отмена — смахиванием или долгим нажатием, с подтверждением.
 struct ConsultationsView: View {
     let role: Role
 
@@ -10,38 +13,63 @@ struct ConsultationsView: View {
     @State private var failure: String?
     @State private var actionFailure: String?
     @State private var creating = false
+    @State private var cancelling: ConsultationSlotDTO?
     /// «Предстоящие» или «Все», как переключатель в вебе: прошедшие нужны, чтобы
     /// вспомнить, кто приходил и о чём.
-    @State private var showsPast = false
+    @State private var range: ConsultationRange = .upcoming
 
     private let api: UniversityServicesFetching = UniversityServicesAPI()
     private var isTeacher: Bool { role == .teacher }
 
     var body: some View {
-        List {
-            Picker(String(localized: "consultations.range", defaultValue: "Период"), selection: $showsPast) {
-                Text(String(localized: "consultations.upcoming", defaultValue: "Предстоящие")).tag(false)
-                Text(String(localized: "consultations.all", defaultValue: "Все")).tag(true)
+        withCreateButton(list)
+    }
+
+    /// Окна открывает только преподаватель — у студента кнопки создания нет.
+    @ViewBuilder
+    private func withCreateButton<Content: View>(_ content: Content) -> some View {
+        if isTeacher {
+            content.floatingAction(String(localized: "consultations.newSlot", defaultValue: "Новое окно"), symbol: "calendar.badge.plus") {
+                creating = true
             }
-            .pickerStyle(.segmented)
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets())
+        } else {
+            content
+        }
+    }
+
+    private var list: some View {
+        List {
+            FilterChipsRow(options: ConsultationRange.options, selection: Binding(
+                get: { range },
+                set: { range = $0 ?? .upcoming }
+            ))
 
             if let mine {
                 Section {
                     if mine.isEmpty {
-                        Text(isTeacher
-                            ? String(localized: "consultations.noSlots", defaultValue: "Открытых окон нет")
-                            : String(localized: "consultations.noBookings", defaultValue: "Вы пока ни к кому не записаны"))
-                            .font(Typography.body)
-                            .foregroundStyle(Palette.mutedForeground)
+                        EmptyStateView(
+                            title: isTeacher
+                                ? String(localized: "consultations.noSlots", defaultValue: "Открытых окон нет")
+                                : String(localized: "consultations.noBookings", defaultValue: "Вы пока ни к кому не записаны"),
+                            symbol: isTeacher ? "calendar.badge.plus" : "person.2.wave.2"
+                        )
+                        .listRowBackground(Color.clear)
                     }
                     ForEach(mine) { slot in
-                        SlotRow(slot: slot, showsTeacher: !isTeacher, showsStudent: isTeacher)
+                        ConsultationSlotRow(slot: slot, person: isTeacher ? slot.student : slot.teacher)
                             .swipeActions {
                                 if slot.status != "CANCELLED" {
                                     Button(role: .destructive) {
-                                        Task { await cancel(slot) }
+                                        cancelling = slot
+                                    } label: {
+                                        Label(String(localized: "common.cancelAction", defaultValue: "Отменить"), systemImage: "xmark")
+                                    }
+                                }
+                            }
+                            .contextMenu {
+                                if slot.status != "CANCELLED" {
+                                    Button(role: .destructive) {
+                                        cancelling = slot
                                     } label: {
                                         Label(String(localized: "common.cancelAction", defaultValue: "Отменить"), systemImage: "xmark")
                                     }
@@ -62,22 +90,21 @@ struct ConsultationsView: View {
             if !isTeacher, let teachers {
                 Section {
                     if teachers.isEmpty {
-                        Text(String(localized: "consultations.noTeachers", defaultValue: "Свободных окон у преподавателей сейчас нет"))
-                            .font(Typography.body)
-                            .foregroundStyle(Palette.mutedForeground)
+                        EmptyStateView(
+                            title: String(localized: "consultations.noTeachers", defaultValue: "Свободных окон у преподавателей сейчас нет"),
+                            symbol: "calendar.badge.exclamationmark"
+                        )
+                        .listRowBackground(Color.clear)
                     }
                     ForEach(teachers) { teacher in
                         NavigationLink {
                             TeacherSlotsView(teacher: teacher) { await load() }
                         } label: {
-                            HStack(spacing: Spacing.lg) {
-                                AvatarView(url: teacher.avatarUrl, name: teacher.name, size: 40)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(teacher.name).font(Typography.body)
-                                    Text(String(localized: "consultations.openSlots", defaultValue: "Свободных окон: \(teacher.openSlots)"))
-                                        .font(Typography.meta)
-                                        .foregroundStyle(Palette.mutedForeground)
-                                }
+                            TelegramStyleRow(
+                                title: teacher.name,
+                                subtitle: String(localized: "consultations.openSlots", defaultValue: "Свободных окон: \(teacher.openSlots)")
+                            ) {
+                                AvatarView(url: teacher.avatarUrl, name: teacher.name, size: 44)
                             }
                         }
                     }
@@ -97,30 +124,30 @@ struct ConsultationsView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle(Text(MoreSection.consultations.title))
-        .toolbar {
-            if isTeacher {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        creating = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .accessibilityLabel(Text(String(localized: "consultations.newSlot", defaultValue: "Новое окно")))
-                }
-            }
-        }
         .sheet(isPresented: $creating) {
             NewSlotView { await load() }
+                .presentationDetents([.medium, .large])
+        }
+        .confirmDestructive(
+            $cancelling,
+            title: { slot in
+                isTeacher && slot.status == "OPEN"
+                    ? String(localized: "consultations.delete.confirm", defaultValue: "Удалить свободное окно?")
+                    : String(localized: "consultations.cancel.confirm", defaultValue: "Отменить консультацию?")
+            },
+            actionTitle: String(localized: "common.cancelAction", defaultValue: "Отменить")
+        ) { slot in
+            await cancel(slot)
         }
         .refreshable { await load() }
-        .task(id: showsPast) { await load() }
+        .task(id: range) { await load() }
         .actionFailureAlert($actionFailure)
     }
 
     @MainActor
     private func load() async {
         do {
-            async let slots = showsPast ? UniversityServicesAPI().allConsultations() : api.myConsultations()
+            async let slots = range == .all ? UniversityServicesAPI().allConsultations() : api.myConsultations()
             if !isTeacher {
                 teachers = try await api.consultationTeachers()
             }
@@ -148,43 +175,51 @@ struct ConsultationsView: View {
     }
 }
 
-/// Строка окна: время, место, с кем.
-private struct SlotRow: View {
+/// Период списка: предстоящие или все, включая прошедшие.
+private enum ConsultationRange: Hashable {
+    case upcoming
+    case all
+
+    static var options: [(value: ConsultationRange?, title: String)] {
+        [
+            (.upcoming, String(localized: "consultations.upcoming", defaultValue: "Предстоящие")),
+            (.all, String(localized: "consultations.all", defaultValue: "Все")),
+        ]
+    }
+}
+
+/// Строка окна как строка чата: с кем (аватар), день, время справа, место и тема ниже,
+/// статус плашкой. Свободное окно без человека — зелёный значок часов.
+private struct ConsultationSlotRow: View {
     let slot: ConsultationSlotDTO
-    var showsTeacher = false
-    var showsStudent = false
+    var person: PersonRefDTO?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            HStack {
-                Text(slot.startsAt, format: .dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute())
-                    .font(Typography.body.weight(.medium))
-                Text(verbatim: "–")
-                Text(slot.endsAt, format: .dateTime.hour().minute())
-                    .font(Typography.body)
-                Spacer(minLength: 0)
-                StatusBadge(text: Self.statusTitle(slot.status), tint: Self.statusTint(slot.status))
+        TelegramStyleRow(
+            title: slot.startsAt.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)),
+            subtitle: details,
+            meta: ConsultationText.timeRange(slot)
+        ) {
+            if let person {
+                AvatarView(url: person.avatarUrl, name: person.name, size: 44)
+            } else {
+                RowSymbol(symbol: slot.isOnline == true ? "video.fill" : "clock.fill", tint: ConsultationText.statusTint(slot.status))
             }
-            if showsTeacher, let teacher = slot.teacher {
-                Label(teacher.name, systemImage: "person")
-            }
-            if showsStudent, let student = slot.student {
-                Label(student.name, systemImage: "person")
-            }
-            if slot.isOnline == true {
-                Label(String(localized: "consultations.online", defaultValue: "Онлайн"), systemImage: "video")
-            } else if let location = slot.location, !location.isEmpty {
-                Label(location, systemImage: "mappin.and.ellipse")
-            }
-            if let topic = slot.topic, !topic.isEmpty {
-                Text(topic).foregroundStyle(Palette.foreground)
-            }
+        } accessory: {
+            StatusBadge(text: ConsultationText.statusTitle(slot.status), tint: ConsultationText.statusTint(slot.status))
         }
-        .font(Typography.meta)
-        .foregroundStyle(Palette.mutedForeground)
-        .accessibilityElement(children: .combine)
     }
 
+    private var details: String {
+        [person?.name, ConsultationText.place(slot), slot.topic]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+    }
+}
+
+/// Подписи окна: статус, время, место.
+private enum ConsultationText {
     static func statusTitle(_ status: String) -> String {
         switch status {
         case "OPEN": return String(localized: "consultations.status.open", defaultValue: "Свободно")
@@ -200,9 +235,24 @@ private struct SlotRow: View {
         default: return Palette.mutedForeground
         }
     }
+
+    /// «10:00–10:30» — время без даты, дата в заголовке строки.
+    static func timeRange(_ slot: ConsultationSlotDTO) -> String {
+        let style = Date.FormatStyle.dateTime.hour().minute()
+        return "\(slot.startsAt.formatted(style))–\(slot.endsAt.formatted(style))"
+    }
+
+    static func place(_ slot: ConsultationSlotDTO) -> String? {
+        if slot.isOnline == true {
+            return String(localized: "consultations.online", defaultValue: "Онлайн")
+        }
+        let location = slot.location?.trimmingCharacters(in: .whitespaces) ?? ""
+        return location.isEmpty ? nil : location
+    }
 }
 
-/// Свободные окна одного преподавателя: выбрать и записаться с темой.
+/// Свободные окна одного преподавателя: шапка как профиль, ниже — окна; выбрал окно —
+/// лист записи с темой.
 private struct TeacherSlotsView: View {
     let teacher: ConsultationTeacherDTO
     let changed: () async -> Void
@@ -210,28 +260,51 @@ private struct TeacherSlotsView: View {
     @State private var slots: [ConsultationSlotDTO]?
     @State private var failure: String?
     @State private var booking: ConsultationSlotDTO?
-    @State private var topic = ""
 
     private let api: UniversityServicesFetching = UniversityServicesAPI()
 
     var body: some View {
         List {
-            if let slots {
-                if slots.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "consultations.noOpen", defaultValue: "Свободных окон нет"),
-                        symbol: "calendar.badge.exclamationmark"
+            HeroHeader(
+                visual: .avatar(url: teacher.avatarUrl, name: teacher.name),
+                title: teacher.name,
+                subtitle: String(localized: "consultations.openSlots", defaultValue: "Свободных окон: \(teacher.openSlots)")
+            )
+
+            Section {
+                NavigationLink(value: AppRoute.profile(id: teacher.teacherId)) {
+                    IconRow(
+                        title: String(localized: "consultations.teacherProfile", defaultValue: "Профиль преподавателя"),
+                        symbol: "person.crop.circle",
+                        tint: TileTint.blue
                     )
-                    .listRowBackground(Color.clear)
                 }
-                ForEach(slots) { slot in
-                    Button {
-                        if slot.status == "OPEN" { booking = slot }
-                    } label: {
-                        SlotRow(slot: slot)
+            }
+
+            if let slots {
+                Section {
+                    if slots.isEmpty {
+                        EmptyStateView(
+                            title: String(localized: "consultations.noOpen", defaultValue: "Свободных окон нет"),
+                            symbol: "calendar.badge.exclamationmark"
+                        )
+                        .listRowBackground(Color.clear)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(slot.status != "OPEN")
+                    ForEach(slots) { slot in
+                        Button {
+                            if slot.status == "OPEN" { booking = slot }
+                        } label: {
+                            ConsultationSlotRow(slot: slot)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(slot.status != "OPEN")
+                    }
+                } header: {
+                    Text(String(localized: "consultations.slots", defaultValue: "Окна"))
+                } footer: {
+                    if !slots.isEmpty {
+                        Text(String(localized: "consultations.bookHint", defaultValue: "Нажмите на свободное окно, чтобы записаться."))
+                    }
                 }
             } else if let failure {
                 ErrorStateView(message: failure) { await load() }
@@ -241,22 +314,17 @@ private struct TeacherSlotsView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
         .navigationTitle(Text(teacher.name))
         .navigationBarTitleDisplayMode(.inline)
+        .refreshable { await load() }
         .task { await load() }
-        .alert(
-            String(localized: "consultations.book", defaultValue: "Записаться"),
-            isPresented: Binding(get: { booking != nil }, set: { if !$0 { booking = nil } })
-        ) {
-            TextField(String(localized: "consultations.topic", defaultValue: "Тема (необязательно)"), text: $topic)
-            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
-            Button(String(localized: "consultations.book", defaultValue: "Записаться")) {
-                if let slot = booking { Task { await book(slot) } }
+        .sheet(item: $booking) { slot in
+            BookSlotSheet(slot: slot) {
+                await load()
+                await changed()
             }
-        } message: {
-            if let slot = booking {
-                Text(slot.startsAt, format: .dateTime.weekday(.wide).day().month().hour().minute())
-            }
+            .presentationDetents([.medium, .large])
         }
     }
 
@@ -269,18 +337,46 @@ private struct TeacherSlotsView: View {
             failure = error.userMessage
         }
     }
+}
 
-    @MainActor
-    private func book(_ slot: ConsultationSlotDTO) async {
-        let trimmed = topic.trimmingCharacters(in: .whitespacesAndNewlines)
-        do {
-            try await api.book(slotID: slot.id, topic: trimmed.isEmpty ? nil : String(trimmed.prefix(500)))
-            topic = ""
-            await load()
-            await changed()
-        } catch {
-            failure = error.userMessage
+/// Запись на окно: когда и где — сведениями, тема — по желанию.
+private struct BookSlotSheet: View {
+    let slot: ConsultationSlotDTO
+    let booked: () async -> Void
+
+    @State private var topic = ""
+
+    var body: some View {
+        FormSheet(
+            title: String(localized: "consultations.book", defaultValue: "Записаться"),
+            saveTitle: String(localized: "consultations.book", defaultValue: "Записаться"),
+            save: save,
+            saved: booked
+        ) {
+            Section {
+                DetailRow(
+                    title: String(localized: "consultations.when", defaultValue: "Когда"),
+                    value: "\(slot.startsAt.formatted(.dateTime.weekday(.wide).day().month(.wide))), \(ConsultationText.timeRange(slot))",
+                    symbol: "calendar"
+                )
+                if let place = ConsultationText.place(slot) {
+                    DetailRow(
+                        title: String(localized: "consultations.where", defaultValue: "Где"),
+                        value: place,
+                        symbol: slot.isOnline == true ? "video" : "mappin.and.ellipse"
+                    )
+                }
+            }
+            Section {
+                TextField(String(localized: "consultations.topic", defaultValue: "Тема (необязательно)"), text: $topic, axis: .vertical)
+                    .lineLimit(2...5)
+            }
         }
+    }
+
+    private func save() async throws {
+        let trimmed = topic.trimmingCharacters(in: .whitespacesAndNewlines)
+        try await UniversityServicesAPI().book(slotID: slot.id, topic: trimmed.isEmpty ? nil : String(trimmed.prefix(500)))
     }
 }
 
@@ -288,67 +384,43 @@ private struct TeacherSlotsView: View {
 private struct NewSlotView: View {
     let created: () async -> Void
 
-    @Environment(\.dismiss) private var dismiss
     @State private var start = Calendar.current.date(byAdding: .day, value: 1, to: Date().rounded(minutes: 30)) ?? Date()
     @State private var minutes = 30
     @State private var location = ""
     @State private var isOnline = false
-    @State private var failure: String?
-    @State private var isSaving = false
 
     var body: some View {
-        NavigationStack {
-            Form {
-                if let failure {
-                    FormAlert(message: failure).listRowBackground(Color.clear)
-                }
-                Section {
-                    DatePicker(String(localized: "consultations.start", defaultValue: "Начало"), selection: $start, in: Date()...)
-                    Picker(String(localized: "consultations.duration", defaultValue: "Длительность"), selection: $minutes) {
-                        ForEach([15, 30, 45, 60, 90], id: \.self) { value in
-                            Text(String(localized: "consultations.minutes", defaultValue: "\(value) мин")).tag(value)
-                        }
-                    }
-                    Toggle(String(localized: "consultations.online", defaultValue: "Онлайн"), isOn: $isOnline)
-                    if !isOnline {
-                        TextField(String(localized: "consultations.location", defaultValue: "Аудитория или место"), text: $location)
+        FormSheet(
+            title: String(localized: "consultations.newSlot", defaultValue: "Новое окно"),
+            save: save,
+            saved: created
+        ) {
+            Section {
+                DatePicker(String(localized: "consultations.start", defaultValue: "Начало"), selection: $start, in: Date()...)
+                Picker(String(localized: "consultations.duration", defaultValue: "Длительность"), selection: $minutes) {
+                    ForEach([15, 30, 45, 60, 90], id: \.self) { value in
+                        Text(String(localized: "consultations.minutes", defaultValue: "\(value) мин")).tag(value)
                     }
                 }
             }
-            .navigationTitle(Text(String(localized: "consultations.newSlot", defaultValue: "Новое окно")))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    SheetCloseButton { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(String(localized: "common.save", defaultValue: "Сохранить")) {
-                        Task { await save() }
-                    }
-                    .disabled(isSaving)
+            Section {
+                Toggle(String(localized: "consultations.online", defaultValue: "Онлайн"), isOn: $isOnline)
+                if !isOnline {
+                    TextField(String(localized: "consultations.location", defaultValue: "Аудитория или место"), text: $location)
                 }
             }
         }
     }
 
-    @MainActor
-    private func save() async {
-        isSaving = true
-        defer { isSaving = false }
-        do {
-            let end = start.addingTimeInterval(TimeInterval(minutes * 60))
-            let place = location.trimmingCharacters(in: .whitespaces)
-            try await UniversityServicesAPI().createSlot(
-                startsAt: start,
-                endsAt: end,
-                location: isOnline || place.isEmpty ? nil : String(place.prefix(200)),
-                isOnline: isOnline
-            )
-            await created()
-            dismiss()
-        } catch {
-            failure = error.userMessage
-        }
+    private func save() async throws {
+        let end = start.addingTimeInterval(TimeInterval(minutes * 60))
+        let place = location.trimmingCharacters(in: .whitespaces)
+        try await UniversityServicesAPI().createSlot(
+            startsAt: start,
+            endsAt: end,
+            location: isOnline || place.isEmpty ? nil : String(place.prefix(200)),
+            isOnline: isOnline
+        )
     }
 }
 

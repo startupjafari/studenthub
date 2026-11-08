@@ -9,13 +9,13 @@ struct CampusMapView: View {
 
     @State private var model = CampusMapModel()
     @State private var query = ""
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(spacing: 0) {
+        Group {
             if !query.isEmpty {
                 searchResults
             } else {
-                controls
                 map
             }
         }
@@ -28,8 +28,15 @@ struct CampusMapView: View {
             if let campuses = model.campuses, campuses.count > 1 {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        ForEach(campuses) { campus in
-                            Button(campus.name) { Task { await model.select(campusID: campus.id) } }
+                        Picker(selection: Binding(
+                            get: { model.published?.campus.id },
+                            set: { id in if let id { Task { await model.select(campusID: id) } } }
+                        )) {
+                            ForEach(campuses) { campus in
+                                Text(campus.name).tag(Optional(campus.id))
+                            }
+                        } label: {
+                            Text(String(localized: "campus.choose", defaultValue: "Выбрать кампус"))
                         }
                     } label: {
                         Image(systemName: "building.2")
@@ -41,47 +48,11 @@ struct CampusMapView: View {
         .task { await model.start(focusRoomID: focusRoomID) }
     }
 
-    // MARK: Корпус и этаж
-
-    @ViewBuilder
-    private var controls: some View {
-        if let published = model.published {
-            VStack(alignment: .leading, spacing: Spacing.md) {
-                if published.manifest.buildings.count > 1 {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: Spacing.md) {
-                            ForEach(published.manifest.buildings) { building in
-                                Chip(title: building.name, isSelected: building.id == model.buildingID) {
-                                    Task { await model.select(buildingID: building.id) }
-                                }
-                            }
-                        }
-                        .padding(.horizontal, Spacing.xl)
-                    }
-                }
-                if !model.floors.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: Spacing.sm) {
-                            Text(String(localized: "campus.floor", defaultValue: "Этаж"))
-                                .font(Typography.meta)
-                                .foregroundStyle(Palette.mutedForeground)
-                            ForEach(model.floors) { floor in
-                                Chip(title: floor.title, isSelected: floor.id == model.floorID, compact: true) {
-                                    Task { await model.select(floorID: floor.id) }
-                                }
-                                .accessibilityLabel(Text(String(localized: "campus.floorNamed", defaultValue: "Этаж \(floor.title)")))
-                            }
-                        }
-                        .padding(.horizontal, Spacing.xl)
-                    }
-                }
-            }
-            .padding(.vertical, Spacing.md)
-        }
-    }
-
     // MARK: План
 
+    /// План во весь экран, поверх — стеклянные элементы управления, как в «Картах»:
+    /// корпуса капсулами сверху, этажи — столбиком справа, как кнопки лифта, сведения о
+    /// помещении — карточкой снизу.
     @ViewBuilder
     private var map: some View {
         ZStack(alignment: .bottom) {
@@ -118,8 +89,37 @@ struct CampusMapView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .overlay(alignment: .top) { controls }
         .frame(maxHeight: .infinity)
-        .animation(.snappy, value: model.selectedRoomID)
+        .animation(Motion.respecting(.snappy, reduceMotion: reduceMotion), value: model.selectedRoomID)
+    }
+
+    // MARK: Корпус и этаж
+
+    @ViewBuilder
+    private var controls: some View {
+        if let published = model.published {
+            VStack(alignment: .trailing, spacing: Spacing.md) {
+                if published.manifest.buildings.count > 1 {
+                    FilterChips(
+                        options: published.manifest.buildings.map { (value: Optional($0.id), title: $0.name) },
+                        selection: Binding(
+                            get: { model.buildingID },
+                            set: { id in if let id { Task { await model.select(buildingID: id) } } }
+                        )
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if model.floors.count > 1 {
+                    FloorPicker(floors: model.floors, selection: model.floorID) { id in
+                        Task { await model.select(floorID: id) }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.horizontal, Spacing.xl)
+            .padding(.top, Spacing.md)
+        }
     }
 
     // MARK: Поиск
@@ -127,10 +127,14 @@ struct CampusMapView: View {
     private var searchResults: some View {
         List {
             if model.isSearching, model.results.isEmpty {
-                ProgressView().frame(maxWidth: .infinity).listRowBackground(Color.clear)
+                LoadingStateView().listRowBackground(Color.clear)
             } else if model.results.isEmpty {
-                EmptyStateView(title: String(localized: "services.notFound", defaultValue: "Ничего не нашлось"), symbol: "magnifyingglass")
-                    .listRowBackground(Color.clear)
+                EmptyStateView(
+                    title: String(localized: "services.notFound", defaultValue: "Ничего не нашлось"),
+                    symbol: "magnifyingglass",
+                    hint: String(localized: "services.notFound.hint", defaultValue: "Попробуйте другое слово")
+                )
+                .listRowBackground(Color.clear)
             }
             ForEach(model.results) { hit in
                 Button {
@@ -139,40 +143,71 @@ struct CampusMapView: View {
                         query = ""
                     }
                 } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(hit.title.isEmpty ? CampusText.kind(hit.kind) : hit.title)
-                            .font(Typography.body)
-                            .foregroundStyle(Palette.foreground)
-                        Text([hit.building?.name, hit.floor.map { String(localized: "campus.floorNamed", defaultValue: "Этаж \($0.label ?? String($0.level ?? 0))") }]
-                            .compactMap { $0 }.joined(separator: " · "))
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.mutedForeground)
+                    TelegramStyleRow(
+                        title: hit.title.isEmpty ? CampusText.kind(hit.kind) : hit.title,
+                        subtitle: [
+                            hit.title.isEmpty ? nil : CampusText.kind(hit.kind),
+                            hit.building?.name,
+                            hit.floor.map { String(localized: "campus.floorNamed", defaultValue: "Этаж \($0.label ?? String($0.level ?? 0))") },
+                        ].compactMap { $0 }.joined(separator: " · ")
+                    ) {
+                        RowSymbol(symbol: CampusText.symbol(hit.kind), tint: TileTint.green, size: 40)
                     }
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
             }
         }
         .listStyle(.insetGrouped)
     }
 }
 
-private struct Chip: View {
-    let title: String
-    let isSelected: Bool
-    var compact = false
-    let action: () -> Void
+/// Этажи столбиком в стекле — как кнопки лифта и переключатель этажей в «Картах»:
+/// верхний этаж сверху.
+private struct FloorPicker: View {
+    let floors: [CampusPublishedDTO.Floor]
+    let selection: String?
+    let select: (String) -> Void
+
+    @ScaledMetric(relativeTo: .body) private var side: CGFloat = 40
+
+    private var height: CGFloat {
+        let visible = CGFloat(min(floors.count, 5))
+        return visible * min(side, 56) + (visible - 1) * 2 + 8
+    }
 
     var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(Typography.meta.weight(.semibold))
-                .lineLimit(1)
-                .padding(.horizontal, compact ? Spacing.lg : Spacing.xl)
-                .frame(minWidth: compact ? ControlHeight.md : nil, minHeight: ControlHeight.md)
-                .foregroundStyle(isSelected ? Palette.primaryForeground : Palette.foreground)
-                .background(isSelected ? Palette.primary : Palette.muted, in: Capsule())
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 2) {
+                ForEach(floors) { floor in
+                    let isOn = floor.id == selection
+                    Button {
+                        select(floor.id)
+                    } label: {
+                        Text(verbatim: floor.title)
+                            .font(.subheadline.weight(isOn ? .bold : .medium))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                            .frame(width: min(side, 56), height: min(side, 56))
+                            .foregroundStyle(isOn ? Palette.primaryForeground : Palette.foreground)
+                            .background {
+                                if isOn {
+                                    Circle().fill(Palette.primary)
+                                }
+                            }
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text(String(localized: "campus.floorNamed", defaultValue: "Этаж \(floor.title)")))
+                    .accessibilityAddTraits(isOn ? .isSelected : [])
+                }
+            }
+            .padding(4)
         }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        // Больше пяти этажей — столбик прокручивается, а не закрывает план.
+        .frame(height: height)
+        .glassSurface(interactive: false, in: Capsule())
+        .sensoryFeedback(.selection, trigger: selection)
     }
 }
 
@@ -184,36 +219,38 @@ private struct RoomCard: View {
     let close: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: Spacing.lg) {
-            IconTile(symbol: CampusText.symbol(room.space.kind), tint: TileTint.green, size: 40)
+        HStack(alignment: .center, spacing: Spacing.lg) {
+            RowSymbol(symbol: CampusText.symbol(room.space.kind), tint: TileTint.green, size: 48)
             VStack(alignment: .leading, spacing: 2) {
                 Text(room.space.title.isEmpty ? CampusText.kind(room.space.kind) : room.space.title)
-                    .font(Typography.cardTitle)
+                    .font(.headline)
                     .foregroundStyle(Palette.foreground)
                 Text([
                     CampusText.kind(room.space.kind),
                     building?.name,
                     floor.map { String(localized: "campus.floorNamed", defaultValue: "Этаж \($0.title)") },
                 ].compactMap { $0 }.joined(separator: " · "))
-                .font(Typography.meta)
+                .font(.subheadline)
                 .foregroundStyle(Palette.mutedForeground)
                 if let capacity = room.space.capacity, capacity > 0 {
                     Label(String(localized: "campus.capacity", defaultValue: "Мест: \(capacity)"), systemImage: "person.2")
-                        .font(Typography.meta)
+                        .font(.subheadline)
                         .foregroundStyle(Palette.mutedForeground)
                 }
             }
             Spacer(minLength: 0)
             Button(action: close) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title3)
+                Image(systemName: "xmark")
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Palette.mutedForeground)
+                    .frame(width: 30, height: 30)
+                    .glassSurface(in: Circle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Text(String(localized: "common.close", defaultValue: "Закрыть")))
         }
         .padding(Spacing.lg)
-        .floatingGlass(in: RoundedRectangle(cornerRadius: Radius.xxl, style: .continuous))
+        .floatingGlass(in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         .accessibilityElement(children: .contain)
     }
 }

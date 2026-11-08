@@ -5,6 +5,7 @@ import SwiftUI
 /// Разделы раскрываются по одному (`DisclosureGroup`): документ длинный, а нужен обычно
 /// один раздел — «кто видит мои данные», «что с моим контентом». Текст целиком, без
 /// сокращений, выделяется и копируется. Стекла в тексте нет: это слой для чтения.
+/// Шапка — как у карточек приложения: значок документа, название и дата редакции по центру.
 struct LegalDocumentView<Route: Hashable>: View {
     let document: LegalDocument
     /// Ссылка на второй документ: внутри приложения — маршрутом оболочки, до входа —
@@ -16,25 +17,19 @@ struct LegalDocumentView<Route: Hashable>: View {
 
     var body: some View {
         List {
+            HeroHeader(
+                visual: .symbol(document.symbol, tint: TileTint.blue),
+                title: document.title,
+                subtitle: LegalDocument.updated
+            )
+
             Section {
-                VStack(alignment: .leading, spacing: Spacing.md) {
-                    Text(document.title)
-                        .font(.system(.largeTitle, weight: .bold))
-                        .foregroundStyle(Palette.foreground)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityAddTraits(.isHeader)
-                    Text(LegalDocument.updated)
-                        .font(.subheadline)
-                        .foregroundStyle(Palette.mutedForeground)
-                    Text(document.intro)
-                        .font(.body)
-                        .foregroundStyle(Palette.foreground)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, Spacing.xs)
-                        .textSelection(.enabled)
-                }
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: Spacing.md, leading: Spacing.xs, bottom: Spacing.md, trailing: Spacing.xs))
+                Text(document.intro)
+                    .font(.body)
+                    .foregroundStyle(Palette.foreground)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .padding(.vertical, Spacing.xs)
             }
 
             Section {
@@ -60,11 +55,12 @@ struct LegalDocumentView<Route: Hashable>: View {
 
             Section {
                 NavigationLink(value: route(document.other)) {
-                    Label(document.other.title, systemImage: document.other.symbol)
+                    IconRow(title: document.other.title, symbol: document.other.symbol, tint: TileTint.gray)
                 }
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
         .navigationTitle(Text(verbatim: "StudentHub"))
         .softTopEdge()
         .navigationBarTitleDisplayMode(.inline)
