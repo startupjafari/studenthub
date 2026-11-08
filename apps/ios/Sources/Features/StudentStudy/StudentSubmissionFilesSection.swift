@@ -101,7 +101,7 @@ private struct StudentSubmissionFilesPresentation: ViewModifier {
             }
             .confirmDestructive(
                 $model.removing,
-                title: { String(localized: "student.files.removeConfirm", defaultValue: "Убрать «\($0.name ?? "")» из работы?") },
+                title: { String(localized: "student.files.removeConfirm", defaultValue: "Убрать «\($0.name.orEmpty)» из работы?") },
                 actionTitle: String(localized: "student.files.remove", defaultValue: "Убрать файл")
             ) { file in
                 await model.remove(file)

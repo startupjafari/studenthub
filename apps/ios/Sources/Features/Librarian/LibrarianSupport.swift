@@ -319,7 +319,7 @@ struct LibrarianLoanRow: View {
                 }
                 let issued = String(
                     localized: "librarian.issuedOn",
-                    defaultValue: "Выдана \(LibrarianText.shortDay(loan.issuedAt)) · \(loan.issuedBy ?? "—")"
+                    defaultValue: "Выдана \(LibrarianText.shortDay(loan.issuedAt)) · \(loan.issuedBy.orDash)"
                 )
                 Text(issued)
                     .font(.caption)

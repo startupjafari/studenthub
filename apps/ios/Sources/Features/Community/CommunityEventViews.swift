@@ -265,7 +265,7 @@ struct CommunityEventView: View {
             if let replyTo {
                 HStack {
                     Label(
-                        String(localized: "community.comment.replyTo", defaultValue: "Ответ: \(replyTo.author?.name ?? "—")"),
+                        String(localized: "community.comment.replyTo", defaultValue: "Ответ: \((replyTo.author?.name).orDash)"),
                         systemImage: "arrowshape.turn.up.left"
                     )
                     .font(Typography.meta)

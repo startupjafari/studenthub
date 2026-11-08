@@ -154,7 +154,7 @@ struct AdminUniversityView: View {
                 Task { await setStatus("BLOCKED") }
             }
         } message: {
-            Text(String(localized: "admin.university.blockMessage", defaultValue: "Все пользователи «\(university?.name ?? "")» будут сразу отключены и не смогут войти, пока вуз не разблокируют."))
+            Text(String(localized: "admin.university.blockMessage", defaultValue: "Все пользователи «\((university?.name).orEmpty)» будут сразу отключены и не смогут войти, пока вуз не разблокируют."))
         }
         .confirmationDialog(
             String(localized: "admin.university.deleteTitle", defaultValue: "Удалить вуз?"),
@@ -165,7 +165,7 @@ struct AdminUniversityView: View {
                 Task { await delete() }
             }
         } message: {
-            Text(String(localized: "admin.university.deleteMessage", defaultValue: "«\(university?.name ?? "")» будет удалён вместе с неиспользованными приглашениями. Действие нельзя отменить."))
+            Text(String(localized: "admin.university.deleteMessage", defaultValue: "«\((university?.name).orEmpty)» будет удалён вместе с неиспользованными приглашениями. Действие нельзя отменить."))
         }
     }
 
@@ -530,7 +530,7 @@ struct AdminDemoRequestView: View {
                 Task { await reissue() }
             }
         } message: {
-            Text(String(localized: "admin.demo.reissueMessage", defaultValue: "Прежняя ссылка перестанет работать. Новое письмо уйдёт на \(request?.email ?? "")."))
+            Text(String(localized: "admin.demo.reissueMessage", defaultValue: "Прежняя ссылка перестанет работать. Новое письмо уйдёт на \((request?.email).orEmpty)."))
         }
     }
 

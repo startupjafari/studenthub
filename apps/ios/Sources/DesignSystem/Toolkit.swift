@@ -608,3 +608,27 @@ private struct DebouncedSearchModifier: ViewModifier {
             }
     }
 }
+
+// MARK: - Подстановки в локализованные строки
+
+/// Значения для `\(…)` внутри `String(localized:defaultValue:)` без кавычек: разбор строк
+/// (`LocalizationTests`, синхронизация каталога) обрывает значение на первой кавычке, и
+/// `\(name ?? "")` превращался в каталоге в обрывок кода, который видел человек.
+extension Optional where Wrapped == String {
+    /// Пустая строка вместо `nil`.
+    var orEmpty: String { self ?? "" }
+    /// Тире вместо `nil` или пустого.
+    var orDash: String {
+        guard let self, !self.isEmpty else { return "—" }
+        return self
+    }
+}
+
+extension DisplayFormat {
+    /// «4:05» — минуты и секунды обратного отсчёта.
+    static func minutesSeconds(_ seconds: Int) -> String {
+        let clamped = max(0, seconds)
+        let rest = clamped % 60
+        return "\(clamped / 60):" + (rest < 10 ? "0\(rest)" : "\(rest)")
+    }
+}

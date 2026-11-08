@@ -549,7 +549,7 @@ struct StaffTemplateDetailView: View {
             Task { await upload(result) }
         }
         .confirmationDialog(
-            String(localized: "staff.tpl.delete.confirm", defaultValue: "Удалить шаблон «\(template?.title ?? "")»?"),
+            String(localized: "staff.tpl.delete.confirm", defaultValue: "Удалить шаблон «\((template?.title).orEmpty)»?"),
             isPresented: $confirmDelete,
             titleVisibility: .visible
         ) {

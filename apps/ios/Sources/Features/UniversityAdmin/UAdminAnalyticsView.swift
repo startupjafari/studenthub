@@ -127,9 +127,9 @@ struct UAdminAnalyticsView: View {
                 Section {
                     // Счётчики по причинам — «что именно происходит», до чтения строк.
                     HStack(spacing: Spacing.sm) {
-                        StatusBadge(text: String(localized: "uadmin.analytics.countAttendance", defaultValue: "Посещаемость: \(rows.filter { $0.value("LOW_ATTENDANCE") != nil }.count.formatted())"), tint: Palette.destructive)
-                        StatusBadge(text: String(localized: "uadmin.analytics.countOverdue", defaultValue: "Просрочки: \(rows.filter { $0.value("OVERDUE_ASSIGNMENTS") != nil }.count.formatted())"), tint: Palette.warning)
-                        StatusBadge(text: String(localized: "uadmin.analytics.countGrade", defaultValue: "Оценки: \(rows.filter { $0.value("LOW_GRADES") != nil }.count.formatted())"), tint: Palette.destructive)
+                        StatusBadge(text: String(localized: "uadmin.analytics.countAttendance", defaultValue: "Посещаемость: \(Self.reasonCount(rows, .attendance))"), tint: Palette.destructive)
+                        StatusBadge(text: String(localized: "uadmin.analytics.countOverdue", defaultValue: "Просрочки: \(Self.reasonCount(rows, .overdue))"), tint: Palette.warning)
+                        StatusBadge(text: String(localized: "uadmin.analytics.countGrade", defaultValue: "Оценки: \(Self.reasonCount(rows, .grade))"), tint: Palette.destructive)
                     }
                     ForEach(rows) { student in
                         NavigationLink(value: AppRoute.profile(id: student.studentId)) {
@@ -198,6 +198,17 @@ struct UAdminAnalyticsView: View {
 
     /// Порядок по умолчанию — объяснимый словами: больше причин выше, при равенстве — хуже
     /// посещаемость, больше просрочек, ниже балл, затем по алфавиту.
+    private enum RiskReason: String {
+        case attendance = "LOW_ATTENDANCE"
+        case overdue = "OVERDUE_ASSIGNMENTS"
+        case grade = "LOW_GRADES"
+    }
+
+    /// Сколько студентов отмечено этой причиной — строкой для подписи плашки.
+    private static func reasonCount(_ rows: [UAdminAtRiskStudentsDTO.Student], _ reason: RiskReason) -> String {
+        rows.filter { $0.value(reason.rawValue) != nil }.count.formatted()
+    }
+
     private func sorted(_ students: [UAdminAtRiskStudentsDTO.Student]) -> [UAdminAtRiskStudentsDTO.Student] {
         switch sort {
         case .risk:

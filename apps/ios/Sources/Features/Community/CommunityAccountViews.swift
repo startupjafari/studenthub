@@ -212,7 +212,7 @@ struct CommunityTelegramLinkView: View {
                                     .foregroundStyle(left > 0 ? Palette.foreground : Palette.mutedForeground)
                                     .textSelection(.enabled)
                                 if left > 0 {
-                                    Text(String(localized: "community.telegram.expires", defaultValue: "Действует ещё \(String(format: "%d:%02d", left / 60, left % 60))"))
+                                    Text(String(localized: "community.telegram.expires", defaultValue: "Действует ещё \(DisplayFormat.minutesSeconds(left))"))
                                         .font(Typography.meta.monospacedDigit())
                                         .foregroundStyle(Palette.mutedForeground)
                                     Button {

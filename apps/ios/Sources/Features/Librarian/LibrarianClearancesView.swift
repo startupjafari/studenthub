@@ -73,7 +73,7 @@ struct LibrarianClearancesView: View {
         }
         .sheet(isPresented: $checking) { LibrarianClearanceCheckSheet() }
         .alert(
-            revoking.map { String(localized: "librarian.clear.revokeTitle", defaultValue: "Отозвать справку \($0.code) (\($0.reader.name ?? "—"))?") } ?? "",
+            revoking.map { String(localized: "librarian.clear.revokeTitle", defaultValue: "Отозвать справку \($0.code) (\($0.reader.name.orDash))?") } ?? "",
             isPresented: Binding(get: { revoking != nil }, set: { if !$0 { revoking = nil } })
         ) {
             TextField(String(localized: "librarian.clear.revokeReason", defaultValue: "Причина: например, книга оказалась не возвращена"), text: $reason)

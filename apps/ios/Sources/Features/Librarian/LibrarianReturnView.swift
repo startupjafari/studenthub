@@ -53,7 +53,7 @@ struct LibrarianReturnView: View {
                         .font(Typography.cardTitle)
                         Text(String(
                             localized: "librarian.return.holdFor",
-                            defaultValue: "\(held.name) (\(held.group ?? "—")) — бронь держится до \(LibrarianText.shortDay(held.holdUntil))"
+                            defaultValue: "\(held.name) (\(held.group.orDash)) — бронь держится до \(LibrarianText.shortDay(held.holdUntil))"
                         ))
                         .font(Typography.meta)
                     }
