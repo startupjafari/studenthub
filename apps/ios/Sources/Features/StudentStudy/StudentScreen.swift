@@ -15,6 +15,8 @@ enum StudentScreen: Hashable {
     /// Оценки и посещаемость в полном виде веба (`/grades`, `/attendance`).
     case grades
     case attendance
+    /// Отметка по ссылке из QR (`/checkin?t=`): код уже есть, сканер не нужен.
+    case checkinToken(String)
 
     var title: String {
         switch self {
@@ -23,7 +25,7 @@ enum StudentScreen: Hashable {
         case .tasks: return String(localized: "student.screen.tasks", defaultValue: "Мои задачи")
         case .exams: return String(localized: "student.screen.exams", defaultValue: "Экзамены")
         case .studyPlan: return String(localized: "student.screen.studyPlan", defaultValue: "Учебный план")
-        case .checkin: return String(localized: "student.screen.checkin", defaultValue: "Отметка по QR")
+        case .checkin, .checkinToken: return String(localized: "student.screen.checkin", defaultValue: "Отметка по QR")
         case .studentID: return String(localized: "student.screen.studentID", defaultValue: "Студенческий билет")
         case .grades: return String(localized: "student.screen.grades", defaultValue: "Мои оценки")
         case .attendance: return String(localized: "student.screen.attendance", defaultValue: "Моя посещаемость")
@@ -37,7 +39,7 @@ enum StudentScreen: Hashable {
         case .tasks: return "checklist"
         case .exams: return "rosette"
         case .studyPlan: return "list.bullet.rectangle"
-        case .checkin: return "qrcode.viewfinder"
+        case .checkin, .checkinToken: return "qrcode.viewfinder"
         case .studentID: return "person.text.rectangle"
         case .grades: return "graduationcap"
         case .attendance: return "checkmark.circle"
@@ -53,6 +55,7 @@ enum StudentScreen: Hashable {
         case .exams: StudentExamsView()
         case .studyPlan: StudentStudyPlanView()
         case .checkin: StudentCheckinView()
+        case .checkinToken(let token): StudentCheckinView(token: token)
         case .studentID: StudentIDView()
         case .grades: StudentGradesView()
         case .attendance: StudentAttendanceView()

@@ -122,17 +122,24 @@ struct StudentStudyPlanView: View {
 
     /// Семестры в учебном порядке (по номеру), дисциплины внутри — по алфавиту.
     private static func terms(_ plan: [StudentPlanEntry]) -> [(title: String, entries: [StudentPlanEntry])] {
+        struct Term {
+            let order: Int
+            let title: String
+            let entries: [StudentPlanEntry]
+        }
         let groups = Dictionary(grouping: plan) { termTitle($0.course.term) }
-        return groups
-            .map { title, entries in
-                (
-                    order: entries.first?.course.term?.number ?? 9999,
-                    title: title,
-                    entries: entries.sorted { $0.course.subject.name.localizedStandardCompare($1.course.subject.name) == .orderedAscending }
-                )
+        var terms: [Term] = []
+        for (title, entries) in groups {
+            let sorted = entries.sorted { lhs, rhs in
+                lhs.course.subject.name.localizedStandardCompare(rhs.course.subject.name) == .orderedAscending
             }
-            .sorted { $0.order == $1.order ? $0.title < $1.title : $0.order < $1.order }
-            .map { (title: $0.title, entries: $0.entries) }
+            let order: Int = entries.first?.course.term?.number ?? 9999
+            terms.append(Term(order: order, title: title, entries: sorted))
+        }
+        terms.sort { lhs, rhs in
+            lhs.order == rhs.order ? lhs.title < rhs.title : lhs.order < rhs.order
+        }
+        return terms.map { (title: $0.title, entries: $0.entries) }
     }
 
     /// Дисциплины обязательны; оценки и экзамены — уточнение статуса, их отказ план не прячет.

@@ -144,8 +144,8 @@ struct AppShellView: View {
             ApplicationDetailView(applicationID: id)
         case .service(let id):
             ApplicationFormView(serviceID: id)
-        case .event:
-            EventsView()
+        case .event(let id):
+            CommunityScreen.event(id: id).destination
         case .lesson(let id, let date):
             // Преподаватель с занятия идёт отмечать посещаемость — это главное,
             // зачем он вообще открывает пару на телефоне.

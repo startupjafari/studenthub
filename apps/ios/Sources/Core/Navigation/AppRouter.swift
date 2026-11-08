@@ -85,6 +85,17 @@ final class AppRouter {
     @MainActor
     @discardableResult
     func open(_ url: URL, for role: Role) -> Bool {
+        // Сначала ссылки областей: они уже, чем общий разбор, и знают роль.
+        if let area = AreaDeepLink(url: url, role: role) {
+            currentRole = role
+            push(area.tab, area.routes)
+            return true
+        }
+        if let community = CommunityDeepLink(url: url) {
+            currentRole = role
+            push(community.tab, community.routes)
+            return true
+        }
         guard let link = DeepLink(url: url) else { return false }
         return open(link, for: role)
     }
