@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.78" cy="0.12" r="0.75">
+      <stop offset="0" stop-color="#7DB4FF" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#7DB4FF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="cap" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E3EDFF"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <rect width="1024" height="1024" fill="url(#glow)"/>
+  <!-- Знак StudentHub (brand-mark.ts) в сетке 24×24, по центру, ~62% ширины -->
+  <g transform="translate(512 528) scale(26.5) translate(-12 -11.5)" fill="url(#cap)">
+    <path d="M12 3.4 22.6 8.6 12 13.8 1.4 8.6Z"/>
+    <path d="M6.4 11.4v3.9c0 1.6 2.5 2.8 5.6 2.8s5.6-1.2 5.6-2.8v-3.9L12 14.2Z"/>
+    <rect x="20.4" y="9.4" width="1.5" height="5" rx="0.75"/>
+    <circle cx="21.15" cy="15.4" r="1.35"/>
+  </g>
+</svg>

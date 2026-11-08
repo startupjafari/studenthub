@@ -6,6 +6,10 @@ version: 1
 # на телефон рядом со сборкой из TestFlight, не затирая её.
 bundleID: kz.studenthub.app.dev
 infoPath: .device/Info.plist
+# Иконка: xtool собирает её из PNG 1024×1024 — каталог ассетов без Mac не компилируется.
+iconPath: Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png
 resources:
   - .device/ru.lproj
   - .device/kk.lproj
+  - .device/AppIcon60x60@2x.png
+  - .device/AppIcon60x60@3x.png

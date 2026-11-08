@@ -26,6 +26,8 @@ IOS = pathlib.Path(__file__).resolve().parents[1]
 CATALOG = IOS / "Resources/Localizable.xcstrings"
 PROJECT = IOS / "project.yml"
 OUT = IOS / ".device"
+# Иконка для сборки без Mac: исходник — AppIcon.svg, 1024 — в каталоге ассетов.
+ICONS = IOS / "Resources" / "DeviceIcon"
 LANGUAGES = ["ru", "kk"]
 
 
@@ -64,6 +66,15 @@ def info_plist(api_base_url: str, web_base_url: str) -> dict:
         "NSLocalNetworkUsageDescription": "Чтобы подключиться к серверу разработки на компьютере.",
         "NSAppTransportSecurity": {"NSAllowsArbitraryLoads": True},
         "UILaunchScreen": {},
+        # Иконка без каталога ассетов: PNG 60 pt (@2x, @3x) лежат в корне бандла.
+        # xtool сам добавляет и `CFBundleIconFile` из `iconPath` (xtool.yml).
+        "CFBundleIcons": {
+            "CFBundlePrimaryIcon": {
+                # Без `CFBundleIconName`: он указывает в каталог ассетов, которого в этой
+                # сборке нет, и система искала бы иконку там.
+                "CFBundleIconFiles": ["AppIcon60x60"],
+            },
+        },
         "UIDeviceFamily": [1],
         "UISupportedInterfaceOrientations": ["UIInterfaceOrientationPortrait"],
         "SHAPIBaseURL": api_base_url,
@@ -103,6 +114,8 @@ def main() -> None:
     OUT.mkdir()
     with open(OUT / "Info.plist", "wb") as file:
         plistlib.dump(info_plist(api_base_url, web_base_url), file, fmt=plistlib.FMT_XML)
+    for icon in sorted(ICONS.glob("AppIcon60x60@*.png")):
+        shutil.copy(icon, OUT / icon.name)
     for language, table in string_tables().items():
         directory = OUT / f"{language}.lproj"
         directory.mkdir()
