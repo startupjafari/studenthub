@@ -74,7 +74,7 @@ struct PagedList<Item: Decodable & Identifiable, Row: View, Header: View>: View 
                             Text(String(localized: "common.totalCount", defaultValue: "Всего: \(total.formatted())"))
                         }
                     }
-                    .listRowBackground(Palette.card)
+
                 }
             } else if let failure = loader.failure {
                 ErrorStateView(message: failure, isOffline: loader.isOffline) { await loader.reload() }
@@ -84,8 +84,6 @@ struct PagedList<Item: Decodable & Identifiable, Row: View, Header: View>: View 
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .refreshable { await loader.reload() }
         .task { await loader.loadIfNeeded() }
     }
@@ -163,14 +161,12 @@ struct FormSheet<Content: View>: View {
                 }
                 content()
             }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(title))
             .navigationBarTitleDisplayMode(.inline)
             .interactiveDismissDisabled(isSaving)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                         .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
@@ -237,8 +233,7 @@ struct StatTile: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(Spacing.lg)
-        .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+        .cardSurface(padding: Spacing.xl)
         .accessibilityElement(children: .combine)
     }
 }
@@ -365,25 +360,30 @@ struct FilterChips<Value: Hashable>: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: Spacing.sm) {
-                ForEach(Array(options.enumerated()), id: \.offset) { _, option in
-                    let isOn = option.value == selection
-                    Button {
-                        selection = option.value
-                    } label: {
-                        Text(option.title)
-                            .font(Typography.meta.weight(.medium))
-                            .padding(.horizontal, Spacing.lg)
-                            .padding(.vertical, Spacing.sm)
-                            .foregroundStyle(isOn ? Palette.primaryForeground : Palette.foreground)
-                            .background(isOn ? Palette.primary : Palette.muted, in: Capsule())
+            // На iOS 26 капсулы — стекло: выбранная тонирована фирменным цветом, соседние
+            // сливаются при нажатии, как переключатели в приложениях Apple.
+            GlassGroup(spacing: Spacing.sm) {
+                HStack(spacing: Spacing.sm) {
+                    ForEach(Array(options.enumerated()), id: \.offset) { _, option in
+                        let isOn = option.value == selection
+                        Button {
+                            selection = option.value
+                        } label: {
+                            Text(option.title)
+                                .font(Typography.meta.weight(.semibold))
+                                .padding(.horizontal, Spacing.xl)
+                                .padding(.vertical, Spacing.md)
+                                .foregroundStyle(isOn ? Palette.primaryForeground : Palette.foreground)
+                                .glassSurface(tint: isOn ? Palette.primary : nil, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(isOn ? .isSelected : [])
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(isOn ? .isSelected : [])
                 }
+                .padding(.vertical, Spacing.xs)
             }
-            .padding(.vertical, Spacing.xs)
         }
+        .sensoryFeedback(.selection, trigger: selection)
     }
 }
 
@@ -493,7 +493,7 @@ private struct RemoteFilePreviewModifier: ViewModifier {
                 if opener.isLoading {
                     ProgressView()
                         .padding(Spacing.xl)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.xl))
+                        .glassSurface(interactive: false, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                 }
             }
     }
@@ -517,7 +517,7 @@ struct JSONDetailsSection: View {
         } header: {
             if let title { Text(title) }
         }
-        .listRowBackground(Palette.card)
+
     }
 
     private var rows: [(String, String)] {

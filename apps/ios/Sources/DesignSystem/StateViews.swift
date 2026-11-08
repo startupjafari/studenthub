@@ -74,7 +74,7 @@ struct RetryButton: View {
                 Text(String(localized: "common.retry", defaultValue: "Повторить"))
             }
         }
-        .buttonStyle(.borderedProminent)
+        .glassProminentButton()
         .disabled(isRunning)
         .accessibilityIdentifier("state.retry")
     }
@@ -96,7 +96,7 @@ struct EmptyStateView: View {
         } actions: {
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
-                    .buttonStyle(.borderedProminent)
+                    .glassProminentButton()
             }
         }
         .frame(maxWidth: .infinity)
@@ -127,7 +127,7 @@ struct StaleDataBanner: View {
         .font(Typography.meta)
         .foregroundStyle(Palette.mutedForeground)
         .padding(Spacing.lg)
-        .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+        .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
     }
 }
 
