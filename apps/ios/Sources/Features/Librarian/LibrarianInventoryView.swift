@@ -36,7 +36,9 @@ struct LibrarianInventoryView: View {
                     scanning = true
                 } label: {
                     Label(String(localized: "librarian.inv.scan", defaultValue: "Сканировать"), systemImage: "qrcode.viewfinder")
+                        .font(.body.weight(.semibold))
                         .frame(maxWidth: .infinity)
+                        .padding(.vertical, Spacing.xs)
                 }
                 .glassProminentButton()
                 .listRowBackground(Color.clear)
@@ -103,27 +105,24 @@ struct LibrarianInventoryView: View {
 
             Section {
                 if report != nil, missing.isEmpty {
-                    Label(String(localized: "librarian.inv.allFound", defaultValue: "Всё на месте"), systemImage: "checkmark.circle")
-                        .foregroundStyle(Palette.success)
+                    IconRow(title: String(localized: "librarian.inv.allFound", defaultValue: "Всё на месте"), symbol: "checkmark", tint: TileTint.green)
                 }
                 ForEach(missing) { item in
                     NavigationLink(value: AppRoute.librarian(.book(id: item.book.id))) {
-                        HStack(alignment: .top, spacing: Spacing.lg) {
-                            Text(verbatim: item.inventoryNumber)
-                                .font(Typography.meta.monospacedDigit().weight(.semibold))
-                                .frame(minWidth: 56, alignment: .leading)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(item.book.title).font(Typography.cardTitle).lineLimit(2)
-                                if !item.book.authors.isEmpty {
-                                    Text(item.book.authors).font(Typography.meta).foregroundStyle(Palette.mutedForeground).lineLimit(1)
-                                }
-                                Text(item.inventoriedAt.map {
+                        TelegramStyleRow(
+                            title: item.book.title,
+                            subtitle: [
+                                item.book.authors.isEmpty ? nil : item.book.authors,
+                                item.inventoriedAt.map {
                                     String(localized: "librarian.inv.lastSeen", defaultValue: "Последняя отметка: \(DisplayFormat.date($0))")
-                                } ?? String(localized: "librarian.inv.neverSeen", defaultValue: "ещё не инвентаризировался"))
-                                .font(.caption)
-                                .foregroundStyle(Palette.mutedForeground)
-                            }
-                            Spacer(minLength: 0)
+                                } ?? String(localized: "librarian.inv.neverSeen", defaultValue: "ещё не инвентаризировался"),
+                            ]
+                            .compactMap { $0 }
+                            .joined(separator: "\n"),
+                            meta: LibrarianText.inventoryShort(item.inventoryNumber)
+                        ) {
+                            RowSymbol(symbol: "questionmark", tint: TileTint.orange)
+                        } accessory: {
                             if item.status == "RESERVED" {
                                 LibrarianBadge(text: String(localized: "librarian.inv.onHoldShelf", defaultValue: "На полке броней"), tint: Palette.info)
                             }
@@ -231,32 +230,29 @@ struct LibrarianInventoryView: View {
     }
 }
 
+/// Отмеченный экземпляр: зелёный круг — на месте, оранжевый — повод разобраться.
 private struct LibrarianInventoryScanRow: View {
     let item: LibrarianInventoryScanDTO
 
     var body: some View {
-        HStack(alignment: .top, spacing: Spacing.lg) {
-            Image(systemName: item.warning == nil ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .foregroundStyle(item.warning == nil ? Palette.success : Palette.warning)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.book.title).font(Typography.cardTitle).lineLimit(2)
-                let meta = [
-                    LibrarianText.inventoryShort(item.copy.inventoryNumber),
-                    item.warning.map(LibrarianText.inventoryWarning),
-                    item.alreadyChecked ? String(localized: "librarian.inv.already", defaultValue: "уже отмечен") : nil,
-                ]
-                .compactMap { $0 }
-                .joined(separator: " · ")
-                Text(meta)
-                    .font(Typography.meta)
-                    .foregroundStyle(item.warning == nil ? Palette.mutedForeground : Palette.warning)
-            }
-            Spacer(minLength: Spacing.md)
-            let status = LibrarianText.copyStatus(item.copy.status)
+        let status = LibrarianText.copyStatus(item.copy.status)
+        TelegramStyleRow(
+            title: item.book.title,
+            subtitle: [
+                item.warning.map(LibrarianText.inventoryWarning),
+                item.alreadyChecked ? String(localized: "librarian.inv.already", defaultValue: "уже отмечен") : nil,
+            ]
+            .compactMap { $0 }
+            .joined(separator: " · "),
+            meta: LibrarianText.inventoryShort(item.copy.inventoryNumber)
+        ) {
+            RowSymbol(
+                symbol: item.warning == nil ? "checkmark" : "exclamationmark.triangle.fill",
+                tint: item.warning == nil ? TileTint.green : TileTint.orange
+            )
+        } accessory: {
             LibrarianBadge(text: status.text, tint: status.tint)
         }
-        .accessibilityElement(children: .combine)
     }
 }
 

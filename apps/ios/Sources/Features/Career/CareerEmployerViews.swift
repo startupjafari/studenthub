@@ -198,13 +198,13 @@ struct CareerEmployerVacanciesView: View {
                 action: { creating = true }
             ),
             header: {
-                Text(String(
-                    localized: "career.employerVacancies.subtitle",
-                    defaultValue: "Публикация не равна показу: каждый вуз решает отдельно"
-                ))
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
-                .listRowBackground(Color.clear)
+                Section {
+                } footer: {
+                    Text(String(
+                        localized: "career.employerVacancies.subtitle",
+                        defaultValue: "Публикация не равна показу: каждый вуз решает отдельно"
+                    ))
+                }
             },
             row: { vacancy in
                 NavigationLink(value: AppRoute.career(.employerVacancy(id: vacancy.id))) {
@@ -213,15 +213,8 @@ struct CareerEmployerVacanciesView: View {
             }
         )
         .navigationTitle(Text(CareerScreen.employerVacancies.title))
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    creating = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel(Text(String(localized: "career.employerVacancies.create", defaultValue: "Новая вакансия")))
-            }
+        .floatingAction(String(localized: "career.employerVacancies.create", defaultValue: "Новая вакансия")) {
+            creating = true
         }
         .sheet(isPresented: $creating) {
             CareerVacancyForm(vacancy: nil) { await loader.reload() }
@@ -229,6 +222,8 @@ struct CareerEmployerVacanciesView: View {
     }
 }
 
+/// Вакансия компании — как строка чата: значок с цветом статуса, должность, просмотры
+/// справа, условия и решения вузов ниже, статус — плашкой.
 private struct CareerEmployerVacancyRow: View {
     let vacancy: CareerVacancy
 
@@ -238,16 +233,18 @@ private struct CareerEmployerVacancyRow: View {
         let reviews = (vacancy.reviews ?? []).map { review in
             "\(review.university.name): \(CareerText.employerReviewStatus(review.status).text)"
         }
-        ListCardRow(
+        let terms = [vacancy.employmentType.map(CareerText.employment), vacancy.workFormat.map(CareerText.format), CareerText.salary(vacancy)]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+        TelegramStyleRow(
             title: vacancy.title,
-            subtitle: [vacancy.employmentType.map(CareerText.employment), vacancy.workFormat.map(CareerText.format), CareerText.salary(vacancy)]
-                .compactMap { $0 }.joined(separator: " · "),
-            status: (status.text, status.tint),
-            lines: [
-                String(localized: "career.employerVacancies.views", defaultValue: "Просмотров: \(views)"),
-                reviews.prefix(3).joined(separator: ", "),
-            ]
-        )
+            subtitle: [terms, reviews.prefix(3).joined(separator: ", ")].filter { !$0.isEmpty }.joined(separator: "\n"),
+            meta: String(localized: "career.employerVacancies.viewsShort", defaultValue: "\(views) просм.")
+        ) {
+            RowSymbol(symbol: "briefcase.fill", tint: status.tint)
+        } accessory: {
+            StatusBadge(text: status.text, tint: status.tint)
+        }
     }
 }
 
@@ -275,20 +272,31 @@ struct CareerEmployerVacancyView: View {
                 Section {
                     let status = CareerText.vacancyStatus(vacancy.status)
                     let views = (vacancy.views ?? 0).formatted()
-                    ListCardRow(
+                    HeroHeader(
+                        visual: .symbol("briefcase.fill", tint: status.tint),
                         title: vacancy.title,
                         subtitle: CareerText.salary(vacancy),
-                        status: (status.text, status.tint),
-                        lines: [String(localized: "career.employerVacancies.views", defaultValue: "Просмотров: \(views)")]
-                    )
-                    DetailRow(title: String(localized: "career.vacancy.employment", defaultValue: "Занятость"), value: CareerText.employment(vacancy.employmentType))
-                    DetailRow(title: String(localized: "career.vacancy.format", defaultValue: "Формат работы"), value: CareerText.format(vacancy.workFormat))
-                    DetailRow(title: String(localized: "career.vacancy.experience", defaultValue: "Опыт"), value: CareerText.experience(vacancy.experienceLevel))
+                        actions: heroActions(vacancy)
+                    ) {
+                        HStack(spacing: Spacing.xs) {
+                            StatusBadge(text: status.text, tint: status.tint)
+                            StatusBadge(
+                                text: String(localized: "career.employerVacancies.views", defaultValue: "Просмотров: \(views)"),
+                                tint: Palette.mutedForeground
+                            )
+                        }
+                    }
+                }
+
+                Section {
+                    DetailRow(title: String(localized: "career.vacancy.employment", defaultValue: "Занятость"), value: CareerText.employment(vacancy.employmentType), symbol: "clock")
+                    DetailRow(title: String(localized: "career.vacancy.format", defaultValue: "Формат работы"), value: CareerText.format(vacancy.workFormat), symbol: "building.2")
+                    DetailRow(title: String(localized: "career.vacancy.experience", defaultValue: "Опыт"), value: CareerText.experience(vacancy.experienceLevel), symbol: "chart.line.uptrend.xyaxis")
                     if let city = kato.name(vacancy.city) {
-                        DetailRow(title: String(localized: "career.vacancy.city", defaultValue: "Город"), value: city)
+                        DetailRow(title: String(localized: "career.vacancy.city", defaultValue: "Город"), value: city, symbol: "mappin")
                     }
                     if let deadline = vacancy.deadline {
-                        DetailRow(title: String(localized: "career.vacancy.deadline", defaultValue: "Принимать отклики до"), value: DisplayFormat.date(deadline))
+                        DetailRow(title: String(localized: "career.vacancy.deadline", defaultValue: "Принимать отклики до"), value: DisplayFormat.date(deadline), symbol: "calendar")
                     }
                     if !CareerText.list(vacancy.skills).isEmpty {
                         CareerTags(items: CareerText.list(vacancy.skills))
@@ -305,19 +313,28 @@ struct CareerEmployerVacancyView: View {
                     Section {
                         ForEach(Array(reviews.enumerated()), id: \.offset) { _, review in
                             let status = CareerText.employerReviewStatus(review.status)
-                            ListCardRow(
+                            TelegramStyleRow(
                                 title: review.university.name,
-                                status: (status.text, status.tint),
-                                lines: [review.reason.map { "\(String(localized: "common.reason", defaultValue: "Причина")): \($0)" } ?? ""]
-                            )
+                                subtitle: review.reason.map { "\(String(localized: "common.reason", defaultValue: "Причина")): \($0)" }
+                            ) {
+                                RowSymbol(symbol: "graduationcap.fill", tint: status.tint, size: 36)
+                            } accessory: {
+                                StatusBadge(text: status.text, tint: status.tint)
+                            }
                         }
                     } header: {
                         Text(String(localized: "career.employerVacancies.byUniversity", defaultValue: "Решения университетов"))
                     }
                 }
 
-                Section {
-                    actionButtons(vacancy)
+                if vacancy.status == "PUBLISHED" {
+                    Section {
+                    } footer: {
+                        Text(String(
+                            localized: "career.employerVacancies.republishHint",
+                            defaultValue: "Отправить на модерацию в университеты, где вакансии ещё нет или её отклонили. Одобрения других университетов сохранятся"
+                        ))
+                    }
                 }
 
                 if let description = vacancy.description, !description.isEmpty {
@@ -352,18 +369,28 @@ struct CareerEmployerVacancyView: View {
                 } header: {
                     Text(String(localized: "career.employerVacancies.applications", defaultValue: "Отклики"))
                 }
+
+                // Закрыть и удалить — отдельно внизу, красным.
+                if vacancy.status != "CLOSED" {
+                    Section {
+                        Button(role: .destructive) { confirming = .close } label: {
+                            Label(CareerVacancyAction.close.title, systemImage: "xmark.circle")
+                                .foregroundStyle(Palette.destructive)
+                        }
+                        .disabled(busy)
+                        if vacancy.status == "DRAFT" {
+                            Button(role: .destructive) { confirming = .delete } label: {
+                                Label(CareerVacancyAction.delete.title, systemImage: "trash")
+                                    .foregroundStyle(Palette.destructive)
+                            }
+                            .disabled(busy)
+                        }
+                    }
+                }
             }
             .listStyle(.insetGrouped)
             .refreshable { token += 1 }
             .task(id: vacancy.city) { kato.request([vacancy.city]) }
-            .toolbar {
-                // Закрытая вакансия — конечное состояние: ни правки, ни публикации.
-                if vacancy.status != "CLOSED" {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button(String(localized: "career.employerVacancies.edit", defaultValue: "Изменить")) { editing = vacancy }
-                    }
-                }
-            }
         }
         .navigationTitle(Text(CareerScreen.employerVacancy(id: id).title))
         .navigationBarTitleDisplayMode(.inline)
@@ -385,29 +412,32 @@ struct CareerEmployerVacancyView: View {
         .actionFailureAlert($failure)
     }
 
-    @ViewBuilder
-    private func actionButtons(_ vacancy: CareerVacancy) -> some View {
+    /// Круги под шапкой — по статусу: изменить, опубликовать, повторно отправить вузам,
+    /// снять с публикации. Закрытая вакансия — конечное состояние: ни правки, ни публикации.
+    private func heroActions(_ vacancy: CareerVacancy) -> [HeroAction] {
         let status = vacancy.status ?? ""
+        var actions: [HeroAction] = []
+        guard status != "CLOSED" else { return actions }
+        actions.append(HeroAction(title: String(localized: "career.employerVacancies.edit", defaultValue: "Изменить"), symbol: "pencil") {
+            editing = vacancy
+        })
         if status == "DRAFT" || status == "PAUSED" {
-            Button(CareerVacancyAction.publish.title) { Task { await perform(.publish) } }.disabled(busy)
+            actions.append(HeroAction(title: CareerVacancyAction.publish.title, symbol: "paperplane.fill") {
+                guard !busy else { return }
+                Task { await perform(.publish) }
+            })
         }
         if status == "PUBLISHED" {
-            // Повторная публикация отправляет вакансию вузам, где её ещё нет или её отклонили.
-            Button(CareerVacancyAction.republish.title) { Task { await perform(.republish) } }.disabled(busy)
-            Text(String(
-                localized: "career.employerVacancies.republishHint",
-                defaultValue: "Отправить на модерацию в университеты, где вакансии ещё нет или её отклонили. Одобрения других университетов сохранятся"
-            ))
-            .font(.caption)
-            .foregroundStyle(Palette.mutedForeground)
-            Button(CareerVacancyAction.pause.title) { Task { await perform(.pause) } }.disabled(busy)
+            actions.append(HeroAction(title: CareerVacancyAction.republish.title, symbol: "arrow.clockwise") {
+                guard !busy else { return }
+                Task { await perform(.republish) }
+            })
+            actions.append(HeroAction(title: CareerVacancyAction.pause.title, symbol: "pause.fill") {
+                guard !busy else { return }
+                Task { await perform(.pause) }
+            })
         }
-        if status != "CLOSED" {
-            Button(CareerVacancyAction.close.title, role: .destructive) { confirming = .close }.disabled(busy)
-        }
-        if status == "DRAFT" {
-            Button(CareerVacancyAction.delete.title, role: .destructive) { confirming = .delete }.disabled(busy)
-        }
+        return actions
     }
 
     private func load() async throws -> Content {
@@ -762,36 +792,39 @@ struct CareerCandidatesView: View {
     }
 }
 
+/// Кандидат в воронке — как строка чата: аватар, ФИО, день отклика справа, вакансия и
+/// специальность ниже, статус — плашкой; навыки и письмо — под строкой.
 private struct CareerPipelineRow: View {
     let application: CareerApplication
 
     var body: some View {
         let status = CareerText.applicationStatus(application.status)
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            HStack(alignment: .top, spacing: Spacing.md) {
-                PersonRow(
-                    name: application.student?.name ?? "—",
-                    subtitle: application.vacancy.title,
-                    avatarURL: application.student?.avatarThumbUrl
-                )
+        let meta = [application.student?.headline, application.student?.specialty, application.student?.course.map { course in
+            let value = String(course)
+            return String(localized: "career.candidate.course", defaultValue: "\(value) курс")
+        }].compactMap { $0 }.filter { !$0.isEmpty }
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            TelegramStyleRow(
+                title: application.student?.name ?? "—",
+                subtitle: [application.vacancy.title, meta.isEmpty ? nil : meta.joined(separator: " · ")]
+                    .compactMap { $0 }
+                    .joined(separator: "\n"),
+                meta: DisplayFormat.date(application.createdAt)
+            ) {
+                AvatarView(url: application.student?.avatarThumbUrl, name: application.student?.name ?? "—", size: 44)
+            } accessory: {
                 StatusBadge(text: status.text, tint: status.tint)
-            }
-            let meta = [application.student?.headline, application.student?.specialty, application.student?.course.map { course in
-                let value = String(course)
-                return String(localized: "career.candidate.course", defaultValue: "\(value) курс")
-            }].compactMap { $0 }.filter { !$0.isEmpty }
-            if !meta.isEmpty {
-                Text(meta.joined(separator: " · ")).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
             }
             if !CareerText.list(application.student?.skills).isEmpty {
                 CareerTags(items: Array(CareerText.list(application.student?.skills).prefix(8)))
             }
             if let letter = application.coverLetter, !letter.isEmpty {
-                Text(letter).font(Typography.meta).foregroundStyle(Palette.foreground).lineLimit(3)
+                Text(letter)
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.foreground)
+                    .lineLimit(3)
             }
-            Text(DisplayFormat.dateTime(application.createdAt)).font(.caption).foregroundStyle(Palette.mutedForeground)
         }
-        .padding(.vertical, Spacing.xs)
     }
 }
 
@@ -814,11 +847,12 @@ private struct CareerHistorySheet: View {
             .navigationTitle(Text(String(localized: "career.apps.history", defaultValue: "История")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(String(localized: "common.ok", defaultValue: "Понятно")) { dismiss() }
+                ToolbarItem(placement: .cancellationAction) {
+                    SheetCloseButton { dismiss() }
                 }
             }
         }
+        .presentationDetents([.medium, .large])
     }
 }
 
@@ -845,7 +879,6 @@ struct CareerCandidateView: View {
                 LoadingStateView()
             }
         }
-        .background(Palette.background)
         .navigationTitle(Text(CareerScreen.candidate(id: id).title))
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
@@ -866,7 +899,6 @@ struct CareerCandidateView: View {
         let notShared = String(localized: "career.candidate.notShared", defaultValue: "не открыто студентом")
         return List {
             Section {
-                PersonRow(name: card.name, subtitle: card.headline, avatarURL: card.avatarUrl, size: 56)
                 let meta = [
                     card.university, card.specialty,
                     card.course.map { course in
@@ -878,18 +910,31 @@ struct CareerCandidateView: View {
                         return String(localized: "career.candidate.graduation", defaultValue: "выпуск \(value)")
                     },
                 ].compactMap { $0 }
-                if !meta.isEmpty {
-                    Text(meta.joined(separator: " · ")).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
-                }
-                if let status = card.employmentStatus {
-                    DetailRow(title: String(localized: "career.profile.status", defaultValue: "Статус"), value: CareerText.employmentStatus(status))
-                }
-                if let score = card.readinessScore {
-                    ShareBar(
-                        title: String(localized: "career.profile.readiness", defaultValue: "Готовность профиля"),
-                        fraction: Double(score) / 100,
-                        valueText: "\(score)%"
-                    )
+                HeroHeader(
+                    visual: .avatar(url: card.avatarUrl, name: card.name),
+                    title: card.name,
+                    subtitle: card.headline,
+                    actions: contactActions(card)
+                ) {
+                    VStack(spacing: Spacing.xs) {
+                        if !meta.isEmpty {
+                            Text(meta.joined(separator: " · "))
+                                .font(.subheadline)
+                                .foregroundStyle(Palette.mutedForeground)
+                                .multilineTextAlignment(.center)
+                        }
+                        HStack(spacing: Spacing.xs) {
+                            if let status = card.employmentStatus {
+                                StatusBadge(text: CareerText.employmentStatus(status), tint: Palette.info)
+                            }
+                            if let score = card.readinessScore {
+                                StatusBadge(
+                                    text: String(localized: "career.profile.readinessBadge", defaultValue: "Готовность \(DisplayFormat.percent(Double(score)))"),
+                                    tint: score >= 70 ? Palette.success : Palette.warning
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1001,6 +1046,20 @@ struct CareerCandidateView: View {
         .listStyle(.insetGrouped)
         .refreshable { await load() }
     }
+
+    @Environment(\.openURL) private var openURL
+
+    /// Написать и позвонить — кругами под шапкой, если студент открыл контакты.
+    private func contactActions(_ card: CareerCandidateCard) -> [HeroAction] {
+        var actions: [HeroAction] = []
+        if let email = card.email, let url = URL(string: "mailto:\(email)") {
+            actions.append(HeroAction(title: String(localized: "career.candidate.mail", defaultValue: "Почта"), symbol: "envelope.fill") { openURL(url) })
+        }
+        if let phone = card.phone, let url = URL(string: "tel:\(phone.filter { $0.isNumber || $0 == "+" })") {
+            actions.append(HeroAction(title: String(localized: "career.candidate.call", defaultValue: "Позвонить"), symbol: "phone.fill") { openURL(url) })
+        }
+        return actions
+    }
 }
 
 // MARK: - Доступ к вузам
@@ -1034,10 +1093,10 @@ struct CareerAccessView: View {
                     selection: $filter
                 )
                 if isOwner == false {
-                    Text(String(localized: "career.access.ownerOnly", defaultValue: "Заявки в университеты подаёт владелец компании."))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
-                        .listRowBackground(Color.clear)
+                    Section {
+                    } footer: {
+                        Label(String(localized: "career.access.ownerOnly", defaultValue: "Заявки в университеты подаёт владелец компании."), systemImage: "info.circle")
+                    }
                 }
             },
             row: { option in
@@ -1090,6 +1149,8 @@ struct CareerAccessView: View {
     }
 }
 
+/// Университет — как строка чата: значок с цветом допуска, название, город и срок
+/// допуска ниже, статус заявки — плашкой.
 private struct CareerUniversityOptionRow: View {
     let option: CareerUniversityOption
     let cityName: String?
@@ -1098,20 +1159,23 @@ private struct CareerUniversityOptionRow: View {
         let status: (text: String, tint: Color)? = option.access.map {
             CareerText.accessStatus($0.status, expired: $0.status == "APPROVED" && !$0.isActive)
         }
-        let until: String = {
-            guard let access = option.access, access.isActive, let expires = access.expiresAt else { return "" }
+        let until: String? = {
+            guard let access = option.access, access.isActive, let expires = access.expiresAt else { return nil }
             let date = DisplayFormat.date(expires)
             return String(localized: "career.companies.until", defaultValue: "Допуск до \(date)")
         }()
-        ListCardRow(
+        let place = [option.shortName, cityName].compactMap { $0 }.joined(separator: " · ")
+        let reason = option.access?.reason.map { "\(String(localized: "common.reason", defaultValue: "Причина")): \($0)" }
+        TelegramStyleRow(
             title: option.name,
-            subtitle: [option.shortName, cityName].compactMap { $0 }.joined(separator: " · "),
-            status: status,
-            lines: [
-                until,
-                option.access?.reason.map { "\(String(localized: "common.reason", defaultValue: "Причина")): \($0)" } ?? "",
-            ]
-        )
+            subtitle: [place.isEmpty ? nil : place, until ?? reason].compactMap { $0 }.joined(separator: "\n")
+        ) {
+            RowSymbol(symbol: "graduationcap.fill", tint: status?.tint ?? TileTint.gray)
+        } accessory: {
+            if let status {
+                StatusBadge(text: status.text, tint: status.tint)
+            }
+        }
     }
 }
 
@@ -1167,27 +1231,20 @@ struct CareerTeamView: View {
             if let team = content.team, content.isOwner {
                 List {
                     Section {
-                        Button {
-                            inviting = true
-                        } label: {
-                            Label(String(localized: "career.team.invite", defaultValue: "Пригласить коллегу"), systemImage: "person.badge.plus")
-                        }
-                    } footer: {
-                        Text(String(
-                            localized: "career.team.inviteText",
-                            defaultValue: "Придёт письмо со ссылкой на регистрацию. Коллега станет рекрутёром: вакансии и кандидаты — да, допуски к вузам и команда — нет."
-                        ))
-                    }
-
-                    Section {
                         ForEach(team.members) { member in
-                            PersonRow(
-                                name: member.name,
+                            TelegramStyleRow(
+                                title: member.name,
                                 subtitle: member.isMe == true
                                     ? "\(member.email) · \(String(localized: "career.team.you", defaultValue: "это вы"))"
-                                    : member.email,
-                                trailing: CareerText.memberRole(member.role)
-                            )
+                                    : member.email
+                            ) {
+                                AvatarView(url: nil, name: member.name, size: 44)
+                            } accessory: {
+                                StatusBadge(
+                                    text: CareerText.memberRole(member.role),
+                                    tint: member.role == "OWNER" ? Palette.primary : Palette.mutedForeground
+                                )
+                            }
                             .swipeActions {
                                 if member.isMe != true {
                                     Button(role: .destructive) {
@@ -1206,18 +1263,37 @@ struct CareerTeamView: View {
                                 defaultValue: "Владелец управляет компанией и командой, рекрутёры работают с вакансиями и кандидатами"
                             )
                         )
+                    } footer: {
+                        Text(String(
+                            localized: "career.team.inviteText",
+                            defaultValue: "Придёт письмо со ссылкой на регистрацию. Коллега станет рекрутёром: вакансии и кандидаты — да, допуски к вузам и команда — нет."
+                        ))
                     }
 
                     if !team.invites.isEmpty {
                         Section {
                             ForEach(team.invites) { invite in
                                 let until = DisplayFormat.dateTime(invite.expiresAt)
-                                ListCardRow(
+                                TelegramStyleRow(
                                     title: invite.email,
                                     subtitle: invite.expired == true
                                         ? String(localized: "career.team.expired", defaultValue: "Срок ссылки истёк")
                                         : String(localized: "career.team.until", defaultValue: "Ссылка действует до \(until)")
-                                )
+                                ) {
+                                    RowSymbol(symbol: "envelope.fill", tint: invite.expired == true ? TileTint.gray : TileTint.orange)
+                                }
+                                .contextMenu {
+                                    Button {
+                                        Task { await resend(invite) }
+                                    } label: {
+                                        Label(String(localized: "career.team.resend", defaultValue: "Отправить ещё раз"), systemImage: "arrow.clockwise")
+                                    }
+                                    Button(role: .destructive) {
+                                        revoking = invite
+                                    } label: {
+                                        Label(String(localized: "career.team.revoke", defaultValue: "Отозвать"), systemImage: "xmark")
+                                    }
+                                }
                                 .swipeActions {
                                     Button(role: .destructive) {
                                         revoking = invite
@@ -1242,6 +1318,9 @@ struct CareerTeamView: View {
                 }
                 .listStyle(.insetGrouped)
                 .refreshable { token += 1 }
+                .floatingAction(String(localized: "career.team.invite", defaultValue: "Пригласить коллегу"), symbol: "person.badge.plus") {
+                    inviting = true
+                }
             } else {
                 // Рекрутёр командой не управляет — говорим, к кому идти, а не показываем пустой список.
                 EmptyStateView(
@@ -1252,7 +1331,6 @@ struct CareerTeamView: View {
                         defaultValue: "Чтобы пригласить коллегу или исключить участника, обратитесь к владельцу компании."
                     )
                 )
-                .background(Palette.background)
             }
         }
         .navigationTitle(Text(CareerScreen.team.title))
@@ -1361,55 +1439,21 @@ struct CareerCompanyProfileView: View {
     @State private var uploading = false
     @State private var failure: String?
     @State private var kato = CareerKatoNames.shared
+    @State private var pickingLogo = false
+    @State private var pickingCover = false
+    @State private var openPageID: String?
 
     var body: some View {
         RemoteContent(reloadToken: token, load: { try await CareerAPI().myCompany() }) { company in
             List {
                 Section {
-                    HStack(spacing: Spacing.lg) {
-                        AvatarView(url: company.logoUrl, name: company.name, size: 56)
-                        VStack(alignment: .leading, spacing: Spacing.xs) {
-                            Text(company.name).font(Typography.pageTitle).foregroundStyle(Palette.foreground)
-                            Text([company.industry, kato.name(company.city), company.size.map(CareerText.companySize)]
-                                .compactMap { $0 }.joined(separator: " · "))
-                                .font(Typography.meta)
-                                .foregroundStyle(Palette.mutedForeground)
-                            if let role = company.memberRole {
-                                StatusBadge(text: CareerText.memberRole(role), tint: Palette.info)
-                            }
-                        }
-                    }
-                    .padding(.vertical, Spacing.xs)
-                    NavigationLink(value: AppRoute.career(.company(id: company.id))) {
-                        Label(String(localized: "career.company.badge", defaultValue: "Страница компании"), systemImage: "building.2")
-                    }
+                    hero(company)
                 }
 
-                if company.isOwner {
+                if !company.isOwner {
                     Section {
-                        Button(String(localized: "career.company.edit", defaultValue: "Изменить")) { editing = company }
-                        PhotosPicker(selection: $logoItem, matching: .images) {
-                            Label(String(localized: "career.company.logo", defaultValue: "Загрузить логотип"), systemImage: "photo")
-                        }
-                        if company.logoUrl != nil {
-                            Button(String(localized: "career.company.removeLogo", defaultValue: "Удалить логотип"), role: .destructive) {
-                                Task { await run { try await CareerAPI().removeCompanyImage(kind: "logo") } }
-                            }
-                        }
-                        PhotosPicker(selection: $coverItem, matching: .images) {
-                            Label(String(localized: "career.company.cover", defaultValue: "Загрузить обложку"), systemImage: "photo.on.rectangle")
-                        }
-                        if company.coverUrl != nil {
-                            Button(String(localized: "career.company.removeCover", defaultValue: "Удалить обложку"), role: .destructive) {
-                                Task { await run { try await CareerAPI().removeCompanyImage(kind: "cover") } }
-                            }
-                        }
-                    }
-                    .disabled(uploading)
-                } else {
-                    Section {
-                        Text(String(localized: "career.company.ownerOnly", defaultValue: "Профиль компании меняет её владелец."))
-                            .foregroundStyle(Palette.mutedForeground)
+                    } footer: {
+                        Label(String(localized: "career.company.ownerOnly", defaultValue: "Профиль компании меняет её владелец."), systemImage: "info.circle")
                     }
                 }
 
@@ -1440,9 +1484,82 @@ struct CareerCompanyProfileView: View {
         )) { box in
             CareerCompanyForm(company: box.company) { token += 1 }
         }
+        .photosPicker(isPresented: $pickingLogo, selection: $logoItem, matching: .images)
+        .photosPicker(isPresented: $pickingCover, selection: $coverItem, matching: .images)
+        .navigationDestination(item: $openPageID) { companyID in CareerCompanyView(id: companyID) }
         .onChange(of: logoItem) { Task { await upload(kind: "logo") } }
         .onChange(of: coverItem) { Task { await upload(kind: "cover") } }
         .actionFailureAlert($failure)
+    }
+
+    /// Шапка компании. «Ещё» с удалением логотипа и обложки — только владельцу и только
+    /// когда есть что удалять: пустое меню хуже, чем его отсутствие.
+    @ViewBuilder
+    private func hero(_ company: CareerCompany) -> some View {
+        let subtitle = [company.industry, kato.name(company.city), company.size.map(CareerText.companySize)]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+        if company.isOwner, company.logoUrl != nil || company.coverUrl != nil {
+            HeroHeader(
+                visual: .avatar(url: company.logoUrl, name: company.name),
+                title: company.name,
+                subtitle: subtitle,
+                actions: profileActions(company),
+                badges: { roleBadge(company) },
+                moreMenu: {
+                    if company.logoUrl != nil {
+                        Button(role: .destructive) {
+                            Task { await run { try await CareerAPI().removeCompanyImage(kind: "logo") } }
+                        } label: {
+                            Label(String(localized: "career.company.removeLogo", defaultValue: "Удалить логотип"), systemImage: "trash")
+                        }
+                    }
+                    if company.coverUrl != nil {
+                        Button(role: .destructive) {
+                            Task { await run { try await CareerAPI().removeCompanyImage(kind: "cover") } }
+                        } label: {
+                            Label(String(localized: "career.company.removeCover", defaultValue: "Удалить обложку"), systemImage: "trash")
+                        }
+                    }
+                }
+            )
+        } else {
+            HeroHeader(
+                visual: .avatar(url: company.logoUrl, name: company.name),
+                title: company.name,
+                subtitle: subtitle,
+                actions: profileActions(company)
+            ) {
+                roleBadge(company)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func roleBadge(_ company: CareerCompany) -> some View {
+        if let role = company.memberRole {
+            StatusBadge(text: CareerText.memberRole(role), tint: Palette.info)
+        }
+    }
+
+    /// Круги под шапкой: страница компании всем; владельцу — правка, логотип и обложка.
+    private func profileActions(_ company: CareerCompany) -> [HeroAction] {
+        var actions: [HeroAction] = []
+        if company.isOwner {
+            actions.append(HeroAction(title: String(localized: "career.company.edit", defaultValue: "Изменить"), symbol: "pencil") { editing = company })
+            actions.append(HeroAction(title: String(localized: "career.company.logoShort", defaultValue: "Логотип"), symbol: "photo") {
+                guard !uploading else { return }
+                pickingLogo = true
+            })
+            actions.append(HeroAction(title: String(localized: "career.company.coverShort", defaultValue: "Обложка"), symbol: "photo.on.rectangle") {
+                guard !uploading else { return }
+                pickingCover = true
+            })
+        }
+        actions.append(HeroAction(title: String(localized: "career.company.pageShort", defaultValue: "Страница"), symbol: "building.2") {
+            openPageID = company.id
+        })
+        return actions
     }
 
     @MainActor

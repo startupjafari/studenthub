@@ -30,15 +30,12 @@ struct LibrarianReportsView: View {
                             .foregroundStyle(Palette.mutedForeground)
                     }
                     ForEach(debtors) { loan in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(loan.reader.name).font(Typography.cardTitle).lineLimit(2)
-                                Text([loan.reader.group, loan.book.title].compactMap { $0 }.joined(separator: " · "))
-                                    .font(Typography.meta)
-                                    .foregroundStyle(Palette.mutedForeground)
-                                    .lineLimit(2)
-                            }
-                            Spacer(minLength: Spacing.md)
+                        TelegramStyleRow(
+                            title: loan.reader.name,
+                            subtitle: [loan.reader.group, loan.book.title].compactMap { $0 }.joined(separator: "\n")
+                        ) {
+                            AvatarView(url: nil, name: loan.reader.name, size: 44)
+                        } accessory: {
                             LibrarianLoanDueBadge(loan: loan)
                         }
                     }
@@ -102,7 +99,6 @@ struct LibrarianReportsView: View {
                 await loadPopular()
             }
         }
-        .background(Palette.background)
         .navigationTitle(Text(LibrarianScreen.reports.title))
         .task(id: days) { await loadPopular() }
     }

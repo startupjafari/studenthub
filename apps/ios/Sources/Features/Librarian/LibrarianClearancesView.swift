@@ -67,8 +67,9 @@ struct LibrarianClearancesView: View {
                 Button {
                     checking = true
                 } label: {
-                    Label(String(localized: "librarian.clear.check", defaultValue: "Проверить по коду"), systemImage: "magnifyingglass")
+                    Image(systemName: "doc.text.magnifyingglass")
                 }
+                .accessibilityLabel(Text(String(localized: "librarian.clear.check", defaultValue: "Проверить по коду")))
             }
         }
         .sheet(isPresented: $checking) { LibrarianClearanceCheckSheet() }
@@ -113,41 +114,29 @@ struct LibrarianClearancesView: View {
     }
 }
 
+/// Справка — как строка чата: печать зелёная или красная, читатель, день выдачи справа,
+/// код и номер ниже, статус — плашкой.
 private struct LibrarianClearanceRow: View {
     let item: LibrarianClearanceDTO
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(verbatim: item.code)
-                    .font(Typography.cardTitle.monospaced())
-                    .foregroundStyle(Palette.foreground)
-                    .textSelection(.enabled)
-                Spacer(minLength: Spacing.md)
-                if let revoked = item.revokedAt {
-                    LibrarianBadge(
-                        text: String(localized: "librarian.clear.revokedAt", defaultValue: "Отозвана \(DisplayFormat.date(revoked))"),
-                        tint: Palette.destructive
-                    )
-                } else {
-                    LibrarianBadge(text: String(localized: "librarian.clear.valid", defaultValue: "Действует"), tint: Palette.success)
-                }
+        let revoked = item.revokedAt != nil
+        TelegramStyleRow(
+            title: item.reader.name ?? "—",
+            subtitle: [item.code, item.number.map { "№ \($0)" }].compactMap { $0 }.joined(separator: " · "),
+            meta: DisplayFormat.date(item.issuedAt)
+        ) {
+            RowSymbol(symbol: revoked ? "xmark.seal.fill" : "checkmark.seal.fill", tint: revoked ? TileTint.red : TileTint.green)
+        } accessory: {
+            if let revokedAt = item.revokedAt {
+                LibrarianBadge(
+                    text: String(localized: "librarian.clear.revokedAt", defaultValue: "Отозвана \(DisplayFormat.date(revokedAt))"),
+                    tint: Palette.destructive
+                )
+            } else {
+                LibrarianBadge(text: String(localized: "librarian.clear.valid", defaultValue: "Действует"), tint: Palette.success)
             }
-            Text(item.reader.name ?? "—")
-                .font(Typography.meta)
-                .foregroundStyle(Palette.foreground)
-            let meta = [
-                item.number.map { "№ \($0)" },
-                String(localized: "librarian.clear.issued", defaultValue: "Выдана \(DisplayFormat.date(item.issuedAt))"),
-            ]
-            .compactMap { $0 }
-            .joined(separator: " · ")
-            Text(meta)
-                .font(.caption)
-                .foregroundStyle(Palette.mutedForeground)
         }
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -181,14 +170,15 @@ private struct LibrarianClearanceCheckSheet: View {
 
                 if let result {
                     Section {
-                        Label(
-                            result.status == "VALID"
+                        LibrarianOutcomeView(
+                            kind: result.status == "VALID" ? .success : .failure,
+                            title: result.status == "VALID"
                                 ? String(localized: "librarian.clear.valid", defaultValue: "Действует")
                                 : String(localized: "librarian.clear.revoked", defaultValue: "Отозвана"),
-                            systemImage: result.status == "VALID" ? "checkmark.seal.fill" : "xmark.seal.fill"
+                            symbol: result.status == "VALID" ? "checkmark.seal.fill" : "xmark.seal.fill"
                         )
-                        .font(Typography.sectionTitle)
-                        .foregroundStyle(result.status == "VALID" ? Palette.success : Palette.destructive)
+                    }
+                    Section {
                         if let subject = result.subject {
                             DetailRow(title: String(localized: "librarian.clear.subject", defaultValue: "Кому выдана"), value: subject)
                         }
@@ -210,11 +200,12 @@ private struct LibrarianClearanceCheckSheet: View {
             .navigationTitle(Text(String(localized: "librarian.clear.check", defaultValue: "Проверить по коду")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(String(localized: "librarian.close", defaultValue: "Закрыть")) { dismiss() }
+                ToolbarItem(placement: .cancellationAction) {
+                    SheetCloseButton { dismiss() }
                 }
             }
         }
+        .presentationDetents([.medium, .large])
     }
 
     /// Код переписывают с бумаги с пробелами и дефисами — сервер их не убирает.

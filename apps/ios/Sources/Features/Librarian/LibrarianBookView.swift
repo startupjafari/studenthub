@@ -36,10 +36,8 @@ struct LibrarianBookView: View {
                 LoadingStateView()
             }
         }
-        .background(Palette.background)
         .navigationTitle(Text(book?.title ?? LibrarianScreen.book(id: bookID).title))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { toolbar }
         .sheet(isPresented: $editing) {
             if let book {
                 LibrarianBookFormSheet(book: book) { _ in
@@ -92,68 +90,76 @@ struct LibrarianBookView: View {
         .task { await load() }
     }
 
-    @ToolbarContentBuilder
-    private var toolbar: some ToolbarContent {
-        if let book {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button { editing = true } label: {
-                        Label(String(localized: "librarian.book.edit", defaultValue: "Изменить карточку"), systemImage: "pencil")
-                    }
-                    Button { adding = true } label: {
-                        Label(String(localized: "librarian.book.addCopies", defaultValue: "Добавить экземпляры"), systemImage: "plus.square.on.square")
-                    }
-                    .disabled(book.isArchived)
-                    Button {
-                        selecting.toggle()
-                        if !selecting { selected = [] }
-                    } label: {
-                        Label(String(localized: "librarian.book.selectForLabels", defaultValue: "Выбрать для наклеек"), systemImage: "checkmark.circle")
-                    }
-                    .disabled(book.copies.isEmpty)
-                    Button {
-                        Task { await printLabels(book.copies.map(\.id)) }
-                    } label: {
-                        Label(String(localized: "librarian.book.printAll", defaultValue: "Наклейки всех экземпляров"), systemImage: "printer")
-                    }
-                    .disabled(book.copies.isEmpty)
-                    Divider()
-                    if book.isArchived {
-                        Button { Task { await setArchived(false) } } label: {
-                            Label(String(localized: "librarian.book.restore", defaultValue: "Вернуть из архива"), systemImage: "arrow.uturn.backward")
-                        }
-                    } else {
-                        Button(role: .destructive) { confirmArchive = true } label: {
-                            Label(String(localized: "librarian.book.archive", defaultValue: "В архив"), systemImage: "archivebox")
-                        }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
+    /// Редкое и опасное — в «Ещё» под шапкой: выбор наклеек и архив.
+    @ViewBuilder
+    private func moreMenu(_ book: LibrarianBookDetailDTO) -> some View {
+        Button {
+            selecting.toggle()
+            if !selecting { selected = [] }
+        } label: {
+            Label(String(localized: "librarian.book.selectForLabels", defaultValue: "Выбрать для наклеек"), systemImage: "checkmark.circle")
+        }
+        .disabled(book.copies.isEmpty)
+        Divider()
+        if book.isArchived {
+            Button { Task { await setArchived(false) } } label: {
+                Label(String(localized: "librarian.book.restore", defaultValue: "Вернуть из архива"), systemImage: "arrow.uturn.backward")
+            }
+        } else {
+            Button(role: .destructive) { confirmArchive = true } label: {
+                Label(String(localized: "librarian.book.archive", defaultValue: "В архив"), systemImage: "archivebox")
             }
         }
     }
 
+    private func heroActions(_ book: LibrarianBookDetailDTO) -> [HeroAction] {
+        var actions = [
+            HeroAction(title: String(localized: "librarian.book.editShort", defaultValue: "Изменить"), symbol: "pencil") { editing = true },
+        ]
+        if !book.isArchived {
+            actions.append(HeroAction(title: String(localized: "librarian.book.addCopiesShort", defaultValue: "Экземпляры"), symbol: "plus.square.on.square") { adding = true })
+        }
+        if !book.copies.isEmpty {
+            actions.append(HeroAction(title: String(localized: "librarian.book.labelsShort", defaultValue: "Наклейки"), symbol: "printer") {
+                Task { await printLabels(book.copies.map(\.id)) }
+            })
+        }
+        return actions
+    }
+
     private func content(_ book: LibrarianBookDetailDTO) -> some View {
         List {
+            // Шапка как у карточки в Telegram, только вместо аватара — обложка: нажатие
+            // меняет её, ниже — название, авторы, наличие и круглые кнопки действий.
             Section {
-                HStack(alignment: .top, spacing: Spacing.lg) {
+                VStack(spacing: Spacing.sm) {
                     PhotosPicker(selection: $coverItem, matching: .images) {
                         ZStack(alignment: .bottomTrailing) {
-                            BookCoverView(url: book.coverUrl, width: 96)
-                            Image(systemName: "camera.circle.fill")
-                                .font(.title3)
-                                .symbolRenderingMode(.multicolor)
-                                .padding(Spacing.xs)
+                            BookCoverView(url: book.coverUrl, width: 112)
+                            Image(systemName: "camera.fill")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(Palette.primary)
+                                .frame(width: 32, height: 32)
+                                .glassSurface(in: Circle())
+                                .offset(x: 8, y: 8)
                         }
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Text(String(localized: "librarian.book.cover", defaultValue: "Обложка")))
-                    VStack(alignment: .leading, spacing: Spacing.xs) {
-                        Text(book.title).font(Typography.sectionTitle).foregroundStyle(Palette.foreground)
-                        if !book.authors.isEmpty {
-                            Text(book.authors).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
-                        }
+                    .padding(.bottom, Spacing.xs)
+                    Text(book.title)
+                        .font(.title2.weight(.semibold))
+                        .foregroundStyle(Palette.foreground)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.isHeader)
+                    if !book.authors.isEmpty {
+                        Text(book.authors)
+                            .font(.subheadline)
+                            .foregroundStyle(Palette.mutedForeground)
+                            .multilineTextAlignment(.center)
+                    }
+                    HStack(spacing: Spacing.xs) {
                         LibrarianAvailabilityBadge(availability: book.availability)
                         if book.availability.onLoan > 0 {
                             LibrarianBadge(
@@ -161,32 +167,52 @@ struct LibrarianBookView: View {
                                 tint: Palette.info
                             )
                         }
-                        if book.availability.reserved > 0 {
-                            LibrarianBadge(
-                                text: String(localized: "librarian.book.reservedCount", defaultValue: "под бронью: \(book.availability.reserved.formatted())"),
-                                tint: Palette.warning
-                            )
-                        }
-                        if book.isArchived {
-                            LibrarianBadge(text: String(localized: "librarian.catalog.archived", defaultValue: "В архиве"), tint: Palette.mutedForeground)
+                    }
+                    if book.availability.reserved > 0 || book.isArchived {
+                        HStack(spacing: Spacing.xs) {
+                            if book.availability.reserved > 0 {
+                                LibrarianBadge(
+                                    text: String(localized: "librarian.book.reservedCount", defaultValue: "под бронью: \(book.availability.reserved.formatted())"),
+                                    tint: Palette.warning
+                                )
+                            }
+                            if book.isArchived {
+                                LibrarianBadge(text: String(localized: "librarian.catalog.archived", defaultValue: "В архиве"), tint: Palette.mutedForeground)
+                            }
                         }
                     }
+                    HeroActionRow(actions: heroActions(book)) { moreMenu(book) }
+                        .padding(.top, Spacing.md)
                 }
-                .padding(.vertical, Spacing.xs)
-                if let isbn = book.isbn {
-                    DetailRow(title: "ISBN", value: isbn)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Spacing.sm)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: Spacing.sm, leading: 0, bottom: Spacing.sm, trailing: 0))
+            }
+
+            if book.isbn != nil || book.publisher != nil || book.year != nil || book.section != nil {
+                Section(String(localized: "librarian.book.about", defaultValue: "О книге")) {
+                    if let isbn = book.isbn {
+                        DetailRow(title: "ISBN", value: isbn, symbol: "barcode")
+                    }
+                    if let publisher = book.publisher {
+                        DetailRow(title: String(localized: "librarian.book.publisher", defaultValue: "Издательство"), value: publisher, symbol: "building.2")
+                    }
+                    if let year = book.year {
+                        DetailRow(title: String(localized: "librarian.book.year", defaultValue: "Год издания"), value: String(year), symbol: "calendar")
+                    }
+                    if let section = book.section {
+                        DetailRow(title: String(localized: "librarian.catalog.section", defaultValue: "Раздел"), value: section, symbol: "folder")
+                    }
                 }
-                if let publisher = book.publisher {
-                    DetailRow(title: String(localized: "librarian.book.publisher", defaultValue: "Издательство"), value: publisher)
-                }
-                if let year = book.year {
-                    DetailRow(title: String(localized: "librarian.book.year", defaultValue: "Год издания"), value: String(year))
-                }
-                if let section = book.section {
-                    DetailRow(title: String(localized: "librarian.catalog.section", defaultValue: "Раздел"), value: section)
-                }
-                if let description = book.description {
-                    Text(description).font(Typography.body).foregroundStyle(Palette.foreground)
+            }
+
+            if let description = book.description, !description.isEmpty {
+                Section(String(localized: "librarian.book.description", defaultValue: "Описание")) {
+                    Text(description)
+                        .font(Typography.body)
+                        .foregroundStyle(Palette.foreground)
+                        .textSelection(.enabled)
                 }
             }
 
@@ -233,18 +259,30 @@ struct LibrarianBookView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .toolbar {
+            if selecting {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) {
+                        selecting = false
+                        selected = []
+                    }
+                }
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             if selecting {
                 Button {
                     Task { await printLabels(Array(selected)) }
                 } label: {
-                    Text(String(localized: "librarian.book.printLabels", defaultValue: "Печать наклеек: \(selected.count.formatted())"))
+                    Label(String(localized: "librarian.book.printLabels", defaultValue: "Печать наклеек: \(selected.count.formatted())"), systemImage: "printer.fill")
+                        .font(.body.weight(.semibold))
                         .frame(maxWidth: .infinity)
+                        .padding(.vertical, Spacing.xs)
                 }
                 .glassProminentButton()
                 .disabled(selected.isEmpty)
-                .padding(Spacing.xl)
-                .background(.bar)
+                .padding(.horizontal, Spacing.xl)
+                .padding(.bottom, Spacing.md)
             }
         }
     }
@@ -345,37 +383,33 @@ struct LibrarianBookView: View {
     }
 }
 
-/// Строка экземпляра: номер, код наклейки, статус, состояние, кому выдан.
+/// Строка экземпляра — как строка чата: значок с цветом статуса, инвентарный номер,
+/// код наклейки и состояние, кому выдан; статус — плашкой справа.
 private struct LibrarianCopyRow: View {
     let copy: LibrarianCopyDTO
 
     var body: some View {
-        HStack(alignment: .top, spacing: Spacing.lg) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: copy.inventoryNumber)
-                    .font(Typography.cardTitle.monospacedDigit())
-                    .foregroundStyle(Palette.foreground)
-                Text([LibrarianText.copyCode(copy.code), LibrarianText.condition(copy.condition)].joined(separator: " · "))
-                    .font(Typography.meta.monospaced())
-                    .foregroundStyle(Palette.mutedForeground)
-                if let loan = copy.loan {
-                    Text([loan.readerName, loan.readerGroup, String(localized: "librarian.dueUntil", defaultValue: "до \(LibrarianText.shortDay(loan.dueAt))")]
-                        .compactMap { $0 }
-                        .joined(separator: " · "))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.foreground)
-                }
-                if let note = copy.note, !note.isEmpty {
-                    Text(note).font(.caption).foregroundStyle(Palette.mutedForeground)
-                }
-            }
-            Spacer(minLength: Spacing.md)
-            let status = LibrarianText.copyStatus(copy.status)
+        let status = LibrarianText.copyStatus(copy.status)
+        TelegramStyleRow(
+            title: copy.inventoryNumber,
+            subtitle: subtitle,
+            meta: copy.loan.map { String(localized: "librarian.dueUntil", defaultValue: "до \(LibrarianText.shortDay($0.dueAt))") }
+        ) {
+            RowSymbol(symbol: "book.closed.fill", tint: status.tint)
+        } accessory: {
             LibrarianBadge(text: status.text, tint: status.tint)
         }
         .contentShape(Rectangle())
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .combine)
+    }
+
+    private var subtitle: String {
+        var lines = [[LibrarianText.copyCode(copy.code), LibrarianText.condition(copy.condition)].joined(separator: " · ")]
+        if let loan = copy.loan {
+            lines.append([loan.readerName, loan.readerGroup].compactMap { $0 }.joined(separator: " · "))
+        } else if let note = copy.note, !note.isEmpty {
+            lines.append(note)
+        }
+        return lines.joined(separator: "\n")
     }
 }
 
@@ -401,6 +435,7 @@ struct LibrarianCopyDetail: View {
     @State private var confirmRotate = false
     @State private var labelsURL: URL?
     @State private var history: [LibrarianLoanDTO]?
+    @State private var historyLoading = false
 
     private let api = LibrarianAPI()
 
@@ -424,16 +459,28 @@ struct LibrarianCopyDetail: View {
     }
 
     var body: some View {
+        let status = LibrarianText.copyStatus(current.status)
         List {
+            Section {
+                HeroHeader(
+                    visual: .symbol("book.closed.fill", tint: status.tint),
+                    title: current.inventoryNumber,
+                    subtitle: LibrarianText.copyCode(current.code),
+                    actions: copyActions
+                ) {
+                    LibrarianBadge(text: status.text, tint: status.tint)
+                }
+            }
+
             if let book {
                 Section {
                     NavigationLink(value: AppRoute.librarian(.book(id: book.id))) {
                         HStack(spacing: Spacing.lg) {
                             BookCoverView(url: book.coverUrl, width: 44)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(book.title).font(Typography.cardTitle).lineLimit(3)
+                                Text(book.title).font(.body.weight(.semibold)).lineLimit(3)
                                 if !book.authors.isEmpty {
-                                    Text(book.authors).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
+                                    Text(book.authors).font(.subheadline).foregroundStyle(Palette.mutedForeground)
                                 }
                                 LibrarianAvailabilityBadge(availability: book.availability)
                             }
@@ -442,23 +489,20 @@ struct LibrarianCopyDetail: View {
                 }
             }
 
-            Section {
-                HStack {
-                    Text(verbatim: LibrarianText.copyCode(current.code)).font(Typography.body.monospaced())
-                    Spacer()
-                    let status = LibrarianText.copyStatus(current.status)
-                    LibrarianBadge(text: status.text, tint: status.tint)
-                }
-                if let loan = current.loan {
-                    DetailRow(
-                        title: String(localized: "librarian.copy.reader", defaultValue: "Читатель"),
-                        value: [loan.readerName, loan.readerGroup, String(localized: "librarian.dueUntil", defaultValue: "до \(LibrarianText.shortDay(loan.dueAt))")]
-                            .compactMap { $0 }
-                            .joined(separator: " · ")
-                    )
-                }
-                if let seen = current.inventoriedAt {
-                    DetailRow(title: String(localized: "librarian.copy.inventoried", defaultValue: "Последняя инвентаризация"), value: DisplayFormat.date(seen))
+            if current.loan != nil || current.inventoriedAt != nil {
+                Section {
+                    if let loan = current.loan {
+                        DetailRow(
+                            title: String(localized: "librarian.copy.reader", defaultValue: "Читатель"),
+                            value: [loan.readerName, loan.readerGroup, String(localized: "librarian.dueUntil", defaultValue: "до \(LibrarianText.shortDay(loan.dueAt))")]
+                                .compactMap { $0 }
+                                .joined(separator: " · "),
+                            symbol: "person"
+                        )
+                    }
+                    if let seen = current.inventoriedAt {
+                        DetailRow(title: String(localized: "librarian.copy.inventoried", defaultValue: "Последняя инвентаризация"), value: DisplayFormat.date(seen), symbol: "checklist")
+                    }
                 }
             }
 
@@ -484,35 +528,6 @@ struct LibrarianCopyDetail: View {
             }
 
             Section {
-                Button {
-                    Task { await printLabel() }
-                } label: {
-                    Label(String(localized: "librarian.copy.printOne", defaultValue: "Напечатать наклейку"), systemImage: "printer")
-                }
-                Button(role: .destructive) { confirmRotate = true } label: {
-                    Label(String(localized: "librarian.copy.rotate", defaultValue: "Перевыпустить наклейку"), systemImage: "arrow.triangle.2.circlepath")
-                }
-                if isOut {
-                    Button {
-                        Task { await setStatus("AVAILABLE") }
-                    } label: {
-                        Label(String(localized: "librarian.copy.backToShelf", defaultValue: "Вернуть на полку"), systemImage: "tray.and.arrow.down")
-                    }
-                } else if !isBusyCopy {
-                    Button(role: .destructive) { withdrawing = "LOST" } label: {
-                        Label(String(localized: "librarian.copy.markLost", defaultValue: "Утерян"), systemImage: "questionmark.folder")
-                    }
-                    Button(role: .destructive) { withdrawing = "WRITTEN_OFF" } label: {
-                        Label(String(localized: "librarian.copy.writeOff", defaultValue: "Списать"), systemImage: "trash")
-                    }
-                }
-            } footer: {
-                if isBusyCopy {
-                    Text(String(localized: "librarian.copy.busy", defaultValue: "Экземпляр выдан или отложен под бронь"))
-                }
-            }
-
-            Section {
                 if let history {
                     if history.isEmpty {
                         Text(String(localized: "librarian.copy.historyEmpty", defaultValue: "Экземпляр ещё не выдавали"))
@@ -520,28 +535,65 @@ struct LibrarianCopyDetail: View {
                             .foregroundStyle(Palette.mutedForeground)
                     }
                     ForEach(history) { loan in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(loan.reader.name).font(Typography.cardTitle)
-                            Text([
+                        TelegramStyleRow(
+                            title: loan.reader.name,
+                            subtitle: [
                                 String(localized: "librarian.copy.historyIssued", defaultValue: "выдан \(LibrarianText.shortDay(loan.issuedAt))"),
                                 loan.returnedAt.map { String(localized: "librarian.copy.historyReturned", defaultValue: "возвращён \(LibrarianText.shortDay($0))") },
                             ]
                             .compactMap { $0 }
-                            .joined(separator: " · "))
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.mutedForeground)
+                            .joined(separator: " · ")
+                        ) {
+                            AvatarView(url: nil, name: loan.reader.name, size: 40)
+                        } accessory: {
                             LibrarianLoanDueBadge(loan: loan)
                         }
+                    }
+                } else if historyLoading {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                        Spacer()
                     }
                 } else {
                     Button {
                         Task { await loadHistory() }
                     } label: {
-                        Label(String(localized: "librarian.copy.history", defaultValue: "История выдач"), systemImage: "clock.arrow.circlepath")
+                        Label(String(localized: "common.retry", defaultValue: "Повторить"), systemImage: "arrow.clockwise")
                     }
                 }
             } header: {
                 Text(String(localized: "librarian.copy.history", defaultValue: "История выдач"))
+            }
+
+            // Опасное — отдельно внизу, красным: перевыпуск гасит старую наклейку,
+            // утеря и списание выводят экземпляр из оборота.
+            Section {
+                if isOut {
+                    Button {
+                        Task { await setStatus("AVAILABLE") }
+                    } label: {
+                        Label(String(localized: "librarian.copy.backToShelf", defaultValue: "Вернуть на полку"), systemImage: "tray.and.arrow.down")
+                    }
+                }
+                Button(role: .destructive) { confirmRotate = true } label: {
+                    Label(String(localized: "librarian.copy.rotate", defaultValue: "Перевыпустить наклейку"), systemImage: "arrow.triangle.2.circlepath")
+                        .foregroundStyle(Palette.destructive)
+                }
+                if !isOut, !isBusyCopy {
+                    Button(role: .destructive) { withdrawing = "LOST" } label: {
+                        Label(String(localized: "librarian.copy.markLost", defaultValue: "Утерян"), systemImage: "questionmark.folder")
+                            .foregroundStyle(Palette.destructive)
+                    }
+                    Button(role: .destructive) { withdrawing = "WRITTEN_OFF" } label: {
+                        Label(String(localized: "librarian.copy.writeOff", defaultValue: "Списать"), systemImage: "trash")
+                            .foregroundStyle(Palette.destructive)
+                    }
+                }
+            } footer: {
+                if isBusyCopy {
+                    Text(String(localized: "librarian.copy.busy", defaultValue: "Экземпляр выдан или отложен под бронь"))
+                }
             }
         }
         .listStyle(.insetGrouped)
@@ -556,6 +608,9 @@ struct LibrarianCopyDetail: View {
         }
         .overlay {
             if busy { ProgressView() }
+        }
+        .task {
+            if history == nil { await loadHistory() }
         }
         .confirmationDialog(
             withdrawing == "LOST"
@@ -597,6 +652,14 @@ struct LibrarianCopyDetail: View {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}
         }
         .quickLookPreview($labelsURL)
+    }
+
+    private var copyActions: [HeroAction] {
+        [
+            HeroAction(title: String(localized: "librarian.copy.labelShort", defaultValue: "Наклейка"), symbol: "printer") {
+                Task { await printLabel() }
+            },
+        ]
     }
 
     @MainActor
@@ -667,6 +730,8 @@ struct LibrarianCopyDetail: View {
 
     @MainActor
     private func loadHistory() async {
+        historyLoading = true
+        defer { historyLoading = false }
         do {
             history = try await api.loans(PageRequest(cursor: nil, page: 1, limit: 50), filter: "all", copyID: current.id).items
         } catch {

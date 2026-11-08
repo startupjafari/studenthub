@@ -292,43 +292,40 @@ struct LibrarianReservationBadge: View {
     }
 }
 
-/// Строка выдачи: книга, экземпляр, читатель, срок и пометки.
+/// Строка выдачи — как строка чата: обложка, название полужирным, день выдачи справа,
+/// ниже — читатель и экземпляр, внизу — срок и пометки плашками.
 struct LibrarianLoanRow: View {
     let loan: LibrarianLoanDTO
     var showReader = true
 
     var body: some View {
         HStack(alignment: .top, spacing: Spacing.lg) {
-            BookCoverView(url: loan.book.coverUrl, width: 36)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(loan.book.title)
-                    .font(Typography.cardTitle)
-                    .foregroundStyle(Palette.foreground)
-                    .lineLimit(2)
-                Text(LibrarianText.inventoryShort(loan.copy.inventoryNumber))
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
+            BookCoverView(url: loan.book.coverUrl, width: 40)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+                    Text(loan.book.title)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Palette.foreground)
+                        .lineLimit(2)
+                    Spacer(minLength: Spacing.sm)
+                    Text(LibrarianText.shortDay(loan.issuedAt))
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.mutedForeground)
+                        .lineLimit(1)
+                }
                 if showReader {
                     let reader = [loan.reader.name, loan.reader.group, loan.reader.card.map { "№ \($0)" }]
                         .compactMap { $0 }
                         .joined(separator: " · ")
                     Text(reader)
-                        .font(Typography.meta)
+                        .font(.subheadline)
                         .foregroundStyle(Palette.foreground)
                         .lineLimit(2)
                 }
-                let issued = String(
-                    localized: "librarian.issuedOn",
-                    defaultValue: "Выдана \(LibrarianText.shortDay(loan.issuedAt)) · \(loan.issuedBy.orDash)"
-                )
-                Text(issued)
-                    .font(.caption)
+                Text(details)
+                    .font(.subheadline)
                     .foregroundStyle(Palette.mutedForeground)
-                if loan.renewals > 0 {
-                    Text(String(localized: "librarian.renewed", defaultValue: "продлена: \(String(loan.renewals))"))
-                        .font(.caption)
-                        .foregroundStyle(Palette.mutedForeground)
-                }
+                    .lineLimit(2)
                 if let reason = loan.cancelReason, loan.status == "CANCELLED" {
                     Text(String(localized: "librarian.cancelReasonShort", defaultValue: "отменена: \(reason)"))
                         .font(.caption)
@@ -340,19 +337,94 @@ struct LibrarianLoanRow: View {
                         LibrarianBadge(text: String(localized: "librarian.disputed", defaultValue: "Оспорена читателем"), tint: Palette.warning)
                     }
                 }
-                HStack(spacing: Spacing.xs) {
-                    if loan.withoutPhone == true {
-                        LibrarianBadge(text: String(localized: "librarian.noPhoneBadge", defaultValue: "Без телефона"), tint: Palette.mutedForeground)
-                    }
-                    if let left = loan.reader.leftStatus {
-                        LibrarianBadge(text: LibrarianText.leftStatus(left), tint: Palette.destructive)
+                .padding(.top, 2)
+                if loan.withoutPhone == true || loan.reader.leftStatus != nil {
+                    HStack(spacing: Spacing.xs) {
+                        if loan.withoutPhone == true {
+                            LibrarianBadge(text: String(localized: "librarian.noPhoneBadge", defaultValue: "Без телефона"), tint: Palette.mutedForeground)
+                        }
+                        if let left = loan.reader.leftStatus {
+                            LibrarianBadge(text: LibrarianText.leftStatus(left), tint: Palette.destructive)
+                        }
                     }
                 }
             }
-            Spacer(minLength: 0)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
+    }
+
+    /// Экземпляр, кто выдал, продления — одной строкой: это справка, а не главное.
+    private var details: String {
+        var parts = [LibrarianText.inventoryShort(loan.copy.inventoryNumber)]
+        if let by = loan.issuedBy, !by.isEmpty { parts.append(by) }
+        if loan.renewals > 0 {
+            parts.append(String(localized: "librarian.renewed", defaultValue: "продлена: \(String(loan.renewals))"))
+        }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// Итог операции у стойки — выдано, принято, отложить под бронь, отказ. Крупный круг со
+/// значком, одно слово цветом и подробность под ним: библиотекарь смотрит на читателя,
+/// а не в экран, и результат должен читаться с первого взгляда.
+struct LibrarianOutcomeView: View {
+    enum Kind { case success, warning, failure }
+
+    let kind: Kind
+    let title: String
+    var detail: String?
+    var symbol: String?
+
+    @ScaledMetric(relativeTo: .largeTitle) private var circle: CGFloat = 88
+
+    private var tint: Color {
+        switch kind {
+        case .success: return Palette.success
+        case .warning: return Palette.warning
+        case .failure: return Palette.destructive
+        }
+    }
+
+    private var icon: String {
+        if let symbol { return symbol }
+        switch kind {
+        case .success: return "checkmark"
+        case .warning: return "bookmark.fill"
+        case .failure: return "xmark"
+        }
+    }
+
+    var body: some View {
+        let side = min(circle, 128)
+        VStack(spacing: Spacing.md) {
+            Image(systemName: icon)
+                .font(.system(size: side * 0.42, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: side, height: side)
+                .background(tint.gradient, in: Circle())
+                .accessibilityHidden(true)
+            Text(title)
+                .font(.title.weight(.bold))
+                .foregroundStyle(tint)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            if let detail, !detail.isEmpty {
+                Text(detail)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(Palette.foreground)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Spacing.xl)
+        .padding(.horizontal, Spacing.lg)
+        .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets())
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -470,7 +542,7 @@ struct LibrarianScannerSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "librarian.close", defaultValue: "Закрыть")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
             }
         }

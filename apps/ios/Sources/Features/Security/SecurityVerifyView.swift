@@ -39,9 +39,16 @@ struct SecurityVerifyView: View {
                 failure(message)
             }
         }
-        .background(Palette.background)
         .navigationTitle(Text(SecurityScreen.verifyID.title))
         .navigationBarTitleDisplayMode(.inline)
+        // Охранник смотрит на студента, а не в телефон: решение слышно рукой.
+        .sensoryFeedback(trigger: phase) { _, new in
+            switch new {
+            case .verified(let card): return card.entry?.allowed == false ? .error : .success
+            case .failed: return .error
+            default: return nil
+            }
+        }
         .task {
             guard !startedInitial, let initialToken, !initialToken.isEmpty else { return }
             startedInitial = true
@@ -117,32 +124,30 @@ struct SecurityVerifyView: View {
             }
             .padding(Spacing.xl)
         }
+        .background(Palette.background)
     }
 
     private func failure(_ message: String) -> some View {
-        VStack(spacing: Spacing.lg) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 44))
-                .foregroundStyle(Palette.destructive)
-            // Охране отказ проверки — это отказ в проходе: так и пишем, крупно.
-            Text(String(localized: "security.verify.entryDenied", defaultValue: "Не пропускать"))
-                .font(.title.weight(.bold))
-                .foregroundStyle(Palette.destructive)
-            Text(String(localized: "security.verify.failed", defaultValue: "Не удалось подтвердить"))
-                .font(Typography.sectionTitle)
-            Text(message)
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
-                .multilineTextAlignment(.center)
-            Button {
-                scanAnother()
-            } label: {
-                Label(String(localized: "security.verify.scanAnother", defaultValue: "Проверить ещё"), systemImage: "qrcode.viewfinder")
+        ScrollView {
+            VStack(spacing: Spacing.xl) {
+                // Охране отказ проверки — это отказ в проходе: так и пишем, крупно.
+                SecurityVerdictView(
+                    allowed: false,
+                    title: String(localized: "security.verify.entryDenied", defaultValue: "Не пропускать"),
+                    detail: String(localized: "security.verify.failed", defaultValue: "Не удалось подтвердить")
+                )
+                Text(message)
+                    .font(Typography.body)
+                    .foregroundStyle(Palette.mutedForeground)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .glassProminentButton()
+            .padding(Spacing.xl)
         }
-        .padding(Spacing.xxl)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Palette.background)
+        .safeAreaInset(edge: .bottom) {
+            SecurityScanAnotherButton(action: scanAnother)
+        }
     }
 
     private func handleScan(_ raw: String) {
@@ -213,75 +218,52 @@ private struct SecurityVerifiedCardView: View {
         List {
             if let entry = card.entry {
                 Section {
-                    VStack(spacing: Spacing.xs) {
-                        Label(
-                            entry.allowed
-                                ? String(localized: "security.verify.entryAllowed", defaultValue: "Пропустить")
-                                : String(localized: "security.verify.entryDenied", defaultValue: "Не пропускать"),
-                            systemImage: entry.allowed ? "checkmark.shield.fill" : "xmark.shield.fill"
-                        )
-                        .font(.title2.weight(.bold))
-                        if !entry.allowed {
-                            Text(entry.denyReason.map { SecurityText.denyReason($0) }
+                    SecurityVerdictView(
+                        allowed: entry.allowed,
+                        title: entry.allowed
+                            ? String(localized: "security.verify.entryAllowed", defaultValue: "Пропустить")
+                            : String(localized: "security.verify.entryDenied", defaultValue: "Не пропускать"),
+                        detail: entry.allowed
+                            ? nil
+                            : (entry.denyReason.map { SecurityText.denyReason($0) }
                                 ?? String(localized: "security.verify.entryDeniedStatus", defaultValue: "Учебный статус: не учится в вузе"))
-                                .font(Typography.meta)
-                                .multilineTextAlignment(.center)
-                        }
-                    }
-                    .foregroundStyle(entry.allowed ? Palette.success : Palette.destructive)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, Spacing.md)
-                }
-                .listRowBackground((entry.allowed ? Palette.success : Palette.destructive).opacity(0.14))
-            }
-
-            Section {
-                Label(String(localized: "security.verify.verifiedBadge", defaultValue: "Подтверждено StudentHub"), systemImage: "checkmark.seal.fill")
-                    .font(Typography.meta.weight(.semibold))
-                    .foregroundStyle(Palette.success)
-                    .frame(maxWidth: .infinity)
-            }
-            .listRowBackground(Palette.success.opacity(0.1))
-
-            Section {
-                HStack(spacing: Spacing.lg) {
-                    AvatarView(url: card.avatarUrl, name: card.fullName, size: 72)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(card.fullName)
-                            .font(Typography.sectionTitle)
-                            .foregroundStyle(Palette.foreground)
-                        Text(card.universityShort ?? card.university ?? "")
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.mutedForeground)
-                        Text(status)
-                            .font(Typography.meta.weight(.semibold))
-                            .foregroundStyle(card.academicStatus == nil ? Palette.success : Palette.warning)
-                    }
-                }
-                .padding(.vertical, Spacing.xs)
-                ForEach(rows, id: \.0) { row in
-                    DetailRow(title: row.0, value: row.1)
-                }
-            }
-
-            Section {
-                if let at = card.verifiedAt {
-                    Label(
-                        String(localized: "security.verify.verifiedAt", defaultValue: "Проверено: \(DisplayFormat.dateTime(at))"),
-                        systemImage: "clock"
                     )
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
                 }
-                Button(action: scanAnother) {
-                    Label(String(localized: "security.verify.scanAnother", defaultValue: "Проверить ещё"), systemImage: "qrcode.viewfinder")
-                        .frame(maxWidth: .infinity)
+            }
+
+            Section {
+                HeroHeader(
+                    visual: .avatar(url: card.avatarUrl, name: card.fullName),
+                    title: card.fullName,
+                    subtitle: card.universityShort ?? card.university
+                ) {
+                    VStack(spacing: Spacing.sm) {
+                        StatusBadge(text: status, tint: card.academicStatus == nil ? Palette.success : Palette.warning)
+                        Label(String(localized: "security.verify.verifiedBadge", defaultValue: "Подтверждено StudentHub"), systemImage: "checkmark.seal.fill")
+                            .font(Typography.meta.weight(.semibold))
+                            .foregroundStyle(Palette.success)
+                    }
                 }
-                .glassProminentButton()
-                .listRowBackground(Color.clear)
+            }
+
+            if !rows.isEmpty {
+                Section {
+                    ForEach(rows, id: \.0) { row in
+                        DetailRow(title: row.0, value: row.1)
+                    }
+                } footer: {
+                    if let at = card.verifiedAt {
+                        Text(String(localized: "security.verify.verifiedAt", defaultValue: "Проверено: \(DisplayFormat.dateTime(at))"))
+                    }
+                }
             }
         }
         .listStyle(.insetGrouped)
+        .safeAreaInset(edge: .bottom) {
+            SecurityScanAnotherButton(action: scanAnother)
+        }
     }
 
     private var status: String {
@@ -360,6 +342,64 @@ private struct SecurityVerifiedCardView: View {
         case "QUOTA": return String(localized: "security.card.fundingQuota", defaultValue: "Квота")
         default: return raw
         }
+    }
+}
+
+/// Решение о проходе — главное на экране, читается с расстояния вытянутой руки:
+/// крупный круг со щитом, одно слово цветом и причина под ним.
+private struct SecurityVerdictView: View {
+    let allowed: Bool
+    let title: String
+    var detail: String?
+
+    @ScaledMetric(relativeTo: .largeTitle) private var circle: CGFloat = 112
+
+    var body: some View {
+        let tint = allowed ? Palette.success : Palette.destructive
+        let side = min(circle, 160)
+        VStack(spacing: Spacing.md) {
+            Image(systemName: allowed ? "checkmark.shield.fill" : "xmark.shield.fill")
+                .font(.system(size: side * 0.46, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: side, height: side)
+                .background(tint.gradient, in: Circle())
+                .accessibilityHidden(true)
+            Text(title)
+                .font(.largeTitle.weight(.bold))
+                .foregroundStyle(tint)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            if let detail, !detail.isEmpty {
+                Text(detail)
+                    .font(.title3.weight(.medium))
+                    .foregroundStyle(Palette.foreground)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Spacing.xxl)
+        .padding(.horizontal, Spacing.xl)
+        .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// «Проверить ещё» внизу экрана результата: следующий студент уже в очереди.
+private struct SecurityScanAnotherButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(String(localized: "security.verify.scanAnother", defaultValue: "Проверить ещё"), systemImage: "qrcode.viewfinder")
+                .font(.body.weight(.semibold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Spacing.xs)
+        }
+        .glassProminentButton()
+        .padding(.horizontal, Spacing.xl)
+        .padding(.bottom, Spacing.md)
     }
 }
 

@@ -21,7 +21,6 @@ struct LibrarianCopyView: View {
                 )
             }
         }
-        .background(Palette.background)
         .navigationTitle(Text(LibrarianScreen.copy(code: code).title))
         .navigationBarTitleDisplayMode(.inline)
     }

@@ -123,34 +123,40 @@ struct LibrarianReservationsView: View {
     }
 }
 
+/// Бронь — как строка чата: обложка, книга полужирным, день брони справа, ниже —
+/// читатель и экземпляр, плашка — готова до / место в очереди.
 private struct LibrarianReservationRow: View {
     let reservation: LibrarianReservationDTO
 
     var body: some View {
         HStack(alignment: .top, spacing: Spacing.lg) {
-            BookCoverView(url: reservation.book.coverUrl, width: 36)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(reservation.book.title)
-                    .font(Typography.cardTitle)
+            BookCoverView(url: reservation.book.coverUrl, width: 40)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+                    Text(reservation.book.title)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Palette.foreground)
+                        .lineLimit(2)
+                    Spacer(minLength: Spacing.sm)
+                    Text(LibrarianText.shortDay(reservation.createdAt))
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.mutedForeground)
+                        .lineLimit(1)
+                }
+                Text([reservation.reader.name, reservation.reader.group].compactMap { $0 }.joined(separator: " · "))
+                    .font(.subheadline)
                     .foregroundStyle(Palette.foreground)
                     .lineLimit(2)
-                Text([reservation.reader.name, reservation.reader.group].compactMap { $0 }.joined(separator: " · "))
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.foreground)
-                let meta = [
-                    reservation.copy.map { LibrarianText.inventoryShort($0.inventoryNumber) },
-                    String(localized: "librarian.res.createdOn", defaultValue: "Бронь от \(LibrarianText.shortDay(reservation.createdAt))"),
-                ]
-                .compactMap { $0 }
-                .joined(separator: " · ")
-                Text(meta)
-                    .font(.caption)
-                    .foregroundStyle(Palette.mutedForeground)
+                if let copy = reservation.copy {
+                    Text(LibrarianText.inventoryShort(copy.inventoryNumber))
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.mutedForeground)
+                }
                 LibrarianReservationBadge(reservation: reservation)
+                    .padding(.top, 2)
             }
-            Spacer(minLength: 0)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
     }
 }

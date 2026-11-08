@@ -37,16 +37,14 @@ struct LibrarianCatalogView: View {
                 action: isFiltered ? nil : { creating = true }
             ),
             header: {
-                Section {
-                    if !sections.isEmpty {
-                        Picker(String(localized: "librarian.catalog.section", defaultValue: "Раздел"), selection: $section) {
-                            Text(String(localized: "librarian.catalog.allSections", defaultValue: "Все разделы")).tag(String?.none)
-                            ForEach(sections, id: \.self) { Text($0).tag(String?.some($0)) }
-                        }
-                    }
-                    Toggle(String(localized: "librarian.catalog.onlyAvailable", defaultValue: "Есть на полке"), isOn: $onlyAvailable)
-                    Toggle(String(localized: "librarian.catalog.showArchive", defaultValue: "Архив"), isOn: $archived)
-                }
+                FilterChipsRow(
+                    options: [
+                        (nil, String(localized: "librarian.filter.all", defaultValue: "Все")),
+                        ("available", String(localized: "librarian.catalog.onlyAvailable", defaultValue: "Есть на полке")),
+                        ("archived", String(localized: "librarian.catalog.showArchive", defaultValue: "Архив")),
+                    ],
+                    selection: shelfFilter
+                )
             },
             row: { book in
                 NavigationLink(value: AppRoute.librarian(.book(id: book.id))) {
@@ -61,24 +59,37 @@ struct LibrarianCatalogView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button { creating = true } label: {
-                        Label(String(localized: "librarian.catalog.addBook", defaultValue: "Добавить книгу"), systemImage: "plus")
+                    if !sections.isEmpty {
+                        Picker(selection: $section) {
+                            Text(String(localized: "librarian.catalog.allSections", defaultValue: "Все разделы")).tag(String?.none)
+                            ForEach(sections, id: \.self) { Text($0).tag(String?.some($0)) }
+                        } label: {
+                            Label(String(localized: "librarian.catalog.section", defaultValue: "Раздел"), systemImage: "folder")
+                        }
+                        .pickerStyle(.menu)
                     }
-                    Button { importing = true } label: {
-                        Label(String(localized: "librarian.catalog.import", defaultValue: "Импорт из файла"), systemImage: "square.and.arrow.down")
-                    }
-                    Divider()
-                    Picker(String(localized: "librarian.catalog.sort", defaultValue: "Сортировка"), selection: $sort) {
+                    Picker(selection: $sort) {
                         Text(String(localized: "librarian.catalog.sortTitle", defaultValue: "По названию")).tag("title")
                         Text(String(localized: "librarian.catalog.sortAuthors", defaultValue: "По авторам")).tag("authors")
                         Text(String(localized: "librarian.catalog.sortYear", defaultValue: "По году")).tag("year")
                         Text(String(localized: "librarian.catalog.sortCreated", defaultValue: "По дате добавления")).tag("createdAt")
+                    } label: {
+                        Label(String(localized: "librarian.catalog.sort", defaultValue: "Сортировка"), systemImage: "arrow.up.arrow.down")
                     }
+                    .pickerStyle(.menu)
                     Toggle(String(localized: "librarian.catalog.descending", defaultValue: "По убыванию"), isOn: $descending)
+                    Divider()
+                    Button { importing = true } label: {
+                        Label(String(localized: "librarian.catalog.import", defaultValue: "Импорт из файла"), systemImage: "square.and.arrow.down")
+                    }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Image(systemName: section == nil ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
                 }
+                .accessibilityLabel(Text(String(localized: "librarian.catalog.options", defaultValue: "Раздел, сортировка и импорт")))
             }
+        }
+        .floatingAction(String(localized: "librarian.catalog.addBook", defaultValue: "Добавить книгу")) {
+            creating = true
         }
         .sheet(isPresented: $creating) {
             LibrarianBookFormSheet(book: nil) { saved in
@@ -100,6 +111,17 @@ struct LibrarianCatalogView: View {
         .onChange(of: sort) { _, _ in Task { await reload() } }
         .onChange(of: descending) { _, _ in Task { await reload() } }
         .task { await loadSections() }
+    }
+
+    /// «Есть на полке» и «Архив» — одна строка папок: смотрят либо то, либо другое.
+    private var shelfFilter: Binding<String?> {
+        Binding(
+            get: { archived ? "archived" : (onlyAvailable ? "available" : nil) },
+            set: { value in
+                onlyAvailable = value == "available"
+                archived = value == "archived"
+            }
+        )
     }
 
     private var isFiltered: Bool {
@@ -133,22 +155,35 @@ struct LibrarianCatalogView: View {
     }
 }
 
+/// Книга в каталоге — как строка чата: обложка, название полужирным, год справа,
+/// авторы и раздел ниже, наличие — плашкой.
 private struct LibrarianBookRow: View {
     let book: LibrarianBookDTO
 
     var body: some View {
         HStack(alignment: .top, spacing: Spacing.lg) {
-            BookCoverView(url: book.coverUrl, width: 40)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(book.title)
-                    .font(Typography.cardTitle)
-                    .foregroundStyle(Palette.foreground)
-                    .lineLimit(3)
-                let byline = [book.authors.isEmpty ? nil : book.authors, book.year.map { String($0) }, book.section]
+            BookCoverView(url: book.coverUrl, width: 44)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+                    Text(book.title)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Palette.foreground)
+                        .lineLimit(2)
+                    Spacer(minLength: Spacing.sm)
+                    if let year = book.year {
+                        Text(verbatim: String(year))
+                            .font(.subheadline)
+                            .foregroundStyle(Palette.mutedForeground)
+                    }
+                }
+                let byline = [book.authors.isEmpty ? nil : book.authors, book.section]
                     .compactMap { $0 }
                     .joined(separator: " · ")
                 if !byline.isEmpty {
-                    Text(byline).font(Typography.meta).foregroundStyle(Palette.mutedForeground).lineLimit(2)
+                    Text(byline)
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.mutedForeground)
+                        .lineLimit(2)
                 }
                 HStack(spacing: Spacing.xs) {
                     LibrarianAvailabilityBadge(availability: book.availability)
@@ -162,10 +197,10 @@ private struct LibrarianBookRow: View {
                         LibrarianBadge(text: String(localized: "librarian.catalog.archived", defaultValue: "В архиве"), tint: Palette.mutedForeground)
                     }
                 }
+                .padding(.top, 2)
             }
-            Spacer(minLength: 0)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
     }
 }
@@ -406,7 +441,7 @@ private struct LibrarianImportSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "librarian.close", defaultValue: "Закрыть")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                         .disabled(isBusy)
                 }
             }

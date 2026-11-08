@@ -30,25 +30,30 @@ struct SecurityRoomsView: View {
                 symbol: "door.left.hand.closed",
                 hint: search.isEmpty ? String(localized: "security.rooms.emptyHint", defaultValue: "Помещения заводит администратор вуза.") : nil
             ),
-            header: {
-                Section {
-                    Button {
-                        codeInput = ""
-                        enteringCode = true
-                    } label: {
-                        Label(String(localized: "security.rooms.enterCode", defaultValue: "Ввести код с наклейки"), systemImage: "keyboard")
-                    }
-                } footer: {
-                    Text(String(localized: "security.rooms.subtitle", defaultValue: "Справочник помещений вуза. Название открывает, что в помещении сейчас."))
-                }
-            },
             row: { room in
-                if let code = room.qrCode {
-                    NavigationLink(value: AppRoute.security(.roomStatus(code: code))) {
+                Group {
+                    if let code = room.qrCode {
+                        NavigationLink(value: AppRoute.security(.roomStatus(code: code))) {
+                            SecurityRoomRow(room: room)
+                        }
+                    } else {
                         SecurityRoomRow(room: room)
                     }
-                } else {
-                    SecurityRoomRow(room: room)
+                }
+                .swipeActions(edge: .trailing) {
+                    if let url = SecurityRoomRow.phoneURL(room.phone) {
+                        Link(destination: url) {
+                            Label(String(localized: "security.call", defaultValue: "Позвонить"), systemImage: "phone.fill")
+                        }
+                        .tint(Palette.success)
+                    }
+                }
+                .contextMenu {
+                    if let url = SecurityRoomRow.phoneURL(room.phone), let phone = room.phone {
+                        Link(destination: url) {
+                            Label(phone, systemImage: "phone")
+                        }
+                    }
                 }
             }
         )
@@ -57,6 +62,15 @@ struct SecurityRoomsView: View {
             await reload()
         }
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    codeInput = ""
+                    enteringCode = true
+                } label: {
+                    Image(systemName: "keyboard")
+                }
+                .accessibilityLabel(Text(String(localized: "security.rooms.enterCode", defaultValue: "Ввести код с наклейки")))
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Picker(String(localized: "security.rooms.sort", defaultValue: "Сортировка"), selection: $sort) {
@@ -109,41 +123,63 @@ struct SecurityRoomsView: View {
     }
 }
 
+/// Помещение в справочнике — как строка чата: значок назначения, название, этаж справа,
+/// ниже — где находится и часы работы. Позвонить — свайпом или долгим нажатием.
 private struct SecurityRoomRow: View {
     let room: SecurityRoomDTO
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(room.name)
-                .font(Typography.cardTitle)
-                .foregroundStyle(Palette.foreground)
-                .lineLimit(2)
-            let place = [
-                SecurityText.roomKind(room.kind),
-                room.building,
-                room.floor.map { String(localized: "security.rooms.floorValue", defaultValue: "\(String($0)) этаж") },
-            ]
+        TelegramStyleRow(
+            title: room.name,
+            subtitle: subtitle,
+            meta: room.floor.map { String(localized: "security.rooms.floorValue", defaultValue: "\(String($0)) этаж") }
+        ) {
+            RowSymbol(symbol: SecurityRoomRow.symbol(room.kind), tint: SecurityRoomRow.tint(room.kind))
+        }
+    }
+
+    private var subtitle: String {
+        let place = [SecurityText.roomKind(room.kind), room.building]
             .compactMap { $0 }
             .filter { !$0.isEmpty }
             .joined(separator: " · ")
-            Text(place)
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
-                .lineLimit(2)
-            if let hours = room.openHours, !hours.isEmpty {
-                Label(hours, systemImage: "clock")
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
-            }
-            if let phone = room.phone, !phone.isEmpty, let url = URL(string: "tel:\(phone.filter { $0.isNumber || $0 == "+" })") {
-                Link(destination: url) {
-                    Label(phone, systemImage: "phone")
-                        .font(Typography.meta)
-                }
-                .buttonStyle(.borderless)
-            }
+        let extra = [room.openHours, room.phone].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        return extra.isEmpty ? place : "\(place)\n\(extra)"
+    }
+
+    static func phoneURL(_ phone: String?) -> URL? {
+        guard let phone, !phone.isEmpty else { return nil }
+        return URL(string: "tel:\(phone.filter { $0.isNumber || $0 == "+" })")
+    }
+
+    static func symbol(_ kind: String) -> String {
+        switch kind {
+        case "AUDITORIUM": return "studentdesk"
+        case "LAB": return "flask.fill"
+        case "SPORT_HALL": return "figure.run"
+        case "LIBRARY": return "books.vertical.fill"
+        case "ASSEMBLY_HALL": return "theatermasks.fill"
+        case "ADMIN_OFFICE", "DEAN_OFFICE": return "building.columns.fill"
+        case "ACCOUNTING": return "banknote.fill"
+        case "CANTEEN": return "fork.knife"
+        case "DORMITORY": return "bed.double.fill"
+        default: return "door.left.hand.closed"
         }
-        .padding(.vertical, 2)
+    }
+
+    static func tint(_ kind: String) -> Color {
+        switch kind {
+        case "AUDITORIUM": return TileTint.blue
+        case "LAB": return TileTint.teal
+        case "SPORT_HALL": return TileTint.green
+        case "LIBRARY": return TileTint.indigo
+        case "ASSEMBLY_HALL": return TileTint.purple
+        case "ADMIN_OFFICE", "DEAN_OFFICE": return TileTint.gray
+        case "ACCOUNTING": return TileTint.yellow
+        case "CANTEEN": return TileTint.orange
+        case "DORMITORY": return TileTint.pink
+        default: return TileTint.gray
+        }
     }
 }
 
@@ -161,7 +197,6 @@ struct SecurityRoomStatusView: View {
         RemoteContent(reloadToken: token, load: { try await api.roomStatus(code: code) }) { data in
             SecurityRoomStatusContent(data: data) { token += 1 }
         }
-        .background(Palette.background)
         .navigationTitle(Text(SecurityScreen.roomStatus(code: code).title))
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -182,19 +217,19 @@ private struct SecurityRoomStatusContent: View {
         let day = SecurityRoomDay(data: data)
         List {
             Section {
-                VStack(alignment: .leading, spacing: Spacing.xs) {
-                    Text(data.room.name).font(Typography.pageTitle).foregroundStyle(Palette.foreground)
-                    Text([SecurityText.roomKind(data.room.kind), data.room.universityShort ?? data.room.university]
+                HeroHeader(
+                    visual: .symbol(SecurityRoomRow.symbol(data.room.kind), tint: SecurityRoomRow.tint(data.room.kind)),
+                    title: data.room.name,
+                    subtitle: [SecurityText.roomKind(data.room.kind), data.room.universityShort ?? data.room.university]
                         .compactMap { $0 }
-                        .joined(separator: " · "))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
+                        .joined(separator: " · "),
+                    actions: heroActions
+                ) {
                     Text(String(localized: "security.room.updatedAt", defaultValue: "Обновлено в \(data.now.time)"))
                         .font(.caption)
                         .foregroundStyle(Palette.mutedForeground)
                 }
             }
-            .listRowBackground(Color.clear)
 
             Section {
                 occupancy(day)
@@ -242,11 +277,7 @@ private struct SecurityRoomStatusContent: View {
                     DetailRow(title: String(localized: "security.room.hours", defaultValue: "Часы работы"), value: hours, symbol: "clock")
                 }
                 if let phone = data.room.phone {
-                    if let url = URL(string: "tel:\(phone.filter { $0.isNumber || $0 == "+" })") {
-                        Link(destination: url) {
-                            DetailRow(title: String(localized: "security.room.phone", defaultValue: "Телефон"), value: phone, symbol: "phone")
-                        }
-                    }
+                    DetailRow(title: String(localized: "security.room.phone", defaultValue: "Телефон"), value: phone, symbol: "phone")
                 }
                 if let info = data.room.info {
                     DetailRow(title: String(localized: "security.room.info", defaultValue: "Примечание"), value: info, symbol: "info.circle")
@@ -260,12 +291,25 @@ private struct SecurityRoomStatusContent: View {
         .refreshable { refresh() }
     }
 
+    @Environment(\.openURL) private var openURL
+
+    private var heroActions: [HeroAction] {
+        var actions: [HeroAction] = []
+        if let url = SecurityRoomRow.phoneURL(data.room.phone) {
+            actions.append(HeroAction(title: String(localized: "security.call", defaultValue: "Позвонить"), symbol: "phone.fill") { openURL(url) })
+        }
+        actions.append(HeroAction(title: String(localized: "security.room.refresh", defaultValue: "Обновить"), symbol: "arrow.clockwise", action: refresh))
+        return actions
+    }
+
     @ViewBuilder
     private func occupancy(_ day: SecurityRoomDay) -> some View {
         HStack(spacing: Spacing.lg) {
             Image(systemName: day.occupancy == .busy ? "door.left.hand.closed" : "door.left.hand.open")
-                .font(.title)
-                .foregroundStyle(day.tint)
+                .font(.title.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(width: 56, height: 56)
+                .background(day.tint.gradient, in: Circle())
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 switch day.occupancy {

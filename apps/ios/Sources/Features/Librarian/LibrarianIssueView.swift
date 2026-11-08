@@ -32,7 +32,6 @@ struct LibrarianIssueView: View {
                 identify
             }
         }
-        .background(Palette.background)
         .navigationTitle(Text(LibrarianScreen.issue.title))
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -44,54 +43,65 @@ struct LibrarianIssueView: View {
 
     private var identify: some View {
         List {
-            Section {
-                ZStack {
-                    if busy {
-                        LoadingStateView(title: String(localized: "librarian.issue.checkingReader", defaultValue: "Проверяем читателя…"))
-                    } else if let failure {
-                        VStack(spacing: Spacing.md) {
-                            Image(systemName: "person.crop.circle.badge.exclamationmark")
-                                .font(.largeTitle)
-                                .foregroundStyle(Palette.destructive)
-                            Text(String(localized: "librarian.issue.readerFailed", defaultValue: "Не удалось проверить читателя"))
-                                .font(Typography.sectionTitle)
-                            Text(failure)
-                                .font(Typography.meta)
-                                .foregroundStyle(Palette.mutedForeground)
-                                .multilineTextAlignment(.center)
-                            Button(String(localized: "librarian.issue.scanAgain", defaultValue: "Сканировать снова")) {
-                                self.failure = nil
-                                round += 1
-                            }
-                            .glassProminentButton()
+            if let failure, !busy {
+                Section {
+                    LibrarianOutcomeView(
+                        kind: .failure,
+                        title: String(localized: "librarian.issue.readerFailed", defaultValue: "Не удалось проверить читателя"),
+                        detail: failure,
+                        symbol: "person.crop.circle.badge.xmark"
+                    )
+                }
+                Section {
+                    Button {
+                        self.failure = nil
+                        round += 1
+                    } label: {
+                        Label(String(localized: "librarian.issue.scanAgain", defaultValue: "Сканировать снова"), systemImage: "qrcode.viewfinder")
+                            .font(.body.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, Spacing.xs)
+                    }
+                    .glassProminentButton()
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+                }
+            } else {
+                Section {
+                    ZStack {
+                        if busy {
+                            LoadingStateView(title: String(localized: "librarian.issue.checkingReader", defaultValue: "Проверяем читателя…"))
+                        } else if cameraUnavailable {
+                            ContentUnavailableView(
+                                String(localized: "librarian.scan.noCamera", defaultValue: "Нет доступа к камере"),
+                                systemImage: "video.slash",
+                                description: Text(String(localized: "librarian.issue.noCameraHint", defaultValue: "Вставьте ссылку из QR студенческого или найдите читателя по номеру билета ниже."))
+                            )
+                        } else {
+                            QRScannerView(onScan: handleScan, onUnavailable: { cameraUnavailable = true })
+                                .id(round)
+                            RoundedRectangle(cornerRadius: Radius.xxl)
+                                .strokeBorder(.white.opacity(0.85), lineWidth: 3)
+                                .frame(width: 210, height: 210)
+                                .allowsHitTesting(false)
                         }
-                        .padding(Spacing.xl)
-                    } else if cameraUnavailable {
-                        ContentUnavailableView(
-                            String(localized: "librarian.scan.noCamera", defaultValue: "Нет доступа к камере"),
-                            systemImage: "video.slash",
-                            description: Text(String(localized: "librarian.issue.noCameraHint", defaultValue: "Вставьте ссылку из QR студенческого или найдите читателя по номеру билета ниже."))
-                        )
+                    }
+                    .frame(height: 300)
+                    .frame(maxWidth: .infinity)
+                    .background(busy || cameraUnavailable ? Palette.card : .black)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                    .listRowInsets(EdgeInsets())
+                } header: {
+                    Text(String(localized: "librarian.issue.scanReader", defaultValue: "Студенческий читателя"))
+                } footer: {
+                    if let notice {
+                        Label(notice, systemImage: "exclamationmark.triangle").foregroundStyle(Palette.warning)
                     } else {
-                        QRScannerView(onScan: handleScan, onUnavailable: { cameraUnavailable = true })
-                            .id(round)
+                        Text(String(localized: "librarian.issue.scanReaderHint", defaultValue: "Попросите показать цифровой студенческий в приложении"))
                     }
                 }
-                .frame(height: 300)
-                .frame(maxWidth: .infinity)
-                .background(busy || failure != nil || cameraUnavailable ? Palette.card : .black)
-                .clipShape(RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
-                .listRowInsets(EdgeInsets())
-            } header: {
-                Text(String(localized: "librarian.issue.scanReader", defaultValue: "Студенческий читателя"))
-            } footer: {
-                if let notice {
-                    Label(notice, systemImage: "exclamationmark.triangle").foregroundStyle(Palette.warning)
-                } else {
-                    Text(String(localized: "librarian.issue.scanReaderHint", defaultValue: "Попросите показать цифровой студенческий в приложении"))
-                }
+                .listRowBackground(Color.clear)
             }
-            .listRowBackground(Color.clear)
 
             Section {
                 TextField(String(localized: "librarian.issue.manualPlaceholder", defaultValue: "Код из QR студенческого"), text: $manualCode)
@@ -127,11 +137,10 @@ struct LibrarianIssueView: View {
             }
 
             Section(String(localized: "librarian.issue.howTo", defaultValue: "Как выдать")) {
-                Label(String(localized: "librarian.issue.step1", defaultValue: "Студент открывает «Студенческий» в приложении"), systemImage: "1.circle")
-                Label(String(localized: "librarian.issue.step2", defaultValue: "Сканируете его QR — появится карточка читателя"), systemImage: "2.circle")
-                Label(String(localized: "librarian.issue.step3", defaultValue: "Сканируете наклейку книги или вводите инвентарный номер"), systemImage: "3.circle")
+                IconRow(title: String(localized: "librarian.issue.step1", defaultValue: "Студент открывает «Студенческий» в приложении"), symbol: "1.circle.fill", tint: TileTint.blue)
+                IconRow(title: String(localized: "librarian.issue.step2", defaultValue: "Сканируете его QR — появится карточка читателя"), symbol: "2.circle.fill", tint: TileTint.blue)
+                IconRow(title: String(localized: "librarian.issue.step3", defaultValue: "Сканируете наклейку книги или вводите инвентарный номер"), symbol: "3.circle.fill", tint: TileTint.blue)
             }
-            .font(Typography.meta)
         }
         .listStyle(.insetGrouped)
     }
@@ -240,10 +249,19 @@ private struct LibrarianReaderSessionView: View {
     var body: some View {
         List {
             Section {
-                HStack(spacing: Spacing.lg) {
-                    AvatarView(url: session.reader.avatarUrl, name: session.reader.fullName, size: 64)
-                    VStack(alignment: .leading, spacing: Spacing.xs) {
-                        Text(session.reader.fullName).font(Typography.sectionTitle)
+                HeroHeader(
+                    visual: .avatar(url: session.reader.avatarUrl, name: session.reader.fullName),
+                    title: session.reader.fullName,
+                    subtitle: [session.reader.group, session.reader.faculty].compactMap { $0 }.joined(separator: " · "),
+                    actions: [
+                        HeroAction(
+                            title: String(localized: "librarian.issue.nextReader", defaultValue: "Следующий читатель"),
+                            symbol: "person.crop.circle.badge.plus",
+                            action: reset
+                        ),
+                    ]
+                ) {
+                    VStack(spacing: Spacing.xs) {
                         HStack(spacing: Spacing.xs) {
                             LibrarianBadge(
                                 text: blockers.isEmpty
@@ -261,24 +279,23 @@ private struct LibrarianReaderSessionView: View {
                         }
                     }
                 }
-                .padding(.vertical, Spacing.xs)
-                if let group = session.reader.group {
-                    DetailRow(title: String(localized: "librarian.reader.group", defaultValue: "Группа"), value: group)
-                }
+            }
+
+            Section {
                 if let course = session.reader.course {
-                    DetailRow(title: String(localized: "librarian.reader.course", defaultValue: "Курс"), value: String(course))
-                }
-                if let faculty = session.reader.faculty {
-                    DetailRow(title: String(localized: "librarian.reader.faculty", defaultValue: "Факультет"), value: faculty)
+                    DetailRow(title: String(localized: "librarian.reader.course", defaultValue: "Курс"), value: String(course), symbol: "graduationcap")
                 }
                 if let card = session.reader.studentCardNumber {
-                    DetailRow(title: String(localized: "librarian.reader.card", defaultValue: "№ билета"), value: card)
+                    DetailRow(title: String(localized: "librarian.reader.card", defaultValue: "№ билета"), value: card, symbol: "person.text.rectangle")
                 }
-            } footer: {
-                Text(String(
-                    localized: "librarian.issue.ticketUntil",
-                    defaultValue: "Пропуск на выдачу действует до \(session.ticketExpiresAt.formatted(.dateTime.hour().minute()))"
-                ))
+                DetailRow(
+                    title: String(localized: "librarian.issue.ticket", defaultValue: "Пропуск на выдачу"),
+                    value: String(
+                        localized: "librarian.issue.ticketUntilShort",
+                        defaultValue: "Действует до \(session.ticketExpiresAt.formatted(.dateTime.hour().minute()))"
+                    ),
+                    symbol: "clock"
+                )
             }
 
             if noPhone {
@@ -300,6 +317,28 @@ private struct LibrarianReaderSessionView: View {
                 .listRowBackground(Palette.destructive.opacity(0.1))
             }
 
+            if let failure {
+                Section {
+                    LibrarianOutcomeView(
+                        kind: .failure,
+                        title: String(localized: "librarian.issue.notIssued", defaultValue: "Не выдано"),
+                        detail: failure
+                    )
+                }
+            } else if notice != nil, let last = issued.first {
+                Section {
+                    LibrarianOutcomeView(
+                        kind: .success,
+                        title: String(localized: "librarian.issue.issuedTitle", defaultValue: "Выдано"),
+                        detail: String(
+                            localized: "librarian.issue.issuedDetail",
+                            defaultValue: "«\(last.book.title)» — вернуть до \(LibrarianText.shortDay(last.dueDate))"
+                        ),
+                        symbol: "book.fill"
+                    )
+                }
+            }
+
             Section {
                 LibrarianCopyField(value: $copy)
                 DatePicker(
@@ -313,7 +352,12 @@ private struct LibrarianReaderSessionView: View {
                 } label: {
                     HStack {
                         Spacer()
-                        if isIssuing { ProgressView() } else { Text(String(localized: "librarian.issue.submit", defaultValue: "Выдать")).bold() }
+                        if isIssuing {
+                            ProgressView()
+                        } else {
+                            Label(String(localized: "librarian.issue.submit", defaultValue: "Выдать"), systemImage: "arrow.up.doc.fill")
+                                .font(.body.weight(.semibold))
+                        }
                         Spacer()
                     }
                 }
@@ -321,13 +365,7 @@ private struct LibrarianReaderSessionView: View {
             } header: {
                 Text(String(localized: "librarian.issue.book", defaultValue: "Выдать книгу"))
             } footer: {
-                if let failure {
-                    Text(failure).foregroundStyle(Palette.destructive)
-                } else if let notice {
-                    Text(notice).foregroundStyle(Palette.success)
-                } else {
-                    Text(String(localized: "librarian.issue.bookHint", defaultValue: "Отсканируйте наклейку на книге или введите инвентарный номер"))
-                }
+                Text(String(localized: "librarian.issue.bookHint", defaultValue: "Отсканируйте наклейку на книге или введите инвентарный номер"))
             }
 
             if !issued.isEmpty {
@@ -355,11 +393,7 @@ private struct LibrarianReaderSessionView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(String(localized: "librarian.issue.nextReader", defaultValue: "Следующий читатель"), action: reset)
-            }
-        }
+        .sensoryFeedback(.success, trigger: issued.count)
         .alert(expired ?? "", isPresented: Binding(get: { expired != nil }, set: { if !$0 { expired = nil } })) {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) { reset() }
         }

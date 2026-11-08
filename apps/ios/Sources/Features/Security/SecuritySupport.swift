@@ -134,94 +134,108 @@ struct SecurityBadge: View {
     }
 }
 
-/// Строка прохода студента в журнале.
+/// Строка прохода студента в журнале — как строка чата: аватар с отметкой «пропущен /
+/// отказ», ФИО, время справа, группа и причина отказа ниже.
 struct SecurityPassRow: View {
     let pass: SecurityPassDTO
 
     var body: some View {
-        HStack(alignment: .top, spacing: Spacing.lg) {
-            Image(systemName: pass.allowed ? "checkmark.shield.fill" : "xmark.shield.fill")
-                .font(.title3)
-                .foregroundStyle(pass.allowed ? Palette.success : Palette.destructive)
-                .frame(width: 28)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(pass.student?.name ?? String(localized: "security.unknownStudent", defaultValue: "Не установлен"))
-                    .font(Typography.cardTitle)
-                    .foregroundStyle(pass.student == nil ? Palette.mutedForeground : Palette.foreground)
-                    .lineLimit(2)
-                let meta = [pass.student?.group, SecurityText.journalTime(pass.createdAt), pass.guardName]
-                    .compactMap { $0 }
-                    .filter { !$0.isEmpty }
-                    .joined(separator: " · ")
-                Text(meta)
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
-                    .lineLimit(2)
-                if !pass.allowed {
-                    Text(SecurityText.denyReason(pass.denyReason))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.destructive)
-                        .fixedSize(horizontal: false, vertical: true)
+        let tint = pass.allowed ? Palette.success : Palette.destructive
+        TelegramStyleRow(
+            title: pass.student?.name ?? String(localized: "security.unknownStudent", defaultValue: "Не установлен"),
+            subtitle: subtitle,
+            meta: SecurityText.journalTime(pass.createdAt)
+        ) {
+            ZStack(alignment: .bottomTrailing) {
+                if let student = pass.student {
+                    AvatarView(url: nil, name: student.name, size: 44)
+                } else {
+                    RowSymbol(symbol: "person.fill.questionmark", tint: TileTint.gray)
                 }
+                Image(systemName: pass.allowed ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .font(.system(size: 17, weight: .semibold))
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, tint)
+                    .background(Circle().fill(Palette.background).padding(-2))
+                    .offset(x: 3, y: 3)
+                    .accessibilityHidden(true)
             }
-            Spacer(minLength: Spacing.md)
-            SecurityBadge(
+        } accessory: {
+            StatusBadge(
                 text: pass.allowed
                     ? String(localized: "security.allowed", defaultValue: "Пропущен")
                     : String(localized: "security.denied", defaultValue: "Отказ"),
-                tint: pass.allowed ? Palette.success : Palette.destructive
+                tint: tint
             )
         }
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .combine)
+    }
+
+    /// Группа и охранник; у отказа первой строкой — причина: её ищут глазами.
+    private var subtitle: String {
+        let meta = [pass.student?.group, pass.guardName]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+        guard !pass.allowed else { return meta }
+        let reason = SecurityText.denyReason(pass.denyReason)
+        return meta.isEmpty ? reason : "\(reason)\n\(meta)"
     }
 }
 
-/// Строка посетителя: кто, к кому, когда вошёл и вышел.
+/// Строка посетителя: кто, зачем, когда вошёл и вышел. `onExit` — кнопка «Вышел»
+/// прямо в строке, пока человек в здании.
 struct SecurityVisitorRow: View {
     let visitor: SecurityVisitorDTO
+    var isExiting = false
+    var onExit: (() -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(visitor.fullName)
-                    .font(Typography.cardTitle)
-                    .foregroundStyle(Palette.foreground)
-                    .lineLimit(2)
-                Spacer(minLength: Spacing.md)
-                if visitor.exitedAt == nil {
-                    SecurityBadge(text: String(localized: "security.stillInside", defaultValue: "В здании"), tint: Palette.info)
+        TelegramStyleRow(
+            title: visitor.fullName,
+            subtitle: subtitle,
+            meta: SecurityText.journalTime(visitor.enteredAt)
+        ) {
+            AvatarView(url: nil, name: visitor.fullName, size: 44)
+        } accessory: {
+            if visitor.exitedAt == nil {
+                if let onExit {
+                    if isExiting {
+                        ProgressView()
+                    } else {
+                        Button(action: onExit) {
+                            Label(String(localized: "security.markExit", defaultValue: "Вышел"), systemImage: "door.left.hand.open")
+                                .font(Typography.meta.weight(.semibold))
+                        }
+                        .buttonStyle(.borderless)
+                        .glassButton()
+                        .controlSize(.small)
+                    }
+                } else {
+                    StatusBadge(text: String(localized: "security.stillInside", defaultValue: "В здании"), tint: Palette.info)
                 }
             }
-            Text(visitor.purpose)
-                .font(Typography.meta)
-                .foregroundStyle(Palette.foreground)
-                .fixedSize(horizontal: false, vertical: true)
-            let entered = String(
-                localized: "security.visitor.entered",
-                defaultValue: "Вход: \(SecurityText.journalTime(visitor.enteredAt))"
-            )
-            let exited = visitor.exitedAt.map {
-                String(localized: "security.visitor.exited", defaultValue: "Выход: \(SecurityText.journalTime($0))")
-            }
-            Text([entered, exited].compactMap { $0 }.joined(separator: " · "))
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
-            let document = visitor.documentType.map { type in
-                [SecurityText.documentType(type), visitor.documentLast4.map { "•••• \($0)" }]
-                    .compactMap { $0 }
-                    .joined(separator: " ")
-            }
-            let extra = [document, visitor.phone, visitor.createdByName].compactMap { $0 }.filter { !$0.isEmpty }
-            if !extra.isEmpty {
-                Text(extra.joined(separator: " · "))
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
-                    .lineLimit(2)
+        }
+        .accessibilityActions {
+            if visitor.exitedAt == nil, let onExit, !isExiting {
+                Button(String(localized: "security.markExit", defaultValue: "Вышел"), action: onExit)
             }
         }
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .combine)
+    }
+
+    /// Первая строка — цель визита, вторая — выход, документ, телефон, кто записал.
+    private var subtitle: String {
+        let exited = visitor.exitedAt.map {
+            String(localized: "security.visitor.exited", defaultValue: "Выход: \(SecurityText.journalTime($0))")
+        }
+        let document = visitor.documentType.map { type in
+            [SecurityText.documentType(type), visitor.documentLast4.map { "•••• \($0)" }]
+                .compactMap { $0 }
+                .joined(separator: " ")
+        }
+        let details = [exited, document, visitor.phone, visitor.createdByName]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+        return details.isEmpty ? visitor.purpose : "\(visitor.purpose)\n\(details)"
     }
 }

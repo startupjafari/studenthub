@@ -15,18 +15,14 @@ struct CareerSignupSheet: View {
         NavigationStack {
             List {
                 Section {
-                    VStack(alignment: .leading, spacing: Spacing.sm) {
-                        Text(String(localized: "career.signup.slogan", defaultValue: "Студенты и выпускники — напрямую из вузов"))
-                            .font(Typography.sectionTitle)
-                            .foregroundStyle(Palette.foreground)
-                        Text(String(
+                    HeroHeader(
+                        visual: .symbol("building.2.fill", tint: TileTint.purple),
+                        title: String(localized: "career.signup.slogan", defaultValue: "Студенты и выпускники — напрямую из вузов"),
+                        subtitle: String(
                             localized: "career.signup.brand",
                             defaultValue: "Вы публикуете вакансии и стажировки, а университеты открывают компании доступ к своим студентам."
-                        ))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
-                    }
-                    .padding(.vertical, Spacing.xs)
+                        )
+                    )
                 }
 
                 Section {
@@ -157,15 +153,16 @@ private struct CareerSignupForm: View {
         Form {
             if let sentTo {
                 Section {
-                    CareerNotice(
+                    HeroHeader(
+                        visual: .symbol("envelope.open.fill", tint: TileTint.green),
                         title: String(localized: "career.signup.sentTitle", defaultValue: "Проверьте почту"),
-                        text: String(
+                        subtitle: String(
                             localized: "career.signup.sentText",
                             defaultValue: "Письмо со ссылкой подтверждения отправлено на \(sentTo). Ссылка действует сутки."
-                        ),
-                        symbol: "envelope.open",
-                        tint: Palette.success
+                        )
                     )
+                }
+                Section {
                     NavigationLink {
                         CareerVerifyView()
                     } label: {
@@ -257,11 +254,10 @@ private struct CareerVerifyView: View {
         Form {
             if verified {
                 Section {
-                    CareerNotice(
+                    HeroHeader(
+                        visual: .symbol("checkmark.seal.fill", tint: TileTint.green),
                         title: String(localized: "career.signup.verifiedTitle", defaultValue: "Email подтверждён"),
-                        text: String(localized: "career.signup.verifiedText", defaultValue: "Войдите в аккаунт и подайте заявку в университет."),
-                        symbol: "checkmark.seal",
-                        tint: Palette.success
+                        subtitle: String(localized: "career.signup.verifiedText", defaultValue: "Войдите в аккаунт и подайте заявку в университет.")
                     )
                 }
             } else {

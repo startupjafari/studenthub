@@ -100,17 +100,32 @@ struct SecurityVisitorsView: View {
                 SecurityDayFilter(day: $day)
             },
             row: { visitor in
-                HStack(spacing: Spacing.md) {
-                    SecurityVisitorRow(visitor: visitor)
+                SecurityVisitorRow(
+                    visitor: visitor,
+                    isExiting: exiting.contains(visitor.id),
+                    onExit: { Task { await markExit(visitor) } }
+                )
+                .swipeActions(edge: .trailing) {
                     if visitor.exitedAt == nil {
-                        if exiting.contains(visitor.id) {
-                            ProgressView()
-                        } else {
-                            Button(String(localized: "security.markExit", defaultValue: "Вышел")) {
-                                Task { await markExit(visitor) }
-                            }
-                            .glassButton()
-                            .font(Typography.meta.weight(.semibold))
+                        Button {
+                            Task { await markExit(visitor) }
+                        } label: {
+                            Label(String(localized: "security.markExit", defaultValue: "Вышел"), systemImage: "door.left.hand.open")
+                        }
+                        .tint(Palette.success)
+                    }
+                }
+                .contextMenu {
+                    if visitor.exitedAt == nil {
+                        Button {
+                            Task { await markExit(visitor) }
+                        } label: {
+                            Label(String(localized: "security.markExit", defaultValue: "Вышел"), systemImage: "door.left.hand.open")
+                        }
+                    }
+                    if let phone = visitor.phone, let url = URL(string: "tel:\(phone.filter { $0.isNumber || $0 == "+" })") {
+                        Link(destination: url) {
+                            Label(String(localized: "security.call", defaultValue: "Позвонить"), systemImage: "phone")
                         }
                     }
                 }
@@ -120,15 +135,8 @@ struct SecurityVisitorsView: View {
         .debouncedSearch($search, prompt: String(localized: "security.searchVisitor", defaultValue: "ФИО или цель визита")) { _ in
             await reload()
         }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    recording = true
-                } label: {
-                    Image(systemName: "person.badge.plus")
-                }
-                .accessibilityLabel(Text(String(localized: "security.recordVisitor", defaultValue: "Записать посетителя")))
-            }
+        .floatingAction(String(localized: "security.recordVisitor", defaultValue: "Записать посетителя"), symbol: "person.badge.plus") {
+            recording = true
         }
         .sheet(isPresented: $recording) {
             SecurityRecordVisitorSheet { _ in await loader.reload() }
@@ -173,10 +181,13 @@ private struct SecurityDayFilter: View {
 
     var body: some View {
         Section {
-            Toggle(
-                String(localized: "security.filter.byDay", defaultValue: "За день"),
-                isOn: Binding(get: { day != nil }, set: { day = $0 ? Calendar.current.startOfDay(for: Date()) : nil })
-            )
+            Toggle(isOn: Binding(get: { day != nil }, set: { day = $0 ? Calendar.current.startOfDay(for: Date()) : nil })) {
+                Label {
+                    Text(String(localized: "security.filter.byDay", defaultValue: "За день"))
+                } icon: {
+                    IconTile(symbol: "calendar", tint: TileTint.red)
+                }
+            }
             if let current = day {
                 DatePicker(
                     String(localized: "security.filter.day", defaultValue: "День"),

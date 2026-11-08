@@ -16,6 +16,44 @@ struct LibrarianReturnView: View {
 
     var body: some View {
         List {
+            // Итог последнего приёма — первым и крупно: главное после приёма — не поставить
+            // на полку книгу, которую ждёт бронь.
+            if let failure {
+                Section {
+                    LibrarianOutcomeView(
+                        kind: .failure,
+                        title: String(localized: "librarian.return.notAccepted", defaultValue: "Не принято"),
+                        detail: failure
+                    )
+                }
+            } else if let latest = returned.first {
+                Section {
+                    if let held = latest.heldFor {
+                        LibrarianOutcomeView(
+                            kind: .warning,
+                            title: String(localized: "librarian.return.toHoldShelfTitle", defaultValue: "На полку броней"),
+                            detail: String(
+                                localized: "librarian.return.holdForTitle",
+                                defaultValue: "Отложите «\(latest.loan.book.title)» на полку броней"
+                            ) + "\n" + String(
+                                localized: "librarian.return.holdFor",
+                                defaultValue: "\(held.name) (\(held.group.orDash)) — бронь держится до \(LibrarianText.shortDay(held.holdUntil))"
+                            ),
+                            symbol: "bookmark.fill"
+                        )
+                    } else {
+                        LibrarianOutcomeView(
+                            kind: .success,
+                            title: String(localized: "librarian.return.acceptedTitle", defaultValue: "Принято — на полку"),
+                            detail: wasOverdue(latest)
+                                ? "«\(latest.loan.book.title)» · " + String(localized: "librarian.return.wasOverdue", defaultValue: "с просрочкой")
+                                : "«\(latest.loan.book.title)»",
+                            symbol: "books.vertical.fill"
+                        )
+                    }
+                }
+            }
+
             Section {
                 LibrarianCopyField(value: $copy)
                 Picker(String(localized: "librarian.condition", defaultValue: "Состояние"), selection: $condition) {
@@ -26,7 +64,12 @@ struct LibrarianReturnView: View {
                 } label: {
                     HStack {
                         Spacer()
-                        if isSaving { ProgressView() } else { Text(String(localized: "librarian.acceptReturn", defaultValue: "Принять книгу")).bold() }
+                        if isSaving {
+                            ProgressView()
+                        } else {
+                            Label(String(localized: "librarian.acceptReturn", defaultValue: "Принять книгу"), systemImage: "arrow.down.doc.fill")
+                                .font(.body.weight(.semibold))
+                        }
                         Spacer()
                     }
                 }
@@ -34,31 +77,7 @@ struct LibrarianReturnView: View {
             } header: {
                 Text(String(localized: "librarian.return.book", defaultValue: "Принять книгу"))
             } footer: {
-                if let failure {
-                    Text(failure).foregroundStyle(Palette.destructive)
-                } else {
-                    Text(String(localized: "librarian.return.hint", defaultValue: "Отсканируйте наклейку на книге или введите инвентарный номер"))
-                }
-            }
-
-            if let latest = returned.first, let held = latest.heldFor {
-                // Главное после приёма — не поставить книгу на полку, если её ждёт бронь.
-                Section {
-                    VStack(alignment: .leading, spacing: Spacing.xs) {
-                        Label(
-                            String(localized: "librarian.return.holdForTitle", defaultValue: "Отложите «\(latest.loan.book.title)» на полку броней"),
-                            systemImage: "bookmark.fill"
-                        )
-                        .font(Typography.cardTitle)
-                        Text(String(
-                            localized: "librarian.return.holdFor",
-                            defaultValue: "\(held.name) (\(held.group.orDash)) — бронь держится до \(LibrarianText.shortDay(held.holdUntil))"
-                        ))
-                        .font(Typography.meta)
-                    }
-                    .foregroundStyle(Palette.warning)
-                }
-                .listRowBackground(Palette.warning.opacity(0.12))
+                Text(String(localized: "librarian.return.hint", defaultValue: "Отсканируйте наклейку на книге или введите инвентарный номер"))
             }
 
             Section {
@@ -71,7 +90,7 @@ struct LibrarianReturnView: View {
                     VStack(alignment: .leading, spacing: Spacing.xs) {
                         LibrarianLoanRow(loan: result.loan)
                         HStack(spacing: Spacing.xs) {
-                            if let returnedAt = result.loan.returnedAt, returnedAt > result.loan.dueAt {
+                            if wasOverdue(result) {
                                 LibrarianBadge(text: String(localized: "librarian.return.wasOverdue", defaultValue: "с просрочкой"), tint: Palette.destructive)
                             }
                             LibrarianBadge(
@@ -115,14 +134,12 @@ struct LibrarianReturnView: View {
                             .foregroundStyle(Palette.mutedForeground)
                     }
                     ForEach(overdue) { loan in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(loan.book.title).font(Typography.cardTitle).lineLimit(2)
-                                Text([loan.reader.name, loan.reader.group].compactMap { $0 }.joined(separator: " · "))
-                                    .font(Typography.meta)
-                                    .foregroundStyle(Palette.mutedForeground)
-                            }
-                            Spacer(minLength: Spacing.md)
+                        TelegramStyleRow(
+                            title: loan.book.title,
+                            subtitle: [loan.reader.name, loan.reader.group].compactMap { $0 }.joined(separator: " · ")
+                        ) {
+                            BookCoverView(url: loan.book.coverUrl, width: 36)
+                        } accessory: {
                             LibrarianLoanDueBadge(loan: loan)
                         }
                     }
@@ -145,6 +162,14 @@ struct LibrarianReturnView: View {
         }
         .refreshable { await loadOverdue() }
         .task { await loadOverdue() }
+        .sensoryFeedback(trigger: returned.count) { _, _ in
+            returned.first?.heldFor == nil ? .success : .warning
+        }
+    }
+
+    private func wasOverdue(_ result: LibrarianReturnResultDTO) -> Bool {
+        if let returnedAt = result.loan.returnedAt { return returnedAt > result.loan.dueAt }
+        return false
     }
 
     @MainActor

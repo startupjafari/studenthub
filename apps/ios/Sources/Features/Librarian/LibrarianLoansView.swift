@@ -37,9 +37,6 @@ struct LibrarianLoansView: View {
                     ],
                     selection: $filter
                 )
-                Section {
-                    Toggle(String(localized: "librarian.filter.noPhone", defaultValue: "Только без скана"), isOn: $noPhoneOnly)
-                }
             },
             row: { loan in
                 LibrarianLoanRow(loan: loan)
@@ -50,6 +47,18 @@ struct LibrarianLoansView: View {
         .navigationTitle(Text(LibrarianScreen.loans.title))
         .debouncedSearch($search, prompt: String(localized: "librarian.loans.search", defaultValue: "Читатель, книга, инв. номер")) { _ in
             await reload()
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Toggle(isOn: $noPhoneOnly) {
+                        Label(String(localized: "librarian.filter.noPhone", defaultValue: "Только без скана"), systemImage: "iphone.slash")
+                    }
+                } label: {
+                    Image(systemName: noPhoneOnly ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                }
+                .accessibilityLabel(Text(String(localized: "librarian.filter.more", defaultValue: "Фильтры")))
+            }
         }
         .librarianLoanActions($action) { _ in await loader.reload() }
         .onChange(of: filter) { _, _ in Task { await reload() } }
@@ -365,6 +374,7 @@ private struct LibrarianAcceptSheet: View {
                 }
             }
         }
+        .presentationDetents([.medium, .large])
     }
 
     @MainActor
@@ -414,6 +424,7 @@ private struct LibrarianRenewSheet: View {
                 Text(String(localized: "librarian.renewHint", defaultValue: "Без даты — срок по умолчанию от текущего срока."))
             }
         }
+        .presentationDetents([.medium, .large])
     }
 
     @MainActor
@@ -450,23 +461,21 @@ struct LibrarianReaderCardSheet: View {
             }) { card in
                 List {
                     Section {
-                        HStack(spacing: Spacing.lg) {
-                            AvatarView(url: card.reader.avatarUrl, name: card.reader.fullName, size: 72)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(card.reader.fullName).font(Typography.sectionTitle)
-                                if let group = card.reader.group {
-                                    Text(group).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
-                                }
-                            }
-                        }
+                        HeroHeader(
+                            visual: .avatar(url: card.reader.avatarUrl, name: card.reader.fullName),
+                            title: card.reader.fullName,
+                            subtitle: card.reader.group
+                        )
+                    }
+                    Section {
                         if let faculty = card.reader.faculty {
-                            DetailRow(title: String(localized: "librarian.reader.faculty", defaultValue: "Факультет"), value: faculty)
+                            DetailRow(title: String(localized: "librarian.reader.faculty", defaultValue: "Факультет"), value: faculty, symbol: "building.columns")
                         }
                         if let course = card.reader.course {
-                            DetailRow(title: String(localized: "librarian.reader.course", defaultValue: "Курс"), value: String(course))
+                            DetailRow(title: String(localized: "librarian.reader.course", defaultValue: "Курс"), value: String(course), symbol: "graduationcap")
                         }
                         if let number = card.reader.studentCardNumber {
-                            DetailRow(title: String(localized: "librarian.reader.card", defaultValue: "№ билета"), value: number)
+                            DetailRow(title: String(localized: "librarian.reader.card", defaultValue: "№ билета"), value: number, symbol: "person.text.rectangle")
                         }
                     }
                     Section {
@@ -480,14 +489,14 @@ struct LibrarianReaderCardSheet: View {
                 }
                 .listStyle(.insetGrouped)
             }
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "librarian.readerCard", defaultValue: "Удостоверение читателя")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(String(localized: "librarian.close", defaultValue: "Закрыть")) { dismiss() }
+                ToolbarItem(placement: .cancellationAction) {
+                    SheetCloseButton { dismiss() }
                 }
             }
         }
+        .presentationDetents([.medium, .large])
     }
 }

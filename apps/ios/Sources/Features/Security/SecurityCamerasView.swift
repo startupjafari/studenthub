@@ -45,13 +45,17 @@ struct SecurityCamerasView: View {
                                 Button {
                                     toggle(camera.id)
                                 } label: {
-                                    HStack {
+                                    HStack(spacing: Spacing.md) {
                                         Image(systemName: selected.contains(camera.id) ? "checkmark.circle.fill" : "circle")
+                                            .font(.title3)
                                             .foregroundStyle(selected.contains(camera.id) ? Palette.primary : Palette.mutedForeground)
+                                            .accessibilityHidden(true)
                                         SecurityCameraRow(camera: camera)
                                     }
+                                    .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
+                                .accessibilityAddTraits(selected.contains(camera.id) ? .isSelected : [])
                             } else {
                                 NavigationLink(value: AppRoute.security(.camera(id: camera.id))) {
                                     SecurityCameraRow(camera: camera)
@@ -76,11 +80,19 @@ struct SecurityCamerasView: View {
         .toolbar {
             if moduleEnabled, let cameras, cameras.count > 1 {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(selecting
-                        ? String(localized: "common.cancel", defaultValue: "Отмена")
-                        : String(localized: "security.cameras.select", defaultValue: "Несколько")) {
-                        selecting.toggle()
-                        selected = []
+                    if selecting {
+                        Button(String(localized: "common.cancel", defaultValue: "Отмена")) {
+                            selecting = false
+                            selected = []
+                        }
+                    } else {
+                        Button {
+                            selecting = true
+                            selected = []
+                        } label: {
+                            Image(systemName: "rectangle.grid.2x2")
+                        }
+                        .accessibilityLabel(Text(String(localized: "security.cameras.select", defaultValue: "Несколько")))
                     }
                 }
             }
@@ -88,12 +100,17 @@ struct SecurityCamerasView: View {
         .safeAreaInset(edge: .bottom) {
             if selecting, !selected.isEmpty {
                 NavigationLink(value: AppRoute.security(.cameraWall(ids: selected))) {
-                    Text(String(localized: "security.cameras.watch", defaultValue: "Смотреть: \(selected.count.formatted())"))
-                        .frame(maxWidth: .infinity)
+                    Label(
+                        String(localized: "security.cameras.watch", defaultValue: "Смотреть: \(selected.count.formatted())"),
+                        systemImage: "play.rectangle.fill"
+                    )
+                    .font(.body.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, Spacing.xs)
                 }
                 .glassProminentButton()
-                .padding(Spacing.xl)
-                .background(.bar)
+                .padding(.horizontal, Spacing.xl)
+                .padding(.bottom, Spacing.md)
             }
         }
         .alert(
@@ -144,33 +161,25 @@ struct SecurityCamerasView: View {
     }
 }
 
+/// Камера в списке — как строка чата: значок с цветом состояния, название, когда был
+/// последний сигнал, помещение и плашка состояния.
 private struct SecurityCameraRow: View {
     let camera: SecurityCameraDTO
 
     var body: some View {
-        HStack(spacing: Spacing.lg) {
-            IconTile(symbol: "video.fill", tint: TileTint.gray)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(camera.name)
-                    .font(Typography.cardTitle)
-                    .foregroundStyle(Palette.foreground)
-                    .lineLimit(2)
-                let meta = [camera.room?.name, camera.lastSeenAt.map { DisplayFormat.relative($0) }]
-                    .compactMap { $0 }
-                    .joined(separator: " · ")
-                if !meta.isEmpty {
-                    Text(meta)
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
-                        .lineLimit(2)
-                }
-            }
-            Spacer(minLength: Spacing.md)
-            let status = SecurityText.cameraStatus(camera.status)
-            SecurityBadge(text: status.text, tint: status.tint)
+        let status = SecurityText.cameraStatus(camera.status)
+        TelegramStyleRow(
+            title: camera.name,
+            subtitle: camera.room?.name,
+            meta: camera.lastSeenAt.map { DisplayFormat.relative($0) }
+        ) {
+            RowSymbol(
+                symbol: camera.status == "ONLINE" ? "video.fill" : "video.slash.fill",
+                tint: camera.status == "ONLINE" ? TileTint.green : TileTint.gray
+            )
+        } accessory: {
+            StatusBadge(text: status.text, tint: status.tint)
         }
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -186,30 +195,36 @@ struct SecurityCameraScreen: View {
     var body: some View {
         RemoteContent(load: { try await api.cameras().first { $0.id == cameraID } }) { camera in
             if let camera {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: Spacing.xl) {
+                let status = SecurityText.cameraStatus(camera.status)
+                List {
+                    Section {
                         SecurityCameraPlayer(camera: camera, viewer: viewer)
-                        VStack(alignment: .leading, spacing: Spacing.md) {
-                            if let room = camera.room {
-                                DetailRow(title: String(localized: "security.camera.room", defaultValue: "Помещение"), value: room.name, symbol: "door.left.hand.closed")
-                            }
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets())
+                    } footer: {
+                        Text(String(localized: "security.cameras.subtitle", defaultValue: "Видео в реальном времени, без звука. Каждый просмотр записывается в журнал."))
+                    }
+                    Section {
+                        if let room = camera.room {
+                            DetailRow(title: String(localized: "security.camera.room", defaultValue: "Помещение"), value: room.name, symbol: "door.left.hand.closed")
+                        }
+                        HStack {
                             DetailRow(
                                 title: String(localized: "security.camera.status", defaultValue: "Состояние"),
-                                value: SecurityText.cameraStatus(camera.status).text,
+                                value: status.text,
                                 symbol: "dot.radiowaves.left.and.right"
                             )
-                            if let seen = camera.lastSeenAt {
-                                DetailRow(title: String(localized: "security.camera.lastSeen", defaultValue: "Последний сигнал"), value: DisplayFormat.dateTime(seen), symbol: "clock")
-                            }
-                            Text(String(localized: "security.cameras.subtitle", defaultValue: "Видео в реальном времени, без звука. Каждый просмотр записывается в журнал."))
-                                .font(Typography.meta)
-                                .foregroundStyle(Palette.mutedForeground)
+                            Circle()
+                                .fill(status.tint)
+                                .frame(width: 10, height: 10)
+                                .accessibilityHidden(true)
                         }
-                        .padding(Spacing.xl)
-                        .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                        if let seen = camera.lastSeenAt {
+                            DetailRow(title: String(localized: "security.camera.lastSeen", defaultValue: "Последний сигнал"), value: DisplayFormat.dateTime(seen), symbol: "clock")
+                        }
                     }
-                    .padding(Spacing.xl)
                 }
+                .listStyle(.insetGrouped)
                 .navigationTitle(Text(camera.name))
             } else {
                 EmptyStateView(
@@ -218,7 +233,6 @@ struct SecurityCameraScreen: View {
                 )
             }
         }
-        .background(Palette.background)
         .navigationTitle(Text(SecurityScreen.camera(id: cameraID).title))
         .navigationBarTitleDisplayMode(.inline)
         .task { viewer = await SecurityViewerName.load() }
@@ -236,22 +250,23 @@ struct SecurityCameraWallView: View {
         RemoteContent(load: { try await api.cameras() }) { all in
             let byID = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             let open = ids.prefix(SecurityCamerasView.maxWatched).compactMap { byID[$0] }
-            ScrollView {
-                VStack(spacing: Spacing.lg) {
-                    ForEach(open) { camera in
-                        SecurityCameraPlayer(camera: camera, viewer: viewer)
+            if open.isEmpty {
+                EmptyStateView(
+                    title: String(localized: "security.camera.missing", defaultValue: "Камера отключена"),
+                    symbol: "video.slash"
+                )
+            } else {
+                ScrollView {
+                    // На широком экране окна встают сеткой 2×2, на телефоне — столбиком.
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: Spacing.md)], spacing: Spacing.md) {
+                        ForEach(open) { camera in
+                            SecurityCameraPlayer(camera: camera, viewer: viewer)
+                        }
                     }
-                    if open.isEmpty {
-                        EmptyStateView(
-                            title: String(localized: "security.camera.missing", defaultValue: "Камера отключена"),
-                            symbol: "video.slash"
-                        )
-                    }
+                    .padding(Spacing.lg)
                 }
-                .padding(Spacing.xl)
             }
         }
-        .background(Palette.background)
         .navigationTitle(Text(SecurityScreen.cameraWall(ids: ids).title))
         .navigationBarTitleDisplayMode(.inline)
         .task { viewer = await SecurityViewerName.load() }
