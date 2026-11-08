@@ -93,6 +93,9 @@ struct AppShellView: View {
         NavigationStack(path: $router.stacks.stack(for: tab)) {
             root(for: tab)
                 .profileToolbarItem()
+                // Как в Telegram: компактный заголовок по центру панели, кнопки по краям
+                // в стекле. Вложенные экраны наследуют режим (`.automatic`).
+                .navigationBarTitleDisplayMode(.inline)
                 .softTopEdge()
                 .navigationDestination(for: AppRoute.self) { route in
                     destination(for: route)

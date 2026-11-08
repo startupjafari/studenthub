@@ -359,31 +359,45 @@ struct FilterChips<Value: Hashable>: View {
     let options: [(value: Value?, title: String)]
     @Binding var selection: Value?
 
+    @Namespace private var pill
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    // Как папки в Telegram: одна стеклянная капсула-дорожка, внутри — пункты, выбранный
+    // подсвечен «таблеткой», которая переезжает к новому пункту.
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            // На iOS 26 капсулы — стекло: выбранная тонирована фирменным цветом, соседние
-            // сливаются при нажатии, как переключатели в приложениях Apple.
-            GlassGroup(spacing: Spacing.sm) {
-                HStack(spacing: Spacing.sm) {
-                    ForEach(Array(options.enumerated()), id: \.offset) { _, option in
-                        let isOn = option.value == selection
-                        Button {
+            HStack(spacing: 2) {
+                ForEach(Array(options.enumerated()), id: \.offset) { _, option in
+                    let isOn = option.value == selection
+                    Button {
+                        withAnimation(Motion.respecting(.snappy(duration: 0.3), reduceMotion: reduceMotion)) {
                             selection = option.value
-                        } label: {
-                            Text(option.title)
-                                .font(Typography.meta.weight(.semibold))
-                                .padding(.horizontal, Spacing.xl)
-                                .padding(.vertical, Spacing.md)
-                                .foregroundStyle(isOn ? Palette.primaryForeground : Palette.foreground)
-                                .glassSurface(tint: isOn ? Palette.primary : nil, in: Capsule())
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(isOn ? .isSelected : [])
+                    } label: {
+                        Text(option.title)
+                            .font(.subheadline.weight(isOn ? .semibold : .medium))
+                            .lineLimit(1)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .foregroundStyle(isOn ? Palette.foreground : Palette.mutedForeground)
+                            .background {
+                                if isOn {
+                                    Capsule()
+                                        .fill(Palette.foreground.opacity(0.12))
+                                        .matchedGeometryEffect(id: "pill", in: pill)
+                                }
+                            }
+                            .contentShape(Capsule())
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(isOn ? .isSelected : [])
                 }
-                .padding(.vertical, Spacing.xs)
             }
+            .padding(4)
         }
+        .scrollClipDisabled(false)
+        .clipShape(Capsule())
+        .glassSurface(interactive: false, in: Capsule())
         .sensoryFeedback(.selection, trigger: selection)
     }
 }
@@ -396,7 +410,7 @@ struct FilterChipsRow<Value: Hashable>: View {
     var body: some View {
         FilterChips(options: options, selection: $selection)
             .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 0, leading: Spacing.lg, bottom: 0, trailing: Spacing.lg))
+            .listRowInsets(EdgeInsets(top: Spacing.xs, leading: 0, bottom: Spacing.xs, trailing: 0))
     }
 }
 
