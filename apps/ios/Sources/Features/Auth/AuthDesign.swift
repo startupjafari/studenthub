@@ -121,11 +121,17 @@ struct StudentHubBrandHeader: View {
     var subtitle: String?
     /// На вложенных экранах (QR, восстановление) знак без названия: название уже было.
     var showsWordmark = true
+    /// Подзаголовок — инструкция, без которой экран непонятен: на низком экране он
+    /// остаётся, а прячется знак.
+    var subtitleIsEssential = false
+
+    @Environment(\.authIsCompact) private var isCompact
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.xl) {
+        VStack(alignment: .leading, spacing: isCompact ? Spacing.md : Spacing.xl) {
+            if !(isCompact && subtitleIsEssential) {
             HStack(spacing: Spacing.md) {
-                StudentHubLogo(size: 40)
+                StudentHubLogo(size: isCompact ? 32 : 40)
                 if showsWordmark {
                     Text(verbatim: "StudentHub")
                         .font(.system(.title3, design: .rounded, weight: .bold))
@@ -134,16 +140,18 @@ struct StudentHubBrandHeader: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(verbatim: "StudentHub"))
+            }
 
-            VStack(alignment: .leading, spacing: Spacing.md) {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
                 Text(title)
-                    .font(.system(.largeTitle, weight: .bold))
+                    .font(.system(isCompact ? .title2 : .title, weight: .bold))
                     .foregroundStyle(AuthPalette.headerPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityAddTraits(.isHeader)
-                if let subtitle {
+                // На низком экране подзаголовок уступает место форме.
+                if let subtitle, !isCompact || subtitleIsEssential {
                     Text(subtitle)
-                        .font(.body)
+                        .font(.subheadline)
                         .foregroundStyle(AuthPalette.headerSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -154,6 +162,19 @@ struct StudentHubBrandHeader: View {
 }
 
 // MARK: - Каркас экрана
+
+private struct AuthCompactKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// Экран низкий (iPhone SE, mini, клавиатура открыта): шапка сжимается, чтобы форма
+    /// помещалась без прокрутки.
+    var authIsCompact: Bool {
+        get { self[AuthCompactKey.self] }
+        set { self[AuthCompactKey.self] = newValue }
+    }
+}
 
 /// Шапка сверху, панель с формой снизу. Высота не задаётся: на высоком экране между
 /// ними свободное место, на низком (или с клавиатурой) экран прокручивается, и поле в
@@ -168,11 +189,12 @@ struct AuthScaffold<Header: View, Panel: View>: View {
                 VStack(spacing: 0) {
                     header()
                         .padding(.horizontal, Spacing.xxl)
-                        .padding(.top, Spacing.xl)
-                        .padding(.bottom, Spacing.xxl)
-                    Spacer(minLength: Spacing.xl)
+                        .padding(.top, Spacing.md)
+                        .padding(.bottom, Spacing.xl)
+                    Spacer(minLength: 0)
                     AuthBottomPanel(content: panel)
                 }
+                .environment(\.authIsCompact, proxy.size.height < 650)
                 .frame(maxWidth: 560)
                 .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .top)
             }
@@ -192,10 +214,10 @@ struct AuthBottomPanel<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.xl, content: content)
+        VStack(alignment: .leading, spacing: Spacing.lg, content: content)
             .padding(.horizontal, Spacing.xxl)
-            .padding(.top, 28)
-            .padding(.bottom, Spacing.xl)
+            .padding(.top, Spacing.xxl)
+            .padding(.bottom, Spacing.md)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 AuthPalette.panel,
@@ -231,7 +253,9 @@ struct AuthPanelTitle: View {
 /// Поле формы: подпись, само поле на мягкой заливке и ошибка под ним. Рамки нет —
 /// только у поля в фокусе (тонкая, фирменного цвета) и у поля с ошибкой (красная).
 struct StudentHubField<Field: View, Accessory: View>: View {
-    let label: String
+    /// Подпись над полем. `nil` — без подписи: смысл поля несёт подсказка внутри, а
+    /// VoiceOver читает ярлык самого поля.
+    let label: String?
     var error: String?
     var isFocused = false
     @ViewBuilder var field: () -> Field
@@ -239,10 +263,12 @@ struct StudentHubField<Field: View, Accessory: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
-            Text(label)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(Palette.mutedForeground)
-                .accessibilityHidden(true)
+            if let label {
+                Text(label)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Palette.mutedForeground)
+                    .accessibilityHidden(true)
+            }
             HStack(spacing: Spacing.md) {
                 field()
                     .font(.body)
@@ -267,7 +293,7 @@ struct StudentHubField<Field: View, Accessory: View>: View {
 }
 
 extension StudentHubField where Accessory == EmptyView {
-    init(label: String, error: String? = nil, isFocused: Bool = false, @ViewBuilder field: @escaping () -> Field) {
+    init(label: String?, error: String? = nil, isFocused: Bool = false, @ViewBuilder field: @escaping () -> Field) {
         self.init(label: label, error: error, isFocused: isFocused, field: field, accessory: { EmptyView() })
     }
 }
@@ -393,13 +419,13 @@ struct StudentHubLegalLinks: View {
     @ViewBuilder
     private func links(separator: Bool) -> some View {
         NavigationLink(value: AuthRoute.legal(.privacy)) {
-            Text(LegalDocument.privacy.title).frame(minHeight: 44)
+            Text(LegalDocument.privacy.title).frame(minHeight: 36)
         }
         if separator {
             Text(verbatim: "·").foregroundStyle(Palette.mutedForeground).accessibilityHidden(true)
         }
         NavigationLink(value: AuthRoute.legal(.terms)) {
-            Text(LegalDocument.terms.title).frame(minHeight: 44)
+            Text(LegalDocument.terms.title).frame(minHeight: 36)
         }
     }
 }

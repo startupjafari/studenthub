@@ -95,7 +95,8 @@ struct ForgotPasswordView: View {
                     localized: "auth.forgot.description",
                     defaultValue: "Укажите email вашей учётной записи — мы пришлём ссылку для создания нового пароля."
                 ),
-                showsWordmark: false
+                showsWordmark: false,
+                subtitleIsEssential: true
             )
         } panel: {
             switch model.phase {
@@ -117,11 +118,11 @@ struct ForgotPasswordView: View {
         FormAlert(message: model.formError)
 
         StudentHubField(
-            label: String(localized: "auth.email", defaultValue: "Email"),
+            label: nil,
             error: model.emailError,
             isFocused: isEmailFocused
         ) {
-            TextField(text: $model.email, prompt: Text(verbatim: "you@university.kz")) {
+            TextField(text: $model.email, prompt: Text(String(localized: "auth.email", defaultValue: "Email"))) {
                 Text(String(localized: "auth.email", defaultValue: "Email"))
             }
             .textContentType(.emailAddress)

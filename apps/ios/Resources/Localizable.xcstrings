@@ -545,23 +545,6 @@
         }
       }
     },
-    "auth.identifierPlaceholder": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "you@example.com или username"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "you@example.com немесе username"
-          }
-        }
-      }
-    },
     "auth.password": {
       "extractionState": "manual",
       "localizations": {
@@ -86013,23 +85996,6 @@
         }
       }
     },
-    "auth.panelSubtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Войдите, чтобы продолжить"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Жалғастыру үшін кіріңіз"
-          }
-        }
-      }
-    },
     "auth.forgotPassword": {
       "extractionState": "manual",
       "localizations": {
@@ -87182,6 +87148,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Шарттар жаңартылуы мүмкін; өзгерістер туралы платформа ішінде хабарлаймыз. Оқудан шығарылған, жұмыстан босатылған жағдайда немесе университеттің шешімі бойынша қол жеткізу тоқтатылады. Деректер бұдан кейін жоғары оқу орнының регламентіне сәйкес өңделеді."
+          }
+        }
+      }
+    },
+    "auth.employerShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Работодателям"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жұмыс берушілерге"
           }
         }
       }

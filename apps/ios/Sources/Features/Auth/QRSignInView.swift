@@ -233,6 +233,8 @@ struct QRSignInView: View {
     @State private var model = QRSignInModel()
     /// Смена значения перезапускает `.task` — так работает «Обновить».
     @State private var attempt = 0
+    /// Высота экрана решает размер кода: на SE он меньше, но всё помещается без прокрутки.
+    @State private var isCompact = false
 
     var body: some View {
         AuthScaffold {
@@ -242,11 +244,12 @@ struct QRSignInView: View {
                     localized: "auth.qrHint",
                     defaultValue: "Откройте StudentHub на телефоне, где вы уже вошли, и отсканируйте код камерой"
                 ),
-                showsWordmark: false
+                showsWordmark: false,
+                subtitleIsEssential: true
             )
         } panel: {
             codeArea
-                .frame(maxWidth: 300)
+                .frame(maxWidth: isCompact ? 190 : 250)
                 .frame(maxWidth: .infinity)
             status
                 .frame(maxWidth: .infinity)
@@ -259,6 +262,7 @@ struct QRSignInView: View {
         .navigationBarTitleDisplayMode(.inline)
         .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: model.state)
         .task(id: attempt) { await model.run(into: session) }
+        .onGeometryChange(for: Bool.self) { $0.size.height < 650 } action: { isCompact = $0 }
     }
 
     /// Место под код одинакового размера во всех состояниях — экран не прыгает.

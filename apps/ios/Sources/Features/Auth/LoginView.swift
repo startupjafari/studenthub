@@ -27,7 +27,7 @@ struct LoginView: View {
                         String(localized: "auth.hero.education", defaultValue: "Образование."),
                         String(localized: "auth.hero.communication", defaultValue: "Общение."),
                         String(localized: "auth.hero.opportunities", defaultValue: "Возможности."),
-                    ].joined(separator: "\n"),
+                    ].joined(separator: " "),
                     subtitle: String(
                         localized: "auth.brandSubtitle",
                         defaultValue: "Единая платформа для студентов и преподавателей вашего университета"
@@ -42,12 +42,13 @@ struct LoginView: View {
                         forgotPassword: { path.append(.forgotPassword) },
                         qrSignIn: { path.append(.qrSignIn) }
                     )
-                    secondaryLinks
+                    StudentHubLegalLinks()
                 case .twoFactor:
                     TwoFactorStepView(model: model, session: session)
                 }
             }
             .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: model.step)
+            .toolbar { toolbarItems }
             .navigationDestination(for: AuthRoute.self) { route in
                 switch route {
                 case .qrSignIn:
@@ -64,26 +65,31 @@ struct LoginView: View {
         }
     }
 
-    /// Регистрация работодателя — единственный вход без инвайта вуза, и юридические
-    /// документы.
-    @ViewBuilder
-    private var secondaryLinks: some View {
-        AuthTextLink(title: String(localized: "career.signup.entry", defaultValue: "Я работодатель — зарегистрироваться")) {
-            showsEmployerSignup = true
+    /// Регистрация работодателя — единственный вход без инвайта вуза — кнопкой в верхней
+    /// панели: она нужна немногим, и место в форме ей не по чину.
+    @ToolbarContentBuilder
+    private var toolbarItems: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                showsEmployerSignup = true
+            } label: {
+                Text(String(localized: "auth.employerShort", defaultValue: "Работодателям"))
+            }
+            .accessibilityHint(Text(String(localized: "career.signup.entry", defaultValue: "Я работодатель — зарегистрироваться")))
         }
-        .frame(maxWidth: .infinity)
-        StudentHubLegalLinks()
         #if DEBUG
             // Витрина дизайн-ядра — на экране входа: до сервера дотягивается не всякая
             // отладочная сборка, а токены смотреть надо.
-            Button {
-                showsTokenGallery = true
-            } label: {
-                Text(verbatim: "Дизайн-ядро").font(.caption)
-            }
-            .frame(maxWidth: .infinity)
-            .sheet(isPresented: $showsTokenGallery) {
-                TokenGalleryView()
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    showsTokenGallery = true
+                } label: {
+                    Image(systemName: "paintpalette")
+                }
+                .accessibilityLabel(Text(verbatim: "Дизайн-ядро"))
+                .sheet(isPresented: $showsTokenGallery) {
+                    TokenGalleryView()
+                }
             }
         #endif
     }
@@ -105,24 +111,18 @@ private struct CredentialsStepView: View {
     }
 
     var body: some View {
-        AuthPanelTitle(
-            title: String(localized: "auth.panelTitle", defaultValue: "Вход в аккаунт"),
-            subtitle: String(localized: "auth.panelSubtitle", defaultValue: "Войдите, чтобы продолжить")
-        )
+        AuthPanelTitle(title: String(localized: "auth.panelTitle", defaultValue: "Вход в аккаунт"))
 
         FormAlert(message: model.formError)
 
         StudentHubField(
-            label: String(localized: "auth.identifier", defaultValue: "Email или имя пользователя"),
+            label: nil,
             error: model.identifierError,
             isFocused: focus == .identifier
         ) {
             TextField(
                 text: $model.identifier,
-                prompt: Text(verbatim: String(
-                    localized: "auth.identifierPlaceholder",
-                    defaultValue: "you@example.com или username"
-                ))
+                prompt: Text(String(localized: "auth.identifier", defaultValue: "Email или имя пользователя"))
             ) {
                 Text(String(localized: "auth.identifier", defaultValue: "Email или имя пользователя"))
             }
@@ -138,7 +138,7 @@ private struct CredentialsStepView: View {
         }
 
         StudentHubField(
-            label: String(localized: "auth.password", defaultValue: "Пароль"),
+            label: nil,
             error: model.passwordError,
             isFocused: focus == .password
         ) {
@@ -151,7 +151,7 @@ private struct CredentialsStepView: View {
             Spacer(minLength: 0)
             AuthTextLink(title: String(localized: "auth.forgotPassword", defaultValue: "Забыли пароль?"), action: forgotPassword)
         }
-        .padding(.top, -Spacing.md)
+        .padding(.vertical, -Spacing.md)
 
         StudentHubPrimaryButton(
             title: model.isBusy
@@ -161,8 +161,6 @@ private struct CredentialsStepView: View {
             action: submit
         )
         .accessibilityIdentifier("auth.signIn")
-
-        AuthOrDivider()
 
         StudentHubSecondaryButton(
             title: String(localized: "auth.qrTab", defaultValue: "Войти по QR-коду"),
@@ -179,11 +177,11 @@ private struct CredentialsStepView: View {
     private var passwordField: some View {
         Group {
             if showsPassword {
-                TextField(text: $model.password) { Text(passwordLabel) }
+                TextField(text: $model.password, prompt: Text(passwordLabel)) { Text(passwordLabel) }
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
             } else {
-                SecureField(text: $model.password) { Text(passwordLabel) }
+                SecureField(text: $model.password, prompt: Text(passwordLabel)) { Text(passwordLabel) }
             }
         }
         .textContentType(.password)
