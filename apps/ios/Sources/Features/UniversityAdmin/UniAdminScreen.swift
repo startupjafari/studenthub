@@ -17,6 +17,16 @@ enum UniAdminScreen: Hashable {
     case cameras
     case schedule
     case courses
+    /// Группы одного факультета — из списка факультетов.
+    case facultyGroups(facultyID: String, name: String)
+    /// Расписание выбранной группы — из карточки группы.
+    case groupSchedule(groupID: String)
+    /// Кампус: корпуса, этажи, публикация и версии.
+    case campus(id: String)
+    /// Просмотр камер вуза.
+    case cameraWatch
+    /// Посещаемость группы по студентам — из аналитики факультета.
+    case groupAttendance(groupID: String, name: String)
 
     var title: String {
         switch self {
@@ -32,6 +42,11 @@ enum UniAdminScreen: Hashable {
         case .cameras: return String(localized: "uadmin.screen.cameras", defaultValue: "Камеры")
         case .schedule: return String(localized: "uadmin.screen.schedule", defaultValue: "Расписание")
         case .courses: return String(localized: "uadmin.screen.courses", defaultValue: "Дисциплины")
+        case .facultyGroups(_, let name): return name
+        case .groupSchedule: return String(localized: "uadmin.screen.schedule", defaultValue: "Расписание")
+        case .campus: return String(localized: "uadmin.screen.campus", defaultValue: "Кампус")
+        case .cameraWatch: return String(localized: "uadmin.screen.cameraWatch", defaultValue: "Просмотр камер")
+        case .groupAttendance(_, let name): return name
         }
     }
 
@@ -49,12 +64,35 @@ enum UniAdminScreen: Hashable {
         case .cameras: return "video"
         case .schedule: return "calendar"
         case .courses: return "book"
+        case .facultyGroups: return "person.3"
+        case .groupSchedule: return "calendar"
+        case .campus: return "map"
+        case .cameraWatch: return "play.rectangle"
+        case .groupAttendance: return "chart.bar"
         }
     }
 
     @MainActor @ViewBuilder
     var destination: some View {
-        PendingScreen(title: title, symbol: symbol)
+        switch self {
+        case .dashboard: UAdminDashboardView()
+        case .analytics: UAdminAnalyticsView()
+        case .setup: UAdminSetupView()
+        case .faculties: UAdminFacultiesView()
+        case .specialties: UAdminSpecialtiesView()
+        case .groups: UAdminGroupsView()
+        case .group(let id): UAdminGroupDetailView(groupID: id)
+        case .facultyGroups(let id, let name): UAdminGroupsView(facultyID: id, facultyName: name)
+        case .rooms: UAdminRoomsView()
+        case .campuses: UAdminCampusListView()
+        case .campus(let id): UAdminCampusDetailView(campusID: id)
+        case .cameras: UAdminCamerasView()
+        case .cameraWatch: UAdminCameraWatchView()
+        case .groupAttendance(let id, let name): UAdminGroupAttendanceView(groupID: id, name: name)
+        case .schedule: UAdminScheduleView()
+        case .groupSchedule(let id): UAdminScheduleView(initialGroupID: id)
+        case .courses: UAdminCoursesView()
+        }
     }
 
     /// «Разделы» администратора вуза — по группам меню веба (`UNIVERSITY_ADMIN_NAV`).
