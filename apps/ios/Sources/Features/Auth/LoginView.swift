@@ -1,85 +1,100 @@
 import SwiftUI
 
-/// Экран входа: оболочка и первый шаг.
+/// Экран входа: фирменная шапка сверху, форма — в нижней панели.
 ///
-/// Тексты повторяют веб слово в слово (`apps/web/messages/ru.json`, раздел `Auth`):
-/// один продукт не должен здороваться по-разному на телефоне и в браузере.
+/// Логика входа не здесь, а в `LoginModel` (два шага: пароль и код 2FA) и в
+/// `AppSessionModel` (сессия, связка ключей). Экран отвечает только за подачу и за
+/// переходы: вход по QR, восстановление пароля, документы.
+///
+/// Тексты — как в вебе (`apps/web/messages/*.json`, раздел `Auth`): один продукт не
+/// должен здороваться по-разному на телефоне и в браузере.
 struct LoginView: View {
     let session: AppSessionModel
 
     @State private var model = LoginModel()
+    @State private var path: [AuthRoute] = []
     @State private var showsEmployerSignup = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     #if DEBUG
         @State private var showsTokenGallery = false
     #endif
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: Spacing.xxl) {
-                header
+        NavigationStack(path: $path) {
+            AuthScaffold {
+                StudentHubBrandHeader(
+                    title: [
+                        String(localized: "auth.hero.education", defaultValue: "Образование."),
+                        String(localized: "auth.hero.communication", defaultValue: "Общение."),
+                        String(localized: "auth.hero.opportunities", defaultValue: "Возможности."),
+                    ].joined(separator: "\n"),
+                    subtitle: String(
+                        localized: "auth.brandSubtitle",
+                        defaultValue: "Единая платформа для студентов и преподавателей вашего университета"
+                    )
+                )
+            } panel: {
                 switch model.step {
                 case .credentials:
-                    CredentialsStepView(model: model, session: session)
+                    CredentialsStepView(
+                        model: model,
+                        session: session,
+                        forgotPassword: { path.append(.forgotPassword) },
+                        qrSignIn: { path.append(.qrSignIn) }
+                    )
+                    secondaryLinks
                 case .twoFactor:
                     TwoFactorStepView(model: model, session: session)
                 }
-                // Саморегистрация работодателя — единственный вход без инвайта вуза.
-                Button {
-                    showsEmployerSignup = true
-                } label: {
-                    Text(String(localized: "career.signup.entry", defaultValue: "Я работодатель — зарегистрироваться"))
-                }
-                .buttonStyle(QuietButtonStyle())
-                .sheet(isPresented: $showsEmployerSignup) {
-                    CareerSignupSheet(session: session)
-                }
-                #if DEBUG
-                    galleryLink
-                #endif
             }
-            .padding(Spacing.xl)
-            .frame(maxWidth: .infinity)
+            .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: model.step)
+            .navigationDestination(for: AuthRoute.self) { route in
+                switch route {
+                case .qrSignIn:
+                    QRSignInView(session: session)
+                case .forgotPassword:
+                    ForgotPasswordView(prefill: model.identifier)
+                case .legal(let document):
+                    LegalDocumentView(document: document)
+                }
+            }
         }
-        .background(Palette.background)
-        .scrollDismissesKeyboard(.interactively)
-        .animation(Motion.calm, value: model.step)
+        .sheet(isPresented: $showsEmployerSignup) {
+            CareerSignupSheet(session: session)
+        }
     }
 
-    private var header: some View {
-        VStack(spacing: Spacing.md) {
-            Text(String(localized: "auth.loginTitle", defaultValue: "Вход"))
-                .font(Typography.pageTitle)
-                .foregroundStyle(Palette.foreground)
-            Text(String(localized: "auth.welcomeSubtitle", defaultValue: "Войдите в свой аккаунт"))
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
+    /// Регистрация работодателя — единственный вход без инвайта вуза, и юридические
+    /// документы.
+    @ViewBuilder
+    private var secondaryLinks: some View {
+        AuthTextLink(title: String(localized: "career.signup.entry", defaultValue: "Я работодатель — зарегистрироваться")) {
+            showsEmployerSignup = true
         }
-        .padding(.top, Spacing.xxl)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
-    }
-
-    #if DEBUG
-        /// Витрина дизайн-ядра держится на экране входа, а не за ним: до сервера
-        /// дотягивается не всякая отладочная сборка, а токены смотреть надо.
-        private var galleryLink: some View {
+        .frame(maxWidth: .infinity)
+        StudentHubLegalLinks()
+        #if DEBUG
+            // Витрина дизайн-ядра — на экране входа: до сервера дотягивается не всякая
+            // отладочная сборка, а токены смотреть надо.
             Button {
                 showsTokenGallery = true
             } label: {
-                Text(verbatim: "Дизайн-ядро")
+                Text(verbatim: "Дизайн-ядро").font(.caption)
             }
-            .buttonStyle(QuietButtonStyle())
+            .frame(maxWidth: .infinity)
             .sheet(isPresented: $showsTokenGallery) {
                 TokenGalleryView()
             }
-        }
-    #endif
+        #endif
+    }
 }
 
 /// Первый шаг: идентификатор и пароль.
 private struct CredentialsStepView: View {
     @Bindable var model: LoginModel
     let session: AppSessionModel
+    let forgotPassword: () -> Void
+    let qrSignIn: () -> Void
 
     @FocusState private var focus: Field?
     @State private var showsPassword = false
@@ -90,91 +105,93 @@ private struct CredentialsStepView: View {
     }
 
     var body: some View {
-        VStack(spacing: Spacing.xl) {
-            FormAlert(message: model.formError)
+        AuthPanelTitle(
+            title: String(localized: "auth.panelTitle", defaultValue: "Вход в аккаунт"),
+            subtitle: String(localized: "auth.panelSubtitle", defaultValue: "Войдите, чтобы продолжить")
+        )
 
-            VStack(alignment: .leading, spacing: Spacing.md) {
-                FieldLabel(text: String(localized: "auth.identifier", defaultValue: "Email или имя пользователя"))
-                TextField(
-                    text: $model.identifier,
-                    prompt: Text(verbatim: String(
-                        localized: "auth.identifierPlaceholder",
-                        defaultValue: "you@example.com или username"
-                    ))
-                ) {
-                    Text(verbatim: String(localized: "auth.identifier", defaultValue: "Email или имя пользователя"))
-                }
-                .labelsHidden()
-                .textContentType(.username)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .keyboardType(.emailAddress)
-                .submitLabel(.next)
-                .focused($focus, equals: .identifier)
-                .formField(isFocused: focus == .identifier, isInvalid: model.identifierError != nil)
-                FieldError(message: model.identifierError)
-            }
+        FormAlert(message: model.formError)
 
-            VStack(alignment: .leading, spacing: Spacing.md) {
-                FieldLabel(text: String(localized: "auth.password", defaultValue: "Пароль"))
-                HStack(spacing: Spacing.md) {
-                    passwordField
-                    Button {
-                        showsPassword.toggle()
-                    } label: {
-                        Image(systemName: showsPassword ? "eye.slash" : "eye")
-                            .foregroundStyle(Palette.mutedForeground)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Text(showsPassword
-                        ? String(localized: "auth.hidePassword", defaultValue: "Скрыть пароль")
-                        : String(localized: "auth.showPassword", defaultValue: "Показать пароль")))
-                }
-                .formField(isFocused: focus == .password, isInvalid: model.passwordError != nil)
-                FieldError(message: model.passwordError)
+        StudentHubField(
+            label: String(localized: "auth.identifier", defaultValue: "Email или имя пользователя"),
+            error: model.identifierError,
+            isFocused: focus == .identifier
+        ) {
+            TextField(
+                text: $model.identifier,
+                prompt: Text(verbatim: String(
+                    localized: "auth.identifierPlaceholder",
+                    defaultValue: "you@example.com или username"
+                ))
+            ) {
+                Text(String(localized: "auth.identifier", defaultValue: "Email или имя пользователя"))
             }
-
-            Button {
-                submit()
-            } label: {
-                Text(model.isBusy
-                    ? String(localized: "auth.signingIn", defaultValue: "Входим…")
-                    : String(localized: "auth.signIn", defaultValue: "Войти"))
-            }
-            .buttonStyle(PrimaryButtonStyle(isLoading: model.isBusy))
+            // Автозаполнение паролей: логин и пароль — пара `.username`/`.password`, по
+            // ней iOS предлагает сохранённую учётную запись.
+            .textContentType(.username)
+            .keyboardType(.emailAddress)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .submitLabel(.next)
+            .focused($focus, equals: .identifier)
+            .onSubmit { focus = .password }
         }
-        .onSubmit {
-            if focus == .identifier {
-                focus = .password
-            } else {
-                submit()
-            }
+
+        StudentHubField(
+            label: String(localized: "auth.password", defaultValue: "Пароль"),
+            error: model.passwordError,
+            isFocused: focus == .password
+        ) {
+            passwordField
+        } accessory: {
+            PasswordVisibilityToggle(isVisible: $showsPassword)
         }
+
+        HStack {
+            Spacer(minLength: 0)
+            AuthTextLink(title: String(localized: "auth.forgotPassword", defaultValue: "Забыли пароль?"), action: forgotPassword)
+        }
+        .padding(.top, -Spacing.md)
+
+        StudentHubPrimaryButton(
+            title: model.isBusy
+                ? String(localized: "auth.signingIn", defaultValue: "Входим…")
+                : String(localized: "auth.signIn", defaultValue: "Войти"),
+            isLoading: model.isBusy,
+            action: submit
+        )
+        .accessibilityIdentifier("auth.signIn")
+
+        AuthOrDivider()
+
+        StudentHubSecondaryButton(
+            title: String(localized: "auth.qrTab", defaultValue: "Войти по QR-коду"),
+            systemImage: "qrcode",
+            action: qrSignIn
+        )
+        .accessibilityIdentifier("auth.qrSignIn")
     }
 
-    /// Два поля вместо одного с флагом: `SecureField` и `TextField` — разные типы,
-    /// и переключать видимость иначе нельзя.
+    /// Два поля вместо одного с флагом: `SecureField` и `TextField` — разные типы, и
+    /// переключать видимость иначе нельзя. Тип содержимого у обоих `.password` —
+    /// автозаполнение работает в любом режиме.
     @ViewBuilder
     private var passwordField: some View {
-        if showsPassword {
-            TextField(text: $model.password) { Text(verbatim: passwordLabel) }
-                .labelsHidden()
-                .textContentType(.password)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .submitLabel(.go)
-                .focused($focus, equals: .password)
-        } else {
-            SecureField(text: $model.password) { Text(verbatim: passwordLabel) }
-                .labelsHidden()
-                .textContentType(.password)
-                .submitLabel(.go)
-                .focused($focus, equals: .password)
+        Group {
+            if showsPassword {
+                TextField(text: $model.password) { Text(passwordLabel) }
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            } else {
+                SecureField(text: $model.password) { Text(passwordLabel) }
+            }
         }
+        .textContentType(.password)
+        .submitLabel(.go)
+        .focused($focus, equals: .password)
+        .onSubmit(submit)
     }
 
-    /// Ярлык поля скрыт на экране, но остаётся у VoiceOver: без него поле
-    /// читается как «текстовое поле», и вслепую не понять, какое из двух.
     private var passwordLabel: String {
         String(localized: "auth.password", defaultValue: "Пароль")
     }

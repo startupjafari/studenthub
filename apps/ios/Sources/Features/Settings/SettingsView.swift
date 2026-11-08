@@ -145,6 +145,11 @@ struct SettingsView: View {
                         tint: TileTint.orange
                     )
                 }
+                ForEach(LegalDocument.allCases) { document in
+                    NavigationLink(value: AppRoute.legal(document)) {
+                        IconRow(title: document.title, symbol: document.symbol, tint: TileTint.gray)
+                    }
+                }
                 LabeledContent {
                     Text(verbatim: "\(AppConfiguration.marketingVersion) (\(AppConfiguration.buildNumber))")
                         .font(Typography.tabular(Typography.body))

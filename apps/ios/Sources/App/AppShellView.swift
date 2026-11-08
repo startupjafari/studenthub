@@ -204,6 +204,8 @@ struct AppShellView: View {
             ChatInfoView(chatID: id)
         case .campusRoom(let roomID):
             CampusMapView(focusRoomID: roomID)
+        case .legal(let document):
+            LegalDocumentView(inApp: document)
         case .student(let screen):
             screen.destination
         case .community(let screen):

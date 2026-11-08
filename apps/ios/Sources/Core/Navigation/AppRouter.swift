@@ -26,6 +26,8 @@ enum AppRoute: Hashable {
     case chatInfo(id: String)
     /// Аудитория на карте кампуса — из занятия в расписании.
     case campusRoom(roomID: String)
+    /// Политика конфиденциальности или пользовательское соглашение.
+    case legal(LegalDocument)
 
     // Экраны областей. Каждая область описывает свои экраны сама (`Features/<Область>`).
     case student(StudentScreen)

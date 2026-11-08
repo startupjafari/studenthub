@@ -11,64 +11,52 @@ struct TwoFactorStepView: View {
     @FocusState private var isCodeFocused: Bool
 
     var body: some View {
-        VStack(spacing: Spacing.xl) {
-            VStack(spacing: Spacing.md) {
-                Text(String(localized: "auth.twoFactorTitle", defaultValue: "Двухфакторная аутентификация"))
-                    .font(Typography.sectionTitle)
-                    .foregroundStyle(Palette.foreground)
-                Text(String(
-                    localized: "auth.twoFactorPrompt",
-                    defaultValue: "Введите код из приложения-аутентификатора"
-                ))
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
-                .multilineTextAlignment(.center)
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(.isHeader)
+        AuthPanelTitle(
+            title: String(localized: "auth.twoFactorTitle", defaultValue: "Двухфакторная аутентификация"),
+            subtitle: String(localized: "auth.twoFactorPrompt", defaultValue: "Введите код из приложения-аутентификатора")
+        )
 
-            FormAlert(message: model.formError)
+        FormAlert(message: model.formError)
 
-            VStack(alignment: .leading, spacing: Spacing.md) {
-                FieldLabel(text: String(localized: "auth.twoFactorCodeLabel", defaultValue: "Код подтверждения"))
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            StudentHubField(
+                label: String(localized: "auth.twoFactorCodeLabel", defaultValue: "Код подтверждения"),
+                error: model.codeError,
+                isFocused: isCodeFocused
+            ) {
                 TextField(text: $model.code) {
-                    Text(verbatim: String(localized: "auth.twoFactorCodeLabel", defaultValue: "Код подтверждения"))
+                    Text(String(localized: "auth.twoFactorCodeLabel", defaultValue: "Код подтверждения"))
                 }
-                .labelsHidden()
                 // Не `.numberPad`: резервный код не из одних цифр, и с цифровой
                 // клавиатурой его было бы не ввести.
                 .keyboardType(.asciiCapable)
                 .textContentType(.oneTimeCode)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-                .font(Typography.tabular(Typography.body))
+                .font(Typography.tabular(.title3))
                 .submitLabel(.go)
                 .focused($isCodeFocused)
-                .formField(isFocused: isCodeFocused, isInvalid: model.codeError != nil)
-                FieldError(message: model.codeError)
-                Text(String(
-                    localized: "auth.twoFactorBackupHint",
-                    defaultValue: "Нет доступа к приложению? Введите один из резервных кодов"
-                ))
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
+                .onSubmit(submit)
             }
-
-            Button {
-                submit()
-            } label: {
-                Text(String(localized: "auth.twoFactorVerify", defaultValue: "Подтвердить"))
-            }
-            .buttonStyle(PrimaryButtonStyle(isLoading: model.isBusy))
-
-            Button {
-                model.startOver()
-            } label: {
-                Text(String(localized: "auth.twoFactorBack", defaultValue: "Назад ко входу"))
-            }
-            .buttonStyle(QuietButtonStyle())
+            Text(String(
+                localized: "auth.twoFactorBackupHint",
+                defaultValue: "Нет доступа к приложению? Введите один из резервных кодов"
+            ))
+            .font(.footnote)
+            .foregroundStyle(Palette.mutedForeground)
+            .fixedSize(horizontal: false, vertical: true)
         }
-        .onSubmit { submit() }
+
+        StudentHubPrimaryButton(
+            title: String(localized: "auth.twoFactorVerify", defaultValue: "Подтвердить"),
+            isLoading: model.isBusy,
+            action: submit
+        )
+
+        AuthTextLink(title: String(localized: "auth.twoFactorBack", defaultValue: "Назад ко входу")) {
+            model.startOver()
+        }
+        .frame(maxWidth: .infinity)
         .onAppear { isCodeFocused = true }
     }
 
