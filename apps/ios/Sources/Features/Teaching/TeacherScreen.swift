@@ -51,7 +51,30 @@ enum TeacherScreen: Hashable {
 
     @MainActor @ViewBuilder
     var destination: some View {
-        PendingScreen(title: title, symbol: symbol)
+        switch self {
+        case .dashboard:
+            TeachingDashboardView()
+        case .gradebook:
+            TeachingGradebookListView()
+        case .gradebookCourse(let id):
+            TeachingGradebookCourseView(courseID: id)
+        case .reviews:
+            TeachingAssignmentsView()
+        case .assignmentSubmissions(let id):
+            TeachingSubmissionsView(assignmentID: id)
+        case .attendanceJournal:
+            TeachingAttendanceJournalView()
+        case .exams:
+            TeachingExamsView()
+        case .exam(let id):
+            TeachingExamDetailView(examID: id)
+        case .materials:
+            TeachingMaterialsView()
+        case .scheduleChanges:
+            TeachingScheduleView()
+        case .myPosts:
+            TeachingPostsView()
+        }
     }
 
     /// Пункты вкладки «Учёба» преподавателя.
@@ -66,6 +89,9 @@ enum TeacherScreen: Hashable {
             WorkspaceItem(title: Self.scheduleChanges.title, symbol: Self.scheduleChanges.symbol, tint: TileTint.red, route: .teacher(.scheduleChanges)),
             WorkspaceItem(title: Self.myPosts.title, symbol: Self.myPosts.symbol, tint: TileTint.gray, route: .teacher(.myPosts)),
             WorkspaceItem(title: StudentScreen.calendar.title, symbol: StudentScreen.calendar.symbol, tint: TileTint.red, route: .student(.calendar)),
+            // События в вебе у преподавателя — та же страница, что у деканата: создание
+            // своих событий и управление ими.
+            WorkspaceItem(title: StaffScreen.events.title, symbol: StaffScreen.events.symbol, tint: TileTint.pink, route: .staff(.events)),
         ]
     }
 }

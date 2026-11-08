@@ -30,7 +30,16 @@ enum StarostaScreen: Hashable {
 
     @MainActor @ViewBuilder
     var destination: some View {
-        PendingScreen(title: title, symbol: symbol)
+        switch self {
+        case .myGroup:
+            StarostaGroupView()
+        case .groupDocuments:
+            StarostaGroupDocumentsView()
+        case .groupDocumentRequest(let id):
+            StarostaGroupDocumentRequestView(requestID: id)
+        case .invites:
+            StarostaInvitesView()
+        }
     }
 
     static var serviceItems: [WorkspaceItem] {
