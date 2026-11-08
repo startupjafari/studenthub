@@ -207,9 +207,78 @@ final class MoreSectionTests: XCTestCase {
         XCTAssertFalse(MoreSection.sections(for: .student).contains(.library))
     }
 
-    /// Роли вне MVP приложение не ведёт — и список для них пуст, а не «как у всех».
-    func testRolesOutsideMVPGetNothing() {
-        XCTAssertTrue(MoreSection.sections(for: .dean).isEmpty)
-        XCTAssertTrue(MoreSection.sections(for: .platformAdmin).isEmpty)
+    /// Сотрудникам доступны общие разделы аккаунта, но не учебные: у декана нет
+    /// своей записи в деканат и одногруппников.
+    func testStaffGetAccountSectionsOnly() {
+        let dean = MoreSection.sections(for: .dean)
+        XCTAssertTrue(dean.contains(.settings))
+        XCTAssertTrue(dean.contains(.documents))
+        XCTAssertFalse(dean.contains(.deanery))
+        XCTAssertFalse(dean.contains(.classmates))
+    }
+
+    /// Роли с запретом по умолчанию не получают документов и событий — только аккаунт
+    /// (и карту у охраны), как `RESTRICTED_ROLE_PATHS` в вебе.
+    func testRestrictedRolesGetOnlyTheirOwn() {
+        XCTAssertFalse(MoreSection.sections(for: .librarian).contains(.documents))
+        XCTAssertTrue(MoreSection.sections(for: .securityGuard).contains(.campusMap))
+        XCTAssertTrue(MoreSection.sections(for: .unknown).isEmpty)
+    }
+}
+
+final class RoleTabsTests: XCTestCase {
+    /// Учебные роли живут в прежних пяти вкладках.
+    func testAcademicRolesKeepFiveTabs() {
+        for role in [Role.student, .starosta, .teacher] {
+            XCTAssertEqual(AppTab.tabs(for: role), [.home, .schedule, .chats, .study, .services])
+        }
+    }
+
+    /// У остальных первая вкладка — «Обзор», как стартовая страница роли в вебе.
+    func testOtherRolesStartWithDashboard() {
+        for role in Role.allCases where !role.isAcademic && role != .unknown {
+            XCTAssertEqual(AppTab.tabs(for: role).first, .dashboard, "\(role)")
+            XCTAssertTrue(AppTab.tabs(for: role).contains(.workspace), "\(role)")
+        }
+    }
+
+    /// Без чатов — только охрана и библиотека (`hasChats` в вебе).
+    func testRestrictedRolesHaveNoChatsOrFeed() {
+        for role in [Role.securityGuard, .librarian] {
+            XCTAssertFalse(AppTab.tabs(for: role).contains(.chats))
+            XCTAssertFalse(AppTab.tabs(for: role).contains(.home))
+        }
+        XCTAssertTrue(AppTab.tabs(for: .dean).contains(.chats))
+    }
+
+    /// Ссылка на вкладку, которой у роли нет, открывается в ближайшей, что есть.
+    func testMissingTabResolvesToExistingOne() {
+        XCTAssertEqual(AppTab.resolve(.home, for: .platformAdmin), .dashboard)
+        XCTAssertEqual(AppTab.resolve(.services, for: .librarian), .workspace)
+        XCTAssertEqual(AppTab.resolve(.chats, for: .student), .chats)
+    }
+
+    /// Пост из пуша у администратора платформы открывается не в ленте, которой у него нет.
+    func testPostOpensInExistingTabForPlatformAdmin() {
+        let router = AppRouter()
+        router.adopt(role: .platformAdmin)
+
+        XCTAssertTrue(router.open(.post(id: "p-1"), for: .platformAdmin))
+        XCTAssertTrue(AppTab.tabs(for: .platformAdmin).contains(router.selectedTab))
+        XCTAssertEqual(router.stack(for: router.selectedTab), [.post(id: "p-1")])
+    }
+
+    /// Каталог «Разделов» не пуст ни у одной роли без учебной оболочки.
+    @MainActor
+    func testEveryWorkspaceRoleHasSections() {
+        for role in Role.allCases where AppTab.tabs(for: role).contains(.workspace) {
+            XCTAssertFalse(Workspace.groups(for: role).flatMap(\.items).isEmpty, "\(role)")
+        }
+    }
+
+    func testEveryKnownRoleIsSupported() {
+        for role in Role.allCases {
+            XCTAssertEqual(role.isSupportedOnPhone, role != .unknown)
+        }
     }
 }
