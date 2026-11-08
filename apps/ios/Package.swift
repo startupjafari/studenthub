@@ -28,7 +28,14 @@ let package = Package(
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "SocketIO", package: "socket.io-client-swift"),
             ],
-            path: "Sources"
+            path: "Sources",
+            linkerSettings: [
+                // Версия SDK в заголовке бинарника (LC_BUILD_VERSION). SwiftPM ставит туда
+                // минимальную iOS (17.0), и iOS 26+ запускает такое приложение в режиме
+                // совместимости — без Liquid Glass: панель вкладок, кнопки и края экранов
+                // остаются в стиле iOS 18. Сборка Xcode пишет версию SDK сама.
+                .unsafeFlags(["-Xlinker", "-platform_version", "-Xlinker", "ios", "-Xlinker", "17.0", "-Xlinker", "26.0"]),
+            ]
         ),
     ],
     // Как SWIFT_VERSION в project.yml: код написан под режим Swift 5.
