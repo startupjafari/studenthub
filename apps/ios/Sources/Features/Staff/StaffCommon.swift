@@ -154,6 +154,7 @@ struct StaffTextPromptSheet: View {
             .onAppear { if text.isEmpty { text = prompt.initial } }
             .navigationTitle(Text(prompt.title))
             .navigationBarTitleDisplayMode(.inline)
+            .softTopEdge()
             .interactiveDismissDisabled(isSaving)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -327,6 +328,7 @@ struct StaffFormSheet<Content: View>: View {
             }
             .navigationTitle(Text(title))
             .navigationBarTitleDisplayMode(.inline)
+            .softTopEdge()
             .interactiveDismissDisabled(isSaving)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -355,6 +357,18 @@ struct StaffFormSheet<Content: View>: View {
             dismiss()
         } catch {
             failure = StaffErrorText.message(error)
+        }
+    }
+}
+
+/// Подложка нижней панели действий карточки: на iOS 26 её нет — стеклянные кнопки
+/// висят над списком, как панель ввода в чате; раньше — полоса системного материала.
+struct StaffBottomBarSurface: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *) {
+            content
+        } else {
+            content.background(.bar)
         }
     }
 }

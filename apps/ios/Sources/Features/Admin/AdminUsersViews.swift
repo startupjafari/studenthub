@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Люди в охвате роли: платформа — все, вуз — свой вуз. `role` задан — экран одной роли
 /// («Студенты», «Преподаватели», «Деканы»), иначе роль выбирается фильтром.
@@ -6,6 +7,7 @@ struct AdminUsersView: View {
     let role: String?
 
     @Environment(\.viewerRole) private var viewerRole
+    @Environment(\.viewerID) private var viewerID
     @State private var search = ""
     @State private var roleFilter: String?
     @State private var onlyBlocked = false
@@ -28,57 +30,85 @@ struct AdminUsersView: View {
             loader: loader,
             empty: EmptyStateView(
                 title: String(localized: "admin.users.empty", defaultValue: "Пользователей нет"),
-                symbol: "person.2"
+                symbol: "person.2",
+                hint: search.isEmpty ? nil : String(localized: "admin.users.emptySearch", defaultValue: "Попробуйте другое имя или адрес")
             )
-        ) { user in
+        ) {
+            if role == nil {
+                FilterChipsRow(
+                    options: [(value: String?.none, title: String(localized: "admin.users.allRoles", defaultValue: "Все роли"))]
+                        + AdminRoles.filterRoles(for: viewerRole).map { (value: Optional($0), title: AdminRoles.title($0)) },
+                    selection: $roleFilter
+                )
+            }
+        } row: { user in
             NavigationLink(value: AppRoute.admin(.user(id: user.id))) {
                 AdminUserRow(user: user)
             }
+            .contextMenu {
+                if AdminNav.canChat(viewerRole), user.id != viewerID {
+                    Button {
+                        Task { await write(to: user) }
+                    } label: {
+                        Label(String(localized: "admin.user.write", defaultValue: "Написать"), systemImage: "bubble.left")
+                    }
+                }
+                Button {
+                    AdminNav.push(.profile(id: user.id))
+                } label: {
+                    Label(String(localized: "admin.user.openProfile", defaultValue: "Открыть профиль"), systemImage: "person.crop.circle")
+                }
+                if let email = user.email {
+                    Button {
+                        UIPasteboard.general.string = email
+                    } label: {
+                        Label(String(localized: "admin.user.copyEmail", defaultValue: "Скопировать email"), systemImage: "doc.on.doc")
+                    }
+                }
+            }
+            .swipeActions(edge: .leading) {
+                if AdminNav.canChat(viewerRole), user.id != viewerID {
+                    Button {
+                        Task { await write(to: user) }
+                    } label: {
+                        Label(String(localized: "admin.user.write", defaultValue: "Написать"), systemImage: "bubble.left.fill")
+                    }
+                    .tint(Palette.primary)
+                }
+            }
         }
         .navigationTitle(Text(AdminScreen.users(role: role).title))
-        .debouncedSearch($search, prompt: String(localized: "admin.users.search", defaultValue: "Поиск по имени или email")) { _ in
+        .adminPinnedSearch($search, prompt: String(localized: "admin.users.search", defaultValue: "Поиск по имени или email")) { _ in
             await refilter()
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    if role == nil {
-                        Picker(String(localized: "admin.users.role", defaultValue: "Роль"), selection: $roleFilter) {
-                            Text(String(localized: "admin.users.allRoles", defaultValue: "Все роли")).tag(String?.none)
-                            ForEach(AdminRoles.filterRoles(for: viewerRole), id: \.self) { value in
-                                Text(AdminRoles.title(value)).tag(Optional(value))
-                            }
+                    Toggle(isOn: $onlyBlocked) {
+                        Label(String(localized: "admin.users.onlyBlocked", defaultValue: "Только заблокированные"), systemImage: "hand.raised")
+                    }
+                    Section(String(localized: "admin.users.export", defaultValue: "Экспорт")) {
+                        Button {
+                            Task { await export("xlsx") }
+                        } label: {
+                            Label(String(localized: "admin.users.exportXlsx", defaultValue: "Выгрузить в Excel"), systemImage: "tablecells")
                         }
-                    }
-                    Toggle(String(localized: "admin.users.onlyBlocked", defaultValue: "Только заблокированные"), isOn: $onlyBlocked)
-                } label: {
-                    Image(systemName: roleFilter == nil && !onlyBlocked
-                        ? "line.3.horizontal.decrease.circle"
-                        : "line.3.horizontal.decrease.circle.fill")
-                }
-                .accessibilityLabel(Text(String(localized: "admin.users.filters", defaultValue: "Фильтры")))
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        Task { await export("xlsx") }
-                    } label: {
-                        Label(String(localized: "admin.users.exportXlsx", defaultValue: "Выгрузить в Excel"), systemImage: "tablecells")
-                    }
-                    Button {
-                        Task { await export("csv") }
-                    } label: {
-                        Label(String(localized: "admin.users.exportCsv", defaultValue: "Выгрузить в CSV"), systemImage: "doc.plaintext")
+                        .disabled(isExporting || loader.total == 0)
+                        Button {
+                            Task { await export("csv") }
+                        } label: {
+                            Label(String(localized: "admin.users.exportCsv", defaultValue: "Выгрузить в CSV"), systemImage: "doc.plaintext")
+                        }
+                        .disabled(isExporting || loader.total == 0)
                     }
                 } label: {
                     if isExporting {
                         ProgressView()
                     } else {
-                        Image(systemName: "square.and.arrow.up")
+                        Image(systemName: onlyBlocked ? "ellipsis.circle.fill" : "ellipsis.circle")
                     }
                 }
-                .disabled(isExporting || loader.total == 0)
-                .accessibilityLabel(Text(String(localized: "admin.users.export", defaultValue: "Экспорт")))
+                .accessibilityLabel(Text(String(localized: "admin.users.filters", defaultValue: "Фильтры")))
             }
         }
         .onChange(of: roleFilter) { _, _ in Task { await refilter() } }
@@ -88,6 +118,15 @@ struct AdminUsersView: View {
             AdminShareSheet(items: [file.url])
         }
         .actionFailureAlert($actionFailure)
+    }
+
+    @MainActor
+    private func write(to user: AdminUserDTO) async {
+        do {
+            try await AdminNav.openChat(with: user.id)
+        } catch {
+            actionFailure = error.userMessage
+        }
     }
 
     private func refilter() async {
@@ -132,12 +171,12 @@ struct AdminUserRow: View {
     let user: AdminUserDTO
 
     var body: some View {
-        HStack(spacing: Spacing.md) {
-            PersonRow(
-                name: user.name,
-                subtitle: [AdminRoles.title(user.role), user.email].compactMap { $0 }.joined(separator: " · "),
-                avatarURL: user.avatarThumbUrl ?? user.avatarUrl
-            )
+        TelegramStyleRow(
+            title: user.name,
+            subtitle: [AdminRoles.title(user.role), user.email ?? ""].filter { !$0.isEmpty }.joined(separator: "\n")
+        ) {
+            AvatarView(url: user.avatarThumbUrl ?? user.avatarUrl, name: user.name, size: 44)
+        } accessory: {
             if user.isBlocked == true {
                 StatusBadge(text: String(localized: "admin.users.blocked", defaultValue: "Заблокирован"), tint: Palette.destructive)
             }
@@ -200,7 +239,6 @@ struct AdminUserView: View {
                 LoadingStateView()
             }
         }
-        .background(Palette.background)
         .navigationTitle(Text(AdminScreen.user(id: id).title))
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
@@ -261,17 +299,30 @@ struct AdminUserView: View {
         }
     }
 
+    private var isSelf: Bool { id == viewerID }
+    private var canAct: Bool { canModerate && AdminRoles.isHigher(viewerRole, than: targetRole) && !isSelf }
+    private var isStudent: Bool { targetRole == "STUDENT" || targetRole == "STAROSTA" }
+    private var heroSubtitle: String {
+        var parts: [String] = []
+        if !targetRole.isEmpty { parts.append(AdminRoles.title(targetRole)) }
+        if let university = card?.university?.name { parts.append(university) }
+        return parts.joined(separator: " · ")
+    }
+
+    private var avatarURL: String? { profile?["avatarThumbUrl"]?.string ?? profile?["avatarUrl"]?.string }
+
     private var content: some View {
         List {
             Section {
-                PersonRow(
-                    name: name,
-                    subtitle: targetRole.isEmpty ? nil : AdminRoles.title(targetRole),
-                    avatarURL: profile?["avatarThumbUrl"]?.string ?? profile?["avatarUrl"]?.string,
-                    size: 56
-                )
-                NavigationLink(value: AppRoute.profile(id: id)) {
-                    Label(String(localized: "admin.user.openProfile", defaultValue: "Открыть профиль"), systemImage: "person.crop.circle")
+                HeroHeader(
+                    visual: .avatar(url: profile?["avatarUrl"]?.string ?? avatarURL, name: name),
+                    title: name,
+                    subtitle: heroSubtitle,
+                    actions: heroActions
+                ) {
+                    statusBadge
+                } moreMenu: {
+                    moreMenu
                 }
             }
 
@@ -282,28 +333,30 @@ struct AdminUserView: View {
                             title: String(localized: "admin.user.status", defaultValue: "Статус"),
                             value: card.blockedUntil.map {
                                 String(localized: "admin.user.blockedUntil", defaultValue: "Заблокирован до \(DisplayFormat.dateTime($0))")
-                            } ?? String(localized: "admin.user.blockedForever", defaultValue: "Заблокирован бессрочно")
+                            } ?? String(localized: "admin.user.blockedForever", defaultValue: "Заблокирован бессрочно"),
+                            symbol: "hand.raised"
                         )
-                    } else {
-                        DetailRow(
-                            title: String(localized: "admin.user.status", defaultValue: "Статус"),
-                            value: String(localized: "admin.user.active", defaultValue: "Активен")
-                        )
-                    }
-                    if let university = card.university {
-                        DetailRow(title: String(localized: "admin.user.university", defaultValue: "Вуз"), value: university.name)
                     }
                     if let complaints = card.complaints {
                         DetailRow(
                             title: String(localized: "admin.user.complaints", defaultValue: "Жалоб на пользователя"),
-                            value: String(localized: "admin.user.complaintsValue", defaultValue: "\(complaints.total.formatted()), подтверждено \(complaints.upheld.formatted())")
+                            value: String(localized: "admin.user.complaintsValue", defaultValue: "\(complaints.total.formatted()), подтверждено \(complaints.upheld.formatted())"),
+                            symbol: "exclamationmark.bubble"
                         )
                     }
                     if let warnings = card.warnings {
-                        DetailRow(title: String(localized: "admin.user.warnings", defaultValue: "Предупреждений"), value: warnings.formatted())
+                        DetailRow(
+                            title: String(localized: "admin.user.warnings", defaultValue: "Предупреждений"),
+                            value: warnings.formatted(),
+                            symbol: "exclamationmark.triangle"
+                        )
                     }
                     if let created = card.createdAt {
-                        DetailRow(title: String(localized: "admin.user.createdAt", defaultValue: "Регистрация"), value: DisplayFormat.date(created))
+                        DetailRow(
+                            title: String(localized: "admin.user.createdAt", defaultValue: "Регистрация"),
+                            value: DisplayFormat.date(created),
+                            symbol: "calendar"
+                        )
                     }
                 } header: {
                     Text(String(localized: "admin.user.access", defaultValue: "Доступ"))
@@ -318,60 +371,154 @@ struct AdminUserView: View {
                 )
             }
 
-            actionsSection
-        }
-        .listStyle(.insetGrouped)
-        .refreshable { await load() }
-    }
-
-    @ViewBuilder
-    private var actionsSection: some View {
-        let isSelf = id == viewerID
-        let higher = AdminRoles.isHigher(viewerRole, than: targetRole)
-        let isStudent = targetRole == "STUDENT" || targetRole == "STAROSTA"
-        if (canModerate && higher && !isSelf) || (canEditAcademic && isStudent) {
             Section {
+                NavigationLink(value: AppRoute.profile(id: id)) {
+                    IconRow(title: String(localized: "admin.user.openProfile", defaultValue: "Открыть профиль"), symbol: "person.crop.circle", tint: TileTint.blue)
+                }
                 if canEditAcademic && isStudent && profile != nil {
                     Button {
                         editingAcademic = true
                     } label: {
-                        Label(String(localized: "admin.user.academic", defaultValue: "Учебные данные"), systemImage: "graduationcap")
+                        IconRow(title: String(localized: "admin.user.academic", defaultValue: "Учебные данные"), symbol: "graduationcap.fill", tint: TileTint.indigo)
                     }
-                }
-                if canModerate && higher && !isSelf {
-                    if card?.isBlocked == true {
-                        Button {
-                            confirmUnblock = true
-                        } label: {
-                            Label(String(localized: "admin.user.unblock", defaultValue: "Разблокировать"), systemImage: "lock.open")
-                        }
-                    } else {
-                        Button(role: .destructive) {
-                            blocking = true
-                        } label: {
-                            Label(String(localized: "admin.user.block", defaultValue: "Заблокировать"), systemImage: "nosign")
-                        }
-                    }
-                    Button {
-                        confirmSessions = true
-                    } label: {
-                        Label(String(localized: "admin.user.endSessions", defaultValue: "Завершить сессии"), systemImage: "rectangle.portrait.and.arrow.right")
-                    }
-                    Button {
-                        twoFactorCode = ""
-                        resettingTwoFactor = true
-                    } label: {
-                        Label(String(localized: "admin.user.resetTwoFactor", defaultValue: "Сбросить 2FA"), systemImage: "key")
-                    }
-                }
-            } header: {
-                Text(String(localized: "admin.user.actions", defaultValue: "Действия"))
-            } footer: {
-                if canModerate && higher && !isSelf {
-                    Text(String(localized: "admin.user.resetHint", defaultValue: "Сброс 2FA подтверждается вашим собственным кодом двухфакторной аутентификации."))
+                    .buttonStyle(.plain)
                 }
             }
+
+            dangerSection
+        }
+        .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
+        .refreshable { await load() }
+    }
+
+    @ViewBuilder
+    private var statusBadge: some View {
+        if let card {
+            if card.isBlocked {
+                StatusBadge(text: String(localized: "admin.users.blocked", defaultValue: "Заблокирован"), tint: Palette.destructive)
+            } else {
+                StatusBadge(text: String(localized: "admin.user.active", defaultValue: "Активен"), tint: Palette.success)
+            }
+        }
+    }
+
+    /// Круглые кнопки шапки: написать, заблокировать или профиль — главное, что делают с
+    /// человеком; остальное — в «Ещё».
+    private var heroActions: [HeroAction] {
+        var actions: [HeroAction] = []
+        if AdminNav.canChat(viewerRole), !isSelf {
+            actions.append(HeroAction(
+                title: String(localized: "admin.user.write", defaultValue: "Написать"),
+                symbol: "bubble.left.fill"
+            ) { Task { await write() } })
+        }
+        if canAct {
+            if card?.isBlocked == true {
+                actions.append(HeroAction(
+                    title: String(localized: "admin.user.unblockShort", defaultValue: "Разблок."),
+                    symbol: "lock.open.fill"
+                ) { confirmUnblock = true })
+            } else {
+                actions.append(HeroAction(
+                    title: String(localized: "admin.user.block", defaultValue: "Заблокировать"),
+                    symbol: "hand.raised.fill",
+                    role: .destructive
+                ) { blocking = true })
+            }
+        } else {
+            actions.append(HeroAction(
+                title: String(localized: "admin.user.profileShort", defaultValue: "Профиль"),
+                symbol: "person.crop.circle"
+            ) { AdminNav.push(.profile(id: id)) })
+        }
+        return actions
+    }
+
+    @ViewBuilder
+    private var moreMenu: some View {
+        Button {
+            AdminNav.push(.profile(id: id))
+        } label: {
+            Label(String(localized: "admin.user.openProfile", defaultValue: "Открыть профиль"), systemImage: "person.crop.circle")
+        }
+        if canEditAcademic && isStudent && profile != nil {
+            Button {
+                editingAcademic = true
+            } label: {
+                Label(String(localized: "admin.user.academic", defaultValue: "Учебные данные"), systemImage: "graduationcap")
+            }
+        }
+        if let email = profile?["email"]?.string, !email.isEmpty {
+            Button {
+                UIPasteboard.general.string = email
+            } label: {
+                Label(String(localized: "admin.user.copyEmail", defaultValue: "Скопировать email"), systemImage: "doc.on.doc")
+            }
+        }
+        Button {
+            UIPasteboard.general.string = id
+        } label: {
+            Label(String(localized: "admin.user.copyId", defaultValue: "Скопировать ID"), systemImage: "number")
+        }
+        if canAct {
+            Divider()
+            Button(role: .destructive) {
+                confirmSessions = true
+            } label: {
+                Label(String(localized: "admin.user.endSessions", defaultValue: "Завершить сессии"), systemImage: "rectangle.portrait.and.arrow.right")
+            }
+            Button(role: .destructive) {
+                twoFactorCode = ""
+                resettingTwoFactor = true
+            } label: {
+                Label(String(localized: "admin.user.resetTwoFactor", defaultValue: "Сбросить 2FA"), systemImage: "key")
+            }
+        }
+    }
+
+    /// Опасное — отдельной секцией внизу, как «Заблокировать» и «Удалить чат» в Telegram.
+    @ViewBuilder
+    private var dangerSection: some View {
+        if canAct {
+            Section {
+                if card?.isBlocked == true {
+                    Button {
+                        confirmUnblock = true
+                    } label: {
+                        Label(String(localized: "admin.user.unblock", defaultValue: "Разблокировать"), systemImage: "lock.open")
+                    }
+                } else {
+                    Button(role: .destructive) {
+                        blocking = true
+                    } label: {
+                        Label(String(localized: "admin.user.block", defaultValue: "Заблокировать"), systemImage: "hand.raised")
+                    }
+                }
+                Button(role: .destructive) {
+                    confirmSessions = true
+                } label: {
+                    Label(String(localized: "admin.user.endSessions", defaultValue: "Завершить сессии"), systemImage: "rectangle.portrait.and.arrow.right")
+                }
+                Button(role: .destructive) {
+                    twoFactorCode = ""
+                    resettingTwoFactor = true
+                } label: {
+                    Label(String(localized: "admin.user.resetTwoFactor", defaultValue: "Сбросить 2FA"), systemImage: "key")
+                }
+            } footer: {
+                Text(String(localized: "admin.user.resetHint", defaultValue: "Сброс 2FA подтверждается вашим собственным кодом двухфакторной аутентификации."))
+            }
             .disabled(isWorking)
+        }
+    }
+
+    @MainActor
+    private func write() async {
+        do {
+            try await AdminNav.openChat(with: id)
+        } catch {
+            actionFailure = error.userMessage
         }
     }
 

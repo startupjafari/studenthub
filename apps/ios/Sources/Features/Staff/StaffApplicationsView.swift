@@ -116,6 +116,7 @@ struct StaffApplicationsQueueView: View {
     @State private var categories: [StaffCatalogCategory] = []
     @State private var loader: PagedLoader<StaffApplication>
     @State private var appeared = false
+    @State private var actionFailure: String?
 
     private let api = StaffAPI()
 
@@ -159,10 +160,37 @@ struct StaffApplicationsQueueView: View {
                 NavigationLink(value: AppRoute.staff(.application(id: item.id))) {
                     StaffApplicationRow(item: item)
                 }
+                .swipeActions(edge: .leading) {
+                    if item.status == "SUBMITTED" || item.status == "RESUBMITTED" {
+                        Button {
+                            Task { await take(item) }
+                        } label: {
+                            Label(String(localized: "staff.app.takeShort", defaultValue: "Взять"), systemImage: "hand.raised.fill")
+                        }
+                        .tint(Palette.primary)
+                    }
+                }
+                .contextMenu {
+                    if item.status == "SUBMITTED" || item.status == "RESUBMITTED" {
+                        Button {
+                            Task { await take(item) }
+                        } label: {
+                            Label(String(localized: "staff.app.take", defaultValue: "Взять в работу"), systemImage: "hand.raised")
+                        }
+                    }
+                    if let student = item.student {
+                        Button {
+                            AdminNav.push(.profile(id: student.id))
+                        } label: {
+                            Label(String(localized: "staff.app.studentProfile", defaultValue: "Профиль студента"), systemImage: "person.crop.circle")
+                        }
+                    }
+                }
             }
         )
         .navigationTitle(Text(StaffScreen.applicationsQueue.title))
-        .debouncedSearch($search, prompt: String(localized: "staff.app.search", defaultValue: "Номер или ФИО студента")) { value in
+        .actionFailureAlert($actionFailure)
+        .adminPinnedSearch($search, prompt: String(localized: "staff.app.search", defaultValue: "Номер или ФИО студента")) { value in
             query.search = value
         }
         .toolbar {
@@ -193,7 +221,9 @@ struct StaffApplicationsQueueView: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "line.3.horizontal.decrease.circle")
+                    Image(systemName: query.serviceID == nil && query.sortBy == StaffApplicationQuery().sortBy && !query.ascending
+                        ? "line.3.horizontal.decrease.circle"
+                        : "line.3.horizontal.decrease.circle.fill")
                 }
                 .accessibilityLabel(Text(String(localized: "staff.app.filters", defaultValue: "Фильтры")))
             }
@@ -213,6 +243,16 @@ struct StaffApplicationsQueueView: View {
             if appeared { Task { await loader.reload() } }
             appeared = true
         }
+    }
+
+    @MainActor
+    private func take(_ item: StaffApplication) async {
+        do {
+            try await api.take(item.id)
+        } catch {
+            actionFailure = StaffErrorText.message(error)
+        }
+        await loader.reload()
     }
 
     private var isFiltered: Bool {
@@ -236,34 +276,45 @@ private struct StaffApplicationRow: View {
     let item: StaffApplication
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            HStack(alignment: .firstTextBaseline, spacing: Spacing.md) {
-                Text(item.service?.name ?? "—")
-                    .font(Typography.cardTitle)
-                    .foregroundStyle(Palette.foreground)
-                    .lineLimit(3)
-                Spacer(minLength: Spacing.md)
+        TelegramStyleRow(
+            title: item.service?.name ?? "—",
+            subtitle: subtitle,
+            meta: item.submittedAt.map(DisplayFormat.relative)
+        ) {
+            RowSymbol(symbol: StaffApplicationVisual.symbol(item.status), tint: StaffApplicationText.tint(item.status))
+        } accessory: {
+            HStack(spacing: Spacing.xs) {
+                if item.isOverdue {
+                    Image(systemName: "clock.badge.exclamationmark.fill")
+                        .foregroundStyle(Palette.destructive)
+                        .accessibilityLabel(Text(String(localized: "staff.app.overdue", defaultValue: "Просрочено")))
+                }
                 StatusBadge(text: StaffApplicationText.status(item.status), tint: StaffApplicationText.tint(item.status))
             }
-            Text([item.number, item.student?.name].compactMap { $0 }.joined(separator: " · "))
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
-                .lineLimit(2)
-            HStack(spacing: Spacing.lg) {
-                if let submitted = item.submittedAt {
-                    Label(DisplayFormat.date(submitted), systemImage: "paperplane")
-                }
-                if let due = item.dueAt {
-                    // Просрочку показываем цветом самой даты — как в таблице веба.
-                    Label(DisplayFormat.date(due), systemImage: "clock")
-                        .foregroundStyle(item.isOverdue ? Palette.destructive : Palette.mutedForeground)
-                }
-            }
-            .font(Typography.meta)
-            .foregroundStyle(Palette.mutedForeground)
         }
-        .padding(.vertical, Spacing.xs)
-        .accessibilityElement(children: .combine)
+    }
+
+    private var subtitle: String {
+        let who = [item.number, item.student?.name].compactMap { $0 }.joined(separator: " · ")
+        // Срок — второй строкой: по нему разбирают очередь.
+        let due = item.dueAt.map { String(localized: "staff.app.dueLine", defaultValue: "Срок: \(DisplayFormat.date($0))") } ?? ""
+        return [who, due].filter { !$0.isEmpty }.joined(separator: "\n")
+    }
+}
+
+/// Значок заявки по этапу: новая, на проверке, готовится, готова, закрыта.
+enum StaffApplicationVisual {
+    static func symbol(_ status: String) -> String {
+        switch status {
+        case "SUBMITTED", "RESUBMITTED": return "tray.and.arrow.down.fill"
+        case "IN_REVIEW": return "doc.text.magnifyingglass"
+        case "NEEDS_CORRECTION": return "arrow.uturn.left"
+        case "IN_PREPARATION": return "hammer.fill"
+        case "READY", "READY_FOR_PICKUP": return "checkmark.seal.fill"
+        case "ISSUED", "DELIVERED": return "checkmark"
+        case "REJECTED": return "xmark"
+        default: return "doc.text.fill"
+        }
     }
 }
 
@@ -272,6 +323,7 @@ private struct StaffApplicationRow: View {
 struct StaffApplicationDetailView: View {
     let applicationID: String
 
+    @Environment(\.viewerRole) private var viewerRole
     @State private var app: StaffApplication?
     @State private var failure: String?
     @State private var actionFailure: String?
@@ -294,8 +346,7 @@ struct StaffApplicationDetailView: View {
                 LoadingStateView()
             }
         }
-        .background(Palette.background)
-        .navigationTitle(Text(app?.service?.name ?? StaffScreen.application(id: applicationID).title))
+        .navigationTitle(Text(StaffScreen.application(id: applicationID).title))
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $prompt) { prompt in
             StaffTextPromptSheet(prompt: prompt) { await load() }
@@ -323,14 +374,24 @@ struct StaffApplicationDetailView: View {
     private func content(_ app: StaffApplication) -> some View {
         List {
             Section {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(app.service?.name ?? "—")
-                        .font(Typography.cardTitle)
-                        .foregroundStyle(Palette.foreground)
-                    Spacer(minLength: Spacing.md)
-                    StatusBadge(text: StaffApplicationText.status(app.status), tint: StaffApplicationText.tint(app.status))
+                HeroHeader(
+                    visual: .symbol(StaffApplicationVisual.symbol(app.status), tint: StaffApplicationText.tint(app.status)),
+                    title: app.service?.name ?? "—",
+                    subtitle: [app.number, app.student?.name].compactMap { $0 }.joined(separator: " · "),
+                    actions: heroActions(app)
+                ) {
+                    HStack(spacing: Spacing.sm) {
+                        StatusBadge(text: StaffApplicationText.status(app.status), tint: StaffApplicationText.tint(app.status))
+                        if app.isOverdue {
+                            StatusBadge(text: String(localized: "staff.app.overdue", defaultValue: "Просрочено"), tint: Palette.destructive)
+                        }
+                    }
                 }
+            }
+
+            Section {
                 StaffApplicationStepper(status: app.status)
+                    .padding(.vertical, Spacing.xs)
                 if let waiting = waitingText(app) {
                     Label(waiting, systemImage: "hourglass")
                         .font(Typography.meta)
@@ -339,29 +400,29 @@ struct StaffApplicationDetailView: View {
             }
 
             Section(String(localized: "staff.app.info", defaultValue: "Информация")) {
-                if let number = app.number {
-                    DetailRow(title: String(localized: "staff.app.number", defaultValue: "Номер"), value: number)
-                }
-                if let submitted = app.submittedAt {
-                    DetailRow(title: String(localized: "staff.app.submitted", defaultValue: "Подано"), value: DisplayFormat.dateTime(submitted))
-                }
                 if let student = app.student {
                     NavigationLink(value: AppRoute.profile(id: student.id)) {
-                        DetailRow(title: String(localized: "staff.app.student", defaultValue: "Студент"), value: student.name)
+                        PersonRow(name: student.name, subtitle: String(localized: "staff.app.student", defaultValue: "Студент"), size: 36)
                     }
                 }
+                if let number = app.number {
+                    DetailRow(title: String(localized: "staff.app.number", defaultValue: "Номер"), value: number, symbol: "number")
+                }
+                if let submitted = app.submittedAt {
+                    DetailRow(title: String(localized: "staff.app.submitted", defaultValue: "Подано"), value: DisplayFormat.dateTime(submitted), symbol: "paperplane")
+                }
                 if let delivery = app.deliveryType {
-                    DetailRow(title: String(localized: "staff.app.delivery", defaultValue: "Способ получения"), value: StaffApplicationText.delivery(delivery))
+                    DetailRow(title: String(localized: "staff.app.delivery", defaultValue: "Способ получения"), value: StaffApplicationText.delivery(delivery), symbol: "shippingbox")
                 }
                 if let due = app.dueAt {
-                    DetailRow(title: String(localized: "staff.app.expected", defaultValue: "Ожидаемая готовность"), value: DisplayFormat.dateTime(due))
+                    DetailRow(title: String(localized: "staff.app.expected", defaultValue: "Ожидаемая готовность"), value: DisplayFormat.dateTime(due), symbol: "clock")
                 }
                 assigneeRow(app)
                 if let reason = app.rejectionReason, !reason.isEmpty {
-                    DetailRow(title: String(localized: "staff.app.rejectionReason", defaultValue: "Причина отказа"), value: reason)
+                    DetailRow(title: String(localized: "staff.app.rejectionReason", defaultValue: "Причина отказа"), value: reason, symbol: "xmark.octagon")
                 }
                 if let location = app.pickupLocation, !location.isEmpty {
-                    DetailRow(title: String(localized: "staff.app.pickupLocation", defaultValue: "Где получить"), value: location)
+                    DetailRow(title: String(localized: "staff.app.pickupLocation", defaultValue: "Где получить"), value: location, symbol: "mappin.and.ellipse")
                 }
             }
 
@@ -421,6 +482,11 @@ struct StaffApplicationDetailView: View {
             if !events.isEmpty {
                 Section(String(localized: "staff.app.timeline", defaultValue: "История")) {
                     ForEach(events) { event in
+                        HStack(alignment: .firstTextBaseline, spacing: Spacing.lg) {
+                        Circle()
+                            .fill(event.id == events.last?.id ? Palette.primary : Palette.mutedForeground.opacity(0.5))
+                            .frame(width: 8, height: 8)
+                            .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(StaffApplicationText.event(event))
                                 .font(Typography.body)
@@ -434,16 +500,45 @@ struct StaffApplicationDetailView: View {
                                     .foregroundStyle(Palette.mutedForeground)
                             }
                         }
+                        }
                         .accessibilityElement(children: .combine)
                     }
                 }
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
         .refreshable { await load() }
         .safeAreaInset(edge: .bottom) {
             actionBar(app)
         }
+    }
+
+    /// Круглые кнопки шапки: студент, написать ему и открыть первый документ.
+    private func heroActions(_ app: StaffApplication) -> [HeroAction] {
+        var actions: [HeroAction] = []
+        if let student = app.student {
+            actions.append(HeroAction(title: String(localized: "staff.app.studentShort", defaultValue: "Студент"), symbol: "person.crop.circle") {
+                AdminNav.push(.profile(id: student.id))
+            })
+            if AdminNav.canChat(viewerRole) {
+                actions.append(HeroAction(title: String(localized: "staff.app.write", defaultValue: "Написать"), symbol: "bubble.left.fill") {
+                    Task {
+                        do { try await AdminNav.openChat(with: student.id) } catch { actionFailure = error.userMessage }
+                    }
+                })
+            }
+        }
+        if let result = (app.results ?? []).first(where: { $0.documentId != nil && $0.revoked != true }) {
+            actions.append(HeroAction(title: String(localized: "staff.app.download", defaultValue: "Скачать"), symbol: "arrow.down.doc") {
+                Task {
+                    await opener.open(name: result.documentNumber ?? StaffApplicationText.resultType(result.type)) {
+                        try await api.resultURL(applicationID, resultID: result.id)
+                    }
+                }
+            })
+        }
+        return actions
     }
 
     // MARK: Ответственный
@@ -457,7 +552,7 @@ struct StaffApplicationDetailView: View {
                 ? String(localized: "staff.app.unassigned", defaultValue: "Не назначен")
                 : String(localized: "staff.app.assignedSomeone", defaultValue: "Назначен сотрудник"))
         if app.isClosed || assignees == nil || assignees?.isEmpty == true {
-            DetailRow(title: title, value: currentName)
+            DetailRow(title: title, value: currentName, symbol: "person.badge.clock")
         } else {
             Menu {
                 ForEach(assignees ?? []) { person in
@@ -473,7 +568,7 @@ struct StaffApplicationDetailView: View {
                 }
             } label: {
                 HStack {
-                    DetailRow(title: title, value: currentName)
+                    DetailRow(title: title, value: currentName, symbol: "person.badge.clock")
                     Image(systemName: "chevron.up.chevron.down")
                         .font(.footnote)
                         .foregroundStyle(Palette.mutedForeground)
@@ -649,7 +744,7 @@ struct StaffApplicationDetailView: View {
             }
             .padding(.horizontal, Spacing.xl)
             .padding(.vertical, Spacing.md)
-            .background(.bar)
+            .modifier(StaffBottomBarSurface())
         }
     }
 
@@ -977,6 +1072,7 @@ private struct StaffResultSheet: View {
             }
             .navigationTitle(Text(String(localized: "staff.app.addResult", defaultValue: "Добавить результат")))
             .navigationBarTitleDisplayMode(.inline)
+            .softTopEdge()
             .interactiveDismissDisabled(isSaving || isUploading)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

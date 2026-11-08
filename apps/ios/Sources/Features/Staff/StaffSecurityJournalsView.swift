@@ -99,7 +99,7 @@ struct StaffSecurityJournalsView: View {
             }
         }
         .navigationTitle(Text(StaffScreen.securityJournals.title))
-        .debouncedSearch($search, prompt: String(localized: "staff.sec.search", defaultValue: "ФИО")) { _ in
+        .adminPinnedSearch($search, prompt: String(localized: "staff.sec.search", defaultValue: "ФИО")) { _ in
             await apply()
         }
         .onChange(of: result) { Task { await apply() } }
@@ -143,16 +143,33 @@ struct StaffSecurityJournalsView: View {
                 ForEach(StaffSecurityTab.allCases) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
-            if tab == .passes {
-                Picker(String(localized: "staff.sec.result", defaultValue: "Результат"), selection: $result) {
-                    Text(String(localized: "staff.sec.result.all", defaultValue: "Все")).tag(String?.none)
-                    Text(String(localized: "staff.sec.allowedOne", defaultValue: "Пропущен")).tag(String?.some("true"))
-                    Text(String(localized: "staff.sec.denied", defaultValue: "Отказ")).tag(String?.some("false"))
-                }
-            } else {
-                Toggle(String(localized: "staff.sec.insideOnly", defaultValue: "Только кто в здании"), isOn: $insideOnly)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets())
+        }
+
+        if tab == .passes {
+            FilterChipsRow(
+                options: [
+                    (value: String?.none, title: String(localized: "staff.sec.result.all", defaultValue: "Все")),
+                    (value: Optional("true"), title: String(localized: "staff.sec.allowedOne", defaultValue: "Пропущен")),
+                    (value: Optional("false"), title: String(localized: "staff.sec.denied", defaultValue: "Отказ")),
+                ],
+                selection: $result
+            )
+        } else {
+            FilterChipsRow(
+                options: [
+                    (value: String?.none, title: String(localized: "staff.sec.result.all", defaultValue: "Все")),
+                    (value: Optional("inside"), title: String(localized: "staff.sec.insideOnly", defaultValue: "Только кто в здании")),
+                ],
+                selection: Binding(get: { insideOnly ? "inside" : nil }, set: { insideOnly = $0 != nil })
+            )
+        }
+
+        Section {
+            Toggle(isOn: $useDate) {
+                Label(String(localized: "staff.sec.byDay", defaultValue: "За день"), systemImage: "calendar")
             }
-            Toggle(String(localized: "staff.sec.byDay", defaultValue: "За день"), isOn: $useDate)
             if useDate {
                 DatePicker(String(localized: "staff.sec.day", defaultValue: "День"), selection: $day, in: ...Date(), displayedComponents: .date)
             }
@@ -160,57 +177,44 @@ struct StaffSecurityJournalsView: View {
     }
 
     private func passRow(_ pass: StaffPass) -> some View {
-        HStack(alignment: .top, spacing: Spacing.md) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(pass.student?.name ?? String(localized: "staff.sec.unknownStudent", defaultValue: "Не установлен"))
-                    .font(Typography.body)
-                    .foregroundStyle(Palette.foreground)
-                Text([pass.student?.group, StaffSecurityText.time(pass.createdAt), pass.guardName].compactMap { $0 }.joined(separator: " · "))
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
-                if !pass.allowed {
-                    Text(StaffSecurityText.denyReason(pass.denyReason))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.destructive)
-                }
-            }
-            Spacer(minLength: Spacing.md)
-            if pass.allowed {
-                StatusBadge(text: String(localized: "staff.sec.allowedOne", defaultValue: "Пропущен"), tint: Palette.success)
-            } else {
+        let who = [pass.student?.group, pass.guardName].compactMap { $0 }.joined(separator: " · ")
+        let reason = pass.allowed ? "" : StaffSecurityText.denyReason(pass.denyReason)
+        return TelegramStyleRow(
+            title: pass.student?.name ?? String(localized: "staff.sec.unknownStudent", defaultValue: "Не установлен"),
+            subtitle: [who, reason].filter { !$0.isEmpty }.joined(separator: "\n"),
+            meta: StaffSecurityText.time(pass.createdAt)
+        ) {
+            RowSymbol(
+                symbol: pass.allowed ? "checkmark.shield.fill" : "xmark.shield.fill",
+                tint: pass.allowed ? TileTint.green : TileTint.red,
+                size: 40
+            )
+        } accessory: {
+            if !pass.allowed {
                 StatusBadge(text: String(localized: "staff.sec.denied", defaultValue: "Отказ"), tint: Palette.destructive)
             }
         }
-        .padding(.vertical, Spacing.xs)
-        .accessibilityElement(children: .combine)
     }
 
     private func visitorRow(_ visitor: StaffVisitor) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(visitor.fullName).font(Typography.body).foregroundStyle(Palette.foreground)
-                Spacer(minLength: Spacing.md)
-                if visitor.exitedAt == nil {
-                    StatusBadge(text: String(localized: "staff.sec.stillInside", defaultValue: "В здании"), tint: Palette.info)
-                }
-            }
-            Text(visitor.purpose).font(Typography.meta).foregroundStyle(Palette.foreground)
-            Text([
-                String(localized: "staff.sec.entered", defaultValue: "Вход \(StaffSecurityText.time(visitor.enteredAt))"),
-                visitor.exitedAt.map { String(localized: "staff.sec.exited", defaultValue: "выход \(StaffSecurityText.time($0))") },
-            ].compactMap { $0 }.joined(separator: " · "))
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
-            let document = [StaffSecurityText.document(visitor.documentType), visitor.documentLast4.map { "••••\($0)" }]
-                .compactMap { $0 }.joined(separator: " ")
-            if !document.isEmpty || visitor.phone != nil || visitor.createdByName != nil {
-                Text([document.isEmpty ? nil : document, visitor.phone, visitor.createdByName].compactMap { $0 }.joined(separator: " · "))
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
+        let document = [StaffSecurityText.document(visitor.documentType), visitor.documentLast4.map { "••••\($0)" }]
+            .compactMap { $0 }.joined(separator: " ")
+        let times = [
+            String(localized: "staff.sec.entered", defaultValue: "Вход \(StaffSecurityText.time(visitor.enteredAt))"),
+            visitor.exitedAt.map { String(localized: "staff.sec.exited", defaultValue: "выход \(StaffSecurityText.time($0))") },
+        ].compactMap { $0 }.joined(separator: " · ")
+        let extra = [document.isEmpty ? nil : document, visitor.phone, visitor.createdByName].compactMap { $0 }.joined(separator: " · ")
+        return TelegramStyleRow(
+            title: visitor.fullName,
+            subtitle: [visitor.purpose, times, extra].filter { !$0.isEmpty }.joined(separator: "\n"),
+            meta: StaffSecurityText.time(visitor.enteredAt)
+        ) {
+            AvatarView(url: nil, name: visitor.fullName, size: 40)
+        } accessory: {
+            if visitor.exitedAt == nil {
+                StatusBadge(text: String(localized: "staff.sec.stillInside", defaultValue: "В здании"), tint: Palette.info)
             }
         }
-        .padding(.vertical, Spacing.xs)
-        .accessibilityElement(children: .combine)
     }
 
     @MainActor

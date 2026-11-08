@@ -59,7 +59,6 @@ struct StaffLibrarySettingsView: View {
                 LoadingStateView()
             }
         }
-        .background(Palette.background)
         .navigationTitle(Text(StaffScreen.librarySettings.title))
         .confirmationDialog(
             String(localized: "staff.lib.disable.title", defaultValue: "Выключить библиотеку?"),
@@ -104,11 +103,14 @@ struct StaffLibrarySettingsView: View {
                         }
                     }
                 )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(String(localized: "staff.lib.module", defaultValue: "Библиотека включена"))
-                        Text(String(localized: "staff.lib.subtitle", defaultValue: "Фонд и выдачи ведёт библиотекарь."))
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.mutedForeground)
+                    HStack(spacing: Spacing.lg) {
+                        IconTile(symbol: "books.vertical.fill", tint: settings.enabled ? TileTint.orange : TileTint.gray)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(String(localized: "staff.lib.module", defaultValue: "Библиотека включена"))
+                            Text(String(localized: "staff.lib.subtitle", defaultValue: "Фонд и выдачи ведёт библиотекарь."))
+                                .font(Typography.meta)
+                                .foregroundStyle(Palette.mutedForeground)
+                        }
                     }
                 }
                 .disabled(isSaving)
@@ -139,7 +141,9 @@ struct StaffLibrarySettingsView: View {
                     if isSaving {
                         ProgressView().frame(maxWidth: .infinity)
                     } else {
-                        Text(String(localized: "common.save", defaultValue: "Сохранить")).frame(maxWidth: .infinity)
+                        Text(String(localized: "common.save", defaultValue: "Сохранить"))
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity)
                     }
                 }
                 .disabled(isSaving || !isDirty)
@@ -242,7 +246,7 @@ struct StaffLibraryReportsView: View {
             Section {
                 if let debts {
                     if debts.isEmpty {
-                        Text(String(localized: "staff.lib.noDebtors", defaultValue: "Долгов нет"))
+                        Label(String(localized: "staff.lib.noDebtors", defaultValue: "Долгов нет"), systemImage: "checkmark.circle")
                             .font(Typography.meta)
                             .foregroundStyle(Palette.mutedForeground)
                     }
@@ -302,6 +306,7 @@ struct StaffLibraryReportsView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
         .navigationTitle(Text(StaffScreen.libraryReports.title))
         .refreshable { await load() }
         .task { await load() }
@@ -391,18 +396,14 @@ struct StaffLoanRow: View {
     let loan: StaffLoan
 
     var body: some View {
-        HStack(alignment: .top, spacing: Spacing.md) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(loan.reader.name).font(Typography.body).foregroundStyle(Palette.foreground)
-                Text([loan.reader.group, loan.book.title].compactMap { $0 }.joined(separator: " · "))
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
-                    .lineLimit(2)
-            }
-            Spacer(minLength: Spacing.md)
+        TelegramStyleRow(
+            title: loan.reader.name,
+            subtitle: [loan.reader.group, loan.book.title].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
+        ) {
+            AvatarView(url: nil, name: loan.reader.name, size: 40)
+        } accessory: {
             StatusBadge(text: badge.0, tint: badge.1)
         }
-        .accessibilityElement(children: .combine)
     }
 
     private var badge: (String, Color) {
@@ -455,34 +456,29 @@ struct StaffIdAccessView: View {
                 ) : nil
             ),
             header: {
-                Text(String(localized: "staff.lib.journal.subtitle", defaultValue: "Кто из библиотекарей открывал карточки читателей по выдачам"))
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 0, leading: Spacing.lg, bottom: 0, trailing: Spacing.lg))
+                Section {
+                } footer: {
+                    Text(String(localized: "staff.lib.journal.subtitle", defaultValue: "Кто из библиотекарей открывал карточки читателей по выдачам"))
+                }
             },
             row: { item in
-                VStack(alignment: .leading, spacing: Spacing.xs) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(String(localized: "staff.lib.journal.row", defaultValue: "\(item.librarianName) → \(item.readerName)"))
-                            .font(Typography.body)
-                            .foregroundStyle(Palette.foreground)
-                        Spacer(minLength: Spacing.md)
-                        if item.withoutPhone == true {
-                            StatusBadge(text: String(localized: "staff.lib.withoutPhoneBadge", defaultValue: "Без скана"), tint: Palette.warning)
-                        }
+                let ip: String? = item.ip.map { "IP " + $0 }
+                let lines: [String?] = [item.bookTitle, ip]
+                TelegramStyleRow(
+                    title: String(localized: "staff.lib.journal.row", defaultValue: "\(item.librarianName) → \(item.readerName)"),
+                    subtitle: lines.compactMap { $0 }.joined(separator: "\n"),
+                    meta: DisplayFormat.dateTime(item.createdAt)
+                ) {
+                    RowSymbol(symbol: "person.text.rectangle.fill", tint: item.withoutPhone == true ? TileTint.orange : TileTint.purple, size: 40)
+                } accessory: {
+                    if item.withoutPhone == true {
+                        StatusBadge(text: String(localized: "staff.lib.withoutPhoneBadge", defaultValue: "Без скана"), tint: Palette.warning)
                     }
-                    Text([item.bookTitle, item.ip.map { "IP \($0)" }, DisplayFormat.dateTime(item.createdAt)]
-                        .compactMap { $0 }.joined(separator: " · "))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
                 }
-                .padding(.vertical, Spacing.xs)
-                .accessibilityElement(children: .combine)
             }
         )
         .navigationTitle(Text(StaffScreen.libraryJournal.title))
-        .debouncedSearch($search, prompt: String(localized: "staff.lib.journal.search", defaultValue: "Читатель или библиотекарь")) { value in
+        .adminPinnedSearch($search, prompt: String(localized: "staff.lib.journal.search", defaultValue: "Читатель или библиотекарь")) { value in
             await loader.replace { request in try await api.idAccess(search: value, request) }
         }
     }

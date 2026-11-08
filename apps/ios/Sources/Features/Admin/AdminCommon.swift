@@ -246,3 +246,187 @@ struct AdminLinkRow: View {
         }
     }
 }
+
+// MARK: - Переходы из кнопок шапки
+
+/// Круглые кнопки `HeroHeader` — замыкания, а не `NavigationLink`: экран кладёт маршрут
+/// в стек текущей вкладки сам.
+enum AdminNav {
+    @MainActor
+    static func push(_ route: AppRoute) {
+        let router = AppServices.router
+        router.stacks[router.selectedTab, default: []].append(route)
+    }
+
+    /// Личный чат с человеком — как «Написать» в профиле: вкладка чатов, сразу переписка.
+    @MainActor
+    static func openChat(with userID: String) async throws {
+        let chatID = try await ChatsAPI().createPrivate(with: userID)
+        AppServices.router.select(.chats)
+        AppServices.router.stacks[.chats] = [.chat(id: chatID)]
+    }
+
+    /// Вкладка чатов есть не у всех ролей (охрана, библиотека): там кнопки «Написать» нет.
+    static func canChat(_ role: Role) -> Bool {
+        AppTab.tabs(for: role).contains(.chats)
+    }
+}
+
+// MARK: - Переписка в стиле чата
+
+/// Пузырь переписки поверх обоев чата: чужое — слева белым, своё (поддержка) — справа
+/// синим, с хвостиком как в Telegram. Подсвеченное (обжалованное) — красной рамкой.
+struct AdminChatBubble: View {
+    let text: String?
+    var author: String?
+    var authorTint: Color = Palette.primary
+    let time: Date
+    var isOutgoing = false
+    var isHighlighted = false
+    var footnote: String?
+    var deletedText: String = String(localized: "admin.chat.deleted", defaultValue: "Сообщение удалено")
+
+    var body: some View {
+        let shape = ChatBubbleShape(isOwn: isOutgoing, hasTail: true)
+        HStack(spacing: 0) {
+            if isOutgoing { Spacer(minLength: 48) }
+            VStack(alignment: .leading, spacing: 3) {
+                if let author, !author.isEmpty {
+                    Text(author)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(isOutgoing ? Palette.primaryForeground : authorTint)
+                        .lineLimit(1)
+                }
+                if let text, !text.isEmpty {
+                    Text(text)
+                        .font(Typography.body)
+                        .foregroundStyle(isOutgoing ? Palette.primaryForeground : Palette.foreground)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                } else {
+                    Text(deletedText)
+                        .font(Typography.body.italic())
+                        .foregroundStyle(isOutgoing ? Palette.primaryForeground.opacity(0.8) : Palette.mutedForeground)
+                }
+                if let footnote, !footnote.isEmpty {
+                    Text(footnote)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(isOutgoing ? Palette.primaryForeground : (isHighlighted ? Palette.destructive : Palette.mutedForeground))
+                }
+                Text(time.formatted(date: .omitted, time: .shortened))
+                    .font(.caption2)
+                    .foregroundStyle(isOutgoing ? Palette.primaryForeground.opacity(0.75) : Palette.mutedForeground)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            .padding(.vertical, Spacing.sm)
+            .padding(.horizontal, Spacing.lg)
+            .padding(isOutgoing ? .trailing : .leading, ChatBubbleShape.tailWidth)
+            .fixedSize(horizontal: false, vertical: true)
+            .background(isOutgoing ? Palette.primary : Palette.card, in: shape)
+            .overlay {
+                if isHighlighted {
+                    shape.stroke(Palette.destructive, lineWidth: 1.5)
+                }
+            }
+            if !isOutgoing { Spacer(minLength: 48) }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Капсула дня над обоями переписки: «Сегодня», «Вчера», «12 октября».
+struct AdminDayCapsule: View {
+    let day: Date
+
+    var body: some View {
+        Text(title)
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(Palette.foreground)
+            .padding(.horizontal, Spacing.lg)
+            .padding(.vertical, Spacing.xs)
+            .chatCapsuleSurface()
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, Spacing.xs)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    private var title: String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(day) { return String(localized: "admin.chat.today", defaultValue: "Сегодня") }
+        if calendar.isDateInYesterday(day) { return String(localized: "admin.chat.yesterday", defaultValue: "Вчера") }
+        if calendar.isDate(day, equalTo: Date(), toGranularity: .year) {
+            return day.formatted(.dateTime.day().month(.wide))
+        }
+        return day.formatted(.dateTime.day().month(.wide).year())
+    }
+
+    /// Нужна ли капсула перед сообщением: первое за день.
+    static func startsDay(_ date: Date, after previous: Date?) -> Bool {
+        guard let previous else { return true }
+        return !Calendar.current.isDate(date, inSameDayAs: previous)
+    }
+}
+
+// MARK: - Поиск в больших списках
+
+extension View {
+    /// Поиск с задержкой, поле всегда видно под заголовком — как в списке чатов. Для
+    /// больших списков (пользователи, вузы, обращения): искать — главный способ найти.
+    func adminPinnedSearch(_ text: Binding<String>, prompt: String, onChange: @escaping (String) async -> Void) -> some View {
+        modifier(AdminPinnedSearch(text: text, prompt: prompt, onChange: onChange))
+    }
+}
+
+private struct AdminPinnedSearch: ViewModifier {
+    @Binding var text: String
+    let prompt: String
+    let onChange: (String) async -> Void
+
+    @State private var lastSent = ""
+
+    func body(content: Content) -> some View {
+        content
+            .searchable(text: $text, placement: .navigationBarDrawer(displayMode: .always), prompt: Text(prompt))
+            .task(id: text) {
+                let needle = text.trimmingCharacters(in: .whitespaces)
+                guard needle != lastSent else { return }
+                if !needle.isEmpty {
+                    try? await Task.sleep(for: .milliseconds(350))
+                    guard !Task.isCancelled else { return }
+                }
+                lastSent = needle
+                await onChange(needle)
+            }
+    }
+}
+
+extension View {
+    /// Плавающая кнопка создания, если роли создание доступно.
+    @ViewBuilder
+    func adminFloatingAction(_ enabled: Bool, _ title: String, symbol: String = "plus", action: @escaping () -> Void) -> some View {
+        if enabled {
+            floatingAction(title, symbol: symbol, action: action)
+        } else {
+            self
+        }
+    }
+}
+
+/// Ссылки для круглых кнопок «Почта», «Позвонить», «Сайт».
+enum AdminContactURL {
+    static func mail(_ address: String?) -> URL? {
+        guard let address = address?.trimmingCharacters(in: .whitespaces), !address.isEmpty else { return nil }
+        return URL(string: "mailto:\(address)")
+    }
+
+    static func phone(_ number: String?) -> URL? {
+        guard let number, !number.isEmpty else { return nil }
+        let digits = number.filter { $0.isNumber || $0 == "+" }
+        return digits.isEmpty ? nil : URL(string: "tel:\(digits)")
+    }
+
+    static func web(_ site: String?) -> URL? {
+        guard let site = site?.trimmingCharacters(in: .whitespaces), !site.isEmpty else { return nil }
+        return URL(string: site.contains("://") ? site : "https://\(site)")
+    }
+}

@@ -34,20 +34,11 @@ struct AdminUniversitiesView: View {
             }
         }
         .navigationTitle(Text(AdminScreen.universities.title))
-        .debouncedSearch($search, prompt: String(localized: "admin.universities.search", defaultValue: "Поиск по названию")) { _ in
+        .adminPinnedSearch($search, prompt: String(localized: "admin.universities.search", defaultValue: "Поиск по названию")) { _ in
             await refilter()
         }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                if viewerRole == .platformAdmin {
-                    Button {
-                        creating = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .accessibilityLabel(Text(String(localized: "admin.universities.add", defaultValue: "Добавить университет")))
-                }
-            }
+        .adminFloatingAction(viewerRole == .platformAdmin, String(localized: "admin.universities.add", defaultValue: "Добавить университет")) {
+            creating = true
         }
         .onChange(of: status) { _, _ in Task { await refilter() } }
         .onAppear { if loader.isLoaded { Task { await loader.reload() } } }
@@ -78,12 +69,35 @@ struct AdminUniversityRow: View {
 
     var body: some View {
         let status = AdminText.universityStatus(university.status)
-        ListCardRow(
+        TelegramStyleRow(
             title: university.name,
-            subtitle: [university.shortName, city].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),
-            status: (text: status.text, tint: status.tint),
-            lines: [university.createdAt.map { DisplayFormat.date($0) } ?? ""]
-        )
+            subtitle: AdminUniversityVisual.place(university.shortName, city),
+            meta: university.createdAt.map(DisplayFormat.date)
+        ) {
+            RowSymbol(symbol: "building.columns.fill", tint: AdminUniversityVisual.tint(university.status))
+        } accessory: {
+            if university.status != "ACTIVE" {
+                StatusBadge(text: status.text, tint: status.tint)
+            }
+        }
+    }
+}
+
+enum AdminUniversityVisual {
+    static func place(_ shortName: String?, _ city: String?) -> String {
+        var parts: [String] = []
+        if let shortName, !shortName.isEmpty { parts.append(shortName) }
+        if let city, !city.isEmpty { parts.append(city) }
+        return parts.joined(separator: " · ")
+    }
+
+    static func tint(_ status: String) -> Color {
+        switch status {
+        case "ACTIVE": return TileTint.indigo
+        case "PENDING": return TileTint.orange
+        case "BLOCKED": return TileTint.red
+        default: return TileTint.gray
+        }
     }
 }
 
@@ -120,16 +134,8 @@ struct AdminUniversityView: View {
                 LoadingStateView()
             }
         }
-        .background(Palette.background)
-        .navigationTitle(Text(university?.shortName ?? university?.name ?? AdminScreen.university(id: id).title))
+        .navigationTitle(Text(AdminScreen.university(id: id).title))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                if canEdit, university != nil {
-                    Button(String(localized: "admin.university.edit", defaultValue: "Изменить")) { editing = true }
-                }
-            }
-        }
         .task { await load() }
         .actionFailureAlert($actionFailure)
         .sheet(isPresented: $editing) {
@@ -170,23 +176,73 @@ struct AdminUniversityView: View {
     }
 
     private func content(_ university: AdminUniversityDTO) -> some View {
-        List {
+        let status = AdminText.universityStatus(university.status)
+        let city = cityName ?? university.city
+        return List {
             Section {
-                DetailRow(title: String(localized: "admin.university.name", defaultValue: "Название"), value: university.name)
-                if let short = university.shortName {
-                    DetailRow(title: String(localized: "admin.university.shortName", defaultValue: "Аббревиатура"), value: short)
+                if canEdit {
+                    HeroHeader(
+                        visual: .symbol("building.columns.fill", tint: AdminUniversityVisual.tint(university.status)),
+                        title: university.name,
+                        subtitle: AdminUniversityVisual.place(university.shortName, city),
+                        actions: heroActions(university)
+                    ) {
+                        StatusBadge(text: status.text, tint: status.tint)
+                    } moreMenu: {
+                        if canEdit {
+                            if university.status != "ACTIVE" {
+                                Button {
+                                    Task { await setStatus("ACTIVE") }
+                                } label: {
+                                    Label(AdminText.universityStatus("ACTIVE").text, systemImage: "checkmark.circle")
+                                }
+                            }
+                            if university.status != "PENDING" {
+                                Button {
+                                    Task { await setStatus("PENDING") }
+                                } label: {
+                                    Label(AdminText.universityStatus("PENDING").text, systemImage: "hourglass")
+                                }
+                            }
+                            if university.status != "BLOCKED" {
+                                Button(role: .destructive) {
+                                    confirmBlock = true
+                                } label: {
+                                    Label(String(localized: "admin.university.block", defaultValue: "Заблокировать"), systemImage: "hand.raised")
+                                }
+                            }
+                            Divider()
+                            Button(role: .destructive) {
+                                confirmDelete = true
+                            } label: {
+                                Label(String(localized: "admin.university.delete", defaultValue: "Удалить вуз"), systemImage: "trash")
+                            }
+                        }
+                    }
+                } else {
+                    HeroHeader(
+                        visual: .symbol("building.columns.fill", tint: AdminUniversityVisual.tint(university.status)),
+                        title: university.name,
+                        subtitle: AdminUniversityVisual.place(university.shortName, city),
+                        actions: heroActions(university)
+                    ) {
+                        StatusBadge(text: status.text, tint: status.tint)
+                    }
                 }
-                if let city = cityName ?? university.city {
-                    DetailRow(title: String(localized: "admin.university.city", defaultValue: "Город"), value: city)
-                }
+            }
+
+            Section {
                 if let country = university.country {
-                    DetailRow(title: String(localized: "admin.university.country", defaultValue: "Страна"), value: country)
+                    DetailRow(title: String(localized: "admin.university.country", defaultValue: "Страна"), value: country, symbol: "globe")
+                }
+                if let city {
+                    DetailRow(title: String(localized: "admin.university.city", defaultValue: "Город"), value: city, symbol: "mappin.and.ellipse")
                 }
                 if let timezone = university.timezone {
-                    DetailRow(title: String(localized: "admin.university.timezone", defaultValue: "Часовой пояс"), value: timezone)
+                    DetailRow(title: String(localized: "admin.university.timezone", defaultValue: "Часовой пояс"), value: timezone, symbol: "clock")
                 }
                 if let created = university.createdAt {
-                    DetailRow(title: String(localized: "admin.university.createdAt", defaultValue: "Создан"), value: DisplayFormat.date(created))
+                    DetailRow(title: String(localized: "admin.university.createdAt", defaultValue: "Создан"), value: DisplayFormat.date(created), symbol: "calendar")
                 }
             }
 
@@ -232,11 +288,6 @@ struct AdminUniversityView: View {
 
             if canEdit {
                 Section {
-                    Button {
-                        inviting = true
-                    } label: {
-                        Label(String(localized: "admin.university.inviteAdmin", defaultValue: "Пригласить администратора вуза"), systemImage: "person.badge.plus")
-                    }
                     Button(role: .destructive) {
                         confirmDelete = true
                     } label: {
@@ -249,7 +300,16 @@ struct AdminUniversityView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
         .refreshable { await load() }
+    }
+
+    private func heroActions(_ university: AdminUniversityDTO) -> [HeroAction] {
+        guard canEdit else { return [] }
+        return [
+            HeroAction(title: String(localized: "admin.university.edit", defaultValue: "Изменить"), symbol: "pencil") { editing = true },
+            HeroAction(title: String(localized: "admin.university.inviteShort", defaultValue: "Пригласить"), symbol: "person.badge.plus") { inviting = true },
+        ]
     }
 
     @MainActor
@@ -438,16 +498,33 @@ struct AdminDemoRequestsView: View {
         } row: { request in
             NavigationLink(value: AppRoute.admin(.demoRequest(id: request.id))) {
                 let status = AdminText.demoStatus(request.status)
-                ListCardRow(
+                TelegramStyleRow(
                     title: request.universityName,
                     subtitle: "\(request.contactName) · \(request.email)",
-                    status: (text: status.text, tint: status.tint),
-                    lines: [DisplayFormat.dateTime(request.createdAt)]
-                )
+                    meta: DisplayFormat.relative(request.createdAt)
+                ) {
+                    RowSymbol(symbol: "envelope.open.fill", tint: AdminDemoVisual.tint(request.status))
+                } accessory: {
+                    if request.status != "NEW" {
+                        StatusBadge(text: status.text, tint: status.tint)
+                    }
+                }
+            }
+            .contextMenu {
+                if let mail = AdminContactURL.mail(request.email) {
+                    Link(destination: mail) {
+                        Label(String(localized: "admin.demo.mailShort", defaultValue: "Почта"), systemImage: "envelope")
+                    }
+                }
+                if let phone = AdminContactURL.phone(request.phone) {
+                    Link(destination: phone) {
+                        Label(String(localized: "admin.demo.callShort", defaultValue: "Позвонить"), systemImage: "phone")
+                    }
+                }
             }
         }
         .navigationTitle(Text(AdminScreen.demoRequests.title))
-        .debouncedSearch($search, prompt: String(localized: "admin.demo.search", defaultValue: "Вуз, контакт или почта")) { _ in
+        .adminPinnedSearch($search, prompt: String(localized: "admin.demo.search", defaultValue: "Вуз, контакт или почта")) { _ in
             await refilter()
         }
         .onChange(of: status) { _, _ in Task { await refilter() } }
@@ -472,10 +549,22 @@ struct AdminDemoRequestsView: View {
     }
 }
 
+enum AdminDemoVisual {
+    static func tint(_ status: String) -> Color {
+        switch status {
+        case "NEW": return TileTint.blue
+        case "APPROVED": return TileTint.green
+        case "REJECTED": return TileTint.red
+        default: return TileTint.gray
+        }
+    }
+}
+
 /// Заявка вуза целиком и решение по ней.
 struct AdminDemoRequestView: View {
     let id: String
 
+    @Environment(\.openURL) private var openURL
     @State private var request: AdminDemoRequestDTO?
     @State private var cityName: String?
     @State private var failure: String?
@@ -499,7 +588,6 @@ struct AdminDemoRequestView: View {
                 LoadingStateView()
             }
         }
-        .background(Palette.background)
         .navigationTitle(Text(AdminScreen.demoRequest(id: id).title))
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
@@ -528,31 +616,40 @@ struct AdminDemoRequestView: View {
     }
 
     private func content(_ request: AdminDemoRequestDTO) -> some View {
-        List {
+        let status = AdminText.demoStatus(request.status)
+        return List {
             Section {
-                HStack {
-                    Text(request.universityName)
-                        .font(Typography.cardTitle)
-                        .foregroundStyle(Palette.foreground)
-                    Spacer(minLength: Spacing.md)
-                    let status = AdminText.demoStatus(request.status)
+                HeroHeader(
+                    visual: .symbol("building.columns.fill", tint: AdminDemoVisual.tint(request.status)),
+                    title: request.universityName,
+                    subtitle: String(localized: "admin.demo.submitted", defaultValue: "Подана \(DisplayFormat.dateTime(request.createdAt))"),
+                    actions: heroActions(request)
+                ) {
                     StatusBadge(text: status.text, tint: status.tint)
                 }
-                DetailRow(title: String(localized: "admin.demo.createdAt", defaultValue: "Подана"), value: DisplayFormat.dateTime(request.createdAt))
             }
 
             Section {
-                DetailRow(title: String(localized: "admin.demo.contact", defaultValue: "Контакт"), value: request.contactName)
-                DetailRow(title: String(localized: "admin.demo.role", defaultValue: "Должность"), value: request.contactRole ?? "—")
-                DetailRow(title: String(localized: "admin.demo.email", defaultValue: "Почта"), value: request.email)
-                DetailRow(title: String(localized: "admin.demo.phone", defaultValue: "Телефон"), value: request.phone ?? "—")
-                DetailRow(title: String(localized: "admin.demo.city", defaultValue: "Город"), value: cityName ?? request.city ?? "—")
-                DetailRow(title: String(localized: "admin.demo.students", defaultValue: "Студентов"), value: request.studentsEstimate.map { $0.formatted() } ?? "—")
-                DetailRow(title: String(localized: "admin.demo.website", defaultValue: "Сайт"), value: request.website ?? "—")
+                DetailRow(title: String(localized: "admin.demo.contact", defaultValue: "Контакт"), value: request.contactName, symbol: "person")
+                DetailRow(title: String(localized: "admin.demo.role", defaultValue: "Должность"), value: request.contactRole ?? "—", symbol: "briefcase")
+                DetailRow(title: String(localized: "admin.demo.email", defaultValue: "Почта"), value: request.email, symbol: "envelope")
+                DetailRow(title: String(localized: "admin.demo.phone", defaultValue: "Телефон"), value: request.phone ?? "—", symbol: "phone")
+            } header: {
+                Text(String(localized: "admin.demo.contactTitle", defaultValue: "Контакт"))
+            }
+            .textSelection(.enabled)
+
+            Section {
+                DetailRow(title: String(localized: "admin.demo.city", defaultValue: "Город"), value: cityName ?? request.city ?? "—", symbol: "mappin.and.ellipse")
+                DetailRow(title: String(localized: "admin.demo.students", defaultValue: "Студентов"), value: request.studentsEstimate.map { $0.formatted() } ?? "—", symbol: "graduationcap")
+                DetailRow(title: String(localized: "admin.demo.website", defaultValue: "Сайт"), value: request.website ?? "—", symbol: "globe")
                 DetailRow(
                     title: String(localized: "admin.demo.consent", defaultValue: "Согласие на ПД"),
-                    value: [request.consentAt.map { DisplayFormat.dateTime($0) }, request.consentVersion].compactMap { $0 }.joined(separator: " · ")
+                    value: [request.consentAt.map { DisplayFormat.dateTime($0) }, request.consentVersion].compactMap { $0 }.joined(separator: " · "),
+                    symbol: "checkmark.shield"
                 )
+            } header: {
+                Text(String(localized: "admin.demo.universityTitle", defaultValue: "Вуз"))
             }
             .textSelection(.enabled)
 
@@ -581,38 +678,64 @@ struct AdminDemoRequestView: View {
                 AdminInviteLinkSection(link: inviteLink)
             }
 
-            Section {
-                if request.status == "NEW" {
-                    Button {
-                        approving = true
-                    } label: {
-                        Label(String(localized: "admin.demo.approve", defaultValue: "Одобрить"), systemImage: "checkmark.seal")
-                    }
-                    Button(role: .destructive) {
-                        rejecting = true
-                    } label: {
-                        Label(String(localized: "admin.demo.reject", defaultValue: "Отклонить"), systemImage: "xmark.seal")
-                    }
-                }
-                if request.status == "APPROVED" {
+            if request.status == "APPROVED" {
+                Section {
                     if let universityID = request.universityId {
                         NavigationLink(value: AppRoute.admin(.university(id: universityID))) {
-                            Label(String(localized: "admin.demo.openUniversity", defaultValue: "Карточка вуза"), systemImage: "building.columns")
+                            IconRow(title: String(localized: "admin.demo.openUniversity", defaultValue: "Карточка вуза"), symbol: "building.columns.fill", tint: TileTint.indigo)
                         }
                     }
                     if inviteLink == nil {
                         Button {
                             confirmReissue = true
                         } label: {
-                            Label(String(localized: "admin.demo.reissue", defaultValue: "Выписать приглашение заново"), systemImage: "arrow.clockwise")
+                            IconRow(title: String(localized: "admin.demo.reissue", defaultValue: "Выписать приглашение заново"), symbol: "arrow.clockwise", tint: TileTint.orange)
                         }
+                        .buttonStyle(.plain)
                     }
                 }
+                .disabled(isWorking)
             }
-            .disabled(isWorking)
+
+            if request.status == "NEW" {
+                Section {
+                    Button(role: .destructive) {
+                        rejecting = true
+                    } label: {
+                        Label(String(localized: "admin.demo.reject", defaultValue: "Отклонить"), systemImage: "xmark.seal")
+                    }
+                }
+                .disabled(isWorking)
+            }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
         .refreshable { await load() }
+    }
+
+    private func heroActions(_ request: AdminDemoRequestDTO) -> [HeroAction] {
+        var actions: [HeroAction] = []
+        if request.status == "NEW" {
+            actions.append(HeroAction(title: String(localized: "admin.demo.approve", defaultValue: "Одобрить"), symbol: "checkmark.seal.fill") { approving = true })
+        }
+        if request.status == "APPROVED", let universityID = request.universityId {
+            actions.append(HeroAction(title: String(localized: "admin.demo.universityShort", defaultValue: "Вуз"), symbol: "building.columns") {
+                AdminNav.push(.admin(.university(id: universityID)))
+            })
+        }
+        if let mail = AdminContactURL.mail(request.email) {
+            actions.append(HeroAction(title: String(localized: "admin.demo.mailShort", defaultValue: "Почта"), symbol: "envelope.fill") { openURL(mail) })
+        }
+        if let phone = AdminContactURL.phone(request.phone) {
+            actions.append(HeroAction(title: String(localized: "admin.demo.callShort", defaultValue: "Позвонить"), symbol: "phone.fill") { openURL(phone) })
+        }
+        if let site = AdminContactURL.web(request.website) {
+            actions.append(HeroAction(title: String(localized: "admin.demo.siteShort", defaultValue: "Сайт"), symbol: "safari") { openURL(site) })
+        }
+        if request.status == "NEW" {
+            actions.append(HeroAction(title: String(localized: "admin.demo.reject", defaultValue: "Отклонить"), symbol: "xmark", role: .destructive) { rejecting = true })
+        }
+        return Array(actions.prefix(4))
     }
 
     @MainActor

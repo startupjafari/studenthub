@@ -20,12 +20,9 @@ struct StaffDocumentTypesView: View {
     var body: some View {
         List {
             Section {
+            } footer: {
                 Text(String(localized: "staff.dt.subtitle", defaultValue: "Какие документы есть у людей вашего вуза: включайте нужные, задавайте срок хранения, добавляйте свои."))
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
             }
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 0, leading: Spacing.lg, bottom: 0, trailing: Spacing.lg))
 
             if let types {
                 ForEach(grouped(types), id: \.0) { category, rows in
@@ -44,15 +41,8 @@ struct StaffDocumentTypesView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle(Text(StaffScreen.documentTypes.title))
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    adding = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel(Text(String(localized: "staff.dt.add", defaultValue: "Добавить свой тип")))
-            }
+        .floatingAction(String(localized: "staff.dt.add", defaultValue: "Добавить свой тип")) {
+            adding = true
         }
         .sheet(isPresented: $adding) {
             StaffNewDocumentTypeSheet { await load() }
@@ -77,33 +67,57 @@ struct StaffDocumentTypesView: View {
     }
 
     private func typeRow(_ row: StaffDocumentType) -> some View {
-        HStack(spacing: Spacing.md) {
-            Toggle(
-                isOn: Binding(get: { row.enabled }, set: { on in Task { await update(row, enabled: on) } })
-            ) {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: Spacing.sm) {
-                        Text(row.title)
-                            .strikethrough(!row.enabled)
-                            .foregroundStyle(row.enabled ? Palette.foreground : Palette.mutedForeground)
-                        if row.custom {
-                            StatusBadge(text: String(localized: "staff.dt.custom", defaultValue: "Свой"), tint: Palette.info)
-                        }
+        HStack(spacing: Spacing.lg) {
+            IconTile(symbol: Self.symbol(row.category), tint: row.enabled ? Self.tint(row.category) : TileTint.gray)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: Spacing.sm) {
+                    Text(row.title)
+                        .font(Typography.body)
+                        .foregroundStyle(row.enabled ? Palette.foreground : Palette.mutedForeground)
+                    if row.custom {
+                        StatusBadge(text: String(localized: "staff.dt.custom", defaultValue: "Свой"), tint: Palette.info)
                     }
-                    Text(row.fields.isEmpty
-                        ? String(localized: "staff.dt.noFields", defaultValue: "Без полей")
-                        : row.fields.map(StaffDocText.field).joined(separator: ", "))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
-                    Button {
-                        editRetention(row)
-                    } label: {
-                        Text(row.retentionDays.map {
+                }
+                Text(row.fields.isEmpty
+                    ? String(localized: "staff.dt.noFields", defaultValue: "Без полей")
+                    : row.fields.map(StaffDocText.field).joined(separator: ", "))
+                    .font(Typography.meta)
+                    .foregroundStyle(Palette.mutedForeground)
+                    .lineLimit(2)
+                Button {
+                    editRetention(row)
+                } label: {
+                    Label(
+                        row.retentionDays.map {
                             String(localized: "staff.dt.retention.value", defaultValue: "Хранение: \($0.formatted()) дн.")
-                        } ?? String(localized: "staff.dt.retention.none", defaultValue: "Срок хранения не задан"))
-                            .font(Typography.meta.weight(.medium))
-                    }
-                    .buttonStyle(.borderless)
+                        } ?? String(localized: "staff.dt.retention.none", defaultValue: "Срок хранения не задан"),
+                        systemImage: "clock.arrow.circlepath"
+                    )
+                    .font(Typography.meta.weight(.medium))
+                }
+                .buttonStyle(.borderless)
+            }
+            Spacer(minLength: Spacing.sm)
+            Toggle(
+                row.title,
+                isOn: Binding(get: { row.enabled }, set: { on in Task { await update(row, enabled: on) } })
+            )
+            .labelsHidden()
+        }
+        .padding(.vertical, 2)
+        .contextMenu {
+            Button {
+                editRetention(row)
+            } label: {
+                Label(String(localized: "staff.dt.retention", defaultValue: "Срок хранения, дней"), systemImage: "clock.arrow.circlepath")
+            }
+            Button(role: row.custom ? .destructive : nil) {
+                removing = row
+            } label: {
+                if row.custom {
+                    Label(String(localized: "staff.dt.delete", defaultValue: "Удалить"), systemImage: "trash")
+                } else {
+                    Label(String(localized: "staff.dt.reset", defaultValue: "Сбросить"), systemImage: "arrow.counterclockwise")
                 }
             }
         }
@@ -118,6 +132,26 @@ struct StaffDocumentTypesView: View {
                 }
             }
             .tint(row.custom ? Palette.destructive : Palette.warning)
+        }
+    }
+
+    private static func symbol(_ category: String) -> String {
+        switch category {
+        case "PERSONAL": return "person.text.rectangle.fill"
+        case "ACADEMIC": return "graduationcap.fill"
+        case "CERTIFICATE": return "doc.text.fill"
+        case "ISSUED_BY_UNIVERSITY": return "building.columns.fill"
+        default: return "doc.fill"
+        }
+    }
+
+    private static func tint(_ category: String) -> Color {
+        switch category {
+        case "PERSONAL": return TileTint.blue
+        case "ACADEMIC": return TileTint.indigo
+        case "CERTIFICATE": return TileTint.teal
+        case "ISSUED_BY_UNIVERSITY": return TileTint.green
+        default: return TileTint.gray
         }
     }
 
@@ -316,7 +350,7 @@ struct StaffDocumentJournalView: View {
             }
         )
         .navigationTitle(Text(StaffScreen.documentJournal.title))
-        .debouncedSearch($search, prompt: String(localized: "staff.dj.search", defaultValue: "ФИО сотрудника или владельца")) { _ in
+        .adminPinnedSearch($search, prompt: String(localized: "staff.dj.search", defaultValue: "ФИО сотрудника или владельца")) { _ in
             apply()
         }
         .toolbar {
@@ -371,6 +405,7 @@ struct StaffDocumentJournalView: View {
             }
             .navigationTitle(Text(String(localized: "staff.dj.filters", defaultValue: "Фильтры")))
             .navigationBarTitleDisplayMode(.inline)
+            .softTopEdge()
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(String(localized: "staff.dj.apply", defaultValue: "Готово")) {
@@ -384,44 +419,85 @@ struct StaffDocumentJournalView: View {
     }
 
     private func journalRow(_ item: StaffDocJournalItem) -> some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(StaffDocText.action(item.action))
-                    .font(Typography.cardTitle)
-                    .foregroundStyle(Palette.foreground)
-                Spacer(minLength: Spacing.md)
-                Text(DisplayFormat.dateTime(item.createdAt))
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
-            }
-            Text(documentLine(item))
-                .font(Typography.meta)
-                .foregroundStyle(Palette.foreground)
-            // Нажатие на имя сужает журнал до человека — и как действующего, и как владельца.
-            HStack(spacing: Spacing.sm) {
-                personButton(item.actor.id, name: item.actor.name, caption: StaffRoleText.title(item.actor.role), symbol: "person.badge.key")
-                Image(systemName: "arrow.right").font(.caption2).foregroundStyle(Palette.mutedForeground)
-                personButton(item.owner.id, name: item.owner.name, caption: nil, symbol: "person")
-            }
+        let actor = displayName(item.actor.name)
+        let owner = displayName(item.owner.name)
+        let actorLine = [actor, StaffRoleText.title(item.actor.role)].compactMap { $0 }.joined(separator: " · ")
+        return TelegramStyleRow(
+            title: StaffDocText.action(item.action),
+            subtitle: "\(documentLine(item))\n\(actorLine) → \(owner)",
+            meta: DisplayFormat.dateTime(item.createdAt)
+        ) {
+            RowSymbol(symbol: Self.actionSymbol(item.action), tint: Self.actionTint(item.action), size: 40)
+        } accessory: {
             Text(viaLabel(item))
-                .font(Typography.meta)
+                .font(.caption)
                 .foregroundStyle(Palette.mutedForeground)
+                .lineLimit(1)
         }
-        .padding(.vertical, Spacing.xs)
+        // Сузить журнал до человека — и как действующего, и как владельца.
+        .contextMenu {
+            Button {
+                person = (item.actor.id, actor)
+                apply()
+            } label: {
+                Label(String(localized: "staff.dj.filterActor", defaultValue: "Только \(actor)"), systemImage: "person.badge.key")
+            }
+            if item.owner.id != item.actor.id {
+                Button {
+                    person = (item.owner.id, owner)
+                    apply()
+                } label: {
+                    Label(String(localized: "staff.dj.filterOwner", defaultValue: "Только \(owner)"), systemImage: "person")
+                }
+            }
+            Button {
+                AdminNav.push(.profile(id: item.owner.id))
+            } label: {
+                Label(String(localized: "staff.dj.ownerProfile", defaultValue: "Профиль владельца"), systemImage: "person.crop.circle")
+            }
+        }
+        .swipeActions(edge: .leading) {
+            Button {
+                person = (item.actor.id, actor)
+                apply()
+            } label: {
+                Label(String(localized: "staff.dj.filterShort", defaultValue: "Фильтр"), systemImage: "line.3.horizontal.decrease")
+            }
+            .tint(Palette.primary)
+        }
     }
 
-    private func personButton(_ id: String, name: String?, caption: String?, symbol: String) -> some View {
-        let display = (name?.isEmpty == false ? name : nil)
-            ?? String(localized: "staff.dj.unknownActor", defaultValue: "Неизвестный пользователь")
-        return Button {
-            person = (id, display)
-            apply()
-        } label: {
-            Label([display, caption].compactMap { $0 }.joined(separator: " · "), systemImage: symbol)
-                .font(Typography.meta)
-                .lineLimit(2)
+    private func displayName(_ name: String?) -> String {
+        (name?.isEmpty == false ? name : nil) ?? String(localized: "staff.dj.unknownActor", defaultValue: "Неизвестный пользователь")
+    }
+
+    private static func actionSymbol(_ action: String) -> String {
+        switch action {
+        case "UPLOAD", "PAGE_ADD": return "arrow.up.doc.fill"
+        case "VIEW": return "eye.fill"
+        case "DOWNLOAD": return "arrow.down.doc.fill"
+        case "EDIT", "REPLACE": return "pencil"
+        case "GRANT": return "key.fill"
+        case "REVOKE": return "key.slash"
+        case "ACCEPT": return "checkmark"
+        case "REJECT": return "xmark"
+        case "ARCHIVE", "UNARCHIVE": return "archivebox.fill"
+        case "DELETE", "PAGE_REMOVE": return "trash.fill"
+        case "EXPIRING", "EXPIRE": return "clock.badge.exclamationmark.fill"
+        default: return "doc.fill"
         }
-        .buttonStyle(.borderless)
+    }
+
+    private static func actionTint(_ action: String) -> Color {
+        switch action {
+        case "UPLOAD", "PAGE_ADD", "ACCEPT": return TileTint.green
+        case "VIEW", "DOWNLOAD": return TileTint.blue
+        case "EDIT", "REPLACE", "SUBMIT", "REVIEW": return TileTint.indigo
+        case "GRANT", "REVOKE": return TileTint.purple
+        case "REJECT", "DELETE", "PAGE_REMOVE", "EXPIRE": return TileTint.red
+        case "EXPIRING": return TileTint.orange
+        default: return TileTint.gray
+        }
     }
 
     private func documentLine(_ item: StaffDocJournalItem) -> String {

@@ -42,13 +42,10 @@ struct StaffServiceCatalogView: View {
             ),
             header: {
                 Section {
+                } footer: {
                     Text(isUniAdmin
                         ? String(localized: "staff.svc.subtitle.university", defaultValue: "Услуги вашего вуза и шаблоны платформы. Шаблон можно настроить под себя — студенты увидят вашу копию.")
                         : String(localized: "staff.svc.subtitle.platform", defaultValue: "Шаблоны услуг для всех вузов платформы."))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets(top: 0, leading: Spacing.lg, bottom: 0, trailing: Spacing.lg))
                 }
             },
             row: { row in
@@ -58,7 +55,7 @@ struct StaffServiceCatalogView: View {
                     StaffServiceRowView(row: row, isUniAdmin: isUniAdmin)
                 }
                 .buttonStyle(.plain)
-                .swipeActions {
+                .swipeActions(edge: .leading) {
                     if isUniAdmin, row.isTemplate, !row.isReplaced {
                         Button {
                             Task { await customize(row.id) }
@@ -83,15 +80,8 @@ struct StaffServiceCatalogView: View {
         .debouncedSearch($search, prompt: String(localized: "staff.svc.search", defaultValue: "Название или код")) { value in
             await loader.replace { request in try await api.managedServices(search: value, request) }
         }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    editing = .new
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel(Text(String(localized: "staff.svc.add", defaultValue: "Добавить услугу")))
-            }
+        .floatingAction(String(localized: "staff.svc.add", defaultValue: "Добавить услугу")) {
+            editing = .new
         }
         .sheet(item: $editing) { editing in
             StaffServiceEditorSheet(editing: editing, isUniAdmin: isUniAdmin) {
@@ -152,48 +142,40 @@ private struct StaffServiceRowView: View {
     let isUniAdmin: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            HStack(alignment: .firstTextBaseline, spacing: Spacing.md) {
-                Text(row.name.isEmpty ? row.code : row.name)
-                    .font(Typography.cardTitle)
-                    .foregroundStyle(Palette.foreground)
-                    .lineLimit(3)
-                Spacer(minLength: Spacing.md)
-                status
-            }
-            HStack(spacing: Spacing.sm) {
-                if isUniAdmin, row.isTemplate {
-                    StatusBadge(text: String(localized: "staff.svc.template", defaultValue: "Шаблон"), tint: Palette.info)
-                }
-                Text(row.code)
-                    .font(Typography.meta.monospaced())
-                    .foregroundStyle(Palette.mutedForeground)
-            }
-            Text([
-                row.category?.name,
-                row.slaHours.map { String(localized: "staff.svc.slaValue", defaultValue: "\($0.formatted()) ч") },
-                String(
-                    localized: "staff.svc.content",
-                    defaultValue: "Документов: \((row.requirementsCount ?? 0).formatted()) · полей: \((row.formFieldsCount ?? 0).formatted())"
-                ),
-            ].compactMap { $0 }.joined(separator: " · "))
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
-                .lineLimit(2)
+        TelegramStyleRow(
+            title: row.name.isEmpty ? row.code : row.name,
+            subtitle: subtitle,
+            meta: row.slaHours.map { String(localized: "staff.svc.slaValue", defaultValue: "\($0.formatted()) ч") }
+        ) {
+            RowSymbol(
+                symbol: isUniAdmin && row.isTemplate ? "doc.on.doc.fill" : "square.grid.2x2.fill",
+                tint: !row.active || row.isReplaced ? TileTint.gray : (isUniAdmin && row.isTemplate ? TileTint.teal : TileTint.blue)
+            )
+        } accessory: {
+            status
         }
         .opacity(!row.active || row.isReplaced ? 0.6 : 1)
-        .padding(.vertical, Spacing.xs)
         .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
+    }
+
+    private var subtitle: String {
+        let head = [
+            isUniAdmin && row.isTemplate ? String(localized: "staff.svc.template", defaultValue: "Шаблон") : nil,
+            row.code,
+            row.category?.name,
+        ].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        let counts = String(
+            localized: "staff.svc.content",
+            defaultValue: "Документов: \((row.requirementsCount ?? 0).formatted()) · полей: \((row.formFieldsCount ?? 0).formatted())"
+        )
+        return [head, counts].joined(separator: "\n")
     }
 
     @ViewBuilder
     private var status: some View {
         if row.isReplaced {
             StatusBadge(text: String(localized: "staff.svc.replaced", defaultValue: "Заменён копией"), tint: Palette.mutedForeground)
-        } else if row.active {
-            StatusBadge(text: String(localized: "staff.svc.active", defaultValue: "Активна"), tint: Palette.success)
-        } else {
+        } else if !row.active {
             StatusBadge(text: String(localized: "staff.svc.inactive", defaultValue: "Выключена"), tint: Palette.mutedForeground)
         }
     }
@@ -246,9 +228,9 @@ private struct StaffServiceEditorSheet: View {
                     LoadingStateView()
                 }
             }
-            .background(Palette.background)
             .navigationTitle(Text(title))
             .navigationBarTitleDisplayMode(.inline)
+            .softTopEdge()
             .interactiveDismissDisabled(isSaving)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

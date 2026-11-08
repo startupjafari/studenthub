@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Журнал действий по охвату роли: платформа — всё, вуз — свой вуз, модератор — свои
 /// действия. Фильтр по действию — подстрокой, как в вебе; запись открывается целиком.
@@ -23,6 +24,20 @@ struct AdminAuditView: View {
                 AdminAuditRow(entry: entry)
             }
             .buttonStyle(.plain)
+            .contextMenu {
+                Button {
+                    UIPasteboard.general.string = entry.entityId ?? entry.id
+                } label: {
+                    Label(String(localized: "admin.audit.copyId", defaultValue: "Скопировать ID объекта"), systemImage: "doc.on.doc")
+                }
+                if let user = entry.userId {
+                    Button {
+                        AdminNav.push(.admin(.user(id: user)))
+                    } label: {
+                        Label(String(localized: "admin.complaint.openUser", defaultValue: "Карточка пользователя"), systemImage: "person.crop.rectangle")
+                    }
+                }
+            }
         }
         .navigationTitle(Text(AdminScreen.audit.title))
         .debouncedSearch($action, prompt: String(localized: "admin.audit.filter", defaultValue: "Фильтр по действию")) { needle in
@@ -32,6 +47,7 @@ struct AdminAuditView: View {
         }
         .sheet(item: $opened) { entry in
             AdminAuditEntrySheet(entry: entry)
+                .presentationDetents([.medium, .large])
         }
     }
 }
@@ -40,37 +56,44 @@ struct AdminAuditRow: View {
     let entry: AdminAuditEntryDTO
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(verbatim: entry.action)
-                    .font(Typography.body.monospaced())
-                    .foregroundStyle(Palette.foreground)
-                    .lineLimit(2)
-                Spacer(minLength: Spacing.md)
-                Text(DisplayFormat.dateTime(entry.createdAt))
-                    .font(.caption)
-                    .foregroundStyle(Palette.mutedForeground)
-            }
-            if let entity = entry.entity {
-                Text(verbatim: [entity, entry.entityId].compactMap { $0 }.joined(separator: " · "))
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            if let user = entry.userId {
-                Label {
-                    Text(verbatim: user).lineLimit(1).truncationMode(.middle)
-                } icon: {
-                    Image(systemName: "person")
-                }
-                .font(.caption)
-                .foregroundStyle(Palette.mutedForeground)
-            }
+        TelegramStyleRow(
+            title: entry.action,
+            subtitle: subtitle,
+            meta: DisplayFormat.dateTime(entry.createdAt)
+        ) {
+            RowSymbol(symbol: AdminAuditVisual.symbol(entry.action), tint: AdminAuditVisual.tint(entry.action), size: 40)
         }
-        .padding(.vertical, 2)
         .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
+    }
+
+    private var subtitle: String {
+        let entity = [entry.entity, entry.entityId].compactMap { $0 }.joined(separator: " · ")
+        let user = entry.userId.map { String(localized: "admin.audit.byUser", defaultValue: "Кто: \($0)") } ?? ""
+        return [entity, user].filter { !$0.isEmpty }.joined(separator: "\n")
+    }
+}
+
+/// Значок записи по глаголу действия: создание, правка, удаление, вход, блокировка.
+enum AdminAuditVisual {
+    static func symbol(_ action: String) -> String {
+        let value = action.lowercased()
+        if value.contains("delete") || value.contains("remove") { return "trash.fill" }
+        if value.contains("block") || value.contains("ban") { return "hand.raised.fill" }
+        if value.contains("login") || value.contains("auth") || value.contains("session") { return "key.fill" }
+        if value.contains("create") || value.contains("invite") || value.contains("add") { return "plus" }
+        if value.contains("update") || value.contains("edit") || value.contains("change") { return "pencil" }
+        if value.contains("view") || value.contains("read") || value.contains("open") { return "eye.fill" }
+        return "scroll.fill"
+    }
+
+    static func tint(_ action: String) -> Color {
+        let value = action.lowercased()
+        if value.contains("delete") || value.contains("remove") || value.contains("block") || value.contains("ban") { return TileTint.red }
+        if value.contains("login") || value.contains("auth") || value.contains("session") { return TileTint.indigo }
+        if value.contains("create") || value.contains("invite") || value.contains("add") { return TileTint.green }
+        if value.contains("update") || value.contains("edit") || value.contains("change") { return TileTint.orange }
+        if value.contains("view") || value.contains("read") || value.contains("open") { return TileTint.teal }
+        return TileTint.gray
     }
 }
 
@@ -85,8 +108,13 @@ private struct AdminAuditEntrySheet: View {
         NavigationStack {
             List {
                 Section {
-                    DetailRow(title: String(localized: "admin.audit.action", defaultValue: "Действие"), value: entry.action)
-                    DetailRow(title: String(localized: "admin.audit.time", defaultValue: "Время"), value: DisplayFormat.dateTime(entry.createdAt))
+                    HeroHeader(
+                        visual: .symbol(AdminAuditVisual.symbol(entry.action), tint: AdminAuditVisual.tint(entry.action)),
+                        title: entry.action,
+                        subtitle: DisplayFormat.dateTime(entry.createdAt)
+                    )
+                }
+                Section {
                     if let entity = entry.entity {
                         DetailRow(title: String(localized: "admin.audit.entity", defaultValue: "Объект"), value: entity)
                     }
@@ -104,8 +132,15 @@ private struct AdminAuditEntrySheet: View {
 
                 if let user = entry.userId {
                     Section {
-                        DetailRow(title: String(localized: "admin.audit.user", defaultValue: "Пользователь"), value: user)
+                        DetailRow(title: String(localized: "admin.audit.user", defaultValue: "Пользователь"), value: user, symbol: "person")
                             .textSelection(.enabled)
+                        Button {
+                            dismiss()
+                            AdminNav.push(.admin(.user(id: user)))
+                        } label: {
+                            IconRow(title: String(localized: "admin.complaint.openUser", defaultValue: "Карточка пользователя"), symbol: "person.crop.rectangle", tint: TileTint.indigo)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
 
@@ -117,11 +152,13 @@ private struct AdminAuditEntrySheet: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .navigationTitle(Text(verbatim: entry.action))
+            .listSectionSpacing(.compact)
+            .navigationTitle(Text(String(localized: "admin.audit.entryTitle", defaultValue: "Запись журнала")))
             .navigationBarTitleDisplayMode(.inline)
+            .softTopEdge()
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(AdminText.close) { dismiss() }
+                ToolbarItem(placement: .cancellationAction) {
+                    SheetCloseButton { dismiss() }
                 }
             }
         }

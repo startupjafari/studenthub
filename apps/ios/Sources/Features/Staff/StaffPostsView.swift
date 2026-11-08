@@ -87,17 +87,8 @@ struct StaffPostsView: View {
             .refreshable { await model.refresh() }
         }
         .navigationTitle(Text(StaffScreen.posts.title))
-        .toolbar {
-            if canPost {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        composing = true
-                    } label: {
-                        Image(systemName: "square.and.pencil")
-                    }
-                    .accessibilityLabel(Text(String(localized: "staff.post.new", defaultValue: "Новая публикация")))
-                }
-            }
+        .adminFloatingAction(canPost, String(localized: "staff.post.new", defaultValue: "Новая публикация"), symbol: "square.and.pencil") {
+            composing = true
         }
         .sheet(isPresented: $composing) {
             StaffPostComposerSheet(role: role) { post in
@@ -254,6 +245,7 @@ private struct StaffPostComposerSheet: View {
             }
             .navigationTitle(Text(String(localized: "staff.post.new", defaultValue: "Новая публикация")))
             .navigationBarTitleDisplayMode(.inline)
+            .softTopEdge()
             .interactiveDismissDisabled(isSaving)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -465,6 +457,7 @@ struct StaffGroupPickerSheet: View {
             }
             .navigationTitle(Text(String(localized: "staff.post.group.pick", defaultValue: "Выберите группу")))
             .navigationBarTitleDisplayMode(.inline)
+            .softTopEdge()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     SheetCloseButton { dismiss() }
@@ -530,6 +523,7 @@ struct StaffPersonPickerSheet: View {
             }
             .navigationTitle(Text(String(localized: "staff.post.person.pick", defaultValue: "Выберите человека")))
             .navigationBarTitleDisplayMode(.inline)
+            .softTopEdge()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     SheetCloseButton { dismiss() }

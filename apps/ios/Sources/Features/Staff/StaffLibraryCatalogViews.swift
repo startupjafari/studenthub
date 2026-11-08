@@ -90,13 +90,34 @@ struct StaffLibraryCatalogView: View {
                 action: isFiltered ? nil : { creating = true }
             ),
             header: {
-                Section {
-                    Toggle(String(localized: "staff.cat.onlyAvailable", defaultValue: "Есть на полке"), isOn: $available)
-                    Toggle(String(localized: "staff.cat.showArchive", defaultValue: "Архив"), isOn: $archived)
-                    if !sections.isEmpty {
-                        Picker(String(localized: "staff.cat.section", defaultValue: "Раздел"), selection: $section) {
-                            Text(String(localized: "staff.cat.allSections", defaultValue: "Все разделы")).tag(String?.none)
-                            ForEach(sections, id: \.self) { Text($0).tag(String?.some($0)) }
+                FilterChipsRow(
+                    options: [
+                        (value: String?.none, title: String(localized: "staff.cat.allBooks", defaultValue: "Все книги")),
+                        (value: Optional("available"), title: String(localized: "staff.cat.onlyAvailable", defaultValue: "Есть на полке")),
+                        (value: Optional("archived"), title: String(localized: "staff.cat.showArchive", defaultValue: "Архив")),
+                    ],
+                    selection: Binding(
+                        get: { archived ? "archived" : (available ? "available" : nil) },
+                        set: { value in
+                            available = value == "available"
+                            archived = value == "archived"
+                        }
+                    )
+                )
+                if let section {
+                    Section {
+                        HStack {
+                            Label(section, systemImage: "folder")
+                                .font(Typography.meta)
+                                .foregroundStyle(Palette.foreground)
+                            Spacer()
+                            Button {
+                                self.section = nil
+                            } label: {
+                                Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.mutedForeground)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(Text(String(localized: "staff.cat.allSections", defaultValue: "Все разделы")))
                         }
                     }
                 }
@@ -108,16 +129,21 @@ struct StaffLibraryCatalogView: View {
             }
         )
         .navigationTitle(Text(StaffScreen.libraryCatalog.title))
-        .debouncedSearch($search, prompt: String(localized: "staff.cat.search", defaultValue: "Название, автор или ISBN")) { _ in
+        .adminPinnedSearch($search, prompt: String(localized: "staff.cat.search", defaultValue: "Название, автор или ISBN")) { _ in
             await reload()
+        }
+        .floatingAction(String(localized: "staff.cat.addBook", defaultValue: "Добавить книгу")) {
+            creating = true
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button {
-                        creating = true
-                    } label: {
-                        Label(String(localized: "staff.cat.addBook", defaultValue: "Добавить книгу"), systemImage: "plus")
+                    if !sections.isEmpty {
+                        Picker(String(localized: "staff.cat.section", defaultValue: "Раздел"), selection: $section) {
+                            Text(String(localized: "staff.cat.allSections", defaultValue: "Все разделы")).tag(String?.none)
+                            ForEach(sections, id: \.self) { Text($0).tag(String?.some($0)) }
+                        }
+                        .pickerStyle(.menu)
                     }
                     Button {
                         importing = true
@@ -125,9 +151,9 @@ struct StaffLibraryCatalogView: View {
                         Label(String(localized: "staff.cat.import", defaultValue: "Импорт из файла"), systemImage: "square.and.arrow.down")
                     }
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: section == nil ? "ellipsis.circle" : "ellipsis.circle.fill")
                 }
-                .accessibilityLabel(Text(String(localized: "staff.cat.addBook", defaultValue: "Добавить книгу")))
+                .accessibilityLabel(Text(String(localized: "staff.cat.more", defaultValue: "Раздел и импорт")))
             }
         }
         .onChange(of: available) { Task { await reload() } }
@@ -167,32 +193,32 @@ private struct StaffBookRow: View {
     let book: StaffBook
 
     var body: some View {
-        HStack(alignment: .top, spacing: Spacing.md) {
+        let availability = StaffLibraryText.availability(book)
+        TelegramStyleRow(
+            title: book.title,
+            subtitle: subtitle,
+            meta: book.availability.onLoan > 0
+                ? String(localized: "staff.cat.onLoanCount", defaultValue: "Выдано: \(book.availability.onLoan.formatted())")
+                : nil
+        ) {
             BookCoverView(url: book.coverUrl, width: 40)
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text(book.title).font(Typography.cardTitle).foregroundStyle(Palette.foreground).lineLimit(3)
-                Text([book.authors.isEmpty ? nil : book.authors, book.year.map { String($0) }, book.section]
-                    .compactMap { $0 }.joined(separator: " · "))
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
-                    .lineLimit(2)
-                HStack(spacing: Spacing.sm) {
-                    let availability = StaffLibraryText.availability(book)
-                    StatusBadge(text: availability.0, tint: availability.1)
-                    if book.availability.onLoan > 0 {
-                        StatusBadge(
-                            text: String(localized: "staff.cat.onLoanCount", defaultValue: "Выдано: \(book.availability.onLoan.formatted())"),
-                            tint: Palette.info
-                        )
-                    }
-                    if book.archived {
-                        StatusBadge(text: String(localized: "staff.cat.archived", defaultValue: "В архиве"), tint: Palette.mutedForeground)
-                    }
-                }
+        } accessory: {
+            if book.archived {
+                StatusBadge(text: String(localized: "staff.cat.archived", defaultValue: "В архиве"), tint: Palette.mutedForeground)
+            } else {
+                StatusBadge(text: availability.0, tint: availability.1)
             }
         }
-        .padding(.vertical, Spacing.xs)
-        .accessibilityElement(children: .combine)
+    }
+
+    private var subtitle: String {
+        var first: [String] = []
+        if !book.authors.isEmpty { first.append(book.authors) }
+        if let year = book.year { first.append(String(year)) }
+        var lines: [String] = []
+        if !first.isEmpty { lines.append(first.joined(separator: " · ")) }
+        if let section = book.section, !section.isEmpty { lines.append(section) }
+        return lines.joined(separator: "\n")
     }
 }
 
@@ -311,6 +337,7 @@ struct StaffBookDetailView: View {
     @State private var confirmArchive = false
     @State private var selected: Set<String> = []
     @State private var coverPick: PhotosPickerItem?
+    @State private var pickingCover = false
     @State private var isWorking = false
     @State private var sheetFile: URL?
 
@@ -326,37 +353,9 @@ struct StaffBookDetailView: View {
                 LoadingStateView()
             }
         }
-        .background(Palette.background)
-        .navigationTitle(Text(book?.title ?? StaffScreen.libraryBook(id: bookID).title))
+        .navigationTitle(Text(StaffScreen.libraryBook(id: bookID).title))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if let book {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            editing = true
-                        } label: {
-                            Label(String(localized: "staff.cat.editBook", defaultValue: "Изменить карточку"), systemImage: "pencil")
-                        }
-                        Button {
-                            if book.archived {
-                                Task { await setArchived(false) }
-                            } else {
-                                confirmArchive = true
-                            }
-                        } label: {
-                            if book.archived {
-                                Label(String(localized: "staff.cat.restore", defaultValue: "Вернуть из архива"), systemImage: "tray.and.arrow.up")
-                            } else {
-                                Label(String(localized: "staff.cat.archive", defaultValue: "В архив"), systemImage: "archivebox")
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                }
-            }
-        }
+        .photosPicker(isPresented: $pickingCover, selection: $coverPick, matching: .images)
         .sheet(isPresented: $editing) {
             if let book { StaffBookFormSheet(book: book) { await load() } }
         }
@@ -416,44 +415,78 @@ struct StaffBookDetailView: View {
     @ViewBuilder
     private func content(_ book: StaffBook) -> some View {
         let copies = book.copies ?? []
+        let availability = StaffLibraryText.availability(book)
         List {
+            // Шапка как у карточки человека: обложка по центру, название, плашки и ряд
+            // круглых кнопок — вместо аватара здесь книга.
             Section {
-                HStack(alignment: .top, spacing: Spacing.lg) {
-                    VStack(spacing: Spacing.sm) {
-                        BookCoverView(url: book.coverUrl, width: 84)
-                        PhotosPicker(selection: $coverPick, matching: .images) {
-                            Label(String(localized: "staff.cat.cover", defaultValue: "Обложка"), systemImage: "photo")
-                                .font(Typography.meta)
-                        }
-                        .buttonStyle(.borderless)
+                VStack(spacing: Spacing.sm) {
+                    BookCoverView(url: book.coverUrl, width: 96)
+                        .padding(.bottom, Spacing.xs)
+                    Text(book.title)
+                        .font(.title2.weight(.semibold))
+                        .foregroundStyle(Palette.foreground)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.isHeader)
+                    if !book.authors.isEmpty {
+                        Text(book.authors)
+                            .font(.subheadline)
+                            .foregroundStyle(Palette.mutedForeground)
+                            .multilineTextAlignment(.center)
                     }
-                    VStack(alignment: .leading, spacing: Spacing.xs) {
-                        Text(book.title).font(Typography.cardTitle).foregroundStyle(Palette.foreground)
-                        if !book.authors.isEmpty {
-                            Text(book.authors).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
+                    HStack(spacing: Spacing.sm) {
+                        if book.archived {
+                            StatusBadge(text: String(localized: "staff.cat.archived", defaultValue: "В архиве"), tint: Palette.mutedForeground)
+                        } else {
+                            StatusBadge(text: availability.0, tint: availability.1)
                         }
-                        let availability = StaffLibraryText.availability(book)
-                        StatusBadge(text: availability.0, tint: availability.1)
                         if book.availability.reserved > 0 {
                             StatusBadge(
                                 text: String(localized: "staff.cat.reservedCount", defaultValue: "Под бронью: \(book.availability.reserved.formatted())"),
                                 tint: Palette.warning
                             )
                         }
+                    }
+                    HeroActionRow(actions: heroActions(book, copies: copies)) {
+                        Button {
+                            pickingCover = true
+                        } label: {
+                            Label(String(localized: "staff.cat.cover", defaultValue: "Обложка"), systemImage: "photo")
+                        }
+                        Divider()
                         if book.archived {
-                            StatusBadge(text: String(localized: "staff.cat.archived", defaultValue: "В архиве"), tint: Palette.mutedForeground)
+                            Button {
+                                Task { await setArchived(false) }
+                            } label: {
+                                Label(String(localized: "staff.cat.restore", defaultValue: "Вернуть из архива"), systemImage: "tray.and.arrow.up")
+                            }
+                        } else {
+                            Button(role: .destructive) {
+                                confirmArchive = true
+                            } label: {
+                                Label(String(localized: "staff.cat.archive", defaultValue: "В архив"), systemImage: "archivebox")
+                            }
                         }
                     }
+                    .padding(.top, Spacing.md)
                 }
-                if let isbn = book.isbn { DetailRow(title: "ISBN", value: isbn) }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Spacing.sm)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: Spacing.sm, leading: 0, bottom: Spacing.sm, trailing: 0))
+            }
+
+            Section {
+                if let isbn = book.isbn { DetailRow(title: "ISBN", value: isbn, symbol: "barcode") }
                 if let publisher = book.publisher {
-                    DetailRow(title: String(localized: "staff.cat.field.publisher", defaultValue: "Издательство"), value: publisher)
+                    DetailRow(title: String(localized: "staff.cat.field.publisher", defaultValue: "Издательство"), value: publisher, symbol: "building.2")
                 }
                 if let year = book.year {
-                    DetailRow(title: String(localized: "staff.cat.field.year", defaultValue: "Год издания"), value: String(year))
+                    DetailRow(title: String(localized: "staff.cat.field.year", defaultValue: "Год издания"), value: String(year), symbol: "calendar")
                 }
                 if let section = book.section {
-                    DetailRow(title: String(localized: "staff.cat.section", defaultValue: "Раздел"), value: section)
+                    DetailRow(title: String(localized: "staff.cat.section", defaultValue: "Раздел"), value: section, symbol: "folder")
                 }
                 if let description = book.description, !description.isEmpty {
                     Text(description).font(Typography.body).foregroundStyle(Palette.mutedForeground)
@@ -494,7 +527,25 @@ struct StaffBookDetailView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
         .refreshable { await load() }
+    }
+
+    private func heroActions(_ book: StaffBook, copies: [StaffBookCopy]) -> [HeroAction] {
+        var actions = [
+            HeroAction(title: String(localized: "staff.cat.editShort", defaultValue: "Изменить"), symbol: "pencil") { editing = true },
+        ]
+        if !book.archived {
+            actions.append(HeroAction(title: String(localized: "staff.cat.copiesShort", defaultValue: "Экземпляры"), symbol: "plus.square.on.square") {
+                addingCopies = true
+            })
+        }
+        if !copies.isEmpty {
+            actions.append(HeroAction(title: String(localized: "staff.cat.labelsShort", defaultValue: "Наклейки"), symbol: "printer") {
+                Task { await printLabels(selected.isEmpty ? copies.map(\.id) : Array(selected)) }
+            })
+        }
+        return actions
     }
 
     private func copyRow(_ copy: StaffBookCopy) -> some View {
@@ -517,7 +568,7 @@ struct StaffBookDetailView: View {
                     Spacer(minLength: Spacing.md)
                     StatusBadge(text: status.0, tint: status.1)
                 }
-                Text("\(StaffLibraryText.code(copy.code)) · \(StaffLibraryText.condition(copy.condition))")
+                Text(verbatim: "\(StaffLibraryText.code(copy.code)) · \(StaffLibraryText.condition(copy.condition))")
                     .font(Typography.meta.monospaced())
                     .foregroundStyle(Palette.mutedForeground)
                 if let loan = copy.loan {
@@ -813,12 +864,12 @@ private struct StaffCopyHistorySheet: View {
                 }
                 .listStyle(.insetGrouped)
             }
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "staff.cat.history.title", defaultValue: "История экземпляра \(copy.inventoryNumber)")))
             .navigationBarTitleDisplayMode(.inline)
+            .softTopEdge()
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(String(localized: "common.ok", defaultValue: "Понятно")) { dismiss() }
+                ToolbarItem(placement: .cancellationAction) {
+                    SheetCloseButton { dismiss() }
                 }
             }
         }

@@ -1,10 +1,12 @@
 import SwiftUI
 
-/// Очередь жалоб: статус вкладками, приоритет — меню. Сервер сам режет по охвату роли:
-/// модератор и админ вуза видят свой вуз, платформа — все.
+/// Очередь жалоб: статус капсулами, приоритет — меню. Сервер сам режет по охвату роли:
+/// модератор и админ вуза видят свой вуз, платформа — все. Строка — как строка чата:
+/// значок цели в цвете приоритета, причина двумя строками, время справа.
 struct AdminComplaintsView: View {
     @State private var status: String? = "PENDING"
     @State private var priority: String?
+    @State private var actionFailure: String?
     @State private var loader = PagedLoader<AdminComplaintDTO>(limit: 30) { request in
         try await AdminAPI().complaints(status: "PENDING", priority: nil, request: request)
     }
@@ -14,7 +16,8 @@ struct AdminComplaintsView: View {
             loader: loader,
             empty: EmptyStateView(
                 title: String(localized: "admin.complaints.empty", defaultValue: "Жалоб нет"),
-                symbol: "checkmark.shield"
+                symbol: "checkmark.shield",
+                hint: String(localized: "admin.complaints.emptyHint", defaultValue: "Новые жалобы появятся здесь сразу, как их отправят")
             )
         ) {
             FilterChipsRow(
@@ -25,6 +28,32 @@ struct AdminComplaintsView: View {
         } row: { complaint in
             NavigationLink(value: AppRoute.admin(.complaint(id: complaint.id))) {
                 AdminComplaintRow(complaint: complaint)
+            }
+            .swipeActions(edge: .trailing) {
+                if complaint.isOpen, complaint.reviewingBy == nil {
+                    Button {
+                        Task { await take(complaint) }
+                    } label: {
+                        Label(String(localized: "admin.complaint.takeShort", defaultValue: "Взять"), systemImage: "hand.raised")
+                    }
+                    .tint(Palette.primary)
+                }
+            }
+            .contextMenu {
+                if complaint.isOpen, complaint.reviewingBy == nil {
+                    Button {
+                        Task { await take(complaint) }
+                    } label: {
+                        Label(String(localized: "admin.complaint.take", defaultValue: "Взять в разбор"), systemImage: "hand.raised")
+                    }
+                }
+                if let reporter = complaint.reporter {
+                    Button {
+                        AdminNav.push(reporter.profileRoute)
+                    } label: {
+                        Label(String(localized: "admin.complaint.reporter", defaultValue: "Автор жалобы"), systemImage: "person.crop.circle")
+                    }
+                }
             }
         }
         .navigationTitle(Text(AdminScreen.complaints.title))
@@ -45,6 +74,7 @@ struct AdminComplaintsView: View {
                 .accessibilityLabel(Text(String(localized: "admin.complaints.priority", defaultValue: "Приоритет")))
             }
         }
+        .actionFailureAlert($actionFailure)
         .onChange(of: status) { _, _ in Task { await refilter() } }
         .onChange(of: priority) { _, _ in Task { await refilter() } }
         // Очередь меняется, пока модератор разбирает жалобу: по возвращении — свежая.
@@ -58,41 +88,75 @@ struct AdminComplaintsView: View {
             try await AdminAPI().complaints(status: status, priority: priority, request: request)
         }
     }
+
+    @MainActor
+    private func take(_ complaint: AdminComplaintDTO) async {
+        do {
+            try await AdminAPI().takeComplaint(id: complaint.id)
+        } catch {
+            actionFailure = (error as? APIError)?.code == .conflict
+                ? String(localized: "admin.complaint.takenConflict", defaultValue: "Жалобу уже разбирает другой модератор")
+                : error.userMessage
+        }
+        await loader.reload()
+    }
+}
+
+/// Значок цели жалобы: по нему очередь читается глазами раньше подписи.
+enum AdminComplaintVisual {
+    static func symbol(_ targetType: String) -> String {
+        switch targetType {
+        case "POST": return "newspaper.fill"
+        case "STORY": return "circle.dashed.inset.filled"
+        case "COMMENT": return "text.bubble.fill"
+        case "MESSAGE": return "bubble.left.and.bubble.right.fill"
+        case "USER": return "person.fill"
+        default: return "exclamationmark.bubble.fill"
+        }
+    }
+
+    /// Цвет значка — по приоритету: высокий красный, средний оранжевый, низкий серый.
+    static func tint(_ complaint: AdminComplaintDTO) -> Color {
+        guard complaint.isOpen else { return TileTint.gray }
+        switch complaint.effectivePriority {
+        case "HIGH": return TileTint.red
+        case "MEDIUM": return TileTint.orange
+        default: return TileTint.blue
+        }
+    }
 }
 
 struct AdminComplaintRow: View {
     let complaint: AdminComplaintDTO
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            HStack(spacing: Spacing.sm) {
-                let priority = AdminText.priority(complaint.effectivePriority)
-                StatusBadge(text: priority.text, tint: priority.tint)
-                Text(AdminText.target(complaint.targetType))
-                    .font(Typography.meta.weight(.medium))
-                    .foregroundStyle(Palette.foreground)
-                Spacer(minLength: Spacing.md)
-                let status = AdminText.complaintStatus(complaint.status)
-                StatusBadge(text: status.text, tint: status.tint)
-            }
-            if let reason = complaint.reason, !reason.isEmpty {
-                Text(reason)
-                    .font(Typography.body)
-                    .foregroundStyle(Palette.foreground)
-                    .lineLimit(3)
-            }
-            Text(verbatim: [complaint.reporter?.name, DisplayFormat.dateTime(complaint.createdAt)]
-                .compactMap { $0 }
-                .joined(separator: " · "))
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
+        TelegramStyleRow(
+            title: title,
+            subtitle: subtitle,
+            meta: DisplayFormat.relative(complaint.createdAt)
+        ) {
+            RowSymbol(symbol: AdminComplaintVisual.symbol(complaint.targetType), tint: AdminComplaintVisual.tint(complaint))
+        } accessory: {
+            let status = AdminText.complaintStatus(complaint.status)
+            StatusBadge(text: status.text, tint: status.tint)
         }
-        .padding(.vertical, Spacing.xs)
-        .accessibilityElement(children: .combine)
+    }
+
+    private var title: String {
+        let target = AdminText.target(complaint.targetType)
+        guard complaint.isOpen, complaint.effectivePriority == "HIGH" else { return target }
+        return "\(target) · \(AdminText.priority("HIGH").text)"
+    }
+
+    private var subtitle: String {
+        let reason = complaint.reason?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let reporter = complaint.reporter?.name ?? ""
+        return [reporter, reason].filter { !$0.isEmpty }.joined(separator: ": ")
     }
 }
 
-/// Разбор жалобы: что обжаловано, кто жалуется, решение. Меры идут от мягкой к жёсткой —
+/// Разбор жалобы: шапка с целью и статусом, ряд кнопок (взять, открыть цель, автор),
+/// ниже — что обжаловано, переписка, решение. Меры идут от мягкой к жёсткой —
 /// модератор останавливается на первой достаточной; жёсткие спрашивают подтверждение.
 struct AdminComplaintView: View {
     let id: String
@@ -112,10 +176,7 @@ struct AdminComplaintView: View {
     @State private var comment = ""
     @State private var applyToDuplicates = false
     @State private var confirming: String?
-
-    @State private var showChat = false
-    @State private var messages: [AdminComplaintMessageDTO]?
-    @State private var messagesFailure: String?
+    @State private var showingTranscript = false
 
     private let api = AdminAPI()
 
@@ -129,11 +190,15 @@ struct AdminComplaintView: View {
                 LoadingStateView()
             }
         }
-        .background(Palette.background)
         .navigationTitle(Text(AdminScreen.complaint(id: id).title))
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
         .actionFailureAlert($actionFailure)
+        .sheet(isPresented: $showingTranscript) {
+            if let complaint {
+                AdminComplaintTranscriptSheet(complaint: complaint)
+            }
+        }
         .confirmationDialog(
             confirming.map(confirmTitle) ?? "",
             isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
@@ -152,61 +217,20 @@ struct AdminComplaintView: View {
         let reviewer = complaint.reviewingBy
         let takenByOther = reviewer != nil && reviewer?.id != viewerID
         return List {
-            Section {
-                HStack(spacing: Spacing.sm) {
-                    let priority = AdminText.priority(complaint.effectivePriority)
-                    StatusBadge(text: priority.text, tint: priority.tint)
-                    StatusBadge(text: AdminText.target(complaint.targetType), tint: Palette.primary)
-                    Spacer(minLength: Spacing.md)
-                    let status = AdminText.complaintStatus(complaint.status)
-                    StatusBadge(text: status.text, tint: status.tint)
-                }
-                if let reason = complaint.reason, !reason.isEmpty {
+            header(complaint)
+
+            if let reason = complaint.reason?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty {
+                Section {
                     Text(reason)
                         .font(Typography.body)
                         .foregroundStyle(Palette.foreground)
                         .textSelection(.enabled)
+                } header: {
+                    Text(String(localized: "admin.complaint.reasonTitle", defaultValue: "Причина"))
                 }
             }
 
-            Section {
-                if let reporter = complaint.reporter {
-                    AdminLinkRow(
-                        title: String(localized: "admin.complaint.reporter", defaultValue: "Автор жалобы"),
-                        value: reporter.name,
-                        route: reporter.profileRoute
-                    )
-                }
-                DetailRow(
-                    title: String(localized: "admin.complaint.date", defaultValue: "Дата"),
-                    value: DisplayFormat.dateTime(complaint.createdAt)
-                )
-                if let reports = complaint.targetReports, reports > 1 {
-                    DetailRow(
-                        title: String(localized: "admin.complaint.reports", defaultValue: "Жалоб от разных людей"),
-                        value: reports.formatted()
-                    )
-                }
-                if complaint.isOpen {
-                    DetailRow(
-                        title: String(localized: "admin.complaint.reviewingBy", defaultValue: "Разбирает"),
-                        value: reviewer?.name ?? String(localized: "admin.complaint.nobody", defaultValue: "Никто")
-                    )
-                } else {
-                    if let resolver = complaint.resolvedBy {
-                        AdminLinkRow(
-                            title: String(localized: "admin.complaint.resolvedBy", defaultValue: "Обработал"),
-                            value: resolver.name,
-                            route: resolver.profileRoute
-                        )
-                    }
-                    DetailRow(
-                        title: String(localized: "admin.complaint.resolution", defaultValue: "Решение"),
-                        value: complaint.resolution ?? "—"
-                    )
-                }
-            }
-
+            detailsSection(complaint, reviewer: reviewer)
             targetSection(complaint)
 
             if complaint.targetType == "MESSAGE" {
@@ -215,34 +239,140 @@ struct AdminComplaintView: View {
 
             if complaint.isOpen && !takenByOther {
                 decisionSection(complaint)
-            }
-
-            Section {
-                if complaint.isOpen && takenByOther {
-                    Text(String(localized: "admin.complaint.takenByOther", defaultValue: "Жалобу разбирает другой модератор — решение за ним."))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
-                }
-                if complaint.isOpen && reviewer == nil {
-                    Button {
-                        Task { await take() }
-                    } label: {
-                        Label(String(localized: "admin.complaint.take", defaultValue: "Взять в разбор"), systemImage: "hand.raised")
-                    }
-                    .disabled(isWorking)
-                }
-                if !complaint.isOpen {
-                    Button {
-                        Task { await reopen() }
-                    } label: {
-                        Label(String(localized: "admin.complaint.reopen", defaultValue: "Вернуть в очередь"), systemImage: "arrow.uturn.backward")
-                    }
-                    .disabled(isWorking)
+            } else if complaint.isOpen && takenByOther {
+                Section {
+                    Label(
+                        String(localized: "admin.complaint.takenByOther", defaultValue: "Жалобу разбирает другой модератор — решение за ним."),
+                        systemImage: "person.badge.clock"
+                    )
+                    .font(Typography.meta)
+                    .foregroundStyle(Palette.mutedForeground)
                 }
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
         .refreshable { await load() }
+    }
+
+    private func header(_ complaint: AdminComplaintDTO) -> some View {
+        let status = AdminText.complaintStatus(complaint.status)
+        let priority = AdminText.priority(complaint.effectivePriority)
+        let target = AdminText.target(complaint.targetType)
+        return Section {
+            HeroHeader(
+                visual: .symbol(AdminComplaintVisual.symbol(complaint.targetType), tint: AdminComplaintVisual.tint(complaint)),
+                title: String(localized: "admin.complaint.heroTitle", defaultValue: "Жалоба: \(target)"),
+                subtitle: DisplayFormat.dateTime(complaint.createdAt),
+                actions: heroActions(complaint)
+            ) {
+                HStack(spacing: Spacing.sm) {
+                    StatusBadge(text: status.text, tint: status.tint)
+                    if complaint.isOpen {
+                        StatusBadge(text: priority.text, tint: priority.tint)
+                    }
+                }
+            }
+        }
+    }
+
+    private func heroActions(_ complaint: AdminComplaintDTO) -> [HeroAction] {
+        var actions: [HeroAction] = []
+        if complaint.isOpen && complaint.reviewingBy == nil {
+            actions.append(HeroAction(
+                title: String(localized: "admin.complaint.takeShort", defaultValue: "Взять"),
+                symbol: "hand.raised.fill"
+            ) { Task { await take() } })
+        }
+        if !complaint.isOpen {
+            actions.append(HeroAction(
+                title: String(localized: "admin.complaint.reopenShort", defaultValue: "В очередь"),
+                symbol: "arrow.uturn.backward"
+            ) { Task { await reopen() } })
+        }
+        if let route = targetRoute(complaint) {
+            actions.append(HeroAction(
+                title: String(localized: "admin.complaint.openTargetShort", defaultValue: "Открыть"),
+                symbol: complaint.targetType == "POST" ? "newspaper" : "person.crop.rectangle"
+            ) { AdminNav.push(route) })
+        }
+        if complaint.targetType == "MESSAGE", role != .universityAdmin {
+            actions.append(HeroAction(
+                title: String(localized: "admin.complaint.chatShort", defaultValue: "Переписка"),
+                symbol: "bubble.left.and.bubble.right"
+            ) { showingTranscript = true })
+        }
+        if let reporter = complaint.reporter {
+            actions.append(HeroAction(
+                title: String(localized: "admin.complaint.reporterShort", defaultValue: "Заявитель"),
+                symbol: "person.crop.circle"
+            ) { AdminNav.push(reporter.profileRoute) })
+        }
+        return actions
+    }
+
+    /// Куда ведёт «Открыть»: пост — в ленту, человек и автор — в карточку пользователя.
+    private func targetRoute(_ complaint: AdminComplaintDTO) -> AppRoute? {
+        switch complaint.targetType {
+        case "POST" where complaint.targetPreview != nil && complaint.targetPreview?.deleted != true:
+            return .post(id: complaint.targetId)
+        case "USER":
+            return .admin(.user(id: complaint.targetId))
+        default:
+            return complaint.targetOwnerId.map { .admin(.user(id: $0)) }
+        }
+    }
+
+    private func detailsSection(_ complaint: AdminComplaintDTO, reviewer: AdminPersonDTO?) -> some View {
+        Section {
+            if let reporter = complaint.reporter {
+                NavigationLink(value: reporter.profileRoute) {
+                    PersonRow(
+                        name: reporter.name,
+                        subtitle: String(localized: "admin.complaint.reporter", defaultValue: "Автор жалобы"),
+                        avatarURL: reporter.avatarThumbUrl ?? reporter.avatarUrl,
+                        size: 36
+                    )
+                }
+            }
+            if let reports = complaint.targetReports, reports > 1 {
+                DetailRow(
+                    title: String(localized: "admin.complaint.reports", defaultValue: "Жалоб от разных людей"),
+                    value: reports.formatted(),
+                    symbol: "person.3"
+                )
+            }
+            if complaint.isOpen {
+                DetailRow(
+                    title: String(localized: "admin.complaint.reviewingBy", defaultValue: "Разбирает"),
+                    value: reviewer?.name ?? String(localized: "admin.complaint.nobody", defaultValue: "Никто"),
+                    symbol: "person.badge.clock"
+                )
+            } else {
+                if let resolver = complaint.resolvedBy {
+                    NavigationLink(value: resolver.profileRoute) {
+                        PersonRow(
+                            name: resolver.name,
+                            subtitle: String(localized: "admin.complaint.resolvedBy", defaultValue: "Обработал"),
+                            avatarURL: resolver.avatarThumbUrl ?? resolver.avatarUrl,
+                            size: 36
+                        )
+                    }
+                }
+                DetailRow(
+                    title: String(localized: "admin.complaint.resolution", defaultValue: "Решение"),
+                    value: complaint.resolution ?? "—",
+                    symbol: "checkmark.seal"
+                )
+                if let resolvedAt = complaint.resolvedAt {
+                    DetailRow(
+                        title: String(localized: "admin.complaint.resolvedAt", defaultValue: "Решено"),
+                        value: DisplayFormat.dateTime(resolvedAt),
+                        symbol: "clock"
+                    )
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -277,27 +407,30 @@ struct AdminComplaintView: View {
                         .foregroundStyle(Palette.mutedForeground)
                     }
                 } else {
-                    Text(String(localized: "admin.complaint.targetGone", defaultValue: "Содержимое недоступно — его уже сняли."))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
+                    Label(
+                        String(localized: "admin.complaint.targetGone", defaultValue: "Содержимое недоступно — его уже сняли."),
+                        systemImage: "eye.slash"
+                    )
+                    .font(Typography.meta)
+                    .foregroundStyle(Palette.mutedForeground)
                 }
                 if complaint.targetType == "POST", complaint.targetPreview?.deleted != true, complaint.targetPreview != nil {
                     NavigationLink(value: AppRoute.post(id: complaint.targetId)) {
-                        Label(String(localized: "admin.complaint.openPost", defaultValue: "Открыть пост"), systemImage: "newspaper")
+                        IconRow(title: String(localized: "admin.complaint.openPost", defaultValue: "Открыть пост"), symbol: "newspaper", tint: TileTint.blue)
                     }
                 }
             }
             if complaint.targetType == "USER" {
                 NavigationLink(value: AppRoute.admin(.user(id: complaint.targetId))) {
-                    Label(String(localized: "admin.complaint.openUser", defaultValue: "Карточка пользователя"), systemImage: "person.crop.rectangle")
+                    IconRow(title: String(localized: "admin.complaint.openUser", defaultValue: "Карточка пользователя"), symbol: "person.crop.rectangle", tint: TileTint.indigo)
                 }
                 NavigationLink(value: AppRoute.profile(id: complaint.targetId)) {
-                    Label(String(localized: "admin.complaint.openProfile", defaultValue: "Профиль"), systemImage: "person")
+                    IconRow(title: String(localized: "admin.complaint.openProfile", defaultValue: "Профиль"), symbol: "person.fill", tint: TileTint.blue)
                 }
             } else if let owner = complaint.targetOwnerId {
                 // Решение принимают про человека: заблокировать — значит его, а не пост.
                 NavigationLink(value: AppRoute.admin(.user(id: owner))) {
-                    Label(String(localized: "admin.complaint.openOwner", defaultValue: "Карточка автора"), systemImage: "person.crop.rectangle")
+                    IconRow(title: String(localized: "admin.complaint.openOwner", defaultValue: "Карточка автора"), symbol: "person.crop.rectangle", tint: TileTint.indigo)
                 }
             }
         } header: {
@@ -313,38 +446,15 @@ struct AdminComplaintView: View {
         Section {
             if canRead {
                 Button {
-                    showChat.toggle()
-                    if showChat && messages == nil { Task { await loadMessages() } }
+                    showingTranscript = true
                 } label: {
-                    Label(
-                        showChat
-                            ? String(localized: "admin.complaint.hideChat", defaultValue: "Скрыть переписку")
-                            : String(localized: "admin.complaint.showChat", defaultValue: "Показать переписку"),
-                        systemImage: "bubble.left.and.bubble.right"
+                    IconRow(
+                        title: String(localized: "admin.complaint.showChat", defaultValue: "Показать переписку"),
+                        symbol: "bubble.left.and.bubble.right.fill",
+                        tint: TileTint.teal
                     )
                 }
-                if showChat {
-                    if let messages {
-                        if messages.isEmpty {
-                            Text(String(localized: "admin.complaint.chatEmpty", defaultValue: "Сообщений в переписке нет"))
-                                .font(Typography.meta)
-                                .foregroundStyle(Palette.mutedForeground)
-                        }
-                        ForEach(messages) { message in
-                            AdminTranscriptRow(
-                                message: message,
-                                isTarget: message.id == complaint.targetId,
-                                isReporter: message.senderId == complaint.reporter?.id
-                            )
-                        }
-                    } else if let messagesFailure {
-                        Text(messagesFailure)
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.destructive)
-                    } else {
-                        ProgressView()
-                    }
-                }
+                .buttonStyle(.plain)
             } else {
                 Text(String(localized: "admin.complaint.chatModeratorsOnly", defaultValue: "Переписку по жалобе читают модераторы: администратору вуза открыты только официальные чаты."))
                     .font(Typography.meta)
@@ -359,17 +469,17 @@ struct AdminComplaintView: View {
         }
     }
 
+    @ViewBuilder
     private func decisionSection(_ complaint: AdminComplaintDTO) -> some View {
         let decisions = ["DISMISS", "WARN_USER", "DELETE_CONTENT", "BLOCK_USER"]
             .filter { !($0 == "DELETE_CONTENT" && complaint.targetType == "USER") }
-        return Section {
+        Section {
             ForEach(decisions, id: \.self) { action in
                 Button {
                     decision = action
                 } label: {
-                    HStack(alignment: .top, spacing: Spacing.md) {
-                        Image(systemName: decision == action ? "largecircle.fill.circle" : "circle")
-                            .foregroundStyle(isSevere(action) ? Palette.destructive : Palette.primary)
+                    HStack(spacing: Spacing.lg) {
+                        IconTile(symbol: decisionSymbol(action), tint: decisionTint(action))
                         VStack(alignment: .leading, spacing: 2) {
                             Text(decisionTitle(action))
                                 .font(Typography.body)
@@ -377,13 +487,25 @@ struct AdminComplaintView: View {
                             Text(decisionHint(action))
                                 .font(Typography.meta)
                                 .foregroundStyle(Palette.mutedForeground)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-                        Spacer(minLength: 0)
+                        Spacer(minLength: Spacing.md)
+                        if decision == action {
+                            Image(systemName: "checkmark")
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(Palette.primary)
+                        }
                     }
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(decision == action ? .isSelected : [])
             }
+        } header: {
+            Text(String(localized: "admin.complaint.decision", defaultValue: "Решение"))
+        }
+
+        Section {
             if decision == "BLOCK_USER" {
                 Picker(String(localized: "admin.block.term", defaultValue: "Срок блокировки"), selection: $blockDays) {
                     ForEach(AdminText.blockTerms, id: \.self) { Text(AdminText.blockTerm($0)).tag($0) }
@@ -396,7 +518,10 @@ struct AdminComplaintView: View {
             )
             .lineLimit(1...4)
             Toggle(String(localized: "admin.complaint.applyToDuplicates", defaultValue: "Применить ко всем жалобам на эту цель"), isOn: $applyToDuplicates)
-            Button {
+        }
+
+        Section {
+            Button(role: decision.map(isSevere) == true ? .destructive : nil) {
                 guard let decision else { return }
                 if decision == "DISMISS" {
                     Task { await resolve(decision) }
@@ -404,7 +529,7 @@ struct AdminComplaintView: View {
                     confirming = decision
                 }
             } label: {
-                HStack {
+                HStack(spacing: Spacing.sm) {
                     Spacer()
                     if isWorking { ProgressView() }
                     Text(decision.map(decisionTitle) ?? String(localized: "admin.complaint.apply", defaultValue: "Применить решение"))
@@ -412,10 +537,7 @@ struct AdminComplaintView: View {
                     Spacer()
                 }
             }
-            .tint(decision.map(isSevere) == true ? Palette.destructive : Palette.primary)
             .disabled(decision == nil || isWorking)
-        } header: {
-            Text(String(localized: "admin.complaint.decision", defaultValue: "Решение"))
         }
     }
 
@@ -423,6 +545,24 @@ struct AdminComplaintView: View {
 
     private func isSevere(_ action: String) -> Bool {
         action == "DELETE_CONTENT" || action == "BLOCK_USER"
+    }
+
+    private func decisionSymbol(_ action: String) -> String {
+        switch action {
+        case "DISMISS": return "xmark"
+        case "WARN_USER": return "exclamationmark.triangle.fill"
+        case "DELETE_CONTENT": return "trash.fill"
+        case "BLOCK_USER": return "hand.raised.fill"
+        default: return "questionmark"
+        }
+    }
+
+    private func decisionTint(_ action: String) -> Color {
+        switch action {
+        case "DISMISS": return TileTint.gray
+        case "WARN_USER": return TileTint.orange
+        default: return TileTint.red
+        }
     }
 
     private func decisionTitle(_ action: String) -> String {
@@ -465,16 +605,6 @@ struct AdminComplaintView: View {
         } catch {
             failure = error.userMessage
             isOffline = error.isOffline
-        }
-    }
-
-    @MainActor
-    private func loadMessages() async {
-        do {
-            messages = try await api.complaintMessages(id: id)
-            messagesFailure = nil
-        } catch {
-            messagesFailure = error.userMessage
         }
     }
 
@@ -526,50 +656,106 @@ struct AdminComplaintView: View {
     }
 }
 
-/// Сообщение окна переписки: обжалованное подсвечено, автор жалобы помечен.
-private struct AdminTranscriptRow: View {
-    let message: AdminComplaintMessageDTO
-    let isTarget: Bool
-    let isReporter: Bool
+/// Переписка по жалобе на сообщение — как чат: обои, пузыри, капсулы дней. Обжалованное
+/// сообщение обведено красным, сообщения автора жалобы — справа.
+private struct AdminComplaintTranscriptSheet: View {
+    let complaint: AdminComplaintDTO
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var messages: [AdminComplaintMessageDTO]?
+    @State private var failure: String?
+    @State private var isOffline = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
-                Text(message.sender?.name ?? "—")
-                    .font(Typography.meta.weight(.semibold))
-                    .foregroundStyle(Palette.foreground)
-                if isReporter {
-                    Text(String(localized: "admin.complaint.reporterTag", defaultValue: "автор жалобы"))
-                        .font(.caption)
-                        .foregroundStyle(Palette.primary)
+        NavigationStack {
+            Group {
+                if let messages {
+                    if messages.isEmpty {
+                        EmptyStateView(
+                            title: String(localized: "admin.complaint.chatEmpty", defaultValue: "Сообщений в переписке нет"),
+                            symbol: "bubble.left.and.bubble.right"
+                        )
+                    } else {
+                        transcript(messages)
+                    }
+                } else if let failure {
+                    ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+                } else {
+                    LoadingStateView()
                 }
-                Spacer(minLength: Spacing.md)
-                Text(DisplayFormat.dateTime(message.createdAt))
-                    .font(.caption)
-                    .foregroundStyle(Palette.mutedForeground)
             }
-            if let content = message.content, !content.isEmpty {
-                Text(content)
-                    .font(Typography.body)
-                    .foregroundStyle(Palette.foreground)
-            } else {
-                Text(String(localized: "admin.complaint.messageDeleted", defaultValue: "Сообщение удалено"))
-                    .font(Typography.meta.italic())
-                    .foregroundStyle(Palette.mutedForeground)
-            }
-            if isTarget {
-                Label(
-                    message.deletedAt == nil
-                        ? String(localized: "admin.complaint.reportedMessage", defaultValue: "Обжалованное сообщение")
-                        : String(localized: "admin.complaint.reportedDeleted", defaultValue: "Обжалованное сообщение · удалено автором"),
-                    systemImage: "flag.fill"
-                )
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Palette.destructive)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background { ChatWallpaper().ignoresSafeArea() }
+            .navigationTitle(Text(String(localized: "admin.complaint.chatTitle", defaultValue: "Переписка")))
+            .navigationBarTitleDisplayMode(.inline)
+            .softTopEdge()
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    SheetCloseButton { dismiss() }
+                }
             }
         }
-        .padding(.vertical, 2)
-        .listRowBackground(isTarget ? Palette.destructive.opacity(0.12) : Palette.card)
-        .accessibilityElement(children: .combine)
+        .task { await load() }
+    }
+
+    private func transcript(_ messages: [AdminComplaintMessageDTO]) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: Spacing.xs) {
+                    Text(String(localized: "admin.complaint.chatAudit", defaultValue: "Открытие переписки записывается в журнал аудита"))
+                        .font(.caption)
+                        .foregroundStyle(Palette.mutedForeground)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, Spacing.lg)
+                        .padding(.vertical, Spacing.xs)
+                        .chatCapsuleSurface()
+                        .padding(.bottom, Spacing.sm)
+                    ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
+                        if AdminDayCapsule.startsDay(message.createdAt, after: index > 0 ? messages[index - 1].createdAt : nil) {
+                            AdminDayCapsule(day: message.createdAt)
+                        }
+                        let isTarget = message.id == complaint.targetId
+                        let isReporter = message.senderId != nil && message.senderId == complaint.reporter?.id
+                        AdminChatBubble(
+                            text: message.content,
+                            author: isReporter ? nil : message.sender?.name,
+                            time: message.createdAt,
+                            isOutgoing: isReporter,
+                            isHighlighted: isTarget,
+                            footnote: footnote(isTarget: isTarget, isReporter: isReporter, deleted: message.deletedAt != nil)
+                        )
+                        .id(message.id)
+                    }
+                }
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.md)
+            }
+            .onAppear {
+                // Сразу к обжалованному: ради него переписку и открыли.
+                proxy.scrollTo(complaint.targetId, anchor: .center)
+            }
+        }
+    }
+
+    private func footnote(isTarget: Bool, isReporter: Bool, deleted: Bool) -> String? {
+        if isTarget {
+            return deleted
+                ? String(localized: "admin.complaint.reportedDeleted", defaultValue: "Обжалованное сообщение · удалено автором")
+                : String(localized: "admin.complaint.reportedMessage", defaultValue: "Обжалованное сообщение")
+        }
+        return isReporter ? String(localized: "admin.complaint.reporterTag", defaultValue: "автор жалобы") : nil
+    }
+
+    @MainActor
+    private func load() async {
+        do {
+            messages = try await AdminAPI().complaintMessages(id: complaint.id)
+            failure = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            failure = error.userMessage
+            isOffline = error.isOffline
+        }
     }
 }

@@ -330,16 +330,9 @@ struct StaffTemplatesView: View {
                 }
                 .accessibilityLabel(Text(String(localized: "staff.tpl.category", defaultValue: "Вид документа")))
             }
-            if canManage {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        creating = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .accessibilityLabel(Text(String(localized: "staff.tpl.create", defaultValue: "Создать шаблон")))
-                }
-            }
+        }
+        .adminFloatingAction(canManage, String(localized: "staff.tpl.create", defaultValue: "Создать шаблон")) {
+            creating = true
         }
         .onChange(of: status) { Task { await reload() } }
         .onChange(of: category) { Task { await reload() } }
@@ -376,31 +369,24 @@ struct StaffTemplatesView: View {
 
     private func templateRow(_ item: StaffTemplate) -> some View {
         let status = StaffTemplateText.status(item.status)
-        return VStack(alignment: .leading, spacing: Spacing.xs) {
-            HStack(alignment: .firstTextBaseline, spacing: Spacing.md) {
-                Text(item.title)
-                    .font(Typography.cardTitle)
-                    .foregroundStyle(Palette.foreground)
-                    .lineLimit(3)
-                Spacer(minLength: Spacing.md)
+        let line = [
+            StaffTemplateText.category(item.category),
+            String(localized: "staff.tpl.variablesCount", defaultValue: "Переменных: \(item.variableCount.formatted())"),
+        ].joined(separator: " · ")
+        return TelegramStyleRow(
+            title: item.title,
+            subtitle: [item.description ?? "", line].filter { !$0.isEmpty }.joined(separator: "\n"),
+            meta: item.updatedAt.map(DisplayFormat.date)
+        ) {
+            RowSymbol(symbol: "doc.text.fill", tint: status.1)
+        } accessory: {
+            HStack(spacing: Spacing.xs) {
+                if item.hasUnpublishedChanges {
+                    StatusBadge(text: String(localized: "staff.tpl.unpublished", defaultValue: "Есть изменения"), tint: Palette.info)
+                }
                 StatusBadge(text: status.0, tint: status.1)
             }
-            if let description = item.description, !description.isEmpty {
-                Text(description).font(Typography.meta).foregroundStyle(Palette.mutedForeground).lineLimit(2)
-            }
-            if item.hasUnpublishedChanges {
-                StatusBadge(text: String(localized: "staff.tpl.unpublished", defaultValue: "Есть изменения"), tint: Palette.info)
-            }
-            Text([
-                StaffTemplateText.category(item.category),
-                String(localized: "staff.tpl.variablesCount", defaultValue: "Переменных: \(item.variableCount.formatted())"),
-                item.updatedAt.map { DisplayFormat.date($0) },
-            ].compactMap { $0 }.joined(separator: " · "))
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
         }
-        .padding(.vertical, Spacing.xs)
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -503,29 +489,8 @@ struct StaffTemplateDetailView: View {
                 LoadingStateView()
             }
         }
-        .background(Palette.background)
-        .navigationTitle(Text(template?.title ?? StaffScreen.documentTemplate(id: templateID).title))
+        .navigationTitle(Text(StaffScreen.documentTemplate(id: templateID).title))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if let template, canManage, template.status != "ARCHIVED" {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            editing = true
-                        } label: {
-                            Label(String(localized: "staff.tpl.edit", defaultValue: "Изменить"), systemImage: "pencil")
-                        }
-                        Button(role: .destructive) {
-                            confirmDelete = true
-                        } label: {
-                            Label(String(localized: "staff.tpl.delete", defaultValue: "Удалить"), systemImage: "trash")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                }
-            }
-        }
         .sheet(isPresented: $editing) {
             if let template {
                 StaffTemplateInfoSheet(template: template) { _ in await load() }
@@ -604,19 +569,67 @@ struct StaffTemplateDetailView: View {
         let archived = template.status == "ARCHIVED"
         let current = template.versions?.first { $0.id == template.currentVersion?.id }
         let valid = current?.validation.valid == true
+        let status = StaffTemplateText.status(template.status)
         List {
             Section {
-                VStack(alignment: .leading, spacing: Spacing.xs) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(template.title).font(Typography.cardTitle).foregroundStyle(Palette.foreground)
-                        Spacer(minLength: Spacing.md)
-                        let status = StaffTemplateText.status(template.status)
-                        StatusBadge(text: status.0, tint: status.1)
+                if canManage, !archived {
+                    HeroHeader(
+                        visual: .symbol("doc.text.fill", tint: status.1),
+                        title: template.title,
+                        subtitle: [StaffTemplateText.category(template.category), StaffTemplateText.locale(template.locale)].joined(separator: " · "),
+                        actions: heroActions(template, current: current, valid: valid)
+                    ) {
+                        HStack(spacing: Spacing.sm) {
+                            StatusBadge(text: status.0, tint: status.1)
+                            if template.hasUnpublishedChanges {
+                                StatusBadge(text: String(localized: "staff.tpl.unpublished", defaultValue: "Есть изменения"), tint: Palette.info)
+                            }
+                        }
+                    } moreMenu: {
+                        if canManage, !archived {
+                            Button {
+                                editing = true
+                            } label: {
+                                Label(String(localized: "staff.tpl.edit", defaultValue: "Изменить"), systemImage: "pencil")
+                            }
+                            if let current {
+                                Button {
+                                    downloadSource(current)
+                                } label: {
+                                    Label(String(localized: "staff.tpl.downloadSource", defaultValue: "Скачать исходный DOCX"), systemImage: "arrow.down.doc")
+                                }
+                            }
+                            Button {
+                                uploading = true
+                            } label: {
+                                Label(String(localized: "staff.tpl.replaceFile", defaultValue: "Заменить файл"), systemImage: "arrow.up.doc")
+                            }
+                            Divider()
+                            Button(role: .destructive) {
+                                confirmDelete = true
+                            } label: {
+                                Label(deleteActionTitle, systemImage: (template.generationCount ?? 0) > 0 ? "archivebox" : "trash")
+                            }
+                        }
                     }
-                    Text("\(StaffTemplateText.category(template.category)) · \(StaffTemplateText.locale(template.locale))")
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
+                } else {
+                    HeroHeader(
+                        visual: .symbol("doc.text.fill", tint: status.1),
+                        title: template.title,
+                        subtitle: [StaffTemplateText.category(template.category), StaffTemplateText.locale(template.locale)].joined(separator: " · "),
+                        actions: heroActions(template, current: current, valid: valid)
+                    ) {
+                        HStack(spacing: Spacing.sm) {
+                            StatusBadge(text: status.0, tint: status.1)
+                            if template.hasUnpublishedChanges {
+                                StatusBadge(text: String(localized: "staff.tpl.unpublished", defaultValue: "Есть изменения"), tint: Palette.info)
+                            }
+                        }
+                    }
                 }
+            }
+
+            Section {
                 if archived {
                     Label(
                         String(
@@ -750,14 +763,42 @@ struct StaffTemplateDetailView: View {
                 if let description = template.description, !description.isEmpty {
                     Text(description).font(Typography.body).foregroundStyle(Palette.foreground)
                 }
-                DetailRow(title: String(localized: "staff.tpl.author", defaultValue: "Автор"), value: template.author?.displayName ?? "—")
-                DetailRow(title: String(localized: "staff.tpl.created", defaultValue: "Создан"), value: DisplayFormat.date(template.createdAt))
-                DetailRow(title: String(localized: "staff.tpl.updated", defaultValue: "Изменён"), value: DisplayFormat.date(template.updatedAt))
-                DetailRow(title: String(localized: "staff.tpl.variablesTitle", defaultValue: "Переменных"), value: template.variableCount.formatted())
+                DetailRow(title: String(localized: "staff.tpl.author", defaultValue: "Автор"), value: template.author?.displayName ?? "—", symbol: "person")
+                DetailRow(title: String(localized: "staff.tpl.created", defaultValue: "Создан"), value: DisplayFormat.date(template.createdAt), symbol: "calendar")
+                DetailRow(title: String(localized: "staff.tpl.updated", defaultValue: "Изменён"), value: DisplayFormat.date(template.updatedAt), symbol: "pencil")
+                DetailRow(title: String(localized: "staff.tpl.variablesTitle", defaultValue: "Переменных"), value: template.variableCount.formatted(), symbol: "curlybraces")
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
         .refreshable { await load() }
+    }
+
+    /// Круглые кнопки шапки: главное, что делают с шаблоном, — сформировать документ,
+    /// посмотреть пример и опубликовать.
+    private func heroActions(_ template: StaffTemplate, current: StaffTemplateVersion?, valid: Bool) -> [HeroAction] {
+        var actions: [HeroAction] = []
+        if template.status == "PUBLISHED" {
+            actions.append(HeroAction(title: String(localized: "staff.tpl.generateShort", defaultValue: "Сформировать"), symbol: "person.text.rectangle") {
+                generating = true
+            })
+        }
+        if let current, valid, canManage {
+            actions.append(HeroAction(title: String(localized: "staff.tpl.previewShort", defaultValue: "Пример"), symbol: "eye") {
+                Task { await showPreview(current) }
+            })
+        }
+        if canManage, template.status != "ARCHIVED", valid, template.status != "PUBLISHED" || template.hasUnpublishedChanges {
+            actions.append(HeroAction(title: String(localized: "staff.tpl.publishShort", defaultValue: "Опубликовать"), symbol: "paperplane.fill") {
+                Task { await run { try await api.publishTemplate(id: templateID) } }
+            })
+        }
+        if canManage, template.status != "ARCHIVED", current == nil {
+            actions.append(HeroAction(title: String(localized: "staff.tpl.uploadShort", defaultValue: "Загрузить"), symbol: "arrow.up.doc") {
+                uploading = true
+            })
+        }
+        return actions
     }
 
     private func versionRow(_ version: StaffTemplateVersion, template: StaffTemplate) -> some View {
@@ -1003,6 +1044,7 @@ struct StaffStudentPickerSheet: View {
             }
             .navigationTitle(Text(title))
             .navigationBarTitleDisplayMode(.inline)
+            .softTopEdge()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     SheetCloseButton { dismiss() }

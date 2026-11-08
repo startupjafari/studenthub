@@ -104,17 +104,8 @@ struct StaffEventsView: View {
             }
         )
         .navigationTitle(Text(StaffScreen.events.title))
-        .toolbar {
-            if canCreate {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        creating = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .accessibilityLabel(Text(String(localized: "staff.event.create", defaultValue: "Создать событие")))
-                }
-            }
+        .adminFloatingAction(canCreate, String(localized: "staff.event.create", defaultValue: "Создать событие")) {
+            creating = true
         }
         .onChange(of: filter) { _, value in
             let filter = value ?? "upcoming"
@@ -148,51 +139,48 @@ private struct StaffEventRow: View {
     let past: Bool
 
     var body: some View {
-        HStack(alignment: .top, spacing: Spacing.md) {
-            // Отрывной календарь: дата — первое, что ищут глазами в списке событий.
-            VStack(spacing: 0) {
-                Text(event.startsAt.formatted(.dateTime.weekday(.abbreviated)))
-                    .font(.caption2.weight(.medium))
-                Text(event.startsAt.formatted(.dateTime.day()))
-                    .font(.title3.weight(.bold).monospacedDigit())
-                Text(event.startsAt.formatted(.dateTime.month(.abbreviated)))
-                    .font(.caption2.weight(.medium))
-            }
-            .foregroundStyle(Palette.primary)
-            .frame(width: 52)
-            .padding(.vertical, Spacing.xs)
-            .background(Palette.primary.opacity(0.1), in: RoundedRectangle(cornerRadius: Radius.lg))
-
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text(event.title).font(Typography.cardTitle).foregroundStyle(Palette.foreground).lineLimit(3)
-                if let organizer = event.organizer {
-                    Text(organizer.displayName).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
+        TelegramStyleRow(
+            title: event.title,
+            subtitle: [place, event.organizer?.displayName ?? ""].filter { !$0.isEmpty }.joined(separator: "\n"),
+            meta: event.startsAt.formatted(.dateTime.hour().minute())
+        ) {
+            StaffEventDateTile(date: event.startsAt, past: past)
+        } accessory: {
+            HStack(spacing: Spacing.xs) {
+                if event.isRegistered {
+                    StatusBadge(text: String(localized: "staff.event.registered", defaultValue: "Вы участвуете"), tint: Palette.success)
                 }
-                HStack(spacing: Spacing.sm) {
-                    if let audience = event.audience {
-                        StatusBadge(text: StaffEventText.audience(audience), tint: Palette.mutedForeground)
-                    }
-                    if event.isRegistered {
-                        StatusBadge(text: String(localized: "staff.event.registered", defaultValue: "Вы участвуете"), tint: Palette.success)
-                    }
-                }
-                HStack(spacing: Spacing.lg) {
-                    Label(event.startsAt.formatted(.dateTime.hour().minute()), systemImage: "clock")
-                    if event.isOnline {
-                        Label(StaffEventText.provider(event.meetingProvider), systemImage: "video")
-                            .foregroundStyle(Palette.info)
-                    } else if let location = event.location, !location.isEmpty {
-                        Label(location, systemImage: "mappin").lineLimit(1)
-                    }
-                    Label(event.participants.formatted(), systemImage: "person.2")
-                }
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
+                Label(event.participants.formatted(), systemImage: "person.2")
+                    .font(.caption)
+                    .foregroundStyle(Palette.mutedForeground)
             }
         }
         .opacity(past ? 0.7 : 1)
-        .padding(.vertical, Spacing.xs)
-        .accessibilityElement(children: .combine)
+    }
+
+    private var place: String {
+        if event.isOnline { return StaffEventText.provider(event.meetingProvider) }
+        return event.location ?? ""
+    }
+}
+
+/// Отрывной календарь: дата — первое, что ищут глазами в списке событий.
+struct StaffEventDateTile: View {
+    let date: Date
+    var past = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text(date.formatted(.dateTime.month(.abbreviated)))
+                .font(.caption2.weight(.semibold))
+                .textCase(.uppercase)
+            Text(date.formatted(.dateTime.day()))
+                .font(.title3.weight(.bold).monospacedDigit())
+        }
+        .foregroundStyle(past ? Palette.mutedForeground : Palette.primary)
+        .frame(width: 44, height: 44)
+        .background((past ? Palette.mutedForeground : Palette.primary).opacity(0.12), in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+        .accessibilityHidden(true)
     }
 }
 
@@ -241,29 +229,8 @@ struct StaffEventDetailView: View {
                 LoadingStateView()
             }
         }
-        .background(Palette.background)
-        .navigationTitle(Text(event?.title ?? StaffScreen.event(id: eventID).title))
+        .navigationTitle(Text(StaffScreen.event(id: eventID).title))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if let event, canManage(event) {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            editing = true
-                        } label: {
-                            Label(String(localized: "staff.event.edit", defaultValue: "Изменить"), systemImage: "pencil")
-                        }
-                        Button(role: .destructive) {
-                            confirmDelete = true
-                        } label: {
-                            Label(String(localized: "staff.event.delete", defaultValue: "Удалить"), systemImage: "trash")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                }
-            }
-        }
         .sheet(isPresented: $editing) {
             if let event { StaffEventFormSheet(event: event, role: role) { await load() } }
         }
@@ -319,65 +286,89 @@ struct StaffEventDetailView: View {
     private func content(_ event: StaffEvent) -> some View {
         List {
             Section {
-                VStack(alignment: .leading, spacing: Spacing.sm) {
-                    HStack(spacing: Spacing.sm) {
-                        if let audience = event.audience {
-                            StatusBadge(text: StaffEventText.audience(audience), tint: Palette.mutedForeground)
+                if canManage(event) {
+                    HeroHeader(
+                        visual: .symbol(event.isOnline ? "video.fill" : "calendar", tint: event.isPast ? TileTint.gray : (event.isOnline ? TileTint.teal : TileTint.red)),
+                        title: event.title,
+                        subtitle: StaffEventText.when(event),
+                        actions: heroActions(event)
+                    ) {
+                        HStack(spacing: Spacing.sm) {
+                            if let audience = event.audience {
+                                StatusBadge(text: StaffEventText.audience(audience), tint: Palette.mutedForeground)
+                            }
+                            if event.isRegistered {
+                                StatusBadge(text: String(localized: "staff.event.registered", defaultValue: "Вы участвуете"), tint: Palette.success)
+                            }
+                            if event.isPast {
+                                StatusBadge(text: String(localized: "staff.event.finished", defaultValue: "Событие завершилось"), tint: Palette.mutedForeground)
+                            }
                         }
-                        if event.isRegistered {
-                            StatusBadge(text: String(localized: "staff.event.registered", defaultValue: "Вы участвуете"), tint: Palette.success)
+                    } moreMenu: {
+                        if canManage(event) {
+                            Button {
+                                editing = true
+                            } label: {
+                                Label(String(localized: "staff.event.edit", defaultValue: "Изменить"), systemImage: "pencil")
+                            }
+                            Button(role: .destructive) {
+                                confirmDelete = true
+                            } label: {
+                                Label(String(localized: "staff.event.delete", defaultValue: "Удалить"), systemImage: "trash")
+                            }
                         }
                     }
-                    Label(StaffEventText.when(event), systemImage: "calendar")
-                    if event.isOnline {
-                        Label(StaffEventText.provider(event.meetingProvider), systemImage: "video").foregroundStyle(Palette.info)
-                    } else if let location = event.location, !location.isEmpty {
-                        Label(location, systemImage: "mappin.and.ellipse")
-                    }
-                    Label(
-                        event.participants == 0
-                            ? String(localized: "staff.event.noParticipants", defaultValue: "Пока никто не записался")
-                            : String(localized: "staff.event.participantsCount", defaultValue: "Участников: \(event.participants.formatted())"),
-                        systemImage: "person.2"
-                    )
-                    if let organizer = event.organizer, let id = organizer.id ?? event.organizerId {
-                        NavigationLink(value: AppRoute.profile(id: id)) {
-                            Text(String(localized: "staff.event.organizer", defaultValue: "Организатор: \(organizer.displayName)"))
+                } else {
+                    HeroHeader(
+                        visual: .symbol(event.isOnline ? "video.fill" : "calendar", tint: event.isPast ? TileTint.gray : (event.isOnline ? TileTint.teal : TileTint.red)),
+                        title: event.title,
+                        subtitle: StaffEventText.when(event),
+                        actions: heroActions(event)
+                    ) {
+                        HStack(spacing: Spacing.sm) {
+                            if let audience = event.audience {
+                                StatusBadge(text: StaffEventText.audience(audience), tint: Palette.mutedForeground)
+                            }
+                            if event.isRegistered {
+                                StatusBadge(text: String(localized: "staff.event.registered", defaultValue: "Вы участвуете"), tint: Palette.success)
+                            }
+                            if event.isPast {
+                                StatusBadge(text: String(localized: "staff.event.finished", defaultValue: "Событие завершилось"), tint: Palette.mutedForeground)
+                            }
                         }
                     }
-                }
-                .font(Typography.body)
-                .foregroundStyle(Palette.foreground)
-                if let description = event.description, !description.isEmpty {
-                    Text(description).font(Typography.body).foregroundStyle(Palette.foreground)
-                }
-                if event.isPast {
-                    Text(String(localized: "staff.event.finished", defaultValue: "Событие завершилось"))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
                 }
             }
 
-            if !event.isPast {
+            Section {
+                DetailRow(title: String(localized: "staff.event.whenTitle", defaultValue: "Когда"), value: StaffEventText.when(event), symbol: "calendar")
+                if event.isOnline {
+                    DetailRow(title: String(localized: "staff.event.whereTitle", defaultValue: "Где"), value: StaffEventText.provider(event.meetingProvider), symbol: "video")
+                } else if let location = event.location, !location.isEmpty {
+                    DetailRow(title: String(localized: "staff.event.whereTitle", defaultValue: "Где"), value: location, symbol: "mappin.and.ellipse")
+                }
+                DetailRow(
+                    title: String(localized: "staff.event.participants", defaultValue: "Участники"),
+                    value: event.participants == 0
+                        ? String(localized: "staff.event.noParticipants", defaultValue: "Пока никто не записался")
+                        : event.participants.formatted(),
+                    symbol: "person.2"
+                )
+                if let organizer = event.organizer, let id = organizer.id ?? event.organizerId {
+                    NavigationLink(value: AppRoute.profile(id: id)) {
+                        DetailRow(title: String(localized: "staff.event.organizerTitle", defaultValue: "Организатор"), value: organizer.displayName, symbol: "person.crop.circle")
+                    }
+                }
+            }
+
+            if let description = event.description, !description.isEmpty {
                 Section {
-                    // Организатору регистрация не нужна: встречу ведёт он.
-                    if (event.isRegistered || event.organizerId == viewerID), event.meetingProvider != nil {
-                        Button {
-                            Task { await openMeeting() }
-                        } label: {
-                            Label(String(localized: "staff.event.join", defaultValue: "Присоединиться"), systemImage: "video")
-                        }
-                    }
-                    Button {
-                        Task { await toggleRegistration(event) }
-                    } label: {
-                        Label(
-                            event.isRegistered
-                                ? String(localized: "staff.event.cancelRegistration", defaultValue: "Отменить участие")
-                                : String(localized: "staff.event.register", defaultValue: "Участвовать"),
-                            systemImage: event.isRegistered ? "xmark.circle" : "checkmark.circle"
-                        )
-                    }
+                    Text(description)
+                        .font(Typography.body)
+                        .foregroundStyle(Palette.foreground)
+                        .textSelection(.enabled)
+                } header: {
+                    Text(String(localized: "staff.event.about", defaultValue: "Описание"))
                 }
             }
 
@@ -394,7 +385,36 @@ struct StaffEventDetailView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
         .refreshable { await load() }
+    }
+
+    /// Круглые кнопки шапки: участвовать, войти во встречу, организатор, изменить.
+    private func heroActions(_ event: StaffEvent) -> [HeroAction] {
+        var actions: [HeroAction] = []
+        if !event.isPast {
+            actions.append(HeroAction(
+                title: event.isRegistered
+                    ? String(localized: "staff.event.cancelShort", defaultValue: "Не пойду")
+                    : String(localized: "staff.event.register", defaultValue: "Участвовать"),
+                symbol: event.isRegistered ? "xmark.circle" : "checkmark.circle.fill"
+            ) { Task { await toggleRegistration(event) } })
+            // Организатору регистрация не нужна: встречу ведёт он.
+            if (event.isRegistered || event.organizerId == viewerID), event.meetingProvider != nil {
+                actions.append(HeroAction(title: String(localized: "staff.event.join", defaultValue: "Присоединиться"), symbol: "video.fill") {
+                    Task { await openMeeting() }
+                })
+            }
+        }
+        if let organizer = event.organizer, let id = organizer.id ?? event.organizerId, id != viewerID {
+            actions.append(HeroAction(title: String(localized: "staff.event.organizerTitle", defaultValue: "Организатор"), symbol: "person.crop.circle") {
+                AdminNav.push(.profile(id: id))
+            })
+        }
+        if canManage(event) {
+            actions.append(HeroAction(title: String(localized: "staff.event.edit", defaultValue: "Изменить"), symbol: "pencil") { editing = true })
+        }
+        return Array(actions.prefix(3))
     }
 
     @ViewBuilder
@@ -664,9 +684,10 @@ private struct StaffMeetingSheet: View {
             .listStyle(.insetGrouped)
             .navigationTitle(Text(String(localized: "staff.event.meeting.title", defaultValue: "Подключение к встрече")))
             .navigationBarTitleDisplayMode(.inline)
+            .softTopEdge()
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(String(localized: "common.ok", defaultValue: "Понятно")) { dismiss() }
+                ToolbarItem(placement: .cancellationAction) {
+                    SheetCloseButton { dismiss() }
                 }
             }
         }

@@ -56,7 +56,7 @@ struct AdminInvitesView: View {
             }
         } row: { invite in
             AdminInviteRow(invite: invite, showIssuer: scope == "university")
-                .swipeActions {
+                .swipeActions(edge: .trailing) {
                     if canRevoke(invite) {
                         Button(role: .destructive) {
                             revoking = invite
@@ -75,31 +75,26 @@ struct AdminInvitesView: View {
                     }
                 }
         }
+        .floatingAction(String(localized: "admin.invites.create", defaultValue: "Выдать приглашение"), symbol: "paperplane.fill") {
+            creating = true
+        }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
+            // У файла импорта нет колонки вуза, а платформа приглашает именно админов
+            // вузов — каждая строка падала бы с «обязателен вуз».
+            if viewerRole != .platformAdmin {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        creating = true
+                        importing = true
                     } label: {
-                        Label(String(localized: "admin.invites.create", defaultValue: "Выдать приглашение"), systemImage: "plus")
-                    }
-                    // У файла импорта нет колонки вуза, а платформа приглашает именно админов
-                    // вузов — каждая строка падала бы с «обязателен вуз».
-                    if viewerRole != .platformAdmin {
-                        Button {
-                            importing = true
-                        } label: {
-                            Label(String(localized: "admin.invites.import", defaultValue: "Импорт из файла"), systemImage: "doc.badge.plus")
+                        if isParsing {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "doc.badge.plus")
                         }
                     }
-                } label: {
-                    if isParsing {
-                        ProgressView()
-                    } else {
-                        Image(systemName: "plus")
-                    }
+                    .disabled(isParsing)
+                    .accessibilityLabel(Text(String(localized: "admin.invites.import", defaultValue: "Импорт из файла")))
                 }
-                .accessibilityLabel(Text(String(localized: "admin.invites.create", defaultValue: "Выдать приглашение")))
             }
         }
         .onChange(of: scope) { _, value in
@@ -180,16 +175,34 @@ struct AdminInviteRow: View {
 
     var body: some View {
         let status = AdminText.inviteStatus(invite.status)
-        ListCardRow(
-            title: AdminRoles.title(invite.role),
-            subtitle: invite.email ?? String(localized: "admin.invites.noEmail", defaultValue: "Без адреса — по ссылке"),
-            status: (text: status.text, tint: status.tint),
-            lines: [
-                invite.expiresAt.map { String(localized: "admin.invites.expires", defaultValue: "Действует до \(DisplayFormat.date($0))") } ?? "",
-                invite.createdAt.map { String(localized: "admin.invites.created", defaultValue: "Создано \(DisplayFormat.date($0))") } ?? "",
-                showIssuer ? invite.createdBy.map { String(localized: "admin.invites.issuedBy", defaultValue: "Выдал: \($0.name)") } ?? "" : "",
-            ]
-        )
+        TelegramStyleRow(
+            title: invite.email ?? String(localized: "admin.invites.noEmail", defaultValue: "Без адреса — по ссылке"),
+            subtitle: subtitle,
+            meta: invite.createdAt.map(DisplayFormat.date)
+        ) {
+            RowSymbol(symbol: symbol, tint: invite.status == "PENDING" ? TileTint.blue : (invite.status == "USED" ? TileTint.green : TileTint.gray))
+        } accessory: {
+            StatusBadge(text: status.text, tint: status.tint)
+        }
+    }
+
+    private var symbol: String {
+        switch invite.status {
+        case "USED": return "checkmark"
+        case "PENDING": return "paperplane.fill"
+        default: return "clock.badge.xmark"
+        }
+    }
+
+    private var subtitle: String {
+        let first = AdminRoles.title(invite.role)
+        let second: String
+        if showIssuer, let issuer = invite.createdBy {
+            second = String(localized: "admin.invites.issuedBy", defaultValue: "Выдал: \(issuer.name)")
+        } else {
+            second = invite.expiresAt.map { String(localized: "admin.invites.expires", defaultValue: "Действует до \(DisplayFormat.date($0))") } ?? ""
+        }
+        return [first, second].filter { !$0.isEmpty }.joined(separator: "\n")
     }
 }
 
@@ -246,6 +259,7 @@ struct AdminCreateInviteSheet: View {
                 ? String(localized: "admin.invites.createTitle", defaultValue: "Выдать приглашение")
                 : String(localized: "admin.invites.createdTitle", defaultValue: "Приглашение создано")))
             .navigationBarTitleDisplayMode(.inline)
+            .softTopEdge()
             .interactiveDismissDisabled(isSaving)
             .toolbar {
                 if link == nil {
@@ -488,9 +502,11 @@ private struct AdminBulkPreviewSheet: View {
                     }
                 }
                 Section {
-                    Text(String(localized: "admin.bulk.summary", defaultValue: "Всего \(preview.summary.total.formatted()): готово \(preview.summary.ready.formatted()), дублей \(preview.summary.duplicate.formatted()), ошибок \(preview.summary.error.formatted())"))
-                        .font(Typography.body)
-                        .foregroundStyle(Palette.foreground)
+                    HeroHeader(
+                        visual: .symbol("doc.text.fill", tint: TileTint.green),
+                        title: String(localized: "admin.bulk.readyCount", defaultValue: "Готово к созданию: \(preview.summary.ready.formatted())"),
+                        subtitle: String(localized: "admin.bulk.summary", defaultValue: "Всего \(preview.summary.total.formatted()): готово \(preview.summary.ready.formatted()), дублей \(preview.summary.duplicate.formatted()), ошибок \(preview.summary.error.formatted())")
+                    )
                 }
 
                 Section {
@@ -502,11 +518,18 @@ private struct AdminBulkPreviewSheet: View {
             .listStyle(.insetGrouped)
             .navigationTitle(Text(String(localized: "admin.bulk.title", defaultValue: "Импорт приглашений")))
             .navigationBarTitleDisplayMode(.inline)
+            .softTopEdge()
             .interactiveDismissDisabled(isSaving)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(result == nil ? String(localized: "common.cancel", defaultValue: "Отмена") : AdminText.close) { dismiss() }
-                        .disabled(isSaving)
+                if result == nil {
+                    ToolbarItem(placement: .cancellationAction) {
+                        SheetCloseButton { dismiss() }
+                            .disabled(isSaving)
+                    }
+                } else {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(String(localized: "admin.invites.done", defaultValue: "Готово")) { dismiss() }
+                    }
                 }
                 if result == nil {
                     ToolbarItem(placement: .confirmationAction) {
@@ -542,26 +565,30 @@ private struct AdminBulkRow: View {
     let row: AdminBulkPreviewDTO.Row
 
     var body: some View {
-        let status: (String, Color) = {
+        let status: (String, Color, String) = {
             switch row.status {
-            case "READY": return (String(localized: "admin.bulk.ready", defaultValue: "Готово"), Palette.success)
-            case "DUPLICATE": return (String(localized: "admin.bulk.duplicate", defaultValue: "Дубль"), Palette.warning)
-            default: return (String(localized: "admin.bulk.error", defaultValue: "Ошибка"), Palette.destructive)
+            case "READY": return (String(localized: "admin.bulk.ready", defaultValue: "Готово"), Palette.success, "checkmark")
+            case "DUPLICATE": return (String(localized: "admin.bulk.duplicate", defaultValue: "Дубль"), Palette.warning, "doc.on.doc.fill")
+            default: return (String(localized: "admin.bulk.error", defaultValue: "Ошибка"), Palette.destructive, "exclamationmark")
             }
         }()
-        ListCardRow(
+        TelegramStyleRow(
             title: row.email.isEmpty ? "—" : row.email,
-            subtitle: [
-                String(localized: "admin.bulk.line", defaultValue: "Стр. \(row.line.formatted())"),
-                AdminRoles.title(row.role),
-                [row.groupName, row.facultyName].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),
-            ].filter { !$0.isEmpty }.joined(separator: " · "),
-            status: (text: status.0, tint: status.1),
-            lines: [
-                row.status == "DUPLICATE"
-                    ? String(localized: "admin.bulk.duplicateReason", defaultValue: "Уже приглашён или зарегистрирован")
-                    : (row.error ?? ""),
-            ]
-        )
+            subtitle: subtitle,
+            meta: String(localized: "admin.bulk.line", defaultValue: "Стр. \(row.line.formatted())")
+        ) {
+            RowSymbol(symbol: status.2, tint: status.1, size: 36)
+        } accessory: {
+            StatusBadge(text: status.0, tint: status.1)
+        }
+    }
+
+    private var subtitle: String {
+        let place: [String] = [row.groupName ?? "", row.facultyName ?? ""].filter { !$0.isEmpty }
+        let head: String = ([AdminRoles.title(row.role)] + place).joined(separator: " · ")
+        let problem: String = row.status == "DUPLICATE"
+            ? String(localized: "admin.bulk.duplicateReason", defaultValue: "Уже приглашён или зарегистрирован")
+            : (row.error ?? "")
+        return problem.isEmpty ? head : head + "\n" + problem
     }
 }

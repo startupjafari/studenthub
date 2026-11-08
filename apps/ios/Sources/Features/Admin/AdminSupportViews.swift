@@ -8,6 +8,7 @@ struct AdminSupportView: View {
     @State private var tag: String?
     @State private var search = ""
     @State private var tagCounts: [String: Int] = [:]
+    @State private var actionFailure: String?
     @State private var loader = PagedLoader<AdminSupportTicketDTO>(limit: 30) { request in
         try await AdminAPI().supportQueue(status: "open", assignee: "any", search: nil, tag: nil, request: request)
     }
@@ -33,9 +34,36 @@ struct AdminSupportView: View {
             NavigationLink(value: AppRoute.admin(.supportTicket(id: ticket.id))) {
                 AdminSupportTicketRow(ticket: ticket)
             }
+            .swipeActions(edge: .leading) {
+                if ticket.assigneeId == nil, ticket.closedAt == nil {
+                    Button {
+                        Task { await take(ticket) }
+                    } label: {
+                        Label(String(localized: "admin.support.take", defaultValue: "Взять себе"), systemImage: "hand.raised.fill")
+                    }
+                    .tint(Palette.primary)
+                }
+            }
+            .contextMenu {
+                if ticket.assigneeId == nil, ticket.closedAt == nil {
+                    Button {
+                        Task { await take(ticket) }
+                    } label: {
+                        Label(String(localized: "admin.support.take", defaultValue: "Взять себе"), systemImage: "hand.raised")
+                    }
+                }
+                if let author = ticket.author {
+                    Button {
+                        AdminNav.push(author.profileRoute)
+                    } label: {
+                        Label(String(localized: "admin.support.openAuthor", defaultValue: "Профиль автора"), systemImage: "person.crop.circle")
+                    }
+                }
+            }
         }
         .navigationTitle(Text(AdminScreen.support.title))
-        .debouncedSearch($search, prompt: String(localized: "admin.support.search", defaultValue: "Текст или фамилия")) { _ in
+        .actionFailureAlert($actionFailure)
+        .adminPinnedSearch($search, prompt: String(localized: "admin.support.search", defaultValue: "Текст или фамилия")) { _ in
             await refilter()
         }
         .toolbar {
@@ -72,6 +100,18 @@ struct AdminSupportView: View {
         return "\(AdminText.supportTag(value)) · \(count.formatted())"
     }
 
+    @MainActor
+    private func take(_ ticket: AdminSupportTicketDTO) async {
+        do {
+            try await AdminAPI().supportAssign(id: ticket.id, take: true)
+        } catch {
+            actionFailure = (error as? APIError)?.code == .conflict
+                ? String(localized: "admin.support.conflict", defaultValue: "Обращение уже изменил другой сотрудник — обновите экран")
+                : error.userMessage
+        }
+        await loader.reload()
+    }
+
     private func loadTagCounts() async {
         guard let counts = try? await AdminAPI().supportTagCounts() else { return }
         tagCounts = Dictionary(counts.map { ($0.tag, $0.count) }, uniquingKeysWith: +)
@@ -94,47 +134,37 @@ struct AdminSupportTicketRow: View {
     let ticket: AdminSupportTicketDTO
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
-                Text(ticket.author?.name ?? String(localized: "admin.support.deletedAuthor", defaultValue: "Удалённый пользователь"))
-                    .font(Typography.cardTitle)
-                    .foregroundStyle(Palette.foreground)
-                    .lineLimit(2)
-                Spacer(minLength: Spacing.md)
-                if ticket.closedAt != nil {
-                    StatusBadge(text: String(localized: "admin.support.closed", defaultValue: "Закрыто"), tint: Palette.mutedForeground)
-                } else if ticket.lastMessage?.fromAuthor == true {
-                    StatusBadge(text: String(localized: "admin.support.waiting", defaultValue: "Ждёт ответа"), tint: Palette.warning)
-                }
+        let name = ticket.author?.name ?? String(localized: "admin.support.deletedAuthor", defaultValue: "Удалённый пользователь")
+        TelegramStyleRow(
+            title: name,
+            subtitle: subtitle,
+            meta: DisplayFormat.relative(ticket.lastMessage?.createdAt ?? ticket.updatedAt ?? ticket.createdAt),
+            metaTint: isWaiting ? Palette.primary : Palette.mutedForeground
+        ) {
+            AvatarView(url: ticket.author?.avatarThumbUrl ?? ticket.author?.avatarUrl, name: name, size: 52)
+        } accessory: {
+            if ticket.closedAt != nil {
+                StatusBadge(text: String(localized: "admin.support.closed", defaultValue: "Закрыто"), tint: Palette.mutedForeground)
+            } else if isWaiting {
+                StatusBadge(text: String(localized: "admin.support.waiting", defaultValue: "Ждёт ответа"), tint: Palette.warning)
             }
-            if let university = ticket.author?.university, !university.isEmpty {
-                Text(verbatim: university)
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
-            }
-            Text(lastText)
-                .font(Typography.body)
-                .foregroundStyle(Palette.foreground)
-                .lineLimit(2)
-            Text(verbatim: meta)
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
-                .lineLimit(2)
         }
-        .padding(.vertical, Spacing.xs)
-        .accessibilityElement(children: .combine)
     }
 
-    private var lastText: String {
-        if let text = ticket.lastMessage?.text, !text.isEmpty { return text }
-        return String(localized: "admin.support.noText", defaultValue: "Вложение")
-    }
+    private var isWaiting: Bool { ticket.closedAt == nil && ticket.lastMessage?.fromAuthor == true }
 
-    private var meta: String {
+    /// Как превью чата: последняя реплика (ответ поддержки — с «Вы:»), ниже — темы и кто
+    /// разбирает.
+    private var subtitle: String {
+        var last = ticket.lastMessage?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if last.isEmpty { last = String(localized: "admin.support.noText", defaultValue: "Вложение") }
+        if ticket.lastMessage?.fromAuthor == false {
+            last = String(localized: "admin.support.replyPrefix", defaultValue: "Поддержка: \(last)")
+        }
         let tags = (ticket.tags ?? []).map(AdminText.supportTag).joined(separator: ", ")
         let assignee = ticket.assignee?.name ?? String(localized: "admin.support.free", defaultValue: "Свободно")
-        let updated = DisplayFormat.relative(ticket.lastMessage?.createdAt ?? ticket.updatedAt ?? ticket.createdAt)
-        return [tags, assignee, updated].filter { !$0.isEmpty }.joined(separator: " · ")
+        let meta = [ticket.author?.university ?? "", tags, assignee].filter { !$0.isEmpty }.joined(separator: " · ")
+        return [last, meta].filter { !$0.isEmpty }.joined(separator: "\n")
     }
 }
 
@@ -178,10 +208,14 @@ struct AdminSupportTicketView: View {
                 LoadingStateView()
             }
         }
-        .background(Palette.background)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background { ChatWallpaper().ignoresSafeArea() }
         .navigationTitle(Text(thread?.ticket.author?.name ?? AdminScreen.supportTicket(id: id).title))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                if let thread { titleView(thread.ticket) }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 if let thread { actionsMenu(thread) }
             }
@@ -254,9 +288,10 @@ struct AdminSupportTicketView: View {
                         .items
                         .map { AdminPickItem(id: $0.id, title: $0.name, subtitle: AdminRoles.title($0.role)) }
                 }
+                .softTopEdge()
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button(String(localized: "common.cancel", defaultValue: "Отмена")) {
+                        SheetCloseButton {
                             complaintTarget = nil
                             pickingComplaintTarget = false
                         }
@@ -277,114 +312,210 @@ struct AdminSupportTicketView: View {
         ticket.assigneeId != nil && !isMine(ticket)
     }
 
+    /// Шапка как у чата: имя автора и под ним — состояние обращения.
+    private func titleView(_ ticket: AdminSupportTicketDTO) -> some View {
+        VStack(spacing: 0) {
+            Text(ticket.author?.name ?? AdminScreen.supportTicket(id: id).title)
+                .font(.headline)
+                .foregroundStyle(Palette.foreground)
+                .lineLimit(1)
+            Text(statusLine(ticket))
+                .font(.footnote)
+                .foregroundStyle(ticket.closedAt == nil && ticket.assigneeId == nil ? Palette.primary : Palette.mutedForeground)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, Spacing.md)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func statusLine(_ ticket: AdminSupportTicketDTO) -> String {
+        if ticket.closedAt != nil {
+            return String(localized: "admin.support.closed", defaultValue: "Закрыто")
+        }
+        if let assignee = ticket.assignee {
+            let who = isMine(ticket) ? String(localized: "admin.support.you", defaultValue: "вы") : assignee.name
+            return String(localized: "admin.support.handledByLine", defaultValue: "Разбирает: \(who)")
+        }
+        return String(localized: "admin.support.free", defaultValue: "Свободно")
+    }
+
     private func content(_ thread: AdminSupportThreadDTO) -> some View {
         let ticket = thread.ticket
         let messages = Self.merge(thread.messages, earlier)
-        return List {
-            Section {
-                if let author = ticket.author {
-                    AdminLinkRow(
-                        title: String(localized: "admin.support.author", defaultValue: "Автор"),
-                        value: author.name,
-                        route: author.profileRoute
-                    )
-                    if let role = author.role {
-                        DetailRow(title: String(localized: "admin.support.role", defaultValue: "Роль"), value: AdminRoles.title(role))
-                    }
-                    if let university = author.university, !university.isEmpty {
-                        DetailRow(title: String(localized: "admin.support.university", defaultValue: "Вуз"), value: university)
-                    }
-                }
-                DetailRow(
-                    title: String(localized: "admin.support.handledBy", defaultValue: "Разбирает"),
-                    value: ticket.assignee.map { isMine(ticket) ? String(localized: "admin.support.you", defaultValue: "вы") : $0.name }
-                        ?? String(localized: "admin.support.nobody", defaultValue: "Никто — обращение свободно")
-                )
-                Button {
-                    editingTags = true
-                } label: {
-                    HStack {
-                        Text(String(localized: "admin.support.topic", defaultValue: "Тема")).foregroundStyle(Palette.mutedForeground)
-                        Spacer(minLength: Spacing.md)
-                        Text((ticket.tags ?? []).isEmpty
-                            ? String(localized: "admin.support.topicNone", defaultValue: "Не указана")
-                            : (ticket.tags ?? []).map(AdminText.supportTag).joined(separator: ", "))
-                            .foregroundStyle(Palette.primary)
-                            .multilineTextAlignment(.trailing)
-                    }
-                    .font(Typography.body)
-                }
-                DetailRow(
-                    title: String(localized: "admin.support.createdAt", defaultValue: "Создано"),
-                    value: DisplayFormat.dateTime(ticket.createdAt)
-                )
-                if let merged = thread.mergedCount, merged > 0 {
-                    DetailRow(title: String(localized: "admin.support.merged", defaultValue: "Склеено обращений"), value: merged.formatted())
-                }
-            }
-
-            Section {
+        return ScrollView {
+            LazyVStack(spacing: Spacing.xs) {
+                infoCard(thread)
+                    .padding(.bottom, Spacing.md)
                 if (earlierStarted ? earlierCursor : thread.earlierCursor) != nil {
                     Button {
                         Task { await loadEarlier(thread) }
                     } label: {
                         Label(String(localized: "admin.support.showEarlier", defaultValue: "Показать более ранние сообщения"), systemImage: "arrow.up")
+                            .font(.footnote.weight(.semibold))
+                            .padding(.horizontal, Spacing.lg)
+                            .padding(.vertical, Spacing.xs)
+                            .chatCapsuleSurface()
                     }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Palette.primary)
+                    .padding(.bottom, Spacing.sm)
                 }
-                ForEach(messages) { message in
-                    AdminSupportBubble(
-                        message: message,
-                        fromAuthor: message.sender?.id == ticket.author?.id,
-                        isMine: message.sender?.id == viewerID
+                ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
+                    if AdminDayCapsule.startsDay(message.createdAt, after: index > 0 ? messages[index - 1].createdAt : nil) {
+                        AdminDayCapsule(day: message.createdAt)
+                    }
+                    let fromAuthor = message.sender?.id == ticket.author?.id
+                    let mine = message.sender?.id == viewerID
+                    AdminChatBubble(
+                        text: message.content,
+                        author: fromAuthor || mine ? nil : message.sender?.name,
+                        time: message.createdAt,
+                        isOutgoing: !fromAuthor,
+                        footnote: (message.media ?? []).isEmpty
+                            ? nil
+                            : String(localized: "admin.support.attachments", defaultValue: "Вложений: \((message.media ?? []).count.formatted())"),
+                        deletedText: String(localized: "admin.support.noText", defaultValue: "Вложение")
                     )
                 }
-            } header: {
-                Text(String(localized: "admin.support.thread", defaultValue: "Переписка"))
             }
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.md)
         }
-        .listStyle(.insetGrouped)
+        .defaultScrollAnchor(.bottom)
+        .scrollDismissesKeyboard(.interactively)
         .refreshable { await load() }
         .safeAreaInset(edge: .bottom) {
             composer(ticket)
         }
     }
 
+    /// Карточка над перепиской, как приветствие бота в Telegram: кто пишет, откуда, тема.
+    /// Тема — нажатием, имя — в профиль.
+    private func infoCard(_ thread: AdminSupportThreadDTO) -> some View {
+        let ticket = thread.ticket
+        let name = ticket.author?.name ?? String(localized: "admin.support.deletedAuthor", defaultValue: "Удалённый пользователь")
+        let place = [ticket.author?.role.map(AdminRoles.title), ticket.author?.university]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+        let tags = (ticket.tags ?? []).map(AdminText.supportTag).joined(separator: ", ")
+        return VStack(spacing: Spacing.sm) {
+            Button {
+                if let author = ticket.author { AdminNav.push(author.profileRoute) }
+            } label: {
+                VStack(spacing: Spacing.sm) {
+                    AvatarView(url: ticket.author?.avatarThumbUrl ?? ticket.author?.avatarUrl, name: name, size: 64)
+                    Text(name)
+                        .font(.headline)
+                        .foregroundStyle(Palette.foreground)
+                        .multilineTextAlignment(.center)
+                    if !place.isEmpty {
+                        Text(place)
+                            .font(.footnote)
+                            .foregroundStyle(Palette.mutedForeground)
+                            .multilineTextAlignment(.center)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(ticket.author == nil)
+            .accessibilityHint(Text(String(localized: "admin.support.openAuthor", defaultValue: "Профиль автора")))
+
+            Text(String(localized: "admin.support.createdLine", defaultValue: "Создано \(DisplayFormat.dateTime(ticket.createdAt))"))
+                .font(.caption)
+                .foregroundStyle(Palette.mutedForeground)
+            if let merged = thread.mergedCount, merged > 0 {
+                Text(String(localized: "admin.support.mergedLine", defaultValue: "Склеено обращений: \(merged.formatted())"))
+                    .font(.caption)
+                    .foregroundStyle(Palette.mutedForeground)
+            }
+            Button {
+                editingTags = true
+            } label: {
+                Label(
+                    tags.isEmpty ? String(localized: "admin.support.topicSet", defaultValue: "Указать тему") : tags,
+                    systemImage: "tag"
+                )
+                .font(.footnote.weight(.semibold))
+                .padding(.horizontal, Spacing.lg)
+                .padding(.vertical, Spacing.sm)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Palette.primary)
+            .glassSurface(in: Capsule())
+            .accessibilityLabel(Text(String(localized: "admin.support.topic", defaultValue: "Тема")))
+            .accessibilityValue(Text(tags.isEmpty ? String(localized: "admin.support.topicNone", defaultValue: "Не указана") : tags))
+        }
+        .frame(maxWidth: 320)
+        .padding(Spacing.xl)
+        .background(Palette.card.opacity(0.92), in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .frame(maxWidth: .infinity)
+    }
+
     @ViewBuilder
     private func composer(_ ticket: AdminSupportTicketDTO) -> some View {
         if takenByOther(ticket) {
             Text(String(localized: "admin.support.takenByOtherHint", defaultValue: "Обращение разбирает другой сотрудник — отвечает он."))
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
+                .font(.footnote)
+                .foregroundStyle(Palette.foreground)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, Spacing.lg)
+                .padding(.vertical, Spacing.sm)
+                .chatCapsuleSurface()
                 .frame(maxWidth: .infinity)
-                .padding(Spacing.lg)
-                .background(.bar)
+                .padding(.horizontal, Spacing.xl)
+                .padding(.vertical, Spacing.md)
         } else {
-            VStack(alignment: .leading, spacing: Spacing.xs) {
+            VStack(spacing: Spacing.xs) {
                 if ticket.closedAt != nil {
                     Text(String(localized: "admin.support.replyReopens", defaultValue: "Ответ откроет обращение снова"))
                         .font(.caption)
-                        .foregroundStyle(Palette.mutedForeground)
+                        .foregroundStyle(Palette.foreground)
+                        .padding(.horizontal, Spacing.lg)
+                        .padding(.vertical, Spacing.xs)
+                        .chatCapsuleSurface()
                 }
-                HStack(alignment: .bottom, spacing: Spacing.sm) {
-                    TextField(String(localized: "admin.support.replyPlaceholder", defaultValue: "Ответ пользователю"), text: $reply, axis: .vertical)
-                        .lineLimit(1...5)
-                        .textFieldStyle(.roundedBorder)
-                    Button {
-                        Task { await send() }
-                    } label: {
-                        if isSending {
-                            ProgressView()
-                        } else {
-                            Image(systemName: "arrow.up.circle.fill").font(.title2)
+                GlassGroup(spacing: Spacing.md) {
+                    HStack(alignment: .bottom, spacing: Spacing.md) {
+                        TextField(
+                            text: $reply,
+                            prompt: Text(String(localized: "admin.support.replyPlaceholder", defaultValue: "Ответ пользователю")),
+                            axis: .vertical
+                        ) {
+                            Text(String(localized: "admin.support.replyPlaceholder", defaultValue: "Ответ пользователю"))
                         }
+                        .labelsHidden()
+                        .lineLimit(1...6)
+                        .font(Typography.body)
+                        .padding(.horizontal, Spacing.lg)
+                        .padding(.vertical, Spacing.md)
+                        .frame(minHeight: ControlHeight.lg)
+                        .glassSurface(interactive: false, in: RoundedRectangle(cornerRadius: ControlHeight.lg / 2, style: .continuous))
+
+                        Button {
+                            Task { await send() }
+                        } label: {
+                            Group {
+                                if isSending {
+                                    ProgressView().tint(Palette.primaryForeground)
+                                } else {
+                                    Image(systemName: "arrow.up")
+                                        .font(Typography.body.weight(.bold))
+                                }
+                            }
+                            .foregroundStyle(Palette.primaryForeground)
+                            .frame(width: ControlHeight.lg, height: ControlHeight.lg)
+                            .glassSurface(tint: Palette.primary, in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isSending || reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .opacity(reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1)
+                        .accessibilityLabel(Text(String(localized: "admin.support.send", defaultValue: "Отправить")))
                     }
-                    .disabled(isSending || reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .accessibilityLabel(Text(String(localized: "admin.support.send", defaultValue: "Отправить")))
                 }
             }
-            .padding(.horizontal, Spacing.lg)
-            .padding(.vertical, Spacing.sm)
-            .background(.bar)
+            .padding(.horizontal, Spacing.xl)
+            .padding(.vertical, Spacing.md)
         }
     }
 
@@ -429,6 +560,19 @@ struct AdminSupportTicketView: View {
                 }
             }
             Button {
+                editingTags = true
+            } label: {
+                Label(String(localized: "admin.support.tags", defaultValue: "Темы обращения"), systemImage: "tag")
+            }
+            if let author = ticket.author {
+                Button {
+                    AdminNav.push(author.profileRoute)
+                } label: {
+                    Label(String(localized: "admin.support.openAuthor", defaultValue: "Профиль автора"), systemImage: "person.crop.circle")
+                }
+            }
+            Divider()
+            Button {
                 confirmEscalate = true
             } label: {
                 Label(String(localized: "admin.support.escalate", defaultValue: "Позвать администратора"), systemImage: "exclamationmark.bubble")
@@ -445,7 +589,7 @@ struct AdminSupportTicketView: View {
             if isWorking {
                 ProgressView()
             } else {
-                Image(systemName: "ellipsis.circle")
+                Image(systemName: "ellipsis")
             }
         }
         .disabled(isWorking)
@@ -536,46 +680,6 @@ struct AdminSupportTicketView: View {
                 actionFailure = error.userMessage
             }
         }
-    }
-}
-
-/// Сообщение обращения: автор слева, поддержка справа — как в чате.
-private struct AdminSupportBubble: View {
-    let message: AdminSupportMessageDTO
-    let fromAuthor: Bool
-    let isMine: Bool
-
-    var body: some View {
-        VStack(alignment: fromAuthor ? .leading : .trailing, spacing: 2) {
-            HStack(spacing: Spacing.sm) {
-                if !fromAuthor { Spacer(minLength: 0) }
-                Text(isMine ? String(localized: "admin.support.you", defaultValue: "вы") : (message.sender?.name ?? "—"))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(fromAuthor ? Palette.foreground : Palette.primary)
-                Text(DisplayFormat.dateTime(message.createdAt))
-                    .font(.caption)
-                    .foregroundStyle(Palette.mutedForeground)
-                if fromAuthor { Spacer(minLength: 0) }
-            }
-            if let content = message.content, !content.isEmpty {
-                Text(content)
-                    .font(Typography.body)
-                    .foregroundStyle(Palette.foreground)
-                    .multilineTextAlignment(fromAuthor ? .leading : .trailing)
-                    .textSelection(.enabled)
-            }
-            if let media = message.media, !media.isEmpty {
-                Label(
-                    String(localized: "admin.support.attachments", defaultValue: "Вложений: \(media.count.formatted())"),
-                    systemImage: "paperclip"
-                )
-                .font(.caption)
-                .foregroundStyle(Palette.mutedForeground)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: fromAuthor ? .leading : .trailing)
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .combine)
     }
 }
 

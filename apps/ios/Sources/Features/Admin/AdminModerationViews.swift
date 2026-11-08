@@ -97,42 +97,42 @@ private struct AdminPostRow: View {
     let post: PostDTO
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            HStack(spacing: Spacing.md) {
-                AvatarView(url: post.author?.avatarUrl, name: post.author?.name, size: 32)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(post.speaker?.name ?? post.author?.name ?? "—")
-                        .font(Typography.meta.weight(.semibold))
-                        .foregroundStyle(Palette.foreground)
-                        .lineLimit(1)
-                    Text(DisplayFormat.dateTime(post.publishedAt ?? post.createdAt))
-                        .font(.caption)
-                        .foregroundStyle(Palette.mutedForeground)
+        let name = post.speaker?.name ?? post.author?.name ?? "—"
+        TelegramStyleRow(
+            title: name,
+            subtitle: text,
+            meta: DisplayFormat.relative(post.publishedAt ?? post.createdAt)
+        ) {
+            AvatarView(url: post.author?.avatarUrl, name: post.author?.name, size: 44)
+        } accessory: {
+            HStack(spacing: Spacing.sm) {
+                if let media = post.media, !media.isEmpty {
+                    Image(systemName: "photo")
+                        .accessibilityLabel(Text(String(localized: "admin.posts.media", defaultValue: "Вложений: \(media.count.formatted())")))
                 }
-                Spacer(minLength: Spacing.md)
+                if post.commentsCount > 0 {
+                    Label(post.commentsCount.formatted(), systemImage: "bubble.right")
+                        .labelStyle(.titleAndIcon)
+                }
                 if post.pinnedAt != nil {
                     Image(systemName: "pin.fill")
                         .foregroundStyle(Palette.primary)
                         .accessibilityLabel(Text(String(localized: "admin.posts.pinned", defaultValue: "Закреплено")))
                 }
             }
-            if let title = post.title, !title.isEmpty {
-                Text(title).font(Typography.cardTitle).foregroundStyle(Palette.foreground).lineLimit(2)
-            }
-            if let content = post.content, !content.isEmpty {
-                Text(content).font(Typography.body).foregroundStyle(Palette.foreground).lineLimit(4)
-            }
-            let media = post.media?.count ?? 0
-            Text(verbatim: [
-                media > 0 ? String(localized: "admin.posts.media", defaultValue: "Вложений: \(media.formatted())") : nil,
-                String(localized: "admin.posts.comments", defaultValue: "Комментариев: \(post.commentsCount.formatted())"),
-                post.views.map { String(localized: "admin.posts.views", defaultValue: "Просмотров: \($0.formatted())") },
-            ].compactMap { $0 }.joined(separator: " · "))
-                .font(.caption)
-                .foregroundStyle(Palette.mutedForeground)
+            .font(.caption)
+            .foregroundStyle(Palette.mutedForeground)
         }
-        .padding(.vertical, Spacing.xs)
-        .accessibilityElement(children: .combine)
+    }
+
+    private var text: String {
+        let parts = [post.title, post.content]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if parts.isEmpty, let media = post.media, !media.isEmpty {
+            return String(localized: "admin.posts.media", defaultValue: "Вложений: \(media.count.formatted())")
+        }
+        return parts.joined(separator: " — ")
     }
 }
 
@@ -163,33 +163,41 @@ struct AdminDocumentAccessView: View {
     var body: some View {
         List {
             Section {
-                Label(
-                    String(localized: "admin.docs.warning", defaultValue: "Каждое открытие файла фиксируется в аудите и в журнале документа вместе с причиной."),
-                    systemImage: "exclamationmark.triangle"
+                HeroHeader(
+                    visual: .symbol("lock.doc.fill", tint: TileTint.purple),
+                    title: AdminScreen.documentAccess.title,
+                    subtitle: String(localized: "admin.docs.warning", defaultValue: "Каждое открытие файла фиксируется в аудите и в журнале документа вместе с причиной.")
                 )
-                .font(Typography.meta)
-                .foregroundStyle(Palette.warning)
+            }
+
+            Section {
                 TextField(String(localized: "admin.docs.id", defaultValue: "ID документа"), text: $documentID)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .font(.body.monospaced())
                 TextField(String(localized: "admin.docs.reason", defaultValue: "Причина доступа"), text: $reason, axis: .vertical)
                     .lineLimit(2...4)
-                Button {
-                    Task { await open() }
-                } label: {
-                    HStack {
-                        if isLoading { ProgressView() }
-                        Text(String(localized: "admin.docs.open", defaultValue: "Открыть документ"))
-                    }
-                }
-                .disabled(!canSubmit || isLoading)
             } footer: {
                 if let failure {
                     Text(failure).foregroundStyle(Palette.destructive)
                 } else {
                     Text(String(localized: "admin.docs.reasonHint", defaultValue: "Например: проверка жалобы №12. Не короче 5 символов."))
                 }
+            }
+
+            Section {
+                Button {
+                    Task { await open() }
+                } label: {
+                    HStack(spacing: Spacing.sm) {
+                        Spacer()
+                        if isLoading { ProgressView() }
+                        Text(String(localized: "admin.docs.open", defaultValue: "Открыть документ"))
+                            .fontWeight(.semibold)
+                        Spacer()
+                    }
+                }
+                .disabled(!canSubmit || isLoading)
             }
 
             if let document {
@@ -199,7 +207,8 @@ struct AdminDocumentAccessView: View {
             Section {
                 if let log {
                     if log.isEmpty {
-                        Text(String(localized: "admin.docs.logEmpty", defaultValue: "Обращений к чужим документам ещё не было"))
+                        Label(String(localized: "admin.docs.logEmpty", defaultValue: "Обращений к чужим документам ещё не было"), systemImage: "checkmark.shield")
+                            .font(Typography.meta)
                             .foregroundStyle(Palette.mutedForeground)
                     }
                     ForEach(log) { entry in
@@ -218,33 +227,37 @@ struct AdminDocumentAccessView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
         .navigationTitle(Text(AdminScreen.documentAccess.title))
         .refreshable { await loadLog() }
         .task { await loadLog() }
         .remoteFilePreview(opener)
     }
 
+    @ViewBuilder
     private func documentSection(_ document: AdminPlatformDocumentDTO) -> some View {
         Section {
-            Text(document.title).font(Typography.cardTitle).foregroundStyle(Palette.foreground)
+            IconRow(title: document.title, symbol: "doc.text.fill", tint: TileTint.purple, subtitle: String(localized: "admin.docs.reasonLogged", defaultValue: "Основание: \(grantedReason)"))
             if let number = document.numberMasked {
-                DetailRow(title: String(localized: "admin.docs.number", defaultValue: "Номер"), value: number)
+                DetailRow(title: String(localized: "admin.docs.number", defaultValue: "Номер"), value: number, symbol: "number")
             }
             if let issuedBy = document.issuedBy {
-                DetailRow(title: String(localized: "admin.docs.issuedBy", defaultValue: "Кем выдан"), value: issuedBy)
+                DetailRow(title: String(localized: "admin.docs.issuedBy", defaultValue: "Кем выдан"), value: issuedBy, symbol: "building.2")
             }
             if let issuedAt = document.issuedAt {
-                DetailRow(title: String(localized: "admin.docs.issuedAt", defaultValue: "Дата выдачи"), value: DisplayFormat.date(issuedAt))
+                DetailRow(title: String(localized: "admin.docs.issuedAt", defaultValue: "Дата выдачи"), value: DisplayFormat.date(issuedAt), symbol: "calendar")
             }
             if let expiresAt = document.expiresAt {
-                DetailRow(title: String(localized: "admin.docs.expiresAt", defaultValue: "Срок действия"), value: DisplayFormat.date(expiresAt))
+                DetailRow(title: String(localized: "admin.docs.expiresAt", defaultValue: "Срок действия"), value: DisplayFormat.date(expiresAt), symbol: "calendar.badge.clock")
             }
             if let comment = document.comment, !comment.isEmpty {
-                DetailRow(title: String(localized: "admin.docs.comment", defaultValue: "Комментарий"), value: comment)
+                DetailRow(title: String(localized: "admin.docs.comment", defaultValue: "Комментарий"), value: comment, symbol: "text.alignleft")
             }
-            Text(String(localized: "admin.docs.reasonLogged", defaultValue: "Основание: \(grantedReason)"))
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
+        } header: {
+            Text(String(localized: "admin.docs.document", defaultValue: "Документ"))
+        }
+
+        Section {
             let files = (document.files ?? []).sorted { ($0.order ?? 0) < ($1.order ?? 0) }
             if files.isEmpty {
                 Text(String(localized: "admin.docs.noFiles", defaultValue: "У документа нет файлов"))
@@ -254,21 +267,17 @@ struct AdminDocumentAccessView: View {
                 Button {
                     Task { await openFile(file, index: index, all: files) }
                 } label: {
-                    Label {
-                        HStack {
-                            Text(String(localized: "admin.docs.file", defaultValue: "Файл \((index + 1).formatted())"))
-                            Spacer()
-                            Text(verbatim: DisplayFormat.fileSize(file.size))
-                                .font(Typography.meta)
-                                .foregroundStyle(Palette.mutedForeground)
-                        }
-                    } icon: {
-                        Image(systemName: file.mime?.hasPrefix("image/") == true ? "photo" : "doc")
-                    }
+                    IconRow(
+                        title: String(localized: "admin.docs.file", defaultValue: "Файл \((index + 1).formatted())"),
+                        symbol: file.mime?.hasPrefix("image/") == true ? "photo.fill" : "doc.fill",
+                        tint: file.mime?.hasPrefix("image/") == true ? TileTint.teal : TileTint.blue,
+                        value: DisplayFormat.fileSize(file.size)
+                    )
                 }
+                .buttonStyle(.plain)
             }
         } header: {
-            Text(String(localized: "admin.docs.document", defaultValue: "Документ"))
+            Text(String(localized: "admin.docs.files", defaultValue: "Файлы"))
         }
     }
 
@@ -339,35 +348,31 @@ private struct AdminDocumentLogRow: View {
     let repeatRequest: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: Spacing.md) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: Spacing.sm) {
-                    StatusBadge(
-                        text: entry.action == "DOCUMENT_PLATFORM_DOWNLOAD"
-                            ? String(localized: "admin.docs.actionFile", defaultValue: "Файл")
-                            : String(localized: "admin.docs.actionCard", defaultValue: "Карточка"),
-                        tint: entry.action == "DOCUMENT_PLATFORM_DOWNLOAD" ? Palette.warning : Palette.info
-                    )
-                    Text(DisplayFormat.dateTime(entry.createdAt))
-                        .font(.caption)
-                        .foregroundStyle(Palette.mutedForeground)
-                }
-                Text(verbatim: entry.entityId ?? "—")
-                    .font(Typography.meta.monospaced())
-                    .foregroundStyle(Palette.foreground)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                if let reason = entry.metadata?["reason"]?.string {
-                    Text(reason)
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
-                        .lineLimit(2)
-                }
+        let isFile = entry.action == "DOCUMENT_PLATFORM_DOWNLOAD"
+        Button(action: repeatRequest) {
+            TelegramStyleRow(
+                title: entry.entityId ?? "—",
+                subtitle: entry.metadata?["reason"]?.string,
+                meta: DisplayFormat.dateTime(entry.createdAt)
+            ) {
+                RowSymbol(symbol: isFile ? "arrow.down.doc.fill" : "eye.fill", tint: isFile ? TileTint.orange : TileTint.blue, size: 40)
+            } accessory: {
+                StatusBadge(
+                    text: isFile
+                        ? String(localized: "admin.docs.actionFile", defaultValue: "Файл")
+                        : String(localized: "admin.docs.actionCard", defaultValue: "Карточка"),
+                    tint: isFile ? Palette.warning : Palette.info
+                )
             }
-            Spacer(minLength: Spacing.sm)
-            Button(String(localized: "admin.docs.repeat", defaultValue: "Повторить"), action: repeatRequest)
-                .buttonStyle(.borderless)
-                .font(Typography.meta)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint(Text(String(localized: "admin.docs.repeatHint", defaultValue: "Подставить документ и причину в форму")))
+        .swipeActions(edge: .leading) {
+            Button(action: repeatRequest) {
+                Label(String(localized: "admin.docs.repeat", defaultValue: "Повторить"), systemImage: "arrow.clockwise")
+            }
+            .tint(Palette.primary)
         }
     }
 }
