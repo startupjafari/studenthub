@@ -45,6 +45,18 @@
 | Отключение разделов платформой (`platform/state`) | `CommunitySectionGate` для событий, документов, заявок, портфолио, вступления в чат | Implemented |
 | Сохранение пути и прокрутки после перезапуска | — | Missing |
 
+## До входа
+
+| Страница веба | iOS | Статус |
+|---|---|---|
+| `/login` — пароль, 2FA, автозаполнение | `LoginView`, `TwoFactorStepView` | Implemented |
+| `/login`, вкладка QR — вход по коду с телефона, где уже вошли | `QRSignInView`: `qr/create`, опрос `qr/claim`, код из SVG сервера | Implemented |
+| `/forgot-password` | `ForgotPasswordView`: `auth/password/forgot` | Implemented |
+| `/reset-password` — новый пароль по ссылке из письма | ссылка открывается в браузере | Missing |
+| `/legal/privacy`, `/legal/terms` | `LegalDocumentView`: полный текст, раскрывающиеся разделы, ru и kk | Implemented |
+| `/register` — регистрация по приглашению | — | Missing |
+| Регистрация работодателя | `CareerSignupSheet` | Implemented |
+
 ## Главная, лента, публикации
 
 | Функция | API | Статус |
