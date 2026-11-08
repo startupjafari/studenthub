@@ -204,10 +204,10 @@ struct AuthScaffold<Header: View, Panel: View>: View {
             .scrollDismissesKeyboard(.interactively)
         }
         .background(AuthBackdrop())
-        // Белый статус-бар и стрелка «назад» на тёмно-синем фоне — в обеих темах; панель —
-        // тёмное матовое стекло, под которым размывается шапка при прокрутке.
+        // Белый статус-бар и стрелка «назад» на тёмно-синем фоне — в обеих темах; у верхнего
+        // края шапка при прокрутке мягко размывается (iOS 26).
         .toolbarColorScheme(.dark, for: .navigationBar)
-        .frostedTopBar()
+        .softTopEdge()
     }
 }
 

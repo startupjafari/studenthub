@@ -93,10 +93,10 @@ struct AppShellView: View {
         NavigationStack(path: $router.stacks.stack(for: tab)) {
             root(for: tab)
                 .profileToolbarItem()
-                .frostedTopBar()
+                .softTopEdge()
                 .navigationDestination(for: AppRoute.self) { route in
                     destination(for: route)
-                        .frostedTopBar()
+                        .softTopEdge()
                 }
         }
     }

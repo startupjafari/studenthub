@@ -141,37 +141,25 @@ struct SheetCloseButton: View {
     }
 }
 
-// MARK: - Верхняя панель
+// MARK: - Верхний край
 
 extension View {
-    /// Верхняя панель — матовое полупрозрачное стекло, как в «Настройках» и мессенджерах:
-    /// контент под ней размывается при прокрутке, а заголовок и кнопки читаются поверх
-    /// любой ленты. Видна всегда, а не только после прокрутки, — край экрана один и тот же.
+    /// Верхний край экрана как в iOS 26 (и в Instagram, «Фото», App Store): без полосы и
+    /// линии — контент под статус-баром и кнопками панели плавно размывается и тает.
+    /// Это системный эффект края прокрутки (`.soft`); фон панели при этом не задаётся
+    /// вовсе — любой фон (`toolbarBackground`, `UINavigationBarAppearance`) возвращает
+    /// старую матовую полосу с краем и выключает стеклянные кнопки в панели.
+    /// До iOS 26 — поведение системы по умолчанию.
     @ViewBuilder
-    func frostedTopBar() -> some View {
-        if #available(iOS 18, *) {
-            toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-                .toolbarBackgroundVisibility(.visible, for: .navigationBar)
-        } else {
-            toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-                .toolbarBackground(.visible, for: .navigationBar)
-        }
-    }
-}
-
-/// То же для панелей, которые SwiftUI-модификатор не достаёт: листы экранов со своим
-/// `NavigationStack`. Ставится один раз при запуске.
-enum FrostedBarAppearance {
-    @MainActor
-    static func install() {
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithDefaultBackground()
-        appearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterial)
-        appearance.backgroundColor = .clear
-        let bar = UINavigationBar.appearance()
-        bar.standardAppearance = appearance
-        bar.compactAppearance = appearance
-        bar.scrollEdgeAppearance = appearance
-        bar.compactScrollEdgeAppearance = appearance
+    func softTopEdge() -> some View {
+        #if compiler(>=6.2)
+            if #available(iOS 26, *) {
+                scrollEdgeEffectStyle(.soft, for: .top)
+            } else {
+                self
+            }
+        #else
+            self
+        #endif
     }
 }

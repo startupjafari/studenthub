@@ -163,7 +163,7 @@ struct FormSheet<Content: View>: View {
             }
             .navigationTitle(Text(title))
             .navigationBarTitleDisplayMode(.inline)
-            .frostedTopBar()
+            .softTopEdge()
             .interactiveDismissDisabled(isSaving)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
