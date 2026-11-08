@@ -122,6 +122,15 @@ struct UniversityServicesAPI: UniversityServicesFetching {
         ).items
     }
 
+    /// Все свои записи или окна, включая прошедшие, — режим «Все» в вебе.
+    func allConsultations() async throws -> [ConsultationSlotDTO] {
+        try await client.page(
+            .get("consultations/mine", query: [URLQueryItem(name: "limit", value: "100")]),
+            of: ConsultationSlotDTO.self
+        ).items
+        .sorted { $0.startsAt > $1.startsAt }
+    }
+
     func consultationTeachers() async throws -> [ConsultationTeacherDTO] {
         try await client.send(.get("consultations/teachers"), as: [ConsultationTeacherDTO].self)
     }

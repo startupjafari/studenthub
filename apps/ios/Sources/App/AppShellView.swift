@@ -79,7 +79,13 @@ struct AppShellView: View {
         case .chats:
             ChatListView()
         case .schedule:
-            ScheduleView()
+            // У декана расписание — весь факультет: без выбора группы общий дневной вид
+            // смешал бы сотни пар. Его вкладка — расписание факультета, как `/dean/schedule`.
+            if role == .dean {
+                DeanScreen.schedule.destination
+            } else {
+                ScheduleView()
+            }
         case .study:
             StudyView(role: role)
         case .home:

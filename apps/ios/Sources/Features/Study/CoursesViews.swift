@@ -311,50 +311,53 @@ struct ClassmatesView: View {
 
 /// Группы преподавателя — те, у которых он ведёт дисциплины.
 struct TeacherGroupsView: View {
-    @State private var groups: [CourseDTO.Group]?
-    @State private var failure: String?
+    /// Группа из `GET /groups`: страница с поиском на сервере, как в вебе
+    /// (`widgets/groups-list`), а не группы, собранные из своих дисциплин.
+    struct Group: Decodable, Identifiable {
+        let id: String
+        let name: String
+        var starostaId: String? = nil
+        var year: Int? = nil
+        var faculty: Faculty? = nil
 
-    var body: some View {
-        List {
-            if let groups {
-                if groups.isEmpty {
-                    EmptyStateView(title: String(localized: "groups.empty", defaultValue: "Групп пока нет"), symbol: "person.2")
-                        .listRowBackground(Color.clear)
-                }
-                ForEach(groups, id: \.id) { group in
-                    NavigationLink {
-                        GroupMembersView(groupID: group.id, title: group.name)
-                    } label: {
-                        IconRow(title: group.name, symbol: "person.3", tint: TileTint.teal)
-                    }
-                    .listRowBackground(Palette.card)
-                }
-            } else if let failure {
-                ErrorStateView(message: failure) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
-            }
+        struct Faculty: Decodable {
+            let name: String?
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
-        .navigationTitle(Text(MoreSection.groups.title))
-        .refreshable { await load() }
-        .task { await load() }
     }
 
-    @MainActor
-    private func load() async {
-        do {
-            let courses = try await CoursesAPI().courses(mine: true)
-            var seen = Set<String>()
-            groups = courses.compactMap(\.group)
-                .filter { seen.insert($0.id).inserted }
-                .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
-            failure = nil
-        } catch {
-            failure = error.userMessage
+    @State private var loader = PagedLoader<Group>(limit: 30) { request in
+        try await AppServices.api.page(.get("groups", query: request.pageQuery), of: Group.self)
+    }
+    @State private var search = ""
+
+    var body: some View {
+        PagedList(
+            loader: loader,
+            empty: EmptyStateView(title: String(localized: "groups.empty", defaultValue: "Групп пока нет"), symbol: "person.2")
+        ) { group in
+            NavigationLink {
+                GroupMembersView(groupID: group.id, title: group.name)
+            } label: {
+                HStack(spacing: Spacing.md) {
+                    IconRow(title: group.name, symbol: "person.3", tint: TileTint.teal, subtitle: group.faculty?.name)
+                    if group.starostaId != nil {
+                        StatusBadge(
+                            text: String(localized: "groups.hasStarosta", defaultValue: "Есть староста"),
+                            tint: Palette.info
+                        )
+                    }
+                }
+            }
+        }
+        .navigationTitle(Text(MoreSection.groups.title))
+        .debouncedSearch($search, prompt: String(localized: "groups.search", defaultValue: "Поиск группы")) { needle in
+            // Предел `search` в GroupListQuerySchema — 100 символов: длиннее сервер отвечает 400.
+            let query = String(needle.prefix(100))
+            await loader.replace { request in
+                var items = request.pageQuery
+                if !query.isEmpty { items.append(URLQueryItem(name: "search", value: query)) }
+                return try await AppServices.api.page(.get("groups", query: items), of: Group.self)
+            }
         }
     }
 }

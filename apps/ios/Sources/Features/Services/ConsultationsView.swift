@@ -10,12 +10,23 @@ struct ConsultationsView: View {
     @State private var failure: String?
     @State private var actionFailure: String?
     @State private var creating = false
+    /// «Предстоящие» или «Все», как переключатель в вебе: прошедшие нужны, чтобы
+    /// вспомнить, кто приходил и о чём.
+    @State private var showsPast = false
 
     private let api: UniversityServicesFetching = UniversityServicesAPI()
     private var isTeacher: Bool { role == .teacher }
 
     var body: some View {
         List {
+            Picker(String(localized: "consultations.range", defaultValue: "Период"), selection: $showsPast) {
+                Text(String(localized: "consultations.upcoming", defaultValue: "Предстоящие")).tag(false)
+                Text(String(localized: "consultations.all", defaultValue: "Все")).tag(true)
+            }
+            .pickerStyle(.segmented)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets())
+
             if let mine {
                 Section {
                     if mine.isEmpty {
@@ -106,14 +117,14 @@ struct ConsultationsView: View {
             NewSlotView { await load() }
         }
         .refreshable { await load() }
-        .task { await load() }
+        .task(id: showsPast) { await load() }
         .actionFailureAlert($actionFailure)
     }
 
     @MainActor
     private func load() async {
         do {
-            async let slots = api.myConsultations()
+            async let slots = showsPast ? UniversityServicesAPI().allConsultations() : api.myConsultations()
             if !isTeacher {
                 teachers = try await api.consultationTeachers()
             }
