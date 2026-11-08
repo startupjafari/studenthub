@@ -37,7 +37,7 @@ struct ForwardPickerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {

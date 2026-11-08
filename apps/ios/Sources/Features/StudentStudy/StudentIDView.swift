@@ -127,7 +127,7 @@ struct StudentIDView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(Spacing.xl)
-            .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+            .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         }
     }
 

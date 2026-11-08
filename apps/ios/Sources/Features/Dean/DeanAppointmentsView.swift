@@ -254,7 +254,6 @@ private struct DeanAppointmentScheduleForm: View {
                     Text(topic).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
                 }
             }
-            .listRowBackground(Palette.card)
             Section {
                 DatePicker(String(localized: "dean.appointments.time", defaultValue: "Время приёма"), selection: $date, in: Date()...)
                 TextField(String(localized: "dean.appointments.note", defaultValue: "Комментарий студенту"), text: $note, axis: .vertical)
@@ -262,7 +261,6 @@ private struct DeanAppointmentScheduleForm: View {
             } footer: {
                 Text(String(localized: "dean.appointments.formHint", defaultValue: "Студент получит уведомление с назначенным временем и комментарием."))
             }
-            .listRowBackground(Palette.card)
         }
     }
 }

@@ -28,7 +28,7 @@ struct ChatThreadView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .background(Palette.background)
+        .background(Palette.plainBackground)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -340,7 +340,7 @@ private struct ChatRequestBar: View {
                         }
                     }
                 }
-                .buttonStyle(.bordered)
+                .glassButton()
                 Button(String(localized: "friends.accept", defaultValue: "Принять")) {
                     Task {
                         do {
@@ -355,7 +355,7 @@ private struct ChatRequestBar: View {
                         }
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .glassProminentButton()
             }
         }
         .frame(maxWidth: .infinity)

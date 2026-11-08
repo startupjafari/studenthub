@@ -30,8 +30,6 @@ struct TeachingDashboardView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(TeacherScreen.dashboard.title))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -114,7 +112,6 @@ struct TeachingDashboardView: View {
                 .padding(.vertical, Spacing.xs)
             }
         }
-        .listRowBackground(Palette.card)
     }
 
     /// Начавшиеся сегодня пары без отметок: журнал будущей заполнять нечем.
@@ -142,7 +139,6 @@ struct TeachingDashboardView: View {
             } header: {
                 Text(String(localized: "teaching.dashboard.attendanceTodo", defaultValue: "Отметить посещаемость"))
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -170,7 +166,6 @@ struct TeachingDashboardView: View {
         } header: {
             Text(String(localized: "teaching.dashboard.review", defaultValue: "Работы на проверке"))
         }
-        .listRowBackground(Palette.card)
     }
 
     private var quickActions: some View {
@@ -201,7 +196,7 @@ struct TeachingDashboardView: View {
             }
             .padding(Spacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+            .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -226,7 +221,6 @@ struct TeachingDashboardView: View {
         } header: {
             Text(String(localized: "teaching.dashboard.consultations", defaultValue: "Ближайшие консультации"))
         }
-        .listRowBackground(Palette.card)
     }
 
     /// События, на которые он записан, — в ближайшую неделю.
@@ -255,7 +249,6 @@ struct TeachingDashboardView: View {
             } header: {
                 Text(String(localized: "teaching.dashboard.attention", defaultValue: "Требует внимания"))
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -284,7 +277,6 @@ struct TeachingDashboardView: View {
         } header: {
             Text(String(localized: "teaching.dashboard.todaySchedule", defaultValue: "Расписание сегодня"))
         }
-        .listRowBackground(Palette.card)
     }
 
     private func pairState(_ item: TeachingDayPair, clock: String) -> (text: String, tint: Color) {
@@ -326,7 +318,6 @@ struct TeachingDashboardView: View {
         } header: {
             Text(String(localized: "teaching.dashboard.recent", defaultValue: "Последние изменения"))
         }
-        .listRowBackground(Palette.card)
     }
 
     private var reportMenu: some View {

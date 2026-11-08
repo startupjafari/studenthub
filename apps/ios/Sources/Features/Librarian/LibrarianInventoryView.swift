@@ -38,11 +38,10 @@ struct LibrarianInventoryView: View {
                     Label(String(localized: "librarian.inv.scan", defaultValue: "Сканировать"), systemImage: "qrcode.viewfinder")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .glassProminentButton()
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 if let report {
@@ -67,7 +66,6 @@ struct LibrarianInventoryView: View {
             } footer: {
                 Text(String(localized: "librarian.inv.progressHint", defaultValue: "Экземпляры, которые должны быть в библиотеке: на полке и под бронью"))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 TextField(String(localized: "librarian.inv.numberPlaceholder", defaultValue: "Например, 1024"), text: $manual)
@@ -89,7 +87,6 @@ struct LibrarianInventoryView: View {
                     Text(String(localized: "librarian.inv.manualHint", defaultValue: "Наклейка стёрлась — введите инвентарный номер"))
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 if recent.isEmpty {
@@ -103,7 +100,6 @@ struct LibrarianInventoryView: View {
             } footer: {
                 Text(String(localized: "librarian.inv.recentHint", defaultValue: "Предупреждение — повод разобраться: статус сканом не меняется"))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 if report != nil, missing.isEmpty {
@@ -151,11 +147,8 @@ struct LibrarianInventoryView: View {
             } footer: {
                 Text(String(localized: "librarian.inv.missingHint", defaultValue: "Должны стоять в библиотеке, но с начала инвентаризации не отмечены"))
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(LibrarianScreen.inventory.title))
         .sheet(isPresented: $scanning, onDismiss: { Task { await load() } }) {
             LibrarianInventoryScanSheet(since: sinceString) { result in
@@ -305,7 +298,7 @@ private struct LibrarianInventoryScanSheet: View {
                 } else if let last {
                     LibrarianInventoryScanRow(item: last)
                         .padding(Spacing.lg)
-                        .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+                        .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                 }
                 if count > 0 {
                     Text(String(localized: "librarian.inv.scannedCount", defaultValue: "Отмечено за этот заход: \(count.formatted())"))

@@ -29,7 +29,7 @@ struct ScheduleView: View {
                 weekList
             }
         }
-        .background(Palette.background)
+        .background(Palette.plainBackground)
         .navigationTitle(Text(AppTab.schedule.title))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -73,7 +73,6 @@ struct ScheduleView: View {
                 NavigationLink(value: AppRoute.lesson(id: item.id, date: model.selectedDate)) {
                     PairRow(item: item)
                 }
-                .listRowBackground(Palette.card)
             }
 
             if model.visiblePairs.isEmpty {
@@ -99,7 +98,6 @@ struct ScheduleView: View {
             }
         }
         .listStyle(.plain)
-        .scrollContentBackground(.hidden)
         .refreshable { await model.refresh() }
     }
 
@@ -125,14 +123,12 @@ struct ScheduleView: View {
                         Text(entry.date, format: .dateTime.weekday(.wide).day().month())
                             .foregroundStyle(Calendar.current.isDateInToday(entry.date) ? Palette.primary : Palette.mutedForeground)
                     }
-                    .listRowBackground(Palette.card)
                 }
             } else {
                 LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
         .refreshable {
             await model.refresh()
             week = await model.weekPairs()
@@ -186,7 +182,7 @@ private struct DayStrip: View {
         }
         .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.md)
-        .background(Palette.background)
+        .background(Palette.plainBackground)
     }
 }
 

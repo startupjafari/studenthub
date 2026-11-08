@@ -109,7 +109,7 @@ struct SecurityVisitorsView: View {
                             Button(String(localized: "security.markExit", defaultValue: "Вышел")) {
                                 Task { await markExit(visitor) }
                             }
-                            .buttonStyle(.bordered)
+                            .glassButton()
                             .font(Typography.meta.weight(.semibold))
                         }
                     }
@@ -186,6 +186,5 @@ private struct SecurityDayFilter: View {
                 )
             }
         }
-        .listRowBackground(Palette.card)
     }
 }

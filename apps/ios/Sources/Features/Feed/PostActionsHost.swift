@@ -160,13 +160,11 @@ private struct PostEditorSheet: View {
                 .font(Typography.body)
                 .focused($focused)
                 .padding(.horizontal, Spacing.lg)
-                .scrollContentBackground(.hidden)
-                .background(Palette.background)
                 .navigationTitle(Text(String(localized: "feed.edit", defaultValue: "Редактировать")))
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                        SheetCloseButton { dismiss() }
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         Button(String(localized: "common.save", defaultValue: "Сохранить")) {

@@ -153,7 +153,6 @@ struct StaffApplicationsQueueView: View {
                             .accessibilityLabel(Text(String(localized: "staff.app.serviceClear", defaultValue: "Все услуги")))
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             },
             row: { item in
@@ -338,7 +337,6 @@ struct StaffApplicationDetailView: View {
                         .foregroundStyle(Palette.mutedForeground)
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section(String(localized: "staff.app.info", defaultValue: "Информация")) {
                 if let number = app.number {
@@ -366,7 +364,6 @@ struct StaffApplicationDetailView: View {
                     DetailRow(title: String(localized: "staff.app.pickupLocation", defaultValue: "Где получить"), value: location)
                 }
             }
-            .listRowBackground(Palette.card)
 
             let answers = formAnswers(app)
             if !answers.isEmpty {
@@ -375,7 +372,6 @@ struct StaffApplicationDetailView: View {
                         DetailRow(title: answer.0, value: answer.1)
                     }
                 }
-                .listRowBackground(Palette.card)
             }
 
             if let documents = app.documents, !documents.isEmpty {
@@ -384,7 +380,6 @@ struct StaffApplicationDetailView: View {
                         documentRow(document, app: app)
                     }
                 }
-                .listRowBackground(Palette.card)
             }
 
             if let results = app.results, !results.isEmpty {
@@ -420,7 +415,6 @@ struct StaffApplicationDetailView: View {
                         }
                     }
                 }
-                .listRowBackground(Palette.card)
             }
 
             let events = (app.events ?? []).sorted { $0.createdAt < $1.createdAt }
@@ -443,11 +437,9 @@ struct StaffApplicationDetailView: View {
                         .accessibilityElement(children: .combine)
                     }
                 }
-                .listRowBackground(Palette.card)
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
         .refreshable { await load() }
         .safeAreaInset(edge: .bottom) {
             actionBar(app)
@@ -637,7 +629,7 @@ struct StaffApplicationDetailView: View {
                         Image(systemName: "ellipsis")
                             .frame(width: ControlHeight.lg, height: ControlHeight.lg)
                     }
-                    .buttonStyle(.bordered)
+                    .glassButton()
                     .accessibilityLabel(Text(String(localized: "staff.app.more", defaultValue: "Другие действия")))
                 }
                 if let primary = actions.first {
@@ -650,7 +642,7 @@ struct StaffApplicationDetailView: View {
                             Label(primary.title, systemImage: primary.symbol).frame(maxWidth: .infinity)
                         }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .glassProminentButton()
                     .controlSize(.large)
                     .disabled(isWorking)
                 }
@@ -919,7 +911,6 @@ private struct StaffResultSheet: View {
                         ForEach(Self.types, id: \.self) { Text(StaffApplicationText.resultType($0)).tag($0) }
                     }
                 }
-                .listRowBackground(Palette.card)
 
                 if needsFile, file == nil {
                     Section {
@@ -937,7 +928,6 @@ private struct StaffResultSheet: View {
                             defaultValue: "Платформа соберёт бланк по данным студента, выдаст документ в его кабинет и присвоит код проверки. Загружать файл не нужно."
                         ))
                     }
-                    .listRowBackground(Palette.card)
                 }
 
                 if needsFile {
@@ -977,7 +967,6 @@ private struct StaffResultSheet: View {
                             defaultValue: "PDF, JPG или PNG. Документ появится у студента в разделе «Выданные университетом»."
                         ))
                     }
-                    .listRowBackground(Palette.card)
                 }
 
                 Section {
@@ -985,16 +974,13 @@ private struct StaffResultSheet: View {
                     TextField(String(localized: "staff.app.resultNote", defaultValue: "Примечание"), text: $note, axis: .vertical)
                         .lineLimit(2...5)
                 }
-                .listRowBackground(Palette.card)
             }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "staff.app.addResult", defaultValue: "Добавить результат")))
             .navigationBarTitleDisplayMode(.inline)
             .interactiveDismissDisabled(isSaving || isUploading)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                         .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {

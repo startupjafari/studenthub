@@ -230,11 +230,8 @@ private struct StaffTemplateVariablesView: View {
             } footer: {
                 Text(String(localized: "staff.tpl.catalog.hint", defaultValue: "Нажмите на переменную, чтобы скопировать её, и вставьте в документ Word."))
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .searchable(text: $search, prompt: Text(String(localized: "staff.tpl.catalog.search", defaultValue: "Поиск переменной")))
         .navigationTitle(Text(String(localized: "staff.tpl.variables", defaultValue: "Переменные")))
         .toolbar {
@@ -309,7 +306,6 @@ struct StaffTemplatesView: View {
                             subtitle: String(localized: "staff.tpl.variables.hint", defaultValue: "Что можно вставить в документ Word")
                         )
                     }
-                    .listRowBackground(Palette.card)
                 }
             },
             row: { item in
@@ -458,12 +454,10 @@ private struct StaffTemplateInfoSheet: View {
                     ForEach(StaffTemplateText.locales, id: \.self) { Text(StaffTemplateText.locale($0)).tag($0) }
                 }
             }
-            .listRowBackground(Palette.card)
             Section(String(localized: "staff.tpl.description", defaultValue: "Описание")) {
                 TextField(String(localized: "staff.tpl.description", defaultValue: "Описание"), text: $description, axis: .vertical)
                     .lineLimit(2...6)
             }
-            .listRowBackground(Palette.card)
         }
         .onAppear {
             guard let template, title.isEmpty else { return }
@@ -585,7 +579,7 @@ struct StaffTemplateDetailView: View {
             if isWorking {
                 ProgressView()
                     .padding(Spacing.xl)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.xl))
+                    .glassSurface(interactive: false, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             }
         }
         .task { await load() }
@@ -635,7 +629,6 @@ struct StaffTemplateDetailView: View {
                     .foregroundStyle(Palette.warning)
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 if let current {
@@ -693,7 +686,6 @@ struct StaffTemplateDetailView: View {
                     Text(String(localized: "staff.tpl.replace.hint", defaultValue: "Новый файл сохранится новой версией. Опубликованная версия продолжит работать, пока вы не опубликуете новую."))
                 }
             }
-            .listRowBackground(Palette.card)
 
             if canManage, !archived {
                 Section(String(localized: "staff.tpl.publication", defaultValue: "Публикация")) {
@@ -721,7 +713,6 @@ struct StaffTemplateDetailView: View {
                         }
                     }
                 }
-                .listRowBackground(Palette.card)
             }
 
             if template.status == "PUBLISHED" {
@@ -739,7 +730,6 @@ struct StaffTemplateDetailView: View {
                         defaultValue: "Данные возьмутся из профиля студента. Если нужного поля нет, документ не сформируется — сначала заполните профиль. Уже сформировано: \((template.generationCount ?? 0).formatted())."
                     ))
                 }
-                .listRowBackground(Palette.card)
             }
 
             if let versions = template.versions, !versions.isEmpty {
@@ -754,7 +744,6 @@ struct StaffTemplateDetailView: View {
                         .disabled(!canManage)
                     }
                 }
-                .listRowBackground(Palette.card)
             }
 
             Section(String(localized: "staff.tpl.about", defaultValue: "О шаблоне")) {
@@ -766,10 +755,8 @@ struct StaffTemplateDetailView: View {
                 DetailRow(title: String(localized: "staff.tpl.updated", defaultValue: "Изменён"), value: DisplayFormat.date(template.updatedAt))
                 DetailRow(title: String(localized: "staff.tpl.variablesTitle", defaultValue: "Переменных"), value: template.variableCount.formatted())
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
         .refreshable { await load() }
     }
 
@@ -1008,12 +995,9 @@ struct StaffStudentPickerSheet: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(isWorking)
-                    .listRowBackground(Palette.card)
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .debouncedSearch($search, prompt: String(localized: "staff.picker.search", defaultValue: "ФИО студента")) { value in
                 await find(value)
             }
@@ -1021,14 +1005,14 @@ struct StaffStudentPickerSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
             }
             .overlay {
                 if isWorking {
                     ProgressView()
                         .padding(Spacing.xl)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.xl))
+                        .glassSurface(interactive: false, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                 }
             }
         }

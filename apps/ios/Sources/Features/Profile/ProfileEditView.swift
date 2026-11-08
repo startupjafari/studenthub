@@ -80,7 +80,6 @@ struct ProfileEditView: View {
                     }
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 TextField(String(localized: "profile.lastName", defaultValue: "Фамилия"), text: $form.lastName)
@@ -95,7 +94,6 @@ struct ProfileEditView: View {
             } header: {
                 Text(String(localized: "profile.personal", defaultValue: "Личные данные"))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 TextField(String(localized: "profile.headline", defaultValue: "Строка под именем"), text: $form.headline)
@@ -106,7 +104,6 @@ struct ProfileEditView: View {
             } header: {
                 Text(String(localized: "profile.about", defaultValue: "О себе"))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 TextField(String(localized: "profile.phone", defaultValue: "Телефон"), text: $form.phone)
@@ -137,7 +134,6 @@ struct ProfileEditView: View {
                     Text(String(localized: "profile.contacts.footer", defaultValue: "Кто видит почту и телефон — в «Настройки → Конфиденциальность»."))
                 }
             }
-            .listRowBackground(Palette.card)
 
             if role == .teacher {
                 Section {
@@ -150,7 +146,6 @@ struct ProfileEditView: View {
                 } header: {
                     Text(String(localized: "profile.work", defaultValue: "Работа"))
                 }
-                .listRowBackground(Palette.card)
             }
 
             if isStudent {
@@ -175,10 +170,8 @@ struct ProfileEditView: View {
                 } footer: {
                     Text(String(localized: "profile.skills.footer", defaultValue: "До 30 навыков. Смахните влево, чтобы удалить."))
                 }
-                .listRowBackground(Palette.card)
             }
         }
-        .scrollContentBackground(.hidden)
         .scrollDismissesKeyboard(.interactively)
         .background(Palette.background)
         .navigationTitle(Text(String(localized: "profile.editTitle", defaultValue: "Изменить профиль")))

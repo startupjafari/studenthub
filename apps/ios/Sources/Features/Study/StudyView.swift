@@ -40,7 +40,6 @@ struct StudyView: View {
                     } header: {
                         Text(String(localized: "study.deadlines", defaultValue: "Ближайшие сроки"))
                     }
-                    .listRowBackground(Palette.card)
                 }
             }
 
@@ -96,7 +95,6 @@ struct StudyView: View {
                     )
                 }
             }
-            .listRowBackground(Palette.card)
 
             let extras = Workspace.studyExtras(for: role)
             if !extras.isEmpty {
@@ -111,12 +109,9 @@ struct StudyView: View {
                         ? String(localized: "study.teacherTools", defaultValue: "Преподавателю")
                         : String(localized: "study.more", defaultValue: "Ещё по учёбе"))
                 }
-                .listRowBackground(Palette.card)
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(AppTab.study.title))
         .refreshable { await load() }
         .task { await load() }

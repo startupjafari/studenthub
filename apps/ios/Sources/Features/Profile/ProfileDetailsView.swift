@@ -27,7 +27,6 @@ struct ProfileDetailsView: View {
                 } header: {
                     Text(String(localized: "profile.contacts", defaultValue: "Контакты"))
                 }
-                .listRowBackground(Palette.card)
             }
 
             let study = studyRows
@@ -41,7 +40,6 @@ struct ProfileDetailsView: View {
                         ? String(localized: "profile.work", defaultValue: "Работа")
                         : String(localized: "profile.study", defaultValue: "Учёба"))
                 }
-                .listRowBackground(Palette.card)
             }
 
             if let skills = profile.skills, !skills.isEmpty {
@@ -50,7 +48,6 @@ struct ProfileDetailsView: View {
                 } header: {
                     Text(String(localized: "profile.skills", defaultValue: "Навыки"))
                 }
-                .listRowBackground(Palette.card)
             }
 
             if let interests = profile.interests, !interests.isEmpty {
@@ -59,7 +56,6 @@ struct ProfileDetailsView: View {
                 } header: {
                     Text(String(localized: "profile.interests", defaultValue: "Интересы"))
                 }
-                .listRowBackground(Palette.card)
             }
 
             if contacts.isEmpty, study.isEmpty, (profile.skills ?? []).isEmpty, (profile.interests ?? []).isEmpty {
@@ -74,8 +70,6 @@ struct ProfileDetailsView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "profile.details", defaultValue: "Подробнее")))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

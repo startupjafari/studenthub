@@ -85,7 +85,7 @@ struct LibrarianBookView: View {
             if busy {
                 ProgressView()
                     .padding(Spacing.xl)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.xl))
+                    .glassSurface(interactive: false, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             }
         }
         .refreshable { await load() }
@@ -189,7 +189,6 @@ struct LibrarianBookView: View {
                     Text(description).font(Typography.body).foregroundStyle(Palette.foreground)
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 if book.copies.isEmpty {
@@ -232,10 +231,8 @@ struct LibrarianBookView: View {
             } footer: {
                 Text(String(localized: "librarian.book.copiesHint", defaultValue: "Инвентарные номера, наклейки и кому выдано. Нажмите на экземпляр, чтобы изменить его."))
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
         .safeAreaInset(edge: .bottom) {
             if selecting {
                 Button {
@@ -244,7 +241,7 @@ struct LibrarianBookView: View {
                     Text(String(localized: "librarian.book.printLabels", defaultValue: "Печать наклеек: \(selected.count.formatted())"))
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .glassProminentButton()
                 .disabled(selected.isEmpty)
                 .padding(Spacing.xl)
                 .background(.bar)
@@ -443,7 +440,6 @@ struct LibrarianCopyDetail: View {
                         }
                     }
                 }
-                .listRowBackground(Palette.card)
             }
 
             Section {
@@ -465,7 +461,6 @@ struct LibrarianCopyDetail: View {
                     DetailRow(title: String(localized: "librarian.copy.inventoried", defaultValue: "Последняя инвентаризация"), value: DisplayFormat.date(seen))
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 TextField(String(localized: "librarian.copy.inventoryNumber", defaultValue: "Инв. номер"), text: $inventoryNumber)
@@ -487,7 +482,6 @@ struct LibrarianCopyDetail: View {
             } footer: {
                 if let failure { Text(failure).foregroundStyle(Palette.destructive) }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 Button {
@@ -517,7 +511,6 @@ struct LibrarianCopyDetail: View {
                     Text(String(localized: "librarian.copy.busy", defaultValue: "Экземпляр выдан или отложен под бронь"))
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 if let history {
@@ -550,11 +543,8 @@ struct LibrarianCopyDetail: View {
             } header: {
                 Text(String(localized: "librarian.copy.history", defaultValue: "История выдач"))
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "librarian.copy.title", defaultValue: "Экземпляр \(current.inventoryNumber)")))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -729,7 +719,6 @@ private struct LibrarianAddCopiesSheet: View {
                     ? String(localized: "librarian.copies.numbersHint", defaultValue: "Через запятую или с новой строки.")
                     : String(localized: "librarian.copies.countHint", defaultValue: "Номера выдадутся по порядку после наибольшего номера фонда."))
             }
-            .listRowBackground(Palette.card)
         }
     }
 

@@ -113,7 +113,6 @@ struct StaffLibrarySettingsView: View {
                 }
                 .disabled(isSaving)
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 ForEach(rules, id: \.field) { rule in
@@ -132,7 +131,6 @@ struct StaffLibrarySettingsView: View {
             } footer: {
                 Text(String(localized: "staff.lib.rules.hint", defaultValue: "Действуют для всех читателей вуза — студентов и старост."))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 Button {
@@ -146,9 +144,7 @@ struct StaffLibrarySettingsView: View {
                 }
                 .disabled(isSaving || !isDirty)
             }
-            .listRowBackground(Palette.card)
         }
-        .scrollContentBackground(.hidden)
         .refreshable { await load() }
     }
 
@@ -261,7 +257,6 @@ struct StaffLibraryReportsView: View {
             } footer: {
                 Text(String(localized: "staff.lib.debtors.hint", defaultValue: "Утерянные книги и самые давние просрочки"))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 Picker(String(localized: "staff.lib.period", defaultValue: "Период"), selection: $days) {
@@ -305,11 +300,8 @@ struct StaffLibraryReportsView: View {
             } footer: {
                 Text(String(localized: "staff.lib.popular.hint", defaultValue: "Сколько раз книгу выдавали"))
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(StaffScreen.libraryReports.title))
         .refreshable { await load() }
         .task { await load() }

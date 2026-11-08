@@ -56,7 +56,6 @@ struct LessonDetailView: View {
                         symbol: "calendar"
                     )
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     if let course {
@@ -96,7 +95,6 @@ struct LessonDetailView: View {
                 } header: {
                     Text(String(localized: "lesson.related", defaultValue: "По дисциплине"))
                 }
-                .listRowBackground(Palette.card)
             } else if isMissing {
                 EmptyStateView(
                     title: String(localized: "lesson.missing", defaultValue: "Занятие не найдено"),
@@ -109,8 +107,6 @@ struct LessonDetailView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "shell.lesson", defaultValue: "Пара")))
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
@@ -144,7 +140,6 @@ struct LessonDetailView: View {
             .padding(.vertical, Spacing.xs)
             .accessibilityElement(children: .combine)
         }
-        .listRowBackground(Palette.card)
     }
 
     /// Что поменялось на этот день: тип, новое время, аудитория, заменяющий, примечание.
@@ -182,7 +177,6 @@ struct LessonDetailView: View {
         } header: {
             Text(String(localized: "student.lesson.change.title", defaultValue: "Изменение на этот день"))
         }
-        .listRowBackground(Palette.card)
     }
 
     static func weekTitle(_ raw: String) -> String {

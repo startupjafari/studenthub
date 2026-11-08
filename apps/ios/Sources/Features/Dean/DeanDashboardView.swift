@@ -29,8 +29,6 @@ struct DeanDashboardView: View {
             queueSection
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(DeanScreen.dashboard.title))
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -128,7 +126,6 @@ struct DeanDashboardView: View {
         } header: {
             Text(String(localized: "dean.today.issuesTitle", defaultValue: "Проблемы расписания сегодня"))
         }
-        .listRowBackground(Palette.card)
     }
 
     @ViewBuilder
@@ -162,7 +159,6 @@ struct DeanDashboardView: View {
         } header: {
             Text(String(localized: "dean.recent.title", defaultValue: "Последние изменения"))
         }
-        .listRowBackground(Palette.card)
     }
 
     private static func notificationSymbol(_ type: String) -> String {
@@ -182,7 +178,6 @@ struct DeanDashboardView: View {
         Section {
             if let failure = model.overviewFailure, model.overview == nil {
                 DeanPanelError(message: failure) { await model.load() }
-                    .listRowBackground(Palette.card)
             } else {
                 let totals = model.overview?.totals
                 let low = model.risk?.thresholds.attendance ?? 60
@@ -269,7 +264,6 @@ struct DeanDashboardView: View {
         } footer: {
             Text(String(localized: "dean.chart.attendanceHint", defaultValue: "Худшие группы сверху; без отметок — не показаны"))
         }
-        .listRowBackground(Palette.card)
     }
 
     @ViewBuilder
@@ -299,7 +293,6 @@ struct DeanDashboardView: View {
         } footer: {
             Text(String(localized: "dean.chart.riskHint", defaultValue: "Сколько студентов по каждой причине"))
         }
-        .listRowBackground(Palette.card)
     }
 
     @ViewBuilder
@@ -331,7 +324,6 @@ struct DeanDashboardView: View {
         } header: {
             Text(String(localized: "dean.queue.title", defaultValue: "Очередь заявок"))
         }
-        .listRowBackground(Palette.card)
     }
 }
 
@@ -414,7 +406,6 @@ struct DeanReportExportSheet: View {
             } footer: {
                 Text(String(localized: "dean.report.hint", defaultValue: "Строка на группу и «Итого»: посещаемость, успеваемость, экзамены, заявки. Группы меньше 5 студентов — без чисел."))
             }
-            .listRowBackground(Palette.card)
         }
     }
 }

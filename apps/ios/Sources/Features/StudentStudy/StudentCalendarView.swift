@@ -59,7 +59,6 @@ struct StudentCalendarView: View {
                             selected: $selectedDay
                         )
                     }
-                    .listRowBackground(Palette.card)
                     let day = selectedDay ?? Self.dayKey(Date())
                     if Self.cells(for: anchor).contains(where: { Self.dayKey($0) == day }) {
                         dayDetails(day, items: byDay[day] ?? [], showEmpty: true)
@@ -86,8 +85,6 @@ struct StudentCalendarView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(StudentScreen.calendar.title))
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await load() }
@@ -160,7 +157,6 @@ struct StudentCalendarView: View {
             Text(Self.date(day) ?? Date(), format: .dateTime.weekday(.wide).day().month(.wide))
                 .foregroundStyle(day == Self.dayKey(Date()) ? Palette.primary : Palette.mutedForeground)
         }
-        .listRowBackground(Palette.card)
     }
 
     // MARK: Загрузка

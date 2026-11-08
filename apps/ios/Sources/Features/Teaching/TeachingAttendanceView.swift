@@ -111,7 +111,6 @@ struct TeachingAttendanceJournalView: View {
                     displayedComponents: .date
                 )
             }
-            .listRowBackground(Palette.card)
 
             if let pairs {
                 let day = teachingDayPairs(pairs: pairs, changes: changes, date: date, viewerID: viewerID)
@@ -138,7 +137,6 @@ struct TeachingAttendanceJournalView: View {
                         let done = open.filter { marked.contains($0.id) }.count
                         Text(String(localized: "teaching.attendance.markedCount", defaultValue: "Отмечено \(done.formatted()) из \(open.count.formatted())"))
                     }
-                    .listRowBackground(Palette.card)
                 }
             } else if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
@@ -148,8 +146,6 @@ struct TeachingAttendanceJournalView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(TeacherScreen.attendanceJournal.title))
         .refreshable { await load() }
         .task(id: TeachingAPI.day(date)) { await load() }
@@ -325,7 +321,7 @@ struct TeachingAttendanceQRView: View {
                             .foregroundStyle(Palette.mutedForeground)
                             .multilineTextAlignment(.center)
                             .padding(Spacing.xl)
-                            .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xl))
+                            .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xxl, style: .continuous))
                     } else {
                         ProgressView().frame(maxWidth: .infinity, minHeight: 240)
                     }

@@ -37,8 +37,6 @@ struct UAdminCamerasView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(UniAdminScreen.cameras.title))
         .sheet(isPresented: $creatingAgent) {
             AgentNameForm { token in issued = token } saved: { await load() }
@@ -109,7 +107,6 @@ struct UAdminCamerasView: View {
         } footer: {
             Text(String(localized: "uadmin.cameras.moduleHint", defaultValue: "Агенты в сети вуза, камеры за ними и выключатель модуля. Смотрят камеры только охрана и администратор вуза."))
         }
-        .listRowBackground(Palette.card)
     }
 
     private func agentsSection(_ agents: [UAdminCameraAgentDTO]) -> some View {
@@ -165,7 +162,6 @@ struct UAdminCamerasView: View {
         } footer: {
             Text(String(localized: "uadmin.cameras.agentsHint", defaultValue: "Программа в сети вуза: забирает видео с камер и отдаёт его наружу только по запросу."))
         }
-        .listRowBackground(Palette.card)
     }
 
     private func camerasSection(_ cameras: [UAdminCameraDTO], agents: [UAdminCameraAgentDTO], enabled: Bool) -> some View {
@@ -222,7 +218,6 @@ struct UAdminCamerasView: View {
         } footer: {
             Text(String(localized: "uadmin.cameras.camerasHint", defaultValue: "Пароль камеры шифруется ключом агента — платформа его не видит."))
         }
-        .listRowBackground(Palette.card)
     }
 
     static func connection(_ raw: String) -> (String, Color) {
@@ -316,7 +311,6 @@ private struct AgentNameForm: View {
             Section {
                 TextField(String(localized: "uadmin.cameras.agentPlaceholder", defaultValue: "Например, «Главный корпус»"), text: $name)
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -340,10 +334,7 @@ private struct AgentTokenSheet: View {
                 } footer: {
                     Text(String(localized: "uadmin.cameras.tokenHint", defaultValue: "Токен показывается один раз. Укажите его при установке агента в сети вуза и никому не передавайте: с ним можно выдать себя за агента."))
                 }
-                .listRowBackground(Palette.card)
             }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "uadmin.cameras.tokenTitle", defaultValue: "Токен агента «\(name)»")))
             .navigationBarTitleDisplayMode(.inline)
             .interactiveDismissDisabled()
@@ -401,7 +392,6 @@ private struct CameraForm: View {
                     Toggle(String(localized: "uadmin.cameras.enabled", defaultValue: "Камера включена"), isOn: $enabled)
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 TextField("rtsp://10.0.0.5:554/Streaming/Channels/102", text: $streamUrl)
@@ -419,7 +409,6 @@ private struct CameraForm: View {
                 )
                 .foregroundStyle(urlValid || streamUrl.isEmpty ? Palette.mutedForeground : Palette.destructive)
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 Picker(String(localized: "uadmin.cameras.credentials", defaultValue: "Пароль камеры"), selection: $credentials) {
@@ -442,7 +431,6 @@ private struct CameraForm: View {
             } footer: {
                 Text(String(localized: "uadmin.cameras.credentialsHint", defaultValue: "Пароль шифруется ключом агента и больше не показывается — ни вам, ни платформе."))
             }
-            .listRowBackground(Palette.card)
         }
         .sheet(isPresented: $pickingRoom) {
             UAdminSearchPicker(
@@ -607,7 +595,6 @@ struct UAdminCameraWatchView: View {
                     } footer: {
                         Text(String(localized: "uadmin.watch.footer", defaultValue: "Видео в реальном времени, без звука. Каждый просмотр записывается в журнал."))
                     }
-                    .listRowBackground(Palette.card)
                 }
             } else if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
@@ -617,8 +604,6 @@ struct UAdminCameraWatchView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(UniAdminScreen.cameraWatch.title))
         .navigationBarTitleDisplayMode(.inline)
         .alert(

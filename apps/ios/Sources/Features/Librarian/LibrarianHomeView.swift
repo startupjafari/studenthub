@@ -75,7 +75,6 @@ struct LibrarianHomeView: View {
                         action(.inventory, String(localized: "librarian.home.inventory", defaultValue: "Инвентаризация"), String(localized: "librarian.home.inventoryHint", defaultValue: "Скан наклеек вдоль полок"), TileTint.orange)
                         action(.scan, String(localized: "librarian.home.scan", defaultValue: "Сканер QR"), String(localized: "librarian.home.scanHint", defaultValue: "Подтвердить вход на компьютере, открыть наклейку"), TileTint.purple)
                     }
-                    .listRowBackground(Palette.card)
 
                     Section {
                         if snapshot.overdue.isEmpty {
@@ -104,7 +103,6 @@ struct LibrarianHomeView: View {
                     } footer: {
                         Text(String(localized: "librarian.overdueHint", defaultValue: "Самые давние — сверху"))
                     }
-                    .listRowBackground(Palette.card)
 
                     Section {
                         if snapshot.ready.isEmpty {
@@ -134,11 +132,9 @@ struct LibrarianHomeView: View {
                     } footer: {
                         Text(String(localized: "librarian.holdShelfHint", defaultValue: "Отложенные книги и до какого дня держатся"))
                     }
-                    .listRowBackground(Palette.card)
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
             .refreshable { token += 1 }
         }
         .background(Palette.background)

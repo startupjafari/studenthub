@@ -28,12 +28,10 @@ struct TeachingGradebookListView: View {
                                 }
                             }
                         }
-                        .listRowBackground(Palette.card)
                     }
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
         }
         .background(Palette.background)
         .navigationTitle(Text(TeacherScreen.gradebook.title))
@@ -90,8 +88,6 @@ struct TeachingGradebookCourseView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(courseTitle ?? TeacherScreen.gradebookCourse(id: courseID).title))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -182,7 +178,6 @@ struct TeachingGradebookCourseView: View {
                 Text(String(localized: "teaching.gradebook.columns.footer", defaultValue: "Черновик колонки студенты не видят. Оценки ставятся внутри колонки; действия — долгим нажатием или смахиванием."))
             }
         }
-        .listRowBackground(Palette.card)
     }
 
     private func columnRow(_ column: TeachingGradebookDTO.Column, book: TeachingGradebookDTO) -> some View {
@@ -275,7 +270,6 @@ struct TeachingGradebookCourseView: View {
             } footer: {
                 Text(String(localized: "teaching.gradebook.total.footer", defaultValue: "Итог — средняя доля от максимума по колонкам, где он задан."))
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -392,11 +386,8 @@ private struct TeachingColumnGradesView: View {
             } footer: {
                 Text(String(localized: "teaching.gradebook.range", defaultValue: "Балл от 0 до \(JSONValue.format(ceiling)). Пустое поле — без оценки."))
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(column.title))
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: Text(String(localized: "teaching.searchStudent", defaultValue: "Найти студента")))
@@ -473,7 +464,6 @@ private struct TeachingStudentGradesView: View {
                     PersonRow(name: student.name, avatarURL: student.avatarUrl)
                 }
             }
-            .listRowBackground(Palette.card)
             Section {
                 ForEach(book.columns.sorted { $0.position < $1.position }) { column in
                     let score = book.grades.first { $0.columnId == column.id && $0.studentId == student.id }?.score
@@ -483,11 +473,8 @@ private struct TeachingStudentGradesView: View {
                     )
                 }
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(student.name))
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -531,7 +518,6 @@ private struct TeachingColumnForm: View {
             } footer: {
                 Text(String(localized: "teaching.gradebook.maxScore.footer", defaultValue: "От 1 до 1000. Без максимума колонка не входит в итог."))
             }
-            .listRowBackground(Palette.card)
         }
     }
 

@@ -39,10 +39,7 @@ struct CommunityUsernameView: View {
                     Text(String(localized: "community.username.hint", defaultValue: "По логину вас находят в поиске и упоминают через @. Латинские буквы, цифры и _."))
                 }
             }
-            .listRowBackground(Palette.card)
         }
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(CommunityScreen.username.title))
         .navigationBarTitleDisplayMode(.inline)
         .sensoryFeedback(.success, trigger: saved)
@@ -119,18 +116,14 @@ struct CommunityLanguageView: View {
             } footer: {
                 Text(String(localized: "community.language.hint", defaultValue: "На этом языке приходят письма и пуш-уведомления. Язык самого приложения меняется в настройках iOS."))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 Button(String(localized: "community.language.appSettings", defaultValue: "Язык приложения в настройках iOS")) {
                     if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
                 }
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(CommunityScreen.notificationLanguage.title))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { selection = viewer.profile?.locale ?? "ru" }
@@ -200,7 +193,6 @@ struct CommunityTelegramLinkView: View {
                 } footer: {
                     Text(String(localized: "community.telegram.hint", defaultValue: "Откройте бота StudentHub в Telegram и введите код на экране привязки."))
                 }
-                .listRowBackground(Palette.card)
 
                 if let code {
                     Section {
@@ -220,7 +212,7 @@ struct CommunityTelegramLinkView: View {
                                     } label: {
                                         Label(String(localized: "community.telegram.copy", defaultValue: "Скопировать"), systemImage: "doc.on.doc")
                                     }
-                                    .buttonStyle(.bordered)
+                                    .glassButton()
                                 } else {
                                     Text(String(localized: "community.telegram.expired", defaultValue: "Код истёк"))
                                         .font(Typography.meta)
@@ -231,7 +223,6 @@ struct CommunityTelegramLinkView: View {
                             .padding(.vertical, Spacing.md)
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
 
                 Section {
@@ -255,7 +246,6 @@ struct CommunityTelegramLinkView: View {
                         .disabled(isBusy)
                     }
                 }
-                .listRowBackground(Palette.card)
             } else if let failure {
                 ErrorStateView(message: failure) { await load() }.listRowBackground(Color.clear)
             } else {
@@ -263,8 +253,6 @@ struct CommunityTelegramLinkView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(CommunityScreen.telegramLink.title))
         .refreshable { await load() }
         .task { await load() }

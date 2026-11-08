@@ -199,7 +199,6 @@ struct StudentSubmissionFilesSection: View {
                 Text(String(localized: "student.files.hint", defaultValue: "До \(String(Self.maxFiles)) файлов: документы, изображения, архивы"))
             }
         }
-        .listRowBackground(Palette.card)
     }
 
     static func symbol(for mime: String?) -> String {

@@ -322,7 +322,6 @@ struct AdminSupportTicketView: View {
                     DetailRow(title: String(localized: "admin.support.merged", defaultValue: "Склеено обращений"), value: merged.formatted())
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 if (earlierStarted ? earlierCursor : thread.earlierCursor) != nil {
@@ -342,10 +341,8 @@ struct AdminSupportTicketView: View {
             } header: {
                 Text(String(localized: "admin.support.thread", defaultValue: "Переписка"))
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
         .refreshable { await load() }
         .safeAreaInset(edge: .bottom) {
             composer(ticket)
@@ -619,7 +616,6 @@ private struct AdminSupportTagsSheet: View {
             } footer: {
                 Text(String(localized: "admin.support.tagsHint", defaultValue: "Темы ставит поддержка — по ним работают фильтр очереди и сводка. До трёх."))
             }
-            .listRowBackground(Palette.card)
         }
     }
 }

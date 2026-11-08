@@ -42,7 +42,6 @@ struct TeachingAssignmentsView: View {
                 } header: {
                     Text(String(localized: "teaching.assignments.queue", defaultValue: "Ждут проверки: \(queue.total.formatted())"))
                 }
-                .listRowBackground(Palette.card)
             }
             FilterChipsRow(options: Self.filters, selection: $status)
         } row: { assignment in
@@ -243,14 +242,12 @@ struct TeachingAssignmentForm: View {
                 Section {
                     TeachingCoursePicker(courses: courses, selection: $courseID)
                 }
-                .listRowBackground(Palette.card)
             }
             Section {
                 TextField(String(localized: "teaching.assignments.field.title", defaultValue: "Название"), text: $title)
                 TextField(String(localized: "teaching.assignments.field.description", defaultValue: "Описание"), text: $description, axis: .vertical)
                     .lineLimit(3...10)
             }
-            .listRowBackground(Palette.card)
             Section {
                 Picker(String(localized: "teaching.assignments.field.type", defaultValue: "Тип"), selection: $type) {
                     ForEach(TeachingText.assignmentTypes, id: \.self) { Text(TeachingText.assignmentType($0)).tag($0) }
@@ -261,7 +258,6 @@ struct TeachingAssignmentForm: View {
                 TextField(String(localized: "teaching.assignments.field.maxScore", defaultValue: "Максимальный балл"), text: $maxScore)
                     .keyboardType(.numberPad)
             }
-            .listRowBackground(Palette.card)
             Section {
                 Toggle(String(localized: "teaching.assignments.field.hasDue", defaultValue: "Срок сдачи"), isOn: $hasDue)
                 if hasDue {
@@ -273,7 +269,6 @@ struct TeachingAssignmentForm: View {
                     Text(String(localized: "teaching.assignments.editPublishedHint", defaultValue: "Студенты уже видят задание — изменения появятся у них сразу"))
                 }
             }
-            .listRowBackground(Palette.card)
         }
         .task {
             guard assignment == nil, courses.isEmpty else { return }
@@ -376,7 +371,6 @@ struct TeachingSubmissionsView: View {
                             .textSelection(.enabled)
                     }
                 }
-                .listRowBackground(Palette.card)
             }
             if let submissions {
                 if !submissions.isEmpty {
@@ -404,7 +398,6 @@ struct TeachingSubmissionsView: View {
                             }
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             } else if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
@@ -414,8 +407,6 @@ struct TeachingSubmissionsView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(TeacherScreen.assignmentSubmissions(assignmentID: assignmentID).title))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -538,7 +529,6 @@ private struct TeachingSubmissionReviewView: View {
                     DetailRow(title: String(localized: "teaching.submissions.gradedBy", defaultValue: "Проверил"), value: gradedBy.name)
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section(String(localized: "teaching.submissions.answer", defaultValue: "Ответ")) {
                 if let text = submission.text, !text.isEmpty {
@@ -553,7 +543,6 @@ private struct TeachingSubmissionReviewView: View {
                     }
                 }
             }
-            .listRowBackground(Palette.card)
 
             if let files = submission.files, !files.isEmpty {
                 Section(String(localized: "teaching.submissions.files", defaultValue: "Файлы")) {
@@ -570,7 +559,6 @@ private struct TeachingSubmissionReviewView: View {
                         }
                     }
                 }
-                .listRowBackground(Palette.card)
             }
 
             if formOpen {
@@ -586,7 +574,6 @@ private struct TeachingSubmissionReviewView: View {
                         Text(String(localized: "teaching.submissions.returnHint", defaultValue: "Чтобы вернуть работу на исправление, напишите комментарий — что поправить."))
                     }
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     Button {
@@ -606,7 +593,6 @@ private struct TeachingSubmissionReviewView: View {
                         .disabled(isSaving)
                     }
                 }
-                .listRowBackground(Palette.card)
             } else {
                 Section {
                     if let score = submission.score {
@@ -621,11 +607,8 @@ private struct TeachingSubmissionReviewView: View {
                 } header: {
                     Text(String(localized: "teaching.submissions.grading", defaultValue: "Оценивание"))
                 }
-                .listRowBackground(Palette.card)
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(submission.student.name))
         .navigationBarTitleDisplayMode(.inline)
         .remoteFilePreview(opener)

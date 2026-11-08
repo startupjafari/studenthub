@@ -263,7 +263,6 @@ private struct DeanCourseForm: View {
                     )
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 DeanPickerField(
@@ -282,7 +281,6 @@ private struct DeanCourseForm: View {
             } footer: {
                 Text(String(localized: "dean.courses.teacherHint", defaultValue: "Без преподавателя дисциплина не появится у ведущего в журнале, заданиях и экзаменах. Кредиты — от 0 до 60."))
             }
-            .listRowBackground(Palette.card)
         }
     }
 

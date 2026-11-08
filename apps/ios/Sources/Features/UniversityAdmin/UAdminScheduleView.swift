@@ -64,13 +64,10 @@ struct UAdminScheduleView: View {
                     Text(String(localized: "uadmin.schedule.draftHint", defaultValue: "Это черновик: группа его не видит, пока версию не сделают активной."))
                 }
             }
-            .listRowBackground(Palette.card)
 
             content
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "uadmin.schedule.title", defaultValue: "Управление расписанием")))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -168,7 +165,6 @@ struct UAdminScheduleView: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             }
         } else {
@@ -298,7 +294,6 @@ private struct VersionForm: View {
                     Text(String(localized: "uadmin.schedule.versionDraftHint", defaultValue: "Версия создаётся черновиком: у группы остаётся текущее расписание, пока вы не сделаете новую активной."))
                 }
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -358,7 +353,6 @@ private struct PairForm: View {
                             .foregroundStyle(Palette.destructive)
                     }
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     UAdminPickerRow(
@@ -372,7 +366,6 @@ private struct PairForm: View {
                         placeholder: String(localized: "uadmin.picker.none", defaultValue: "Не выбрано")
                     ) { pickingTeacher = true }
                 }
-                .listRowBackground(Palette.card)
 
                 if let pair {
                     Section {
@@ -382,7 +375,6 @@ private struct PairForm: View {
                             Label(String(localized: "uadmin.schedule.deletePair", defaultValue: "Удалить пару"), systemImage: "trash")
                         }
                     }
-                    .listRowBackground(Palette.card)
 
                     if containerActive {
                         changesSection(pair)
@@ -392,18 +384,15 @@ private struct PairForm: View {
                                 .font(Typography.meta)
                                 .foregroundStyle(Palette.mutedForeground)
                         }
-                        .listRowBackground(Palette.card)
                     }
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(pair?.subject ?? String(localized: "uadmin.schedule.addPair", defaultValue: "Добавить пару")))
             .navigationBarTitleDisplayMode(.inline)
             .interactiveDismissDisabled(isSaving)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     if isSaving {
@@ -498,7 +487,6 @@ private struct PairForm: View {
         } footer: {
             Text(String(localized: "uadmin.schedule.changesHint", defaultValue: "Изменение на конкретную дату — постоянное расписание остаётся прежним"))
         }
-        .listRowBackground(Palette.card)
     }
 
     static func changeDetail(_ change: UAdminScheduleChangeDTO) -> String? {
@@ -648,7 +636,6 @@ private struct ChangeForm: View {
                     Text(String(localized: "uadmin.schedule.changeNotify", defaultValue: "Группа и преподаватели получат уведомление."))
                 }
             }
-            .listRowBackground(Palette.card)
         }
         .sheet(isPresented: $pickingRoom) {
             UAdminSearchPicker(

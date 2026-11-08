@@ -30,11 +30,9 @@ struct StarostaGroupDocumentsView: View {
                             }
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
             .refreshable { reloadToken += 1 }
         }
         .background(Palette.background)
@@ -115,7 +113,6 @@ struct StarostaGroupDocumentRequestView: View {
                 }
                 .padding(.vertical, Spacing.xs)
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 StatGrid {
@@ -169,7 +166,6 @@ struct StarostaGroupDocumentRequestView: View {
                         }
                     }
                 }
-                .listRowBackground(Palette.card)
             } else {
                 Section {
                     Label(
@@ -179,11 +175,9 @@ struct StarostaGroupDocumentRequestView: View {
                     .font(Typography.meta)
                     .foregroundStyle(Palette.mutedForeground)
                 }
-                .listRowBackground(Palette.card)
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
         .refreshable { reloadToken += 1 }
     }
 

@@ -217,7 +217,6 @@ struct AdminInviteLinkSection: View {
         } footer: {
             Text(hint)
         }
-        .listRowBackground(Palette.card)
     }
 }
 

@@ -189,7 +189,6 @@ struct AdminUniversityView: View {
                     DetailRow(title: String(localized: "admin.university.createdAt", defaultValue: "Создан"), value: DisplayFormat.date(created))
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 if canEdit {
@@ -214,7 +213,6 @@ struct AdminUniversityView: View {
             } footer: {
                 Text(String(localized: "admin.university.statusHint", defaultValue: "Заблокированный вуз отключается целиком: его люди не могут войти."))
             }
-            .listRowBackground(Palette.card)
 
             if let stats {
                 Section {
@@ -248,11 +246,9 @@ struct AdminUniversityView: View {
                     Text(String(localized: "admin.university.deleteHint", defaultValue: "Удалить можно только пустой вуз — без факультетов, аудиторий и пользователей."))
                 }
                 .disabled(isWorking)
-                .listRowBackground(Palette.card)
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
         .refreshable { await load() }
     }
 
@@ -346,7 +342,6 @@ struct AdminUniversityForm: View {
                 TextField(String(localized: "admin.university.name", defaultValue: "Название"), text: $name, axis: .vertical)
                 TextField(String(localized: "admin.university.shortName", defaultValue: "Аббревиатура"), text: $shortName)
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 NavigationLink {
@@ -375,7 +370,6 @@ struct AdminUniversityForm: View {
             } footer: {
                 Text(String(localized: "admin.university.cityHint", defaultValue: "Хранится код справочника КАТО: город переименуют — запись не устареет. Текстом — только для вуза за рубежом."))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 NavigationLink {
@@ -396,7 +390,6 @@ struct AdminUniversityForm: View {
             } footer: {
                 Text(String(localized: "admin.university.timezoneHint", defaultValue: "По нему считаются день журнала, расписание и ежедневные сводки вуза"))
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -547,7 +540,6 @@ struct AdminDemoRequestView: View {
                 }
                 DetailRow(title: String(localized: "admin.demo.createdAt", defaultValue: "Подана"), value: DisplayFormat.dateTime(request.createdAt))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 DetailRow(title: String(localized: "admin.demo.contact", defaultValue: "Контакт"), value: request.contactName)
@@ -563,7 +555,6 @@ struct AdminDemoRequestView: View {
                 )
             }
             .textSelection(.enabled)
-            .listRowBackground(Palette.card)
 
             if let comment = request.comment, !comment.isEmpty {
                 Section {
@@ -571,7 +562,6 @@ struct AdminDemoRequestView: View {
                 } header: {
                     Text(String(localized: "admin.demo.comment", defaultValue: "Комментарий"))
                 }
-                .listRowBackground(Palette.card)
             }
 
             if request.status == "REJECTED" {
@@ -585,7 +575,6 @@ struct AdminDemoRequestView: View {
                 } header: {
                     Text(String(localized: "admin.demo.reason", defaultValue: "Причина отказа"))
                 }
-                .listRowBackground(Palette.card)
             }
 
             if let inviteLink {
@@ -621,10 +610,8 @@ struct AdminDemoRequestView: View {
                 }
             }
             .disabled(isWorking)
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
         .refreshable { await load() }
     }
 
@@ -717,7 +704,6 @@ private struct AdminDemoApproveForm: View {
             } footer: {
                 Text(String(localized: "admin.demo.approveExplain", defaultValue: "Мы заведём вуз и вышлем приглашение администратора на \(request.email). Вуз будет создан неактивным — запустит его сам вуз, когда заполнит структуру."))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 TextField(String(localized: "admin.demo.note", defaultValue: "Заметка"), text: $note, axis: .vertical)
@@ -725,7 +711,6 @@ private struct AdminDemoApproveForm: View {
             } footer: {
                 Text(String(localized: "admin.demo.noteInternal", defaultValue: "Видна только нам, в письмо не уходит."))
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -765,7 +750,6 @@ private struct AdminDemoRejectForm: View {
             } header: {
                 Text(String(localized: "admin.demo.reason", defaultValue: "Причина отказа"))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 TextField(String(localized: "admin.demo.note", defaultValue: "Заметка"), text: $note, axis: .vertical)
@@ -773,7 +757,6 @@ private struct AdminDemoRejectForm: View {
             } footer: {
                 Text(String(localized: "admin.demo.noteInternal", defaultValue: "Видна только нам, в письмо не уходит."))
             }
-            .listRowBackground(Palette.card)
         }
     }
 }

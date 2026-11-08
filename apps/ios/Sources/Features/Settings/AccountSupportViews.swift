@@ -27,7 +27,6 @@ struct SupportView: View {
                     defaultValue: "Не короче 10 символов. Ответ придёт в чат «Поддержка»."
                 ))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 Button {
@@ -41,8 +40,6 @@ struct SupportView: View {
                 .listRowBackground(Color.clear)
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "settings.support", defaultValue: "Поддержка")))
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -96,7 +93,6 @@ struct DeleteAccountView: View {
                 } header: {
                     Text(String(localized: "settings.delete.blocked", defaultValue: "Сейчас удалить нельзя"))
                 }
-                .listRowBackground(Palette.card)
             } else if check != nil {
                 Section {
                     SecureField(String(localized: "settings.password.current", defaultValue: "Текущий пароль"), text: $password)
@@ -112,7 +108,6 @@ struct DeleteAccountView: View {
                         defaultValue: "Удаление необратимо: профиль, публикации и переписки исчезнут."
                     ))
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     Button(role: .destructive) {
@@ -126,13 +121,10 @@ struct DeleteAccountView: View {
                     }
                     .disabled(!canDelete)
                 }
-                .listRowBackground(Palette.card)
             } else if failure == nil {
                 LoadingStateView().listRowBackground(Color.clear)
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "settings.deleteAccount", defaultValue: "Удалить аккаунт")))
         .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog(

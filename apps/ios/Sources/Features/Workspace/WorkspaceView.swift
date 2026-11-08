@@ -19,7 +19,6 @@ struct WorkspaceView: View {
                 } header: {
                     Text(group.title)
                 }
-                .listRowBackground(Palette.card)
             }
             if visibleGroups.isEmpty {
                 EmptyStateView(
@@ -31,8 +30,6 @@ struct WorkspaceView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(AppTab.workspace.title))
         .searchable(text: $query, prompt: Text(String(localized: "workspace.search", defaultValue: "Поиск раздела")))
     }

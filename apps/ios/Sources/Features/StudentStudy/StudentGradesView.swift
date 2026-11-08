@@ -52,11 +52,9 @@ struct StudentGradesView: View {
                             }
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
             .refreshable { reloadToken += 1 }
         }
         .background(Palette.background)
@@ -151,7 +149,6 @@ private struct StudentCourseGradesView: View {
                         .tint(StudentGradeMath.tint(percent))
                 }
             }
-            .listRowBackground(Palette.card)
 
             if !course.columns.isEmpty {
                 Section {
@@ -176,12 +173,9 @@ private struct StudentCourseGradesView: View {
                         .accessibilityElement(children: .combine)
                     }
                 }
-                .listRowBackground(Palette.card)
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(course.subject.name))
         .navigationBarTitleDisplayMode(.inline)
     }

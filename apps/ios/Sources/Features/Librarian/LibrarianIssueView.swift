@@ -63,7 +63,7 @@ struct LibrarianIssueView: View {
                                 self.failure = nil
                                 round += 1
                             }
-                            .buttonStyle(.borderedProminent)
+                            .glassProminentButton()
                         }
                         .padding(Spacing.xl)
                     } else if cameraUnavailable {
@@ -110,7 +110,6 @@ struct LibrarianIssueView: View {
                     Text(String(localized: "librarian.issue.manualHint", defaultValue: "Вставьте ссылку из QR студенческого"))
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 TextField(String(localized: "librarian.issue.cardPlaceholder", defaultValue: "Номер студенческого билета"), text: $cardNumber)
@@ -126,7 +125,6 @@ struct LibrarianIssueView: View {
             } footer: {
                 Text(String(localized: "librarian.issue.noPhoneHint", defaultValue: "Нет цифрового студенческого под рукой? Найдите читателя по номеру студенческого билета и сверьте ФИО и фото."))
             }
-            .listRowBackground(Palette.card)
 
             Section(String(localized: "librarian.issue.howTo", defaultValue: "Как выдать")) {
                 Label(String(localized: "librarian.issue.step1", defaultValue: "Студент открывает «Студенческий» в приложении"), systemImage: "1.circle")
@@ -134,10 +132,8 @@ struct LibrarianIssueView: View {
                 Label(String(localized: "librarian.issue.step3", defaultValue: "Сканируете наклейку книги или вводите инвентарный номер"), systemImage: "3.circle")
             }
             .font(Typography.meta)
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
     }
 
     private func handleScan(_ raw: String) {
@@ -284,7 +280,6 @@ private struct LibrarianReaderSessionView: View {
                     defaultValue: "Пропуск на выдачу действует до \(session.ticketExpiresAt.formatted(.dateTime.hour().minute()))"
                 ))
             }
-            .listRowBackground(Palette.card)
 
             if noPhone {
                 Section {
@@ -334,7 +329,6 @@ private struct LibrarianReaderSessionView: View {
                     Text(String(localized: "librarian.issue.bookHint", defaultValue: "Отсканируйте наклейку на книге или введите инвентарный номер"))
                 }
             }
-            .listRowBackground(Palette.card)
 
             if !issued.isEmpty {
                 Section {
@@ -344,7 +338,6 @@ private struct LibrarianReaderSessionView: View {
                 } footer: {
                     Text(String(localized: "librarian.issue.issuedNowHint", defaultValue: "Читателю пришло уведомление со сроком"))
                 }
-                .listRowBackground(Palette.card)
             }
 
             Section {
@@ -360,10 +353,8 @@ private struct LibrarianReaderSessionView: View {
             } footer: {
                 Text(String(localized: "librarian.issue.readerLoansHint", defaultValue: "До этой выдачи"))
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(String(localized: "librarian.issue.nextReader", defaultValue: "Следующий читатель"), action: reset)

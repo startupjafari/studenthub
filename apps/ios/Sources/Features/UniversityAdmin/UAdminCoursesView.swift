@@ -326,7 +326,6 @@ private struct CourseForm: View {
                         .foregroundStyle(Palette.destructive)
                 }
             }
-            .listRowBackground(Palette.card)
         }
         .sheet(item: $picking) { pick in
             switch pick {
@@ -435,7 +434,6 @@ private struct SubjectForm: View {
                 TextField(String(localized: "uadmin.subjects.code", defaultValue: "Код (необязательно)"), text: $code)
                     .textInputAutocapitalization(.characters)
             }
-            .listRowBackground(Palette.card)
         }
         .onAppear {
             guard !prepared else { return }
@@ -494,7 +492,6 @@ struct UAdminTermForm: View {
                     Text(String(localized: "uadmin.terms.activeHint", defaultValue: "Остальные семестры вуза перестанут быть текущими"))
                 }
             }
-            .listRowBackground(Palette.card)
         }
         .onAppear {
             guard !prepared else { return }

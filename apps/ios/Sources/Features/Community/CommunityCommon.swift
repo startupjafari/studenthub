@@ -90,11 +90,8 @@ struct CommunityPersonPicker: View {
                         size: 36
                     )
                 }
-                .listRowBackground(Palette.card)
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .overlay {
                 if people.isEmpty {
                     ContentUnavailableView(
@@ -114,7 +111,7 @@ struct CommunityPersonPicker: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
             }
             .task(id: query) {

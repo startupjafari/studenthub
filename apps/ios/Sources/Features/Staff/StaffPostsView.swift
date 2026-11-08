@@ -192,7 +192,6 @@ private struct StaffPostComposerSheet: View {
                 } footer: {
                     Text(verbatim: "\(content.count.formatted())/5000")
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     if !media.isEmpty {
@@ -237,7 +236,6 @@ private struct StaffPostComposerSheet: View {
                     }
                     .disabled(media.count >= Self.maxMedia || isPreparing)
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     Toggle(String(localized: "staff.post.schedule", defaultValue: "Отложить публикацию"), isOn: $schedule)
@@ -253,16 +251,13 @@ private struct StaffPostComposerSheet: View {
                 } footer: {
                     Text(String(localized: "staff.post.draft.hint", defaultValue: "Черновики и отложенные посты видны только вам — в профиле, на вкладке «Посты»."))
                 }
-                .listRowBackground(Palette.card)
             }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "staff.post.new", defaultValue: "Новая публикация")))
             .navigationBarTitleDisplayMode(.inline)
             .interactiveDismissDisabled(isSaving)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                         .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
@@ -346,7 +341,6 @@ private struct StaffPostComposerSheet: View {
                 }
             }
         }
-        .listRowBackground(Palette.card)
     }
 
     private var trimmedContent: String { content.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -460,15 +454,12 @@ struct StaffGroupPickerSheet: View {
                         } label: {
                             Text(group.name).foregroundStyle(Palette.foreground)
                         }
-                        .listRowBackground(Palette.card)
                     }
                 } else if failure == nil {
                     LoadingStateView().listRowBackground(Color.clear)
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .debouncedSearch($search, prompt: String(localized: "staff.picker.group.search", defaultValue: "Название группы")) { value in
                 await find(value)
             }
@@ -476,7 +467,7 @@ struct StaffGroupPickerSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
             }
             .task { if groups == nil { await find("") } }
@@ -531,12 +522,9 @@ struct StaffPersonPickerSheet: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .listRowBackground(Palette.card)
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .debouncedSearch($search, prompt: String(localized: "staff.picker.person.search", defaultValue: "ФИО")) { value in
                 await find(value)
             }
@@ -544,7 +532,7 @@ struct StaffPersonPickerSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
             }
             .task { if !adminSearch, people.isEmpty { await find("") } }

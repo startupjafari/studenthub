@@ -41,7 +41,6 @@ struct SecurityRoomsView: View {
                 } footer: {
                     Text(String(localized: "security.rooms.subtitle", defaultValue: "Справочник помещений вуза. Название открывает, что в помещении сейчас."))
                 }
-                .listRowBackground(Palette.card)
             },
             row: { room in
                 if let code = room.qrCode {
@@ -206,12 +205,10 @@ private struct SecurityRoomStatusContent: View {
                 Section(String(localized: "security.room.now", defaultValue: "Сейчас идёт")) {
                     SecurityDayPairRow(item: current)
                 }
-                .listRowBackground(Palette.card)
             } else if let next = day.next {
                 Section(String(localized: "security.room.next", defaultValue: "Следующая пара")) {
                     SecurityDayPairRow(item: next)
                 }
-                .listRowBackground(Palette.card)
             }
 
             if data.academic, !day.items.isEmpty {
@@ -224,7 +221,6 @@ private struct SecurityRoomStatusContent: View {
                 } footer: {
                     Text(String(localized: "security.room.todayHint", defaultValue: "Пары по расписанию до конца дня"))
                 }
-                .listRowBackground(Palette.card)
             }
 
             Section(String(localized: "security.room.about", defaultValue: "О помещении")) {
@@ -259,10 +255,8 @@ private struct SecurityRoomStatusContent: View {
                     Label(String(localized: "security.room.onMap", defaultValue: "Показать на карте"), systemImage: "map")
                 }
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
         .refreshable { refresh() }
     }
 

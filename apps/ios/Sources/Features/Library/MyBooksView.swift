@@ -39,8 +39,6 @@ struct MyBooksView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "library.tabMine", defaultValue: "Мои книги")))
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await model.refresh() }
@@ -101,7 +99,6 @@ struct MyBooksView: View {
                 defaultValue: "Для обходного листа при выпуске или переводе"
             ))
         }
-        .listRowBackground(Palette.card)
     }
 
     /// Просрочка закрывает новые выдачи и брони — об этом надо сказать до того, как
@@ -138,7 +135,6 @@ struct MyBooksView: View {
                 defaultValue: "Верните до срока — иначе новые книги и брони будут закрыты"
             ))
         }
-        .listRowBackground(Palette.card)
     }
 
     private func reservationsSection(_ books: MyBooks) -> some View {
@@ -161,7 +157,6 @@ struct MyBooksView: View {
                 defaultValue: "Готовые ждут на полке броней, остальные — в очереди"
             ))
         }
-        .listRowBackground(Palette.card)
     }
 
     private func historySection(_ books: MyBooks) -> some View {
@@ -172,7 +167,6 @@ struct MyBooksView: View {
         } header: {
             Text(String(localized: "library.history", defaultValue: "История"))
         }
-        .listRowBackground(Palette.card)
     }
 }
 

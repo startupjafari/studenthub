@@ -329,7 +329,6 @@ struct CareerUniversityPicker: View {
                         } label: {
                             ListCardRow(title: item.name, subtitle: item.shortName)
                         }
-                        .listRowBackground(Palette.card)
                     }
                 } else if let failure {
                     ErrorStateView(message: failure) { await load(search) }
@@ -339,8 +338,6 @@ struct CareerUniversityPicker: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "career.scope.pick", defaultValue: "Выберите университет")))
             .navigationBarTitleDisplayMode(.inline)
             .debouncedSearch($search, prompt: String(localized: "career.scope.search", defaultValue: "Поиск университета")) {
@@ -348,7 +345,7 @@ struct CareerUniversityPicker: View {
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
             }
             .task { await load("") }
@@ -463,7 +460,6 @@ private struct CareerCityPicker: View {
                         dismiss()
                     }
                 }
-                .listRowBackground(Palette.card)
                 if let items {
                     Section {
                         ForEach(items) { unit in
@@ -476,7 +472,6 @@ private struct CareerCityPicker: View {
                             }
                         }
                     }
-                    .listRowBackground(Palette.card)
                 } else if let failure {
                     ErrorStateView(message: failure) { await load(search) }
                         .listRowBackground(Color.clear)
@@ -485,8 +480,6 @@ private struct CareerCityPicker: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "career.city.title", defaultValue: "Город")))
             .navigationBarTitleDisplayMode(.inline)
             .debouncedSearch($search, prompt: String(localized: "career.city.search", defaultValue: "Название города")) {
@@ -494,7 +487,7 @@ private struct CareerCityPicker: View {
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
             }
             .task { await load("") }
@@ -613,7 +606,7 @@ struct CareerFileExportModifier: ViewModifier {
                 if export.isLoading {
                     ProgressView()
                         .padding(Spacing.xl)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.xl))
+                        .glassSurface(interactive: false, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                 }
             }
     }

@@ -28,7 +28,6 @@ struct LibraryCatalogView: View {
                         .font(Typography.body)
                     }
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     Picker(selection: $model.query.section) {
@@ -46,7 +45,6 @@ struct LibraryCatalogView: View {
                     )
                 }
                 .font(Typography.body)
-                .listRowBackground(Palette.card)
 
                 Section {
                     ForEach(model.books) { book in
@@ -77,12 +75,9 @@ struct LibraryCatalogView: View {
                         }
                     }
                 }
-                .listRowBackground(Palette.card)
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "library.title", defaultValue: "Библиотека")))
         .searchable(
             text: $model.query.text,

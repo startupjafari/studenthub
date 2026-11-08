@@ -86,7 +86,6 @@ private struct CareerStaffOverview: View {
                         }
                     }
                 }
-                .listRowBackground(Palette.card)
 
                 queueSection(data)
                 ratesSection(data)
@@ -95,8 +94,6 @@ private struct CareerStaffOverview: View {
                 skillsSection(data)
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .refreshable { token += 1 }
         }
     }
@@ -145,7 +142,6 @@ private struct CareerStaffOverview: View {
                 }
             )
         }
-        .listRowBackground(Palette.card)
     }
 
     private func queueValue(_ count: Int, hint: String) -> String {
@@ -188,7 +184,6 @@ private struct CareerStaffOverview: View {
                 )
             )
         }
-        .listRowBackground(Palette.card)
     }
 
     private func funnelSection(_ data: JSONValue) -> some View {
@@ -212,7 +207,6 @@ private struct CareerStaffOverview: View {
                 hint: String(localized: "career.staff.funnelHint", defaultValue: "Сколько откликов дошло до каждого шага")
             )
         }
-        .listRowBackground(Palette.card)
     }
 
     @ViewBuilder
@@ -241,7 +235,6 @@ private struct CareerStaffOverview: View {
                     hint: String(localized: "career.staff.weeklyHint", defaultValue: "Итог за всё время не показывает, стало ли лучше")
                 )
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -279,7 +272,6 @@ private struct CareerStaffOverview: View {
                     )
                 )
             }
-            .listRowBackground(Palette.card)
         }
     }
 }
@@ -502,7 +494,6 @@ private struct CareerApproveAccessSheet: View {
                     Text(message).foregroundStyle(Palette.mutedForeground)
                 }
             }
-            .listRowBackground(Palette.card)
             Section {
                 Toggle(String(localized: "career.companies.limit", defaultValue: "Ограничить срок допуска"), isOn: $limited)
                 if limited {
@@ -519,7 +510,6 @@ private struct CareerApproveAccessSheet: View {
                     defaultValue: "Необязательно. Допуск действует до конца выбранного дня, после — закрывается сам."
                 ))
             }
-            .listRowBackground(Palette.card)
         }
     }
 }
@@ -633,7 +623,6 @@ private struct CareerReviewSheet: View {
                         DetailRow(title: String(localized: "common.reason", defaultValue: "Причина"), value: reason)
                     }
                 }
-                .listRowBackground(Palette.card)
                 Section {
                     DetailRow(title: String(localized: "career.vacancy.employment", defaultValue: "Занятость"), value: CareerText.employment(vacancy.employmentType))
                     DetailRow(title: String(localized: "career.vacancy.format", defaultValue: "Формат работы"), value: CareerText.format(vacancy.workFormat))
@@ -660,14 +649,12 @@ private struct CareerReviewSheet: View {
                         CareerTags(items: CareerText.list(vacancy.skills))
                     }
                 }
-                .listRowBackground(Palette.card)
                 if let description = vacancy.description, !description.isEmpty {
                     Section {
                         Text(description).textSelection(.enabled)
                     } header: {
                         Text(String(localized: "career.vacancy.description", defaultValue: "Описание"))
                     }
-                    .listRowBackground(Palette.card)
                 }
                 if role.careerDecidesVacancies {
                     Section {
@@ -690,12 +677,9 @@ private struct CareerReviewSheet: View {
                             .disabled(busy)
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "career.review.one", defaultValue: "Вакансия на модерации")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -797,8 +781,6 @@ private struct CareerReportView: View {
                 studentsSection(data)
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -856,7 +838,6 @@ private struct CareerReportView: View {
                 hint: String(localized: "career.report.speedHint", defaultValue: "Сколько студент ждёт реакции")
             )
         }
-        .listRowBackground(Palette.card)
     }
 
     private func funnelSection(_ data: JSONValue) -> some View {
@@ -881,7 +862,6 @@ private struct CareerReportView: View {
                 hint: String(localized: "career.report.dropoffHint", defaultValue: "Сколько откликов не перешло с шага на следующий")
             )
         }
-        .listRowBackground(Palette.card)
     }
 
     private func outcomesSection(_ data: JSONValue) -> some View {
@@ -904,7 +884,6 @@ private struct CareerReportView: View {
                 hint: String(localized: "career.report.outcomesHint", defaultValue: "Доли считаются от откликов, поданных за период")
             )
         }
-        .listRowBackground(Palette.card)
     }
 
     @ViewBuilder
@@ -939,7 +918,6 @@ private struct CareerReportView: View {
                         : String(localized: "career.report.facultiesHint", defaultValue: "Сколько студентов факультета получили найм за период")
                 )
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -962,7 +940,6 @@ private struct CareerReportView: View {
                     hint: String(localized: "career.report.graduatesHint", defaultValue: "Те, кто выпускается в этом учебном году")
                 )
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -987,7 +964,6 @@ private struct CareerReportView: View {
                     hint: String(localized: "career.report.companiesHint", defaultValue: "Топ компаний по найму за период")
                 )
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -1018,7 +994,6 @@ private struct CareerReportView: View {
                 hint: String(localized: "career.report.marketHint", defaultValue: "Срез витрины на сегодня: вакансия живёт дольше отклика")
             )
         }
-        .listRowBackground(Palette.card)
     }
 
     private func cutRows(_ title: String, _ value: JSONValue?, _ label: @escaping (String?) -> String) -> some View {
@@ -1047,7 +1022,6 @@ private struct CareerReportView: View {
                 hint: String(localized: "career.report.salaryHint", defaultValue: "Медианы: что предлагают вакансии вуза и чего ждут студенты")
             )
         }
-        .listRowBackground(Palette.card)
     }
 
     private func studentsSection(_ data: JSONValue) -> some View {
@@ -1090,7 +1064,6 @@ private struct CareerReportView: View {
                 hint: String(localized: "career.report.studentsHint", defaultValue: "Открыть профиль и заполнить его — разные вещи")
             )
         }
-        .listRowBackground(Palette.card)
     }
 }
 
@@ -1132,7 +1105,6 @@ struct CareerCompanyView: View {
                     }
                     .padding(.vertical, Spacing.xs)
                 }
-                .listRowBackground(Palette.card)
 
                 if let description = company.description, !description.isEmpty {
                     Section {
@@ -1140,7 +1112,6 @@ struct CareerCompanyView: View {
                     } header: {
                         Text(String(localized: "career.company.about", defaultValue: "О компании"))
                     }
-                    .listRowBackground(Palette.card)
                 }
 
                 CareerCompanyDetailsSection(company: company)
@@ -1162,11 +1133,8 @@ struct CareerCompanyView: View {
                 } header: {
                     Text(String(localized: "career.company.posts", defaultValue: "Публикации"))
                 }
-                .listRowBackground(Palette.card)
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .refreshable { token += 1 }
             .task(id: company.id) { kato.request([company.city]) }
             .toolbar {
@@ -1218,7 +1186,6 @@ struct CareerCompanyDetailsSection: View {
                     }
                 }
             }
-            .listRowBackground(Palette.card)
         }
     }
 }

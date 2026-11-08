@@ -36,7 +36,6 @@ struct CoursesView: View {
                     } header: {
                         Text(term.title)
                     }
-                    .listRowBackground(Palette.card)
                 }
             } else if let failure {
                 ErrorStateView(message: failure) { await load() }
@@ -46,8 +45,6 @@ struct CoursesView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(MoreSection.subjects.title))
         .searchable(text: $query, prompt: Text(String(localized: "courses.search", defaultValue: "Найти дисциплину")))
         .refreshable { await load() }
@@ -156,7 +153,6 @@ struct CourseDetailView: View {
                     DetailRow(title: String(localized: "courses.term", defaultValue: "Семестр"), value: term, symbol: "calendar")
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 if let assignments {
@@ -182,7 +178,6 @@ struct CourseDetailView: View {
             } header: {
                 Text(String(localized: "study.assignments", defaultValue: "Задания"))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 if let materials {
@@ -211,11 +206,8 @@ struct CourseDetailView: View {
             } header: {
                 Text(String(localized: "study.materials", defaultValue: "Материалы"))
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(course.subject.name))
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -264,7 +256,6 @@ struct GroupMembersView: View {
                 } footer: {
                     Text(String(localized: "group.count", defaultValue: "Всего: \(members.count)"))
                 }
-                .listRowBackground(Palette.card)
             } else if let failure {
                 ErrorStateView(message: failure) { await load() }
                     .listRowBackground(Color.clear)
@@ -273,8 +264,6 @@ struct GroupMembersView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(title))
         .searchable(text: $query, prompt: Text(String(localized: "group.search", defaultValue: "Найти по имени")))
         .refreshable { await load() }

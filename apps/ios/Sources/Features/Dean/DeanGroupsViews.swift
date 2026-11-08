@@ -132,7 +132,6 @@ struct DeanGroupView: View {
                 DetailRow(title: String(localized: "dean.group.year", defaultValue: "Год набора"), value: data.group.year.map { String($0) } ?? "—")
                 DetailRow(title: String(localized: "dean.group.students", defaultValue: "Студентов"), value: students.count.formatted())
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 if let starosta {
@@ -184,7 +183,6 @@ struct DeanGroupView: View {
             } footer: {
                 Text(String(localized: "dean.starosta.hint", defaultValue: "Выбранный студент получает права старосты, прежний возвращается в студенты."))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 if data.members.isEmpty {
@@ -200,7 +198,6 @@ struct DeanGroupView: View {
             } header: {
                 Text(String(localized: "dean.group.members", defaultValue: "Состав"))
             }
-            .listRowBackground(Palette.card)
 
             if !data.risk.isEmpty {
                 Section {
@@ -215,7 +212,6 @@ struct DeanGroupView: View {
                 } header: {
                     Text(String(localized: "dean.chart.risk", defaultValue: "Требуют внимания"))
                 }
-                .listRowBackground(Palette.card)
             }
 
             Section {
@@ -238,7 +234,6 @@ struct DeanGroupView: View {
             } header: {
                 Text(String(localized: "dean.attendance.byStudent", defaultValue: "Посещаемость по студентам"))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 if data.courses.isEmpty {
@@ -256,7 +251,6 @@ struct DeanGroupView: View {
             } header: {
                 Text(String(localized: "dean.group.courses", defaultValue: "Дисциплины"))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 if data.pairs.isEmpty {
@@ -284,11 +278,8 @@ struct DeanGroupView: View {
             } header: {
                 Text(String(localized: "dean.group.schedule", defaultValue: "Расписание группы"))
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .refreshable { reload += 1 }
     }
 

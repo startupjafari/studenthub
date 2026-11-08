@@ -150,17 +150,14 @@ struct StaffTextPromptSheet: View {
                 } footer: {
                     if let message = prompt.message { Text(message) }
                 }
-                .listRowBackground(Palette.card)
             }
             .onAppear { if text.isEmpty { text = prompt.initial } }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(prompt.title))
             .navigationBarTitleDisplayMode(.inline)
             .interactiveDismissDisabled(isSaving)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                         .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
@@ -291,7 +288,7 @@ struct StaffInlineButton: View {
             Label(title, systemImage: symbol)
                 .font(Typography.meta.weight(.semibold))
         }
-        .buttonStyle(.bordered)
+        .glassButton()
         .controlSize(.small)
     }
 }
@@ -328,14 +325,12 @@ struct StaffFormSheet<Content: View>: View {
                 }
                 content()
             }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(title))
             .navigationBarTitleDisplayMode(.inline)
             .interactiveDismissDisabled(isSaving)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                         .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {

@@ -31,8 +31,6 @@ struct ChatListView: View {
             }
         }
         .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .overlay {
             if model.rows.isEmpty, query.isEmpty {
                 if model.isRefreshing {
@@ -44,7 +42,7 @@ struct ChatListView: View {
                         Text(String(localized: "chats.empty.hint", defaultValue: "Напишите однокурснику или преподавателю"))
                     } actions: {
                         Button(String(localized: "chats.new", defaultValue: "Новый чат")) { composing = .direct }
-                            .buttonStyle(.borderedProminent)
+                            .glassProminentButton()
                     }
                 }
             }
@@ -136,7 +134,7 @@ struct ChatListView: View {
                 isGroup: row.kind != .private && row.kind != .saved
             )
         }
-        .listRowBackground(Palette.background)
+        .listRowBackground(Palette.plainBackground)
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if canDelete(row) {
                 Button(role: .destructive) {
@@ -306,7 +304,7 @@ private struct ChatTabsView: View {
             .padding(.horizontal, Spacing.xl)
             .padding(.vertical, Spacing.sm)
         }
-        .background(Palette.background)
+        .background(Palette.plainBackground)
         .sensoryFeedback(.selection, trigger: selected)
     }
 
@@ -468,7 +466,7 @@ struct ChatAvatarView: View {
                 Circle()
                     .fill(Palette.success)
                     .frame(width: size * 0.26, height: size * 0.26)
-                    .overlay(Circle().strokeBorder(Palette.background, lineWidth: 2))
+                    .overlay(Circle().strokeBorder(Palette.plainBackground, lineWidth: 2))
                     .accessibilityLabel(Text(String(localized: "chats.online", defaultValue: "в сети")))
             }
         }

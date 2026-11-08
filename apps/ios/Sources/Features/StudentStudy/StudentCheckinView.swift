@@ -173,7 +173,7 @@ struct StudentCheckinView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(Spacing.xxl)
-        .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+        .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         .accessibilityElement(children: .combine)
     }
 

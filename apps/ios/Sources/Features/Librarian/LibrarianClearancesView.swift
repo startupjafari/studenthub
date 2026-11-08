@@ -178,7 +178,6 @@ private struct LibrarianClearanceCheckSheet: View {
                 } footer: {
                     if let failure { Text(failure).foregroundStyle(Palette.destructive) }
                 }
-                .listRowBackground(Palette.card)
 
                 if let result {
                     Section {
@@ -206,11 +205,8 @@ private struct LibrarianClearanceCheckSheet: View {
                             DetailRow(title: String(localized: "librarian.clear.revokedOn", defaultValue: "Дата отзыва"), value: DisplayFormat.date(revoked))
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "librarian.clear.check", defaultValue: "Проверить по коду")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

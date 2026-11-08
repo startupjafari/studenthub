@@ -32,12 +32,10 @@ struct StudentTasksView: View {
                                 StatusBadge(text: String(items.count), tint: bucket.tint)
                             }
                         }
-                        .listRowBackground(Palette.card)
                     }
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
             .refreshable { reloadToken += 1 }
         }
         .background(Palette.background)

@@ -97,7 +97,7 @@ struct UAdminRoomsView: View {
             if busy {
                 ProgressView()
                     .padding(Spacing.xl)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.xl))
+                    .glassSurface(interactive: false, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             }
         }
         .sheet(isPresented: $creating) {
@@ -309,7 +309,6 @@ private struct RoomForm: View {
                     ForEach(UAdminText.roomKinds, id: \.self) { Text(UAdminText.roomKind($0)).tag($0) }
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section(String(localized: "uadmin.room.place", defaultValue: "Где находится")) {
                 TextField(String(localized: "uadmin.room.building", defaultValue: "Корпус"), text: $building)
@@ -320,7 +319,6 @@ private struct RoomForm: View {
                         .keyboardType(.numberPad)
                 }
             }
-            .listRowBackground(Palette.card)
 
             if !academic {
                 Section(String(localized: "uadmin.room.service", defaultValue: "Для посетителей")) {
@@ -328,7 +326,6 @@ private struct RoomForm: View {
                     TextField(String(localized: "uadmin.room.phone", defaultValue: "Телефон"), text: $phone)
                         .keyboardType(.phonePad)
                 }
-                .listRowBackground(Palette.card)
             }
 
             Section {
@@ -340,7 +337,6 @@ private struct RoomForm: View {
                         .foregroundStyle(Palette.destructive)
                 }
             }
-            .listRowBackground(Palette.card)
         }
         .onAppear(perform: prepare)
     }
@@ -443,11 +439,8 @@ private struct QrStickerSheet: View {
                 } footer: {
                     Text(String(localized: "uadmin.room.qrFooter", defaultValue: "Код под QR — запасной путь, если камера не читает наклейку. У помещений с наклейкой код не меняется."))
                 }
-                .listRowBackground(Palette.card)
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "uadmin.room.stickers", defaultValue: "Наклейки")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -562,22 +555,18 @@ private struct BatchPrintSheet: View {
                     } footer: {
                         Text(String(localized: "uadmin.room.batchHint", defaultValue: "Помещениям без наклейки выдадим код. У кого наклейка уже есть, код не меняется — висящие наклейки продолжат работать."))
                     }
-                    .listRowBackground(Palette.card)
                     Section {
                         Text(String(localized: "uadmin.room.batchCount", defaultValue: "Помещений: \(picked(rooms).count.formatted())"))
                     }
-                    .listRowBackground(Palette.card)
                 } else {
                     LoadingStateView().listRowBackground(Color.clear)
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "uadmin.room.printBatch", defaultValue: "Наклейки на корпус или этаж")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     if isIssuing {

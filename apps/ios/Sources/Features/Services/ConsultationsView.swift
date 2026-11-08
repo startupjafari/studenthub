@@ -57,7 +57,6 @@ struct ConsultationsView: View {
                         Text(String(localized: "consultations.swipeHint", defaultValue: "Смахните влево, чтобы отменить."))
                     }
                 }
-                .listRowBackground(Palette.card)
             }
 
             if !isTeacher, let teachers {
@@ -85,7 +84,6 @@ struct ConsultationsView: View {
                 } header: {
                     Text(String(localized: "consultations.teachers", defaultValue: "Записаться к преподавателю"))
                 }
-                .listRowBackground(Palette.card)
             }
 
             if mine == nil {
@@ -98,8 +96,6 @@ struct ConsultationsView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(MoreSection.consultations.title))
         .toolbar {
             if isTeacher {
@@ -236,7 +232,6 @@ private struct TeacherSlotsView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(slot.status != "OPEN")
-                    .listRowBackground(Palette.card)
                 }
             } else if let failure {
                 ErrorStateView(message: failure) { await load() }
@@ -246,8 +241,6 @@ private struct TeacherSlotsView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(teacher.name))
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
@@ -321,15 +314,12 @@ private struct NewSlotView: View {
                         TextField(String(localized: "consultations.location", defaultValue: "Аудитория или место"), text: $location)
                     }
                 }
-                .listRowBackground(Palette.card)
             }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "consultations.newSlot", defaultValue: "Новое окно")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(String(localized: "common.save", defaultValue: "Сохранить")) {

@@ -192,7 +192,6 @@ struct CommunityEventView: View {
                         .foregroundStyle(Palette.mutedForeground)
                 }
             }
-            .listRowBackground(Palette.card)
 
             if !event.isOver {
                 Section {
@@ -216,7 +215,6 @@ struct CommunityEventView: View {
                     }
                     .disabled(isBusy)
                 }
-                .listRowBackground(Palette.card)
             }
 
             if event.canManage == true, let participants, !participants.isEmpty {
@@ -229,13 +227,11 @@ struct CommunityEventView: View {
                 } header: {
                     Text(String(localized: "community.event.participantsList", defaultValue: "Кто записался"))
                 }
-                .listRowBackground(Palette.card)
             }
 
             discussion
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
         .refreshable { await load() }
         .toolbar {
             if event.canManage == true {
@@ -342,7 +338,6 @@ struct CommunityEventView: View {
         } header: {
             Text(String(localized: "community.event.discussion", defaultValue: "Обсуждение"))
         }
-        .listRowBackground(Palette.card)
     }
 
     private func commentText(_ comment: CommunityEventCommentDTO) -> String {
@@ -506,14 +501,12 @@ struct CommunityEventEditor: View {
                         }
                     }
                 }
-                .listRowBackground(Palette.card)
             }
             Section {
                 TextField(String(localized: "community.event.title", defaultValue: "Название"), text: $title)
                 TextField(String(localized: "community.event.description", defaultValue: "Описание"), text: $details, axis: .vertical)
                     .lineLimit(3...10)
             }
-            .listRowBackground(Palette.card)
             Section {
                 DatePicker(String(localized: "community.event.starts", defaultValue: "Начало"), selection: $startsAt)
                 Toggle(String(localized: "community.event.hasEnd", defaultValue: "Указать окончание"), isOn: $hasEnd)
@@ -522,7 +515,6 @@ struct CommunityEventEditor: View {
                 }
                 TextField(String(localized: "community.event.location", defaultValue: "Место"), text: $location)
             }
-            .listRowBackground(Palette.card)
             Section {
                 Toggle(String(localized: "community.event.online", defaultValue: "Онлайн"), isOn: $isOnline)
                 if isOnline {
@@ -538,7 +530,6 @@ struct CommunityEventEditor: View {
                     FieldError(message: String(localized: "profile.website.invalid", defaultValue: "Адрес сайта должен начинаться с http:// или https://"))
                 }
             }
-            .listRowBackground(Palette.card)
         }
         .onAppear(perform: fill)
         .task {

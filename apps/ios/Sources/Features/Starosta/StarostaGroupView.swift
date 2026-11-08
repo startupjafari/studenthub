@@ -51,7 +51,6 @@ struct StarostaGroupView: View {
                     } footer: {
                         Text(String(localized: "starosta.group.count", defaultValue: "Всего: \(visible.count.formatted())"))
                     }
-                    .listRowBackground(Palette.card)
                 }
             } else if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
@@ -61,8 +60,6 @@ struct StarostaGroupView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(StarostaScreen.myGroup.title))
         .searchable(text: $query, prompt: Text(String(localized: "starosta.group.search", defaultValue: "Найти по имени")))
         .refreshable { await load() }

@@ -41,13 +41,11 @@ struct UAdminCampusListView: View {
                     } footer: {
                         Text(String(localized: "uadmin.campus.editorHint", defaultValue: "Планы этажей рисуются в редакторе веб-версии. Здесь — корпуса, этажи, публикация и версии."))
                     }
-                    .listRowBackground(Palette.card)
                     Section {
                         NavigationLink(value: AppRoute.section(.campusMap)) {
                             IconRow(title: String(localized: "uadmin.campus.openMap", defaultValue: "Открыть карту"), symbol: "map", tint: TileTint.green)
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             } else if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
@@ -57,8 +55,6 @@ struct UAdminCampusListView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(UniAdminScreen.campuses.title))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -122,7 +118,6 @@ private struct CampusPropertiesForm: View {
                 TextField(String(localized: "uadmin.campus.description", defaultValue: "Описание"), text: $description, axis: .vertical)
                     .lineLimit(2...6)
             }
-            .listRowBackground(Palette.card)
         }
         .onAppear {
             guard !prepared else { return }
@@ -269,7 +264,6 @@ struct UAdminCampusDetailView: View {
             } footer: {
                 Text(String(localized: "uadmin.campus.editorHint", defaultValue: "Планы этажей рисуются в редакторе веб-версии. Здесь — корпуса, этажи, публикация и версии."))
             }
-            .listRowBackground(Palette.card)
 
             if tree.buildings.isEmpty {
                 EmptyStateView(
@@ -338,7 +332,6 @@ struct UAdminCampusDetailView: View {
                         .accessibilityLabel(Text(String(localized: "uadmin.actions", defaultValue: "Действия")))
                     }
                 }
-                .listRowBackground(Palette.card)
             }
 
             if !tree.buildings.isEmpty {
@@ -349,7 +342,6 @@ struct UAdminCampusDetailView: View {
                         Label(String(localized: "uadmin.campus.addBuilding", defaultValue: "Добавить корпус"), systemImage: "building.2")
                     }
                 }
-                .listRowBackground(Palette.card)
             }
 
             Section {
@@ -394,7 +386,6 @@ struct UAdminCampusDetailView: View {
             } footer: {
                 Text(String(localized: "uadmin.campus.versionsHint", defaultValue: "Что сейчас видят пользователи, откат и восстановление черновиков"))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 Button(role: .destructive) {
@@ -405,10 +396,8 @@ struct UAdminCampusDetailView: View {
             } footer: {
                 Text(String(localized: "uadmin.campus.dangerHint", defaultValue: "Карта исчезнет у всех, корпуса и этажи удалятся вместе с ней"))
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
     }
 
     @MainActor
@@ -558,7 +547,6 @@ private struct BuildingForm: View {
                 TextField(String(localized: "uadmin.campus.buildingName", defaultValue: "Название, например Учебный корпус"), text: $name)
                 TextField(String(localized: "uadmin.campus.buildingCode", defaultValue: "Код, например А"), text: $code)
             }
-            .listRowBackground(Palette.card)
 
             if building == nil {
                 Section {
@@ -573,7 +561,6 @@ private struct BuildingForm: View {
                 } header: {
                     Text(String(localized: "uadmin.campus.outline", defaultValue: "Контур"))
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     integer(String(localized: "uadmin.campus.floors", defaultValue: "Этажей"), $floors)
@@ -584,13 +571,11 @@ private struct BuildingForm: View {
                 } footer: {
                     Text(String(localized: "uadmin.campus.firstLevelHint", defaultValue: "−1 — подвал, 0 — цоколь. Каждый этаж сразу получит наружные стены по контуру."))
                 }
-                .listRowBackground(Palette.card)
 
                 Section(String(localized: "uadmin.campus.position", defaultValue: "Положение на территории, м")) {
                     meters("X", $positionX)
                     meters("Y", $positionY)
                 }
-                .listRowBackground(Palette.card)
             }
         }
         .onAppear {
@@ -733,7 +718,6 @@ private struct AddFloorForm: View {
                         .foregroundStyle(Palette.destructive)
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 Picker(String(localized: "uadmin.campus.copyFrom", defaultValue: "Основа"), selection: $copyFrom) {
@@ -751,7 +735,6 @@ private struct AddFloorForm: View {
                     Text(String(localized: "uadmin.campus.renumberHint", defaultValue: "«3» → «4» превратит «А305» в «А405». Связь с помещениями вуза у копии сбрасывается."))
                 }
             }
-            .listRowBackground(Palette.card)
         }
         .onChange(of: copyFrom) { _, id in
             renumberFrom = building.floors.first(where: { $0.id == id }).map { String($0.level) } ?? ""
@@ -833,7 +816,6 @@ private struct FloorForm: View {
                     TextField("0", text: $elevation).keyboardType(.numbersAndPunctuation).multilineTextAlignment(.trailing)
                 }
             }
-            .listRowBackground(Palette.card)
         }
         .onAppear {
             guard !prepared else { return }
@@ -891,7 +873,6 @@ private struct PublishSheet: View {
                 } footer: {
                     Text(String(localized: "uadmin.campus.publishHint", defaultValue: "Все этажи проверяются перед публикацией. Студенты увидят новую версию сразу."))
                 }
-                .listRowBackground(Palette.card)
                 if let issues {
                     Section {
                         ForEach(Array(issues.enumerated()), id: \.offset) { _, issue in
@@ -907,17 +888,14 @@ private struct PublishSheet: View {
                     } footer: {
                         Text(String(localized: "uadmin.campus.fixInEditor", defaultValue: "Исправьте план этажа в редакторе веб-версии и опубликуйте снова."))
                     }
-                    .listRowBackground(Palette.card)
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "uadmin.campus.publish", defaultValue: "Опубликовать")))
             .navigationBarTitleDisplayMode(.inline)
             .interactiveDismissDisabled(isPublishing)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     if isPublishing {

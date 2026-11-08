@@ -47,7 +47,6 @@ struct AttendanceMarkingView: View {
                 } footer: {
                     Text(String(localized: "teaching.attendance.markedCount", defaultValue: "Отмечено \(model.markedCount.formatted()) из \(model.students.count.formatted())"))
                 }
-                .listRowBackground(Palette.card)
 
                 if model.students.isEmpty {
                     EmptyStateView(
@@ -59,15 +58,12 @@ struct AttendanceMarkingView: View {
 
                 ForEach(model.students) { student in
                     studentRow(student, model: model)
-                        .listRowBackground(Palette.card)
                 }
             } else if model?.failure == nil {
                 LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(model?.subject ?? String(localized: "study.attendance", defaultValue: "Посещаемость")))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

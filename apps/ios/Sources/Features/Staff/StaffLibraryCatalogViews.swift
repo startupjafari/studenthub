@@ -100,7 +100,6 @@ struct StaffLibraryCatalogView: View {
                         }
                     }
                 }
-                .listRowBackground(Palette.card)
             },
             row: { book in
                 NavigationLink(value: AppRoute.staff(.libraryBook(id: book.id))) {
@@ -250,19 +249,16 @@ private struct StaffBookFormSheet: View {
                     .keyboardType(.numbersAndPunctuation)
                     .autocorrectionDisabled()
             }
-            .listRowBackground(Palette.card)
             Section {
                 TextField(String(localized: "staff.cat.field.publisher", defaultValue: "Издательство"), text: $publisher)
                 TextField(String(localized: "staff.cat.field.year", defaultValue: "Год издания"), text: $year)
                     .keyboardType(.numberPad)
                 TextField(String(localized: "staff.cat.field.section", defaultValue: "Раздел"), text: $section)
             }
-            .listRowBackground(Palette.card)
             Section(String(localized: "staff.cat.field.description", defaultValue: "Описание")) {
                 TextField(String(localized: "staff.cat.field.description", defaultValue: "Описание"), text: $description, axis: .vertical)
                     .lineLimit(3...8)
             }
-            .listRowBackground(Palette.card)
         }
         .onAppear {
             guard let book, title.isEmpty else { return }
@@ -411,7 +407,7 @@ struct StaffBookDetailView: View {
             if isWorking {
                 ProgressView()
                     .padding(Spacing.xl)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.xl))
+                    .glassSurface(interactive: false, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             }
         }
         .task { await load() }
@@ -463,7 +459,6 @@ struct StaffBookDetailView: View {
                     Text(description).font(Typography.body).foregroundStyle(Palette.mutedForeground)
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 if copies.isEmpty {
@@ -497,10 +492,8 @@ struct StaffBookDetailView: View {
             } footer: {
                 Text(String(localized: "staff.cat.copies.hint", defaultValue: "Нажмите на кружок, чтобы выбрать экземпляры для печати наклеек. Наклейки собираются в PDF — его можно напечатать или сохранить."))
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
         .refreshable { await load() }
     }
 
@@ -713,7 +706,6 @@ private struct StaffAddCopiesSheet: View {
                     ? String(localized: "staff.cat.numbers.hint", defaultValue: "Через запятую или с новой строки.")
                     : String(localized: "staff.cat.count.hint", defaultValue: "Номера выдадутся по порядку после наибольшего номера фонда."))
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -764,7 +756,6 @@ private struct StaffCopyEditSheet: View {
                 TextField(String(localized: "staff.cat.note", defaultValue: "Заметка"), text: $note, axis: .vertical)
                     .lineLimit(2...5)
             }
-            .listRowBackground(Palette.card)
             if canChangeStatus {
                 Section {
                     Picker(String(localized: "staff.cat.statusLabel", defaultValue: "Статус"), selection: $status) {
@@ -775,7 +766,6 @@ private struct StaffCopyEditSheet: View {
                 } footer: {
                     Text(String(localized: "staff.cat.withdraw.hint", defaultValue: "Утерянный или списанный экземпляр выходит из оборота. История выдач останется, вернуть на полку можно позже."))
                 }
-                .listRowBackground(Palette.card)
             }
         }
         .onAppear {
@@ -819,11 +809,9 @@ private struct StaffCopyHistorySheet: View {
                                 .font(Typography.meta)
                                 .foregroundStyle(Palette.mutedForeground)
                         }
-                        .listRowBackground(Palette.card)
                     }
                 }
                 .listStyle(.insetGrouped)
-                .scrollContentBackground(.hidden)
             }
             .background(Palette.background)
             .navigationTitle(Text(String(localized: "staff.cat.history.title", defaultValue: "История экземпляра \(copy.inventoryNumber)")))
@@ -977,7 +965,6 @@ private struct StaffLibraryImportSheet: View {
                     }
                     .disabled(isWorking)
                 }
-                .listRowBackground(Palette.card)
 
                 if let preview {
                     Section {
@@ -996,18 +983,15 @@ private struct StaffLibraryImportSheet: View {
                             importRow(row)
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "staff.cat.import.title", defaultValue: "Импорт фонда")))
             .navigationBarTitleDisplayMode(.inline)
             .interactiveDismissDisabled(isWorking)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                         .disabled(isWorking)
                 }
                 ToolbarItem(placement: .confirmationAction) {

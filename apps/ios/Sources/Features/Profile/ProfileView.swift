@@ -240,13 +240,13 @@ struct ProfileView: View {
                 CommunityMediaUploadButton(title: String(localized: "community.albums.uploadHere", defaultValue: "Загрузить")) { _ in
                     await model.loadTab(tab, force: true)
                 }
-                .buttonStyle(.bordered)
+                .glassButton()
             }
             if let owner = model.userID ?? (viewerID.isEmpty ? nil : viewerID) {
                 NavigationLink(value: AppRoute.community(.albums(userID: model.isMine ? nil : owner))) {
                     Label(CommunityScreen.albums(userID: nil).title, systemImage: "photo.stack")
                 }
-                .buttonStyle(.bordered)
+                .glassButton()
             }
             Spacer(minLength: 0)
         }
@@ -461,7 +461,7 @@ private struct ProfileHeaderView: View {
                     Label(String(localized: "profile.edit", defaultValue: "Изменить"), systemImage: "pencil")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .glassProminentButton()
                 .accessibilityIdentifier("profile.edit")
             } else if !profile.isLimited || model.friendship != nil {
                 if !CommunityPlatformState.shared.isDisabled("chats") {
@@ -471,7 +471,7 @@ private struct ProfileHeaderView: View {
                     Label(String(localized: "profile.message", defaultValue: "Написать"), systemImage: "bubble.left")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .glassProminentButton()
                 }
 
                 if let friendship = model.friendship {
@@ -481,7 +481,7 @@ private struct ProfileHeaderView: View {
                         Label(Self.friendshipTitle(friendship.status), systemImage: Self.friendshipSymbol(friendship.status))
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered)
+                    .glassButton()
                     .sensoryFeedback(.success, trigger: friendship.status)
                 }
             }
@@ -491,7 +491,7 @@ private struct ProfileHeaderView: View {
                     Image(systemName: "info.circle")
                         .frame(minWidth: 24)
                 }
-                .buttonStyle(.bordered)
+                .glassButton()
                 .accessibilityLabel(Text(String(localized: "profile.details", defaultValue: "Подробнее")))
             }
         }

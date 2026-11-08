@@ -76,7 +76,7 @@ struct LibrarianScanView: View {
                     .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.md))
                     .onSubmit(submitManual)
                 Button(String(localized: "librarian.scan.open", defaultValue: "Открыть"), action: submitManual)
-                    .buttonStyle(.bordered)
+                    .glassButton()
                     .disabled(manual.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }

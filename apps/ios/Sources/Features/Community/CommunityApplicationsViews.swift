@@ -28,7 +28,6 @@ struct CommunityApplicationsList: View {
                     Label(String(localized: "applications.new", defaultValue: "Заказать услугу"), systemImage: "plus.circle")
                 }
             }
-            .listRowBackground(Palette.card)
             FilterChipsRow(
                 options: [(nil, String(localized: "community.applications.all", defaultValue: "Все"))]
                     + Self.filters.map { (Optional($0), ApplicationStatus.title($0)) },
@@ -147,11 +146,9 @@ struct CommunityServiceCatalog: View {
                     } header: {
                         Text(category.name)
                     }
-                    .listRowBackground(Palette.card)
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
         }
         .background(Palette.background)
         .searchable(text: $search, prompt: Text(String(localized: "community.applications.searchService", defaultValue: "Найти услугу")))
@@ -282,7 +279,6 @@ struct CommunityApplicationForm: View {
                             .foregroundStyle(Palette.mutedForeground)
                     }
                 }
-                .listRowBackground(Palette.card)
 
                 if let fields = service.formFields, !fields.isEmpty {
                     Section {
@@ -290,7 +286,6 @@ struct CommunityApplicationForm: View {
                     } header: {
                         Text(String(localized: "community.applications.form", defaultValue: "Анкета"))
                     }
-                    .listRowBackground(Palette.card)
                 }
 
                 if let modes = service.deliveryModes, modes.count > 1 {
@@ -299,7 +294,6 @@ struct CommunityApplicationForm: View {
                             ForEach(modes + ["BOTH"], id: \.self) { Text(CommunityApplicationText.delivery($0)).tag($0) }
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
 
                 if let requirements = service.requirements, !requirements.isEmpty {
@@ -312,7 +306,6 @@ struct CommunityApplicationForm: View {
                     } footer: {
                         Text(String(localized: "community.applications.requirements.hint", defaultValue: "Документы прикладываются на следующем шаге из раздела «Документы»."))
                     }
-                    .listRowBackground(Palette.card)
                 }
 
                 Section {
@@ -332,12 +325,10 @@ struct CommunityApplicationForm: View {
                         Text(String(localized: "applications.fillRequired", defaultValue: "Заполните обязательные поля"))
                     }
                 }
-                .listRowBackground(Palette.card)
             } else if failure == nil {
                 LoadingStateView().listRowBackground(Color.clear)
             }
         }
-        .scrollContentBackground(.hidden)
         .scrollDismissesKeyboard(.interactively)
         .background(Palette.background)
         .navigationTitle(Text(String(localized: "applications.new", defaultValue: "Заказать услугу")))
@@ -500,7 +491,6 @@ struct CommunityApplicationDetail: View {
                     DetailRow(title: String(localized: "community.documents.rejection", defaultValue: "Причина отказа"), value: reason)
                 }
             }
-            .listRowBackground(Palette.card)
 
             if application.status == "NEEDS_CORRECTION" {
                 Section {
@@ -511,7 +501,6 @@ struct CommunityApplicationDetail: View {
                     .font(Typography.body)
                     .foregroundStyle(Palette.warning)
                 }
-                .listRowBackground(Palette.card)
             }
 
             answers(application)
@@ -522,7 +511,6 @@ struct CommunityApplicationDetail: View {
             actions(application)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
         .refreshable { await load() }
     }
 
@@ -549,7 +537,6 @@ struct CommunityApplicationDetail: View {
             } header: {
                 Text(String(localized: "community.applications.form", defaultValue: "Анкета"))
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -607,7 +594,6 @@ struct CommunityApplicationDetail: View {
             } header: {
                 Text(String(localized: "community.applications.documents", defaultValue: "Документы"))
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -645,7 +631,6 @@ struct CommunityApplicationDetail: View {
             } header: {
                 Text(String(localized: "community.applications.results", defaultValue: "Результат"))
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -665,7 +650,6 @@ struct CommunityApplicationDetail: View {
             } header: {
                 Text(String(localized: "community.applications.pickup", defaultValue: "Выдача"))
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -685,7 +669,6 @@ struct CommunityApplicationDetail: View {
             } header: {
                 Text(String(localized: "applications.history", defaultValue: "История"))
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -718,7 +701,6 @@ struct CommunityApplicationDetail: View {
                 .disabled(isBusy)
             }
         }
-        .listRowBackground(Palette.card)
     }
 
     @MainActor
@@ -763,7 +745,6 @@ private struct CommunityAnswersSheet: View {
             Section {
                 CommunityAnswersForm(fields: application.service?.formFields ?? [], values: $values)
             }
-            .listRowBackground(Palette.card)
         }
         .onAppear {
             guard !didFill else { return }

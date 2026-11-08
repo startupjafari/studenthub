@@ -43,8 +43,6 @@ struct DeanAnalyticsView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(DeanScreen.analytics.title))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -131,7 +129,6 @@ struct DeanAnalyticsView: View {
                 } footer: {
                     Text(String(localized: "dean.analytics.riskHint", defaultValue: "Сначала те, у кого больше причин; при равном числе — у кого хуже само значение."))
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     ForEach(sortedRisk(risk.students)) { student in
@@ -140,7 +137,6 @@ struct DeanAnalyticsView: View {
                         }
                     }
                 }
-                .listRowBackground(Palette.card)
             }
         } else {
             LoadingStateView().listRowBackground(Color.clear)
@@ -191,7 +187,6 @@ struct DeanAnalyticsView: View {
             } footer: {
                 Text(String(localized: "dean.analytics.groupsHint", defaultValue: "«Риск» — посещаемость ниже порога \(DeanText.percent(threshold)). Группа открывается поимённо."))
             }
-            .listRowBackground(Palette.card)
         }
     }
 

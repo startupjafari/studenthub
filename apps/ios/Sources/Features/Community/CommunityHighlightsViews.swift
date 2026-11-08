@@ -158,7 +158,6 @@ struct CommunityHighlightsView: View {
                             Text(String(localized: "community.highlights.reorder", defaultValue: "Порядок меняется кнопкой «Править»"))
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             } else if let failure {
                 ErrorStateView(message: failure) { await load() }
@@ -168,8 +167,6 @@ struct CommunityHighlightsView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(CommunityScreen.highlights(userID: userID).title))
         .toolbar {
             if isMine, (highlights?.count ?? 0) > 1 {
@@ -255,7 +252,6 @@ struct CommunityHighlightEditor: View {
                         }
                         .disabled(trimmed.isEmpty || trimmed.count > 30 || trimmed == detail.title)
                     }
-                    .listRowBackground(Palette.card)
 
                     Section {
                         ForEach(detail.items) { item in
@@ -295,14 +291,11 @@ struct CommunityHighlightEditor: View {
                     } footer: {
                         Text(String(localized: "community.highlights.items.hint", defaultValue: "Смахните влево, чтобы убрать историю или сделать её обложкой"))
                     }
-                    .listRowBackground(Palette.card)
                 } else {
                     LoadingStateView().listRowBackground(Color.clear)
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .environment(\.editMode, .constant(.active))
             .navigationTitle(Text(String(localized: "feed.edit", defaultValue: "Редактировать")))
             .navigationBarTitleDisplayMode(.inline)
@@ -415,7 +408,7 @@ struct CommunityHighlightPlayer: View {
                 VStack(spacing: Spacing.lg) {
                     Text(failure).foregroundStyle(.white).multilineTextAlignment(.center)
                     Button(String(localized: "common.close", defaultValue: "Закрыть")) { dismiss() }
-                        .buttonStyle(.borderedProminent)
+                        .glassProminentButton()
                 }
                 .padding(Spacing.xxl)
             } else {
@@ -571,7 +564,6 @@ struct CommunityHighlightPicker: View {
                 } header: {
                     Text(String(localized: "community.highlights.new", defaultValue: "Новое"))
                 }
-                .listRowBackground(Palette.card)
 
                 if let highlights, !highlights.isEmpty {
                     Section {
@@ -591,19 +583,16 @@ struct CommunityHighlightPicker: View {
                     } header: {
                         Text(String(localized: "community.highlights.existing", defaultValue: "Добавить в существующее"))
                     }
-                    .listRowBackground(Palette.card)
                 } else if highlights == nil {
                     LoadingStateView().listRowBackground(Color.clear)
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "community.highlights.add", defaultValue: "В актуальное")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
             }
             .sensoryFeedback(.success, trigger: done)

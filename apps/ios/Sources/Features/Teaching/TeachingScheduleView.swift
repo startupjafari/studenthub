@@ -53,7 +53,6 @@ private struct TeachingScheduleChangesList: View {
                     Text(String(localized: "teaching.schedule.range.month", defaultValue: "Месяц")).tag(4)
                 }
             }
-            .listRowBackground(Palette.card)
 
             if let changes {
                 if changes.isEmpty {
@@ -68,7 +67,6 @@ private struct TeachingScheduleChangesList: View {
                         Section(group.title) {
                             ForEach(group.items) { change in changeRow(change) }
                         }
-                        .listRowBackground(Palette.card)
                     }
                 }
             } else if let failure {
@@ -86,8 +84,6 @@ private struct TeachingScheduleChangesList: View {
             .listRowBackground(Color.clear)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .refreshable { await load() }
         .task(id: weeks) { await load() }
     }
@@ -194,7 +190,6 @@ private struct TeachingPairsEditor: View {
                         Toggle(String(localized: "teaching.schedule.onlyMine", defaultValue: "Только мои пары"), isOn: $onlyMine)
                     }
                 }
-                .listRowBackground(Palette.card)
 
                 if groups.isEmpty {
                     EmptyStateView(
@@ -223,8 +218,6 @@ private struct TeachingPairsEditor: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .toolbar {
             if !containerID.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -276,7 +269,6 @@ private struct TeachingPairsEditor: View {
                         .disabled(!mine)
                     }
                 }
-                .listRowBackground(Palette.card)
             }
         }
     }
@@ -435,7 +427,6 @@ private struct TeachingPairForm: View {
                         .foregroundStyle(Palette.destructive)
                 }
             }
-            .listRowBackground(Palette.card)
         }
     }
 

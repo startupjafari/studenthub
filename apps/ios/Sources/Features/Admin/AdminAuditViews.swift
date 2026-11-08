@@ -100,7 +100,6 @@ private struct AdminAuditEntrySheet: View {
                         DetailRow(title: String(localized: "admin.audit.userAgent", defaultValue: "Клиент"), value: agent)
                     }
                 }
-                .listRowBackground(Palette.card)
                 .textSelection(.enabled)
 
                 if let user = entry.userId {
@@ -108,7 +107,6 @@ private struct AdminAuditEntrySheet: View {
                         DetailRow(title: String(localized: "admin.audit.user", defaultValue: "Пользователь"), value: user)
                             .textSelection(.enabled)
                     }
-                    .listRowBackground(Palette.card)
                 }
 
                 if let metadata = entry.metadata, metadata.object?.isEmpty == false {
@@ -119,8 +117,6 @@ private struct AdminAuditEntrySheet: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(verbatim: entry.action))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

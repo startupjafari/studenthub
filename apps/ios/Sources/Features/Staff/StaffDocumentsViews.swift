@@ -34,7 +34,6 @@ struct StaffDocumentTypesView: View {
                             typeRow(row)
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             } else if let failure {
                 ErrorStateView(message: failure) { await load() }
@@ -44,8 +43,6 @@ struct StaffDocumentTypesView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(StaffScreen.documentTypes.title))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -223,7 +220,6 @@ private struct StaffNewDocumentTypeSheet: View {
             } footer: {
                 Text(String(localized: "staff.dt.code.hint", defaultValue: "Код — латинские заглавные буквы, цифры и «_», начинается с буквы."))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 Picker(String(localized: "staff.dt.category", defaultValue: "Категория"), selection: $category) {
@@ -232,7 +228,6 @@ private struct StaffNewDocumentTypeSheet: View {
                 TextField(String(localized: "staff.dt.retention", defaultValue: "Срок хранения, дней"), text: $retention)
                     .keyboardType(.numberPad)
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 ForEach(StaffDocText.fields, id: \.self) { field in
@@ -246,7 +241,6 @@ private struct StaffNewDocumentTypeSheet: View {
             } footer: {
                 Text(String(localized: "staff.dt.fields.hint", defaultValue: "Что человек заполняет при загрузке — не больше пяти."))
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -315,7 +309,6 @@ struct StaffDocumentJournalView: View {
                             .accessibilityLabel(Text(String(localized: "staff.dj.person.clear", defaultValue: "Убрать фильтр по человеку")))
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             },
             row: { item in
@@ -360,7 +353,6 @@ struct StaffDocumentJournalView: View {
                         ForEach(StaffDocText.journalActions, id: \.self) { Text(StaffDocText.action($0)).tag(String?.some($0)) }
                     }
                 }
-                .listRowBackground(Palette.card)
                 Section {
                     Toggle(String(localized: "staff.dj.period", defaultValue: "Период"), isOn: $usePeriod)
                     if usePeriod {
@@ -368,7 +360,6 @@ struct StaffDocumentJournalView: View {
                         DatePicker(String(localized: "staff.dj.to", defaultValue: "По"), selection: $to, in: from..., displayedComponents: .date)
                     }
                 }
-                .listRowBackground(Palette.card)
                 if isFiltered {
                     Section {
                         Button(String(localized: "staff.dj.reset", defaultValue: "Сбросить фильтры"), role: .destructive) {
@@ -376,11 +367,8 @@ struct StaffDocumentJournalView: View {
                             showsFilters = false
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "staff.dj.filters", defaultValue: "Фильтры")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

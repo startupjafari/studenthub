@@ -38,7 +38,6 @@ struct SettingsView: View {
                 }
                 .accessibilityIdentifier("settings.profile")
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 NavigationLink {
@@ -83,7 +82,6 @@ struct SettingsView: View {
                 }
                 .accessibilityIdentifier("settings.notifications")
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 NavigationLink(value: AppRoute.community(.username)) {
@@ -111,7 +109,6 @@ struct SettingsView: View {
             } header: {
                 Text(String(localized: "community.settings.account", defaultValue: "Аккаунт"))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 NavigationLink {
@@ -137,7 +134,6 @@ struct SettingsView: View {
             } header: {
                 Text(String(localized: "settings.app", defaultValue: "Приложение"))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 NavigationLink {
@@ -160,7 +156,6 @@ struct SettingsView: View {
                     )
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 Button(role: .destructive) {
@@ -174,7 +169,6 @@ struct SettingsView: View {
                 }
                 .accessibilityIdentifier("settings.signOut")
             }
-            .listRowBackground(Palette.card)
 
             // Опасная зона — отдельно и в самом низу: удаление аккаунта не должно
             // оказаться под пальцем рядом с переключателем темы.
@@ -196,11 +190,8 @@ struct SettingsView: View {
                     defaultValue: "Удаление необратимо: профиль, публикации и переписки исчезнут."
                 ))
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "more.settings", defaultValue: "Настройки")))
         .sheet(isPresented: $showsQRApprove) {
             QRApproveView()
@@ -279,7 +270,6 @@ struct NotificationSettingsView: View {
                         defaultValue: "В колокольчике уведомления появляются всегда — здесь выбирается, куда ещё их присылать."
                     ))
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     toggle(\.messageEnabled, value, String(localized: "settings.notifications.messages", defaultValue: "Сообщения"))
@@ -291,7 +281,6 @@ struct NotificationSettingsView: View {
                 } header: {
                     Text(String(localized: "settings.notifications.topics", defaultValue: "О чём сообщать"))
                 }
-                .listRowBackground(Palette.card)
             } else if let failure = model.failure {
                 ErrorStateView(message: failure) { await model.load() }
                     .listRowBackground(Color.clear)
@@ -299,8 +288,6 @@ struct NotificationSettingsView: View {
                 LoadingStateView().listRowBackground(Color.clear)
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "settings.notifications", defaultValue: "Уведомления")))
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.load() }
@@ -370,7 +357,6 @@ struct PrivacySettingsView: View {
                     defaultValue: "Закрытый профиль остальные видят визиткой: имя, фото и роль."
                 ))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 Button {
@@ -392,10 +378,7 @@ struct PrivacySettingsView: View {
                     defaultValue: "Файл JSON со всем, что платформа хранит о вас. Не чаще трёх раз в час."
                 ))
             }
-            .listRowBackground(Palette.card)
         }
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "settings.privacy", defaultValue: "Конфиденциальность")))
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $exported) { file in

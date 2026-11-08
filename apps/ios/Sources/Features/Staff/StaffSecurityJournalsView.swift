@@ -157,7 +157,6 @@ struct StaffSecurityJournalsView: View {
                 DatePicker(String(localized: "staff.sec.day", defaultValue: "День"), selection: $day, in: ...Date(), displayedComponents: .date)
             }
         }
-        .listRowBackground(Palette.card)
     }
 
     private func passRow(_ pass: StaffPass) -> some View {

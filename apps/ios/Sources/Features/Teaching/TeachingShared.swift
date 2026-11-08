@@ -243,11 +243,8 @@ struct TeachingRoomPicker: View {
             } footer: {
                 if let failure { Text(failure) }
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "teaching.room", defaultValue: "Аудитория")))
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: Text(String(localized: "teaching.room.search", defaultValue: "Номер аудитории")))

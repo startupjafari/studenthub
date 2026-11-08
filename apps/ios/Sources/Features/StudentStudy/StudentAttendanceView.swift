@@ -53,7 +53,6 @@ struct StudentAttendanceView: View {
                             IconRow(title: StudentScreen.checkin.title, symbol: StudentScreen.checkin.symbol, tint: TileTint.green)
                         }
                     }
-                    .listRowBackground(Palette.card)
 
                     FilterChipsRow(options: Self.filterOptions, selection: $filter)
 
@@ -70,11 +69,9 @@ struct StudentAttendanceView: View {
                     } header: {
                         Text(String(localized: "student.attendance.recent", defaultValue: "Последние занятия"))
                     }
-                    .listRowBackground(Palette.card)
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
             .refreshable { reloadToken += 1 }
         }
         .background(Palette.background)

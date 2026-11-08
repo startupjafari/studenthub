@@ -31,7 +31,6 @@ struct SecuritySettingsView: View {
                     defaultValue: "После смены пароля вы выйдете на всех устройствах, включая этот."
                 ))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 if viewer.profile?.twoFactorEnabled == true {
@@ -66,10 +65,7 @@ struct SecuritySettingsView: View {
                     defaultValue: "При входе кроме пароля понадобится код из приложения-аутентификатора."
                 ))
             }
-            .listRowBackground(Palette.card)
         }
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "settings.security", defaultValue: "Безопасность")))
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $changingPassword) {
@@ -106,7 +102,6 @@ private struct ChangePasswordView: View {
                     SecureField(String(localized: "settings.password.current", defaultValue: "Текущий пароль"), text: $current)
                         .textContentType(.password)
                 }
-                .listRowBackground(Palette.card)
                 Section {
                     SecureField(String(localized: "settings.password.new", defaultValue: "Новый пароль"), text: $new)
                         .textContentType(.newPassword)
@@ -119,15 +114,12 @@ private struct ChangePasswordView: View {
                         Text(String(localized: "settings.password.rule", defaultValue: "Не короче 8 символов: буква, цифра и спецсимвол"))
                     }
                 }
-                .listRowBackground(Palette.card)
             }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "settings.password", defaultValue: "Сменить пароль")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(String(localized: "common.save", defaultValue: "Сохранить")) {
@@ -201,7 +193,6 @@ private struct TwoFactorView: View {
                             defaultValue: "Каждый код срабатывает один раз. Сохраните их: больше они не покажутся."
                         ))
                     }
-                    .listRowBackground(Palette.card)
                 } else {
                     if flow == .enable, let setup {
                         Section {
@@ -233,7 +224,6 @@ private struct TwoFactorView: View {
                                 defaultValue: "Отсканируйте код или добавьте ключ вручную, затем введите шесть цифр из приложения."
                             ))
                         }
-                        .listRowBackground(Palette.card)
                     }
                     Section {
                         TextField(String(localized: "settings.2fa.code", defaultValue: "Код"), text: $code)
@@ -248,11 +238,8 @@ private struct TwoFactorView: View {
                             ))
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(title))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

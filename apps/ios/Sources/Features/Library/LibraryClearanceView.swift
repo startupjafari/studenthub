@@ -28,8 +28,6 @@ struct LibraryClearanceView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "library.clearance", defaultValue: "Справка из библиотеки")))
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await model.refresh() }
@@ -135,7 +133,6 @@ struct LibraryClearanceView: View {
                 ))
             }
         }
-        .listRowBackground(Palette.card)
     }
 
     private func detailsSection(_ summary: ClearanceSummary) -> some View {
@@ -155,7 +152,6 @@ struct LibraryClearanceView: View {
         } header: {
             Text(String(localized: "library.clearanceDetails", defaultValue: "Сведения"))
         }
-        .listRowBackground(Palette.card)
     }
 
     /// Строка сведений; пустое поле (нет группы, не указан билет) не рисуется вовсе.

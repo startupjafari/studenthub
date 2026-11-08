@@ -139,7 +139,6 @@ struct NotificationsView: View {
                 } header: {
                     Text(String(localized: "notifications.channels", defaultValue: "Каналы"))
                 }
-                .listRowBackground(Palette.card)
             }
 
             Section {
@@ -156,7 +155,6 @@ struct NotificationsView: View {
                             .foregroundStyle(Palette.mutedForeground)
                     }
                     .padding(.vertical, Spacing.xs)
-                    .listRowBackground(Palette.card)
                     .onTapGesture {
                         Task { await model.markRead(item.id) }
                         // Строка ведёт туда же, куда пуш: в чат, к посту, к заявке.
@@ -175,8 +173,6 @@ struct NotificationsView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "home.notifications", defaultValue: "Уведомления")))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

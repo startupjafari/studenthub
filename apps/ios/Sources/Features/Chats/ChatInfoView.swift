@@ -54,8 +54,6 @@ struct ChatInfoView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "chats.info.title", defaultValue: "Информация")))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -566,7 +564,7 @@ private struct GroupEditSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(String(localized: "common.save", defaultValue: "Сохранить")) {
@@ -636,7 +634,7 @@ private struct MemberPickerSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
             }
             .task(id: query) {

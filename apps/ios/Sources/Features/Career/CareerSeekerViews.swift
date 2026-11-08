@@ -94,7 +94,6 @@ private struct CareerSeekerHomeView: View {
                         hint: String(localized: "career.home.freshHint", defaultValue: "Одобренные вашим университетом")
                     )
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     if summary.events.isEmpty {
@@ -115,7 +114,6 @@ private struct CareerSeekerHomeView: View {
                         hint: String(localized: "career.home.eventsHint", defaultValue: "Ярмарки, воркшопы, дни собеседований")
                     )
                 }
-                .listRowBackground(Palette.card)
 
                 if role.careerApplicant {
                     Section {
@@ -125,12 +123,9 @@ private struct CareerSeekerHomeView: View {
                             }
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .refreshable { token += 1 }
         }
         .navigationTitle(Text(CareerScreen.home.title))
@@ -358,7 +353,6 @@ private struct CareerVacancyCard: View {
                         }
                     }
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     DetailRow(
@@ -396,7 +390,6 @@ private struct CareerVacancyCard: View {
                         )
                     }
                 }
-                .listRowBackground(Palette.card)
 
                 if let match = vacancy.match {
                     Section {
@@ -420,7 +413,6 @@ private struct CareerVacancyCard: View {
                             }
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
 
                 if !CareerText.list(vacancy.skills).isEmpty || !CareerText.list(vacancy.languages).isEmpty {
@@ -437,7 +429,6 @@ private struct CareerVacancyCard: View {
                     } header: {
                         Text(String(localized: "career.vacancy.skills", defaultValue: "Навыки"))
                     }
-                    .listRowBackground(Palette.card)
                 }
 
                 if let description = vacancy.description, !description.isEmpty {
@@ -449,7 +440,6 @@ private struct CareerVacancyCard: View {
                     } header: {
                         Text(String(localized: "career.vacancy.description", defaultValue: "Описание"))
                     }
-                    .listRowBackground(Palette.card)
                 }
 
                 if role.careerApplicant {
@@ -475,12 +465,9 @@ private struct CareerVacancyCard: View {
                             .listRowInsets(EdgeInsets())
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .refreshable { token += 1 }
             .task(id: vacancy.id) { kato.request([vacancy.city, vacancy.company?.city]) }
             .sheet(isPresented: $applying) {
@@ -536,7 +523,6 @@ private struct CareerApplySheet: View {
                         .foregroundStyle(Palette.destructive)
                 }
             }
-            .listRowBackground(Palette.card)
 
             if let profile {
                 Section {
@@ -572,7 +558,6 @@ private struct CareerApplySheet: View {
                         }
                     }
                 }
-                .listRowBackground(Palette.card)
             }
         }
     }
@@ -710,7 +695,6 @@ private struct CareerApplicationSheet: View {
                         }
                     }
                 }
-                .listRowBackground(Palette.card)
 
                 if let letter = application.coverLetter, !letter.isEmpty {
                     Section {
@@ -718,7 +702,6 @@ private struct CareerApplicationSheet: View {
                     } header: {
                         Text(String(localized: "career.apply.letter", defaultValue: "Сопроводительное письмо"))
                     }
-                    .listRowBackground(Palette.card)
                 }
 
                 if let current = access ?? application.profileAccess, current != "EMPLOYERS", let companyID = application.vacancy.company?.id {
@@ -733,7 +716,6 @@ private struct CareerApplicationSheet: View {
                         }
                         .disabled(busy)
                     }
-                    .listRowBackground(Palette.card)
                 }
 
                 Section {
@@ -753,7 +735,6 @@ private struct CareerApplicationSheet: View {
                 } header: {
                     Text(String(localized: "career.apps.history", defaultValue: "История"))
                 }
-                .listRowBackground(Palette.card)
 
                 if !CareerText.isFinal(application.status) {
                     Section {
@@ -763,12 +744,9 @@ private struct CareerApplicationSheet: View {
                             Text(String(localized: "career.apps.withdraw", defaultValue: "Отозвать"))
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "career.apps.one", defaultValue: "Отклик")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -891,7 +869,6 @@ struct CareerProfileView: View {
                     }
                     .disabled(busy)
                 }
-                .listRowBackground(Palette.card)
 
                 if !profile.profileGrants.isEmpty {
                     Section {
@@ -912,7 +889,6 @@ struct CareerProfileView: View {
                             defaultValue: "Открыт адресно — эти компании видят профиль, даже когда он скрыт"
                         ))
                     }
-                    .listRowBackground(Palette.card)
                 }
 
                 Section {
@@ -938,7 +914,6 @@ struct CareerProfileView: View {
                         )
                     )
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     ForEach(CareerText.consentFields, id: \.self) { field in
@@ -957,7 +932,6 @@ struct CareerProfileView: View {
                         )
                     )
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     DetailRow(
@@ -1001,7 +975,6 @@ struct CareerProfileView: View {
                         )
                     )
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     let inherited = profile.inherited
@@ -1032,11 +1005,8 @@ struct CareerProfileView: View {
                         )
                     )
                 }
-                .listRowBackground(Palette.card)
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .refreshable { token += 1 }
         }
         .navigationTitle(Text(CareerScreen.profile.title))
@@ -1139,7 +1109,6 @@ private struct CareerProfileForm: View {
             } footer: {
                 Text(String(localized: "career.profile.positionsHint", defaultValue: "Желаемые позиции через запятую, до 10"))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 ForEach(CareerText.employmentTypes, id: \.self) { value in
@@ -1148,7 +1117,6 @@ private struct CareerProfileForm: View {
             } header: {
                 Text(String(localized: "career.profile.employmentTypes", defaultValue: "Формат занятости"))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 ForEach(CareerText.workFormats, id: \.self) { value in
@@ -1158,7 +1126,6 @@ private struct CareerProfileForm: View {
             } header: {
                 Text(String(localized: "career.profile.workFormats", defaultValue: "Где готовы работать"))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 TextField(String(localized: "career.profile.salaryFrom", defaultValue: "Зарплата от"), text: $salaryMin)
@@ -1171,7 +1138,6 @@ private struct CareerProfileForm: View {
             } header: {
                 Text(String(localized: "career.profile.salary", defaultValue: "Зарплата"))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 TextField(
@@ -1183,7 +1149,6 @@ private struct CareerProfileForm: View {
             } header: {
                 Text(String(localized: "career.profile.about", defaultValue: "О себе для работодателя"))
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -1237,7 +1202,6 @@ struct CareerResumeView: View {
                         DetailRow(title: String(localized: "career.resume.updated", defaultValue: "Обновлено"), value: DisplayFormat.dateTime(updated))
                     }
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     CareerNotice(
@@ -1292,7 +1256,6 @@ struct CareerResumeView: View {
                     }
                     .disabled(busy)
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     Text(String(
@@ -1309,11 +1272,8 @@ struct CareerResumeView: View {
                 }
                 .font(Typography.meta)
                 .foregroundStyle(Palette.mutedForeground)
-                .listRowBackground(Palette.card)
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .refreshable { token += 1 }
             .sheet(isPresented: $renaming) {
                 CareerResumeTitleForm(title: resume.title) { token += 1 }
@@ -1390,7 +1350,6 @@ private struct CareerResumeTitleForm: View {
             Section {
                 TextField(String(localized: "career.resume.titleField", defaultValue: "Название"), text: $title)
             }
-            .listRowBackground(Palette.card)
         }
     }
 }
@@ -1414,7 +1373,6 @@ struct CareerPublicResumeView: View {
                         Text(contact).textSelection(.enabled)
                     }
                 }
-                .listRowBackground(Palette.card)
 
                 if let about = resume.about, !about.isEmpty {
                     textSection(CareerResumeLabels.about, about)
@@ -1428,7 +1386,6 @@ struct CareerPublicResumeView: View {
                     } header: {
                         Text(CareerResumeLabels.skills)
                     }
-                    .listRowBackground(Palette.card)
                 }
                 itemsSection(CareerResumeLabels.experience, resume.experience)
                 itemsSection(CareerResumeLabels.projects, resume.projects)
@@ -1444,8 +1401,6 @@ struct CareerPublicResumeView: View {
                 .listRowBackground(Color.clear)
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
         }
         .navigationTitle(Text(CareerScreen.resume.title))
         .navigationBarTitleDisplayMode(.inline)
@@ -1457,7 +1412,6 @@ struct CareerPublicResumeView: View {
         } header: {
             Text(title)
         }
-        .listRowBackground(Palette.card)
     }
 
     @ViewBuilder
@@ -1486,7 +1440,6 @@ struct CareerPublicResumeView: View {
             } header: {
                 Text(title)
             }
-            .listRowBackground(Palette.card)
         }
     }
 }
@@ -1654,7 +1607,6 @@ private struct CareerEventForm: View {
                 TextField(String(localized: "career.events.description", defaultValue: "Описание"), text: $description, axis: .vertical)
                     .lineLimit(3...8)
             }
-            .listRowBackground(Palette.card)
             Section {
                 DatePicker(String(localized: "career.events.startsAt", defaultValue: "Начало"), selection: $startsAt)
                 Toggle(String(localized: "career.events.hasEnd", defaultValue: "Указать окончание"), isOn: $hasEnd)
@@ -1664,7 +1616,6 @@ private struct CareerEventForm: View {
                 Toggle(String(localized: "career.events.online", defaultValue: "Онлайн"), isOn: $isOnline)
                 TextField(String(localized: "career.events.location", defaultValue: "Место"), text: $location)
             }
-            .listRowBackground(Palette.card)
         }
     }
 

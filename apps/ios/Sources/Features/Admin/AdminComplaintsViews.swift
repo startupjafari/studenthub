@@ -168,7 +168,6 @@ struct AdminComplaintView: View {
                         .textSelection(.enabled)
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 if let reporter = complaint.reporter {
@@ -207,7 +206,6 @@ struct AdminComplaintView: View {
                     )
                 }
             }
-            .listRowBackground(Palette.card)
 
             targetSection(complaint)
 
@@ -242,10 +240,8 @@ struct AdminComplaintView: View {
                     .disabled(isWorking)
                 }
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
         .refreshable { await load() }
     }
 
@@ -307,7 +303,6 @@ struct AdminComplaintView: View {
         } header: {
             Text(String(localized: "admin.complaint.targetTitle", defaultValue: "Что обжаловано"))
         }
-        .listRowBackground(Palette.card)
     }
 
     @ViewBuilder
@@ -362,7 +357,6 @@ struct AdminComplaintView: View {
                 Text(String(localized: "admin.complaint.chatAudit", defaultValue: "Открытие переписки записывается в журнал аудита"))
             }
         }
-        .listRowBackground(Palette.card)
     }
 
     private func decisionSection(_ complaint: AdminComplaintDTO) -> some View {
@@ -423,7 +417,6 @@ struct AdminComplaintView: View {
         } header: {
             Text(String(localized: "admin.complaint.decision", defaultValue: "Решение"))
         }
-        .listRowBackground(Palette.card)
     }
 
     // MARK: Подписи

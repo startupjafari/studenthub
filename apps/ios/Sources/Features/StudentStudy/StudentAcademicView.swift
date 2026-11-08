@@ -60,7 +60,6 @@ struct StudentAcademicView: View {
                 } footer: {
                     Text(String(localized: "student.academic.bySubjectHint", defaultValue: "Средний процент по опубликованным оценкам каждой дисциплины"))
                 }
-                .listRowBackground(Palette.card)
 
                 if let attendance = summary.attendance {
                     Section {
@@ -120,10 +119,8 @@ struct StudentAcademicView: View {
                 } header: {
                     Text(String(localized: "student.academic.sections", defaultValue: "Разделы"))
                 }
-                .listRowBackground(Palette.card)
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
             .refreshable { reloadToken += 1 }
         }
         .background(Palette.background)

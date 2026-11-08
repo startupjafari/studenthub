@@ -136,8 +136,6 @@ struct AdminPlatformDashboardView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(AdminScreen.platformDashboard.title))
         .refreshable {
             await loadOverview()
@@ -307,7 +305,6 @@ struct AdminChartSection<Content: View>: View {
         } footer: {
             if let hint { Text(hint) }
         }
-        .listRowBackground(Palette.card)
     }
 }
 
@@ -409,7 +406,6 @@ struct AdminPlatformStatsView: View {
                         Text(String(localized: "admin.stats.shown", defaultValue: "Показано вузов: \(data.items.count.formatted()) из \(data.totals.universities.formatted()), крупнейшие первыми"))
                     }
                 }
-                .listRowBackground(Palette.card)
             } else if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
                     .listRowBackground(Color.clear)
@@ -418,8 +414,6 @@ struct AdminPlatformStatsView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(AdminScreen.stats.title))
         .searchable(text: $search, prompt: Text(String(localized: "admin.stats.search", defaultValue: "Поиск вуза")))
         .refreshable { await load() }
@@ -544,7 +538,6 @@ struct AdminUniversityModeratorDashboardView: View {
                 } footer: {
                     Text(String(localized: "admin.mod.oldestHint", defaultValue: "С них начинают разбор: ждут дольше всех"))
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     if audit.isEmpty {
@@ -562,7 +555,6 @@ struct AdminUniversityModeratorDashboardView: View {
                 } footer: {
                     Text(String(localized: "admin.mod.myActionsHint", defaultValue: "Журнал показывает модератору только его собственные действия"))
                 }
-                .listRowBackground(Palette.card)
             } else if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
                     .listRowBackground(Color.clear)
@@ -571,8 +563,6 @@ struct AdminUniversityModeratorDashboardView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(AdminScreen.universityModeratorDashboard.title))
         .refreshable { await load() }
         .task { await load() }

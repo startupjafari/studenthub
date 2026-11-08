@@ -256,7 +256,7 @@ private struct CommentInputBar: View {
                 .focused(focused)
                 .padding(.horizontal, Spacing.lg)
                 .padding(.vertical, Spacing.md)
-                .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+                .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xxl, style: .continuous))
 
                 Button {
                     Task { await model.send() }

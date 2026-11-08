@@ -80,7 +80,6 @@ struct CommunityDocumentsScreen: View {
                 NavigationLink(value: AppRoute.community(.documentRequests)) {
                     Label(CommunityScreen.documentRequests.title, systemImage: "tray.and.arrow.up")
                 }
-                .listRowBackground(Palette.card)
             }
         } row: { document in
             NavigationLink {
@@ -217,7 +216,6 @@ struct CommunityDocumentDetailView: View {
                     DetailRow(title: String(localized: "community.documents.rejection", defaultValue: "Причина отказа"), value: reason)
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 ForEach(current.files ?? []) { file in
@@ -261,7 +259,6 @@ struct CommunityDocumentDetailView: View {
             } header: {
                 Text(String(localized: "community.documents.pages", defaultValue: "Файлы"))
             }
-            .listRowBackground(Palette.card)
 
             if !isIssued {
                 Section {
@@ -295,7 +292,6 @@ struct CommunityDocumentDetailView: View {
                 } footer: {
                     Text(String(localized: "community.documents.access.hint", defaultValue: "Смахните влево, чтобы закрыть доступ"))
                 }
-                .listRowBackground(Palette.card)
             }
 
             Section {
@@ -324,11 +320,8 @@ struct CommunityDocumentDetailView: View {
                     }
                 }
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(current.title))
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await reloadAccess() }
@@ -492,7 +485,6 @@ private struct CommunityDocumentEditSheet: View {
                 if hasExpiry { DatePicker(String(localized: "community.documents.expiresAt", defaultValue: "Срок действия"), selection: $expiresAt, displayedComponents: .date) }
                 TextField(String(localized: "community.documents.comment", defaultValue: "Комментарий"), text: $comment, axis: .vertical)
             }
-            .listRowBackground(Palette.card)
         }
         .onAppear {
             guard !didFill else { return }
@@ -561,7 +553,6 @@ private struct CommunityGrantAccessSheet: View {
                     DatePicker(String(localized: "community.documents.until.label", defaultValue: "До"), selection: $expiresAt, in: Date()..., displayedComponents: .date)
                 }
             }
-            .listRowBackground(Palette.card)
         }
         .sheet(isPresented: $pickingPerson) {
             CommunityPersonPicker(title: String(localized: "community.grantee.user", defaultValue: "Человек")) { person = $0 }
@@ -631,7 +622,6 @@ struct CommunityDocumentUploadView: View {
                     TextField(String(localized: "community.documents.comment", defaultValue: "Комментарий"), text: $comment, axis: .vertical)
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 ForEach(Array(files.enumerated()), id: \.offset) { index, file in
@@ -662,7 +652,6 @@ struct CommunityDocumentUploadView: View {
             } footer: {
                 Text(String(localized: "community.documents.formats", defaultValue: "PDF, JPG или PNG. Каждая страница — отдельный файл."))
             }
-            .listRowBackground(Palette.card)
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf, .jpeg, .png], allowsMultipleSelection: true) { result in
             guard case .success(let urls) = result else { return }

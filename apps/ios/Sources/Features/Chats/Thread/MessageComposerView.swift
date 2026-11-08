@@ -46,6 +46,7 @@ struct MessageComposerView: View {
                 )
             }
 
+            GlassGroup(spacing: Spacing.md) {
             HStack(alignment: .bottom, spacing: Spacing.md) {
                 Menu {
                     PhotosPicker(selection: $photo, matching: .any(of: [.images, .videos])) {
@@ -65,8 +66,9 @@ struct MessageComposerView: View {
                 } label: {
                     Image(systemName: "paperclip")
                         .font(Typography.body)
-                        .foregroundStyle(Palette.mutedForeground)
+                        .foregroundStyle(Palette.foreground)
                         .frame(width: ControlHeight.lg, height: ControlHeight.lg)
+                        .composerGlass(in: Circle())
                 }
                 .accessibilityLabel(Text(String(localized: "chats.attach", defaultValue: "Вложение")))
 
@@ -84,7 +86,7 @@ struct MessageComposerView: View {
                 .focused($isFocused)
                 .padding(.horizontal, Spacing.lg)
                 .padding(.vertical, Spacing.md)
-                .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xl))
+                .composerGlass(in: RoundedRectangle(cornerRadius: Radius.xxl, style: .continuous))
                 .onChange(of: model.draft) {
                     model.draftChanged()
                 }
@@ -98,13 +100,9 @@ struct MessageComposerView: View {
             .padding(.horizontal, Spacing.xl)
             .padding(.vertical, Spacing.md)
             .frame(minHeight: ControlHeight.chatInput)
+            }
         }
-        .background(Palette.background)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(Palette.border)
-                .frame(height: 1)
-        }
+        .modifier(ComposerBarBackground())
         .onChange(of: photo) {
             Task { await sendPickedPhoto() }
         }
@@ -121,7 +119,7 @@ struct MessageComposerView: View {
                         .font(Typography.body.weight(.semibold))
                         .foregroundStyle(Palette.primaryForeground)
                         .frame(width: ControlHeight.lg, height: ControlHeight.lg)
-                .background(Palette.primary, in: Circle())
+                .glassSurface(tint: Palette.primary, in: Circle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(String(localized: "chats.send", defaultValue: "Отправить")))
@@ -144,7 +142,7 @@ struct MessageComposerView: View {
                 .font(Typography.body)
                 .foregroundStyle(Palette.primaryForeground)
                 .frame(width: ControlHeight.lg, height: ControlHeight.lg)
-                .background(recorder.isRecording ? Palette.destructive : Palette.primary, in: Circle())
+                .glassSurface(tint: recorder.isRecording ? Palette.destructive : Palette.primary, in: Circle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(recorder.isRecording
@@ -330,5 +328,36 @@ struct WaveformView: View {
             .frame(maxHeight: .infinity, alignment: .center)
         }
         .accessibilityHidden(true)
+    }
+}
+
+
+/// Подложка панели ввода. На iOS 26 её нет: поле и кнопки — стекло над перепиской, как
+/// в «Сообщениях», и лента видна под ними. Раньше — непрозрачная полоса с линией сверху.
+private struct ComposerBarBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *) {
+            content
+        } else {
+            content
+                .background(Palette.plainBackground)
+                .overlay(alignment: .top) {
+                    Rectangle()
+                        .fill(Palette.border)
+                        .frame(height: 1)
+                }
+        }
+    }
+}
+
+private extension View {
+    /// Элемент панели ввода: на iOS 26 — стекло, раньше — серая заливка.
+    @ViewBuilder
+    func composerGlass<S: Shape>(in shape: S) -> some View {
+        if #available(iOS 26, *) {
+            glassSurface(in: shape)
+        } else {
+            background(Palette.muted, in: shape)
+        }
     }
 }

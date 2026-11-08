@@ -76,7 +76,7 @@ struct PostComposerView: View {
                                 .foregroundStyle(Palette.mutedForeground)
                         }
                         .padding(Spacing.lg)
-                        .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+                        .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xxl, style: .continuous))
                     }
 
                     if let failure {
@@ -92,7 +92,7 @@ struct PostComposerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {

@@ -58,7 +58,6 @@ struct AppearanceSettingsView: View {
             } header: {
                 Text(String(localized: "settings.theme", defaultValue: "Тема"))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 Button {
@@ -79,10 +78,7 @@ struct AppearanceSettingsView: View {
                     defaultValue: "Язык меняется в настройках iPhone для приложения StudentHub. Язык писем и уведомлений — в разделе «Уведомления»."
                 ))
             }
-            .listRowBackground(Palette.card)
         }
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "settings.appearance", defaultValue: "Внешний вид")))
         .navigationBarTitleDisplayMode(.inline)
     }

@@ -191,7 +191,6 @@ struct AdminDocumentAccessView: View {
                     Text(String(localized: "admin.docs.reasonHint", defaultValue: "Например: проверка жалобы №12. Не короче 5 символов."))
                 }
             }
-            .listRowBackground(Palette.card)
 
             if let document {
                 documentSection(document)
@@ -217,11 +216,8 @@ struct AdminDocumentAccessView: View {
             } header: {
                 Text(String(localized: "admin.docs.log", defaultValue: "Журнал спец-доступа"))
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(AdminScreen.documentAccess.title))
         .refreshable { await loadLog() }
         .task { await loadLog() }
@@ -274,7 +270,6 @@ struct AdminDocumentAccessView: View {
         } header: {
             Text(String(localized: "admin.docs.document", defaultValue: "Документ"))
         }
-        .listRowBackground(Palette.card)
     }
 
     @MainActor

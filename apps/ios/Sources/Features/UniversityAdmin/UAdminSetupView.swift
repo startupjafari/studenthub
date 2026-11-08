@@ -46,7 +46,6 @@ struct UAdminSetupView: View {
             } footer: {
                 Text(String(localized: "uadmin.setup.subtitle", defaultValue: "Заполните структуру «\(state.university.name)» — платформа проведёт по шагам"))
             }
-            .listRowBackground(Palette.card)
 
             ForEach(Array(state.steps.enumerated()), id: \.element.id) { index, step in
                 Section {
@@ -71,11 +70,9 @@ struct UAdminSetupView: View {
                         }
                     }
                 }
-                .listRowBackground(Palette.card)
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
     }
 
     @ViewBuilder

@@ -52,7 +52,6 @@ private struct PortfolioContent: View {
                         } header: {
                             Label(PortfolioText.kind(kind), systemImage: PortfolioText.symbol(kind))
                         }
-                        .listRowBackground(Palette.card)
                     }
                 }
             } else if let failure {
@@ -63,8 +62,6 @@ private struct PortfolioContent: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(MoreSection.portfolio.title))
         .toolbar {
             if (items?.count ?? 0) > 1 {
@@ -251,7 +248,6 @@ private struct NewPortfolioItemView: View {
                         FieldError(message: String(localized: "profile.website.invalid", defaultValue: "Адрес сайта должен начинаться с http:// или https://"))
                     }
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     Toggle(String(localized: "portfolio.dates", defaultValue: "Указать период"), isOn: $hasDates)
@@ -266,9 +262,7 @@ private struct NewPortfolioItemView: View {
                         ForEach(PortfolioText.visibilities, id: \.self) { Text(PortfolioText.visibility($0)).tag($0) }
                     }
                 }
-                .listRowBackground(Palette.card)
             }
-            .scrollContentBackground(.hidden)
             .scrollDismissesKeyboard(.interactively)
             .background(Palette.background)
             .navigationTitle(Text(existing == nil
@@ -278,7 +272,7 @@ private struct NewPortfolioItemView: View {
             .onAppear(perform: fill)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(String(localized: "common.save", defaultValue: "Сохранить")) {

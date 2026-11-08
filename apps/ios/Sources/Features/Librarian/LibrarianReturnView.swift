@@ -40,7 +40,6 @@ struct LibrarianReturnView: View {
                     Text(String(localized: "librarian.return.hint", defaultValue: "Отсканируйте наклейку на книге или введите инвентарный номер"))
                 }
             }
-            .listRowBackground(Palette.card)
 
             if let latest = returned.first, let held = latest.heldFor {
                 // Главное после приёма — не поставить книгу на полку, если её ждёт бронь.
@@ -107,7 +106,6 @@ struct LibrarianReturnView: View {
                     Text(String(localized: "librarian.return.returnedNowHint", defaultValue: "Читателям пришли уведомления"))
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 if let overdue {
@@ -136,11 +134,8 @@ struct LibrarianReturnView: View {
             } footer: {
                 Text(String(localized: "librarian.return.overdueHint", defaultValue: "Кого ждут с книгами в первую очередь"))
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(LibrarianScreen.returnBooks.title))
         .librarianLoanActions($action) { performed in
             if case .cancelReturn(let loan) = performed {

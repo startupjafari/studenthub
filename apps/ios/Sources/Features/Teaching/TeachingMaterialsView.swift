@@ -136,7 +136,6 @@ private struct TeachingMaterialDetailView: View {
                         }
                     }
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     let files = material.media ?? []
@@ -178,15 +177,12 @@ private struct TeachingMaterialDetailView: View {
                 } header: {
                     Text(String(localized: "teaching.materials.files", defaultValue: "Файлы"))
                 }
-                .listRowBackground(Palette.card)
             } else {
                 EmptyStateView(title: String(localized: "teaching.materials.gone", defaultValue: "Материал удалён"), symbol: "folder")
                     .listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(material?.title ?? TeacherScreen.materials.title))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -278,7 +274,6 @@ private struct TeachingMaterialForm: View {
                     Text(String(localized: "teaching.materials.noSubjectsHint", defaultValue: "У группы нет ваших дисциплин. Выложить материал можно, только если у вас есть пары в этой группе, — тогда студенты найдут его в «Прочих материалах»."))
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 TextField(String(localized: "teaching.materials.title", defaultValue: "Название"), text: $title)
@@ -289,7 +284,6 @@ private struct TeachingMaterialForm: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 ForEach(Array(files.enumerated()), id: \.offset) { index, file in
@@ -314,7 +308,6 @@ private struct TeachingMaterialForm: View {
             } footer: {
                 if let importFailure { Text(importFailure).foregroundStyle(Palette.destructive) }
             }
-            .listRowBackground(Palette.card)
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             do {

@@ -31,14 +31,12 @@ struct UAdminAnalyticsView: View {
                     NavigationLink(value: AppRoute.uniAdmin(.faculties)) {
                         Label(String(localized: "uadmin.analytics.openFaculties", defaultValue: "К факультетам"), systemImage: "building.columns")
                     }
-                    .listRowBackground(Palette.card)
                 } else {
                     Section {
                         Picker(String(localized: "uadmin.faculty", defaultValue: "Факультет"), selection: $facultyID) {
                             ForEach(faculties) { Text($0.name).tag(Optional($0.id)) }
                         }
                     }
-                    .listRowBackground(Palette.card)
                     content
                 }
             } else if let failure {
@@ -49,8 +47,6 @@ struct UAdminAnalyticsView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "uadmin.analytics.title", defaultValue: "Аналитика факультета")))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -152,7 +148,6 @@ struct UAdminAnalyticsView: View {
                 } footer: {
                     Text(String(localized: "uadmin.analytics.riskHint", defaultValue: "Сверху — у кого проблем больше; при равном числе вперёд идёт худшее значение."))
                 }
-                .listRowBackground(Palette.card)
             }
         } else {
             LoadingStateView().listRowBackground(Color.clear)
@@ -193,7 +188,6 @@ struct UAdminAnalyticsView: View {
         } footer: {
             Text(String(localized: "uadmin.analytics.groupsHint", defaultValue: "Все группы факультета — нажмите, чтобы разобрать по студентам"))
         }
-        .listRowBackground(Palette.card)
     }
 
     /// Порядок по умолчанию — объяснимый словами: больше причин выше, при равенстве — хуже
@@ -372,10 +366,8 @@ struct UAdminGroupAttendanceView: View {
                 } footer: {
                     Text(String(localized: "uadmin.analytics.groupAttendance", defaultValue: "Посещаемость по студентам: сверху — у кого ниже"))
                 }
-                .listRowBackground(Palette.card)
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
         }
         .background(Palette.background)
         .navigationTitle(Text(name))

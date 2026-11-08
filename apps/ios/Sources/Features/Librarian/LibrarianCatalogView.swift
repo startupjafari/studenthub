@@ -47,7 +47,6 @@ struct LibrarianCatalogView: View {
                     Toggle(String(localized: "librarian.catalog.onlyAvailable", defaultValue: "Есть на полке"), isOn: $onlyAvailable)
                     Toggle(String(localized: "librarian.catalog.showArchive", defaultValue: "Архив"), isOn: $archived)
                 }
-                .listRowBackground(Palette.card)
             },
             row: { book in
                 NavigationLink(value: AppRoute.librarian(.book(id: book.id))) {
@@ -249,12 +248,10 @@ struct LibrarianBookFormSheet: View {
             } footer: {
                 if let problem { Text(problem).foregroundStyle(Palette.destructive) }
             }
-            .listRowBackground(Palette.card)
             Section(String(localized: "librarian.book.description", defaultValue: "Описание")) {
                 TextField(String(localized: "librarian.book.description", defaultValue: "Описание"), text: $form.description, axis: .vertical)
                     .lineLimit(3...10)
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -335,7 +332,6 @@ private struct LibrarianImportSheet: View {
                 } footer: {
                     if let failure { Text(failure).foregroundStyle(Palette.destructive) }
                 }
-                .listRowBackground(Palette.card)
 
                 if let result {
                     Section {
@@ -348,7 +344,6 @@ private struct LibrarianImportSheet: View {
                         )
                         .foregroundStyle(Palette.success)
                     }
-                    .listRowBackground(Palette.card)
                 } else if let preview {
                     let s = preview.summary
                     Section {
@@ -370,7 +365,6 @@ private struct LibrarianImportSheet: View {
                         }
                         .disabled(readyRows.isEmpty || isBusy)
                     }
-                    .listRowBackground(Palette.card)
 
                     Section {
                         if preview.rows.isEmpty {
@@ -403,14 +397,11 @@ private struct LibrarianImportSheet: View {
                             }
                         }
                     }
-                    .listRowBackground(Palette.card)
                 } else if isBusy {
                     LoadingStateView().listRowBackground(Color.clear)
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "librarian.import.title", defaultValue: "Импорт фонда")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

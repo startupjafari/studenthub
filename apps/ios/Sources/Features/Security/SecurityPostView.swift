@@ -36,7 +36,6 @@ struct SecurityPostView: View {
                         .font(Typography.meta)
                         .foregroundStyle(Palette.success)
                 }
-                .listRowBackground(Palette.card)
             }
 
             if loaded || summary != nil {
@@ -96,8 +95,6 @@ struct SecurityPostView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(SecurityScreen.post.title))
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -139,7 +136,6 @@ struct SecurityPostView: View {
         } footer: {
             Text(String(localized: "security.passes.hint", defaultValue: "Каждая проверка студенческого на входе, новые сверху"))
         }
-        .listRowBackground(Palette.card)
     }
 
     private var visitorsSection: some View {
@@ -167,7 +163,7 @@ struct SecurityPostView: View {
                                 .labelStyle(.titleAndIcon)
                                 .font(Typography.meta.weight(.semibold))
                         }
-                        .buttonStyle(.bordered)
+                        .glassButton()
                     }
                 }
                 .swipeActions {
@@ -195,7 +191,6 @@ struct SecurityPostView: View {
                 Text(String(localized: "security.visitors.hint", defaultValue: "Вошли и ещё не отмечены на выходе"))
             }
         }
-        .listRowBackground(Palette.card)
     }
 
     private var shortcutsSection: some View {
@@ -206,7 +201,6 @@ struct SecurityPostView: View {
                 }
             }
         }
-        .listRowBackground(Palette.card)
     }
 
     @MainActor
@@ -313,7 +307,6 @@ struct SecurityRecordVisitorSheet: View {
                         .foregroundStyle(Palette.destructive)
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 Picker(String(localized: "security.visitor.document", defaultValue: "Документ"), selection: $documentType) {
@@ -338,7 +331,6 @@ struct SecurityRecordVisitorSheet: View {
                     Text(String(localized: "security.visitor.docHint", defaultValue: "Полный номер документа и ИИН не записываются — только тип и 4 последние цифры"))
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 HStack(spacing: Spacing.sm) {
@@ -361,7 +353,6 @@ struct SecurityRecordVisitorSheet: View {
                         .foregroundStyle(Palette.destructive)
                 }
             }
-            .listRowBackground(Palette.card)
         }
     }
 

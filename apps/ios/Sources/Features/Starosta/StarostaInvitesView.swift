@@ -212,7 +212,6 @@ private struct StarostaInviteForm: View {
                     Text(String(localized: "starosta.invites.footer", defaultValue: "С адресом приглашение придёт письмом. Ссылку покажем один раз — скопируйте её сразу."))
                 }
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -257,7 +256,6 @@ private struct StarostaInviteLinkView: View {
                 } footer: {
                     Text(String(localized: "starosta.invites.linkHint", defaultValue: "Ссылка показывается один раз — скопируйте её сейчас"))
                 }
-                .listRowBackground(Palette.card)
                 Section {
                     Button {
                         UIPasteboard.general.string = link
@@ -278,11 +276,8 @@ private struct StarostaInviteLinkView: View {
                         value: DisplayFormat.dateTime(invite.expiresAt)
                     )
                 }
-                .listRowBackground(Palette.card)
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "starosta.invites.linkTitle", defaultValue: "Ссылка-приглашение")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -325,7 +320,6 @@ private struct StarostaBulkPreviewView: View {
             } footer: {
                 Text(String(localized: "starosta.invites.bulk.hint", defaultValue: "Первая строка файла — заголовки, обязательна колонка «email». Приглашения создаются для студентов вашей группы."))
             }
-            .listRowBackground(Palette.card)
             Section {
                 ForEach(preview.rows) { row in
                     let badge = Self.status(row.status)
@@ -337,7 +331,6 @@ private struct StarostaBulkPreviewView: View {
                     )
                 }
             }
-            .listRowBackground(Palette.card)
         }
     }
 

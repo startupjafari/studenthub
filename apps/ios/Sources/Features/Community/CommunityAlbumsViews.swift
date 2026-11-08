@@ -85,7 +85,6 @@ struct CommunityAlbumsView: View {
                         Label(String(localized: "community.albums.new", defaultValue: "Новый альбом"), systemImage: "plus.rectangle.on.folder")
                     }
                 }
-                .listRowBackground(Palette.card)
             }
             if let albums {
                 if albums.isEmpty {
@@ -118,7 +117,6 @@ struct CommunityAlbumsView: View {
                             }
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             } else if let failure {
                 ErrorStateView(message: failure) { await load() }.listRowBackground(Color.clear)
@@ -127,8 +125,6 @@ struct CommunityAlbumsView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(CommunityScreen.albums(userID: nil).title))
         .refreshable { await load() }
         .task { await load() }
@@ -252,13 +248,13 @@ struct CommunityAlbumView: View {
                             }
                             await load()
                         }
-                        .buttonStyle(.bordered)
+                        .glassButton()
                         Button {
                             choosing = true
                         } label: {
                             Label(String(localized: "community.albums.fromProfile", defaultValue: "Из профиля"), systemImage: "photo.on.rectangle")
                         }
-                        .buttonStyle(.bordered)
+                        .glassButton()
                     }
                     .padding(.horizontal, Spacing.xl)
                 }
@@ -399,7 +395,7 @@ private struct CommunityMediaChooser: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(String(localized: "community.albums.add", defaultValue: "Добавить")) {

@@ -182,11 +182,9 @@ struct CommunityFriendsView: View {
                     .disabled(requested.contains(person.id))
                     .accessibilityLabel(Text(String(localized: "profile.friends.add", defaultValue: "Добавить")))
                 }
-                .listRowBackground(Palette.card)
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
     }
 
     @MainActor

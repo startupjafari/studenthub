@@ -104,7 +104,7 @@ struct StaffServiceCatalogView: View {
             if customizing != nil {
                 ProgressView()
                     .padding(Spacing.xl)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.xl))
+                    .glassSurface(interactive: false, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             }
         }
         .actionFailureAlert($actionFailure)
@@ -252,7 +252,7 @@ private struct StaffServiceEditorSheet: View {
             .interactiveDismissDisabled(isSaving)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                         .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
@@ -301,7 +301,6 @@ private struct StaffServiceEditorSheet: View {
                     .font(Typography.meta)
                     .foregroundStyle(Palette.mutedForeground)
                 }
-                .listRowBackground(Palette.card)
             }
             Section {
                 Picker(String(localized: "staff.svc.sections", defaultValue: "Раздел"), selection: $section) {
@@ -327,7 +326,6 @@ private struct StaffServiceEditorSheet: View {
             }
             .disabled(readOnly)
         }
-        .scrollContentBackground(.hidden)
     }
 
     private func sectionTitle(_ item: StaffServiceSection) -> String {
@@ -349,7 +347,6 @@ private struct StaffServiceEditorSheet: View {
                 ForEach(categories) { Text($0.name).tag($0.id) }
             }
         }
-        .listRowBackground(Palette.card)
 
         Section {
             TextField("dorm-certificate", text: $draft.code)
@@ -361,7 +358,6 @@ private struct StaffServiceEditorSheet: View {
         } footer: {
             Text(String(localized: "staff.svc.code.hint", defaultValue: "Латиница, цифры и дефис. После создания не меняется."))
         }
-        .listRowBackground(Palette.card)
 
         Section {
             Stepper(value: $draft.slaHours, in: 1...(24 * 90)) {
@@ -379,7 +375,6 @@ private struct StaffServiceEditorSheet: View {
         } footer: {
             Text(String(localized: "staff.svc.sla.hint", defaultValue: "В часах, до 90 дней. По нему считается срок заявки."))
         }
-        .listRowBackground(Palette.card)
 
         Section(String(localized: "staff.svc.description", defaultValue: "Описание")) {
             TextField(
@@ -389,7 +384,6 @@ private struct StaffServiceEditorSheet: View {
             )
             .lineLimit(3...8)
         }
-        .listRowBackground(Palette.card)
 
         Section(String(localized: "staff.svc.instructions", defaultValue: "Инструкция для студента")) {
             TextField(
@@ -399,7 +393,6 @@ private struct StaffServiceEditorSheet: View {
             )
             .lineLimit(3...8)
         }
-        .listRowBackground(Palette.card)
 
         Section {
             Toggle(String(localized: "staff.svc.delivery.electronic", defaultValue: "Электронная версия"), isOn: deliveryBinding("ELECTRONIC"))
@@ -410,7 +403,6 @@ private struct StaffServiceEditorSheet: View {
         } footer: {
             Text(String(localized: "staff.svc.delivery.hint", defaultValue: "Хотя бы один способ: из них студент выбирает при подаче."))
         }
-        .listRowBackground(Palette.card)
 
         Section {
             Toggle(isOn: $draft.facultyScoped) {
@@ -432,7 +424,6 @@ private struct StaffServiceEditorSheet: View {
         } header: {
             Text(String(localized: "staff.svc.processing", defaultValue: "Обработка"))
         }
-        .listRowBackground(Palette.card)
     }
 
     // MARK: Документы
@@ -473,7 +464,6 @@ private struct StaffServiceEditorSheet: View {
         } footer: {
             Text(String(localized: "staff.svc.requirements.hint", defaultValue: "Смахните строку влево, чтобы убрать документ. Убранный выключается, а не удаляется: к нему могут быть привязаны поданные заявки."))
         }
-        .listRowBackground(Palette.card)
     }
 
     // MARK: Поля анкеты
@@ -510,7 +500,6 @@ private struct StaffServiceEditorSheet: View {
                 Label(String(localized: "staff.svc.addField", defaultValue: "Добавить вопрос"), systemImage: "plus")
             }
         }
-        .listRowBackground(Palette.card)
     }
 
     // MARK: Привязки
@@ -688,7 +677,6 @@ private struct StaffRequirementEditor: View {
             } header: {
                 Text(verbatim: lang.rawValue)
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 Picker(String(localized: "staff.svc.requirement.type", defaultValue: "Тип из «Документов»"), selection: documentType) {
@@ -706,7 +694,6 @@ private struct StaffRequirementEditor: View {
             } footer: {
                 Text(String(localized: "staff.svc.requirement.type.hint", defaultValue: "По типу студент выбирает документ из своего хранилища"))
             }
-            .listRowBackground(Palette.card)
 
             Section(String(localized: "staff.svc.requirement.description", defaultValue: "Пояснение")) {
                 TextField(
@@ -716,11 +703,8 @@ private struct StaffRequirementEditor: View {
                 )
                 .lineLimit(2...6)
             }
-            .listRowBackground(Palette.card)
         }
         .disabled(readOnly)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "staff.svc.requirement", defaultValue: "Документ")))
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -771,7 +755,6 @@ private struct StaffFormFieldEditor: View {
             } header: {
                 Text(verbatim: lang.rawValue)
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 Picker(String(localized: "staff.svc.field.type", defaultValue: "Тип ответа"), selection: $field.type) {
@@ -779,7 +762,6 @@ private struct StaffFormFieldEditor: View {
                 }
                 Toggle(String(localized: "staff.svc.field.required", defaultValue: "Обязательный ответ"), isOn: $field.required)
             }
-            .listRowBackground(Palette.card)
 
             if field.isChoice {
                 Section {
@@ -811,12 +793,9 @@ private struct StaffFormFieldEditor: View {
                 } footer: {
                     Text(String(localized: "staff.svc.options.hint", defaultValue: "Подписи — на всех трёх языках: переключите язык в редакторе услуги."))
                 }
-                .listRowBackground(Palette.card)
             }
         }
         .disabled(readOnly)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "staff.svc.field", defaultValue: "Вопрос анкеты")))
         .navigationBarTitleDisplayMode(.inline)
     }

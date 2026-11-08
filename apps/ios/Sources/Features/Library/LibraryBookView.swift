@@ -58,7 +58,6 @@ struct LibraryBookView: View {
                         .font(Typography.body)
                     }
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     actionButton(state.action, model: model)
@@ -67,7 +66,6 @@ struct LibraryBookView: View {
                         Text(hint)
                     }
                 }
-                .listRowBackground(Palette.card)
 
                 if let description = book.description, !description.isEmpty {
                     Section {
@@ -77,13 +75,10 @@ struct LibraryBookView: View {
                     } header: {
                         Text(String(localized: "library.fieldDescription", defaultValue: "Описание"))
                     }
-                    .listRowBackground(Palette.card)
                 }
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "library.book", defaultValue: "Книга")))
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await model?.load() }

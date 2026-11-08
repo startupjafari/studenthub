@@ -119,7 +119,7 @@ struct UAdminDashboardView: View {
                 Spacer(minLength: 0)
             }
             .padding(Spacing.lg)
-            .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+            .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -224,7 +224,7 @@ private struct DashPanel<Content: View>: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Spacing.lg)
-        .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+        .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
     }
 }
 
@@ -588,15 +588,12 @@ struct UAdminReportExportSheet: View {
                 } footer: {
                     Text(String(localized: "uadmin.report.hint", defaultValue: "Посещаемость, успеваемость, экзамены, заявки и активность по подразделениям. Только агрегаты: подразделение меньше 5 студентов выгружается без чисел."))
                 }
-                .listRowBackground(Palette.card)
             }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "uadmin.report.title", defaultValue: "Отчёт по сводке")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     if isLoading {

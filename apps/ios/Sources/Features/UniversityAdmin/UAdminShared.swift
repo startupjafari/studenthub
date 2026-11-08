@@ -157,7 +157,6 @@ struct UAdminSearchPicker<Item: Identifiable & Hashable>: View {
                     } label: {
                         Text(noneTitle).foregroundStyle(Palette.mutedForeground)
                     }
-                    .listRowBackground(Palette.card)
                 }
                 if let items {
                     if items.isEmpty {
@@ -179,7 +178,6 @@ struct UAdminSearchPicker<Item: Identifiable & Hashable>: View {
                                 }
                             }
                         }
-                        .listRowBackground(Palette.card)
                     }
                 } else if let failure {
                     ErrorStateView(message: failure) { await run(query) }
@@ -189,14 +187,12 @@ struct UAdminSearchPicker<Item: Identifiable & Hashable>: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(title))
             .navigationBarTitleDisplayMode(.inline)
             .debouncedSearch($query, prompt: prompt) { await run($0) }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
             }
         }
@@ -319,7 +315,7 @@ struct UAdminSecretField: View {
                     systemImage: copied ? "checkmark" : "doc.on.doc"
                 )
             }
-            .buttonStyle(.bordered)
+            .glassButton()
         }
     }
 }

@@ -33,11 +33,9 @@ struct CommunityDocumentRequestsView: View {
                             }
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
             .refreshable { reload += 1 }
         }
         .background(Palette.background)
@@ -120,7 +118,6 @@ struct CommunityDocumentRequestView: View {
                 }
                 .padding(.vertical, Spacing.xs)
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 ForEach(detail.items.sorted { ($0.order ?? 0) < ($1.order ?? 0) }) { item in
@@ -131,7 +128,6 @@ struct CommunityDocumentRequestView: View {
             } footer: {
                 Text(String(localized: "community.requests.items.hint", defaultValue: "К пункту привязывается документ из раздела «Документы» того же типа и с файлом."))
             }
-            .listRowBackground(Palette.card)
 
             if detail.acceptsSubmissions != false {
                 Section {
@@ -149,11 +145,9 @@ struct CommunityDocumentRequestView: View {
                         Text(String(localized: "community.requests.fillRequired", defaultValue: "Привяжите документы ко всем обязательным пунктам"))
                     }
                 }
-                .listRowBackground(Palette.card)
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
         .refreshable { await load() }
     }
 
@@ -274,7 +268,6 @@ struct CommunityDocumentChooser: View {
                             Label(String(localized: "community.documents.upload", defaultValue: "Загрузить документ"), systemImage: "square.and.arrow.up")
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
                 if documents.isEmpty {
                     EmptyStateView(
@@ -299,17 +292,14 @@ struct CommunityDocumentChooser: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(title))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
             }
         }

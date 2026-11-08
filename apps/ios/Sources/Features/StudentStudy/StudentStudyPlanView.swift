@@ -47,18 +47,15 @@ struct StudentStudyPlanView: View {
                             } header: {
                                 Text(term.title)
                             }
-                            .listRowBackground(Palette.card)
                         }
                     } else {
                         Section {
                             ForEach(sorted(plan)) { row($0, showTerm: true) }
                         }
-                        .listRowBackground(Palette.card)
                     }
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
             .refreshable { reloadToken += 1 }
         }
         .background(Palette.background)

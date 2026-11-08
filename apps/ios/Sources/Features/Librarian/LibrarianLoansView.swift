@@ -40,7 +40,6 @@ struct LibrarianLoansView: View {
                 Section {
                     Toggle(String(localized: "librarian.filter.noPhone", defaultValue: "Только без скана"), isOn: $noPhoneOnly)
                 }
-                .listRowBackground(Palette.card)
             },
             row: { loan in
                 LibrarianLoanRow(loan: loan)
@@ -365,7 +364,6 @@ private struct LibrarianAcceptSheet: View {
                     ForEach(LibrarianText.conditions, id: \.self) { Text(LibrarianText.condition($0)).tag($0) }
                 }
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -415,7 +413,6 @@ private struct LibrarianRenewSheet: View {
             } footer: {
                 Text(String(localized: "librarian.renewHint", defaultValue: "Без даты — срок по умолчанию от текущего срока."))
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -472,7 +469,6 @@ struct LibrarianReaderCardSheet: View {
                             DetailRow(title: String(localized: "librarian.reader.card", defaultValue: "№ билета"), value: number)
                         }
                     }
-                    .listRowBackground(Palette.card)
                     Section {
                         Text(String(
                             localized: "librarian.readerCardLoan",
@@ -481,10 +477,8 @@ struct LibrarianReaderCardSheet: View {
                     } footer: {
                         Text(String(localized: "librarian.readerCardLogged", defaultValue: "Просмотр записан в журнал: кто и когда открывал карточку"))
                     }
-                    .listRowBackground(Palette.card)
                 }
                 .listStyle(.insetGrouped)
-                .scrollContentBackground(.hidden)
             }
             .background(Palette.background)
             .navigationTitle(Text(String(localized: "librarian.readerCard", defaultValue: "Удостоверение читателя")))

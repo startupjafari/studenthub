@@ -148,7 +148,6 @@ private struct NameCatalogView: View {
                     } footer: {
                         Text(String(localized: "common.totalCount", defaultValue: "Всего: \(items.count.formatted())"))
                     }
-                    .listRowBackground(Palette.card)
                 }
             } else if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
@@ -158,8 +157,6 @@ private struct NameCatalogView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(kind.title))
         .searchable(text: $query, prompt: Text(String(localized: "uadmin.searchByName", defaultValue: "Поиск по названию")))
         .toolbar {
@@ -262,7 +259,6 @@ private struct NameFormSheet: View {
                 TextField(placeholder, text: $name)
                     .textInputAutocapitalization(.sentences)
             }
-            .listRowBackground(Palette.card)
         }
         .onAppear { if name.isEmpty { name = initial } }
     }
@@ -467,7 +463,6 @@ struct UAdminGroupForm: View {
                         .foregroundStyle(Palette.destructive)
                 }
             }
-            .listRowBackground(Palette.card)
         }
         .onAppear {
             guard !prepared else { return }
@@ -599,7 +594,6 @@ struct UAdminGroupDetailView: View {
                 DetailRow(title: String(localized: "uadmin.group.year", defaultValue: "Год набора"), value: group.year.map { String($0) } ?? UAdminText.empty, symbol: "calendar")
                 DetailRow(title: String(localized: "uadmin.starosta", defaultValue: "Староста"), value: starosta?.name ?? String(localized: "uadmin.group.noStarosta", defaultValue: "Без старосты"), symbol: "star")
             }
-            .listRowBackground(Palette.card)
 
             if !candidates.isEmpty {
                 Section {
@@ -627,7 +621,6 @@ struct UAdminGroupDetailView: View {
                 } footer: {
                     Text(String(localized: "uadmin.starosta.footer", defaultValue: "Староста — роль: выбранный студент получает права старосты, прежний возвращается в студенты."))
                 }
-                .listRowBackground(Palette.card)
             }
 
             Section {
@@ -652,10 +645,8 @@ struct UAdminGroupDetailView: View {
                     Text(String(localized: "common.totalCount", defaultValue: "Всего: \(members.count.formatted())"))
                 }
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
     }
 
     @MainActor

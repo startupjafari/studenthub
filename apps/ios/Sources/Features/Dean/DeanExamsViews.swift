@@ -39,7 +39,6 @@ struct DeanExamsView: View {
                     DatePicker(String(localized: "dean.exams.to", defaultValue: "По"), selection: $periodTo, in: periodFrom..., displayedComponents: .date)
                 }
             }
-            .listRowBackground(Palette.card)
 
             if let exams {
                 if exams.isEmpty {
@@ -97,7 +96,6 @@ struct DeanExamsView: View {
                             Text(String(localized: "dean.exams.capped", defaultValue: "Показаны первые \(Self.cap.formatted()) — сузьте период."))
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             } else if let failure {
                 ErrorStateView(message: failure) { await load() }
@@ -107,8 +105,6 @@ struct DeanExamsView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(DeanScreen.exams.title))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -253,7 +249,6 @@ private struct DeanExamForm: View {
                     ForEach(DeanText.examFormats, id: \.self) { Text(DeanText.examFormat($0)).tag($0) }
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 DeanPickerField(
@@ -272,7 +267,6 @@ private struct DeanExamForm: View {
             } footer: {
                 Text(String(localized: "dean.exams.formHint", defaultValue: "Максимум — от 1 до 1000. Если экзаменатор не выбран, им будет ведущий дисциплины."))
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -348,7 +342,6 @@ struct DeanExamRosterView: View {
                         DetailRow(title: String(localized: "dean.exams.maxScore", defaultValue: "Максимальный балл"), value: max.formatted())
                     }
                 }
-                .listRowBackground(Palette.card)
             }
 
             if let roster {
@@ -366,7 +359,6 @@ struct DeanExamRosterView: View {
                     } footer: {
                         Text(String(localized: "dean.roster.hint", defaultValue: "«Сдал» и «Не сдал» — только у допущенных. Балл — от 0 до максимума."))
                     }
-                    .listRowBackground(Palette.card)
                 }
             } else if let failure {
                 ErrorStateView(message: failure) { await load() }
@@ -376,8 +368,6 @@ struct DeanExamRosterView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .scrollDismissesKeyboard(.interactively)
         .navigationTitle(Text(DeanScreen.examRoster(id: examID).title))
         .toolbar {

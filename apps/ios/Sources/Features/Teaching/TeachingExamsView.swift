@@ -38,7 +38,6 @@ struct TeachingExamsView: View {
                     DatePicker(String(localized: "teaching.exams.to", defaultValue: "По"), selection: $periodTo, in: periodFrom..., displayedComponents: .date)
                 }
             }
-            .listRowBackground(Palette.card)
 
             if let exams {
                 if exams.isEmpty {
@@ -80,7 +79,6 @@ struct TeachingExamsView: View {
                             Text(String(localized: "teaching.exams.capped", defaultValue: "Показаны только ближайшие \(Self.listLimit.formatted()). Чтобы найти остальные, выберите период."))
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             } else if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
@@ -90,8 +88,6 @@ struct TeachingExamsView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(TeacherScreen.exams.title))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -246,7 +242,6 @@ struct TeachingExamDetailView: View {
                         Text(note).font(Typography.body).foregroundStyle(Palette.foreground)
                     }
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     if roster.isEmpty {
@@ -261,7 +256,6 @@ struct TeachingExamDetailView: View {
                 } footer: {
                     Text(String(localized: "teaching.exams.roster.footer", defaultValue: "Недопущенному нельзя поставить «Сдан» или «Не сдан». Сохраняются только изменённые строки."))
                 }
-                .listRowBackground(Palette.card)
             } else if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
                     .listRowBackground(Color.clear)
@@ -270,8 +264,6 @@ struct TeachingExamDetailView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(exam?.course.subject.name ?? TeacherScreen.exam(id: examID).title))
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: Text(String(localized: "teaching.searchStudent", defaultValue: "Найти студента")))
@@ -505,7 +497,6 @@ struct TeachingExamForm: View {
                 Section {
                     TeachingCoursePicker(courses: courses, selection: $courseID)
                 }
-                .listRowBackground(Palette.card)
             }
             Section {
                 DatePicker(String(localized: "teaching.exams.date", defaultValue: "Дата и время"), selection: $date)
@@ -518,7 +509,6 @@ struct TeachingExamForm: View {
                 TextField(String(localized: "teaching.exams.note", defaultValue: "Примечание"), text: $note, axis: .vertical)
                     .lineLimit(2...5)
             }
-            .listRowBackground(Palette.card)
         }
         .task {
             guard exam == nil, courses.isEmpty else { return }

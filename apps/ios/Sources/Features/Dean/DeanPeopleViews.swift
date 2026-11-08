@@ -50,7 +50,6 @@ struct DeanPeopleView: View {
                             }
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             },
             row: { user in
@@ -193,7 +192,6 @@ private struct DeanPeopleFilterSheet: View {
                         load: DeanPickers.groups(api)
                     )
                 }
-                .listRowBackground(Palette.card)
             }
             Section {
                 Picker(String(localized: "dean.sort.by", defaultValue: "Сортировать"), selection: $sort) {
@@ -207,7 +205,6 @@ private struct DeanPeopleFilterSheet: View {
                     Toggle(String(localized: "dean.sort.ascending", defaultValue: "По возрастанию"), isOn: $ascending)
                 }
             }
-            .listRowBackground(Palette.card)
         }
     }
 }
@@ -287,7 +284,6 @@ struct DeanStudentView: View {
                     }
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 if let status = profile.academicStatus, !status.isEmpty {
@@ -308,7 +304,6 @@ struct DeanStudentView: View {
             } header: {
                 Text(String(localized: "dean.student.academic", defaultValue: "Учёба"))
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 if let attendance = data.attendance {
@@ -334,7 +329,6 @@ struct DeanStudentView: View {
             } header: {
                 Text(String(localized: "dean.student.progress", defaultValue: "Успеваемость и посещаемость"))
             }
-            .listRowBackground(Palette.card)
 
             if let debts = data.debts {
                 Section {
@@ -349,12 +343,9 @@ struct DeanStudentView: View {
                 } header: {
                     Text(String(localized: "dean.student.library", defaultValue: "Библиотека"))
                 }
-                .listRowBackground(Palette.card)
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .refreshable { reload += 1 }
     }
 }
@@ -467,7 +458,6 @@ struct DeanAcademicForm: View {
             DeanDictPicker(title: String(localized: "dean.academic.form", defaultValue: "Форма обучения"), options: DeanAcademic.studyForms, value: binding("studyForm"))
             DeanDictPicker(title: String(localized: "dean.academic.funding", defaultValue: "Основа обучения"), options: DeanAcademic.fundingTypes, value: binding("fundingType"))
         }
-        .listRowBackground(Palette.card)
 
         Section {
             DeanDictPicker(title: String(localized: "dean.academic.status", defaultValue: "Статус"), options: DeanAcademic.statuses, value: binding("academicStatus"), allowsEmpty: false)
@@ -488,7 +478,6 @@ struct DeanAcademicForm: View {
         } footer: {
             Text(String(localized: "dean.academic.statusHint", defaultValue: "От статуса зависят выдача книг и проход по студенческому."))
         }
-        .listRowBackground(Palette.card)
 
         Section {
             DeanDictPicker(title: String(localized: "dean.academic.enrollment", defaultValue: "Год поступления"), options: Self.years, value: binding("enrollmentYear"))
@@ -500,7 +489,6 @@ struct DeanAcademicForm: View {
         } footer: {
             Text(String(localized: "dean.academic.cardHint", defaultValue: "Номер студенческого чужому человеку в профиль не приходит: пустое поле не значит, что номера нет."))
         }
-        .listRowBackground(Palette.card)
     }
 
     private static let years: [String] = {

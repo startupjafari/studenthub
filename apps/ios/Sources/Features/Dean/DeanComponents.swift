@@ -241,8 +241,6 @@ private struct DeanPickerList: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(title))
         .navigationBarTitleDisplayMode(.inline)
         .modifier(SearchIfNeeded(enabled: searchable, text: $search) { await run($0) })
@@ -268,7 +266,6 @@ private struct DeanPickerList: View {
                 }
             }
         }
-        .listRowBackground(Palette.card)
     }
 
     @MainActor
@@ -399,7 +396,7 @@ private struct DeanExportModifier: ViewModifier {
                 if exporter.isRunning {
                     ProgressView()
                         .padding(Spacing.xl)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.xl))
+                        .glassSurface(interactive: false, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                 }
             }
     }

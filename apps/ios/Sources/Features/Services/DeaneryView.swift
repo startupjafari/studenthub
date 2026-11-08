@@ -26,7 +26,6 @@ struct DeaneryView: View {
                 }
                 ForEach(items) { item in
                     AppointmentRow(item: item)
-                        .listRowBackground(Palette.card)
                         .swipeActions {
                             if item.isCancellable {
                                 Button(role: .destructive) {
@@ -54,8 +53,6 @@ struct DeaneryView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(MoreSection.deanery.title))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -190,15 +187,12 @@ private struct NewAppointmentView: View {
                 } footer: {
                     Text(String(localized: "deanery.footer", defaultValue: "Время — пожелание. Деканат подтвердит его или предложит другое."))
                 }
-                .listRowBackground(Palette.card)
             }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "deanery.new", defaultValue: "Записаться")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(String(localized: "deanery.send", defaultValue: "Отправить")) {

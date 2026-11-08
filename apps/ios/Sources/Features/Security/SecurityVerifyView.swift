@@ -105,7 +105,7 @@ struct SecurityVerifyView: View {
                             .padding(Spacing.md)
                             .background(Palette.background, in: RoundedRectangle(cornerRadius: Radius.md))
                         Button(String(localized: "security.verify.manualSubmit", defaultValue: "Проверить"), action: submitManual)
-                            .buttonStyle(.borderedProminent)
+                            .glassProminentButton()
                             .disabled(manual.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                     if manualInvalid {
@@ -113,7 +113,7 @@ struct SecurityVerifyView: View {
                     }
                 }
                 .padding(Spacing.xl)
-                .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+                .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             }
             .padding(Spacing.xl)
         }
@@ -139,7 +139,7 @@ struct SecurityVerifyView: View {
             } label: {
                 Label(String(localized: "security.verify.scanAnother", defaultValue: "Проверить ещё"), systemImage: "qrcode.viewfinder")
             }
-            .buttonStyle(.borderedProminent)
+            .glassProminentButton()
         }
         .padding(Spacing.xxl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -263,7 +263,6 @@ private struct SecurityVerifiedCardView: View {
                     DetailRow(title: row.0, value: row.1)
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 if let at = card.verifiedAt {
@@ -278,12 +277,11 @@ private struct SecurityVerifiedCardView: View {
                     Label(String(localized: "security.verify.scanAnother", defaultValue: "Проверить ещё"), systemImage: "qrcode.viewfinder")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .glassProminentButton()
                 .listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
     }
 
     private var status: String {

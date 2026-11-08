@@ -32,7 +32,6 @@ struct ServicesView: View {
                 } header: {
                     Text(entry.group.title)
                 }
-                .listRowBackground(Palette.card)
             }
 
             ForEach(visibleExtras) { group in
@@ -45,7 +44,6 @@ struct ServicesView: View {
                 } header: {
                     Text(group.title)
                 }
-                .listRowBackground(Palette.card)
             }
 
             if visibleGroups.isEmpty && visibleExtras.isEmpty {
@@ -58,8 +56,6 @@ struct ServicesView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(AppTab.services.title))
         .searchable(
             text: $query,

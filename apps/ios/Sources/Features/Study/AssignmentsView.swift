@@ -66,7 +66,6 @@ struct AssignmentsView: View {
                             .disabled(loader.isLoading)
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             } else if let failure = loader.failure {
                 ErrorStateView(message: failure, isOffline: loader.isOffline) { await loader.reload() }
@@ -76,8 +75,6 @@ struct AssignmentsView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .refreshable { await loader.reload() }
         .task { await loader.loadIfNeeded() }
         .navigationTitle(Text(String(localized: "study.assignments", defaultValue: "Задания")))
@@ -205,8 +202,6 @@ struct AssignmentDetailView: View {
                 LoadingStateView().listRowBackground(Color.clear)
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "study.assignment", defaultValue: "Задание")))
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await reload() }
@@ -266,7 +261,6 @@ struct AssignmentDetailView: View {
                     .textSelection(.enabled)
             }
         }
-        .listRowBackground(Palette.card)
     }
 
     @ViewBuilder
@@ -287,7 +281,6 @@ struct AssignmentDetailView: View {
             } header: {
                 Text(String(localized: "student.assignment.result", defaultValue: "Результат проверки"))
             }
-            .listRowBackground(Palette.card)
         } else if let submission = assignment.mySubmission, submission.status == "RETURNED", let feedback = submission.feedback, !feedback.isEmpty {
             Section {
                 Text(feedback)
@@ -297,7 +290,6 @@ struct AssignmentDetailView: View {
                 Text(String(localized: "student.assignment.needsFix", defaultValue: "Требуются исправления"))
                     .foregroundStyle(Palette.warning)
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -371,7 +363,6 @@ struct AssignmentDetailView: View {
         } header: {
             Text(String(localized: "study.yourWork", defaultValue: "Ваша работа"))
         }
-        .listRowBackground(Palette.card)
 
         // Файлы — у «Файла» и «Смешанного»; уже приложенные видны при любом типе, чтобы
         // смена типа преподавателем не прятала сданное.

@@ -63,7 +63,6 @@ struct SecurityCamerasView: View {
                             ? String(localized: "security.cameras.pickHint", defaultValue: "Отметьте до \(Self.maxWatched.formatted()) камер и нажмите «Смотреть».")
                             : String(localized: "security.cameras.subtitle", defaultValue: "Видео в реальном времени, без звука. Каждый просмотр записывается в журнал."))
                     }
-                    .listRowBackground(Palette.card)
                 }
             } else if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
@@ -73,8 +72,6 @@ struct SecurityCamerasView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(SecurityScreen.cameras.title))
         .toolbar {
             if moduleEnabled, let cameras, cameras.count > 1 {
@@ -94,7 +91,7 @@ struct SecurityCamerasView: View {
                     Text(String(localized: "security.cameras.watch", defaultValue: "Смотреть: \(selected.count.formatted())"))
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .glassProminentButton()
                 .padding(Spacing.xl)
                 .background(.bar)
             }
@@ -209,7 +206,7 @@ struct SecurityCameraScreen: View {
                                 .foregroundStyle(Palette.mutedForeground)
                         }
                         .padding(Spacing.xl)
-                        .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+                        .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                     }
                     .padding(Spacing.xl)
                 }
@@ -301,7 +298,7 @@ private struct SecurityCameraPlayer: View {
                         Button(String(localized: "common.retry", defaultValue: "Повторить")) {
                             session.retry()
                         }
-                        .buttonStyle(.bordered)
+                        .glassButton()
                         .tint(.white)
                     }
                 }

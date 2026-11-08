@@ -916,7 +916,7 @@ struct StoryComposerView: View {
                                 systemImage: "photo.on.rectangle"
                             )
                         }
-                        .buttonStyle(.bordered)
+                        .glassButton()
                         if media != nil {
                             Button(role: .destructive) {
                                 media = nil
@@ -924,7 +924,7 @@ struct StoryComposerView: View {
                             } label: {
                                 Label(String(localized: "feed.delete", defaultValue: "Удалить"), systemImage: "trash")
                             }
-                            .buttonStyle(.bordered)
+                            .glassButton()
                         }
                     }
 
@@ -959,7 +959,7 @@ struct StoryComposerView: View {
                     )
                     .lineLimit(1...6)
                     .padding(Spacing.lg)
-                    .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+                    .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xxl, style: .continuous))
 
                     Picker(String(localized: "stories.audience", defaultValue: "Кому показать"), selection: $audience) {
                         ForEach(StoryAudience.allCases) { audience in
@@ -986,7 +986,7 @@ struct StoryComposerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(String(localized: "stories.publish", defaultValue: "Опубликовать")) {
@@ -1086,7 +1086,7 @@ struct StoryComposerView: View {
                 }
             }
             .padding(Spacing.lg)
-            .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+            .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xxl, style: .continuous))
 
             VStack(alignment: .leading, spacing: Spacing.md) {
                 Toggle(isOn: $pollOn) {
@@ -1123,7 +1123,7 @@ struct StoryComposerView: View {
                 }
             }
             .padding(Spacing.lg)
-            .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+            .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xxl, style: .continuous))
 
             VStack(alignment: .leading, spacing: Spacing.md) {
                 HStack {
@@ -1153,7 +1153,7 @@ struct StoryComposerView: View {
                 }
             }
             .padding(Spacing.lg)
-            .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+            .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xxl, style: .continuous))
         }
     }
 

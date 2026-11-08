@@ -287,7 +287,7 @@ struct SkeletonBlock: View {
 struct CardSurface: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.xxl, style: .continuous))
+            .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: Radius.xxl, style: .continuous)
                     .strokeBorder(Palette.border.opacity(0.6), lineWidth: 0.5)

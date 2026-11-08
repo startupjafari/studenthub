@@ -300,7 +300,7 @@ struct StaffEventDetailView: View {
             if isWorking {
                 ProgressView()
                     .padding(Spacing.xl)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.xl))
+                    .glassSurface(interactive: false, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             }
         }
         .task { await load() }
@@ -357,7 +357,6 @@ struct StaffEventDetailView: View {
                         .foregroundStyle(Palette.mutedForeground)
                 }
             }
-            .listRowBackground(Palette.card)
 
             if !event.isPast {
                 Section {
@@ -380,7 +379,6 @@ struct StaffEventDetailView: View {
                         )
                     }
                 }
-                .listRowBackground(Palette.card)
             }
 
             // Участники — только организатору и админам scope: это список людей.
@@ -388,17 +386,14 @@ struct StaffEventDetailView: View {
                 Section(String(localized: "staff.event.participants", defaultValue: "Участники")) {
                     participantsList
                 }
-                .listRowBackground(Palette.card)
             }
 
             Section(String(localized: "staff.event.comments", defaultValue: "Обсуждение")) {
                 commentComposer
                 commentsList
             }
-            .listRowBackground(Palette.card)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
         .refreshable { await load() }
     }
 
@@ -654,7 +649,6 @@ private struct StaffMeetingSheet: View {
                         .foregroundStyle(Palette.mutedForeground)
                     }
                 }
-                .listRowBackground(Palette.card)
                 Section {
                     Button {
                         if let url = URL(string: meeting.url) {
@@ -666,11 +660,8 @@ private struct StaffMeetingSheet: View {
                     }
                     .disabled(!meeting.joinable)
                 }
-                .listRowBackground(Palette.card)
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "staff.event.meeting.title", defaultValue: "Подключение к встрече")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -747,7 +738,6 @@ private struct StaffEventFormSheet: View {
                         }
                     }
                 }
-                .listRowBackground(Palette.card)
             }
 
             Section {
@@ -755,7 +745,6 @@ private struct StaffEventFormSheet: View {
                 TextField(String(localized: "staff.event.description", defaultValue: "Описание"), text: $description, axis: .vertical)
                     .lineLimit(3...10)
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 DatePicker(String(localized: "staff.event.startsAt", defaultValue: "Начало"), selection: $startsAt)
@@ -764,7 +753,6 @@ private struct StaffEventFormSheet: View {
                     DatePicker(String(localized: "staff.event.endsAt", defaultValue: "Окончание"), selection: $endsAt, in: startsAt...)
                 }
             }
-            .listRowBackground(Palette.card)
 
             Section {
                 Toggle(String(localized: "staff.event.isOnline", defaultValue: "Онлайн-событие"), isOn: $isOnline)
@@ -783,7 +771,6 @@ private struct StaffEventFormSheet: View {
                     Text(String(localized: "staff.event.meetingKeep", defaultValue: "Оставьте поле пустым, чтобы сохранить текущую ссылку"))
                 }
             }
-            .listRowBackground(Palette.card)
         }
         .sheet(isPresented: $pickingGroup) {
             StaffGroupPickerSheet { group = $0 }

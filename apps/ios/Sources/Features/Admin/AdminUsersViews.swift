@@ -274,7 +274,6 @@ struct AdminUserView: View {
                     Label(String(localized: "admin.user.openProfile", defaultValue: "Открыть профиль"), systemImage: "person.crop.circle")
                 }
             }
-            .listRowBackground(Palette.card)
 
             if let card {
                 Section {
@@ -309,7 +308,6 @@ struct AdminUserView: View {
                 } header: {
                     Text(String(localized: "admin.user.access", defaultValue: "Доступ"))
                 }
-                .listRowBackground(Palette.card)
             }
 
             if let profile {
@@ -323,7 +321,6 @@ struct AdminUserView: View {
             actionsSection
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
         .refreshable { await load() }
     }
 
@@ -375,7 +372,6 @@ struct AdminUserView: View {
                 }
             }
             .disabled(isWorking)
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -553,7 +549,6 @@ private struct AdminAcademicForm: View {
             } footer: {
                 Text(String(localized: "admin.academic.hint", defaultValue: "Пустое поле — номер не меняется"))
             }
-            .listRowBackground(Palette.card)
         }
     }
 

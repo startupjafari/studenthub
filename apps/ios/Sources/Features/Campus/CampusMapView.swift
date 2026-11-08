@@ -149,11 +149,9 @@ struct CampusMapView: View {
                             .foregroundStyle(Palette.mutedForeground)
                     }
                 }
-                .listRowBackground(Palette.card)
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
     }
 }
 

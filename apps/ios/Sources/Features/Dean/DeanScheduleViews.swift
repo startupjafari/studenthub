@@ -36,7 +36,6 @@ struct DeanScheduleManageView: View {
                     versionControls
                 }
             }
-            .listRowBackground(Palette.card)
 
             if group == nil {
                 EmptyStateView(
@@ -66,8 +65,6 @@ struct DeanScheduleManageView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(initialGroupID == nil ? DeanScreen.schedule.title : DeanScreen.groupSchedule(id: "").title))
         .refreshable { await reloadAll() }
         .task {
@@ -171,7 +168,6 @@ struct DeanScheduleManageView: View {
             } header: {
                 Text(DeanText.day(day))
             }
-            .listRowBackground(Palette.card)
         }
         if !hasWeekend {
             Button(showWeekend
@@ -313,7 +309,6 @@ private struct DeanVersionForm: View {
                     Text(String(localized: "dean.schedule.versionDraftHint", defaultValue: "У группы уже есть действующее расписание — новая версия создастся черновиком. Опубликуйте её кнопкой «Сделать действующей»."))
                 }
             }
-            .listRowBackground(Palette.card)
         }
     }
 }
@@ -353,7 +348,6 @@ private struct DeanPairFields: View {
                     .foregroundStyle(Palette.destructive)
             }
         }
-        .listRowBackground(Palette.card)
 
         Section {
             DeanPickerField(
@@ -369,7 +363,6 @@ private struct DeanPairFields: View {
         } footer: {
             Text(String(localized: "dean.schedule.teacherHint", defaultValue: "Преподавателем пары можно поставить преподавателя или декана вуза."))
         }
-        .listRowBackground(Palette.card)
     }
 }
 
@@ -503,7 +496,6 @@ private struct DeanPairSheet: View {
                     }
                     .disabled(isSaving)
                 }
-                .listRowBackground(Palette.card)
 
                 if containerActive {
                     changesSection
@@ -514,17 +506,14 @@ private struct DeanPairSheet: View {
                             .font(Typography.meta)
                             .foregroundStyle(Palette.mutedForeground)
                     }
-                    .listRowBackground(Palette.card)
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(pair.subject))
             .navigationBarTitleDisplayMode(.inline)
             .interactiveDismissDisabled(isSaving)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     if isSaving {
@@ -609,7 +598,6 @@ private struct DeanPairSheet: View {
         } footer: {
             Text(String(localized: "dean.schedule.pairChangesHint", defaultValue: "Неделя назад и семестр вперёд. Ошибочное изменение убирается свайпом."))
         }
-        .listRowBackground(Palette.card)
     }
 
     @ViewBuilder
@@ -655,7 +643,6 @@ private struct DeanPairSheet: View {
         } footer: {
             Text(String(localized: "dean.schedule.newChangeHint", defaultValue: "Отмена, перенос, смена аудитории или замена на одну дату. Группа и преподаватель получат уведомление."))
         }
-        .listRowBackground(Palette.card)
     }
 
     /// Изменение на день, когда пары нет, никто не увидит — сервер его тоже отклонит.

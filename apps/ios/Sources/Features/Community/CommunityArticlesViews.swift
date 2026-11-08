@@ -57,11 +57,9 @@ struct CommunityArticlesView: View {
                             }
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
             .refreshable { reload += 1 }
         }
         .background(Palette.background)
@@ -230,7 +228,6 @@ struct CommunityArticleView: View {
                 .padding(.vertical, Spacing.sm)
                 actionsRow(article)
             }
-            .listRowBackground(Palette.card)
 
             if let author = article.userId, article.company == nil, article.universityPage == nil {
                 Section {
@@ -238,7 +235,6 @@ struct CommunityArticleView: View {
                         Label(String(localized: "community.article.author", defaultValue: "Профиль автора"), systemImage: "person.crop.circle")
                     }
                 }
-                .listRowBackground(Palette.card)
             }
 
             commentsSection(article)
@@ -253,11 +249,9 @@ struct CommunityArticleView: View {
                 } header: {
                     Text(String(localized: "community.article.related", defaultValue: "Похожие статьи"))
                 }
-                .listRowBackground(Palette.card)
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
         .refreshable { await load() }
         .toolbar {
             if isOwn(article) {
@@ -390,7 +384,6 @@ struct CommunityArticleView: View {
         } header: {
             Text(String(localized: "feed.comments", defaultValue: "Комментарии"))
         }
-        .listRowBackground(Palette.card)
     }
 
     private func isOwn(_ article: CommunityArticleDTO) -> Bool {
@@ -606,7 +599,6 @@ struct CommunityArticleEditor: View {
                     TextField(String(localized: "community.article.summary", defaultValue: "Короткое описание"), text: $summary, axis: .vertical)
                         .lineLimit(1...3)
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     TextEditor(text: $content)
@@ -617,7 +609,6 @@ struct CommunityArticleEditor: View {
                 } footer: {
                     Text(String(localized: "community.article.markdown", defaultValue: "Поддерживается Markdown: # заголовок, **жирный**, *курсив*, - список, > цитата"))
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     PhotosPicker(selection: $coverPick, matching: .images) {
@@ -651,7 +642,6 @@ struct CommunityArticleEditor: View {
                     }
                     Toggle(String(localized: "community.article.allowComments", defaultValue: "Разрешить комментарии"), isOn: $allowComments)
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     Button(String(localized: "community.article.saveDraft", defaultValue: "Сохранить черновик")) {
@@ -659,9 +649,7 @@ struct CommunityArticleEditor: View {
                     }
                     .disabled(!canSave)
                 }
-                .listRowBackground(Palette.card)
             }
-            .scrollContentBackground(.hidden)
             .scrollDismissesKeyboard(.interactively)
             .background(Palette.background)
             .navigationTitle(Text(article == nil
@@ -671,7 +659,7 @@ struct CommunityArticleEditor: View {
             .interactiveDismissDisabled(isSaving)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     if isSaving {

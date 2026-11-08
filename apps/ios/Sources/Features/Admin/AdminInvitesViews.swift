@@ -242,8 +242,6 @@ struct AdminCreateInviteSheet: View {
                     form
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(link == nil
                 ? String(localized: "admin.invites.createTitle", defaultValue: "Выдать приглашение")
                 : String(localized: "admin.invites.createdTitle", defaultValue: "Приглашение создано")))
@@ -252,7 +250,7 @@ struct AdminCreateInviteSheet: View {
             .toolbar {
                 if link == nil {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                        SheetCloseButton { dismiss() }
                             .disabled(isSaving)
                     }
                     ToolbarItem(placement: .confirmationAction) {
@@ -304,7 +302,6 @@ struct AdminCreateInviteSheet: View {
                 Text(String(localized: "admin.invites.emailHint", defaultValue: "С адресом письмо уйдёт само; без него передайте ссылку человеку."))
             }
         }
-        .listRowBackground(Palette.card)
 
         if needsUniversity || needsFaculty || needsGroup {
             Section {
@@ -353,7 +350,6 @@ struct AdminCreateInviteSheet: View {
                     Text(String(localized: "admin.invites.teacherFaculty", defaultValue: "Факультет преподавателя — по желанию."))
                 }
             }
-            .listRowBackground(Palette.card)
         }
     }
 
@@ -429,7 +425,6 @@ struct AdminSearchPicker: View {
                             }
                         }
                     }
-                    .listRowBackground(Palette.card)
                 }
             } else if let failure {
                 ErrorStateView(message: failure) { await run(query) }
@@ -439,8 +434,6 @@ struct AdminSearchPicker: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(title))
         .navigationBarTitleDisplayMode(.inline)
         .debouncedSearch($query, prompt: String(localized: "admin.picker.search", defaultValue: "Поиск")) { needle in
@@ -493,25 +486,20 @@ private struct AdminBulkPreviewSheet: View {
                         )
                         .foregroundStyle(Palette.success)
                     }
-                    .listRowBackground(Palette.card)
                 }
                 Section {
                     Text(String(localized: "admin.bulk.summary", defaultValue: "Всего \(preview.summary.total.formatted()): готово \(preview.summary.ready.formatted()), дублей \(preview.summary.duplicate.formatted()), ошибок \(preview.summary.error.formatted())"))
                         .font(Typography.body)
                         .foregroundStyle(Palette.foreground)
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     ForEach(preview.rows) { row in
                         AdminBulkRow(row: row)
                     }
                 }
-                .listRowBackground(Palette.card)
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "admin.bulk.title", defaultValue: "Импорт приглашений")))
             .navigationBarTitleDisplayMode(.inline)
             .interactiveDismissDisabled(isSaving)

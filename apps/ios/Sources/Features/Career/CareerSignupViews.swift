@@ -28,7 +28,6 @@ struct CareerSignupSheet: View {
                     }
                     .padding(.vertical, Spacing.xs)
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     NavigationLink {
@@ -72,16 +71,13 @@ struct CareerSignupSheet: View {
                     }
                     .buttonStyle(.plain)
                 }
-                .listRowBackground(Palette.card)
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .navigationTitle(Text(String(localized: "career.signup.employer", defaultValue: "Работодателям")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
             }
             .sheet(isPresented: $resending) {
@@ -176,7 +172,6 @@ private struct CareerSignupForm: View {
                         Text(String(localized: "career.signup.verify", defaultValue: "Подтвердить email"))
                     }
                 }
-                .listRowBackground(Palette.card)
             } else {
                 if let failure {
                     FormAlert(message: failure)
@@ -191,7 +186,6 @@ private struct CareerSignupForm: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                 }
-                .listRowBackground(Palette.card)
                 Section {
                     TextField(String(localized: "career.signup.firstName", defaultValue: "Имя"), text: $firstName)
                         .textContentType(.givenName)
@@ -210,7 +204,6 @@ private struct CareerSignupForm: View {
                         defaultValue: "После регистрации подтвердите email, затем подайте заявку в университет. Доступ к студентам открывает вуз."
                     ))
                 }
-                .listRowBackground(Palette.card)
                 Section {
                     Button {
                         Task { await submit() }
@@ -224,8 +217,6 @@ private struct CareerSignupForm: View {
                 .listRowInsets(EdgeInsets())
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "career.signup.title", defaultValue: "Регистрация работодателя")))
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -273,7 +264,6 @@ private struct CareerVerifyView: View {
                         tint: Palette.success
                     )
                 }
-                .listRowBackground(Palette.card)
             } else {
                 if let failure {
                     FormAlert(message: failure)
@@ -299,7 +289,6 @@ private struct CareerVerifyView: View {
                         defaultValue: "Откройте письмо, скопируйте ссылку подтверждения и вставьте её сюда."
                     ))
                 }
-                .listRowBackground(Palette.card)
                 Section {
                     Button {
                         Task { await verify() }
@@ -314,11 +303,8 @@ private struct CareerVerifyView: View {
                 Section {
                     Button(String(localized: "career.signup.resend", defaultValue: "Отправить письмо ещё раз")) { resending = true }
                 }
-                .listRowBackground(Palette.card)
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "career.signup.verify", defaultValue: "Подтвердить email")))
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $resending) {
@@ -385,7 +371,6 @@ private struct CareerJoinView: View {
                         symbol: "person.badge.plus"
                     )
                 }
-                .listRowBackground(Palette.card)
                 Section {
                     TextField(String(localized: "career.signup.firstName", defaultValue: "Имя"), text: $firstName)
                         .textContentType(.givenName)
@@ -399,7 +384,6 @@ private struct CareerJoinView: View {
                         defaultValue: "Почта и компания берутся из приглашения. Студентов вы увидите в тех университетах, куда у компании открыт доступ."
                     ))
                 }
-                .listRowBackground(Palette.card)
                 Section {
                     Button {
                         Task { await accept() }
@@ -431,7 +415,6 @@ private struct CareerJoinView: View {
                         defaultValue: "Скопируйте ссылку из письма-приглашения и вставьте её сюда."
                     ))
                 }
-                .listRowBackground(Palette.card)
                 Section {
                     Button {
                         Task { await open() }
@@ -445,8 +428,6 @@ private struct CareerJoinView: View {
                 .listRowInsets(EdgeInsets())
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
         .navigationTitle(Text(String(localized: "career.signup.join", defaultValue: "У меня приглашение в команду")))
         .navigationBarTitleDisplayMode(.inline)
     }

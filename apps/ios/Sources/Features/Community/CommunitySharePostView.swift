@@ -24,7 +24,6 @@ struct CommunitySharePostView: View {
                     TextField(String(localized: "community.share.comment", defaultValue: "Комментарий (необязательно)"), text: $comment, axis: .vertical)
                         .lineLimit(1...4)
                 }
-                .listRowBackground(Palette.card)
                 if let chats {
                     let visible = filtered(chats)
                     if visible.isEmpty {
@@ -49,20 +48,17 @@ struct CommunitySharePostView: View {
                             .disabled(sending != nil)
                         }
                     }
-                    .listRowBackground(Palette.card)
                 } else {
                     LoadingStateView().listRowBackground(Color.clear)
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
             .searchable(text: $search, prompt: Text(String(localized: "community.share.search", defaultValue: "Найти чат")))
             .navigationTitle(Text(String(localized: "community.share.title", defaultValue: "Отправить в чат")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "common.cancel", defaultValue: "Отмена")) { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
             }
             .sensoryFeedback(.success, trigger: sent)

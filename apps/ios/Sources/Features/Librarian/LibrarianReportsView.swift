@@ -50,7 +50,6 @@ struct LibrarianReportsView: View {
                 } footer: {
                     Text(String(localized: "librarian.reports.debtorsHint", defaultValue: "Утерянные книги и самые давние просрочки"))
                 }
-                .listRowBackground(Palette.card)
 
                 Section {
                     Picker(String(localized: "librarian.reports.period", defaultValue: "Период"), selection: $days) {
@@ -96,10 +95,8 @@ struct LibrarianReportsView: View {
                 } footer: {
                     Text(String(localized: "librarian.reports.popularHint", defaultValue: "Сколько раз книгу выдавали"))
                 }
-                .listRowBackground(Palette.card)
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
             .refreshable {
                 token += 1
                 await loadPopular()

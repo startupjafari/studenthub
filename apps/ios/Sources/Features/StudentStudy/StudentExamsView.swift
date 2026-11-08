@@ -44,12 +44,10 @@ struct StudentExamsView: View {
                         Section {
                             StudentExamCard(exam: exam)
                         }
-                        .listRowBackground(Palette.card)
                     }
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
             .refreshable { reloadToken += 1 }
         }
         .background(Palette.background)
