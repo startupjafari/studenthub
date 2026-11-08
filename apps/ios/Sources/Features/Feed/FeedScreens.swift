@@ -38,14 +38,14 @@ private struct CommunityEventsList: View {
                 symbol: "calendar"
             )
         ) {
-            Picker(String(localized: "community.events.scope", defaultValue: "Раздел"), selection: $scope) {
-                Text(String(localized: "community.events.upcoming", defaultValue: "Ближайшие")).tag(Scope.upcoming)
-                Text(String(localized: "community.events.past", defaultValue: "Прошедшие")).tag(Scope.past)
-                Text(String(localized: "community.events.mine", defaultValue: "Я иду")).tag(Scope.mine)
-            }
-            .pickerStyle(.segmented)
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets())
+            FilterChipsRow(
+                options: [
+                    (value: Scope.upcoming, title: String(localized: "community.events.upcoming", defaultValue: "Ближайшие")),
+                    (value: Scope.past, title: String(localized: "community.events.past", defaultValue: "Прошедшие")),
+                    (value: Scope.mine, title: String(localized: "community.events.mine", defaultValue: "Я иду")),
+                ],
+                selection: Binding(get: { scope }, set: { if let next = $0 { scope = next } })
+            )
         } row: { event in
             NavigationLink(value: AppRoute.community(.event(id: event.id))) {
                 CommunityEventRow(event: event)
@@ -65,19 +65,14 @@ private struct CommunityEventsList: View {
                 }
             }
         }
-        .navigationTitle(Text(String(localized: "more.events", defaultValue: "События")))
-        .toolbar {
-            if !CommunityEventText.audiences(for: role).isEmpty {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        creating = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .accessibilityLabel(Text(String(localized: "community.event.new", defaultValue: "Новое событие")))
-                }
-            }
+        .communityFloatingAction(
+            !CommunityEventText.audiences(for: role).isEmpty,
+            String(localized: "community.event.new", defaultValue: "Новое событие"),
+            symbol: "calendar.badge.plus"
+        ) {
+            creating = true
         }
+        .navigationTitle(Text(String(localized: "more.events", defaultValue: "События")))
         .onChange(of: scope) { _, next in
             Task {
                 await loader.replace { request in
@@ -105,87 +100,152 @@ private struct CommunityEventsList: View {
     }
 }
 
-/// Центр уведомлений: лента и тумблеры каналов.
+/// Центр уведомлений: строки как в списке чатов — значок вида слева, заголовок
+/// полужирным, время справа, текст в две строки, точка у непрочитанного. Каналы
+/// доставки — в настройках уведомлений (шестерёнка в панели).
 struct NotificationsView: View {
     /// Роль — чтобы уведомление не открыло раздел, которого у человека нет.
     let role: Role
 
     @State private var model = NotificationsModel()
+    @State private var loadedOnce = false
 
     var body: some View {
         List {
-            if let failure = model.failure {
-                FormAlert(message: failure)
+            if let failure = model.failure, !model.items.isEmpty {
+                StaleDataBanner(message: failure) { await model.refresh() }
                     .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets())
             }
 
-            if let settings = model.settings {
-                Section {
-                    Toggle(
-                        String(localized: "notifications.push", defaultValue: "Пуши"),
-                        isOn: Binding(
-                            get: { settings.pushEnabled ?? false },
-                            set: { value in Task { await model.update(push: value) } }
+            if model.items.isEmpty {
+                Group {
+                    if let failure = model.failure {
+                        ErrorStateView(message: failure) { await model.refresh() }
+                    } else if !loadedOnce || model.isLoading {
+                        LoadingStateView()
+                    } else {
+                        EmptyStateView(
+                            title: String(localized: "notifications.empty", defaultValue: "Уведомлений пока нет"),
+                            symbol: "bell.slash",
+                            hint: String(
+                                localized: "notifications.empty.hint",
+                                defaultValue: "Здесь появятся сообщения, изменения расписания и новости вуза"
+                            )
                         )
-                    )
-                    Toggle(
-                        String(localized: "notifications.email", defaultValue: "Письма"),
-                        isOn: Binding(
-                            get: { settings.emailEnabled ?? true },
-                            set: { value in Task { await model.update(email: value) } }
-                        )
-                    )
-                } header: {
-                    Text(String(localized: "notifications.channels", defaultValue: "Каналы"))
-                }
-            }
-
-            Section {
-                ForEach(model.items) { item in
-                    VStack(alignment: .leading, spacing: Spacing.xs) {
-                        Text(item.title)
-                            .font(Typography.cardTitle)
-                            .foregroundStyle(item.isRead ? Palette.mutedForeground : Palette.foreground)
-                        Text(item.body)
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.mutedForeground)
-                        Text(verbatim: item.createdAt.formatted(date: .abbreviated, time: .shortened))
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.mutedForeground)
                     }
-                    .padding(.vertical, Spacing.xs)
-                    .onTapGesture {
-                        Task { await model.markRead(item.id) }
-                        // Строка ведёт туда же, куда пуш: в чат, к посту, к заявке.
-                        if let link = item.link {
-                            AppServices.router.open(link, for: role)
+                }
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            } else {
+                Section {
+                    ForEach(model.items) { item in
+                        Button {
+                            open(item)
+                        } label: {
+                            NotificationRow(item: item)
+                        }
+                        .buttonStyle(.plain)
+                        .swipeActions(edge: .leading) {
+                            if !item.isRead {
+                                Button {
+                                    Task { await model.markRead(item.id) }
+                                } label: {
+                                    Label(String(localized: "notifications.markRead", defaultValue: "Прочитано"), systemImage: "envelope.open")
+                                }
+                                .tint(Palette.primary)
+                            }
+                        }
+                        .contextMenu {
+                            if !item.isRead {
+                                Button {
+                                    Task { await model.markRead(item.id) }
+                                } label: {
+                                    Label(String(localized: "notifications.markRead", defaultValue: "Прочитано"), systemImage: "envelope.open")
+                                }
+                            }
                         }
                     }
                 }
-
-                if model.items.isEmpty, !model.isLoading {
-                    EmptyRow(text: String(
-                        localized: "notifications.empty",
-                        defaultValue: "Уведомлений пока нет"
-                    ))
-                }
             }
         }
-        .listStyle(.insetGrouped)
+        .listStyle(.plain)
         .navigationTitle(Text(String(localized: "home.notifications", defaultValue: "Уведомления")))
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     Task { await model.markAllRead() }
                 } label: {
-                    Text(String(localized: "notifications.readAll", defaultValue: "Прочитать все"))
-                        .font(Typography.meta)
+                    Image(systemName: "checkmark.circle")
                 }
                 .disabled(model.unreadCount == 0)
+                .accessibilityLabel(Text(String(localized: "notifications.readAll", defaultValue: "Прочитать все")))
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    NotificationSettingsView()
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+                .accessibilityLabel(Text(String(localized: "notifications.settings", defaultValue: "Настройки уведомлений")))
             }
         }
         .refreshable { await model.refresh() }
-        .task { await model.refresh() }
+        .task {
+            await model.refresh()
+            loadedOnce = true
+        }
+    }
+
+    private func open(_ item: NotificationDTO) {
+        Task { await model.markRead(item.id) }
+        // Строка ведёт туда же, куда пуш: в чат, к посту, к заявке.
+        if let link = item.link {
+            AppServices.router.open(link, for: role)
+        }
+    }
+}
+
+/// Строка уведомления в стиле строки чата.
+private struct NotificationRow: View {
+    let item: NotificationDTO
+
+    var body: some View {
+        TelegramStyleRow(
+            title: item.title,
+            subtitle: item.body,
+            meta: Self.time(item.createdAt),
+            metaTint: item.isRead ? Palette.mutedForeground : Palette.primary
+        ) {
+            RowSymbol(symbol: kind.symbol, tint: kind.tint)
+        } accessory: {
+            if !item.isRead {
+                Circle()
+                    .fill(Palette.primary)
+                    .frame(width: 10, height: 10)
+                    .padding(.bottom, 4)
+                    .accessibilityLabel(Text(String(localized: "notifications.unread", defaultValue: "Не прочитано")))
+            }
+        }
+        .contentShape(Rectangle())
+    }
+
+    private var kind: (symbol: String, tint: Color) {
+        switch item.type {
+        case "MESSAGE": return ("bubble.left.fill", TileTint.blue)
+        case "SCHEDULE_CHANGE": return ("calendar.badge.exclamationmark", TileTint.orange)
+        case "POST": return ("text.bubble.fill", TileTint.teal)
+        case "EVENT": return ("calendar", TileTint.purple)
+        case "APP_UPDATE": return ("arrow.down.app.fill", TileTint.green)
+        default: return ("bell.fill", TileTint.gray)
+        }
+    }
+
+    /// Сегодня — время, раньше — дата: как в списке чатов.
+    static func time(_ date: Date) -> String {
+        Calendar.current.isDateInToday(date)
+            ? date.formatted(date: .omitted, time: .shortened)
+            : date.formatted(.dateTime.day().month(.abbreviated))
     }
 }

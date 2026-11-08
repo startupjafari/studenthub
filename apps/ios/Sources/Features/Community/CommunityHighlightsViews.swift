@@ -129,7 +129,7 @@ struct CommunityHighlightsView: View {
                                 HStack(spacing: Spacing.lg) {
                                     CommunityHighlightBubble(highlight: highlight)
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(highlight.title).font(Typography.body).foregroundStyle(Palette.foreground)
+                                        Text(highlight.title).font(.body.weight(.semibold)).foregroundStyle(Palette.foreground)
                                         Text(String(localized: "community.highlights.count", defaultValue: "Историй: \((highlight.itemsCount ?? 0).formatted())"))
                                             .font(Typography.meta)
                                             .foregroundStyle(Palette.mutedForeground)
@@ -151,6 +151,20 @@ struct CommunityHighlightsView: View {
                                     }
                                 }
                             }
+                            .contextMenu {
+                                if isMine {
+                                    Button {
+                                        editingID = CommunityHighlightTarget(id: highlight.id)
+                                    } label: {
+                                        Label(String(localized: "feed.edit", defaultValue: "Редактировать"), systemImage: "pencil")
+                                    }
+                                    Button(role: .destructive) {
+                                        deleting = highlight
+                                    } label: {
+                                        Label(String(localized: "feed.delete", defaultValue: "Удалить"), systemImage: "trash")
+                                    }
+                                }
+                            }
                         }
                         .onMove(perform: isMine ? move : nil)
                     } footer: {
@@ -168,6 +182,7 @@ struct CommunityHighlightsView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle(Text(CommunityScreen.highlights(userID: userID).title))
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if isMine, (highlights?.count ?? 0) > 1 {
                 ToolbarItem(placement: .topBarTrailing) { EditButton() }

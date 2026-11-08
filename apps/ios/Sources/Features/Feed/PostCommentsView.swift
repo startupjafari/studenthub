@@ -105,14 +105,11 @@ struct PostCommentsView: View {
                     }
                 }
             } else if model.comments.isEmpty {
-                ContentUnavailableView {
-                    Label(
-                        String(localized: "feed.noComments", defaultValue: "Комментариев пока нет"),
-                        systemImage: "bubble.left.and.bubble.right"
-                    )
-                } description: {
-                    Text(String(localized: "feed.noComments.hint", defaultValue: "Напишите первым"))
-                }
+                EmptyStateView(
+                    title: String(localized: "feed.noComments", defaultValue: "Комментариев пока нет"),
+                    symbol: "bubble.left.and.bubble.right",
+                    hint: String(localized: "feed.noComments.hint", defaultValue: "Напишите первым")
+                )
             }
 
             ForEach(model.roots) { root in
@@ -245,47 +242,77 @@ private struct CommentInputBar: View {
                 }
                 .font(Typography.meta)
                 .foregroundStyle(Palette.mutedForeground)
-            }
-            HStack(alignment: .bottom, spacing: Spacing.md) {
-                TextField(
-                    String(localized: "feed.comment", defaultValue: "Комментарий"),
-                    text: $model.draft,
-                    axis: .vertical
-                )
-                .lineLimit(1...5)
-                .focused(focused)
                 .padding(.horizontal, Spacing.lg)
-                .padding(.vertical, Spacing.md)
-                .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xxl, style: .continuous))
+                .padding(.vertical, Spacing.sm)
+                .glassSurface(interactive: false, in: Capsule())
+            }
+            GlassGroup(spacing: Spacing.md) {
+                HStack(alignment: .bottom, spacing: Spacing.md) {
+                    TextField(
+                        String(localized: "feed.comment", defaultValue: "Комментарий"),
+                        text: $model.draft,
+                        axis: .vertical
+                    )
+                    .lineLimit(1...5)
+                    .focused(focused)
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.vertical, Spacing.md)
+                    .frame(minHeight: ControlHeight.lg)
+                    // Как поле сообщения в чатах: в одну строку — капсула из стекла.
+                    .commentInputGlass(in: RoundedRectangle(cornerRadius: ControlHeight.lg / 2, style: .continuous))
 
-                Button {
-                    Task { await model.send() }
-                } label: {
-                    Group {
-                        if model.isSending {
-                            ProgressView().tint(Palette.primaryForeground)
-                        } else {
-                            Image(systemName: "arrow.up")
-                                .font(.body.weight(.semibold))
+                    Button {
+                        Task { await model.send() }
+                    } label: {
+                        Group {
+                            if model.isSending {
+                                ProgressView().tint(Palette.primaryForeground)
+                            } else {
+                                Image(systemName: "arrow.up")
+                                    .font(.body.weight(.bold))
+                            }
                         }
+                        .foregroundStyle(Palette.primaryForeground)
+                        .frame(width: ControlHeight.lg, height: ControlHeight.lg)
+                        .glassSurface(tint: Palette.primary, in: Circle())
                     }
-                    .foregroundStyle(Palette.primaryForeground)
-                    .frame(width: ControlHeight.lg, height: ControlHeight.lg)
-                    .background(Palette.primary, in: Circle())
+                    .buttonStyle(.plain)
+                    .disabled(isEmpty || model.isSending)
+                    .opacity(isEmpty ? 0.5 : 1)
+                    .sensoryFeedback(.success, trigger: model.comments.count)
+                    .accessibilityLabel(Text(String(localized: "chats.send", defaultValue: "Отправить")))
                 }
-                .buttonStyle(.plain)
-                .disabled(isEmpty || model.isSending)
-                .opacity(isEmpty ? 0.5 : 1)
-                .sensoryFeedback(.success, trigger: model.comments.count)
-                .accessibilityLabel(Text(String(localized: "chats.send", defaultValue: "Отправить")))
             }
         }
         .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.md)
-        .background(.bar)
+        .modifier(CommentInputBackground())
     }
 
     private var isEmpty: Bool {
         model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+/// Подложка панели комментария: на iOS 26 её нет — поле и кнопка стеклом над лентой,
+/// как в чатах; раньше — системная полоса.
+private struct CommentInputBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *) {
+            content
+        } else {
+            content.background(.bar)
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func commentInputGlass<S: Shape>(in shape: S) -> some View {
+        if #available(iOS 26, *) {
+            glassSurface(in: shape)
+        } else {
+            background(Palette.muted, in: shape)
+        }
     }
 }

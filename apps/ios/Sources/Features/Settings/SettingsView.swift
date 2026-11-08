@@ -10,33 +10,33 @@ struct SettingsView: View {
     @Environment(\.viewerRole) private var role
     @State private var showsQRApprove = false
     @State private var confirmsSignOut = false
+    @ScaledMetric(relativeTo: .largeTitle) private var avatarSize: CGFloat = 96
 
     var body: some View {
         List {
+            header
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 0, leading: Spacing.lg, bottom: Spacing.sm, trailing: Spacing.lg))
+                .listRowSeparator(.hidden)
+
             Section {
-                NavigationLink {
-                    ProfileEditView()
-                } label: {
-                    HStack(spacing: Spacing.lg) {
-                        AvatarView(url: viewer.profile?.avatarUrl, name: viewer.profile?.name, size: 56)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(viewer.profile?.name ?? "")
-                                .font(Typography.sectionTitle)
-                                .foregroundStyle(Palette.foreground)
-                            if let username = viewer.profile?.username, !username.isEmpty {
-                                Text(verbatim: "@\(username)")
-                                    .font(Typography.meta)
-                                    .foregroundStyle(Palette.mutedForeground)
-                            } else if let email = viewer.profile?.email {
-                                Text(verbatim: email)
-                                    .font(Typography.meta)
-                                    .foregroundStyle(Palette.mutedForeground)
-                            }
-                        }
-                    }
-                    .padding(.vertical, Spacing.xs)
+                NavigationLink(value: AppRoute.section(.profile)) {
+                    IconRow(
+                        title: String(localized: "settings.myProfile", defaultValue: "Мой профиль"),
+                        symbol: "person.crop.circle.fill",
+                        tint: TileTint.red
+                    )
                 }
                 .accessibilityIdentifier("settings.profile")
+                NavigationLink {
+                    SavedPostsView()
+                } label: {
+                    IconRow(
+                        title: String(localized: "saved.title", defaultValue: "Сохранённое"),
+                        symbol: "bookmark.fill",
+                        tint: TileTint.blue
+                    )
+                }
             }
 
             Section {
@@ -45,7 +45,7 @@ struct SettingsView: View {
                 } label: {
                     IconRow(
                         title: String(localized: "settings.personal", defaultValue: "Личные данные"),
-                        symbol: "person.text.rectangle",
+                        symbol: "person.text.rectangle.fill",
                         tint: TileTint.blue
                     )
                 }
@@ -54,7 +54,7 @@ struct SettingsView: View {
                 } label: {
                     IconRow(
                         title: String(localized: "settings.security", defaultValue: "Безопасность"),
-                        symbol: "lock.shield",
+                        symbol: "lock.fill",
                         tint: TileTint.green,
                         value: viewer.profile?.twoFactorEnabled == true
                             ? String(localized: "settings.2fa.on", defaultValue: "2FA вкл.")
@@ -67,7 +67,7 @@ struct SettingsView: View {
                 } label: {
                     IconRow(
                         title: String(localized: "settings.privacy", defaultValue: "Конфиденциальность"),
-                        symbol: "hand.raised",
+                        symbol: "hand.raised.fill",
                         tint: TileTint.indigo
                     )
                 }
@@ -76,7 +76,7 @@ struct SettingsView: View {
                 } label: {
                     IconRow(
                         title: String(localized: "settings.notifications", defaultValue: "Уведомления"),
-                        symbol: "bell.badge",
+                        symbol: "bell.badge.fill",
                         tint: TileTint.red
                     )
                 }
@@ -103,7 +103,7 @@ struct SettingsView: View {
                 // Mini-app в Telegram — инструмент команды платформы, другим ролям сервер откажет.
                 if role == .platformAdmin || role == .platformModerator {
                     NavigationLink(value: AppRoute.community(.telegramLink)) {
-                        IconRow(title: CommunityScreen.telegramLink.title, symbol: "paperplane", tint: TileTint.teal)
+                        IconRow(title: CommunityScreen.telegramLink.title, symbol: "paperplane.fill", tint: TileTint.teal)
                     }
                 }
             } header: {
@@ -116,7 +116,7 @@ struct SettingsView: View {
                 } label: {
                     IconRow(
                         title: String(localized: "settings.appearance", defaultValue: "Внешний вид"),
-                        symbol: "paintbrush",
+                        symbol: "paintbrush.fill",
                         tint: TileTint.purple
                     )
                 }
@@ -141,7 +141,7 @@ struct SettingsView: View {
                 } label: {
                     IconRow(
                         title: String(localized: "settings.support", defaultValue: "Поддержка"),
-                        symbol: "questionmark.bubble",
+                        symbol: "questionmark.bubble.fill",
                         tint: TileTint.orange
                     )
                 }
@@ -156,7 +156,7 @@ struct SettingsView: View {
                 } label: {
                     IconRow(
                         title: String(localized: "settings.version", defaultValue: "Версия"),
-                        symbol: "info.circle",
+                        symbol: "info.circle.fill",
                         tint: TileTint.gray
                     )
                 }
@@ -166,12 +166,13 @@ struct SettingsView: View {
                 Button(role: .destructive) {
                     confirmsSignOut = true
                 } label: {
-                    Label(
-                        String(localized: "session.signOut", defaultValue: "Выйти"),
-                        systemImage: "rectangle.portrait.and.arrow.right"
+                    IconRow(
+                        title: String(localized: "session.signOut", defaultValue: "Выйти"),
+                        symbol: "rectangle.portrait.and.arrow.right",
+                        tint: TileTint.red
                     )
-                    .font(Typography.body)
                 }
+                .buttonStyle(.plain)
                 .accessibilityIdentifier("settings.signOut")
             }
 
@@ -181,11 +182,9 @@ struct SettingsView: View {
                 NavigationLink {
                     DeleteAccountView(session: session)
                 } label: {
-                    Label(
-                        String(localized: "settings.deleteAccount", defaultValue: "Удалить аккаунт"),
-                        systemImage: "trash"
-                    )
-                    .foregroundStyle(Palette.destructive)
+                    Text(String(localized: "settings.deleteAccount", defaultValue: "Удалить аккаунт"))
+                        .font(Typography.body)
+                        .foregroundStyle(Palette.destructive)
                 }
             } header: {
                 Text(String(localized: "settings.danger", defaultValue: "Опасная зона"))
@@ -197,7 +196,27 @@ struct SettingsView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
         .navigationTitle(Text(String(localized: "more.settings", defaultValue: "Настройки")))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    showsQRApprove = true
+                } label: {
+                    Image(systemName: "qrcode.viewfinder")
+                }
+                .accessibilityLabel(Text(String(localized: "auth.qrApproveTitle", defaultValue: "Вход на другом устройстве")))
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    ProfileEditView()
+                } label: {
+                    Text(String(localized: "settings.edit", defaultValue: "Изм."))
+                }
+                .accessibilityIdentifier("settings.edit")
+            }
+        }
         .sheet(isPresented: $showsQRApprove) {
             QRApproveView()
         }
@@ -211,6 +230,38 @@ struct SettingsView: View {
             }
         }
         .task { await viewer.refresh() }
+    }
+
+    /// Шапка как в «Настройках» Telegram: крупный аватар по центру, имя, ниже — почта
+    /// и имя пользователя. Правка — кнопкой «Изм.» в панели.
+    private var header: some View {
+        VStack(spacing: Spacing.sm) {
+            AvatarView(url: viewer.profile?.avatarUrl, name: viewer.profile?.name, size: min(avatarSize, 140))
+                .padding(.bottom, Spacing.xs)
+            Text(viewer.profile?.name ?? "")
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(Palette.foreground)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
+            if !headerSubtitle.isEmpty {
+                Text(verbatim: headerSubtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.mutedForeground)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, Spacing.sm)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var headerSubtitle: String {
+        var parts: [String] = []
+        if let email = viewer.profile?.email, !email.isEmpty { parts.append(email) }
+        if let username = viewer.profile?.username, !username.isEmpty { parts.append("@\(username)") }
+        return parts.joined(separator: " • ")
     }
 }
 

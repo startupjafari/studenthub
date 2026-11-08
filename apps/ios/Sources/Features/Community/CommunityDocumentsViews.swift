@@ -39,15 +39,8 @@ struct CommunityDocumentsScreen: View {
                 try await CommunityAPI().documents(view: "active", page: request, search: needle.isEmpty ? nil : needle, category: nil)
             }
         }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    uploading = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel(Text(String(localized: "community.documents.upload", defaultValue: "Загрузить документ")))
-            }
+        .floatingAction(String(localized: "community.documents.upload", defaultValue: "Загрузить документ"), symbol: "doc.badge.plus") {
+            uploading = true
         }
         .sheet(isPresented: $uploading) {
             CommunityDocumentUploadView(presetType: nil) { _ in Task { await mine.reload() } }
@@ -56,14 +49,14 @@ struct CommunityDocumentsScreen: View {
     }
 
     private var picker: some View {
-        Picker(String(localized: "community.documents.section", defaultValue: "Раздел"), selection: $section) {
-            Text(String(localized: "community.documents.mine", defaultValue: "Мои")).tag(Shelf.mine)
-            Text(String(localized: "community.documents.archive", defaultValue: "Архив")).tag(Shelf.archive)
-            Text(String(localized: "community.documents.shared", defaultValue: "Мне открыли")).tag(Shelf.shared)
-        }
-        .pickerStyle(.segmented)
-        .listRowBackground(Color.clear)
-        .listRowInsets(EdgeInsets())
+        FilterChipsRow(
+            options: [
+                (value: Shelf.mine, title: String(localized: "community.documents.mine", defaultValue: "Мои")),
+                (value: Shelf.archive, title: String(localized: "community.documents.archive", defaultValue: "Архив")),
+                (value: Shelf.shared, title: String(localized: "community.documents.shared", defaultValue: "Мне открыли")),
+            ],
+            selection: Binding(get: { section }, set: { if let next = $0 { section = next } })
+        )
     }
 
     private func ownList(_ loader: PagedLoader<CommunityDocumentDTO>) -> some View {
@@ -77,8 +70,10 @@ struct CommunityDocumentsScreen: View {
         ) {
             picker
             if role == .student || role == .starosta, section == .mine {
-                NavigationLink(value: AppRoute.community(.documentRequests)) {
-                    Label(CommunityScreen.documentRequests.title, systemImage: "tray.and.arrow.up")
+                Section {
+                    NavigationLink(value: AppRoute.community(.documentRequests)) {
+                        IconRow(title: CommunityScreen.documentRequests.title, symbol: "tray.and.arrow.up.fill", tint: TileTint.orange)
+                    }
                 }
             }
         } row: { document in
@@ -108,9 +103,12 @@ struct CommunityDocumentsScreen: View {
         } row: { item in
             VStack(alignment: .leading, spacing: Spacing.sm) {
                 CommunityDocumentRow(document: item.document)
-                Text([item.owner?.name, item.reason].compactMap { $0 }.joined(separator: " · "))
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
+                let from = [item.owner?.name, item.reason].compactMap { $0 }.joined(separator: " · ")
+                if !from.isEmpty {
+                    Label(from, systemImage: "person.crop.circle")
+                        .font(Typography.meta)
+                        .foregroundStyle(Palette.mutedForeground)
+                }
                 ForEach(item.document.files ?? []) { file in
                     Button {
                         Task {
@@ -129,25 +127,55 @@ struct CommunityDocumentsScreen: View {
     }
 }
 
+/// Строка документа как строка чата: значок, название, срок справа, тип и номер ниже,
+/// плашка статуса.
 struct CommunityDocumentRow: View {
     let document: CommunityDocumentDTO
 
     var body: some View {
-        ListCardRow(
+        TelegramStyleRow(
             title: document.title,
-            subtitle: [CommunityText.documentType(document.type), document.category.map(CommunityText.documentCategory)]
-                .compactMap { $0 }.joined(separator: " · "),
-            status: CommunityText.documentStatus(document.status),
-            lines: [
-                document.numberMasked.map { "№ \($0)" } ?? "",
-                document.expiresAt.map { String(localized: "community.documents.expires", defaultValue: "Действует до \(DisplayFormat.date($0))") } ?? "",
-                CommunityDocumentText.summary(document),
-            ]
-        )
+            subtitle: subtitle,
+            meta: document.expiresAt.map { DisplayFormat.date($0) },
+            metaTint: CommunityDocumentText.isExpiring(document) ? Palette.warning : Palette.mutedForeground
+        ) {
+            RowSymbol(symbol: CommunityDocumentText.symbol(document), tint: CommunityDocumentText.tint(document))
+        } accessory: {
+            if let status = CommunityText.documentStatus(document.status) {
+                StatusBadge(text: status.text, tint: status.tint)
+            }
+        }
+    }
+
+    private var subtitle: String {
+        var parts: [String] = []
+        parts.append(CommunityText.documentType(document.type))
+        if let category = document.category.map(CommunityText.documentCategory) { parts.append(category) }
+        if let number = document.numberMasked { parts.append("№ \(number)") }
+        parts.append(CommunityDocumentText.summary(document))
+        return parts.joined(separator: " · ")
     }
 }
 
 enum CommunityDocumentText {
+    static func symbol(_ document: CommunityDocumentDTO) -> String {
+        if document.issuedByUniversity == true { return "building.columns.fill" }
+        if document.archivedAt != nil || document.status == "ARCHIVED" { return "archivebox.fill" }
+        return "doc.text.fill"
+    }
+
+    static func tint(_ document: CommunityDocumentDTO) -> Color {
+        if document.archivedAt != nil || document.status == "ARCHIVED" { return TileTint.gray }
+        if document.issuedByUniversity == true { return TileTint.indigo }
+        return TileTint.blue
+    }
+
+    /// Срок действия кончается в ближайший месяц — дату справа подсвечиваем.
+    static func isExpiring(_ document: CommunityDocumentDTO) -> Bool {
+        guard let expires = document.expiresAt else { return false }
+        return expires.timeIntervalSinceNow < 30 * 24 * 3600
+    }
+
     static func ext(_ mime: String?) -> String {
         switch mime {
         case "application/pdf": return "pdf"
@@ -199,21 +227,72 @@ struct CommunityDocumentDetailView: View {
     private var isArchived: Bool { current.archivedAt != nil || current.status == "ARCHIVED" }
     private var isIssued: Bool { current.issuedByUniversity == true }
 
+    /// Под шапкой — то, ради чего открывают документ: файл, доступ, правка, архив.
+    private var heroActions: [HeroAction] {
+        var actions: [HeroAction] = []
+        if let file = current.files?.first {
+            actions.append(HeroAction(
+                title: String(localized: "community.documents.open", defaultValue: "Открыть"),
+                symbol: "doc.viewfinder"
+            ) {
+                Task {
+                    await opener.open(name: "\(current.title).\(CommunityDocumentText.ext(file.mime))") {
+                        try await api.documentFileURL(documentID: documentID, fileID: file.id)
+                    }
+                }
+            })
+        }
+        if !isIssued {
+            actions.append(HeroAction(
+                title: String(localized: "community.documents.grantShort", defaultValue: "Доступ"),
+                symbol: "person.badge.key.fill"
+            ) { granting = true })
+            actions.append(HeroAction(
+                title: String(localized: "feed.edit", defaultValue: "Редактировать"),
+                symbol: "pencil"
+            ) { editing = true })
+        }
+        actions.append(HeroAction(
+            title: isArchived
+                ? String(localized: "community.documents.unarchive", defaultValue: "Вернуть из архива")
+                : String(localized: "community.documents.toArchive", defaultValue: "В архив"),
+            symbol: isArchived ? "arrow.uturn.backward" : "archivebox"
+        ) { Task { await toggleArchive() } })
+        return actions
+    }
+
     var body: some View {
         List {
+            HeroHeader(
+                visual: .symbol(CommunityDocumentText.symbol(current), tint: CommunityDocumentText.tint(current)),
+                title: current.title,
+                subtitle: [CommunityText.documentType(current.type), current.category.map(CommunityText.documentCategory)]
+                    .compactMap { $0 }.joined(separator: " · "),
+                actions: heroActions
+            ) {
+                if let status = CommunityText.documentStatus(current.status) {
+                    StatusBadge(text: status.text, tint: status.tint)
+                }
+            }
+
             Section {
-                CommunityDocumentRow(document: current)
+                if let number = current.numberMasked {
+                    DetailRow(title: String(localized: "community.documents.numberTitle", defaultValue: "Номер"), value: number, symbol: "number")
+                }
+                if let expires = current.expiresAt {
+                    DetailRow(title: String(localized: "community.documents.validUntil", defaultValue: "Действует до"), value: DisplayFormat.date(expires), symbol: "calendar")
+                }
                 if let issuedBy = current.issuedBy, !issuedBy.isEmpty {
-                    DetailRow(title: String(localized: "community.documents.issuedBy", defaultValue: "Кем выдан"), value: issuedBy)
+                    DetailRow(title: String(localized: "community.documents.issuedBy", defaultValue: "Кем выдан"), value: issuedBy, symbol: "building.2")
                 }
                 if let issuedAt = current.issuedAt {
-                    DetailRow(title: String(localized: "community.documents.issuedAt", defaultValue: "Дата выдачи"), value: DisplayFormat.date(issuedAt))
+                    DetailRow(title: String(localized: "community.documents.issuedAt", defaultValue: "Дата выдачи"), value: DisplayFormat.date(issuedAt), symbol: "calendar.badge.checkmark")
                 }
                 if let comment = current.comment, !comment.isEmpty {
-                    DetailRow(title: String(localized: "community.documents.comment", defaultValue: "Комментарий"), value: comment)
+                    DetailRow(title: String(localized: "community.documents.comment", defaultValue: "Комментарий"), value: comment, symbol: "text.bubble")
                 }
                 if let reason = current.rejectionReason, !reason.isEmpty {
-                    DetailRow(title: String(localized: "community.documents.rejection", defaultValue: "Причина отказа"), value: reason)
+                    DetailRow(title: String(localized: "community.documents.rejection", defaultValue: "Причина отказа"), value: reason, symbol: "exclamationmark.triangle")
                 }
             }
 
@@ -294,34 +373,19 @@ struct CommunityDocumentDetailView: View {
                 }
             }
 
-            Section {
-                if !isIssued {
-                    Button {
-                        editing = true
-                    } label: {
-                        Label(String(localized: "feed.edit", defaultValue: "Редактировать"), systemImage: "pencil")
-                    }
-                }
-                Button {
-                    Task { await toggleArchive() }
-                } label: {
-                    Label(
-                        isArchived
-                            ? String(localized: "community.documents.unarchive", defaultValue: "Вернуть из архива")
-                            : String(localized: "community.documents.toArchive", defaultValue: "В архив"),
-                        systemImage: "archivebox"
-                    )
-                }
-                if !isIssued {
+            if !isIssued {
+                Section {
                     Button(role: .destructive) {
                         confirmingDelete = true
                     } label: {
-                        Label(String(localized: "feed.delete", defaultValue: "Удалить"), systemImage: "trash")
+                        Text(String(localized: "community.documents.delete", defaultValue: "Удалить документ"))
+                            .foregroundStyle(Palette.destructive)
                     }
                 }
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
         .navigationTitle(Text(current.title))
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await reloadAccess() }

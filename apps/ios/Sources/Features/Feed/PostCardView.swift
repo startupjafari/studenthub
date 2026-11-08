@@ -77,7 +77,7 @@ struct PostHeaderView: View {
             VStack(alignment: .leading, spacing: 2) {
                 authorLink {
                     Text(displayName)
-                        .font(Typography.cardTitle)
+                        .font(.body.weight(.semibold))
                         .foregroundStyle(Palette.foreground)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)

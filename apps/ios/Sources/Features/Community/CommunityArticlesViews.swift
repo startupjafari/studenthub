@@ -30,13 +30,13 @@ struct CommunityArticlesView: View {
         } content: { articles in
             List {
                 if isMine {
-                    Picker(String(localized: "community.articles.shelf", defaultValue: "Раздел"), selection: $shelf) {
-                        Text(String(localized: "community.articles.mine", defaultValue: "Мои")).tag(Shelf.written)
-                        Text(String(localized: "community.articles.saved", defaultValue: "Сохранённые")).tag(Shelf.saved)
-                    }
-                    .pickerStyle(.segmented)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
+                    FilterChipsRow(
+                        options: [
+                            (value: Shelf.written, title: String(localized: "community.articles.mine", defaultValue: "Мои")),
+                            (value: Shelf.saved, title: String(localized: "community.articles.saved", defaultValue: "Сохранённые")),
+                        ],
+                        selection: Binding(get: { shelf }, set: { if let next = $0 { shelf = next } })
+                    )
                 }
                 if articles.isEmpty {
                     EmptyStateView(
@@ -64,17 +64,9 @@ struct CommunityArticlesView: View {
         }
         .background(Palette.background)
         .navigationTitle(Text(CommunityScreen.articles(userID: nil).title))
-        .toolbar {
-            if isMine {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        creating = true
-                    } label: {
-                        Image(systemName: "square.and.pencil")
-                    }
-                    .accessibilityLabel(Text(String(localized: "community.articles.new", defaultValue: "Написать статью")))
-                }
-            }
+        .navigationBarTitleDisplayMode(.inline)
+        .communityFloatingAction(isMine, String(localized: "community.articles.new", defaultValue: "Написать статью"), symbol: "square.and.pencil") {
+            creating = true
         }
         .sheet(isPresented: $creating) {
             CommunityArticleEditor(article: nil) { _ in reload += 1 }
@@ -91,11 +83,13 @@ struct CommunityArticleRow: View {
                 RemoteImage(url: cover, cacheKey: "article:\(article.id)")
                     .frame(width: 72, height: 72)
                     .clipShape(RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+            } else {
+                RowSymbol(symbol: "doc.richtext.fill", tint: TileTint.indigo)
             }
             VStack(alignment: .leading, spacing: Spacing.xs) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(article.title)
-                        .font(Typography.cardTitle)
+                        .font(.body.weight(.semibold))
                         .foregroundStyle(Palette.foreground)
                         .lineLimit(3)
                     if article.isDraft {
@@ -275,7 +269,7 @@ struct CommunityArticleView: View {
                             Label(String(localized: "feed.delete", defaultValue: "Удалить"), systemImage: "trash")
                         }
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        Image(systemName: "ellipsis")
                     }
                     .accessibilityLabel(Text(String(localized: "community.article.actions", defaultValue: "Действия со статьёй")))
                 }

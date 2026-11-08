@@ -7,36 +7,64 @@ import UIKit
 
 // MARK: - Список
 
-/// Строка события в списке.
+/// Строка события в списке — как строка чата: слева листок календаря с датой,
+/// название полужирным, время справа, место или формат ниже, плашка статуса.
 struct CommunityEventRow: View {
     let event: CommunityEventDTO
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(event.title)
-                    .font(Typography.cardTitle)
-                    .foregroundStyle(Palette.foreground)
-                    .lineLimit(3)
-                Spacer(minLength: Spacing.md)
-                if event.isRegistered == true {
-                    StatusBadge(text: String(localized: "community.event.registered", defaultValue: "Вы записаны"), tint: Palette.success)
-                } else if event.isOver {
-                    StatusBadge(text: String(localized: "community.event.over", defaultValue: "Прошло"), tint: Palette.mutedForeground)
-                }
-            }
-            Label(CommunityEventText.period(event), systemImage: "calendar")
-            if event.isOnline == true || event.meetingProvider != nil {
-                Label(CommunityText.meetingProvider(event.meetingProvider), systemImage: "video")
-            }
-            if let location = event.location, !location.isEmpty {
-                Label(location, systemImage: "mappin")
+        TelegramStyleRow(
+            title: event.title,
+            subtitle: details,
+            meta: event.startsAt.formatted(date: .omitted, time: .shortened)
+        ) {
+            CommunityEventDateTile(date: event.startsAt, isOver: event.isOver)
+        } accessory: {
+            if event.isRegistered == true {
+                StatusBadge(text: String(localized: "community.event.registered", defaultValue: "Вы записаны"), tint: Palette.success)
+            } else if event.isOver {
+                StatusBadge(text: String(localized: "community.event.over", defaultValue: "Прошло"), tint: Palette.mutedForeground)
             }
         }
-        .font(Typography.meta)
-        .foregroundStyle(Palette.mutedForeground)
-        .padding(.vertical, Spacing.xs)
-        .accessibilityElement(children: .combine)
+    }
+
+    private var details: String {
+        var parts: [String] = []
+        if let end = event.endsAt, !Calendar.current.isDate(end, inSameDayAs: event.startsAt) {
+            parts.append(CommunityEventText.period(event))
+        }
+        if event.isOnline == true || event.meetingProvider != nil {
+            parts.append(CommunityText.meetingProvider(event.meetingProvider))
+        }
+        if let location = event.location, !location.isEmpty {
+            parts.append(location)
+        }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// Листок календаря: месяц мелко цветом, число крупно — дата читается раньше названия.
+struct CommunityEventDateTile: View {
+    let date: Date
+    var isOver = false
+    var size: CGFloat = 44
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text(date.formatted(.dateTime.month(.abbreviated)))
+                .font(.caption2.weight(.semibold))
+                .textCase(.uppercase)
+                .foregroundStyle(isOver ? Palette.mutedForeground : Palette.destructive)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(date.formatted(.dateTime.day()))
+                .font(.title3.weight(.semibold).monospacedDigit())
+                .foregroundStyle(isOver ? Palette.mutedForeground : Palette.foreground)
+                .lineLimit(1)
+        }
+        .frame(width: size, height: size)
+        .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+        .accessibilityHidden(true)
     }
 }
 
@@ -150,25 +178,34 @@ struct CommunityEventView: View {
 
     private func content(_ event: CommunityEventDTO) -> some View {
         List {
-            Section {
-                VStack(alignment: .leading, spacing: Spacing.md) {
-                    HStack(spacing: Spacing.sm) {
-                        if let audience = event.audience {
-                            StatusBadge(text: CommunityText.audience(audience), tint: Palette.primary)
-                        }
-                        if event.isRegistered == true {
-                            StatusBadge(text: String(localized: "community.event.registered", defaultValue: "Вы записаны"), tint: Palette.success)
-                        }
+            HeroHeader(
+                visual: .symbol("calendar", tint: event.isOver ? TileTint.gray : TileTint.purple),
+                title: event.title,
+                subtitle: CommunityEventText.period(event),
+                actions: heroActions(event)
+            ) {
+                HStack(spacing: Spacing.sm) {
+                    if let audience = event.audience {
+                        StatusBadge(text: CommunityText.audience(audience), tint: Palette.primary)
                     }
-                    Text(event.title)
-                        .font(.title2.weight(.bold))
-                        .foregroundStyle(Palette.foreground)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let description = event.description, !description.isEmpty {
-                        PostTextView(content: description, lineLimit: 12)
+                    if event.isRegistered == true {
+                        StatusBadge(text: String(localized: "community.event.registered", defaultValue: "Вы записаны"), tint: Palette.success)
+                    } else if event.isOver {
+                        StatusBadge(text: String(localized: "community.event.finished", defaultValue: "Событие завершилось"), tint: Palette.mutedForeground)
                     }
                 }
-                .padding(.vertical, Spacing.xs)
+            }
+
+            if let description = event.description, !description.isEmpty {
+                Section {
+                    PostTextView(content: description, lineLimit: 12)
+                        .padding(.vertical, Spacing.xs)
+                } header: {
+                    Text(String(localized: "community.event.about", defaultValue: "О событии"))
+                }
+            }
+
+            Section {
                 DetailRow(title: String(localized: "community.event.when", defaultValue: "Когда"), value: CommunityEventText.period(event), symbol: "calendar")
                 if event.isOnline == true || event.meetingProvider != nil {
                     DetailRow(title: String(localized: "community.event.format", defaultValue: "Формат"), value: CommunityText.meetingProvider(event.meetingProvider), symbol: "video")
@@ -186,35 +223,6 @@ struct CommunityEventView: View {
                         DetailRow(title: String(localized: "community.event.organizer", defaultValue: "Организатор"), value: organizer.name, symbol: "person.crop.circle")
                     }
                 }
-                if event.isOver {
-                    Label(String(localized: "community.event.finished", defaultValue: "Событие завершилось"), systemImage: "flag.checkered")
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
-                }
-            }
-
-            if !event.isOver {
-                Section {
-                    if canJoinMeeting(event) {
-                        Button {
-                            Task { await joinMeeting() }
-                        } label: {
-                            Label(String(localized: "community.event.joinMeeting", defaultValue: "Подключиться к встрече"), systemImage: "video.fill")
-                        }
-                        .disabled(isBusy)
-                    }
-                    Button {
-                        Task { await toggleRegistration(event) }
-                    } label: {
-                        if event.isRegistered == true {
-                            Label(String(localized: "community.event.unregister", defaultValue: "Отменить запись"), systemImage: "xmark.circle")
-                                .foregroundStyle(Palette.destructive)
-                        } else {
-                            Label(String(localized: "community.event.register", defaultValue: "Записаться"), systemImage: "checkmark.circle")
-                        }
-                    }
-                    .disabled(isBusy)
-                }
             }
 
             if event.canManage == true, let participants, !participants.isEmpty {
@@ -230,30 +238,53 @@ struct CommunityEventView: View {
             }
 
             discussion
-        }
-        .listStyle(.insetGrouped)
-        .refreshable { await load() }
-        .toolbar {
+
             if event.canManage == true {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            editing = true
-                        } label: {
-                            Label(String(localized: "feed.edit", defaultValue: "Редактировать"), systemImage: "pencil")
-                        }
-                        Button(role: .destructive) {
-                            confirmingDelete = true
-                        } label: {
-                            Label(String(localized: "feed.delete", defaultValue: "Удалить"), systemImage: "trash")
-                        }
+                Section {
+                    Button(role: .destructive) {
+                        confirmingDelete = true
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        Text(String(localized: "community.event.delete", defaultValue: "Удалить событие"))
+                            .foregroundStyle(Palette.destructive)
                     }
-                    .accessibilityLabel(Text(String(localized: "community.event.actions", defaultValue: "Действия с событием")))
                 }
             }
         }
+        .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
+        .refreshable { await load() }
+    }
+
+    /// Главные действия кругами под шапкой: запись, встреча, правка.
+    private func heroActions(_ event: CommunityEventDTO) -> [HeroAction] {
+        var actions: [HeroAction] = []
+        if !event.isOver {
+            if event.isRegistered == true {
+                actions.append(HeroAction(
+                    title: String(localized: "community.event.unregister", defaultValue: "Отменить запись"),
+                    symbol: "xmark.circle",
+                    role: .destructive
+                ) { Task { await toggleRegistration(event) } })
+            } else {
+                actions.append(HeroAction(
+                    title: String(localized: "community.event.register", defaultValue: "Записаться"),
+                    symbol: "checkmark.circle"
+                ) { Task { await toggleRegistration(event) } })
+            }
+            if canJoinMeeting(event) {
+                actions.append(HeroAction(
+                    title: String(localized: "community.event.meeting", defaultValue: "Встреча"),
+                    symbol: "video.fill"
+                ) { Task { await joinMeeting() } })
+            }
+        }
+        if event.canManage == true {
+            actions.append(HeroAction(
+                title: String(localized: "feed.edit", defaultValue: "Редактировать"),
+                symbol: "pencil"
+            ) { editing = true })
+        }
+        return actions
     }
 
     private var discussion: some View {
@@ -377,6 +408,7 @@ struct CommunityEventView: View {
 
     @MainActor
     private func toggleRegistration(_ current: CommunityEventDTO) async {
+        guard !isBusy else { return }
         isBusy = true
         defer { isBusy = false }
         let on = current.isRegistered != true
@@ -393,6 +425,7 @@ struct CommunityEventView: View {
     /// Ссылка на встречу выдаётся только в окне подключения (за 15 минут до начала).
     @MainActor
     private func joinMeeting() async {
+        guard !isBusy else { return }
         isBusy = true
         defer { isBusy = false }
         do {

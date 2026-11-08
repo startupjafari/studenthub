@@ -27,7 +27,11 @@ struct CommunitySharePostView: View {
                 if let chats {
                     let visible = filtered(chats)
                     if visible.isEmpty {
-                        EmptyRow(text: String(localized: "community.share.noChats", defaultValue: "Подходящих чатов нет"))
+                        EmptyStateView(
+                            title: String(localized: "community.share.noChats", defaultValue: "Подходящих чатов нет"),
+                            symbol: "bubble.left.and.bubble.right"
+                        )
+                        .listRowBackground(Color.clear)
                     }
                     Section {
                         ForEach(visible) { chat in
@@ -39,7 +43,7 @@ struct CommunitySharePostView: View {
                                         name: chat.title ?? String(localized: "community.share.untitled", defaultValue: "Чат"),
                                         subtitle: chat.memberCount.flatMap { $0 > 2 ? String(localized: "community.share.members", defaultValue: "Участников: \($0.formatted())") : nil },
                                         avatarURL: chat.avatarUrl,
-                                        size: 36
+                                        size: 44
                                     )
                                     if sending == chat.id { ProgressView() }
                                 }
@@ -53,7 +57,11 @@ struct CommunitySharePostView: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .searchable(text: $search, prompt: Text(String(localized: "community.share.search", defaultValue: "Найти чат")))
+            .searchable(
+                text: $search,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: Text(String(localized: "community.share.search", defaultValue: "Найти чат"))
+            )
             .navigationTitle(Text(String(localized: "community.share.title", defaultValue: "Отправить в чат")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

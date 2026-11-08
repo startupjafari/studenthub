@@ -25,18 +25,12 @@ struct SearchView: View {
                 Section(String(localized: "search.section.people", defaultValue: "Люди")) {
                     ForEach(people) { person in
                         NavigationLink(value: AppRoute.profile(id: person.id)) {
-                            HStack(spacing: Spacing.lg) {
-                                AvatarView(url: person.avatarUrl, name: person.name, size: 36)
-                                VStack(alignment: .leading, spacing: 0) {
-                                    Text(person.name.isEmpty ? (person.username ?? "") : person.name)
-                                        .foregroundStyle(Palette.foreground)
-                                    if let role = person.role.flatMap(Role.init(rawValue:))?.feedTitle {
-                                        Text(role)
-                                            .font(Typography.meta)
-                                            .foregroundStyle(Palette.mutedForeground)
-                                    }
-                                }
-                            }
+                            PersonRow(
+                                name: person.name.isEmpty ? (person.username ?? "") : person.name,
+                                subtitle: subtitle(for: person),
+                                avatarURL: person.avatarUrl,
+                                size: 44
+                            )
                         }
                     }
                 }
@@ -46,11 +40,11 @@ struct SearchView: View {
                 Section(String(localized: "more.events", defaultValue: "События")) {
                     ForEach(events) { event in
                         NavigationLink(value: AppRoute.community(.event(id: event.id))) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(event.title).foregroundStyle(Palette.foreground)
-                                Text(event.startsAt, format: .dateTime.day().month().hour().minute())
-                                    .font(Typography.meta)
-                                    .foregroundStyle(Palette.mutedForeground)
+                            TelegramStyleRow(
+                                title: event.title,
+                                meta: event.startsAt.formatted(.dateTime.day().month(.abbreviated).hour().minute())
+                            ) {
+                                RowSymbol(symbol: "calendar", tint: TileTint.purple)
                             }
                         }
                     }
@@ -59,14 +53,20 @@ struct SearchView: View {
         }
         .overlay {
             if isEmpty, !isSearching {
-                ContentUnavailableView(
-                    query.trimmingCharacters(in: .whitespaces).count < 2
-                        ? String(localized: "search.hint", defaultValue: "Введите хотя бы две буквы")
-                        : String(localized: "search.empty", defaultValue: "Никого не нашли"),
-                    systemImage: "magnifyingglass"
-                )
+                if query.trimmingCharacters(in: .whitespaces).count < 2 {
+                    EmptyStateView(
+                        title: String(localized: "search.hint", defaultValue: "Введите хотя бы две буквы"),
+                        symbol: "magnifyingglass"
+                    )
+                } else {
+                    EmptyStateView(
+                        title: String(localized: "search.empty", defaultValue: "Никого не нашли"),
+                        symbol: "person.crop.circle.badge.questionmark",
+                        hint: String(localized: "search.empty.hint", defaultValue: "Проверьте написание или попробуйте другое слово")
+                    )
+                }
             } else if isSearching, isEmpty {
-                ProgressView()
+                LoadingStateView()
             }
         }
         .searchable(
@@ -74,9 +74,18 @@ struct SearchView: View {
             placement: .navigationBarDrawer(displayMode: .always),
             prompt: Text(String(localized: "search.prompt", defaultValue: "Люди и события"))
         )
+        .listStyle(.insetGrouped)
         .navigationTitle(Text(String(localized: "search.title", defaultValue: "Поиск")))
         .navigationBarTitleDisplayMode(.inline)
         .task(id: query) { await search() }
+    }
+
+    /// Роль и логин — чтобы отличить тёзок.
+    private func subtitle(for person: SearchResultsDTO.Person) -> String? {
+        var parts: [String] = []
+        if let role = person.role.flatMap(Role.init(rawValue:))?.feedTitle { parts.append(role) }
+        if let username = person.username, !username.isEmpty, !person.name.isEmpty { parts.append("@\(username)") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     private var isEmpty: Bool {

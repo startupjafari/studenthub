@@ -22,14 +22,18 @@ struct CommunityDocumentRequestsView: View {
                     Section {
                         ForEach(requests) { request in
                             NavigationLink(value: AppRoute.community(.documentRequest(id: request.id))) {
-                                ListCardRow(
+                                TelegramStyleRow(
                                     title: request.title,
-                                    subtitle: request.dueAt.map {
-                                        String(localized: "community.requests.due", defaultValue: "Срок: \(DisplayFormat.date($0))")
-                                    },
-                                    status: CommunityText.documentStatus(request.submissionStatus ?? request.status),
-                                    lines: [progress(request)]
-                                )
+                                    subtitle: progress(request),
+                                    meta: request.dueAt.map { DisplayFormat.date($0) },
+                                    metaTint: (request.dueAt ?? .distantFuture) < Date() ? Palette.destructive : Palette.mutedForeground
+                                ) {
+                                    RowSymbol(symbol: "tray.and.arrow.up.fill", tint: TileTint.orange)
+                                } accessory: {
+                                    if let status = CommunityText.documentStatus(request.submissionStatus ?? request.status) {
+                                        StatusBadge(text: status.text, tint: status.tint)
+                                    }
+                                }
                             }
                         }
                     }
@@ -40,6 +44,7 @@ struct CommunityDocumentRequestsView: View {
         }
         .background(Palette.background)
         .navigationTitle(Text(CommunityScreen.documentRequests.title))
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private func progress(_ request: CommunityDocumentRequestDTO) -> String {
@@ -99,24 +104,24 @@ struct CommunityDocumentRequestView: View {
 
     private func content(_ detail: CommunityDocumentRequestDetailDTO) -> some View {
         List {
-            Section {
-                VStack(alignment: .leading, spacing: Spacing.sm) {
-                    Text(detail.title).font(Typography.sectionTitle).foregroundStyle(Palette.foreground)
-                    if let description = detail.description, !description.isEmpty {
-                        Text(description).font(Typography.body).foregroundStyle(Palette.mutedForeground)
-                    }
-                    if let due = detail.dueAt, let label = detail.dueAt.map({
-                        String(localized: "community.requests.due", defaultValue: "Срок: \(DisplayFormat.date($0))")
-                    }) {
-                        Label(label, systemImage: "calendar")
-                            .font(Typography.meta)
-                            .foregroundStyle(due < Date() ? Palette.destructive : Palette.mutedForeground)
-                    }
-                    if let status = CommunityText.documentStatus(detail.submission?.status) {
-                        StatusBadge(text: status.text, tint: status.tint)
-                    }
+            HeroHeader(
+                visual: .symbol("tray.and.arrow.up.fill", tint: TileTint.orange),
+                title: detail.title,
+                subtitle: detail.dueAt.map { String(localized: "community.requests.due", defaultValue: "Срок: \(DisplayFormat.date($0))") },
+                subtitleTint: (detail.dueAt ?? .distantFuture) < Date() ? Palette.destructive : Palette.mutedForeground
+            ) {
+                if let status = CommunityText.documentStatus(detail.submission?.status) {
+                    StatusBadge(text: status.text, tint: status.tint)
                 }
-                .padding(.vertical, Spacing.xs)
+            }
+
+            if let description = detail.description, !description.isEmpty {
+                Section {
+                    Text(description)
+                        .font(Typography.body)
+                        .foregroundStyle(Palette.foreground)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Section {
@@ -148,6 +153,7 @@ struct CommunityDocumentRequestView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
         .refreshable { await load() }
     }
 
@@ -265,8 +271,13 @@ struct CommunityDocumentChooser: View {
                             dismiss()
                             onUpload()
                         } label: {
-                            Label(String(localized: "community.documents.upload", defaultValue: "Загрузить документ"), systemImage: "square.and.arrow.up")
+                            IconRow(
+                                title: String(localized: "community.documents.upload", defaultValue: "Загрузить документ"),
+                                symbol: "doc.badge.plus",
+                                tint: TileTint.blue
+                            )
                         }
+                        .buttonStyle(.plain)
                     }
                 }
                 if documents.isEmpty {
@@ -283,11 +294,8 @@ struct CommunityDocumentChooser: View {
                                 choose(document)
                                 dismiss()
                             } label: {
-                                ListCardRow(
-                                    title: document.title,
-                                    subtitle: CommunityText.documentType(document.type),
-                                    status: CommunityText.documentStatus(document.status)
-                                )
+                                CommunityDocumentRow(document: document)
+                                    .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                         }
@@ -303,5 +311,6 @@ struct CommunityDocumentChooser: View {
                 }
             }
         }
+        .presentationDetents([.medium, .large])
     }
 }

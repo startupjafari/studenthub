@@ -317,14 +317,17 @@ struct CommunityMyPostsView: View {
         PostActionsHost(model: feed) { actions in
             ScrollView {
                 LazyVStack(spacing: Spacing.lg) {
-                    Picker(String(localized: "community.myPosts.status", defaultValue: "Статус"), selection: $status) {
-                        Text(String(localized: "community.myPosts.drafts", defaultValue: "Черновики")).tag("DRAFT")
-                        Text(String(localized: "community.myPosts.scheduled", defaultValue: "Отложенные")).tag("SCHEDULED")
-                    }
-                    .pickerStyle(.segmented)
+                    FilterChips(
+                        options: [
+                            (value: Optional("DRAFT"), title: String(localized: "community.myPosts.drafts", defaultValue: "Черновики")),
+                            (value: Optional("SCHEDULED"), title: String(localized: "community.myPosts.scheduled", defaultValue: "Отложенные")),
+                        ],
+                        selection: Binding(get: { Optional(status) }, set: { if let next = $0 { status = next } })
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     if !feed.hasLoaded {
-                        ProgressView().padding(Spacing.xxl)
+                        ForEach(0..<2, id: \.self) { _ in PostCardSkeleton() }
                     } else if let failure = feed.failure, feed.posts.isEmpty {
                         ErrorStateView(message: failure, isOffline: feed.isOffline) { await feed.refresh() }
                     } else if feed.posts.isEmpty {
@@ -338,9 +341,10 @@ struct CommunityMyPostsView: View {
                         ForEach(feed.posts) { post in
                             VStack(alignment: .leading, spacing: Spacing.sm) {
                                 if let at = post.scheduledAt {
-                                    Label(String(localized: "community.myPosts.at", defaultValue: "Выйдет \(DisplayFormat.dateTime(at))"), systemImage: "clock")
-                                        .font(Typography.meta)
-                                        .foregroundStyle(Palette.warning)
+                                    StatusBadge(
+                                        text: String(localized: "community.myPosts.at", defaultValue: "Выйдет \(DisplayFormat.dateTime(at))"),
+                                        tint: Palette.warning
+                                    )
                                 }
                                 PostCardView(post: post, model: feed, viewerID: viewerID, actions: actions)
                             }

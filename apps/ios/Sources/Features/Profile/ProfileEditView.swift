@@ -13,10 +13,12 @@ struct ProfileEditView: View {
     @State private var avatarItem: PhotosPickerItem?
     @State private var coverItem: PhotosPickerItem?
     @State private var uploading: Upload?
+    @State private var removing: Upload?
     @State private var isSaving = false
     @State private var failure: String?
     @State private var newSkill = ""
     @FocusState private var focused: Field?
+    @ScaledMetric(relativeTo: .largeTitle) private var avatarSize: CGFloat = 100
 
     private let api: AccountFetching = AccountAPI()
     private let feed: FeedFetching = FeedAPI()
@@ -43,39 +45,59 @@ struct ProfileEditView: View {
                 FormAlert(message: failure).listRowBackground(Color.clear)
             }
 
+            // Как правка профиля в Telegram: крупное фото по центру, под ним — ссылка
+            // «Сменить фото»; обложка и удаление — строками ниже.
             Section {
-                HStack(spacing: Spacing.lg) {
-                    ZStack {
-                        AvatarView(url: viewer.profile?.avatarUrl, name: viewer.profile?.name, size: 72)
-                        if uploading == .avatar { ProgressView() }
-                    }
-                    VStack(alignment: .leading, spacing: Spacing.md) {
-                        PhotosPicker(selection: $avatarItem, matching: .images) {
-                            Label(String(localized: "profile.changeAvatar", defaultValue: "Сменить фото"), systemImage: "camera")
-                        }
-                        PhotosPicker(selection: $coverItem, matching: .images) {
-                            HStack {
-                                Label(String(localized: "profile.changeCover", defaultValue: "Сменить обложку"), systemImage: "photo")
-                                if uploading == .cover { ProgressView() }
+                VStack(spacing: Spacing.md) {
+                    PhotosPicker(selection: $avatarItem, matching: .images) {
+                        ZStack {
+                            AvatarView(url: viewer.profile?.avatarUrl, name: viewer.profile?.name, size: min(avatarSize, 140))
+                            if uploading == .avatar {
+                                Circle().fill(.black.opacity(0.35))
+                                ProgressView().tint(.white)
                             }
                         }
+                        .frame(width: min(avatarSize, 140), height: min(avatarSize, 140))
                     }
-                    .font(Typography.body)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text(String(localized: "profile.changeAvatar", defaultValue: "Сменить фото")))
+                    PhotosPicker(selection: $avatarItem, matching: .images) {
+                        Text(String(localized: "profile.changeAvatar", defaultValue: "Сменить фото"))
+                            .font(Typography.body)
+                            .foregroundStyle(Palette.primary)
+                    }
+                    .buttonStyle(.plain)
                 }
-                if viewer.profile?.avatarUrl != nil || viewer.profile?.coverUrl != nil {
-                    Menu {
-                        if viewer.profile?.avatarUrl != nil {
-                            Button(String(localized: "profile.removeAvatar", defaultValue: "Удалить фото"), role: .destructive) {
-                                Task { await remove(.avatar) }
-                            }
-                        }
-                        if viewer.profile?.coverUrl != nil {
-                            Button(String(localized: "profile.removeCover", defaultValue: "Удалить обложку"), role: .destructive) {
-                                Task { await remove(.cover) }
-                            }
-                        }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Spacing.sm)
+                .listRowBackground(Color.clear)
+            }
+
+            Section {
+                PhotosPicker(selection: $coverItem, matching: .images) {
+                    HStack {
+                        IconRow(
+                            title: String(localized: "profile.changeCover", defaultValue: "Сменить обложку"),
+                            symbol: "photo.fill",
+                            tint: TileTint.teal
+                        )
+                        if uploading == .cover { ProgressView() }
+                    }
+                }
+                .buttonStyle(.plain)
+                if viewer.profile?.avatarUrl != nil {
+                    Button(role: .destructive) {
+                        removing = .avatar
                     } label: {
-                        Text(String(localized: "profile.removeMedia", defaultValue: "Удалить…"))
+                        Text(String(localized: "profile.removeAvatar", defaultValue: "Удалить фото"))
+                            .foregroundStyle(Palette.destructive)
+                    }
+                }
+                if viewer.profile?.coverUrl != nil {
+                    Button(role: .destructive) {
+                        removing = .cover
+                    } label: {
+                        Text(String(localized: "profile.removeCover", defaultValue: "Удалить обложку"))
                             .foregroundStyle(Palette.destructive)
                     }
                 }
@@ -178,7 +200,7 @@ struct ProfileEditView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button(String(localized: "common.close", defaultValue: "Закрыть")) { dismiss() }
+                SheetCloseButton { dismiss() }
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button {
@@ -189,6 +211,17 @@ struct ProfileEditView: View {
                 .disabled(!canSave)
                 .accessibilityIdentifier("profile.save")
             }
+        }
+        .confirmDestructive(
+            $removing,
+            title: { kind in
+                kind == .avatar
+                    ? String(localized: "profile.removeAvatar.confirm", defaultValue: "Удалить фото профиля?")
+                    : String(localized: "profile.removeCover.confirm", defaultValue: "Удалить обложку?")
+            },
+            actionTitle: String(localized: "feed.delete", defaultValue: "Удалить")
+        ) { kind in
+            await remove(kind)
         }
         .onChange(of: avatarItem) { Task { await upload(.avatar) } }
         .onChange(of: coverItem) { Task { await upload(.cover) } }

@@ -15,6 +15,8 @@ struct CommunityUniversityView: View {
     @State private var albums: [CommunityAlbumDTO]?
     @State private var articles: [CommunityArticleDTO]?
     @State private var viewing: CommunityMediaTarget?
+    @Environment(\.openURL) private var openURL
+    @ScaledMetric(relativeTo: .largeTitle) private var logoSize: CGFloat = 96
 
     private let api = CommunityAPI()
 
@@ -64,12 +66,14 @@ struct CommunityUniversityView: View {
                     Section {
                         tabContent(actions: actions)
                     } header: {
-                        Picker(String(localized: "community.university.tab", defaultValue: "Раздел"), selection: $tab) {
-                            ForEach(Tab.allCases, id: \.self) { Text($0.title).tag($0) }
-                        }
-                        .pickerStyle(.segmented)
+                        FilterChips(
+                            options: Tab.allCases.map { (value: Optional($0), title: $0.title) },
+                            selection: Binding(get: { tab }, set: { if let next = $0 { tab = next } })
+                        )
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, Spacing.xl)
                         .padding(.vertical, Spacing.sm)
+                        .frame(maxWidth: .infinity)
                         .background(Palette.background)
                     }
                 }
@@ -80,90 +84,163 @@ struct CommunityUniversityView: View {
         .task(id: tab) { await loadTab() }
     }
 
+    /// Шапка как профиль в Telegram: логотип по центру (на обложке, если есть),
+    /// название, город и год, итоги и ряд круглых кнопок связи.
     private func header(_ page: CommunityUniversityPageDTO) -> some View {
-        VStack(alignment: .leading, spacing: Spacing.lg) {
-            ZStack(alignment: .bottomLeading) {
-                Group {
-                    if let cover = page.coverUrl.flatMap(URL.init(string:)) {
-                        RemoteImage(url: cover, cacheKey: "university-cover:\(page.id)")
-                    } else {
-                        LinearGradient(colors: [Palette.primary.opacity(0.55), Palette.chart3.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                    }
+        VStack(spacing: Spacing.sm) {
+            let side = min(logoSize, 140)
+            if let cover = page.coverUrl.flatMap(URL.init(string:)) {
+                ZStack(alignment: .bottom) {
+                    RemoteImage(url: cover, cacheKey: "university-cover:\(page.id)")
+                        .frame(height: 128)
+                        .frame(maxWidth: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                        .padding(.horizontal, Spacing.xl)
+                        .padding(.bottom, side / 2)
+                        .accessibilityHidden(true)
+                    AvatarView(url: page.logoUrl, name: page.shortName ?? page.name, size: side)
+                        .overlay(Circle().strokeBorder(Palette.background, lineWidth: 4))
                 }
-                .frame(height: 140)
-                .frame(maxWidth: .infinity)
-                .clipped()
-                .padding(.bottom, 40)
-
-                AvatarView(url: page.logoUrl, name: page.shortName ?? page.name, size: 80)
-                    .overlay(Circle().strokeBorder(Palette.background, lineWidth: 4))
-                    .padding(.leading, Spacing.xl)
+                .padding(.bottom, Spacing.xs)
+            } else {
+                AvatarView(url: page.logoUrl, name: page.shortName ?? page.name, size: side)
+                    .padding(.top, Spacing.md)
+                    .padding(.bottom, Spacing.xs)
             }
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text(page.name)
-                    .font(.title2.weight(.bold))
-                    .foregroundStyle(Palette.foreground)
-                    .fixedSize(horizontal: false, vertical: true)
-                let subtitle = [page.shortName, page.city, page.foundedYear.map { String(localized: "community.university.founded", defaultValue: "основан в \(String($0))") }]
-                    .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
-                if !subtitle.isEmpty {
-                    Text(subtitle).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
-                }
-                if let counts {
-                    HStack(spacing: Spacing.xl) {
-                        stat(counts.photos, String(localized: "profile.stat.photos", defaultValue: "фото"))
-                        stat(counts.videos, String(localized: "profile.stat.videos", defaultValue: "видео"))
-                        stat(counts.articles, String(localized: "profile.stat.articles", defaultValue: "статей"))
-                    }
-                    .padding(.top, Spacing.xs)
-                }
+            Text(page.name)
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(Palette.foreground)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
+                .padding(.horizontal, Spacing.xl)
+            let subtitle = [page.shortName, page.city, page.foundedYear.map { String(localized: "community.university.founded", defaultValue: "основан в \(String($0))") }]
+                .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+            if !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.mutedForeground)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, Spacing.xl)
             }
-            .padding(.horizontal, Spacing.xl)
+            let actions = contactActions(page)
+            if !actions.isEmpty {
+                HeroActionRow(actions: actions)
+                    .padding(.horizontal, Spacing.md)
+                    .padding(.top, Spacing.md)
+            }
+            if let counts {
+                HStack(spacing: Spacing.xl) {
+                    stat(counts.photos, String(localized: "profile.stat.photos", defaultValue: "фото"))
+                    stat(counts.videos, String(localized: "profile.stat.videos", defaultValue: "видео"))
+                    stat(counts.articles, String(localized: "profile.stat.articles", defaultValue: "статей"))
+                }
+                .padding(.top, Spacing.sm)
+            }
         }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Связь с вузом кругами под шапкой: сайт, почта, звонок.
+    private func contactActions(_ page: CommunityUniversityPageDTO) -> [HeroAction] {
+        var actions: [HeroAction] = []
+        if let url = page.website.flatMap(Self.webURL) {
+            actions.append(HeroAction(title: String(localized: "community.university.site", defaultValue: "Сайт"), symbol: "safari") { openURL(url) })
+        }
+        if let email = page.contactEmail, !email.isEmpty, let url = URL(string: "mailto:\(email)") {
+            actions.append(HeroAction(title: String(localized: "community.university.mail", defaultValue: "Почта"), symbol: "envelope.fill") { openURL(url) })
+        }
+        if let phone = page.contactPhone, !phone.isEmpty, let url = URL(string: "tel:\(phone.filter { $0.isNumber || $0 == "+" })") {
+            actions.append(HeroAction(title: String(localized: "community.university.call", defaultValue: "Позвонить"), symbol: "phone.fill") { openURL(url) })
+        }
+        return actions
+    }
+
+    private static func webURL(_ raw: String) -> URL? {
+        guard !raw.isEmpty else { return nil }
+        return URL(string: raw.hasPrefix("http") ? raw : "https://\(raw)")
     }
 
     private func stat(_ value: Int, _ title: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
-            Text(verbatim: value.formatted()).font(Typography.tabular(.subheadline.weight(.semibold)))
-            Text(title).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
+        VStack(spacing: 0) {
+            Text(verbatim: value.formatted())
+                .font(Typography.tabular(.headline))
+                .foregroundStyle(Palette.foreground)
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(Palette.mutedForeground)
         }
         .accessibilityElement(children: .combine)
     }
 
+    /// Описание и контакты одной карточкой со строками, как сведения в Telegram.
     @ViewBuilder
     private func about(_ page: CommunityUniversityPageDTO) -> some View {
-        let contacts: [(String, String, URL?)] = [
-            ("globe", page.website, page.website.flatMap(URL.init(string:))),
-            ("envelope", page.contactEmail, page.contactEmail.flatMap { URL(string: "mailto:\($0)") }),
-            ("phone", page.contactPhone, page.contactPhone.flatMap { URL(string: "tel:\($0.filter { $0.isNumber || $0 == "+" })") }),
-            ("mappin.and.ellipse", page.address, nil),
-            ("paperplane", page.telegram, page.telegram.flatMap { URL(string: $0.hasPrefix("http") ? $0 : "https://t.me/\($0.trimmingCharacters(in: CharacterSet(charactersIn: "@")))") }),
-            ("camera", page.instagram, page.instagram.flatMap { URL(string: $0.hasPrefix("http") ? $0 : "https://instagram.com/\($0.trimmingCharacters(in: CharacterSet(charactersIn: "@")))") }),
-            ("link", page.linkedin, page.linkedin.flatMap(URL.init(string:))),
-        ].compactMap { symbol, value, url in
+        let contacts: [(String, String, String, URL?)] = [
+            ("globe", String(localized: "community.university.site", defaultValue: "Сайт"), page.website, page.website.flatMap(Self.webURL)),
+            ("envelope", String(localized: "community.university.mail", defaultValue: "Почта"), page.contactEmail, page.contactEmail.flatMap { URL(string: "mailto:\($0)") }),
+            ("phone", String(localized: "community.university.phone", defaultValue: "Телефон"), page.contactPhone, page.contactPhone.flatMap { URL(string: "tel:\($0.filter { $0.isNumber || $0 == "+" })") }),
+            ("mappin.and.ellipse", String(localized: "community.university.address", defaultValue: "Адрес"), page.address, nil),
+            ("paperplane", "Telegram", page.telegram, page.telegram.flatMap { URL(string: $0.hasPrefix("http") ? $0 : "https://t.me/\($0.trimmingCharacters(in: CharacterSet(charactersIn: "@")))") }),
+            ("camera", "Instagram", page.instagram, page.instagram.flatMap { URL(string: $0.hasPrefix("http") ? $0 : "https://instagram.com/\($0.trimmingCharacters(in: CharacterSet(charactersIn: "@")))") }),
+            ("link", "LinkedIn", page.linkedin, page.linkedin.flatMap(URL.init(string:))),
+        ].compactMap { symbol, title, value, url in
             guard let value, !value.isEmpty else { return nil }
-            return (symbol, value, url)
+            return (symbol, title, value, url)
         }
         if (page.description?.isEmpty == false) || !contacts.isEmpty {
-            VStack(alignment: .leading, spacing: Spacing.md) {
+            VStack(alignment: .leading, spacing: 0) {
                 if let description = page.description, !description.isEmpty {
-                    PostTextView(content: description, lineLimit: 6)
-                }
-                ForEach(contacts, id: \.1) { symbol, value, url in
-                    if let url {
-                        Link(destination: url) {
-                            Label(value, systemImage: symbol).font(Typography.body)
-                        }
-                    } else {
-                        Label(value, systemImage: symbol).font(Typography.body).foregroundStyle(Palette.foreground)
+                    VStack(alignment: .leading, spacing: 2) {
+                        PostTextView(content: description, lineLimit: 6)
+                        Text(String(localized: "community.university.about", defaultValue: "О вузе"))
+                            .font(Typography.meta)
+                            .foregroundStyle(Palette.mutedForeground)
                     }
+                    .padding(.horizontal, Spacing.xl)
+                    .padding(.vertical, Spacing.lg)
+                    if !contacts.isEmpty { Divider().padding(.leading, Spacing.xl) }
+                }
+                ForEach(Array(contacts.enumerated()), id: \.offset) { index, contact in
+                    let (symbol, title, value, url) = contact
+                    Group {
+                        if let url {
+                            Link(destination: url) { contactRow(symbol: symbol, title: title, value: value, tint: Palette.primary) }
+                        } else {
+                            contactRow(symbol: symbol, title: title, value: value, tint: Palette.foreground)
+                        }
+                    }
+                    if index < contacts.count - 1 { Divider().padding(.leading, Spacing.xl + 22 + Spacing.lg) }
                 }
             }
-            .padding(Spacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .cardSurface()
+            .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             .padding(.horizontal, Spacing.xl)
         }
+    }
+
+    private func contactRow(symbol: String, title: String, value: String, tint: Color) -> some View {
+        HStack(spacing: Spacing.lg) {
+            Image(systemName: symbol)
+                .foregroundStyle(Palette.mutedForeground)
+                .frame(width: 22)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(value)
+                    .font(Typography.body)
+                    .foregroundStyle(tint)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(title)
+                    .font(Typography.meta)
+                    .foregroundStyle(Palette.mutedForeground)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Spacing.xl)
+        .padding(.vertical, Spacing.md)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder

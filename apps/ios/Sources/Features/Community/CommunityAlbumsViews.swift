@@ -78,12 +78,6 @@ struct CommunityAlbumsView: View {
             if isMine {
                 Section {
                     CommunityMediaUploadButton { _ in await load() }
-                    Button {
-                        newTitle = ""
-                        creating = true
-                    } label: {
-                        Label(String(localized: "community.albums.new", defaultValue: "Новый альбом"), systemImage: "plus.rectangle.on.folder")
-                    }
                 }
             }
             if let albums {
@@ -115,6 +109,21 @@ struct CommunityAlbumsView: View {
                                     }
                                 }
                             }
+                            .contextMenu {
+                                if isMine {
+                                    Button {
+                                        renameTitle = album.title
+                                        renaming = album
+                                    } label: {
+                                        Label(String(localized: "community.albums.rename", defaultValue: "Переименовать"), systemImage: "pencil")
+                                    }
+                                    Button(role: .destructive) {
+                                        deleting = album
+                                    } label: {
+                                        Label(String(localized: "feed.delete", defaultValue: "Удалить"), systemImage: "trash")
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -126,6 +135,11 @@ struct CommunityAlbumsView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle(Text(CommunityScreen.albums(userID: nil).title))
+        .navigationBarTitleDisplayMode(.inline)
+        .communityFloatingAction(isMine, String(localized: "community.albums.new", defaultValue: "Новый альбом"), symbol: "plus.rectangle.on.folder") {
+            newTitle = ""
+            creating = true
+        }
         .refreshable { await load() }
         .task { await load() }
         .reasonPrompt(

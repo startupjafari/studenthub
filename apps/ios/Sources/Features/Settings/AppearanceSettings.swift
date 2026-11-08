@@ -27,6 +27,14 @@ enum AppearanceTheme: String, CaseIterable, Identifiable {
         }
     }
 
+    var tint: Color {
+        switch self {
+        case .system: return TileTint.gray
+        case .light: return TileTint.orange
+        case .dark: return TileTint.indigo
+        }
+    }
+
     /// `nil` — не навязываем схему, приложение следует системе.
     var colorScheme: ColorScheme? {
         switch self {
@@ -45,16 +53,26 @@ struct AppearanceSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Picker(selection: $theme) {
-                    ForEach(AppearanceTheme.allCases) { option in
-                        Label(option.title, systemImage: option.symbol).tag(option.rawValue)
+                // Строки с цветными значками и галочкой у выбранной — как выбор темы в Telegram.
+                ForEach(AppearanceTheme.allCases) { option in
+                    Button {
+                        theme = option.rawValue
+                    } label: {
+                        HStack {
+                            IconRow(title: option.title, symbol: option.symbol + (option == .system ? "" : ".fill"), tint: option.tint)
+                            if theme == option.rawValue {
+                                Image(systemName: "checkmark")
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(Palette.primary)
+                            }
+                        }
+                        .contentShape(Rectangle())
                     }
-                } label: {
-                    Text(String(localized: "settings.theme", defaultValue: "Тема"))
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(theme == option.rawValue ? .isSelected : [])
                 }
-                .pickerStyle(.inline)
-                .labelsHidden()
                 .accessibilityIdentifier("settings.theme")
+                .sensoryFeedback(.selection, trigger: theme)
             } header: {
                 Text(String(localized: "settings.theme", defaultValue: "Тема"))
             }

@@ -42,36 +42,6 @@ struct ProfileView: View {
         .toolbar {
             if model.isMine {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        NavigationLink(value: AppRoute.community(.myPosts)) {
-                            Label(CommunityScreen.myPosts.title, systemImage: "clock.badge")
-                        }
-                        NavigationLink(value: AppRoute.community(.friends(userID: nil))) {
-                            Label(CommunityScreen.friends(userID: nil).title, systemImage: "person.2")
-                        }
-                        NavigationLink(value: AppRoute.community(.articles(userID: nil))) {
-                            Label(CommunityScreen.articles(userID: nil).title, systemImage: "doc.richtext")
-                        }
-                        NavigationLink(value: AppRoute.community(.albums(userID: nil))) {
-                            Label(CommunityScreen.albums(userID: nil).title, systemImage: "photo.stack")
-                        }
-                        NavigationLink(value: AppRoute.community(.highlights(userID: viewerID))) {
-                            Label(CommunityScreen.highlights(userID: viewerID).title, systemImage: "sparkles")
-                        }
-                    } label: {
-                        Image(systemName: "square.grid.2x2")
-                    }
-                    .accessibilityLabel(Text(String(localized: "community.profile.more", defaultValue: "Моё")))
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        SavedPostsView()
-                    } label: {
-                        Image(systemName: "bookmark")
-                    }
-                    .accessibilityLabel(Text(String(localized: "saved.title", defaultValue: "Сохранённое")))
-                }
-                ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink(value: AppRoute.section(.settings)) {
                         Image(systemName: "gearshape")
                     }
@@ -322,87 +292,100 @@ private struct MediaTarget: Identifiable {
 
 // MARK: - Шапка
 
+/// Шапка как профиль в Telegram: крупный аватар по центру (на обложке, если она есть),
+/// имя, кто это, ряд круглых стеклянных кнопок и карточка «о себе» под ним.
 private struct ProfileHeaderView: View {
     let profile: UserProfileDTO
     let model: ProfileModel
     let edit: () -> Void
     let details: () -> Void
 
-    private let coverHeight: CGFloat = 132
-    private let avatarSize: CGFloat = 88
+    @Environment(\.viewerID) private var viewerID
+    @ScaledMetric(relativeTo: .largeTitle) private var avatarSize: CGFloat = 100
+    @State private var confirmsUnfriend = false
+
+    private let coverHeight: CGFloat = 128
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.lg) {
-            ZStack(alignment: .bottomLeading) {
-                cover
-                    .frame(height: coverHeight)
-                    .frame(maxWidth: .infinity)
-                    .clipped()
-                    .padding(.bottom, avatarSize / 2)
+        VStack(spacing: Spacing.sm) {
+            visual
+                .padding(.bottom, Spacing.xs)
 
-                AvatarView(url: profile.avatarUrl, name: profile.name, size: avatarSize)
-                    .overlay(Circle().strokeBorder(Palette.background, lineWidth: 4))
-                    .padding(.leading, Spacing.xl)
-            }
+            Text(profile.name)
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(Palette.foreground)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
+                .padding(.horizontal, Spacing.xl)
 
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text(profile.name)
-                    .font(.title2.weight(.bold))
+            if let headline = profile.headline, !headline.isEmpty {
+                Text(headline)
+                    .font(.subheadline)
                     .foregroundStyle(Palette.foreground)
+                    .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityAddTraits(.isHeader)
-                if let headline = profile.headline, !headline.isEmpty {
-                    Text(headline)
-                        .font(Typography.body)
-                        .foregroundStyle(Palette.foreground)
-                }
-                if !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
-                }
-                if let universityID = profile.universityId, let university = profile.universityName, !university.isEmpty {
-                    NavigationLink(value: AppRoute.community(.university(id: universityID))) {
-                        Label(university, systemImage: "building.columns")
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.primary)
-                    }
-                    .buttonStyle(.plain)
-                }
-                if let status = profile.academicStatus, !status.isEmpty {
-                    Label(status, systemImage: "checkmark.seal.fill")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(Palette.success)
-                }
-                if let bio = profile.bio, !bio.isEmpty {
-                    Text(bio)
-                        .font(Typography.body)
-                        .foregroundStyle(Palette.foreground)
-                        .padding(.top, Spacing.xs)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                    .padding(.horizontal, Spacing.xl)
             }
-            .padding(.horizontal, Spacing.xl)
+            if !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.mutedForeground)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, Spacing.xl)
+            }
+            if let status = profile.academicStatus, !status.isEmpty {
+                StatusBadge(text: status, tint: Palette.success)
+            }
+
+            actionRow
+                .padding(.top, Spacing.md)
 
             stats
-                .padding(.horizontal, Spacing.xl)
+                .padding(.top, Spacing.sm)
 
-            actions
-                .padding(.horizontal, Spacing.xl)
-                .padding(.bottom, Spacing.lg)
+            if !profile.isLimited {
+                aboutCard
+                    .padding(.horizontal, Spacing.xl)
+                    .padding(.top, Spacing.md)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, Spacing.lg)
+        .confirmationDialog(
+            unfriendTitle,
+            isPresented: $confirmsUnfriend,
+            titleVisibility: .visible
+        ) {
+            Button(unfriendAction, role: .destructive) {
+                Task { await model.friendshipAction() }
+            }
         }
     }
 
+    // MARK: Аватар и обложка
+
     @ViewBuilder
-    private var cover: some View {
+    private var visual: some View {
+        let side = min(avatarSize, 140)
         if let url = profile.coverUrl.flatMap(URL.init(string:)) {
-            RemoteImage(url: url, cacheKey: "cover:\(profile.coverUrl?.split(separator: "?").first ?? "")")
+            // Обложка — спокойной карточкой, аватар наполовину на ней, как в Telegram
+            // у каналов с фоном: имя и кнопки остаются на чистом фоне и читаются.
+            ZStack(alignment: .bottom) {
+                RemoteImage(url: url, cacheKey: "cover:\(profile.coverUrl?.split(separator: "?").first ?? "")")
+                    .frame(height: coverHeight)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                    .padding(.horizontal, Spacing.xl)
+                    .padding(.bottom, side / 2)
+                    .accessibilityHidden(true)
+                AvatarView(url: profile.avatarUrl, name: profile.name, size: side)
+                    .overlay(Circle().strokeBorder(Palette.background, lineWidth: 4))
+            }
         } else {
-            LinearGradient(
-                colors: [Palette.primary.opacity(0.55), Palette.chart3.opacity(0.4)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            AvatarView(url: profile.avatarUrl, name: profile.name, size: side)
+                .padding(.top, Spacing.md)
         }
     }
 
@@ -421,6 +404,132 @@ private struct ProfileHeaderView: View {
         return parts.joined(separator: " · ")
     }
 
+    // MARK: Кнопки
+
+    /// Ряд круглых стеклянных кнопок. У себя — правка, друзья, сохранённое и «Ещё»;
+    /// у другого — «Написать», дружба и «Ещё». Редкое — в меню, чтобы ряд не дробился.
+    private var actionRow: some View {
+        GlassGroup(spacing: Spacing.lg) {
+            HStack(alignment: .top, spacing: Spacing.md) {
+                if model.isMine {
+                    Button(action: edit) {
+                        HeroActionLabel(title: String(localized: "profile.edit", defaultValue: "Изменить"), symbol: "pencil")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("profile.edit")
+                    NavigationLink(value: AppRoute.community(.friends(userID: nil))) {
+                        HeroActionLabel(title: CommunityScreen.friends(userID: nil).title, symbol: "person.2.fill")
+                    }
+                    .buttonStyle(.plain)
+                    NavigationLink {
+                        SavedPostsView()
+                    } label: {
+                        HeroActionLabel(title: String(localized: "saved.title", defaultValue: "Сохранённое"), symbol: "bookmark.fill")
+                    }
+                    .buttonStyle(.plain)
+                } else if !profile.isLimited || model.friendship != nil {
+                    if !CommunityPlatformState.shared.isDisabled("chats") {
+                        Button {
+                            Task { await openChat() }
+                        } label: {
+                            HeroActionLabel(title: String(localized: "profile.message", defaultValue: "Написать"), symbol: "bubble.left.fill")
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    if let friendship = model.friendship {
+                        friendshipButton(friendship)
+                    }
+                }
+                moreMenu
+            }
+        }
+        .padding(.horizontal, Spacing.xl)
+    }
+
+    /// Добавить и принять — сразу; убрать из друзей и отозвать заявку — через
+    /// подтверждение: случайное касание не должно рвать дружбу.
+    @ViewBuilder
+    private func friendshipButton(_ friendship: FriendshipStatusDTO) -> some View {
+        let label = HeroActionLabel(title: Self.friendshipTitle(friendship.status), symbol: Self.friendshipSymbol(friendship.status))
+        switch friendship.status {
+        case "NONE", "PENDING_INCOMING":
+            Button {
+                Task { await model.friendshipAction() }
+            } label: { label }
+                .buttonStyle(.plain)
+                .sensoryFeedback(.success, trigger: friendship.status)
+        default:
+            Button {
+                confirmsUnfriend = true
+            } label: { label }
+                .buttonStyle(.plain)
+                .sensoryFeedback(.success, trigger: friendship.status)
+        }
+    }
+
+    private var unfriendTitle: String {
+        model.friendship?.status == "PENDING_OUTGOING"
+            ? String(localized: "profile.friends.cancelConfirm", defaultValue: "Отозвать заявку в друзья?")
+            : String(localized: "profile.friends.removeConfirm", defaultValue: "Удалить из друзей?")
+    }
+
+    private var unfriendAction: String {
+        model.friendship?.status == "PENDING_OUTGOING"
+            ? String(localized: "profile.friends.cancelAction", defaultValue: "Отозвать заявку")
+            : String(localized: "profile.friends.removeAction", defaultValue: "Удалить из друзей")
+    }
+
+    private var moreMenu: some View {
+        Menu {
+            if !profile.isLimited {
+                Button(action: details) {
+                    Label(String(localized: "profile.details", defaultValue: "Подробнее"), systemImage: "info.circle")
+                }
+            }
+            if model.isMine {
+                Section {
+                    NavigationLink(value: AppRoute.community(.myPosts)) {
+                        Label(CommunityScreen.myPosts.title, systemImage: "clock.badge")
+                    }
+                    NavigationLink(value: AppRoute.community(.articles(userID: nil))) {
+                        Label(CommunityScreen.articles(userID: nil).title, systemImage: "doc.richtext")
+                    }
+                    NavigationLink(value: AppRoute.community(.albums(userID: nil))) {
+                        Label(CommunityScreen.albums(userID: nil).title, systemImage: "photo.stack")
+                    }
+                    if !viewerID.isEmpty {
+                        NavigationLink(value: AppRoute.community(.highlights(userID: viewerID))) {
+                            Label(CommunityScreen.highlights(userID: viewerID).title, systemImage: "sparkles")
+                        }
+                    }
+                }
+            } else if let id = model.userID, !profile.isLimited {
+                Section {
+                    NavigationLink(value: AppRoute.community(.articles(userID: id))) {
+                        Label(CommunityScreen.articles(userID: id).title, systemImage: "doc.richtext")
+                    }
+                    NavigationLink(value: AppRoute.community(.albums(userID: id))) {
+                        Label(CommunityScreen.albums(userID: id).title, systemImage: "photo.stack")
+                    }
+                    NavigationLink(value: AppRoute.community(.highlights(userID: id))) {
+                        Label(CommunityScreen.highlights(userID: id).title, systemImage: "sparkles")
+                    }
+                }
+            }
+            if let universityID = profile.universityId {
+                NavigationLink(value: AppRoute.community(.university(id: universityID))) {
+                    Label(CommunityScreen.university(id: universityID).title, systemImage: "building.columns")
+                }
+            }
+        } label: {
+            HeroActionLabel(title: String(localized: "profile.more", defaultValue: "Ещё"), symbol: "ellipsis")
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("profile.more")
+    }
+
+    // MARK: Итоги
+
     @ViewBuilder
     private var stats: some View {
         let items: [(String, Int?)] = [
@@ -431,71 +540,102 @@ private struct ProfileHeaderView: View {
         ].filter { $0.1 != nil }
         if !items.isEmpty {
             HStack(spacing: Spacing.xl) {
-                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                    let cell = HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    VStack(spacing: 0) {
                         Text(verbatim: "\(item.1 ?? 0)")
-                            .font(Typography.tabular(.subheadline.weight(.semibold)))
+                            .font(Typography.tabular(.headline))
                             .foregroundStyle(Palette.foreground)
                         Text(item.0)
-                            .font(Typography.meta)
+                            .font(.caption)
                             .foregroundStyle(Palette.mutedForeground)
                     }
                     .accessibilityElement(children: .combine)
-                    // Список друзей сервер отдаёт только свой — у себя число ведёт в него.
-                    if index == 0, model.isMine, model.friendsCount != nil {
-                        NavigationLink(value: AppRoute.community(.friends(userID: nil))) { cell }
-                            .buttonStyle(.plain)
-                    } else {
-                        cell
-                    }
                 }
             }
+            .padding(.horizontal, Spacing.xl)
         }
     }
 
-    @ViewBuilder
-    private var actions: some View {
-        HStack(spacing: Spacing.md) {
-            if model.isMine {
-                Button(action: edit) {
-                    Label(String(localized: "profile.edit", defaultValue: "Изменить"), systemImage: "pencil")
-                        .frame(maxWidth: .infinity)
-                }
-                .glassProminentButton()
-                .accessibilityIdentifier("profile.edit")
-            } else if !profile.isLimited || model.friendship != nil {
-                if !CommunityPlatformState.shared.isDisabled("chats") {
-                Button {
-                    Task { await openChat() }
-                } label: {
-                    Label(String(localized: "profile.message", defaultValue: "Написать"), systemImage: "bubble.left")
-                        .frame(maxWidth: .infinity)
-                }
-                .glassProminentButton()
-                }
+    // MARK: О себе
 
-                if let friendship = model.friendship {
-                    Button {
-                        Task { await model.friendshipAction() }
-                    } label: {
-                        Label(Self.friendshipTitle(friendship.status), systemImage: Self.friendshipSymbol(friendship.status))
-                            .frame(maxWidth: .infinity)
-                    }
-                    .glassButton()
-                    .sensoryFeedback(.success, trigger: friendship.status)
+    /// Карточка сведений под кнопками, как «о себе» и имя пользователя в Telegram:
+    /// главное видно сразу, остальное — по строке «Подробнее».
+    private var aboutCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let bio = profile.bio, !bio.isEmpty {
+                aboutRow(title: String(localized: "profile.about", defaultValue: "О себе")) {
+                    Text(bio)
+                        .font(Typography.body)
+                        .foregroundStyle(Palette.foreground)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
                 }
+                Divider().padding(.leading, Spacing.xl)
             }
-
-            if !profile.isLimited {
-                Button(action: details) {
-                    Image(systemName: "info.circle")
-                        .frame(minWidth: 24)
+            if let username = profile.username, !username.isEmpty {
+                aboutRow(title: String(localized: "profile.usernameTitle", defaultValue: "Имя пользователя")) {
+                    Text(verbatim: "@\(username)")
+                        .font(Typography.body)
+                        .foregroundStyle(Palette.primary)
+                        .textSelection(.enabled)
                 }
-                .glassButton()
-                .accessibilityLabel(Text(String(localized: "profile.details", defaultValue: "Подробнее")))
+                Divider().padding(.leading, Spacing.xl)
+            }
+            if let universityID = profile.universityId, let university = profile.universityName, !university.isEmpty {
+                NavigationLink(value: AppRoute.community(.university(id: universityID))) {
+                    aboutRow(title: String(localized: "profile.university", defaultValue: "Вуз"), chevron: true) {
+                        Text(university)
+                            .font(Typography.body)
+                            .foregroundStyle(Palette.foreground)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .buttonStyle(.plain)
+                Divider().padding(.leading, Spacing.xl)
+            }
+            Button(action: details) {
+                HStack {
+                    Text(String(localized: "profile.details", defaultValue: "Подробнее"))
+                        .font(Typography.body)
+                        .foregroundStyle(Palette.primary)
+                    Spacer(minLength: Spacing.md)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Palette.mutedForeground.opacity(0.6))
+                        .accessibilityHidden(true)
+                }
+                .padding(.horizontal, Spacing.xl)
+                .padding(.vertical, Spacing.lg)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("profile.details")
+        }
+        .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+    }
+
+    private func aboutRow<Value: View>(title: String, chevron: Bool = false, @ViewBuilder value: () -> Value) -> some View {
+        HStack(spacing: Spacing.md) {
+            VStack(alignment: .leading, spacing: 2) {
+                value()
+                Text(title)
+                    .font(Typography.meta)
+                    .foregroundStyle(Palette.mutedForeground)
+            }
+            Spacer(minLength: 0)
+            if chevron {
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Palette.mutedForeground.opacity(0.6))
+                    .accessibilityHidden(true)
             }
         }
-        .controlSize(.large)
+        .padding(.horizontal, Spacing.xl)
+        .padding(.vertical, Spacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 
     @MainActor
@@ -539,41 +679,26 @@ extension Role {
 
 // MARK: - Вкладки
 
-/// Переключатель вкладок: горизонтальная полоса, прилипающая к верху при прокрутке.
+/// Переключатель вкладок — капсула-дорожка как папки в Telegram, прилипает к верху
+/// при прокрутке. Число рядом с названием — сколько там всего.
 private struct ProfileTabBar: View {
     @Binding var selection: ProfileTab
     let counts: ProfileCountsDTO?
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: Spacing.md) {
-                ForEach(ProfileTab.allCases) { tab in
-                    Button {
-                        selection = tab
-                    } label: {
-                        HStack(spacing: Spacing.xs) {
-                            Text(tab.title)
-                            if let count = count(for: tab), count > 0 {
-                                Text(verbatim: "\(count)")
-                                    .font(Typography.tabular(.caption))
-                                    .foregroundStyle(selection == tab ? Palette.primaryForeground.opacity(0.8) : Palette.mutedForeground)
-                            }
-                        }
-                        .font(Typography.meta.weight(.semibold))
-                        .padding(.horizontal, Spacing.lg)
-                        .frame(minHeight: ControlHeight.md)
-                        .foregroundStyle(selection == tab ? Palette.primaryForeground : Palette.foreground)
-                        .background(selection == tab ? Palette.primary : Palette.muted, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(selection == tab ? .isSelected : [])
-                    .accessibilityIdentifier("profile.tab.\(tab.rawValue)")
-                }
-            }
-            .padding(.horizontal, Spacing.xl)
-            .padding(.vertical, Spacing.md)
-        }
+        FilterChips(
+            options: ProfileTab.allCases.map { tab in
+                let title = count(for: tab).map { $0 > 0 ? "\(tab.title) \($0)" : tab.title } ?? tab.title
+                return (value: Optional(tab), title: title)
+            },
+            selection: Binding(get: { selection }, set: { if let next = $0 { selection = next } })
+        )
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, Spacing.xl)
+        .padding(.vertical, Spacing.sm)
+        .frame(maxWidth: .infinity)
         .background(Palette.background)
+        .accessibilityIdentifier("profile.tabs")
     }
 
     private func count(for tab: ProfileTab) -> Int? {

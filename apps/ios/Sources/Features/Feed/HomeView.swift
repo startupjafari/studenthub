@@ -191,54 +191,21 @@ struct HomeView: View {
         if !feed.hasLoaded, feed.posts.isEmpty {
             ForEach(0..<3, id: \.self) { _ in PostCardSkeleton() }
         } else if let failure = feed.failure, feed.posts.isEmpty {
-            ContentUnavailableView {
-                Label(
-                    feed.isOffline
-                        ? String(localized: "home.offline", defaultValue: "Нет связи")
-                        : String(localized: "home.feedFailed", defaultValue: "Ленту не удалось загрузить"),
-                    systemImage: feed.isOffline ? "wifi.slash" : "exclamationmark.triangle"
-                )
-            } description: {
-                Text(failure)
-            } actions: {
-                Button(String(localized: "common.retry", defaultValue: "Повторить")) {
-                    Task { await feed.refresh() }
-                }
-                .glassProminentButton()
-            }
-            .frame(maxWidth: .infinity)
+            ErrorStateView(message: failure, isOffline: feed.isOffline) { await feed.refresh() }
         } else if feed.posts.isEmpty {
-            ContentUnavailableView {
-                Label(String(localized: "home.emptyFeed", defaultValue: "В ленте пока пусто"), systemImage: "text.bubble")
-            } description: {
-                Text(String(
-                    localized: "home.emptyFeed.hint",
-                    defaultValue: "Здесь появятся публикации вуза, факультета и группы"
-                ))
-            } actions: {
-                Button(String(localized: "composer.title", defaultValue: "Новая публикация")) {
-                    composingPost = true
-                }
-                .glassProminentButton()
-            }
-            .frame(maxWidth: .infinity)
+            EmptyStateView(
+                title: String(localized: "home.emptyFeed", defaultValue: "В ленте пока пусто"),
+                symbol: "text.bubble",
+                hint: String(localized: "home.emptyFeed.hint", defaultValue: "Здесь появятся публикации вуза, факультета и группы"),
+                actionTitle: CommunityPostAudience.allowed(for: role).isEmpty
+                    ? nil : String(localized: "composer.title", defaultValue: "Новая публикация"),
+                action: { composingPost = true }
+            )
         } else {
             if let failure = feed.failure {
                 // Лента уже есть, обновление не удалось: показываем старое и честно
                 // говорим, что оно не свежее.
-                HStack(spacing: Spacing.md) {
-                    Image(systemName: feed.isOffline ? "wifi.slash" : "exclamationmark.triangle")
-                    Text(failure).lineLimit(2)
-                    Spacer(minLength: 0)
-                    Button(String(localized: "common.retry", defaultValue: "Повторить")) {
-                        Task { await feed.refresh() }
-                    }
-                    .font(Typography.meta.weight(.semibold))
-                }
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
-                .padding(Spacing.lg)
-                .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xxl, style: .continuous))
+                StaleDataBanner(message: failure, isOffline: feed.isOffline) { await feed.refresh() }
             }
 
             ForEach(feed.posts) { post in

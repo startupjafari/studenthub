@@ -7,6 +7,7 @@ import SwiftUI
 
 struct CommunityApplicationsList: View {
     @State private var status: String?
+    @State private var showsCatalog = false
     @State private var loader = PagedLoader<CommunityApplicationDTO>(limit: 30) { request in
         try await CommunityAPI().applications(page: request, status: nil)
     }
@@ -23,11 +24,6 @@ struct CommunityApplicationsList: View {
                 symbol: "doc.badge.plus"
             )
         ) {
-            Section {
-                NavigationLink(value: AppRoute.section(.serviceCatalog)) {
-                    Label(String(localized: "applications.new", defaultValue: "Заказать услугу"), systemImage: "plus.circle")
-                }
-            }
             FilterChipsRow(
                 options: [(nil, String(localized: "community.applications.all", defaultValue: "Все"))]
                     + Self.filters.map { (Optional($0), ApplicationStatus.title($0)) },
@@ -35,13 +31,14 @@ struct CommunityApplicationsList: View {
             )
         } row: { application in
             NavigationLink(value: AppRoute.application(id: application.id)) {
-                ListCardRow(
-                    title: application.serviceName,
-                    subtitle: application.number.map { "№ \($0)" },
-                    status: (ApplicationStatus.title(application.status), CommunityApplicationText.tint(application.status)),
-                    lines: [DisplayFormat.date(application.submittedAt ?? application.createdAt)]
-                )
+                CommunityApplicationRow(application: application)
             }
+        }
+        .floatingAction(String(localized: "applications.new", defaultValue: "Заказать услугу"), symbol: "plus") {
+            showsCatalog = true
+        }
+        .navigationDestination(isPresented: $showsCatalog) {
+            CommunityServiceCatalog()
         }
         .navigationTitle(Text(String(localized: "more.applications", defaultValue: "Заявки")))
         .onChange(of: status) { _, next in
@@ -53,7 +50,36 @@ struct CommunityApplicationsList: View {
     }
 }
 
+/// Строка заявки как строка чата: значок по статусу, услуга, дата справа, номер
+/// ниже и плашка статуса.
+struct CommunityApplicationRow: View {
+    let application: CommunityApplicationDTO
+
+    var body: some View {
+        TelegramStyleRow(
+            title: application.serviceName,
+            subtitle: application.number.map { "№ \($0)" } ?? String(localized: "applications.draft", defaultValue: "Черновик"),
+            meta: DisplayFormat.date(application.submittedAt ?? application.createdAt)
+        ) {
+            RowSymbol(symbol: CommunityApplicationText.symbol(application.status), tint: CommunityApplicationText.tint(application.status))
+        } accessory: {
+            StatusBadge(text: ApplicationStatus.title(application.status), tint: CommunityApplicationText.tint(application.status))
+        }
+    }
+}
+
 enum CommunityApplicationText {
+    static func symbol(_ status: String) -> String {
+        switch status {
+        case "DRAFT": return "doc.badge.ellipsis"
+        case "NEEDS_CORRECTION": return "exclamationmark.triangle.fill"
+        case "REJECTED", "CANCELLED": return "xmark"
+        case "READY", "READY_FOR_PICKUP": return "tray.full.fill"
+        case "ISSUED", "DELIVERED": return "checkmark"
+        default: return "doc.text.fill"
+        }
+    }
+
     static func tint(_ status: String) -> Color {
         switch status {
         case "NEEDS_CORRECTION", "REJECTED": return Palette.destructive
@@ -124,22 +150,24 @@ struct CommunityServiceCatalog: View {
                     (category, category.services.filter { needle.isEmpty || $0.name.lowercased().contains(needle) })
                 }.filter { !$0.1.isEmpty }
                 if visible.isEmpty {
-                    EmptyRow(text: String(localized: "applications.noServices", defaultValue: "Вуз пока не завёл услуги"))
+                    EmptyStateView(
+                        title: needle.isEmpty
+                            ? String(localized: "applications.noServices", defaultValue: "Вуз пока не завёл услуги")
+                            : String(localized: "community.applications.noServiceFound", defaultValue: "Такой услуги нет"),
+                        symbol: "square.grid.2x2"
+                    )
+                    .listRowBackground(Color.clear)
                 }
                 ForEach(visible, id: \.0.id) { category, services in
                     Section {
                         ForEach(services) { service in
                             NavigationLink(value: AppRoute.service(id: service.id)) {
-                                VStack(alignment: .leading, spacing: Spacing.xs) {
-                                    Text(service.name).font(Typography.body).foregroundStyle(Palette.foreground)
-                                    if let details = service.details, !details.isEmpty {
-                                        Text(details).font(Typography.meta).foregroundStyle(Palette.mutedForeground).lineLimit(2)
-                                    }
-                                    if let hours = service.slaHours, hours > 0 {
-                                        Text(String(localized: "community.applications.sla", defaultValue: "Срок: \(CommunityApplicationText.days(hours))"))
-                                            .font(Typography.meta)
-                                            .foregroundStyle(Palette.mutedForeground)
-                                    }
+                                TelegramStyleRow(
+                                    title: service.name,
+                                    subtitle: service.details,
+                                    meta: service.slaHours.flatMap { $0 > 0 ? CommunityApplicationText.days($0) : nil }
+                                ) {
+                                    IconTile(symbol: "doc.text.fill", tint: TileTint.blue, size: 36)
                                 }
                             }
                         }
@@ -151,7 +179,11 @@ struct CommunityServiceCatalog: View {
             .listStyle(.insetGrouped)
         }
         .background(Palette.background)
-        .searchable(text: $search, prompt: Text(String(localized: "community.applications.searchService", defaultValue: "Найти услугу")))
+        .searchable(
+            text: $search,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: Text(String(localized: "community.applications.searchService", defaultValue: "Найти услугу"))
+        )
         .navigationTitle(Text(String(localized: "applications.catalog", defaultValue: "Каталог услуг")))
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -268,15 +300,21 @@ struct CommunityApplicationForm: View {
                     .listRowInsets(EdgeInsets())
             }
             if let service {
-                Section {
-                    Text(service.name).font(Typography.sectionTitle)
-                    if let details = service.details, !details.isEmpty {
-                        Text(details).font(Typography.body).foregroundStyle(Palette.mutedForeground)
+                HeroHeader(
+                    visual: .symbol("doc.text.fill", tint: TileTint.blue),
+                    title: service.name,
+                    subtitle: service.slaHours.flatMap { hours in
+                        hours > 0 ? String(localized: "community.applications.sla", defaultValue: "Срок: \(CommunityApplicationText.days(hours))") : nil
                     }
-                    if let hours = service.slaHours, hours > 0 {
-                        Label(String(localized: "community.applications.sla", defaultValue: "Срок: \(CommunityApplicationText.days(hours))"), systemImage: "clock")
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.mutedForeground)
+                )
+                if let details = service.details, !details.isEmpty {
+                    Section {
+                        Text(details)
+                            .font(Typography.body)
+                            .foregroundStyle(Palette.foreground)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } header: {
+                        Text(String(localized: "community.applications.aboutService", defaultValue: "Об услуге"))
                     }
                 }
 
@@ -464,20 +502,16 @@ struct CommunityApplicationDetail: View {
 
     private func content(_ application: CommunityApplicationDTO) -> some View {
         List {
+            HeroHeader(
+                visual: .symbol(CommunityApplicationText.symbol(application.status), tint: CommunityApplicationText.tint(application.status)),
+                title: application.serviceName,
+                subtitle: application.number.map { "№ \($0)" } ?? String(localized: "applications.draft", defaultValue: "Черновик"),
+                actions: heroActions(application)
+            ) {
+                StatusBadge(text: ApplicationStatus.title(application.status), tint: CommunityApplicationText.tint(application.status))
+            }
+
             Section {
-                VStack(alignment: .leading, spacing: Spacing.sm) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(application.serviceName)
-                            .font(Typography.sectionTitle)
-                            .foregroundStyle(Palette.foreground)
-                        Spacer(minLength: Spacing.md)
-                        StatusBadge(text: ApplicationStatus.title(application.status), tint: CommunityApplicationText.tint(application.status))
-                    }
-                    Text(application.number.map { "№ \($0)" } ?? String(localized: "applications.draft", defaultValue: "Черновик"))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
-                }
-                .padding(.vertical, Spacing.xs)
                 if let delivery = application.deliveryType {
                     DetailRow(title: String(localized: "community.applications.delivery", defaultValue: "Как получить"), value: CommunityApplicationText.delivery(delivery))
                 }
@@ -511,6 +545,7 @@ struct CommunityApplicationDetail: View {
             actions(application)
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
         .refreshable { await load() }
     }
 
@@ -527,11 +562,6 @@ struct CommunityApplicationDetail: View {
                 } else {
                     ForEach(fields) { field in
                         DetailRow(title: field.label, value: CommunityApplicationText.answer(data[field.code], field: field))
-                    }
-                }
-                if editable, !fields.isEmpty {
-                    Button(String(localized: "community.applications.editAnswers", defaultValue: "Изменить ответы")) {
-                        editingAnswers = true
                     }
                 }
             } header: {
@@ -658,13 +688,21 @@ struct CommunityApplicationDetail: View {
         if let events = application.events, !events.isEmpty {
             Section {
                 ForEach(events.reversed()) { event in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(CommunityApplicationText.action(event)).font(Typography.body)
-                        if let comment = event.comment, !comment.isEmpty {
-                            Text(comment).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
+                    HStack(alignment: .top, spacing: Spacing.lg) {
+                        Circle()
+                            .fill(event.toStatus.map(CommunityApplicationText.tint) ?? Palette.mutedForeground)
+                            .frame(width: 8, height: 8)
+                            .padding(.top, 7)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(CommunityApplicationText.action(event)).font(Typography.body)
+                            if let comment = event.comment, !comment.isEmpty {
+                                Text(comment).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
+                            }
+                            Text(DisplayFormat.dateTime(event.createdAt)).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
                         }
-                        Text(DisplayFormat.dateTime(event.createdAt)).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
                     }
+                    .accessibilityElement(children: .combine)
                 }
             } header: {
                 Text(String(localized: "applications.history", defaultValue: "История"))
@@ -672,31 +710,41 @@ struct CommunityApplicationDetail: View {
         }
     }
 
+    /// Главное действие заявки — кругом под шапкой: подать, подать снова, поправить анкету.
+    private func heroActions(_ application: CommunityApplicationDTO) -> [HeroAction] {
+        var actions: [HeroAction] = []
+        if application.status == "DRAFT" {
+            actions.append(HeroAction(
+                title: String(localized: "applications.submit", defaultValue: "Подать заявку"),
+                symbol: "paperplane.fill"
+            ) { Task { await run { try await api.submitApplication(id: applicationID) } } })
+        }
+        if application.status == "NEEDS_CORRECTION" {
+            actions.append(HeroAction(
+                title: String(localized: "community.applications.resubmit", defaultValue: "Подать повторно"),
+                symbol: "arrow.clockwise"
+            ) { Task { await run { try await api.resubmitApplication(id: applicationID) } } })
+        }
+        if editable, !(application.service?.formFields ?? []).isEmpty {
+            actions.append(HeroAction(
+                title: String(localized: "community.applications.editAnswers", defaultValue: "Изменить ответы"),
+                symbol: "pencil"
+            ) { editingAnswers = true })
+        }
+        return actions
+    }
+
+    /// Отмена — отдельной красной секцией внизу, подальше от «Подать».
     @ViewBuilder
     private func actions(_ application: CommunityApplicationDTO) -> some View {
-        Section {
-            if application.status == "DRAFT" {
-                Button {
-                    Task { await run { try await api.submitApplication(id: applicationID) } }
-                } label: {
-                    Label(String(localized: "applications.submit", defaultValue: "Подать заявку"), systemImage: "paperplane")
-                }
-                .disabled(isBusy)
-            }
-            if application.status == "NEEDS_CORRECTION" {
-                Button {
-                    Task { await run { try await api.resubmitApplication(id: applicationID) } }
-                } label: {
-                    Label(String(localized: "community.applications.resubmit", defaultValue: "Подать повторно"), systemImage: "arrow.clockwise")
-                }
-                .disabled(isBusy)
-            }
-            if ApplicationStatus.isOpen(application.status), !["READY", "READY_FOR_PICKUP"].contains(application.status) {
+        if ApplicationStatus.isOpen(application.status), !["READY", "READY_FOR_PICKUP"].contains(application.status) {
+            Section {
                 Button(role: .destructive) {
                     cancelReason = ""
                     cancelling = true
                 } label: {
-                    Label(String(localized: "community.applications.cancel", defaultValue: "Отменить заявку"), systemImage: "xmark.circle")
+                    Text(String(localized: "community.applications.cancel", defaultValue: "Отменить заявку"))
+                        .foregroundStyle(Palette.destructive)
                 }
                 .disabled(isBusy)
             }
@@ -716,6 +764,7 @@ struct CommunityApplicationDetail: View {
 
     @MainActor
     private func run(_ action: () async throws -> Void) async {
+        guard !isBusy else { return }
         isBusy = true
         defer { isBusy = false }
         do {

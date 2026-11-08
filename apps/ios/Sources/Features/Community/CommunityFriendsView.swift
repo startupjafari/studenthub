@@ -41,14 +41,14 @@ struct CommunityFriendsView: View {
                 searchResults
             } else {
                 PagedList(loader: loader, empty: emptyState) {
-                    Picker(String(localized: "community.friends.tab", defaultValue: "Раздел"), selection: $tab) {
-                        Text(String(localized: "community.friends.all", defaultValue: "Друзья")).tag(Tab.friends)
-                        Text(incomingTitle).tag(Tab.incoming)
-                        Text(String(localized: "community.friends.outgoing", defaultValue: "Отправленные")).tag(Tab.outgoing)
-                    }
-                    .pickerStyle(.segmented)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
+                    FilterChipsRow(
+                        options: [
+                            (value: Tab.friends, title: String(localized: "community.friends.all", defaultValue: "Друзья")),
+                            (value: Tab.incoming, title: incomingTitle),
+                            (value: Tab.outgoing, title: String(localized: "community.friends.outgoing", defaultValue: "Отправленные")),
+                        ],
+                        selection: Binding(get: { tab }, set: { if let next = $0 { tab = next } })
+                    )
                 } row: { item in
                     row(item)
                 }
@@ -57,7 +57,12 @@ struct CommunityFriendsView: View {
         }
         .background(Palette.background)
         .navigationTitle(Text(CommunityScreen.friends(userID: nil).title))
-        .searchable(text: $query, prompt: Text(String(localized: "community.friends.search", defaultValue: "Найти людей")))
+        .navigationBarTitleDisplayMode(.inline)
+        .searchable(
+            text: $query,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: Text(String(localized: "community.friends.search", defaultValue: "Найти людей"))
+        )
         .task(id: query) { await search() }
         .task { counts = try? await api.friendCounts() }
         .confirmDestructive(
@@ -109,12 +114,44 @@ struct CommunityFriendsView: View {
 
     @ViewBuilder
     private func row(_ item: CommunityFriendDTO) -> some View {
-        NavigationLink(value: AppRoute.profile(id: item.user.id)) {
-            PersonRow(
-                name: item.user.name,
-                subtitle: item.user.headline ?? item.user.role.flatMap(Role.init(rawValue:))?.profileTitle,
-                avatarURL: item.user.avatar
-            )
+        HStack(spacing: Spacing.md) {
+            NavigationLink(value: AppRoute.profile(id: item.user.id)) {
+                PersonRow(
+                    name: item.user.name,
+                    subtitle: item.user.headline ?? item.user.role.flatMap(Role.init(rawValue:))?.profileTitle,
+                    avatarURL: item.user.avatar,
+                    size: 44
+                )
+            }
+            // Входящие заявки решаются прямо в строке, как в Telegram, — свайп остаётся
+            // для тех, кто привык к нему.
+            if tab == .incoming {
+                Button {
+                    Task { await perform(item, in: incoming) { try await api.removeFriendship(id: item.friendshipId) } }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Palette.mutedForeground)
+                        .frame(width: ControlHeight.md, height: ControlHeight.md)
+                        .background(Palette.muted, in: Circle())
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(Text(String(localized: "friends.decline", defaultValue: "Отклонить")))
+                Button {
+                    Task {
+                        await perform(item, in: incoming) { try await api.acceptFriendship(id: item.friendshipId) }
+                        await friends.reload()
+                    }
+                } label: {
+                    Image(systemName: "checkmark")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Palette.primaryForeground)
+                        .frame(width: ControlHeight.md, height: ControlHeight.md)
+                        .background(Palette.primary, in: Circle())
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(Text(String(localized: "friends.accept", defaultValue: "Принять")))
+            }
         }
         .swipeActions {
             switch tab {
@@ -164,23 +201,35 @@ struct CommunityFriendsView: View {
     private var searchResults: some View {
         List {
             if found.isEmpty {
-                EmptyRow(text: query.trimmingCharacters(in: .whitespaces).count < 2
-                    ? String(localized: "search.hint", defaultValue: "Введите хотя бы две буквы")
-                    : String(localized: "search.empty", defaultValue: "Никого не нашли"))
+                EmptyStateView(
+                    title: query.trimmingCharacters(in: .whitespaces).count < 2
+                        ? String(localized: "search.hint", defaultValue: "Введите хотя бы две буквы")
+                        : String(localized: "search.empty", defaultValue: "Никого не нашли"),
+                    symbol: "magnifyingglass"
+                )
+                .listRowBackground(Color.clear)
             }
             ForEach(found.filter { $0.id != viewerID }) { person in
-                HStack {
+                HStack(spacing: Spacing.md) {
                     NavigationLink(value: AppRoute.profile(id: person.id)) {
-                        PersonRow(name: person.name, subtitle: person.username.map { "@\($0)" }, avatarURL: person.avatarUrl)
+                        PersonRow(name: person.name, subtitle: person.username.map { "@\($0)" }, avatarURL: person.avatarUrl, size: 44)
                     }
+                    let isRequested = requested.contains(person.id)
                     Button {
                         Task { await add(person) }
                     } label: {
-                        Image(systemName: requested.contains(person.id) ? "checkmark" : "person.badge.plus")
+                        Image(systemName: isRequested ? "checkmark" : "person.badge.plus")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(isRequested ? Palette.mutedForeground : Palette.primaryForeground)
+                            .frame(width: ControlHeight.md, height: ControlHeight.md)
+                            .background(isRequested ? Palette.muted : Palette.primary, in: Circle())
                     }
                     .buttonStyle(.borderless)
-                    .disabled(requested.contains(person.id))
-                    .accessibilityLabel(Text(String(localized: "profile.friends.add", defaultValue: "Добавить")))
+                    .disabled(isRequested)
+                    .sensoryFeedback(.success, trigger: isRequested)
+                    .accessibilityLabel(Text(isRequested
+                        ? String(localized: "profile.friends.pending", defaultValue: "Заявка отправлена")
+                        : String(localized: "profile.friends.add", defaultValue: "Добавить")))
                 }
             }
         }

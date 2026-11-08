@@ -65,6 +65,21 @@ struct CommunityDisabledSectionView: View {
     }
 }
 
+// MARK: - Кнопка создания
+
+extension View {
+    /// Плавающая кнопка создания, если роли действие доступно: `.floatingAction` без
+    /// ветвлений в каждом экране соцчасти.
+    @ViewBuilder
+    func communityFloatingAction(_ isShown: Bool, _ title: String, symbol: String = "plus", action: @escaping () -> Void) -> some View {
+        if isShown {
+            floatingAction(title, symbol: symbol, action: action)
+        } else {
+            self
+        }
+    }
+}
+
 // MARK: - Выбор человека
 
 /// Поиск человека по имени или логину — для упоминания, адресата, доступа к документу.
