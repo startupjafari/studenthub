@@ -1072,23 +1072,6 @@
         }
       }
     },
-    "campus.floor": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Этаж"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Қабат"
-          }
-        }
-      }
-    },
     "campus.floorNamed": {
       "extractionState": "manual",
       "localizations": {
@@ -4676,23 +4659,6 @@
         }
       }
     },
-    "courses.code": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Код"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Коды"
-          }
-        }
-      }
-    },
     "courses.credits": {
       "extractionState": "manual",
       "localizations": {
@@ -4859,23 +4825,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Пәнді табу"
-          }
-        }
-      }
-    },
-    "courses.subject": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Дисциплина"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Пән"
           }
         }
       }
@@ -6236,23 +6185,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Барлық жарияланым осы"
-          }
-        }
-      }
-    },
-    "home.feedFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ленту не удалось загрузить"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Лентаны жүктеу мүмкін болмады"
           }
         }
       }
@@ -9487,23 +9419,6 @@
         }
       }
     },
-    "profile.removeMedia": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удалить…"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Жою…"
-          }
-        }
-      }
-    },
     "profile.skills": {
       "extractionState": "manual",
       "localizations": {
@@ -10061,23 +9976,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Жұп апта"
-          }
-        }
-      }
-    },
-    "schedule.mode": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Режим"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Режим"
           }
         }
       }
@@ -18166,23 +18064,6 @@
         }
       }
     },
-    "starosta.invites.createdAt": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Создано %@"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Құрылды %@"
-          }
-        }
-      }
-    },
     "starosta.invites.status.pending": {
       "extractionState": "manual",
       "localizations": {
@@ -21872,23 +21753,6 @@
         }
       }
     },
-    "dean.analytics.reason": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Причина"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Себебі"
-          }
-        }
-      }
-    },
     "dean.analytics.allReasons": {
       "extractionState": "manual",
       "localizations": {
@@ -23351,40 +23215,6 @@
         }
       }
     },
-    "dean.group.year": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Год набора"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Қабылдау жылы"
-          }
-        }
-      }
-    },
-    "dean.group.students": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Студентов"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Студенттер"
-          }
-        }
-      }
-    },
     "dean.group.noStarosta": {
       "extractionState": "manual",
       "localizations": {
@@ -23840,40 +23670,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Тіркемелер: %@"
-          }
-        }
-      }
-    },
-    "admin.posts.comments": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Комментариев: %@"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Пікірлер: %@"
-          }
-        }
-      }
-    },
-    "admin.posts.views": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Просмотров: %@"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Қаралымдар: %@"
           }
         }
       }
@@ -24384,23 +24180,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ дейін жарамды"
-          }
-        }
-      }
-    },
-    "admin.invites.created": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Создано %@"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Құрылды %@"
           }
         }
       }
@@ -26445,23 +26224,6 @@
         }
       }
     },
-    "admin.users.role": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Роль"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Рөл"
-          }
-        }
-      }
-    },
     "admin.users.allRoles": {
       "extractionState": "manual",
       "localizations": {
@@ -26870,23 +26632,6 @@
         }
       }
     },
-    "admin.user.university": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вуз"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Оқу орны"
-          }
-        }
-      }
-    },
     "admin.user.complaints": {
       "extractionState": "manual",
       "localizations": {
@@ -27053,23 +26798,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "2FA қалпына келтіру"
-          }
-        }
-      }
-    },
-    "admin.user.actions": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Действия"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Әрекеттер"
           }
         }
       }
@@ -27550,23 +27278,6 @@
         }
       }
     },
-    "admin.complaint.date": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Дата"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Күні"
-          }
-        }
-      }
-    },
     "admin.complaint.reports": {
       "extractionState": "manual",
       "localizations": {
@@ -27682,23 +27393,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Қарауға алу"
-          }
-        }
-      }
-    },
-    "admin.complaint.reopen": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вернуть в очередь"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Кезекке қайтару"
           }
         }
       }
@@ -27835,23 +27529,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Неге шағымданды"
-          }
-        }
-      }
-    },
-    "admin.complaint.hideChat": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Скрыть переписку"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Чатты жасыру"
           }
         }
       }
@@ -28226,23 +27903,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "шағым авторы"
-          }
-        }
-      }
-    },
-    "admin.complaint.messageDeleted": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сообщение удалено"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Хабарлама жойылды"
           }
         }
       }
@@ -29624,74 +29284,6 @@
         }
       }
     },
-    "admin.support.author": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Автор"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Авторы"
-          }
-        }
-      }
-    },
-    "admin.support.role": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Роль"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Рөл"
-          }
-        }
-      }
-    },
-    "admin.support.university": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вуз"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Оқу орны"
-          }
-        }
-      }
-    },
-    "admin.support.handledBy": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Разбирает"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Қарап жатыр"
-          }
-        }
-      }
-    },
     "admin.support.you": {
       "extractionState": "manual",
       "localizations": {
@@ -29705,23 +29297,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "сіз"
-          }
-        }
-      }
-    },
-    "admin.support.nobody": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Никто — обращение свободно"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ешкім — өтініш бос"
           }
         }
       }
@@ -29760,40 +29335,6 @@
         }
       }
     },
-    "admin.support.createdAt": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Создано"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Құрылды"
-          }
-        }
-      }
-    },
-    "admin.support.merged": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Склеено обращений"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Біріктірілген өтініштер"
-          }
-        }
-      }
-    },
     "admin.support.showEarlier": {
       "extractionState": "manual",
       "localizations": {
@@ -29807,23 +29348,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ертерек хабарламаларды көрсету"
-          }
-        }
-      }
-    },
-    "admin.support.thread": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Переписка"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Хат алмасу"
           }
         }
       }
@@ -30508,23 +30032,6 @@
         }
       }
     },
-    "admin.university.inviteAdmin": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Пригласить администратора вуза"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ЖОО әкімшісін шақыру"
-          }
-        }
-      }
-    },
     "admin.university.deleteHint": {
       "extractionState": "manual",
       "localizations": {
@@ -30793,23 +30300,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Бұрынғы сілтеме жұмыс істемейтін болады. Жаңа хат %@ мекенжайына жіберіледі."
-          }
-        }
-      }
-    },
-    "admin.demo.createdAt": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Подана"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Берілген"
           }
         }
       }
@@ -31154,40 +30644,6 @@
         }
       }
     },
-    "admin.audit.action": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Действие"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Әрекет"
-          }
-        }
-      }
-    },
-    "admin.audit.time": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Время"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Уақыт"
-          }
-        }
-      }
-    },
     "admin.audit.entity": {
       "extractionState": "manual",
       "localizations": {
@@ -31286,23 +30742,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Толығырақ"
-          }
-        }
-      }
-    },
-    "community.profile.more": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Моё"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Менікі"
           }
         }
       }
@@ -31596,23 +31035,6 @@
         }
       }
     },
-    "teaching.assignments.due": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Срок: %@"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Мерзімі: %@"
-          }
-        }
-      }
-    },
     "teaching.assignments.noDue": {
       "extractionState": "manual",
       "localizations": {
@@ -31817,23 +31239,6 @@
         }
       }
     },
-    "teaching.assignments.maxScore": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Макс. балл: %@"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Макс. балл: %@"
-          }
-        }
-      }
-    },
     "teaching.submissions.empty": {
       "extractionState": "manual",
       "localizations": {
@@ -31885,23 +31290,6 @@
         }
       }
     },
-    "teaching.submissions.submittedAt": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сдано: %@"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Тапсырылды: %@"
-          }
-        }
-      }
-    },
     "teaching.submissions.score": {
       "extractionState": "manual",
       "localizations": {
@@ -31915,23 +31303,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Балл: %@"
-          }
-        }
-      }
-    },
-    "teaching.submissions.status": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Статус"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Күйі"
           }
         }
       }
@@ -32259,23 +31630,6 @@
         }
       }
     },
-    "teaching.attendance.date": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Дата"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Күні"
-          }
-        }
-      }
-    },
     "teaching.attendance.noPairs": {
       "extractionState": "manual",
       "localizations": {
@@ -32595,23 +31949,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Пәнсіз"
-          }
-        }
-      }
-    },
-    "teaching.materials.openLink": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Открыть ссылку"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сілтемені ашу"
           }
         }
       }
@@ -34877,23 +34214,6 @@
         }
       }
     },
-    "teaching.exams.group": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Группа"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Топ"
-          }
-        }
-      }
-    },
     "teaching.exams.date": {
       "extractionState": "manual",
       "localizations": {
@@ -35026,23 +34346,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Студентті табу"
-          }
-        }
-      }
-    },
-    "teaching.actions": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Действия"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Әрекеттер"
           }
         }
       }
@@ -35502,23 +34805,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Макс. балл: %@"
-          }
-        }
-      }
-    },
-    "teaching.gradebook.graded": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Оценено: %@ из %@"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%2$@ ішінен %1$@ бағаланды"
           }
         }
       }
@@ -37818,23 +37104,6 @@
         }
       }
     },
-    "student.attendance.lessons": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Занятий"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сабақтар"
-          }
-        }
-      }
-    },
     "student.attendance.noRecords": {
       "extractionState": "manual",
       "localizations": {
@@ -37882,23 +37151,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Сабақ"
-          }
-        }
-      }
-    },
-    "student.calendar.view": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вид"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Көрініс"
           }
         }
       }
@@ -38617,23 +37869,6 @@
         }
       }
     },
-    "student.exams.period": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Период"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Кезең"
-          }
-        }
-      }
-    },
     "student.exams.upcoming": {
       "extractionState": "manual",
       "localizations": {
@@ -38715,23 +37950,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Емтихандар мен сессия"
-          }
-        }
-      }
-    },
-    "student.exams.format": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Формат"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Пішімі"
           }
         }
       }
@@ -40589,23 +39807,6 @@
         }
       }
     },
-    "community.myPosts.status": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Статус"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Күйі"
-          }
-        }
-      }
-    },
     "community.myPosts.drafts": {
       "extractionState": "manual",
       "localizations": {
@@ -41507,23 +40708,6 @@
         }
       }
     },
-    "community.documents.section": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Раздел"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Бөлім"
-          }
-        }
-      }
-    },
     "community.documents.mine": {
       "extractionState": "manual",
       "localizations": {
@@ -41605,23 +40789,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Сізге әзірге ештеңе ашылмаған"
-          }
-        }
-      }
-    },
-    "community.documents.expires": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Действует до %@"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ дейін жарамды"
           }
         }
       }
@@ -43462,23 +42629,6 @@
         }
       }
     },
-    "community.university.tab": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Раздел"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Бөлім"
-          }
-        }
-      }
-    },
     "community.university.founded": {
       "extractionState": "manual",
       "localizations": {
@@ -43734,23 +42884,6 @@
         }
       }
     },
-    "community.event.joinMeeting": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Подключиться к встрече"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Кездесуге қосылу"
-          }
-        }
-      }
-    },
     "community.event.unregister": {
       "extractionState": "manual",
       "localizations": {
@@ -43798,23 +42931,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Кім жазылды"
-          }
-        }
-      }
-    },
-    "community.event.actions": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Действия с событием"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Іс-шарамен әрекеттер"
           }
         }
       }
@@ -44155,23 +43271,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Кіру коды"
-          }
-        }
-      }
-    },
-    "community.articles.shelf": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Раздел"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Бөлім"
           }
         }
       }
@@ -44856,23 +43955,6 @@
         }
       }
     },
-    "community.friends.tab": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Раздел"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Бөлім"
-          }
-        }
-      }
-    },
     "community.friends.all": {
       "extractionState": "manual",
       "localizations": {
@@ -45366,40 +44448,6 @@
         }
       }
     },
-    "staff.event.participantsCount": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Участников: %@"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Қатысушылар: %@"
-          }
-        }
-      }
-    },
-    "staff.event.organizer": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Организатор: %@"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ұйымдастырушы: %@"
-          }
-        }
-      }
-    },
     "staff.event.finished": {
       "extractionState": "manual",
       "localizations": {
@@ -45430,23 +44478,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Қосылу"
-          }
-        }
-      }
-    },
-    "staff.event.cancelRegistration": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Отменить участие"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Қатысудан бас тарту"
           }
         }
       }
@@ -46433,23 +45464,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Журнал"
-          }
-        }
-      }
-    },
-    "staff.sec.result": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Результат"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Нәтиже"
           }
         }
       }
@@ -56246,23 +55260,6 @@
         }
       }
     },
-    "staff.svc.active": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Активна"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Белсенді"
-          }
-        }
-      }
-    },
     "staff.svc.inactive": {
       "extractionState": "manual",
       "localizations": {
@@ -58541,23 +57538,6 @@
         }
       }
     },
-    "security.visitor.entered": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вход: %@"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Кіру: %@"
-          }
-        }
-      }
-    },
     "security.visitor.exited": {
       "extractionState": "manual",
       "localizations": {
@@ -58843,23 +57823,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Жапсырмадағы кодты енгізу"
-          }
-        }
-      }
-    },
-    "security.rooms.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Справочник помещений вуза. Название открывает, что в помещении сейчас."
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Университет бөлмелерінің анықтамалығы. Атауын бассаңыз, бөлмеде қазір не болып жатқаны ашылады."
           }
         }
       }
@@ -63352,23 +62315,6 @@
         }
       }
     },
-    "career.company.badge": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Страница компании"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Компания беті"
-          }
-        }
-      }
-    },
     "career.company.about": {
       "extractionState": "manual",
       "localizations": {
@@ -66276,23 +65222,6 @@
         }
       }
     },
-    "career.company.logo": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Загрузить логотип"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Логотип жүктеу"
-          }
-        }
-      }
-    },
     "career.company.removeLogo": {
       "extractionState": "manual",
       "localizations": {
@@ -66306,23 +65235,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Логотипті жою"
-          }
-        }
-      }
-    },
-    "career.company.cover": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Загрузить обложку"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Мұқаба жүктеу"
           }
         }
       }
@@ -67925,40 +66837,6 @@
         }
       }
     },
-    "career.resume.pdf": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Скачать PDF"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "PDF жүктеу"
-          }
-        }
-      }
-    },
-    "career.resume.updated": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Обновлено"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Жаңартылды"
-          }
-        }
-      }
-    },
     "career.resume.publicTitle": {
       "extractionState": "manual",
       "localizations": {
@@ -68673,23 +67551,6 @@
         }
       }
     },
-    "student.assignments.tabs": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Статус"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Күйі"
-          }
-        }
-      }
-    },
     "student.assignments.tabEmpty": {
       "extractionState": "manual",
       "localizations": {
@@ -68788,23 +67649,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Макс. балл"
-          }
-        }
-      }
-    },
-    "student.assignment.type": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Тип"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Түрі"
           }
         }
       }
@@ -69489,23 +68333,6 @@
         }
       }
     },
-    "community.events.scope": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Раздел"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Бөлім"
-          }
-        }
-      }
-    },
     "community.events.upcoming": {
       "extractionState": "manual",
       "localizations": {
@@ -69978,23 +68805,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Алдағы емтихандар"
-          }
-        }
-      }
-    },
-    "uadmin.analytics.slice": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Разрез"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Қима"
           }
         }
       }
@@ -71372,23 +70182,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "«%@» жою керек пе?"
-          }
-        }
-      }
-    },
-    "uadmin.courses.tab": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Раздел"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Бөлім"
           }
         }
       }
@@ -80233,23 +79026,6 @@
         }
       }
     },
-    "librarian.close": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Закрыть"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Жабу"
-          }
-        }
-      }
-    },
     "librarian.book.saved": {
       "extractionState": "manual",
       "localizations": {
@@ -80382,23 +79158,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Жапсырмаларға таңдау"
-          }
-        }
-      }
-    },
-    "librarian.book.printAll": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Наклейки всех экземпляров"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Барлық даналардың жапсырмалары"
           }
         }
       }
@@ -80807,23 +79566,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Дананы өзгерту"
-          }
-        }
-      }
-    },
-    "librarian.copy.printOne": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Напечатать наклейку"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Жапсырманы басып шығару"
           }
         }
       }
@@ -83140,23 +81882,6 @@
         }
       }
     },
-    "librarian.clear.issued": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Выдана %@"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ берілді"
-          }
-        }
-      }
-    },
     "librarian.clear.codePlaceholder": {
       "extractionState": "manual",
       "localizations": {
@@ -84245,23 +82970,6 @@
         }
       }
     },
-    "librarian.issuedOn": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Выдана %@ · %@"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Берілді %@ · %@"
-          }
-        }
-      }
-    },
     "librarian.renewed": {
       "extractionState": "manual",
       "localizations": {
@@ -84857,40 +83565,6 @@
         }
       }
     },
-    "librarian.reader.group": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Группа"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Топ"
-          }
-        }
-      }
-    },
-    "librarian.issue.ticketUntil": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Пропуск на выдачу действует до %@"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Беруге рұқсат %@ дейін жарамды"
-          }
-        }
-      }
-    },
     "librarian.issue.noPhoneWarning": {
       "extractionState": "manual",
       "localizations": {
@@ -85299,23 +83973,6 @@
         }
       }
     },
-    "librarian.res.createdOn": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Бронь от %@"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ броні"
-          }
-        }
-      }
-    },
     "librarian.inv.since": {
       "extractionState": "manual",
       "localizations": {
@@ -85720,23 +84377,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Дана жапсырмасы"
-          }
-        }
-      }
-    },
-    "consultations.range": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Период"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Кезең"
           }
         }
       }
@@ -87692,6 +86332,3576 @@
           "stringUnit": {
             "state": "translated",
             "value": "талап етеді: %@, көрсетті: %@"
+          }
+        }
+      }
+    },
+    "starosta.group.membersCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Участников: %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қатысушылар: %@"
+          }
+        }
+      }
+    },
+    "starosta.group.documents": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Документы"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Құжаттар"
+          }
+        }
+      }
+    },
+    "dean.contact.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Написать"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жазу"
+          }
+        }
+      }
+    },
+    "dean.appointments.topic": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тема"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тақырып"
+          }
+        }
+      }
+    },
+    "dean.appointments.assigned": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Принимает"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қабылдайды"
+          }
+        }
+      }
+    },
+    "dean.appointments.card": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запись"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жазылу"
+          }
+        }
+      }
+    },
+    "dean.student.openGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Карточка группы"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Топ картасы"
+          }
+        }
+      }
+    },
+    "dean.courses.noTeacherShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Без преподавателя"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оқытушысыз"
+          }
+        }
+      }
+    },
+    "dean.sort.defaultShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По умолчанию"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Әдепкі бойынша"
+          }
+        }
+      }
+    },
+    "dean.sort.createdShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По дате"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Күні бойынша"
+          }
+        }
+      }
+    },
+    "dean.contact.profile": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть профиль"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Профильді ашу"
+          }
+        }
+      }
+    },
+    "dean.student.courseShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ курс"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ курс"
+          }
+        }
+      }
+    },
+    "dean.contact.call": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Позвонить"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қоңырау шалу"
+          }
+        }
+      }
+    },
+    "dean.contact.mail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Почта"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пошта"
+          }
+        }
+      }
+    },
+    "dean.student.noAcademic": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Учебные данные не заполнены"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оқу деректері толтырылмаған"
+          }
+        }
+      }
+    },
+    "dean.exams.periodOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включён"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қосулы"
+          }
+        }
+      }
+    },
+    "dean.exams.periodOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выключен"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Өшірулі"
+          }
+        }
+      }
+    },
+    "dean.roster.students": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Студенты"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Студенттер"
+          }
+        }
+      }
+    },
+    "dean.roster.group": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Группа"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Топ"
+          }
+        }
+      }
+    },
+    "dean.roster.maxShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Макс. %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Макс. %@"
+          }
+        }
+      }
+    },
+    "dean.more": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ещё"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тағы"
+          }
+        }
+      }
+    },
+    "dean.schedule.draftBadge": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Черновик"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жоба"
+          }
+        }
+      }
+    },
+    "dean.schedule.addPairDay": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить пару: %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сабақ қосу: %@"
+          }
+        }
+      }
+    },
+    "dean.group.scheduleShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расписание"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кесте"
+          }
+        }
+      }
+    },
+    "dean.group.attendanceShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Посещаемость"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қатысу"
+          }
+        }
+      }
+    },
+    "dean.group.studentsCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Студентов: %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Студент саны: %@"
+          }
+        }
+      }
+    },
+    "dean.group.yearShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Набор %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қабылдау %@"
+          }
+        }
+      }
+    },
+    "dean.group.riskCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Требуют внимания: %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Назар аудару керек: %@"
+          }
+        }
+      }
+    },
+    "dean.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновить"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жаңарту"
+          }
+        }
+      }
+    },
+    "admin.docs.files": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файлы"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файлдар"
+          }
+        }
+      }
+    },
+    "admin.docs.repeatHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подставить документ и причину в форму"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Құжат пен себепті пішінге қою"
+          }
+        }
+      }
+    },
+    "admin.bulk.readyCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Готово к созданию: %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Құруға дайын: %@"
+          }
+        }
+      }
+    },
+    "admin.users.emptySearch": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попробуйте другое имя или адрес"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Басқа атты немесе мекенжайды көріңіз"
+          }
+        }
+      }
+    },
+    "admin.user.write": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Написать"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жазу"
+          }
+        }
+      }
+    },
+    "admin.user.copyEmail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать email"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Email-ді көшіру"
+          }
+        }
+      }
+    },
+    "admin.user.unblockShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разблок."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бұғаттан шығ."
+          }
+        }
+      }
+    },
+    "admin.user.profileShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Профиль"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Профиль"
+          }
+        }
+      }
+    },
+    "admin.user.copyId": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать ID"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID-ді көшіру"
+          }
+        }
+      }
+    },
+    "admin.complaints.emptyHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новые жалобы появятся здесь сразу, как их отправят"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жаңа шағымдар жіберілген бойда осында пайда болады"
+          }
+        }
+      }
+    },
+    "admin.complaint.takeShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Взять"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Алу"
+          }
+        }
+      }
+    },
+    "admin.complaint.reasonTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Причина"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Себеп"
+          }
+        }
+      }
+    },
+    "admin.complaint.heroTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жалоба: %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шағым: %@"
+          }
+        }
+      }
+    },
+    "admin.complaint.reopenShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В очередь"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кезекке"
+          }
+        }
+      }
+    },
+    "admin.complaint.openTargetShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ашу"
+          }
+        }
+      }
+    },
+    "admin.complaint.chatShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переписка"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хат алмасу"
+          }
+        }
+      }
+    },
+    "admin.complaint.reporterShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заявитель"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шағымданушы"
+          }
+        }
+      }
+    },
+    "admin.complaint.resolvedAt": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Решено"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шешілді"
+          }
+        }
+      }
+    },
+    "admin.chat.deleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сообщение удалено"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хабарлама жойылды"
+          }
+        }
+      }
+    },
+    "admin.chat.today": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сегодня"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бүгін"
+          }
+        }
+      }
+    },
+    "admin.chat.yesterday": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вчера"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кеше"
+          }
+        }
+      }
+    },
+    "admin.support.openAuthor": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Профиль автора"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автор профилі"
+          }
+        }
+      }
+    },
+    "admin.support.replyPrefix": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поддержка: %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қолдау: %@"
+          }
+        }
+      }
+    },
+    "admin.support.handledByLine": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разбирает: %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қарап жатыр: %@"
+          }
+        }
+      }
+    },
+    "admin.support.createdLine": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Создано %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Құрылды: %@"
+          }
+        }
+      }
+    },
+    "admin.support.mergedLine": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Склеено обращений: %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Біріктірілген өтініштер: %@"
+          }
+        }
+      }
+    },
+    "admin.support.topicSet": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Указать тему"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тақырыпты көрсету"
+          }
+        }
+      }
+    },
+    "admin.university.inviteShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пригласить"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шақыру"
+          }
+        }
+      }
+    },
+    "admin.demo.mailShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Почта"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пошта"
+          }
+        }
+      }
+    },
+    "admin.demo.callShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Позвонить"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қоңырау шалу"
+          }
+        }
+      }
+    },
+    "admin.demo.submitted": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подана %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Берілді: %@"
+          }
+        }
+      }
+    },
+    "admin.demo.contactTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контакт"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Байланыс"
+          }
+        }
+      }
+    },
+    "admin.demo.universityTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вуз"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оқу орны"
+          }
+        }
+      }
+    },
+    "admin.demo.universityShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вуз"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оқу орны"
+          }
+        }
+      }
+    },
+    "admin.demo.siteShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сайт"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сайт"
+          }
+        }
+      }
+    },
+    "admin.audit.copyId": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать ID объекта"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нысан ID-ін көшіру"
+          }
+        }
+      }
+    },
+    "admin.audit.byUser": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кто: %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кім: %@"
+          }
+        }
+      }
+    },
+    "admin.audit.entryTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запись журнала"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Журнал жазбасы"
+          }
+        }
+      }
+    },
+    "profile.friends.cancelConfirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отозвать заявку в друзья?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Достыққа өтінішті қайтарып алу керек пе?"
+          }
+        }
+      }
+    },
+    "profile.friends.removeConfirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить из друзей?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Достардан жою керек пе?"
+          }
+        }
+      }
+    },
+    "profile.friends.cancelAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отозвать заявку"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Өтінішті қайтарып алу"
+          }
+        }
+      }
+    },
+    "profile.friends.removeAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить из друзей"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Достардан жою"
+          }
+        }
+      }
+    },
+    "profile.more": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ещё"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тағы"
+          }
+        }
+      }
+    },
+    "profile.usernameTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Имя пользователя"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пайдаланушы аты"
+          }
+        }
+      }
+    },
+    "profile.removeAvatar.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить фото профиля?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Профиль фотосын жою керек пе?"
+          }
+        }
+      }
+    },
+    "profile.removeCover.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить обложку?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мұқабаны жою керек пе?"
+          }
+        }
+      }
+    },
+    "deanery.section.active": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Действующие"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қолданыстағы"
+          }
+        }
+      }
+    },
+    "deanery.swipeHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Смахните запись влево, чтобы отменить её."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жазылуды болдырмау үшін оны солға сырғытыңыз."
+          }
+        }
+      }
+    },
+    "deanery.section.archive": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Архив"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мұрағат"
+          }
+        }
+      }
+    },
+    "deanery.detail.scheduled": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Назначено"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тағайындалды"
+          }
+        }
+      }
+    },
+    "deanery.detail.created": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запись создана"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жазылу құрылды"
+          }
+        }
+      }
+    },
+    "deanery.detail.topic": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "О чём вопрос"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сұрақ не туралы"
+          }
+        }
+      }
+    },
+    "deanery.detail.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ответ деканата"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Деканат жауабы"
+          }
+        }
+      }
+    },
+    "deanery.detail.staff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Принимает"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қабылдайды"
+          }
+        }
+      }
+    },
+    "deanery.detail.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запись"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жазылу"
+          }
+        }
+      }
+    },
+    "consultations.delete.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить свободное окно?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бос слотты жою керек пе?"
+          }
+        }
+      }
+    },
+    "consultations.cancel.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отменить консультацию?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Консультацияны болдырмау керек пе?"
+          }
+        }
+      }
+    },
+    "consultations.teacherProfile": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Профиль преподавателя"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оқытушы профилі"
+          }
+        }
+      }
+    },
+    "consultations.slots": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Окна"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Слоттар"
+          }
+        }
+      }
+    },
+    "consultations.bookHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите на свободное окно, чтобы записаться."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жазылу үшін бос слотты басыңыз."
+          }
+        }
+      }
+    },
+    "consultations.when": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қашан"
+          }
+        }
+      }
+    },
+    "consultations.where": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Где"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қайда"
+          }
+        }
+      }
+    },
+    "portfolio.delete.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить «{title}» из портфолио?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«{title}» портфолиодан жойылсын ба?"
+          }
+        }
+      }
+    },
+    "portfolio.openLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть ссылку"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сілтемені ашу"
+          }
+        }
+      }
+    },
+    "portfolio.shareLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поделиться ссылкой"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сілтемемен бөлісу"
+          }
+        }
+      }
+    },
+    "teaching.submissions.profile": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Профиль"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Профиль"
+          }
+        }
+      }
+    },
+    "teaching.materials.link": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ссылка"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сілтеме"
+          }
+        }
+      }
+    },
+    "teaching.materials.attachShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файл"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файл"
+          }
+        }
+      }
+    },
+    "student.grades.works": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Работы"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жұмыстар"
+          }
+        }
+      }
+    },
+    "student.attendance.lessonsCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Занятий: %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сабақтар: %@"
+          }
+        }
+      }
+    },
+    "schedule.today": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сегодня"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бүгін"
+          }
+        }
+      }
+    },
+    "community.applications.noServiceFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Такой услуги нет"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мұндай қызмет жоқ"
+          }
+        }
+      }
+    },
+    "community.applications.aboutService": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Об услуге"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қызмет туралы"
+          }
+        }
+      }
+    },
+    "community.documents.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ашу"
+          }
+        }
+      }
+    },
+    "community.documents.grantShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қолжетімділік"
+          }
+        }
+      }
+    },
+    "community.documents.numberTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Номер"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нөмір"
+          }
+        }
+      }
+    },
+    "community.documents.validUntil": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Действует до"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дейін жарамды"
+          }
+        }
+      }
+    },
+    "community.documents.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить документ"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Құжатты жою"
+          }
+        }
+      }
+    },
+    "community.university.site": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сайт"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сайт"
+          }
+        }
+      }
+    },
+    "community.university.mail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Почта"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пошта"
+          }
+        }
+      }
+    },
+    "community.university.call": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Позвонить"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қоңырау шалу"
+          }
+        }
+      }
+    },
+    "community.university.phone": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Телефон"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Телефон"
+          }
+        }
+      }
+    },
+    "community.university.address": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Адрес"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мекенжай"
+          }
+        }
+      }
+    },
+    "community.university.about": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "О вузе"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оқу орны туралы"
+          }
+        }
+      }
+    },
+    "community.event.about": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "О событии"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Іс-шара туралы"
+          }
+        }
+      }
+    },
+    "community.event.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить событие"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Іс-шараны жою"
+          }
+        }
+      }
+    },
+    "community.event.meeting": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Встреча"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кездесу"
+          }
+        }
+      }
+    },
+    "settings.myProfile": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мой профиль"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Менің профилім"
+          }
+        }
+      }
+    },
+    "settings.edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изм."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Өзг."
+          }
+        }
+      }
+    },
+    "staff.event.whenTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қашан"
+          }
+        }
+      }
+    },
+    "staff.event.whereTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Где"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қайда"
+          }
+        }
+      }
+    },
+    "staff.event.organizerTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Организатор"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ұйымдастырушы"
+          }
+        }
+      }
+    },
+    "staff.event.about": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Описание"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сипаттама"
+          }
+        }
+      }
+    },
+    "staff.event.cancelShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не пойду"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бармаймын"
+          }
+        }
+      }
+    },
+    "staff.dj.filterActor": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тек %@"
+          }
+        }
+      }
+    },
+    "staff.dj.filterOwner": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тек %@"
+          }
+        }
+      }
+    },
+    "staff.dj.ownerProfile": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Профиль владельца"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Иесінің профилі"
+          }
+        }
+      }
+    },
+    "staff.dj.filterShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фильтр"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сүзгі"
+          }
+        }
+      }
+    },
+    "staff.cat.allBooks": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все книги"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Барлық кітаптар"
+          }
+        }
+      }
+    },
+    "staff.cat.more": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Раздел и импорт"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бөлім және импорт"
+          }
+        }
+      }
+    },
+    "staff.cat.editShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменить"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Өзгерту"
+          }
+        }
+      }
+    },
+    "staff.cat.copiesShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экземпляры"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Даналар"
+          }
+        }
+      }
+    },
+    "staff.cat.labelsShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наклейки"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жапсырмалар"
+          }
+        }
+      }
+    },
+    "staff.app.takeShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Взять"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Алу"
+          }
+        }
+      }
+    },
+    "staff.app.studentProfile": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Профиль студента"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Студент профилі"
+          }
+        }
+      }
+    },
+    "staff.app.dueLine": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Срок: %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мерзімі: %@"
+          }
+        }
+      }
+    },
+    "staff.app.studentShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Студент"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Студент"
+          }
+        }
+      }
+    },
+    "staff.app.write": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Написать"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жазу"
+          }
+        }
+      }
+    },
+    "staff.tpl.generateShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сформировать"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жасау"
+          }
+        }
+      }
+    },
+    "staff.tpl.previewShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пример"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мысал"
+          }
+        }
+      }
+    },
+    "staff.tpl.publishShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Опубликовать"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жариялау"
+          }
+        }
+      }
+    },
+    "staff.tpl.uploadShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Загрузить"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жүктеу"
+          }
+        }
+      }
+    },
+    "security.call": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Позвонить"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қоңырау шалу"
+          }
+        }
+      }
+    },
+    "security.room.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновить"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жаңарту"
+          }
+        }
+      }
+    },
+    "career.company.siteShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сайт"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сайт"
+          }
+        }
+      }
+    },
+    "career.candidate.mail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Почта"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пошта"
+          }
+        }
+      }
+    },
+    "career.candidate.call": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Позвонить"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қоңырау шалу"
+          }
+        }
+      }
+    },
+    "career.employerVacancies.viewsShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ просм."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ қарау"
+          }
+        }
+      }
+    },
+    "career.profile.readinessBadge": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Готовность %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дайындық %@"
+          }
+        }
+      }
+    },
+    "career.company.logoShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Логотип"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Логотип"
+          }
+        }
+      }
+    },
+    "career.company.coverShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обложка"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мұқаба"
+          }
+        }
+      }
+    },
+    "career.company.pageShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Страница"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бет"
+          }
+        }
+      }
+    },
+    "career.vacancy.matchBadge": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Совпадение %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сәйкестік %@"
+          }
+        }
+      }
+    },
+    "career.vacancy.companyAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Компания"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Компания"
+          }
+        }
+      }
+    },
+    "career.resume.updatedShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновлено %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жаңартылды: %@"
+          }
+        }
+      }
+    },
+    "career.resume.publicBadge": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По ссылке"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сілтеме бойынша"
+          }
+        }
+      }
+    },
+    "career.resume.privateBadge": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только у вас"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тек сізде"
+          }
+        }
+      }
+    },
+    "career.resume.pdfShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF"
+          }
+        }
+      }
+    },
+    "schedule.oddWeekFull": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нечётная неделя"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тақ апта"
+          }
+        }
+      }
+    },
+    "schedule.evenWeekFull": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чётная неделя"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жұп апта"
+          }
+        }
+      }
+    },
+    "schedule.thisWeek": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта неделя"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Осы апта"
+          }
+        }
+      }
+    },
+    "schedule.nextWeek": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Следующая неделя"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Келесі апта"
+          }
+        }
+      }
+    },
+    "schedule.prevWeekAny": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предыдущая неделя"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Алдыңғы апта"
+          }
+        }
+      }
+    },
+    "schedule.now": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сейчас"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қазір"
+          }
+        }
+      }
+    },
+    "schedule.break": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перерыв %@ мин"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Үзіліс %@ мин"
+          }
+        }
+      }
+    },
+    "study.attendance.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отметьте всех присутствующими и поправьте исключения. Свайп по строке — быстрая отметка, нажатие на имя — примечание."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Барлығын қатысты деп белгілеп, ерекшеліктерді түзетіңіз. Жолды сырғыту — жылдам белгі, атты басу — ескертпе."
+          }
+        }
+      }
+    },
+    "student.assignment.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Описание"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сипаттама"
+          }
+        }
+      }
+    },
+    "lesson.time": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Время"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уақыт"
+          }
+        }
+      }
+    },
+    "lesson.action.map": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На карте"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Картада"
+          }
+        }
+      }
+    },
+    "courses.current": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Текущий семестр"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ағымдағы семестр"
+          }
+        }
+      }
+    },
+    "search.empty.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверьте написание или попробуйте другое слово"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Емлесін тексеріңіз немесе басқа сөзді көріңіз"
+          }
+        }
+      }
+    },
+    "notifications.empty.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Здесь появятся сообщения, изменения расписания и новости вуза"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мұнда хабарламалар, кесте өзгерістері және оқу орны жаңалықтары пайда болады"
+          }
+        }
+      }
+    },
+    "notifications.markRead": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прочитано"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оқылды"
+          }
+        }
+      }
+    },
+    "notifications.settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройки уведомлений"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хабарлама баптаулары"
+          }
+        }
+      }
+    },
+    "notifications.unread": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не прочитано"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оқылмаған"
+          }
+        }
+      }
+    },
+    "library.filter": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фильтр"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сүзгі"
+          }
+        }
+      }
+    },
+    "library.aboutBook": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "О книге"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кітап туралы"
+          }
+        }
+      }
+    },
+    "library.fieldAuthors": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Авторы"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Авторлар"
+          }
+        }
+      }
+    },
+    "uadmin.cameras.deleteCamera": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить камеру"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Камераны жою"
+          }
+        }
+      }
+    },
+    "uadmin.faculty.openGroups": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Группы факультета"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Факультет топтары"
+          }
+        }
+      }
+    },
+    "uadmin.group.scheduleShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расписание"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кесте"
+          }
+        }
+      }
+    },
+    "uadmin.group.attendanceShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Посещаемость"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қатысу"
+          }
+        }
+      }
+    },
+    "uadmin.group.membersCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Участников: %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қатысушылар: %@"
+          }
+        }
+      }
+    },
+    "uadmin.group.noStarostaYet": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Староста не назначен"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Староста тағайындалмаған"
+          }
+        }
+      }
+    },
+    "uadmin.starosta.change": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сменить старосту"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Старостаны ауыстыру"
+          }
+        }
+      }
+    },
+    "uadmin.group.deleteFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить можно только пустую группу: без студентов, расписания, курсов и экзаменов."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тек бос топты жоюға болады: студенттерсіз, кестесіз, курстарсыз және емтихандарсыз."
+          }
+        }
+      }
+    },
+    "uadmin.group.yearShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "набор %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "қабылдау %@"
+          }
+        }
+      }
+    },
+    "uadmin.campus.publishShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Публикация"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жариялау"
+          }
+        }
+      }
+    },
+    "uadmin.campus.publishNeedsBuilding": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сначала добавьте корпус — публиковать пока нечего."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Алдымен ғимарат қосыңыз — әзірге жариялайтын ештеңе жоқ."
+          }
+        }
+      }
+    },
+    "uadmin.campus.mapShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Карта"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Карта"
+          }
+        }
+      }
+    },
+    "uadmin.campus.buildingShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Корпус"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ғимарат"
+          }
+        }
+      }
+    },
+    "uadmin.schedule.changeGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите, чтобы выбрать другую группу"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Басқа топты таңдау үшін басыңыз"
+          }
+        }
+      }
+    },
+    "uadmin.schedule.activeVersion": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Действующая версия: %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қолданыстағы нұсқа: %@"
+          }
+        }
+      }
+    },
+    "uadmin.schedule.draftVersion": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Черновик: %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жоба: %@"
+          }
+        }
+      }
+    },
+    "uadmin.setup.statusActive": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вуз запущен"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оқу орны іске қосылды"
+          }
+        }
+      }
+    },
+    "uadmin.setup.statusSetup": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Идёт настройка"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Баптау жүріп жатыр"
+          }
+        }
+      }
+    },
+    "librarian.filter.more": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фильтры"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сүзгілер"
+          }
+        }
+      }
+    },
+    "librarian.book.editShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменить"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Өзгерту"
+          }
+        }
+      }
+    },
+    "librarian.book.addCopiesShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экземпляры"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Даналар"
+          }
+        }
+      }
+    },
+    "librarian.book.labelsShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наклейки"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жапсырмалар"
+          }
+        }
+      }
+    },
+    "librarian.book.about": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "О книге"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кітап туралы"
+          }
+        }
+      }
+    },
+    "librarian.copy.labelShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наклейка"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жапсырма"
+          }
+        }
+      }
+    },
+    "librarian.catalog.options": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Раздел, сортировка и импорт"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бөлім, сұрыптау және импорт"
+          }
+        }
+      }
+    },
+    "librarian.return.notAccepted": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не принято"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қабылданбады"
+          }
+        }
+      }
+    },
+    "librarian.return.toHoldShelfTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На полку броней"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Брондар сөресіне"
+          }
+        }
+      }
+    },
+    "librarian.return.acceptedTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Принято — на полку"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қабылданды — сөреге"
+          }
+        }
+      }
+    },
+    "librarian.issue.ticket": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пропуск на выдачу"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Беруге рұқсатнама"
+          }
+        }
+      }
+    },
+    "librarian.issue.ticketUntilShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Действует до %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ дейін жарамды"
+          }
+        }
+      }
+    },
+    "librarian.issue.notIssued": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не выдано"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Берілмеді"
+          }
+        }
+      }
+    },
+    "librarian.issue.issuedTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выдано"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Берілді"
+          }
+        }
+      }
+    },
+    "librarian.issue.issuedDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» — вернуть до %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%1$@» — %2$@ дейін қайтару"
           }
         }
       }
