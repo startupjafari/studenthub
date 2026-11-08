@@ -66,6 +66,7 @@ struct LegalDocumentView<Route: Hashable>: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle(Text(verbatim: "StudentHub"))
+        .frostedTopBar()
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

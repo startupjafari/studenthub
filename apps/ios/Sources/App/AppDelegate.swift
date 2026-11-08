@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         Observability.start()
+        FrostedBarAppearance.install()
         UNUserNotificationCenter.current().delegate = self
         return true
     }

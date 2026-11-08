@@ -140,3 +140,38 @@ struct SheetCloseButton: View {
             .accessibilityIdentifier("sheet.close")
     }
 }
+
+// MARK: - Верхняя панель
+
+extension View {
+    /// Верхняя панель — матовое полупрозрачное стекло, как в «Настройках» и мессенджерах:
+    /// контент под ней размывается при прокрутке, а заголовок и кнопки читаются поверх
+    /// любой ленты. Видна всегда, а не только после прокрутки, — край экрана один и тот же.
+    @ViewBuilder
+    func frostedTopBar() -> some View {
+        if #available(iOS 18, *) {
+            toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+                .toolbarBackgroundVisibility(.visible, for: .navigationBar)
+        } else {
+            toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
+        }
+    }
+}
+
+/// То же для панелей, которые SwiftUI-модификатор не достаёт: листы экранов со своим
+/// `NavigationStack`. Ставится один раз при запуске.
+enum FrostedBarAppearance {
+    @MainActor
+    static func install() {
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithDefaultBackground()
+        appearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterial)
+        appearance.backgroundColor = .clear
+        let bar = UINavigationBar.appearance()
+        bar.standardAppearance = appearance
+        bar.compactAppearance = appearance
+        bar.scrollEdgeAppearance = appearance
+        bar.compactScrollEdgeAppearance = appearance
+    }
+}
