@@ -39,44 +39,10 @@ struct SecurityPostView: View {
             }
 
             if loaded || summary != nil {
-                Section {
-                    StatGrid {
-                        StatTile(
-                            title: String(localized: "security.metric.allowed", defaultValue: "Прошли"),
-                            value: summary.map { $0.passes.allowed.formatted() } ?? "—",
-                            symbol: "checkmark.shield",
-                            tint: Palette.success,
-                            caption: String(localized: "security.metric.today", defaultValue: "за сегодня")
-                        )
-                        StatTile(
-                            title: String(localized: "security.metric.denied", defaultValue: "Отказано"),
-                            value: summary.map { $0.passes.denied.formatted() } ?? "—",
-                            symbol: "xmark.shield",
-                            tint: Palette.destructive,
-                            caption: String(localized: "security.metric.today", defaultValue: "за сегодня")
-                        )
-                        StatTile(
-                            title: String(localized: "security.metric.inside", defaultValue: "Посетителей в здании"),
-                            value: summary.map { $0.visitors.inside.formatted() } ?? "—",
-                            symbol: "person.2",
-                            caption: summary.map {
-                                String(
-                                    localized: "security.metric.visitorsToday",
-                                    defaultValue: "за сегодня: \($0.visitors.today.formatted())"
-                                )
-                            }
-                        )
-                        StatTile(
-                            title: String(localized: "security.metric.passes", defaultValue: "Проверок"),
-                            value: summary.map { $0.passes.total.formatted() } ?? "—",
-                            symbol: "qrcode.viewfinder",
-                            tint: Palette.info,
-                            caption: String(localized: "security.metric.today", defaultValue: "за сегодня")
-                        )
-                    }
-                }
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
+                DashboardMetricsSection(
+                    metrics: metrics,
+                    title: String(localized: "security.metric.todayTitle", defaultValue: "Сегодня")
+                )
 
                 if let failure {
                     StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
@@ -94,7 +60,7 @@ struct SecurityPostView: View {
                 LoadingStateView().listRowBackground(Color.clear)
             }
         }
-        .listStyle(.insetGrouped)
+        .dashboardListStyle()
         .navigationTitle(Text(SecurityScreen.post.title))
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -117,24 +83,65 @@ struct SecurityPostView: View {
         .task { await load() }
     }
 
+    /// Сводка дня; период — в заголовке секции, а не в подписи каждой плитки.
+    private var metrics: [DashboardMetric] {
+        [
+            DashboardMetric(
+                title: String(localized: "security.metric.allowed", defaultValue: "Прошли"),
+                value: summary.map { $0.passes.allowed.formatted() },
+                symbol: "checkmark.shield",
+                tint: Palette.success,
+                route: .security(.passes)
+            ),
+            DashboardMetric(
+                title: String(localized: "security.metric.denied", defaultValue: "Отказано"),
+                value: summary.map { $0.passes.denied.formatted() },
+                symbol: "xmark.shield",
+                tint: Palette.destructive,
+                route: .security(.passes)
+            ),
+            DashboardMetric(
+                title: String(localized: "security.metric.inside", defaultValue: "Посетителей в здании"),
+                value: summary.map { $0.visitors.inside.formatted() },
+                symbol: "person.2",
+                tint: TileTint.indigo,
+                caption: summary.map {
+                    String(
+                        localized: "security.metric.visitorsToday",
+                        defaultValue: "за сегодня: \($0.visitors.today.formatted())"
+                    )
+                },
+                route: .security(.visitors)
+            ),
+            DashboardMetric(
+                title: String(localized: "security.metric.passes", defaultValue: "Проверок"),
+                value: summary.map { $0.passes.total.formatted() },
+                symbol: "qrcode.viewfinder",
+                tint: Palette.info,
+                route: .security(.passes)
+            ),
+        ]
+    }
+
     private var passesSection: some View {
         Section {
             if passes.isEmpty {
-                Text(String(localized: "security.passes.empty", defaultValue: "Проходов пока нет. Проверенные студенческие появятся здесь — и пропущенные, и отказы"))
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
+                DashboardEmptyRow(
+                    text: String(localized: "security.passes.empty", defaultValue: "Проходов пока нет. Проверенные студенческие появятся здесь — и пропущенные, и отказы"),
+                    symbol: "qrcode"
+                )
             }
             ForEach(passes) { pass in
                 SecurityPassRow(pass: pass)
             }
             NavigationLink(value: AppRoute.security(.passes)) {
-                Text(String(localized: "security.passes.all", defaultValue: "Весь журнал проходов"))
-                    .foregroundStyle(Palette.primary)
+                DashboardMoreLabel(title: String(localized: "security.passes.all", defaultValue: "Весь журнал проходов"))
             }
         } header: {
-            Text(String(localized: "security.passes.title", defaultValue: "Проходы студентов"))
-        } footer: {
-            Text(String(localized: "security.passes.hint", defaultValue: "Каждая проверка студенческого на входе, новые сверху"))
+            DashboardSectionHeader(
+                title: String(localized: "security.passes.title", defaultValue: "Проходы студентов"),
+                subtitle: String(localized: "security.passes.hint", defaultValue: "Каждая проверка студенческого на входе, новые сверху")
+            )
         }
     }
 
@@ -176,28 +183,28 @@ struct SecurityPostView: View {
                 }
             }
             NavigationLink(value: AppRoute.security(.visitors)) {
-                Text(String(localized: "security.visitors.all", defaultValue: "Журнал посетителей"))
-                    .foregroundStyle(Palette.primary)
+                DashboardMoreLabel(title: String(localized: "security.visitors.all", defaultValue: "Журнал посетителей"))
             }
         } header: {
-            Text(String(localized: "security.visitors.title", defaultValue: "Посетители в здании"))
+            DashboardSectionHeader(
+                title: String(localized: "security.visitors.title", defaultValue: "Посетители в здании"),
+                subtitle: String(localized: "security.visitors.hint", defaultValue: "Вошли и ещё не отмечены на выходе")
+            )
         } footer: {
             if let insideTotal, insideTotal > visitors.count {
                 Text(String(
                     localized: "security.visitors.more",
                     defaultValue: "Показаны \(visitors.count.formatted()) из \(insideTotal.formatted()) — остальные в журнале"
                 ))
-            } else {
-                Text(String(localized: "security.visitors.hint", defaultValue: "Вошли и ещё не отмечены на выходе"))
             }
         }
     }
 
     private var shortcutsSection: some View {
         Section {
-            ForEach([SecurityScreen.scan, .cameras, .rooms], id: \.self) { screen in
+            ForEach([(SecurityScreen.scan, TileTint.blue), (SecurityScreen.cameras, TileTint.indigo), (SecurityScreen.rooms, TileTint.teal)], id: \.0) { screen, tint in
                 NavigationLink(value: AppRoute.security(screen)) {
-                    IconRow(title: screen.title, symbol: screen.symbol, tint: TileTint.gray)
+                    DashboardRow(title: screen.title, symbol: screen.symbol, tint: tint)
                 }
             }
         }

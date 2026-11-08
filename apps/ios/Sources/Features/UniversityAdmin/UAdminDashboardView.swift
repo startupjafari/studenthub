@@ -12,70 +12,26 @@ struct UAdminDashboardView: View {
     @State private var onboarding: UAdminOnboardingDTO?
     @State private var exporting = false
     @State private var reloadToken = 0
+    /// Первая загрузка завершилась: пустое значение после неё — «нет данных», а не загрузка.
+    @State private var loaded = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Spacing.lg) {
-                if let onboarding, onboarding.university.status != "ACTIVE" {
-                    setupBanner(onboarding)
-                }
-                StatGrid {
-                    StatTile(
-                        title: String(localized: "uadmin.dash.attendance", defaultValue: "Посещаемость"),
-                        value: overview?.attendanceRate.map { DisplayFormat.percent($0) } ?? UAdminText.empty,
-                        symbol: "percent",
-                        tint: Palette.info
-                    )
-                    StatTile(
-                        title: String(localized: "uadmin.dash.submissions", defaultValue: "Работ на проверке"),
-                        value: overview?.submissionsPending.map { $0.formatted() } ?? UAdminText.empty,
-                        symbol: "tray.full",
-                        tint: Palette.warning
-                    )
-                    StatTile(
-                        title: String(localized: "uadmin.dash.exams", defaultValue: "Экзамены впереди"),
-                        value: overview?.examsUpcoming.map { $0.formatted() } ?? UAdminText.empty,
-                        symbol: "calendar.badge.clock"
-                    )
-                    StatTile(
-                        title: String(localized: "uadmin.dash.faculties", defaultValue: "Факультеты"),
-                        value: number(stats?.faculties),
-                        symbol: "building.columns"
-                    )
-                    StatTile(
-                        title: String(localized: "uadmin.dash.groups", defaultValue: "Группы"),
-                        value: number(stats?.groups),
-                        symbol: "person.3"
-                    )
-                    StatTile(
-                        title: String(localized: "uadmin.dash.students", defaultValue: "Студенты"),
-                        value: number(stats?.students),
-                        symbol: "graduationcap"
-                    )
-                    StatTile(
-                        title: String(localized: "uadmin.dash.teachers", defaultValue: "Преподаватели"),
-                        value: number(stats?.teachers),
-                        symbol: "book"
-                    )
-                    StatTile(
-                        title: String(localized: "uadmin.dash.rooms", defaultValue: "Аудитории"),
-                        value: number(stats?.rooms),
-                        symbol: "door.left.hand.open"
-                    )
-                }
-
-                TrendPanel(reloadToken: reloadToken)
-                BreakdownPanel(reloadToken: reloadToken)
-                worstGroupsPanel
-                RoomLoadPanel(reloadToken: reloadToken)
-                ExamResultsPanel(reloadToken: reloadToken)
-                ApplicationsFlowPanel(reloadToken: reloadToken)
-                InvitesPanel(reloadToken: reloadToken)
-                atRiskPanel
+        List {
+            if let onboarding, onboarding.university.status != "ACTIVE" {
+                setupBanner(onboarding)
             }
-            .padding(Spacing.lg)
+            DashboardMetricsSection(metrics: metrics)
+
+            Section { TrendPanel(reloadToken: reloadToken) }
+            Section { BreakdownPanel(reloadToken: reloadToken) }
+            Section { worstGroupsPanel }
+            Section { RoomLoadPanel(reloadToken: reloadToken) }
+            Section { ExamResultsPanel(reloadToken: reloadToken) }
+            Section { ApplicationsFlowPanel(reloadToken: reloadToken) }
+            Section { InvitesPanel(reloadToken: reloadToken) }
+            atRiskSection
         }
-        .background(Palette.background)
+        .dashboardListStyle()
         .navigationTitle(Text(UniAdminScreen.dashboard.title))
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -95,33 +51,95 @@ struct UAdminDashboardView: View {
         .task { await load() }
     }
 
-    private func number(_ value: Int?) -> String {
-        value.map { $0.formatted() } ?? UAdminText.empty
+    private var metrics: [DashboardMetric] {
+        let overviewPending = overview == nil && !overviewFailed && !loaded
+        let statsPending = stats == nil && !loaded
+        return [
+            DashboardMetric(
+                title: String(localized: "uadmin.dash.attendance", defaultValue: "Посещаемость"),
+                value: overview?.attendanceRate.map { DisplayFormat.percent($0) },
+                symbol: "percent",
+                tint: Palette.info,
+                route: .uniAdmin(.analytics),
+                isPending: overviewPending
+            ),
+            DashboardMetric(
+                title: String(localized: "uadmin.dash.submissions", defaultValue: "Работ на проверке"),
+                value: overview?.submissionsPending.map { $0.formatted() },
+                symbol: "tray.full",
+                tint: Palette.warning,
+                isPending: overviewPending
+            ),
+            DashboardMetric(
+                title: String(localized: "uadmin.dash.exams", defaultValue: "Экзамены впереди"),
+                value: overview?.examsUpcoming.map { $0.formatted() },
+                symbol: "calendar.badge.clock",
+                tint: TileTint.purple,
+                isPending: overviewPending
+            ),
+            DashboardMetric(
+                title: String(localized: "uadmin.dash.faculties", defaultValue: "Факультеты"),
+                value: stats?.faculties.map { $0.formatted() },
+                symbol: "building.columns",
+                tint: TileTint.indigo,
+                route: .uniAdmin(.faculties),
+                isPending: statsPending
+            ),
+            DashboardMetric(
+                title: String(localized: "uadmin.dash.groups", defaultValue: "Группы"),
+                value: stats?.groups.map { $0.formatted() },
+                symbol: "person.3",
+                tint: TileTint.orange,
+                route: .uniAdmin(.groups),
+                isPending: statsPending
+            ),
+            DashboardMetric(
+                title: String(localized: "uadmin.dash.students", defaultValue: "Студенты"),
+                value: stats?.students.map { $0.formatted() },
+                symbol: "graduationcap",
+                tint: TileTint.teal,
+                isPending: statsPending
+            ),
+            DashboardMetric(
+                title: String(localized: "uadmin.dash.teachers", defaultValue: "Преподаватели"),
+                value: stats?.teachers.map { $0.formatted() },
+                symbol: "book",
+                tint: TileTint.green,
+                isPending: statsPending
+            ),
+            DashboardMetric(
+                title: String(localized: "uadmin.dash.rooms", defaultValue: "Аудитории"),
+                value: stats?.rooms.map { $0.formatted() },
+                symbol: "door.left.hand.open",
+                tint: TileTint.blue,
+                route: .uniAdmin(.rooms),
+                isPending: statsPending
+            ),
+        ]
     }
 
     private func setupBanner(_ state: UAdminOnboardingDTO) -> some View {
         let done = state.steps.filter { $0.done || $0.skipped }.count
-        return NavigationLink(value: AppRoute.uniAdmin(.setup)) {
-            HStack(alignment: .top, spacing: Spacing.lg) {
-                IconTile(symbol: "wand.and.stars", tint: TileTint.purple, size: 36)
-                VStack(alignment: .leading, spacing: Spacing.xs) {
-                    Text(String(localized: "uadmin.dash.setupTitle", defaultValue: "Настройка вуза не закончена"))
-                        .font(Typography.cardTitle)
-                        .foregroundStyle(Palette.foreground)
-                    Text(String(localized: "uadmin.dash.setupText", defaultValue: "Пройдено \(done.formatted()) из \(state.steps.count.formatted()) шагов. Пока вуз не запущен, платформа закрыта даже для приглашённых."))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
-                        .multilineTextAlignment(.leading)
-                    Text(String(localized: "uadmin.dash.setupAction", defaultValue: "Продолжить"))
-                        .font(Typography.meta.weight(.semibold))
-                        .foregroundStyle(Palette.primary)
+        return Section {
+            NavigationLink(value: AppRoute.uniAdmin(.setup)) {
+                HStack(alignment: .top, spacing: Spacing.lg) {
+                    DashboardIconBadge(symbol: "wand.and.stars", tint: TileTint.purple)
+                    VStack(alignment: .leading, spacing: Spacing.xs) {
+                        Text(String(localized: "uadmin.dash.setupTitle", defaultValue: "Настройка вуза не закончена"))
+                            .font(.headline)
+                            .foregroundStyle(Palette.foreground)
+                        Text(String(localized: "uadmin.dash.setupText", defaultValue: "Пройдено \(done.formatted()) из \(state.steps.count.formatted()) шагов. Пока вуз не запущен, платформа закрыта даже для приглашённых."))
+                            .font(.footnote)
+                            .foregroundStyle(Palette.mutedForeground)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(String(localized: "uadmin.dash.setupAction", defaultValue: "Продолжить"))
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(Palette.primary)
+                    }
                 }
-                Spacer(minLength: 0)
+                .padding(.vertical, Spacing.xs)
             }
-            .padding(Spacing.lg)
-            .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         }
-        .buttonStyle(.plain)
     }
 
     private var worstGroupsPanel: some View {
@@ -131,15 +149,16 @@ struct UAdminDashboardView: View {
             hint: String(localized: "uadmin.dash.byGroupHint", defaultValue: "Худшие группы вуза — им нужно внимание в первую очередь")
         ) {
             if overviewFailed {
-                PanelFailed { await load() }
+                DashboardFailurePlaceholder { await load() }
             } else if overview == nil {
-                ProgressView().frame(maxWidth: .infinity, minHeight: 120)
+                DashboardLoadingPlaceholder()
             } else if groups.isEmpty {
-                PanelEmpty(text: String(localized: "uadmin.dash.noAttendance", defaultValue: "Посещаемость ещё не отмечали"))
+                DashboardEmptyPlaceholder(text: String(localized: "uadmin.dash.noAttendance", defaultValue: "Посещаемость ещё не отмечали"), symbol: "checklist")
             } else {
                 Chart(groups) { group in
                     BarMark(x: .value("%", group.attendanceRate), y: .value("group", group.name))
                         .foregroundStyle(Palette.chart1)
+                        .cornerRadius(4)
                         .annotation(position: .trailing) {
                             Text(verbatim: DisplayFormat.percent(group.attendanceRate))
                                 .font(.caption2.monospacedDigit())
@@ -152,37 +171,35 @@ struct UAdminDashboardView: View {
         }
     }
 
-    private var atRiskPanel: some View {
-        DashPanel(
-            title: String(localized: "uadmin.dash.atRisk", defaultValue: "Требует внимания"),
-            hint: String(localized: "uadmin.dash.atRiskHint", defaultValue: "Группы с посещаемостью ниже порога")
-        ) {
+    /// Группы ниже порога — строками со ссылкой на группу, как список «требует внимания».
+    private var atRiskSection: some View {
+        Section {
             if overviewFailed {
-                PanelFailed { await load() }
+                DashboardFailurePlaceholder { await load() }
             } else if let overview {
                 let risky = overview.atRisk ?? []
                 if risky.isEmpty {
-                    PanelEmpty(text: String(localized: "uadmin.dash.atRiskEmpty", defaultValue: "Все группы в норме"))
+                    DashboardEmptyRow(text: String(localized: "uadmin.dash.atRiskEmpty", defaultValue: "Все группы в норме"), tint: Palette.success)
                 } else {
-                    VStack(spacing: 0) {
-                        ForEach(risky) { group in
-                            NavigationLink(value: AppRoute.uniAdmin(.group(id: group.groupId))) {
-                                HStack {
-                                    Image(systemName: "exclamationmark.triangle").foregroundStyle(Palette.warning).accessibilityHidden(true)
-                                    Text(group.name).foregroundStyle(Palette.foreground)
-                                    Spacer()
-                                    StatusBadge(text: DisplayFormat.percent(group.attendanceRate), tint: Palette.warning)
-                                }
-                                .padding(.vertical, Spacing.sm)
-                            }
-                            .buttonStyle(.plain)
-                            Divider()
+                    ForEach(risky) { group in
+                        NavigationLink(value: AppRoute.uniAdmin(.group(id: group.groupId))) {
+                            DashboardRow(
+                                title: group.name,
+                                symbol: "exclamationmark.triangle",
+                                tint: Palette.warning,
+                                badge: (DisplayFormat.percent(group.attendanceRate), Palette.warning)
+                            )
                         }
                     }
                 }
             } else {
-                ProgressView().frame(maxWidth: .infinity, minHeight: 80)
+                DashboardLoadingPlaceholder(height: 80)
             }
+        } header: {
+            DashboardSectionHeader(
+                title: String(localized: "uadmin.dash.atRisk", defaultValue: "Требует внимания"),
+                subtitle: String(localized: "uadmin.dash.atRiskHint", defaultValue: "Группы с посещаемостью ниже порога")
+            )
         }
     }
 
@@ -202,29 +219,20 @@ struct UAdminDashboardView: View {
             overviewFailed = overview == nil
         }
         onboarding = (try? await onboardingTask) ?? onboarding
+        loaded = true
     }
 }
 
 // MARK: - Каркас панели
 
+/// Карточка панели — общая карточка обзора (`DashboardCard`) в строке своей секции.
 private struct DashPanel<Content: View>: View {
     let title: String
     var hint: String?
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.md) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(Typography.cardTitle).foregroundStyle(Palette.foreground)
-                if let hint {
-                    Text(hint).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
-                }
-            }
-            content()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(Spacing.lg)
-        .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        DashboardCard(title: title, subtitle: hint, content: content)
     }
 }
 
@@ -232,26 +240,7 @@ private struct PanelEmpty: View {
     let text: String
 
     var body: some View {
-        Text(text)
-            .font(Typography.meta)
-            .foregroundStyle(Palette.mutedForeground)
-            .frame(maxWidth: .infinity, minHeight: 80)
-            .multilineTextAlignment(.center)
-    }
-}
-
-/// Сбой запроса панели — не «данных нет»: иначе сбой выглядел бы хорошей новостью.
-private struct PanelFailed: View {
-    let retry: () async -> Void
-
-    var body: some View {
-        VStack(spacing: Spacing.sm) {
-            Text(String(localized: "state.failed", defaultValue: "Не удалось загрузить"))
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
-            RetryButton(action: retry)
-        }
-        .frame(maxWidth: .infinity, minHeight: 100)
+        DashboardEmptyPlaceholder(text: text)
     }
 }
 
@@ -271,9 +260,9 @@ private struct LoadingPanel<Value, Content: View>: View {
             if let value {
                 content(value)
             } else if failed {
-                PanelFailed { await run() }
+                DashboardFailurePlaceholder { await run() }
             } else {
-                ProgressView().frame(maxWidth: .infinity, minHeight: 160)
+                DashboardLoadingPlaceholder()
             }
         }
         .task(id: reloadToken) { await run() }
@@ -392,7 +381,7 @@ private struct RoomLoadPanel: View {
             load: { try await UAdminAPI().roomLoad() }
         ) { load in
             if load.peak == 0 {
-                PanelEmpty(text: String(localized: "uadmin.dash.noSchedule", defaultValue: "Расписание не заполнено"))
+                DashboardEmptyPlaceholder(text: String(localized: "uadmin.dash.noSchedule", defaultValue: "Расписание не заполнено"), symbol: "calendar")
             } else {
                 let peak = JSONValue.format(load.peak)
                 let rooms = load.rooms.formatted()
@@ -413,6 +402,7 @@ private struct RoomLoadPanel: View {
                 Chart(Array(load.grid.prefix(7).enumerated()), id: \.offset) { item in
                     BarMark(x: .value("day", UAdminText.weekdayShort(item.offset + 1)), y: .value("pairs", item.element.reduce(0, +)))
                         .foregroundStyle(Palette.chart2)
+                        .cornerRadius(4)
                 }
                 .frame(height: 140)
             }
@@ -524,15 +514,17 @@ private struct InvitesPanel: View {
             load: { try await UAdminAPI().invitesFunnel() }
         ) { funnel in
             if funnel.total == 0 {
-                PanelEmpty(text: String(localized: "uadmin.dash.noInvites", defaultValue: "Приглашений пока нет"))
+                DashboardEmptyPlaceholder(text: String(localized: "uadmin.dash.noInvites", defaultValue: "Приглашений пока нет"), symbol: "envelope")
             } else {
-                ShareBar(
-                    title: String(localized: "uadmin.dash.conversion", defaultValue: "Конверсия"),
-                    fraction: funnel.conversion / 100,
-                    valueText: DisplayFormat.percent(funnel.conversion),
-                    tint: Palette.success
-                )
-                VStack(spacing: Spacing.xs) {
+                DashboardBarList(bars: [
+                    DashboardBar(
+                        label: String(localized: "uadmin.dash.conversion", defaultValue: "Конверсия"),
+                        fraction: funnel.conversion / 100,
+                        valueText: DisplayFormat.percent(funnel.conversion),
+                        tint: Palette.success
+                    ),
+                ])
+                VStack(spacing: Spacing.sm) {
                     row(String(localized: "uadmin.dash.inv.issued", defaultValue: "Выдано"), funnel.total)
                     row(String(localized: "uadmin.dash.inv.used", defaultValue: "Принято"), funnel.used)
                     row(String(localized: "uadmin.dash.inv.pending", defaultValue: "Ждут"), funnel.pending)
@@ -547,9 +539,10 @@ private struct InvitesPanel: View {
         HStack {
             Text(title).foregroundStyle(Palette.mutedForeground)
             Spacer()
-            Text(verbatim: value.formatted()).font(Typography.body.monospacedDigit()).foregroundStyle(Palette.foreground)
+            Text(verbatim: value.formatted()).monospacedDigit().foregroundStyle(Palette.foreground)
         }
-        .font(Typography.body)
+        .font(.subheadline)
+        .accessibilityElement(children: .combine)
     }
 }
 

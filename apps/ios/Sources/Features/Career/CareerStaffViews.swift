@@ -1,3 +1,4 @@
+import Charts
 import SwiftUI
 
 // Карьерный центр вуза: обзор с очередью, допуск компаний, модерация вакансий, метрики
@@ -49,94 +50,112 @@ private struct CareerStaffOverview: View {
     var body: some View {
         RemoteContent(reloadToken: token, load: { try await CareerAPI().universityAnalytics(universityID: universityID) }) { data in
             List {
-                Section {
-                    StatGrid {
-                        StatTile(
-                            title: String(localized: "career.staff.companiesApproved", defaultValue: "Допущено компаний"),
-                            value: CareerJSON.int(data, "companies", "APPROVED").formatted(),
-                            symbol: "building.2"
-                        )
-                        StatTile(
-                            title: String(localized: "career.review.pending", defaultValue: "На модерации"),
-                            value: CareerJSON.int(data, "vacancies", "PENDING").formatted(),
-                            symbol: "hourglass",
-                            tint: Palette.warning
-                        )
-                        StatTile(
-                            title: String(localized: "career.staff.vacanciesApproved", defaultValue: "Показывается вакансий"),
-                            value: CareerJSON.int(data, "vacancies", "APPROVED").formatted(),
-                            symbol: "briefcase",
-                            tint: Palette.success
-                        )
-                        StatTile(
-                            title: String(localized: "career.staff.applications", defaultValue: "Откликов"),
-                            value: CareerJSON.int(data, "reached", "SUBMITTED").formatted(),
-                            symbol: "paperplane",
-                            tint: Palette.info
-                        )
-                    }
-                }
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
+                DashboardMetricsSection(metrics: [
+                    DashboardMetric(
+                        title: String(localized: "career.staff.companiesApproved", defaultValue: "Допущено компаний"),
+                        value: CareerJSON.int(data, "companies", "APPROVED").formatted(),
+                        symbol: "building.2",
+                        tint: TileTint.indigo,
+                        route: .career(.companies)
+                    ),
+                    DashboardMetric(
+                        title: String(localized: "career.review.pending", defaultValue: "На модерации"),
+                        value: CareerJSON.int(data, "vacancies", "PENDING").formatted(),
+                        symbol: "hourglass",
+                        tint: Palette.warning,
+                        route: .career(.vacancyReview)
+                    ),
+                    DashboardMetric(
+                        title: String(localized: "career.staff.vacanciesApproved", defaultValue: "Показывается вакансий"),
+                        value: CareerJSON.int(data, "vacancies", "APPROVED").formatted(),
+                        symbol: "briefcase",
+                        tint: Palette.success,
+                        route: .career(.vacancies)
+                    ),
+                    DashboardMetric(
+                        title: String(localized: "career.staff.applications", defaultValue: "Откликов"),
+                        value: CareerJSON.int(data, "reached", "SUBMITTED").formatted(),
+                        symbol: "paperplane",
+                        tint: Palette.info,
+                        route: .career(.analytics)
+                    ),
+                ])
+
+                queueSection(data)
 
                 Section {
                     ForEach(CareerStaffLink.all, id: \.screen) { link in
                         NavigationLink(value: AppRoute.career(link.screen)) {
-                            IconRow(title: link.title, symbol: link.screen.symbol, tint: TileTint.purple, subtitle: link.hint)
+                            DashboardRow(title: link.title, subtitle: link.hint, symbol: link.screen.symbol, tint: TileTint.purple)
                         }
                     }
+                } header: {
+                    DashboardSectionHeader(title: String(localized: "career.staff.sections", defaultValue: "Разделы"))
                 }
 
-                queueSection(data)
                 ratesSection(data)
                 funnelSection(data)
                 weeklySection(data)
                 skillsSection(data)
             }
-            .listStyle(.insetGrouped)
+            .dashboardListStyle()
             .refreshable { token += 1 }
         }
     }
 
+    /// Очередь решений строками: число справа, пояснение под названием.
     private func queueSection(_ data: JSONValue) -> some View {
         let queue = data["queue"]
         let oldest = queue?["oldestPendingDays"]?.int
         let median = CareerJSON.optional(queue, "medianDecisionHours")
         let staleDays = CareerJSON.int(queue, "staleDays").formatted()
         let expiringDays = CareerJSON.int(queue, "expiringDays").formatted()
+        let pending = CareerJSON.int(queue, "vacanciesPending")
+        let requested = CareerJSON.int(queue, "companiesRequested")
+        let expiring = CareerJSON.int(queue, "accessExpiringSoon")
+        let stale = CareerJSON.int(queue, "staleApplications")
         return Section {
-            DetailRow(
-                title: String(localized: "career.review.pending", defaultValue: "На модерации"),
-                value: queueValue(CareerJSON.int(queue, "vacanciesPending"), hint: oldest.map { days in
-                    let value = days.formatted()
-                    return String(localized: "career.staff.oldest", defaultValue: "старейшая ждёт дней: \(value)")
-                } ?? String(localized: "career.staff.queueEmpty", defaultValue: "очередь пуста"))
-            )
-            DetailRow(
-                title: String(localized: "career.staff.requests", defaultValue: "Заявки компаний"),
-                value: queueValue(
-                    CareerJSON.int(queue, "companiesRequested"),
-                    hint: String(localized: "career.staff.requestsHint", defaultValue: "ждут решения вуза")
+            NavigationLink(value: AppRoute.career(.vacancyReview)) {
+                DashboardRow(
+                    title: String(localized: "career.review.pending", defaultValue: "На модерации"),
+                    subtitle: oldest.map { days in
+                        let value = days.formatted()
+                        return String(localized: "career.staff.oldest", defaultValue: "старейшая ждёт дней: \(value)")
+                    } ?? String(localized: "career.staff.queueEmpty", defaultValue: "очередь пуста"),
+                    symbol: "hourglass",
+                    tint: pending > 0 ? Palette.warning : TileTint.gray,
+                    value: pending.formatted()
                 )
-            )
-            DetailRow(
-                title: String(localized: "career.staff.expiring", defaultValue: "Допуски истекают"),
-                value: queueValue(
-                    CareerJSON.int(queue, "accessExpiringSoon"),
-                    hint: String(localized: "career.staff.expiringHint", defaultValue: "в ближайшие \(expiringDays) дн.")
+            }
+            NavigationLink(value: AppRoute.career(.companies)) {
+                DashboardRow(
+                    title: String(localized: "career.staff.requests", defaultValue: "Заявки компаний"),
+                    subtitle: String(localized: "career.staff.requestsHint", defaultValue: "ждут решения вуза"),
+                    symbol: "building.2",
+                    tint: requested > 0 ? Palette.info : TileTint.gray,
+                    value: requested.formatted()
                 )
-            )
-            DetailRow(
+            }
+            NavigationLink(value: AppRoute.career(.companies)) {
+                DashboardRow(
+                    title: String(localized: "career.staff.expiring", defaultValue: "Допуски истекают"),
+                    subtitle: String(localized: "career.staff.expiringHint", defaultValue: "в ближайшие \(expiringDays) дн."),
+                    symbol: "calendar.badge.exclamationmark",
+                    tint: expiring > 0 ? Palette.warning : TileTint.gray,
+                    value: expiring.formatted()
+                )
+            }
+            DashboardRow(
                 title: String(localized: "career.staff.stale", defaultValue: "Откликов без ответа"),
-                value: queueValue(
-                    CareerJSON.int(queue, "staleApplications"),
-                    hint: String(localized: "career.staff.staleHint", defaultValue: "компания молчит дольше \(staleDays) дн.")
-                )
+                subtitle: String(localized: "career.staff.staleHint", defaultValue: "компания молчит дольше \(staleDays) дн."),
+                symbol: "bubble.left.and.exclamationmark.bubble.right",
+                tint: stale > 0 ? Palette.destructive : TileTint.gray,
+                value: stale.formatted()
             )
         } header: {
-            CareerSectionHeader(
+            DashboardSectionHeader(
                 title: String(localized: "career.staff.queue", defaultValue: "Требует внимания"),
-                hint: median.map { hours in
+                subtitle: median.map { hours in
                     let value = JSONValue.format(hours)
                     return String(localized: "career.staff.median", defaultValue: "медиана решения — \(value) ч")
                 }
@@ -144,96 +163,124 @@ private struct CareerStaffOverview: View {
         }
     }
 
-    private func queueValue(_ count: Int, hint: String) -> String {
-        "\(count.formatted()) · \(hint)"
-    }
-
     private func ratesSection(_ data: JSONValue) -> some View {
         let rates = data["rates"]
         let visible = CareerJSON.int(data, "profiles", "visible")
         let total = CareerJSON.int(data, "profiles", "total")
-        return Section {
-            ShareBar(
-                title: String(localized: "career.staff.rateInterview", defaultValue: "До интервью"),
-                fraction: (CareerJSON.optional(rates, "interview") ?? 0) / 100,
-                valueText: careerPercent(CareerJSON.optional(rates, "interview"))
+        return DashboardCardSection(
+            title: String(localized: "career.staff.rates", defaultValue: "Конверсия воронки"),
+            subtitle: String(
+                localized: "career.staff.ratesHintNoData",
+                defaultValue: "Доли считаются от числа отправленных откликов. «Нет данных» — считать пока не от чего."
             )
-            ShareBar(
-                title: String(localized: "career.staff.rateOffer", defaultValue: "До оффера"),
-                fraction: (CareerJSON.optional(rates, "offer") ?? 0) / 100,
-                valueText: careerPercent(CareerJSON.optional(rates, "offer"))
-            )
-            ShareBar(
-                title: String(localized: "career.staff.rateHired", defaultValue: "До найма"),
-                fraction: (CareerJSON.optional(rates, "hired") ?? 0) / 100,
-                valueText: careerPercent(CareerJSON.optional(rates, "hired")),
-                tint: Palette.success
-            )
-            ShareBar(
-                title: String(localized: "career.staff.profiles", defaultValue: "Открытые профили"),
-                fraction: total > 0 ? Double(visible) / Double(total) : 0,
-                valueText: "\(visible.formatted()) / \(total.formatted())",
-                tint: Palette.info
-            )
-        } header: {
-            CareerSectionHeader(
-                title: String(localized: "career.staff.rates", defaultValue: "Конверсия воронки"),
-                hint: String(
-                    localized: "career.staff.ratesHint",
-                    defaultValue: "Доли считаются от числа отправленных откликов. Прочерк означает, что считать пока не от чего."
-                )
-            )
+        ) {
+            DashboardBarList(bars: [
+                rateBar(String(localized: "career.staff.rateInterview", defaultValue: "До интервью"), CareerJSON.optional(rates, "interview")),
+                rateBar(String(localized: "career.staff.rateOffer", defaultValue: "До оффера"), CareerJSON.optional(rates, "offer")),
+                rateBar(String(localized: "career.staff.rateHired", defaultValue: "До найма"), CareerJSON.optional(rates, "hired"), tint: Palette.success),
+                DashboardBar(
+                    label: String(localized: "career.staff.profiles", defaultValue: "Открытые профили"),
+                    fraction: total > 0 ? Double(visible) / Double(total) : 0,
+                    valueText: "\(visible.formatted()) / \(total.formatted())",
+                    tint: Palette.info
+                ),
+            ])
         }
+    }
+
+    private func rateBar(_ title: String, _ value: Double?, tint: Color? = nil) -> DashboardBar {
+        // Доли приходят процентами (0…100), а не долями единицы.
+        DashboardBar(
+            label: title,
+            fraction: (value ?? 0) / 100,
+            valueText: value.map { "\(Int($0.rounded()))%" } ?? DashboardText.noData,
+            tint: tint
+        )
     }
 
     private func funnelSection(_ data: JSONValue) -> some View {
         let reached = data["reached"]
         let top = max(CareerJSON.int(reached, "SUBMITTED"), 1)
-        return Section {
-            ForEach(careerFunnelStages, id: \.self) { stage in
+        let vacancies = data["vacancies"]
+        return DashboardCardSection(
+            title: String(localized: "career.staff.funnel", defaultValue: "Воронка откликов"),
+            subtitle: String(localized: "career.staff.funnelHint", defaultValue: "Сколько откликов дошло до каждого шага")
+        ) {
+            DashboardBarList(bars: careerFunnelStages.map { stage in
                 let value = CareerJSON.int(reached, stage)
-                ShareBar(title: careerFunnelLabel(stage), fraction: Double(value) / Double(top), valueText: value.formatted())
-            }
-            let vacancies = data["vacancies"]
-            ForEach(["PENDING", "APPROVED", "REJECTED"], id: \.self) { status in
-                DetailRow(
-                    title: CareerText.reviewStatus(status).text,
-                    value: CareerJSON.int(vacancies, status).formatted()
+                return DashboardBar(
+                    label: careerFunnelLabel(stage),
+                    fraction: Double(value) / Double(top),
+                    valueText: value.formatted(),
+                    tint: stage == "HIRED" ? Palette.success : nil
                 )
+            })
+            Divider()
+            VStack(spacing: Spacing.sm) {
+                ForEach(["PENDING", "APPROVED", "REJECTED"], id: \.self) { status in
+                    HStack {
+                        Text(CareerText.reviewStatus(status).text).foregroundStyle(Palette.mutedForeground)
+                        Spacer(minLength: Spacing.md)
+                        Text(verbatim: CareerJSON.int(vacancies, status).formatted())
+                            .monospacedDigit()
+                            .foregroundStyle(Palette.foreground)
+                    }
+                    .font(.subheadline)
+                    .accessibilityElement(children: .combine)
+                }
             }
-        } header: {
-            CareerSectionHeader(
-                title: String(localized: "career.staff.funnel", defaultValue: "Воронка откликов"),
-                hint: String(localized: "career.staff.funnelHint", defaultValue: "Сколько откликов дошло до каждого шага")
-            )
         }
     }
 
+    /// Отклики по неделям линиями: итог за всё время не показывает, стало ли лучше.
     @ViewBuilder
     private func weeklySection(_ data: JSONValue) -> some View {
         let weekly = data["weekly"]
         let weeks = weekly?["weeks"]?.array ?? []
         if !weeks.isEmpty {
-            Section {
-                // Свежие недели сверху: человека интересует, что изменилось недавно.
-                ForEach(Array(weeks.indices.reversed().prefix(8)), id: \.self) { index in
-                    let submitted = weekly?["submitted"]?[index]?.int ?? 0
-                    let interview = weekly?["interview"]?[index]?.int ?? 0
-                    let hired = weekly?["hired"]?[index]?.int ?? 0
-                    DetailRow(
-                        title: DisplayFormat.date(weeks[index].date),
-                        value: [
-                            "\(String(localized: "career.funnel.submitted", defaultValue: "Отправлено")): \(submitted.formatted())",
-                            "\(String(localized: "career.funnel.interview", defaultValue: "Интервью")): \(interview.formatted())",
-                            "\(String(localized: "career.funnel.hired", defaultValue: "Найм")): \(hired.formatted())",
-                        ].joined(separator: " · ")
-                    )
+            let points = Self.weeklyPoints(weekly, weeks: weeks)
+            DashboardCardSection(
+                title: String(localized: "career.staff.weekly", defaultValue: "Отклики по неделям"),
+                subtitle: String(localized: "career.staff.weeklyHint", defaultValue: "Итог за всё время не показывает, стало ли лучше")
+            ) {
+                if points.allSatisfy({ $0.value == 0 }) {
+                    DashboardEmptyPlaceholder(text: DashboardText.periodNoData, symbol: "chart.xyaxis.line")
+                } else {
+                    Chart(points) { point in
+                        LineMark(
+                            x: .value(String(localized: "career.staff.week", defaultValue: "Неделя"), point.week, unit: .weekOfYear),
+                            y: .value(String(localized: "career.staff.count", defaultValue: "Количество"), point.value)
+                        )
+                        .foregroundStyle(by: .value(String(localized: "career.staff.stage", defaultValue: "Шаг"), point.series))
+                        .interpolationMethod(.monotone)
+                        .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round))
+                    }
+                    .chartLegend(position: .bottom, alignment: .leading)
+                    .frame(height: DashboardMetrics.chartHeight)
                 }
-            } header: {
-                CareerSectionHeader(
-                    title: String(localized: "career.staff.weekly", defaultValue: "Отклики по неделям"),
-                    hint: String(localized: "career.staff.weeklyHint", defaultValue: "Итог за всё время не показывает, стало ли лучше")
-                )
+            }
+        }
+    }
+
+    private struct WeeklyPoint: Identifiable {
+        let id: String
+        let week: Date
+        let value: Int
+        let series: String
+    }
+
+    private static func weeklyPoints(_ weekly: JSONValue?, weeks: [JSONValue]) -> [WeeklyPoint] {
+        let series = [
+            ("submitted", careerFunnelLabel("SUBMITTED")),
+            ("interview", careerFunnelLabel("INTERVIEW")),
+            ("hired", careerFunnelLabel("HIRED")),
+        ]
+        // Последние 12 недель: дальше линии сливаются на ширине телефона.
+        let indices = Array(weeks.indices.suffix(12))
+        return series.flatMap { key, label in
+            indices.compactMap { index -> WeeklyPoint? in
+                guard let week = weeks[index].date else { return nil }
+                return WeeklyPoint(id: "\(key)-\(index)", week: week, value: weekly?[key]?[index]?.int ?? 0, series: label)
             }
         }
     }
@@ -242,37 +289,72 @@ private struct CareerStaffOverview: View {
     private func skillsSection(_ data: JSONValue) -> some View {
         let skills = data["skills"]?.array ?? []
         if !skills.isEmpty {
-            Section {
-                ForEach(Array(skills.prefix(12).enumerated()), id: \.offset) { _, skill in
-                    let demand = CareerJSON.optional(skill, "demandShare")
-                    let supply = CareerJSON.optional(skill, "supplyShare")
-                    VStack(alignment: .leading, spacing: Spacing.xs) {
-                        Text(skill["skill"]?.string ?? "—").font(Typography.cardTitle).foregroundStyle(Palette.foreground)
-                        ShareBar(
-                            title: String(localized: "career.staff.demand", defaultValue: "Требуют в вакансиях"),
-                            fraction: (demand ?? 0) / 100,
-                            valueText: careerPercent(demand),
-                            tint: Palette.warning
-                        )
-                        ShareBar(
-                            title: String(localized: "career.staff.supply", defaultValue: "Указали студенты"),
-                            fraction: (supply ?? 0) / 100,
-                            valueText: careerPercent(supply),
-                            tint: Palette.info
+            DashboardCardSection(
+                title: String(localized: "career.staff.skills", defaultValue: "Дефицит навыков"),
+                subtitle: String(
+                    localized: "career.staff.skillsHint",
+                    defaultValue: "Доля вакансий вуза, где навык требуют, против доли студентов, которые его указали"
+                )
+            ) {
+                HStack(spacing: Spacing.lg) {
+                    CareerSkillLegend(title: String(localized: "career.staff.demand", defaultValue: "Требуют в вакансиях"), tint: Palette.warning)
+                    CareerSkillLegend(title: String(localized: "career.staff.supply", defaultValue: "Указали студенты"), tint: Palette.info)
+                }
+                VStack(alignment: .leading, spacing: Spacing.lg) {
+                    ForEach(Array(skills.prefix(12).enumerated()), id: \.offset) { _, skill in
+                        CareerSkillGapRow(
+                            skill: skill["skill"]?.string ?? DashboardText.noData,
+                            demand: CareerJSON.optional(skill, "demandShare"),
+                            supply: CareerJSON.optional(skill, "supplyShare")
                         )
                     }
-                    .padding(.vertical, Spacing.xs)
                 }
-            } header: {
-                CareerSectionHeader(
-                    title: String(localized: "career.staff.skills", defaultValue: "Дефицит навыков"),
-                    hint: String(
-                        localized: "career.staff.skillsHint",
-                        defaultValue: "Доля вакансий вуза, где навык требуют, против доли студентов, которые его указали"
-                    )
-                )
             }
         }
+    }
+}
+
+/// Отметка легенды: цветная точка и подпись.
+private struct CareerSkillLegend: View {
+    let title: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: Spacing.xs) {
+            Circle().fill(tint).frame(width: 8, height: 8).accessibilityHidden(true)
+            Text(title).font(.caption).foregroundStyle(Palette.mutedForeground)
+        }
+    }
+}
+
+/// Навык: спрос и предложение двумя тонкими полосами одна под другой.
+private struct CareerSkillGapRow: View {
+    let skill: String
+    let demand: Double?
+    let supply: Double?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(skill).font(.subheadline.weight(.medium)).foregroundStyle(Palette.foreground)
+                Spacer(minLength: Spacing.md)
+                Text(verbatim: "\(percent(demand)) / \(percent(supply))")
+                    .font(.footnote.monospacedDigit())
+                    .foregroundStyle(Palette.mutedForeground)
+            }
+            DashboardCapsuleBar(fraction: (demand ?? 0) / 100, tint: Palette.warning)
+            DashboardCapsuleBar(fraction: (supply ?? 0) / 100, tint: Palette.info)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(skill))
+        .accessibilityValue(Text(String(
+            localized: "career.staff.skillGapValue",
+            defaultValue: "требуют: \(percent(demand)), указали: \(percent(supply))"
+        )))
+    }
+
+    private func percent(_ value: Double?) -> String {
+        value.map { "\(Int($0.rounded()))%" } ?? DashboardText.noData
     }
 }
 

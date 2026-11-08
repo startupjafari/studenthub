@@ -12,15 +12,10 @@ struct DeanDashboardView: View {
 
     var body: some View {
         List {
-            Section {
-                Text(Date(), format: .dateTime.weekday(.wide).day().month(.wide))
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 0, leading: Spacing.lg, bottom: 0, trailing: Spacing.lg))
-            }
-
-            todaySection
+            DashboardMetricsSection(
+                metrics: todayMetrics,
+                title: Date().formatted(.dateTime.weekday(.wide).day().month(.wide)).capitalized
+            )
             issuesSection
             recentSection
             facultySection
@@ -28,7 +23,7 @@ struct DeanDashboardView: View {
             riskSection
             queueSection
         }
-        .listStyle(.insetGrouped)
+        .dashboardListStyle()
         .navigationTitle(Text(DeanScreen.dashboard.title))
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -50,45 +45,44 @@ struct DeanDashboardView: View {
 
     // MARK: Сегодня
 
-    private var todaySection: some View {
-        Section {
-            StatGrid {
-                NavigationLink(value: AppRoute.dean(.schedule)) {
-                    StatTile(
-                        title: String(localized: "dean.today.classes", defaultValue: "Пар сегодня"),
-                        value: model.today.map { $0.classes.formatted() } ?? "—",
-                        symbol: "calendar"
-                    )
-                }
-                NavigationLink(value: AppRoute.dean(.schedule)) {
-                    StatTile(
-                        title: String(localized: "dean.today.issues", defaultValue: "Проблем расписания"),
-                        value: model.today.map { $0.issues.count.formatted() } ?? "—",
-                        symbol: "exclamationmark.triangle",
-                        tint: (model.today?.issues.isEmpty ?? true) ? Palette.mutedForeground : Palette.warning
-                    )
-                }
-                NavigationLink(value: AppRoute.staff(.applicationsQueue)) {
-                    StatTile(
-                        title: String(localized: "dean.today.newApplications", defaultValue: "Новые заявки"),
-                        value: model.queue.map { $0.new.formatted() } ?? "—",
-                        symbol: "doc.text",
-                        tint: Palette.info
-                    )
-                }
-                NavigationLink(value: AppRoute.staff(.applicationsQueue)) {
-                    StatTile(
-                        title: String(localized: "dean.today.overdue", defaultValue: "Просрочено"),
-                        value: model.queue.map { $0.overdue.formatted() } ?? "—",
-                        symbol: "clock.badge.exclamationmark",
-                        tint: Palette.destructive
-                    )
-                }
-            }
-            .buttonStyle(.plain)
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets())
-        }
+    private var todayMetrics: [DashboardMetric] {
+        let todayPending = model.today == nil && model.todayFailure == nil
+        let queuePending = model.queue == nil && model.queueFailure == nil
+        let issues = model.today?.issues.count
+        return [
+            DashboardMetric(
+                title: String(localized: "dean.today.classes", defaultValue: "Пар сегодня"),
+                value: model.today.map { $0.classes.formatted() },
+                symbol: "calendar",
+                tint: TileTint.blue,
+                route: .dean(.schedule),
+                isPending: todayPending
+            ),
+            DashboardMetric(
+                title: String(localized: "dean.today.issues", defaultValue: "Проблем расписания"),
+                value: issues.map { $0.formatted() },
+                symbol: "exclamationmark.triangle",
+                tint: (issues ?? 0) > 0 ? Palette.warning : TileTint.gray,
+                route: .dean(.schedule),
+                isPending: todayPending
+            ),
+            DashboardMetric(
+                title: String(localized: "dean.today.newApplications", defaultValue: "Новые заявки"),
+                value: model.queue.map { $0.new.formatted() },
+                symbol: "doc.text",
+                tint: Palette.info,
+                route: .staff(.applicationsQueue),
+                isPending: queuePending
+            ),
+            DashboardMetric(
+                title: String(localized: "dean.today.overdue", defaultValue: "Просрочено"),
+                value: model.queue.map { $0.overdue.formatted() },
+                symbol: "clock.badge.exclamationmark",
+                tint: Palette.destructive,
+                route: .staff(.applicationsQueue),
+                isPending: queuePending
+            ),
+        ]
     }
 
     @ViewBuilder
@@ -96,68 +90,61 @@ struct DeanDashboardView: View {
         Section {
             if let today = model.today {
                 if today.issues.isEmpty {
-                    Text(String(localized: "dean.today.noIssues", defaultValue: "Сегодня без отмен, переносов и замен"))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
+                    DashboardEmptyRow(
+                        text: String(localized: "dean.today.noIssues", defaultValue: "Сегодня без отмен, переносов и замен"),
+                        tint: Palette.success
+                    )
                 } else {
                     ForEach(today.issues) { change in
                         let kind = DeanText.changeType(change.type)
                         HStack(alignment: .firstTextBaseline, spacing: Spacing.md) {
                             Text(verbatim: change.newStartTime ?? change.pair.startTime)
-                                .font(Typography.meta.monospacedDigit())
+                                .font(.subheadline.monospacedDigit())
                                 .foregroundStyle(Palette.mutedForeground)
-                                .frame(width: 48, alignment: .leading)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(change.pair.subject).font(Typography.body)
                                 if let note = change.note, !note.isEmpty {
-                                    Text(note).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
+                                    Text(note).font(.footnote).foregroundStyle(Palette.mutedForeground)
                                 }
                             }
                             Spacer(minLength: Spacing.md)
                             StatusBadge(text: kind.0, tint: kind.1)
                         }
+                        .accessibilityElement(children: .combine)
                     }
                 }
             } else if let failure = model.todayFailure {
-                DeanPanelError(message: failure) { await model.load() }
+                DashboardFailurePlaceholder(message: failure) { await model.load() }
             } else {
-                LoadingStateView()
+                DashboardLoadingPlaceholder(height: 60)
             }
         } header: {
-            Text(String(localized: "dean.today.issuesTitle", defaultValue: "Проблемы расписания сегодня"))
+            DashboardSectionHeader(title: String(localized: "dean.today.issuesTitle", defaultValue: "Проблемы расписания сегодня"))
         }
     }
 
     @ViewBuilder
     private var recentSection: some View {
         Section {
-            if let recent = model.recent {
-                if recent.isEmpty {
-                    Text(String(localized: "dean.recent.empty", defaultValue: "Важных изменений нет"))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
-                } else {
-                    ForEach(recent) { item in
-                        NavigationLink(value: AppRoute.section(.notifications)) {
-                            IconRow(
-                                title: item.title,
-                                symbol: Self.notificationSymbol(item.type),
-                                tint: TileTint.gray,
-                                subtitle: item.body,
-                                value: DisplayFormat.dateTime(item.createdAt)
-                            )
-                        }
+            if let recent = model.recent, !recent.isEmpty {
+                ForEach(recent) { item in
+                    NavigationLink(value: AppRoute.section(.notifications)) {
+                        DashboardRow(
+                            title: item.title,
+                            subtitle: item.body,
+                            symbol: Self.notificationSymbol(item.type),
+                            tint: TileTint.gray,
+                            value: DisplayFormat.dateTime(item.createdAt)
+                        )
                     }
                 }
-            } else if model.isLoaded {
-                Text(String(localized: "dean.recent.empty", defaultValue: "Важных изменений нет"))
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
+            } else if model.recent != nil || model.isLoaded {
+                DashboardEmptyRow(text: String(localized: "dean.recent.empty", defaultValue: "Важных изменений нет"), symbol: "bell")
             } else {
-                LoadingStateView()
+                DashboardLoadingPlaceholder(height: 60)
             }
         } header: {
-            Text(String(localized: "dean.recent.title", defaultValue: "Последние изменения"))
+            DashboardSectionHeader(title: String(localized: "dean.recent.title", defaultValue: "Последние изменения"))
         }
     }
 
@@ -175,129 +162,140 @@ struct DeanDashboardView: View {
 
     @ViewBuilder
     private var facultySection: some View {
-        Section {
-            if let failure = model.overviewFailure, model.overview == nil {
-                DeanPanelError(message: failure) { await model.load() }
-            } else {
-                let totals = model.overview?.totals
-                let low = model.risk?.thresholds.attendance ?? 60
-                StatGrid {
-                    NavigationLink(value: AppRoute.dean(.students)) {
-                        StatTile(
-                            title: String(localized: "dean.kpi.students", defaultValue: "Студенты"),
-                            value: totals.map { $0.students.formatted() } ?? "—",
-                            symbol: "person.2"
-                        )
-                    }
-                    NavigationLink(value: AppRoute.dean(.groups)) {
-                        StatTile(
-                            title: String(localized: "dean.kpi.groups", defaultValue: "Группы"),
-                            value: totals.map { $0.groups.formatted() } ?? "—",
-                            symbol: "person.3"
-                        )
-                    }
-                    NavigationLink(value: AppRoute.dean(.analytics)) {
-                        StatTile(
-                            title: String(localized: "dean.kpi.attendance", defaultValue: "Посещаемость"),
-                            value: DeanText.percent(totals?.attendanceRate),
-                            symbol: "percent",
-                            tint: (totals?.attendanceRate).map { $0 < low ? Palette.destructive : Palette.info } ?? Palette.info
-                        )
-                    }
-                    StatTile(
-                        title: String(localized: "dean.kpi.submissions", defaultValue: "Работ на проверке"),
-                        value: totals.map { $0.submissionsPending.formatted() } ?? "—",
-                        symbol: "tray.full",
-                        tint: Palette.warning
-                    )
-                    NavigationLink(value: AppRoute.dean(.exams)) {
-                        StatTile(
-                            title: String(localized: "dean.kpi.exams", defaultValue: "Экзамены впереди"),
-                            value: totals.map { $0.examsUpcoming.formatted() } ?? "—",
-                            symbol: "graduationcap"
-                        )
-                    }
-                }
-                .buttonStyle(.plain)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
+        let title = String(localized: "dean.faculty.title", defaultValue: "Факультет")
+        if let failure = model.overviewFailure, model.overview == nil {
+            Section {
+                DashboardFailurePlaceholder(message: failure) { await model.load() }
+            } header: {
+                DashboardSectionHeader(title: title)
             }
-        } header: {
-            Text(String(localized: "dean.faculty.title", defaultValue: "Факультет"))
+        } else {
+            DashboardMetricsSection(metrics: facultyMetrics, title: title)
         }
+    }
+
+    private var facultyMetrics: [DashboardMetric] {
+        let totals = model.overview?.totals
+        let pending = totals == nil
+        let low = model.risk?.thresholds.attendance ?? 60
+        return [
+            DashboardMetric(
+                title: String(localized: "dean.kpi.students", defaultValue: "Студенты"),
+                value: totals.map { $0.students.formatted() },
+                symbol: "person.2",
+                tint: TileTint.teal,
+                route: .dean(.students),
+                isPending: pending
+            ),
+            DashboardMetric(
+                title: String(localized: "dean.kpi.groups", defaultValue: "Группы"),
+                value: totals.map { $0.groups.formatted() },
+                symbol: "person.3",
+                tint: TileTint.orange,
+                route: .dean(.groups),
+                isPending: pending
+            ),
+            DashboardMetric(
+                title: String(localized: "dean.kpi.attendance", defaultValue: "Посещаемость"),
+                value: totals?.attendanceRate.map { DeanText.percent($0) },
+                symbol: "percent",
+                tint: (totals?.attendanceRate).map { $0 < low ? Palette.destructive : Palette.info } ?? Palette.info,
+                route: .dean(.analytics),
+                isPending: pending
+            ),
+            DashboardMetric(
+                title: String(localized: "dean.kpi.submissions", defaultValue: "Работ на проверке"),
+                value: totals.map { $0.submissionsPending.formatted() },
+                symbol: "tray.full",
+                tint: Palette.warning,
+                isPending: pending
+            ),
+            DashboardMetric(
+                title: String(localized: "dean.kpi.exams", defaultValue: "Экзамены впереди"),
+                value: totals.map { $0.examsUpcoming.formatted() },
+                symbol: "graduationcap",
+                tint: TileTint.purple,
+                route: .dean(.exams),
+                isPending: pending
+            ),
+        ]
     }
 
     @ViewBuilder
     private var attendanceSection: some View {
-        Section {
-            if let overview = model.overview {
-                let worst = overview.groups
-                    .compactMap { group in group.attendanceRate.map { (group, $0) } }
-                    .sorted { $0.1 < $1.1 }
-                    .prefix(12)
-                if worst.isEmpty {
-                    Text(String(localized: "dean.chart.noAttendance", defaultValue: "Посещаемость ещё не отмечали"))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
-                } else {
-                    Chart(worst.map { DeanBar(id: $0.0.groupId, label: $0.0.name, value: $0.1) }) { bar in
-                        BarMark(
-                            x: .value(String(localized: "dean.chart.percent", defaultValue: "%"), bar.value),
-                            y: .value(String(localized: "dean.chart.group", defaultValue: "Группа"), bar.label)
+        // Сбой сводки уже показан в блоке «Факультет» — вторую ошибку не дублируем.
+        if model.overview != nil || model.overviewFailure == nil {
+            DashboardCardSection(
+                title: String(localized: "dean.chart.attendance", defaultValue: "Посещаемость по группам"),
+                subtitle: String(localized: "dean.chart.attendanceHint", defaultValue: "Худшие группы сверху; без отметок — не показаны")
+            ) {
+                if let overview = model.overview {
+                    let worst = overview.groups
+                        .compactMap { group in group.attendanceRate.map { (group, $0) } }
+                        .sorted { $0.1 < $1.1 }
+                        .prefix(12)
+                    if worst.isEmpty {
+                        DashboardEmptyPlaceholder(
+                            text: String(localized: "dean.chart.noAttendance", defaultValue: "Посещаемость ещё не отмечали"),
+                            symbol: "checklist"
                         )
-                        .foregroundStyle(DeanText.rateTint(bar.value))
-                        .annotation(position: .trailing) {
-                            Text(verbatim: DeanText.percent(bar.value))
-                                .font(.caption2.monospacedDigit())
-                                .foregroundStyle(Palette.mutedForeground)
+                    } else {
+                        Chart(worst.map { DeanBar(id: $0.0.groupId, label: $0.0.name, value: $0.1) }) { bar in
+                            BarMark(
+                                x: .value(String(localized: "dean.chart.percent", defaultValue: "%"), bar.value),
+                                y: .value(String(localized: "dean.chart.group", defaultValue: "Группа"), bar.label)
+                            )
+                            .foregroundStyle(DeanText.rateTint(bar.value))
+                            .cornerRadius(4)
+                            .annotation(position: .trailing) {
+                                Text(verbatim: DeanText.percent(bar.value))
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundStyle(Palette.mutedForeground)
+                            }
                         }
+                        .chartXScale(domain: 0...100)
+                        .frame(height: CGFloat(max(160, worst.count * 28 + 30)))
                     }
-                    .chartXScale(domain: 0...100)
-                    .frame(height: CGFloat(max(160, worst.count * 28 + 30)))
-                    .padding(.vertical, Spacing.sm)
+                } else {
+                    DashboardLoadingPlaceholder()
                 }
-            } else if model.overviewFailure == nil {
-                LoadingStateView()
             }
-        } header: {
-            Text(String(localized: "dean.chart.attendance", defaultValue: "Посещаемость по группам"))
-        } footer: {
-            Text(String(localized: "dean.chart.attendanceHint", defaultValue: "Худшие группы сверху; без отметок — не показаны"))
         }
     }
 
-    @ViewBuilder
     private var riskSection: some View {
-        Section {
+        DashboardCardSection(
+            title: String(localized: "dean.chart.risk", defaultValue: "Требуют внимания"),
+            subtitle: String(localized: "dean.chart.riskHint", defaultValue: "Сколько студентов по каждой причине")
+        ) {
             if let risk = model.risk {
                 if risk.students.isEmpty {
-                    Text(String(localized: "dean.chart.noRisk", defaultValue: "Никто не требует внимания"))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
+                    DashboardEmptyPlaceholder(
+                        text: String(localized: "dean.chart.noRisk", defaultValue: "Никто не требует внимания"),
+                        symbol: "checkmark.circle"
+                    )
                 } else {
                     let bars = ["LOW_ATTENDANCE", "OVERDUE_ASSIGNMENTS", "LOW_GRADES"].map { kind in
                         (DeanText.riskReason(kind), risk.students.filter { $0.value(kind) != nil }.count)
                     }
                     DeanCountChart(bars: bars, tint: Palette.destructive)
-                    NavigationLink(value: AppRoute.dean(.analytics)) {
-                        Text(String(localized: "dean.chart.openAnalytics", defaultValue: "Кто именно — в аналитике"))
-                    }
                 }
             } else if let failure = model.riskFailure {
-                DeanPanelError(message: failure) { await model.load() }
+                DashboardFailurePlaceholder(message: failure) { await model.load() }
             } else {
-                LoadingStateView()
+                DashboardLoadingPlaceholder(height: 120)
             }
-        } header: {
-            Text(String(localized: "dean.chart.risk", defaultValue: "Требуют внимания"))
         } footer: {
-            Text(String(localized: "dean.chart.riskHint", defaultValue: "Сколько студентов по каждой причине"))
+            if let risk = model.risk, !risk.students.isEmpty {
+                NavigationLink(value: AppRoute.dean(.analytics)) {
+                    DashboardMoreLabel(title: String(localized: "dean.chart.openAnalytics", defaultValue: "Кто именно — в аналитике"))
+                }
+            }
         }
     }
 
-    @ViewBuilder
     private var queueSection: some View {
-        Section {
+        DashboardCardSection(title: String(localized: "dean.queue.title", defaultValue: "Очередь заявок")) {
             if let queue = model.queue {
                 let bars = [
                     (String(localized: "dean.queue.new", defaultValue: "Новые"), queue.new),
@@ -307,22 +305,21 @@ struct DeanDashboardView: View {
                     (String(localized: "dean.queue.overdue", defaultValue: "Просрочены"), queue.overdue),
                 ]
                 if bars.allSatisfy({ $0.1 == 0 }) {
-                    Text(String(localized: "dean.queue.empty", defaultValue: "Очередь заявок пуста"))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
+                    DashboardEmptyPlaceholder(text: String(localized: "dean.queue.empty", defaultValue: "Очередь заявок пуста"), symbol: "tray")
                 } else {
                     DeanCountChart(bars: bars, tint: Palette.primary)
                 }
-                NavigationLink(value: AppRoute.staff(.applicationsQueue)) {
-                    Text(String(localized: "dean.queue.open", defaultValue: "Открыть очередь"))
-                }
             } else if let failure = model.queueFailure {
-                DeanPanelError(message: failure) { await model.load() }
+                DashboardFailurePlaceholder(message: failure) { await model.load() }
             } else {
-                LoadingStateView()
+                DashboardLoadingPlaceholder(height: 120)
             }
-        } header: {
-            Text(String(localized: "dean.queue.title", defaultValue: "Очередь заявок"))
+        } footer: {
+            if model.queue != nil {
+                NavigationLink(value: AppRoute.staff(.applicationsQueue)) {
+                    DashboardMoreLabel(title: String(localized: "dean.queue.open", defaultValue: "Открыть очередь"))
+                }
+            }
         }
     }
 }
@@ -355,6 +352,7 @@ struct DeanCountChart: View {
                 y: .value(String(localized: "dean.chart.category", defaultValue: "Категория"), bar.label)
             )
             .foregroundStyle(tint)
+            .cornerRadius(4)
             .annotation(position: .trailing) {
                 Text(verbatim: Int(bar.value).formatted())
                     .font(.caption2.monospacedDigit())

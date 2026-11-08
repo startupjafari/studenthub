@@ -29,7 +29,7 @@ struct TeachingDashboardView: View {
                 LoadingStateView().listRowBackground(Color.clear)
             }
         }
-        .listStyle(.insetGrouped)
+        .dashboardListStyle()
         .navigationTitle(Text(TeacherScreen.dashboard.title))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -58,15 +58,7 @@ struct TeachingDashboardView: View {
         let day = teachingDayPairs(pairs: today.pairs, changes: today.scheduleChanges, date: now, viewerID: viewerID)
         let clock = currentTime(in: today.timezone)
 
-        Section {
-            Text(now.formatted(.dateTime.weekday(.wide).day().month(.wide)).capitalized)
-                .font(Typography.pageTitle)
-                .foregroundStyle(Palette.foreground)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 0, leading: Spacing.xs, bottom: 0, trailing: Spacing.xs))
-        }
-
-        nextPairSection(day, clock: clock)
+        nextPairSection(day, clock: clock, date: now)
         attendanceTodoSection(day, clock: clock)
         reviewSection
         quickActions
@@ -77,40 +69,55 @@ struct TeachingDashboardView: View {
     }
 
     @ViewBuilder
-    private func nextPairSection(_ day: [TeachingDayPair], clock: String) -> some View {
+    private func nextPairSection(_ day: [TeachingDayPair], clock: String, date: Date) -> some View {
         let open = day.filter { !$0.isCancelled }
         let current = open.first { $0.start <= clock && clock < $0.end }
         let next = current ?? open.first { $0.start > clock }
         Section {
             if let next {
                 NavigationLink(value: AppRoute.lesson(id: next.pair.id, date: Date())) {
-                    VStack(alignment: .leading, spacing: Spacing.xs) {
-                        Text(current != nil
-                            ? String(localized: "teaching.dashboard.now", defaultValue: "Сейчас идёт")
-                            : String(localized: "teaching.dashboard.next", defaultValue: "Следующая пара"))
-                            .font(Typography.meta)
-                            .foregroundStyle(current != nil ? Palette.success : Palette.mutedForeground)
-                        Text(next.pair.subject)
-                            .font(Typography.sectionTitle)
-                            .foregroundStyle(Palette.foreground)
-                        Text(verbatim: [ "\(next.start)–\(next.end)", next.room ].compactMap { $0 }.joined(separator: " · "))
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.mutedForeground)
+                    HStack(alignment: .top, spacing: Spacing.lg) {
+                        DashboardIconBadge(
+                            symbol: current != nil ? "play.fill" : "clock",
+                            tint: current != nil ? Palette.success : Palette.primary
+                        )
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(current != nil
+                                ? String(localized: "teaching.dashboard.now", defaultValue: "Сейчас идёт")
+                                : String(localized: "teaching.dashboard.next", defaultValue: "Следующая пара"))
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(current != nil ? Palette.success : Palette.mutedForeground)
+                            Text(next.pair.subject)
+                                .font(.headline)
+                                .foregroundStyle(Palette.foreground)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text(verbatim: [ "\(next.start)–\(next.end)", next.room ].compactMap { $0 }.joined(separator: " · "))
+                                .font(.subheadline.monospacedDigit())
+                                .foregroundStyle(Palette.mutedForeground)
+                        }
                     }
                     .padding(.vertical, Spacing.xs)
+                    .accessibilityElement(children: .combine)
                 }
             } else {
-                VStack(alignment: .leading, spacing: Spacing.xs) {
-                    Text(day.isEmpty
-                        ? String(localized: "teaching.dashboard.noPairsToday", defaultValue: "На сегодня пар нет")
-                        : String(localized: "teaching.dashboard.noMorePairs", defaultValue: "На сегодня пар больше нет"))
-                        .font(Typography.cardTitle)
-                    Text(String(localized: "teaching.dashboard.noMorePairs.hint", defaultValue: "Загляните в расписание, чтобы спланировать неделю."))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
+                HStack(alignment: .top, spacing: Spacing.lg) {
+                    DashboardIconBadge(symbol: "cup.and.saucer", tint: TileTint.gray)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(day.isEmpty
+                            ? String(localized: "teaching.dashboard.noPairsToday", defaultValue: "На сегодня пар нет")
+                            : String(localized: "teaching.dashboard.noMorePairs", defaultValue: "На сегодня пар больше нет"))
+                            .font(.headline)
+                        Text(String(localized: "teaching.dashboard.noMorePairs.hint", defaultValue: "Загляните в расписание, чтобы спланировать неделю."))
+                            .font(.footnote)
+                            .foregroundStyle(Palette.mutedForeground)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 .padding(.vertical, Spacing.xs)
+                .accessibilityElement(children: .combine)
             }
+        } header: {
+            DashboardSectionHeader(title: date.formatted(.dateTime.weekday(.wide).day().month(.wide)).capitalized)
         }
     }
 
@@ -122,22 +129,24 @@ struct TeachingDashboardView: View {
             let todo = started.filter { !marked.contains($0.id) }
             Section {
                 if todo.isEmpty {
-                    Label(String(localized: "teaching.dashboard.allMarked", defaultValue: "Все занятия сегодня отмечены"), systemImage: "checkmark.circle")
-                        .foregroundStyle(Palette.success)
+                    DashboardEmptyRow(
+                        text: String(localized: "teaching.dashboard.allMarked", defaultValue: "Все занятия сегодня отмечены"),
+                        tint: Palette.success
+                    )
                 }
                 ForEach(todo) { item in
                     NavigationLink(value: AppRoute.lesson(id: item.pair.id, date: Date())) {
-                        IconRow(
+                        DashboardRow(
                             title: item.pair.subject,
+                            subtitle: "\(item.start)–\(item.end)",
                             symbol: "checklist",
                             tint: TileTint.orange,
-                            subtitle: "\(item.start)–\(item.end)",
-                            value: String(localized: "teaching.attendance.notMarked", defaultValue: "Не отмечено")
+                            badge: (String(localized: "teaching.attendance.notMarked", defaultValue: "Не отмечено"), Palette.warning)
                         )
                     }
                 }
             } header: {
-                Text(String(localized: "teaching.dashboard.attendanceTodo", defaultValue: "Отметить посещаемость"))
+                DashboardSectionHeader(title: String(localized: "teaching.dashboard.attendanceTodo", defaultValue: "Отметить посещаемость"))
             }
         }
     }
@@ -147,79 +156,66 @@ struct TeachingDashboardView: View {
         Section {
             if let queue {
                 if queue.items.isEmpty {
-                    Text(String(localized: "teaching.dashboard.reviewEmpty", defaultValue: "Непроверенных работ нет"))
-                        .foregroundStyle(Palette.mutedForeground)
+                    DashboardEmptyRow(
+                        text: String(localized: "teaching.dashboard.reviewEmpty", defaultValue: "Непроверенных работ нет"),
+                        tint: Palette.success
+                    )
                 }
                 ForEach(queue.items) { item in
                     NavigationLink(value: AppRoute.teacher(.assignmentSubmissions(assignmentID: item.id))) {
-                        IconRow(title: item.title, symbol: "tray.full", tint: TileTint.orange, subtitle: item.subject, value: item.pending.formatted())
+                        DashboardRow(title: item.title, subtitle: item.subject, symbol: "tray.full", tint: TileTint.orange, value: item.pending.formatted())
                     }
                 }
                 if queue.total > 0 {
                     NavigationLink(value: AppRoute.teacher(.reviews)) {
-                        Text(String(localized: "teaching.dashboard.reviewAll", defaultValue: "Все задания — на проверке \(queue.total.formatted())"))
+                        DashboardMoreLabel(title: String(localized: "teaching.dashboard.reviewAll", defaultValue: "Все задания — на проверке \(queue.total.formatted())"))
                     }
                 }
             } else {
-                ProgressView()
+                DashboardLoadingPlaceholder(height: 60)
             }
         } header: {
-            Text(String(localized: "teaching.dashboard.review", defaultValue: "Работы на проверке"))
+            DashboardSectionHeader(title: String(localized: "teaching.dashboard.review", defaultValue: "Работы на проверке"))
         }
     }
 
     private var quickActions: some View {
-        Section {
-            StatGrid {
-                quickTile(TeacherScreen.attendanceJournal, tint: TileTint.teal)
-                quickTile(TeacherScreen.reviews, title: String(localized: "teaching.dashboard.newAssignment", defaultValue: "Задания"), tint: TileTint.orange)
-                quickTile(TeacherScreen.gradebook, tint: TileTint.green)
-                quickTile(TeacherScreen.materials, tint: TileTint.indigo)
-            }
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets())
-        } header: {
-            Text(String(localized: "teaching.dashboard.quick", defaultValue: "Быстрые действия"))
-        }
+        DashboardShortcutsSection(
+            shortcuts: [
+                shortcut(.attendanceJournal, tint: TileTint.teal),
+                shortcut(.reviews, title: String(localized: "teaching.dashboard.newAssignment", defaultValue: "Задания"), tint: TileTint.orange),
+                shortcut(.gradebook, tint: TileTint.green),
+                shortcut(.materials, tint: TileTint.indigo),
+            ],
+            title: String(localized: "teaching.dashboard.quick", defaultValue: "Быстрые действия")
+        )
     }
 
-    private func quickTile(_ screen: TeacherScreen, title: String? = nil, tint: Color) -> some View {
-        NavigationLink(value: AppRoute.teacher(screen)) {
-            HStack(spacing: Spacing.md) {
-                IconTile(symbol: screen.symbol, tint: tint)
-                Text(title ?? screen.title)
-                    .font(Typography.meta.weight(.medium))
-                    .foregroundStyle(Palette.foreground)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                Spacer(minLength: 0)
-            }
-            .padding(Spacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-        }
-        .buttonStyle(.plain)
+    private func shortcut(_ screen: TeacherScreen, title: String? = nil, tint: Color) -> DashboardShortcut {
+        DashboardShortcut(title: title ?? screen.title, symbol: screen.symbol, tint: tint, route: .teacher(screen))
     }
 
     @ViewBuilder
     private var consultationsSection: some View {
         Section {
             if consultations.isEmpty {
-                Text(String(localized: "teaching.dashboard.consultationsEmpty", defaultValue: "Записей пока нет"))
-                    .foregroundStyle(Palette.mutedForeground)
+                DashboardEmptyRow(
+                    text: String(localized: "teaching.dashboard.consultationsEmpty", defaultValue: "Записей пока нет"),
+                    symbol: "calendar"
+                )
             }
             ForEach(consultations) { slot in
                 NavigationLink(value: AppRoute.section(.consultations)) {
-                    IconRow(
+                    DashboardRow(
                         title: slot.student?.name ?? String(localized: "teaching.dashboard.freeSlot", defaultValue: "Свободный слот"),
+                        subtitle: [DisplayFormat.dateTime(slot.startsAt), slot.topic].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),
                         symbol: "person.crop.circle.badge.clock",
-                        tint: TileTint.purple,
-                        subtitle: [DisplayFormat.dateTime(slot.startsAt), slot.topic].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+                        tint: TileTint.purple
                     )
                 }
             }
         } header: {
-            Text(String(localized: "teaching.dashboard.consultations", defaultValue: "Ближайшие консультации"))
+            DashboardSectionHeader(title: String(localized: "teaching.dashboard.consultations", defaultValue: "Ближайшие консультации"))
         }
     }
 
@@ -235,19 +231,19 @@ struct TeachingDashboardView: View {
             Section {
                 ForEach(events) { event in
                     NavigationLink(value: AppRoute.event(id: event.id)) {
-                        IconRow(
+                        DashboardRow(
                             title: event.title,
-                            symbol: "calendar.badge.clock",
-                            tint: Calendar.current.isDateInToday(event.startsAt) ? TileTint.red : TileTint.blue,
                             subtitle: Calendar.current.isDateInToday(event.startsAt)
                                 ? String(localized: "teaching.dashboard.eventToday", defaultValue: "Событие сегодня")
                                 : String(localized: "teaching.dashboard.eventSoon", defaultValue: "Скоро событие"),
+                            symbol: "calendar.badge.clock",
+                            tint: Calendar.current.isDateInToday(event.startsAt) ? TileTint.red : TileTint.blue,
                             value: DisplayFormat.dateTime(event.startsAt)
                         )
                     }
                 }
             } header: {
-                Text(String(localized: "teaching.dashboard.attention", defaultValue: "Требует внимания"))
+                DashboardSectionHeader(title: String(localized: "teaching.dashboard.attention", defaultValue: "Требует внимания"))
             }
         }
     }
@@ -258,7 +254,8 @@ struct TeachingDashboardView: View {
                 NavigationLink(value: AppRoute.lesson(id: item.pair.id, date: Date())) {
                     HStack(alignment: .top, spacing: Spacing.lg) {
                         Text(verbatim: item.start)
-                            .font(Typography.body.monospacedDigit())
+                            .font(.subheadline.monospacedDigit())
+                            .foregroundStyle(Palette.mutedForeground)
                             .strikethrough(item.isCancelled)
                             .frame(width: 52, alignment: .leading)
                         VStack(alignment: .leading, spacing: 2) {
@@ -275,7 +272,7 @@ struct TeachingDashboardView: View {
                 .disabled(item.isCancelled)
             }
         } header: {
-            Text(String(localized: "teaching.dashboard.todaySchedule", defaultValue: "Расписание сегодня"))
+            DashboardSectionHeader(title: String(localized: "teaching.dashboard.todaySchedule", defaultValue: "Расписание сегодня"))
         }
     }
 
@@ -296,27 +293,29 @@ struct TeachingDashboardView: View {
         let items = (today.notifications ?? []).filter { important.contains($0.type) }.prefix(5)
         Section {
             if items.isEmpty {
-                Text(String(localized: "teaching.dashboard.recentEmpty", defaultValue: "Пока нет новых изменений"))
-                    .foregroundStyle(Palette.mutedForeground)
+                DashboardEmptyRow(
+                    text: String(localized: "teaching.dashboard.recentEmpty", defaultValue: "Пока нет новых изменений"),
+                    symbol: "bell"
+                )
             }
             ForEach(Array(items)) { item in
                 Button {
                     open(item)
                 } label: {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(item.title ?? "").font(Typography.cardTitle).foregroundStyle(Palette.foreground)
+                        Text(item.title ?? "").font(Typography.body).foregroundStyle(Palette.foreground)
                         if let body = item.body, !body.isEmpty {
-                            Text(body).font(Typography.meta).foregroundStyle(Palette.mutedForeground).lineLimit(3)
+                            Text(body).font(.footnote).foregroundStyle(Palette.mutedForeground).lineLimit(3)
                         }
                         Text(verbatim: DisplayFormat.relative(item.createdAt))
-                            .font(Typography.meta)
+                            .font(.caption)
                             .foregroundStyle(Palette.mutedForeground)
                     }
                 }
                 .buttonStyle(.plain)
             }
         } header: {
-            Text(String(localized: "teaching.dashboard.recent", defaultValue: "Последние изменения"))
+            DashboardSectionHeader(title: String(localized: "teaching.dashboard.recent", defaultValue: "Последние изменения"))
         }
     }
 

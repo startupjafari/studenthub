@@ -18,124 +18,116 @@ struct AdminPlatformDashboardView: View {
     @State private var heatmap: AdminHeatmapDTO?
     @State private var actions: AdminTopActionsDTO?
     @State private var sizes: AdminUniversitiesSizeDTO?
+    /// Запросы периода уже отвечали: пустой график после этого — сбой, а не загрузка.
+    @State private var rangeLoaded = false
+    @State private var sizesTried = false
 
     private let api = AdminAPI()
 
     var body: some View {
         List {
-            Section {
-                Picker(String(localized: "admin.dash.range", defaultValue: "Период"), selection: $days) {
-                    ForEach([7, 30, 90], id: \.self) { value in
-                        Text(String(localized: "admin.dash.rangeDays", defaultValue: "\(value.formatted()) дней")).tag(value)
-                    }
+            DashboardPeriodPicker(
+                title: String(localized: "admin.dash.range", defaultValue: "Период"),
+                selection: $days,
+                options: [7, 30, 90].map { value in
+                    (value, String(localized: "admin.dash.rangeDays", defaultValue: "\(value.formatted()) дней"))
                 }
-                .pickerStyle(.segmented)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
-            }
+            )
 
-            Section {
-                if let overview {
-                    kpis(overview)
-                } else if let overviewFailure {
+            if overview == nil, let overviewFailure {
+                Section {
                     ErrorStateView(message: overviewFailure, isOffline: isOffline) { await loadOverview() }
-                } else {
-                    LoadingStateView()
                 }
+                .listRowBackground(Color.clear)
+            } else {
+                DashboardMetricsSection(metrics: kpis(overview))
             }
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets())
 
-            AdminChartSection(
-                title: String(localized: "admin.dash.growth", defaultValue: "Рост пользователей"),
+            chart(
+                String(localized: "admin.dash.growth", defaultValue: "Рост пользователей"),
                 hint: String(localized: "admin.dash.growthHint", defaultValue: "Новые регистрации за период, по группам ролей"),
-                isLoaded: growth != nil
-            ) {
-                if let growth { AdminSeriesChart(series: growth, label: Self.seriesLabel) }
-            }
-            AdminChartSection(
-                title: String(localized: "admin.dash.active", defaultValue: "Активные пользователи"),
+                growth
+            ) { AdminSeriesChart(series: $0, label: Self.seriesLabel) }
+            chart(
+                String(localized: "admin.dash.active", defaultValue: "Активные пользователи"),
                 hint: String(localized: "admin.dash.activeHint", defaultValue: "Уникальные пользователи с действиями в журнале аудита"),
-                isLoaded: active != nil
-            ) {
-                if let active { AdminSeriesChart(series: active, label: Self.seriesLabel) }
-            }
-            AdminChartSection(
-                title: String(localized: "admin.dash.flow", defaultValue: "Поток жалоб"),
+                active
+            ) { AdminSeriesChart(series: $0, label: Self.seriesLabel) }
+            chart(
+                String(localized: "admin.dash.flow", defaultValue: "Поток жалоб"),
                 hint: String(localized: "admin.dash.flowHint", defaultValue: "Поступило и разобрано за период"),
-                isLoaded: flow != nil
-            ) {
-                if let flow { AdminSeriesChart(series: flow, label: Self.seriesLabel) }
-            }
-            AdminChartSection(
-                title: String(localized: "admin.dash.latency", defaultValue: "Время разбора жалоб"),
+                flow
+            ) { AdminSeriesChart(series: $0, label: Self.seriesLabel) }
+            chart(
+                String(localized: "admin.dash.latency", defaultValue: "Время разбора жалоб"),
                 hint: latency?.medianHours.map {
                     String(localized: "admin.dash.latencyMedian", defaultValue: "Медиана: \(Self.hours($0))")
                 } ?? String(localized: "admin.dash.latencyHint", defaultValue: "Распределение по времени от подачи до решения"),
-                isLoaded: latency != nil
-            ) {
-                if let latency {
-                    AdminBarChart(bars: Self.latencyOrder.map { key in
-                        (Self.latencyLabel(key), latency.buckets.first { $0.key == key }?.value ?? 0)
-                    })
-                }
+                latency
+            ) { latency in
+                AdminBarChart(bars: Self.latencyOrder.map { key in
+                    (Self.latencyLabel(key), latency.buckets.first { $0.key == key }?.value ?? 0)
+                })
             }
-            AdminChartSection(
-                title: String(localized: "admin.dash.invites", defaultValue: "Воронка приглашений"),
+            chart(
+                String(localized: "admin.dash.invites", defaultValue: "Воронка приглашений"),
                 hint: invites.map {
                     String(localized: "admin.dash.invitesConversion", defaultValue: "Конверсия в регистрацию: \(DisplayFormat.percent($0.conversion)) · выдано \($0.total.formatted())")
                 } ?? String(localized: "admin.dash.invitesHint", defaultValue: "Доходят ли приглашения до регистрации"),
-                isLoaded: invites != nil
-            ) {
-                if let invites {
-                    AdminBarChart(bars: ["USED", "PENDING", "EXPIRED", "REVOKED"].map { key in
-                        (AdminText.inviteStatus(key).text, invites.byStatus.first { $0.key == key }?.value ?? 0)
+                invites
+            ) { invites in
+                AdminBarChart(bars: ["USED", "PENDING", "EXPIRED", "REVOKED"].map { key in
+                    (AdminText.inviteStatus(key).text, invites.byStatus.first { $0.key == key }?.value ?? 0)
+                })
+            }
+            chart(
+                String(localized: "admin.dash.activity", defaultValue: "Активность по дням недели"),
+                hint: String(localized: "admin.dash.activityHint", defaultValue: "События аудита в среднем за день недели"),
+                heatmap
+            ) { AdminBarChart(bars: Self.weekdayAverages($0)) }
+            chart(
+                String(localized: "admin.dash.actions", defaultValue: "Частые действия"),
+                hint: String(localized: "admin.dash.actionsHint", defaultValue: "Топ действий в журнале аудита за период"),
+                actions
+            ) { actions in
+                if actions.items.isEmpty {
+                    DashboardEmptyPlaceholder(text: DashboardText.periodNoData)
+                } else {
+                    let top = max(actions.items.first?.value ?? 1, 1)
+                    DashboardBarList(bars: actions.items.map { item in
+                        DashboardBar(label: item.action, fraction: item.value / top, valueText: JSONValue.format(item.value))
                     })
                 }
             }
-            AdminChartSection(
-                title: String(localized: "admin.dash.activity", defaultValue: "Активность по дням недели"),
-                hint: String(localized: "admin.dash.activityHint", defaultValue: "События аудита в среднем за день недели"),
-                isLoaded: heatmap != nil
-            ) {
-                if let heatmap { AdminBarChart(bars: Self.weekdayAverages(heatmap)) }
-            }
-            AdminChartSection(
-                title: String(localized: "admin.dash.actions", defaultValue: "Частые действия"),
-                hint: String(localized: "admin.dash.actionsHint", defaultValue: "Топ действий в журнале аудита за период"),
-                isLoaded: actions != nil
-            ) {
-                if let actions {
-                    ForEach(Array(actions.items.enumerated()), id: \.offset) { _, item in
-                        ShareBar(
-                            title: item.action,
-                            fraction: item.value / max(actions.items.first?.value ?? 1, 1),
-                            valueText: JSONValue.format(item.value)
-                        )
-                    }
-                }
-            }
-            AdminChartSection(
+
+            DashboardCardSection(
                 title: String(localized: "admin.dash.size", defaultValue: "Размер вузов"),
-                hint: String(localized: "admin.dash.sizeHint", defaultValue: "Крупнейшие вузы по числу пользователей"),
-                isLoaded: sizes != nil
+                subtitle: String(localized: "admin.dash.sizeHint", defaultValue: "Крупнейшие вузы по числу пользователей")
             ) {
                 if let sizes {
                     let top = Array(sizes.items.prefix(8))
-                    ForEach(top) { item in
-                        ShareBar(
-                            title: item.shortName ?? item.name,
-                            fraction: Double(item.total) / Double(max(top.first?.total ?? 1, 1)),
-                            valueText: item.total.formatted()
-                        )
+                    if top.isEmpty {
+                        DashboardEmptyPlaceholder(text: String(localized: "admin.stats.nothing", defaultValue: "Ничего не найдено"), symbol: "building.columns")
+                    } else {
+                        let largest = Double(max(top.first?.total ?? 1, 1))
+                        DashboardBarList(bars: top.map { item in
+                            DashboardBar(label: item.shortName ?? item.name, fraction: Double(item.total) / largest, valueText: item.total.formatted())
+                        })
                     }
+                } else if sizesTried {
+                    DashboardFailurePlaceholder { await loadSizes() }
+                } else {
+                    DashboardLoadingPlaceholder()
+                }
+            } footer: {
+                if let sizes {
                     NavigationLink(value: AppRoute.admin(.stats)) {
-                        Text(String(localized: "admin.dash.showAll", defaultValue: "Все вузы (\(sizes.totals.universities.formatted()))"))
+                        DashboardMoreLabel(title: String(localized: "admin.dash.showAll", defaultValue: "Все вузы (\(sizes.totals.universities.formatted()))"))
                     }
                 }
             }
         }
-        .listStyle(.insetGrouped)
+        .dashboardListStyle()
         .navigationTitle(Text(AdminScreen.platformDashboard.title))
         .refreshable {
             await loadOverview()
@@ -145,42 +137,73 @@ struct AdminPlatformDashboardView: View {
         .task(id: days) { await loadRange() }
     }
 
-    private func kpis(_ overview: AdminPlatformOverviewDTO) -> some View {
-        StatGrid {
-            StatTile(
+    /// Карточка графика периода: загрузка, сбой или содержимое.
+    private func chart<Value, Content: View>(
+        _ title: String,
+        hint: String,
+        _ value: Value?,
+        @ViewBuilder content: @escaping (Value) -> Content
+    ) -> some View {
+        AdminChartSection(
+            title: title,
+            hint: hint,
+            isLoaded: value != nil,
+            failed: rangeLoaded && value == nil,
+            retry: { await loadRange() }
+        ) {
+            if let value { content(value) }
+        }
+    }
+
+    /// Пока сводка грузится, плитки уже стоят на местах — экран не прыгает.
+    private func kpis(_ overview: AdminPlatformOverviewDTO?) -> [DashboardMetric] {
+        let pending = overview == nil
+        return [
+            DashboardMetric(
                 title: String(localized: "admin.dash.kpiUniversities", defaultValue: "Вузов активно"),
-                value: overview.universities.active.formatted(),
+                value: overview?.universities.active.formatted(),
                 symbol: "building.columns",
                 tint: TileTint.indigo,
-                caption: String(localized: "admin.dash.kpiUniversitiesHint", defaultValue: "ожидают активации: \(overview.universities.pending.formatted())")
-            )
-            StatTile(
+                caption: overview.map {
+                    String(localized: "admin.dash.kpiUniversitiesHint", defaultValue: "ожидают активации: \($0.universities.pending.formatted())")
+                },
+                route: .admin(.stats),
+                isPending: pending
+            ),
+            DashboardMetric(
                 title: String(localized: "admin.dash.kpiUsers", defaultValue: "Пользователей"),
-                value: overview.users.total.formatted(),
+                value: overview?.users.total.formatted(),
                 symbol: "person.2",
-                tint: TileTint.blue
-            )
-            StatTile(
+                tint: TileTint.blue,
+                isPending: pending
+            ),
+            DashboardMetric(
                 title: String(localized: "admin.dash.kpiComplaints", defaultValue: "Жалоб в очереди"),
-                value: overview.complaints.pending.formatted(),
+                value: overview?.complaints.pending.formatted(),
                 symbol: "exclamationmark.bubble",
-                tint: TileTint.red
-            )
-            StatTile(
+                tint: TileTint.red,
+                route: .admin(.complaints),
+                isPending: pending
+            ),
+            DashboardMetric(
                 title: String(localized: "admin.dash.kpiResolution", defaultValue: "Медиана разбора"),
-                value: overview.resolutionHours.median.map(Self.hours) ?? "—",
+                value: overview?.resolutionHours.median.map(Self.hours),
                 symbol: "timer",
                 tint: TileTint.orange,
-                caption: Self.delta(overview.resolutionHours)
-            )
-            StatTile(
+                caption: overview.flatMap { Self.delta($0.resolutionHours) },
+                isPending: pending
+            ),
+            DashboardMetric(
                 title: String(localized: "admin.dash.kpiDau", defaultValue: "Активны за сутки"),
-                value: overview.activeUsers.dau.formatted(),
+                value: overview?.activeUsers.dau.formatted(),
                 symbol: "waveform.path.ecg",
                 tint: TileTint.green,
-                caption: String(localized: "admin.dash.kpiWau", defaultValue: "за неделю: \(overview.activeUsers.wau.formatted())")
-            )
-        }
+                caption: overview.map {
+                    String(localized: "admin.dash.kpiWau", defaultValue: "за неделю: \($0.activeUsers.wau.formatted())")
+                },
+                isPending: pending
+            ),
+        ]
     }
 
     // MARK: Загрузка
@@ -196,7 +219,13 @@ struct AdminPlatformDashboardView: View {
             overviewFailure = error.userMessage
             isOffline = error.isOffline
         }
-        if sizes == nil { sizes = try? await api.universitiesSize() }
+        if sizes == nil { await loadSizes() }
+    }
+
+    @MainActor
+    private func loadSizes() async {
+        sizes = try? await api.universitiesSize()
+        sizesTried = true
     }
 
     /// Графики периода грузятся вместе, а падение одного не прячет остальные.
@@ -219,6 +248,7 @@ struct AdminPlatformDashboardView: View {
         self.invites = results.4
         self.heatmap = results.5
         self.actions = results.6
+        rangeLoaded = true
     }
 
     // MARK: Подписи
@@ -282,28 +312,24 @@ struct AdminPlatformDashboardView: View {
     }
 }
 
-/// Секция графика: заголовок, пояснение, загрузка.
+/// Секция-карточка графика: заголовок, пояснение, загрузка или сбой.
 struct AdminChartSection<Content: View>: View {
     let title: String
     var hint: String?
     let isLoaded: Bool
+    var failed = false
+    var retry: (() async -> Void)?
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        Section {
+        DashboardCardSection(title: title, subtitle: hint) {
             if isLoaded {
                 content()
+            } else if failed, let retry {
+                DashboardFailurePlaceholder(retry: retry)
             } else {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                    Spacer()
-                }
+                DashboardLoadingPlaceholder()
             }
-        } header: {
-            Text(title)
-        } footer: {
-            if let hint { Text(hint) }
         }
     }
 }
@@ -316,9 +342,7 @@ struct AdminSeriesChart: View {
     var body: some View {
         let empty = series.series.allSatisfy { $0.points.allSatisfy { $0.value == 0 } }
         if empty {
-            Text(String(localized: "admin.chart.empty", defaultValue: "За период данных нет"))
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
+            DashboardEmptyPlaceholder(text: DashboardText.periodNoData, symbol: "chart.xyaxis.line")
         } else {
             Chart {
                 ForEach(series.series, id: \.key) { line in
@@ -329,12 +353,12 @@ struct AdminSeriesChart: View {
                         )
                         .foregroundStyle(by: .value(String(localized: "admin.chart.series", defaultValue: "Ряд"), label(line.key)))
                         .interpolationMethod(.monotone)
+                        .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round))
                     }
                 }
             }
-            .chartLegend(position: .bottom)
-            .frame(height: 180)
-            .padding(.vertical, Spacing.sm)
+            .chartLegend(position: .bottom, alignment: .leading)
+            .frame(height: DashboardMetrics.chartHeight)
         }
     }
 }
@@ -345,9 +369,7 @@ struct AdminBarChart: View {
 
     var body: some View {
         if bars.allSatisfy({ $0.1 == 0 }) {
-            Text(String(localized: "admin.chart.empty", defaultValue: "За период данных нет"))
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
+            DashboardEmptyPlaceholder(text: DashboardText.periodNoData)
         } else {
             Chart {
                 ForEach(Array(bars.enumerated()), id: \.offset) { _, bar in
@@ -356,10 +378,10 @@ struct AdminBarChart: View {
                         y: .value(String(localized: "admin.chart.value", defaultValue: "Значение"), bar.1)
                     )
                     .foregroundStyle(Palette.primary)
+                    .cornerRadius(4)
                 }
             }
-            .frame(height: 170)
-            .padding(.vertical, Spacing.sm)
+            .frame(height: DashboardMetrics.chartHeight)
         }
     }
 }
@@ -377,24 +399,19 @@ struct AdminPlatformStatsView: View {
     var body: some View {
         List {
             if let data {
-                Section {
-                    StatGrid {
-                        StatTile(title: String(localized: "admin.stats.universities", defaultValue: "Университеты"), value: data.totals.universities.formatted(), symbol: "building.columns", tint: TileTint.indigo, caption: String(localized: "admin.stats.active", defaultValue: "активных: \(data.totals.active.formatted())"))
-                        StatTile(title: String(localized: "admin.stats.people", defaultValue: "Всего людей"), value: data.totals.total.formatted(), symbol: "person.2", tint: TileTint.blue)
-                        StatTile(title: String(localized: "admin.stats.students", defaultValue: "Студенты"), value: data.totals.students.formatted(), symbol: "graduationcap", tint: TileTint.teal)
-                        StatTile(title: String(localized: "admin.stats.teachers", defaultValue: "Преподаватели"), value: data.totals.teachers.formatted(), symbol: "person.crop.rectangle", tint: TileTint.purple)
-                        StatTile(title: String(localized: "admin.stats.faculties", defaultValue: "Факультеты"), value: data.totals.faculties.formatted(), symbol: "building.2", tint: TileTint.green)
-                        StatTile(title: String(localized: "admin.stats.groups", defaultValue: "Группы"), value: data.totals.groups.formatted(), symbol: "person.3", tint: TileTint.orange)
-                    }
-                }
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
+                DashboardMetricsSection(metrics: [
+                    DashboardMetric(title: String(localized: "admin.stats.universities", defaultValue: "Университеты"), value: data.totals.universities.formatted(), symbol: "building.columns", tint: TileTint.indigo, caption: String(localized: "admin.stats.active", defaultValue: "активных: \(data.totals.active.formatted())")),
+                    DashboardMetric(title: String(localized: "admin.stats.people", defaultValue: "Всего людей"), value: data.totals.total.formatted(), symbol: "person.2", tint: TileTint.blue),
+                    DashboardMetric(title: String(localized: "admin.stats.students", defaultValue: "Студенты"), value: data.totals.students.formatted(), symbol: "graduationcap", tint: TileTint.teal),
+                    DashboardMetric(title: String(localized: "admin.stats.teachers", defaultValue: "Преподаватели"), value: data.totals.teachers.formatted(), symbol: "person.crop.rectangle", tint: TileTint.purple),
+                    DashboardMetric(title: String(localized: "admin.stats.faculties", defaultValue: "Факультеты"), value: data.totals.faculties.formatted(), symbol: "building.2", tint: TileTint.green),
+                    DashboardMetric(title: String(localized: "admin.stats.groups", defaultValue: "Группы"), value: data.totals.groups.formatted(), symbol: "person.3", tint: TileTint.orange),
+                ])
 
                 let items = filtered(data.items)
                 Section {
                     if items.isEmpty {
-                        Text(String(localized: "admin.stats.nothing", defaultValue: "Ничего не найдено"))
-                            .foregroundStyle(Palette.mutedForeground)
+                        DashboardEmptyRow(text: String(localized: "admin.stats.nothing", defaultValue: "Ничего не найдено"), symbol: "magnifyingglass")
                     }
                     ForEach(items) { item in
                         NavigationLink(value: AppRoute.admin(.university(id: item.id))) {
@@ -413,7 +430,7 @@ struct AdminPlatformStatsView: View {
                 LoadingStateView().listRowBackground(Color.clear)
             }
         }
-        .listStyle(.insetGrouped)
+        .dashboardListStyle()
         .navigationTitle(Text(AdminScreen.stats.title))
         .searchable(text: $search, prompt: Text(String(localized: "admin.stats.search", defaultValue: "Поиск вуза")))
         .refreshable { await load() }
@@ -485,11 +502,7 @@ struct AdminUniversityModeratorDashboardView: View {
     var body: some View {
         List {
             if let pending {
-                Section {
-                    kpis(pending)
-                }
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
+                DashboardMetricsSection(metrics: kpis(pending))
 
                 AdminChartSection(
                     title: String(localized: "admin.mod.flow", defaultValue: "Поток жалоб"),
@@ -522,8 +535,7 @@ struct AdminUniversityModeratorDashboardView: View {
 
                 Section {
                     if pending.items.isEmpty {
-                        Text(String(localized: "admin.complaints.empty", defaultValue: "Жалоб нет"))
-                            .foregroundStyle(Palette.mutedForeground)
+                        DashboardEmptyRow(text: String(localized: "admin.complaints.empty", defaultValue: "Жалоб нет"), tint: Palette.success)
                     }
                     ForEach(pending.items.prefix(5)) { complaint in
                         NavigationLink(value: AppRoute.admin(.complaint(id: complaint.id))) {
@@ -531,29 +543,30 @@ struct AdminUniversityModeratorDashboardView: View {
                         }
                     }
                     NavigationLink(value: AppRoute.admin(.complaints)) {
-                        Text(String(localized: "admin.mod.openQueue", defaultValue: "Открыть очередь"))
+                        DashboardMoreLabel(title: String(localized: "admin.mod.openQueue", defaultValue: "Открыть очередь"))
                     }
                 } header: {
-                    Text(String(localized: "admin.mod.oldest", defaultValue: "Старейшие в очереди"))
-                } footer: {
-                    Text(String(localized: "admin.mod.oldestHint", defaultValue: "С них начинают разбор: ждут дольше всех"))
+                    DashboardSectionHeader(
+                        title: String(localized: "admin.mod.oldest", defaultValue: "Старейшие в очереди"),
+                        subtitle: String(localized: "admin.mod.oldestHint", defaultValue: "С них начинают разбор: ждут дольше всех")
+                    )
                 }
 
                 Section {
                     if audit.isEmpty {
-                        Text(String(localized: "admin.audit.empty", defaultValue: "Записей нет"))
-                            .foregroundStyle(Palette.mutedForeground)
+                        DashboardEmptyRow(text: String(localized: "admin.audit.empty", defaultValue: "Записей нет"), symbol: "list.bullet.rectangle")
                     }
                     ForEach(audit.prefix(5)) { entry in
                         AdminAuditRow(entry: entry)
                     }
                     NavigationLink(value: AppRoute.admin(.audit)) {
-                        Text(String(localized: "admin.mod.openAudit", defaultValue: "Открыть журнал"))
+                        DashboardMoreLabel(title: String(localized: "admin.mod.openAudit", defaultValue: "Открыть журнал"))
                     }
                 } header: {
-                    Text(String(localized: "admin.mod.myActions", defaultValue: "Мои последние действия"))
-                } footer: {
-                    Text(String(localized: "admin.mod.myActionsHint", defaultValue: "Журнал показывает модератору только его собственные действия"))
+                    DashboardSectionHeader(
+                        title: String(localized: "admin.mod.myActions", defaultValue: "Мои последние действия"),
+                        subtitle: String(localized: "admin.mod.myActionsHint", defaultValue: "Журнал показывает модератору только его собственные действия")
+                    )
                 }
             } else if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
@@ -562,13 +575,13 @@ struct AdminUniversityModeratorDashboardView: View {
                 LoadingStateView().listRowBackground(Color.clear)
             }
         }
-        .listStyle(.insetGrouped)
+        .dashboardListStyle()
         .navigationTitle(Text(AdminScreen.universityModeratorDashboard.title))
         .refreshable { await load() }
         .task { await load() }
     }
 
-    private func kpis(_ pending: Page<AdminComplaintDTO>) -> some View {
+    private func kpis(_ pending: Page<AdminComplaintDTO>) -> [DashboardMetric] {
         let total = pending.meta?.total ?? pending.items.count
         let aging = Self.aging(pending.items)
         let overdue = aging.1 + aging.2
@@ -576,13 +589,13 @@ struct AdminUniversityModeratorDashboardView: View {
         let saturated = !pending.items.isEmpty && overdue == pending.items.count && total > pending.items.count
         let weekAgo = Date().addingTimeInterval(-7 * 86_400)
         let resolvedWeek = audit.filter { $0.action == "complaint_resolved" && $0.createdAt >= weekAgo }.count
-        return StatGrid {
-            StatTile(title: String(localized: "admin.mod.kpiQueue", defaultValue: "В очереди"), value: total.formatted(), symbol: "tray.full", tint: TileTint.blue)
-            StatTile(title: String(localized: "admin.mod.kpiHigh", defaultValue: "Высокий приоритет"), value: high.map { $0.formatted() } ?? "—", symbol: "flame", tint: TileTint.red)
-            StatTile(title: String(localized: "admin.mod.kpiOverdue", defaultValue: "Ждут дольше суток"), value: saturated ? "\(overdue.formatted())+" : overdue.formatted(), symbol: "clock.badge.exclamationmark", tint: TileTint.orange)
-            StatTile(title: String(localized: "admin.mod.kpiResolvedWeek", defaultValue: "Разобрано за 7 дней"), value: resolvedWeek.formatted(), symbol: "checkmark.seal", tint: TileTint.green)
-            StatTile(title: String(localized: "admin.mod.kpiBlocked", defaultValue: "Заблокировано"), value: blocked.map { $0.formatted() } ?? "—", symbol: "nosign", tint: TileTint.gray)
-        }
+        return [
+            DashboardMetric(title: String(localized: "admin.mod.kpiQueue", defaultValue: "В очереди"), value: total.formatted(), symbol: "tray.full", tint: TileTint.blue, route: .admin(.complaints)),
+            DashboardMetric(title: String(localized: "admin.mod.kpiHigh", defaultValue: "Высокий приоритет"), value: high.map { $0.formatted() }, symbol: "flame", tint: TileTint.red),
+            DashboardMetric(title: String(localized: "admin.mod.kpiOverdue", defaultValue: "Ждут дольше суток"), value: saturated ? "\(overdue.formatted())+" : overdue.formatted(), symbol: "clock.badge.exclamationmark", tint: TileTint.orange),
+            DashboardMetric(title: String(localized: "admin.mod.kpiResolvedWeek", defaultValue: "Разобрано за 7 дней"), value: resolvedWeek.formatted(), symbol: "checkmark.seal", tint: TileTint.green),
+            DashboardMetric(title: String(localized: "admin.mod.kpiBlocked", defaultValue: "Заблокировано"), value: blocked.map { $0.formatted() }, symbol: "nosign", tint: TileTint.gray),
+        ]
     }
 
     /// Поступило (`createdAt`) против разобрано (`resolvedAt`) по дням за две недели.

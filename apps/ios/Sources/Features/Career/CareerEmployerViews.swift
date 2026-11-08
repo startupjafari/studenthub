@@ -49,68 +49,15 @@ struct CareerEmployerHomeView: View {
                     }
                 }
 
-                Section {
-                    StatGrid {
-                        NavigationLink(value: AppRoute.career(.access)) {
-                            StatTile(
-                                title: String(localized: "career.employer.approved", defaultValue: "Университетов открыто"),
-                                value: active.formatted(),
-                                symbol: "graduationcap",
-                                tint: Palette.success
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        NavigationLink(value: AppRoute.career(.access)) {
-                            StatTile(
-                                title: String(localized: "career.employer.pending", defaultValue: "Заявок на рассмотрении"),
-                                value: pending.formatted(),
-                                symbol: "clock",
-                                tint: Palette.warning
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        if let metrics = summary.metrics {
-                            NavigationLink(value: AppRoute.career(.employerVacancies)) {
-                                StatTile(
-                                    title: String(localized: "career.employer.published", defaultValue: "Вакансий опубликовано"),
-                                    value: CareerJSON.int(metrics, "vacancies", "PUBLISHED").formatted(),
-                                    symbol: "briefcase"
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            StatTile(
-                                title: String(localized: "career.employer.views", defaultValue: "Просмотров вакансий"),
-                                value: CareerJSON.int(metrics, "views").formatted(),
-                                symbol: "eye",
-                                tint: Palette.info
-                            )
-                            NavigationLink(value: AppRoute.career(.candidates)) {
-                                StatTile(
-                                    title: String(localized: "career.employer.applications", defaultValue: "Откликов"),
-                                    value: CareerJSON.sum(metrics["funnel"]).formatted(),
-                                    symbol: "person.3"
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            StatTile(
-                                title: String(localized: "career.employer.hired", defaultValue: "Нанято"),
-                                value: CareerJSON.int(metrics, "funnel", "HIRED").formatted(),
-                                symbol: "checkmark.seal",
-                                tint: Palette.success
-                            )
-                        }
-                    }
-                }
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
+                DashboardMetricsSection(metrics: metrics(active: active, pending: pending, analytics: summary.metrics))
 
                 if let rates = summary.metrics?["rates"] {
-                    Section {
-                        rateBar(String(localized: "career.employer.rateApply", defaultValue: "Просмотр → отклик"), CareerJSON.optional(rates, "apply"))
-                        rateBar(String(localized: "career.staff.rateInterview", defaultValue: "До интервью"), CareerJSON.optional(rates, "interview"))
-                        rateBar(String(localized: "career.staff.rateHired", defaultValue: "До найма"), CareerJSON.optional(rates, "hired"))
-                    } header: {
-                        Text(String(localized: "career.staff.rates", defaultValue: "Конверсия воронки"))
+                    DashboardCardSection(title: String(localized: "career.staff.rates", defaultValue: "Конверсия воронки")) {
+                        DashboardBarList(bars: [
+                            rateBar(String(localized: "career.employer.rateApply", defaultValue: "Просмотр → отклик"), CareerJSON.optional(rates, "apply")),
+                            rateBar(String(localized: "career.staff.rateInterview", defaultValue: "До интервью"), CareerJSON.optional(rates, "interview")),
+                            rateBar(String(localized: "career.staff.rateHired", defaultValue: "До найма"), CareerJSON.optional(rates, "hired"), tint: Palette.success),
+                        ])
                     }
                 }
 
@@ -143,12 +90,12 @@ struct CareerEmployerHomeView: View {
                     }
                     ForEach([CareerScreen.employerVacancies, .candidates, .access, .team], id: \.self) { screen in
                         NavigationLink(value: AppRoute.career(screen)) {
-                            IconRow(title: screen.title, symbol: screen.symbol, tint: TileTint.purple)
+                            DashboardRow(title: screen.title, symbol: screen.symbol, tint: TileTint.purple)
                         }
                     }
                 }
             }
-            .listStyle(.insetGrouped)
+            .dashboardListStyle()
             .refreshable { token += 1 }
             .navigationTitle(Text(company.name))
         }
@@ -158,11 +105,64 @@ struct CareerEmployerHomeView: View {
         }
     }
 
-    private func rateBar(_ title: String, _ value: Double?) -> some View {
-        ShareBar(
-            title: title,
+    /// Плитки компании. Метрики вакансий есть только у подтверждённой компании — без них
+    /// плиток нет вовсе, а не ряд нулей или прочерков.
+    private func metrics(active: Int, pending: Int, analytics: JSONValue?) -> [DashboardMetric] {
+        var items = [
+            DashboardMetric(
+                title: String(localized: "career.employer.approved", defaultValue: "Университетов открыто"),
+                value: active.formatted(),
+                symbol: "graduationcap",
+                tint: Palette.success,
+                route: .career(.access)
+            ),
+            DashboardMetric(
+                title: String(localized: "career.employer.pending", defaultValue: "Заявок на рассмотрении"),
+                value: pending.formatted(),
+                symbol: "clock",
+                tint: Palette.warning,
+                route: .career(.access)
+            ),
+        ]
+        if let analytics {
+            items += [
+                DashboardMetric(
+                    title: String(localized: "career.employer.published", defaultValue: "Вакансий опубликовано"),
+                    value: CareerJSON.int(analytics, "vacancies", "PUBLISHED").formatted(),
+                    symbol: "briefcase",
+                    tint: TileTint.indigo,
+                    route: .career(.employerVacancies)
+                ),
+                DashboardMetric(
+                    title: String(localized: "career.employer.views", defaultValue: "Просмотров вакансий"),
+                    value: CareerJSON.int(analytics, "views").formatted(),
+                    symbol: "eye",
+                    tint: Palette.info
+                ),
+                DashboardMetric(
+                    title: String(localized: "career.employer.applications", defaultValue: "Откликов"),
+                    value: CareerJSON.sum(analytics["funnel"]).formatted(),
+                    symbol: "person.3",
+                    tint: TileTint.teal,
+                    route: .career(.candidates)
+                ),
+                DashboardMetric(
+                    title: String(localized: "career.employer.hired", defaultValue: "Нанято"),
+                    value: CareerJSON.int(analytics, "funnel", "HIRED").formatted(),
+                    symbol: "checkmark.seal",
+                    tint: Palette.success
+                ),
+            ]
+        }
+        return items
+    }
+
+    private func rateBar(_ title: String, _ value: Double?, tint: Color? = nil) -> DashboardBar {
+        DashboardBar(
+            label: title,
             fraction: (value ?? 0) / 100,
-            valueText: value.map { "\(Int($0.rounded()))%" } ?? "—"
+            valueText: value.map { "\(Int($0.rounded()))%" } ?? DashboardText.noData,
+            tint: tint
         )
     }
 

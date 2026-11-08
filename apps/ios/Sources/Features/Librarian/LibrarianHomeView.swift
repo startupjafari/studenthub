@@ -26,47 +26,40 @@ struct LibrarianHomeView: View {
                     .listRowBackground(Color.clear)
                 } else {
                     if let s = snapshot.summary {
-                        Section {
-                            StatGrid {
-                                NavigationLink(value: AppRoute.librarian(.loans)) {
-                                    StatTile(
-                                        title: String(localized: "librarian.metric.onLoan", defaultValue: "На руках"),
-                                        value: s.loans.open.formatted(),
-                                        symbol: "list.bullet.rectangle",
-                                        caption: String(localized: "librarian.metric.onShelf", defaultValue: "\(s.copies.available.formatted()) на полке")
-                                    )
-                                }
-                                NavigationLink(value: AppRoute.librarian(.loans)) {
-                                    StatTile(
-                                        title: String(localized: "librarian.metric.overdue", defaultValue: "Просрочено"),
-                                        value: s.loans.overdue.formatted(),
-                                        symbol: "exclamationmark.circle",
-                                        tint: Palette.destructive,
-                                        caption: String(localized: "librarian.metric.debtors", defaultValue: "должников: \(s.readers.debtors.formatted())")
-                                    )
-                                }
-                                NavigationLink(value: AppRoute.librarian(.reservations)) {
-                                    StatTile(
-                                        title: String(localized: "librarian.metric.ready", defaultValue: "Ждут на полке броней"),
-                                        value: s.reservations.ready.formatted(),
-                                        symbol: "bookmark",
-                                        tint: Palette.success,
-                                        caption: String(localized: "librarian.metric.queued", defaultValue: "\(s.reservations.queued.formatted()) в очереди")
-                                    )
-                                }
-                                NavigationLink(value: AppRoute.librarian(.reports)) {
-                                    StatTile(
-                                        title: String(localized: "librarian.metric.issued30", defaultValue: "Выдано за 30 дней"),
-                                        value: s.loans.issuedLast30.formatted(),
-                                        symbol: "arrow.up.doc",
-                                        caption: String(localized: "librarian.metric.returned30", defaultValue: "возвращено \(s.loans.returnedLast30.formatted())")
-                                    )
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets())
+                        DashboardMetricsSection(metrics: [
+                            DashboardMetric(
+                                title: String(localized: "librarian.metric.onLoan", defaultValue: "На руках"),
+                                value: s.loans.open.formatted(),
+                                symbol: "list.bullet.rectangle",
+                                tint: TileTint.blue,
+                                caption: String(localized: "librarian.metric.onShelf", defaultValue: "\(s.copies.available.formatted()) на полке"),
+                                route: .librarian(.loans)
+                            ),
+                            DashboardMetric(
+                                title: String(localized: "librarian.metric.overdue", defaultValue: "Просрочено"),
+                                value: s.loans.overdue.formatted(),
+                                symbol: "exclamationmark.circle",
+                                tint: Palette.destructive,
+                                caption: String(localized: "librarian.metric.debtors", defaultValue: "должников: \(s.readers.debtors.formatted())"),
+                                route: .librarian(.loans)
+                            ),
+                            DashboardMetric(
+                                title: String(localized: "librarian.metric.ready", defaultValue: "Ждут на полке броней"),
+                                value: s.reservations.ready.formatted(),
+                                symbol: "bookmark",
+                                tint: Palette.success,
+                                caption: String(localized: "librarian.metric.queued", defaultValue: "\(s.reservations.queued.formatted()) в очереди"),
+                                route: .librarian(.reservations)
+                            ),
+                            DashboardMetric(
+                                title: String(localized: "librarian.metric.issued30", defaultValue: "Выдано за 30 дней"),
+                                value: s.loans.issuedLast30.formatted(),
+                                symbol: "arrow.up.doc",
+                                tint: TileTint.indigo,
+                                caption: String(localized: "librarian.metric.returned30", defaultValue: "возвращено \(s.loans.returnedLast30.formatted())"),
+                                route: .librarian(.reports)
+                            ),
+                        ])
                     }
 
                     Section {
@@ -78,16 +71,14 @@ struct LibrarianHomeView: View {
 
                     Section {
                         if snapshot.overdue.isEmpty {
-                            Text(String(localized: "librarian.noOverdue", defaultValue: "Просрочек нет"))
-                                .font(Typography.meta)
-                                .foregroundStyle(Palette.mutedForeground)
+                            DashboardEmptyRow(text: String(localized: "librarian.noOverdue", defaultValue: "Просрочек нет"), tint: Palette.success)
                         }
                         ForEach(snapshot.overdue) { loan in
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(loan.reader.name).font(Typography.cardTitle).lineLimit(2)
+                                    Text(loan.reader.name).font(Typography.body).lineLimit(2)
                                     Text([loan.reader.group, loan.book.title].compactMap { $0 }.joined(separator: " · "))
-                                        .font(Typography.meta)
+                                        .font(.footnote)
                                         .foregroundStyle(Palette.mutedForeground)
                                         .lineLimit(2)
                                 }
@@ -96,28 +87,27 @@ struct LibrarianHomeView: View {
                             }
                         }
                         NavigationLink(value: AppRoute.librarian(.loans)) {
-                            Text(String(localized: "librarian.allLoans", defaultValue: "Все выдачи")).foregroundStyle(Palette.primary)
+                            DashboardMoreLabel(title: String(localized: "librarian.allLoans", defaultValue: "Все выдачи"))
                         }
                     } header: {
-                        Text(String(localized: "librarian.overdueTitle", defaultValue: "Просрочено"))
-                    } footer: {
-                        Text(String(localized: "librarian.overdueHint", defaultValue: "Самые давние — сверху"))
+                        DashboardSectionHeader(
+                            title: String(localized: "librarian.overdueTitle", defaultValue: "Просрочено"),
+                            subtitle: String(localized: "librarian.overdueHint", defaultValue: "Самые давние — сверху")
+                        )
                     }
 
                     Section {
                         if snapshot.ready.isEmpty {
-                            Text(String(localized: "librarian.noHolds", defaultValue: "На полке броней пусто"))
-                                .font(Typography.meta)
-                                .foregroundStyle(Palette.mutedForeground)
+                            DashboardEmptyRow(text: String(localized: "librarian.noHolds", defaultValue: "На полке броней пусто"), symbol: "bookmark")
                         }
                         ForEach(snapshot.ready) { reservation in
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(reservation.book.title).font(Typography.cardTitle).lineLimit(2)
+                                    Text(reservation.book.title).font(Typography.body).lineLimit(2)
                                     Text([reservation.reader.name, reservation.copy.map { LibrarianText.inventoryShort($0.inventoryNumber) }]
                                         .compactMap { $0 }
                                         .joined(separator: " · "))
-                                        .font(Typography.meta)
+                                        .font(.footnote)
                                         .foregroundStyle(Palette.mutedForeground)
                                 }
                                 Spacer(minLength: Spacing.md)
@@ -125,16 +115,17 @@ struct LibrarianHomeView: View {
                             }
                         }
                         NavigationLink(value: AppRoute.librarian(.reservations)) {
-                            Text(String(localized: "librarian.allReservations", defaultValue: "Все брони")).foregroundStyle(Palette.primary)
+                            DashboardMoreLabel(title: String(localized: "librarian.allReservations", defaultValue: "Все брони"))
                         }
                     } header: {
-                        Text(String(localized: "librarian.holdShelfTitle", defaultValue: "Полка броней"))
-                    } footer: {
-                        Text(String(localized: "librarian.holdShelfHint", defaultValue: "Отложенные книги и до какого дня держатся"))
+                        DashboardSectionHeader(
+                            title: String(localized: "librarian.holdShelfTitle", defaultValue: "Полка броней"),
+                            subtitle: String(localized: "librarian.holdShelfHint", defaultValue: "Отложенные книги и до какого дня держатся")
+                        )
                     }
                 }
             }
-            .listStyle(.insetGrouped)
+            .dashboardListStyle()
             .refreshable { token += 1 }
         }
         .background(Palette.background)
@@ -143,7 +134,7 @@ struct LibrarianHomeView: View {
 
     private func action(_ screen: LibrarianScreen, _ title: String, _ hint: String, _ tint: Color) -> some View {
         NavigationLink(value: AppRoute.librarian(screen)) {
-            IconRow(title: title, symbol: screen.symbol, tint: tint, subtitle: hint)
+            DashboardRow(title: title, subtitle: hint, symbol: screen.symbol, tint: tint)
         }
     }
 
