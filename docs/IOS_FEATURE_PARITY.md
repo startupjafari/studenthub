@@ -52,9 +52,9 @@
 | `/login` — пароль, 2FA, автозаполнение | `LoginView`, `TwoFactorStepView` | Implemented |
 | `/login`, вкладка QR — вход по коду с телефона, где уже вошли | `QRSignInView`: `qr/create`, опрос `qr/claim`, код из SVG сервера | Implemented |
 | `/forgot-password` | `ForgotPasswordView`: `auth/password/forgot` | Implemented |
-| `/reset-password` — новый пароль по ссылке из письма | ссылка открывается в браузере | Missing |
+| `/reset-password` — новый пароль по ссылке из письма | `ResetPasswordView`: `auth/password/reset`, политика пароля до запроса, «ссылка не работает» → новое письмо. Открывается по `studenthub://reset-password?token=…` или вставкой ссылки («Есть приглашение?» на экране входа); https-ссылка письма — после apple-app-site-association на домене | Implemented |
 | `/legal/privacy`, `/legal/terms` | `LegalDocumentView`: полный текст, раскрывающиеся разделы, ru и kk | Implemented |
-| `/register` — регистрация по приглашению | — | Missing |
+| `/register` — регистрация по приглашению | `RegisterView`: превью `invites/:token/preview` (роль, область, отказ по коду), `auth/register-by-invite`, email у приглашения без адреса, согласие и согласие представителя до 18 лет. Фото — после входа, в профиле. Ссылка — так же, как у сброса пароля | Adapted |
 | Регистрация работодателя | `CareerSignupSheet` | Implemented |
 
 ## Главная, лента, публикации
