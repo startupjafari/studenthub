@@ -57,7 +57,7 @@
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "passport-local": "^1.0.0",
-    "pino-http": "^10.5.0",
+    "pino-http": "^11.0.0",
     "pizzip": "^3.3.0",
     "qrcode": "^1.5.4",
     "react": "^19.3.1",
