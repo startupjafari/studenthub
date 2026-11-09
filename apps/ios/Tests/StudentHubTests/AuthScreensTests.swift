@@ -109,21 +109,252 @@ final class ForgotPasswordModelTests: XCTestCase {
     }
 }
 
+@MainActor
+final class ResetPasswordModelTests: XCTestCase {
+    private let token = "Qm9yaXMtdGhlLXRva2VuLWZyb20tbWFpbA"
+
+    /// Обрезанную почтовым клиентом ссылку видно сразу, без запроса.
+    func testTruncatedTokenIsInvalidUpFront() {
+        XCTAssertEqual(ResetPasswordModel(token: "short", api: StubRecovery()).phase, .invalid)
+        XCTAssertEqual(ResetPasswordModel(token: "", api: StubRecovery()).phase, .invalid)
+        XCTAssertEqual(ResetPasswordModel(token: token, api: StubRecovery()).phase, .form)
+    }
+
+    /// Пароль не по политике до сервера не уходит.
+    func testWeakPasswordIsNotSent() async {
+        let api = StubRecovery()
+        let model = ResetPasswordModel(token: token, api: api)
+        model.password = "password"
+
+        await model.save()
+
+        XCTAssertNotNil(model.passwordError)
+        XCTAssertTrue(api.newPasswords.isEmpty)
+    }
+
+    func testSavedPasswordEndsInDone() async {
+        let api = StubRecovery()
+        let model = ResetPasswordModel(token: token, api: api)
+        model.password = "Secret-2026"
+
+        await model.save()
+
+        XCTAssertEqual(model.phase, .done)
+        XCTAssertEqual(api.newPasswords.first?.token, token)
+        XCTAssertEqual(model.password, "", "пароль не держим в памяти дольше нужного")
+    }
+
+    /// Неизвестная, использованная и истёкшая ссылка — один ответ и один выход.
+    func testBadRequestMeansDeadLink() async {
+        let api = StubRecovery(newPassword: .failure(APIError.server(code: .badRequest, message: "", details: [], statusCode: 400)))
+        let model = ResetPasswordModel(token: token, api: api)
+        model.password = "Secret-2026"
+
+        await model.save()
+
+        XCTAssertEqual(model.phase, .invalid)
+    }
+}
+
+final class AuthLinkTests: XCTestCase {
+    func testWebAndSchemeLinks() {
+        XCTAssertEqual(
+            AuthLink(url: URL(string: "https://studenthub.kz/reset-password?token=abc_DEF-123")!),
+            .resetPassword(token: "abc_DEF-123")
+        )
+        XCTAssertEqual(
+            AuthLink(url: URL(string: "http://192.168.0.19.nip.io:3000/register?token=1b4e28ba-2fa1-11d2-883f-0016d3cca427")!),
+            .register(token: "1b4e28ba-2fa1-11d2-883f-0016d3cca427")
+        )
+        XCTAssertEqual(AuthLink(url: URL(string: "studenthub://register?token=abc")!), .register(token: "abc"))
+    }
+
+    func testForeignLinksAreIgnored() {
+        XCTAssertNil(AuthLink(url: URL(string: "https://studenthub.kz/register")!), "без токена")
+        XCTAssertNil(AuthLink(url: URL(string: "https://studenthub.kz/chats?token=abc")!))
+        XCTAssertNil(AuthLink(url: URL(string: "https://studenthub.kz/a/register?token=abc")!))
+        XCTAssertNil(AuthLink(url: URL(string: "ftp://studenthub.kz/register?token=abc")!))
+    }
+
+    /// Токен встаёт в путь запроса превью — «../» из чужой ссылки туда попасть не должен.
+    func testTokenWithPathCharactersIsRejected() {
+        XCTAssertNil(AuthLink(url: URL(string: "https://studenthub.kz/register?token=..%2F..%2Fauth%2Fme")!))
+        XCTAssertNil(AuthLink(url: URL(string: "https://studenthub.kz/register?token=a%20b")!))
+    }
+
+    func testLinkInsidePastedMessage() {
+        XCTAssertEqual(
+            AuthLink(pasted: "Вас пригласили в StudentHub: https://studenthub.kz/register?token=abc123 — до пятницы"),
+            .register(token: "abc123")
+        )
+        XCTAssertEqual(AuthLink(pasted: "  https://studenthub.kz/reset-password?token=xyz  \n"), .resetPassword(token: "xyz"))
+        XCTAssertNil(AuthLink(pasted: "abc123"), "голый токен не разобрать: приглашение это или сброс")
+    }
+}
+
+final class PasswordPolicyTests: XCTestCase {
+    func testPolicyMatchesSharedSchema() {
+        XCTAssertNil(PasswordPolicy.problem("Secret-2026"))
+        XCTAssertNil(PasswordPolicy.problem("Пароль-2026"), "кириллица — тоже буква")
+        XCTAssertNotNil(PasswordPolicy.problem("Se-2026"), "короче 8")
+        XCTAssertNotNil(PasswordPolicy.problem("12345678-"), "нет буквы")
+        XCTAssertNotNil(PasswordPolicy.problem("Secret-word"), "нет цифры")
+        XCTAssertNotNil(PasswordPolicy.problem("Secret2026"), "нет спецсимвола")
+        XCTAssertNotNil(PasswordPolicy.problem(String(repeating: "Ж", count: 36) + "1!"), "больше 72 байт")
+    }
+
+    /// Буква для сервера — только латиница и `А–я`: «ә» в пароле считается спецсимволом.
+    func testKazakhLetterCountsAsSpecial() {
+        XCTAssertNil(PasswordPolicy.problem("Сәлем2026"))
+    }
+
+    func testScore() {
+        XCTAssertEqual(PasswordPolicy.score(""), 0)
+        XCTAssertEqual(PasswordPolicy.score("abc"), 1)
+        XCTAssertEqual(PasswordPolicy.score("abc123"), 2)
+        XCTAssertEqual(PasswordPolicy.score("Secret-2026"), 4)
+    }
+}
+
+@MainActor
+final class RegisterModelTests: XCTestCase {
+    private let token = "1b4e28ba-2fa1-11d2-883f-0016d3cca427"
+
+    func testPreviewOpensForm() async {
+        let model = RegisterModel(token: token, api: StubInvites())
+
+        await model.load()
+
+        XCTAssertEqual(model.preview?.role, .student)
+    }
+
+    /// Текст отказа зависит от кода — истёкшее, использованное, отозванное.
+    func testRefusalKeepsItsCode() async {
+        let api = StubInvites(preview: .failure(APIError.server(code: .inviteExpired, message: "", details: [], statusCode: 410)))
+        let model = RegisterModel(token: token, api: api)
+
+        await model.load()
+
+        XCTAssertEqual(model.phase, .invalid(.inviteExpired))
+    }
+
+    /// Нет связи — не «приглашение недействительно», а повтор.
+    func testOfflineCanBeRetried() async {
+        let api = StubInvites(preview: .failure(APIError.transport(URLError(.notConnectedToInternet))))
+        let model = RegisterModel(token: token, api: api)
+
+        await model.load()
+
+        guard case .failed(_, let isOffline) = model.phase else { return XCTFail("ожидался сбой, получено \(model.phase)") }
+        XCTAssertTrue(isOffline)
+    }
+
+    func testValidationMirrorsSchema() async {
+        let model = RegisterModel(token: token, api: StubInvites())
+        let now = Date()
+
+        var errors = model.validate(emailRequired: true, now: now)
+        XCTAssertEqual(
+            Set(errors.keys),
+            [.firstName, .lastName, .username, .email, .birthDate, .password, .consent]
+        )
+
+        model.firstName = "Айгерим"
+        model.lastName = "Сапарова"
+        model.username = "  Aigerim_S "
+        model.email = "aigerim@uni.kz"
+        model.birthDate = Calendar.current.date(byAdding: .year, value: -20, to: now)
+        model.password = "Secret-2026"
+        model.consent = true
+        errors = model.validate(emailRequired: true, now: now)
+        XCTAssertTrue(errors.isEmpty, "\(errors)")
+    }
+
+    /// До 18 лет нужна вторая галочка — согласие законного представителя.
+    func testMinorNeedsGuardianConsent() {
+        let model = RegisterModel(token: token, api: StubInvites())
+        model.birthDate = Calendar.current.date(byAdding: .year, value: -16, to: Date())
+
+        XCTAssertTrue(model.needsGuardian)
+        XCTAssertNotNil(model.validate(emailRequired: false)[.guardianConsent])
+    }
+
+    func testUsernameRules() {
+        XCTAssertTrue(RegisterModel.isValidUsername("ivan_petrov"))
+        XCTAssertTrue(RegisterModel.isValidUsername(" Ivan2026 "), "регистр и пробелы нормализуются")
+        XCTAssertFalse(RegisterModel.isValidUsername("iv"))
+        XCTAssertFalse(RegisterModel.isValidUsername("иван"))
+        XCTAssertFalse(RegisterModel.isValidUsername("ivan.petrov"))
+    }
+
+    /// Занятое имя — ошибка поля, а не общая плашка.
+    func testTakenUsernameLandsOnTheField() async {
+        let api = StubInvites(register: .failure(APIError.server(code: .usernameTaken, message: "", details: [], statusCode: 409)))
+        let model = RegisterModel(token: token, api: api)
+        await model.load()
+        model.firstName = "Иван"
+        model.lastName = "Петров"
+        model.username = "ivan"
+        model.birthDate = Calendar.current.date(byAdding: .year, value: -20, to: Date())
+        model.password = "Secret-2026"
+        model.consent = true
+
+        await model.submit(into: AppSessionModel())
+
+        XCTAssertNotNil(model.errors[.username])
+        XCTAssertNil(model.formError)
+        XCTAssertEqual(api.registrations.first?.username, "ivan")
+        XCTAssertNil(api.registrations.first?.guardianConsent, "совершеннолетнему галочка представителя не нужна")
+    }
+}
+
+/// Подменный API приглашений.
+private final class StubInvites: InviteRegistering, @unchecked Sendable {
+    private let previewResult: Result<InvitePreview, Error>
+    private let registerResult: Result<AuthSession, Error>
+    private(set) var registrations: [InviteRegistration] = []
+
+    init(
+        preview: Result<InvitePreview, Error> = .success(InvitePreview(
+            role: .student,
+            emailRequired: false,
+            universityId: "u1",
+            facultyId: "f1",
+            groupId: "g1",
+            expiresAt: Date().addingTimeInterval(3600)
+        )),
+        register: Result<AuthSession, Error> = .failure(APIError.server(code: .internalError, message: "", details: [], statusCode: 500))
+    ) {
+        previewResult = preview
+        registerResult = register
+    }
+
+    func preview(token: String) async throws -> InvitePreview { try previewResult.get() }
+    func register(_ form: InviteRegistration) async throws -> AuthSession {
+        registrations.append(form)
+        return try registerResult.get()
+    }
+}
+
 /// Подменный API восстановления: ответы задаются заранее, запросы запоминаются.
 private final class StubRecovery: AuthRecovering, @unchecked Sendable {
     private let create: Result<QRSignInTicket, Error>
     private let claim: Result<AuthSession, Error>
     private let reset: Result<Void, Error>
+    private let newPassword: Result<Void, Error>
     private(set) var resetRequests: [String] = []
+    private(set) var newPasswords: [(token: String, password: String)] = []
 
     init(
         create: Result<QRSignInTicket, Error>? = nil,
         claim: Result<AuthSession, Error> = .failure(APIError.server(code: .badRequest, message: "", details: [], statusCode: 400)),
-        reset: Result<Void, Error> = .success(())
+        reset: Result<Void, Error> = .success(()),
+        newPassword: Result<Void, Error> = .success(())
     ) {
         self.create = create ?? .success(StubRecovery.ticket())
         self.claim = claim
         self.reset = reset
+        self.newPassword = newPassword
     }
 
     func createQRSession() async throws -> QRSignInTicket { try create.get() }
@@ -131,6 +362,10 @@ private final class StubRecovery: AuthRecovering, @unchecked Sendable {
     func requestPasswordReset(email: String) async throws {
         resetRequests.append(email)
         try reset.get()
+    }
+    func resetPassword(token: String, password: String) async throws {
+        newPasswords.append((token, password))
+        try newPassword.get()
     }
 
     /// Билет с настоящей картинкой сервера, чтобы модель дошла до ожидания.

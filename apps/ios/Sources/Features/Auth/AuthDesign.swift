@@ -333,6 +333,93 @@ struct PasswordVisibilityToggle: View {
     }
 }
 
+/// Поле нового пароля: подпись, «показать пароль» и полоска надёжности под ним. Одно на
+/// сброс пароля и регистрацию — политика у них общая (`PasswordPolicy`).
+struct NewPasswordField: View {
+    let label: String
+    @Binding var password: String
+    @Binding var isVisible: Bool
+    var error: String?
+    var focus: FocusState<Bool>.Binding
+    var submitLabel: SubmitLabel = .done
+    let submit: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            StudentHubField(
+                label: label,
+                error: error,
+                isFocused: focus.wrappedValue,
+                focus: { focus.wrappedValue = true }
+            ) {
+                Group {
+                    if isVisible {
+                        TextField(text: $password, prompt: Text(label)) { Text(label) }
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    } else {
+                        SecureField(text: $password, prompt: Text(label)) { Text(label) }
+                    }
+                }
+                // `.newPassword` — iOS предлагает надёжный пароль и сохраняет его в связку.
+                .textContentType(.newPassword)
+                .submitLabel(submitLabel)
+                .focused(focus)
+                .onSubmit(submit)
+            } accessory: {
+                PasswordVisibilityToggle(isVisible: $isVisible)
+            }
+            if !password.isEmpty, error == nil {
+                PasswordStrengthMeter(password: password)
+            }
+        }
+    }
+}
+
+/// Надёжность пароля по критериям политики: четыре деления и подпись, как в вебе.
+struct PasswordStrengthMeter: View {
+    let password: String
+
+    var body: some View {
+        let score = PasswordPolicy.score(password)
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            HStack(spacing: 4) {
+                ForEach(0..<4, id: \.self) { index in
+                    Capsule()
+                        .fill(index < score ? tint(score) : Palette.muted)
+                        .frame(height: 4)
+                }
+            }
+            HStack(spacing: 4) {
+                Text(String(localized: "auth.passwordStrengthLabel", defaultValue: "Надёжность"))
+                    .foregroundStyle(Palette.mutedForeground)
+                Text(level(score))
+                    .foregroundStyle(tint(score))
+            }
+            .font(.footnote)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func level(_ score: Int) -> String {
+        switch score {
+        case 4: return String(localized: "auth.passwordStrength.strong", defaultValue: "Отличный")
+        case 3: return String(localized: "auth.passwordStrength.good", defaultValue: "Хороший")
+        case 2: return String(localized: "auth.passwordStrength.fair", defaultValue: "Средний")
+        default: return String(localized: "auth.passwordStrength.weak", defaultValue: "Слабый")
+        }
+    }
+
+    private func tint(_ score: Int) -> Color {
+        switch score {
+        case 4: return Palette.success
+        case 3: return Palette.info
+        case 2: return Palette.warning
+        default: return Palette.destructive
+        }
+    }
+}
+
 // MARK: - Кнопки
 
 /// Главное действие: на iOS 26 — капсула тонированного стекла (`PrimaryButtonStyle`),
@@ -416,6 +503,10 @@ enum AuthRoute: Hashable {
     case qrSignIn
     case forgotPassword
     case legal(LegalDocument)
+    /// Вставить ссылку из письма: приглашение или новый пароль.
+    case pasteLink
+    case resetPassword(token: String)
+    case register(token: String)
 }
 
 /// Ссылки на политику и соглашение внизу панели. Нативные экраны документа, а не

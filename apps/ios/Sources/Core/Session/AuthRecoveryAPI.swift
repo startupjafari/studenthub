@@ -27,6 +27,10 @@ protocol AuthRecovering: Sendable {
     /// Письмо со ссылкой на новый пароль. Ответ одинаковый для любого адреса — сервер
     /// не выдаёт, зарегистрирован ли он.
     func requestPasswordReset(email: String) async throws
+    /// Новый пароль по токену из письма. Сессию не выдаёт: после сброса гаснут все
+    /// сессии, и человек входит сам. Ссылка неизвестна, использована или истекла —
+    /// `BAD_REQUEST`, сервер эти случаи не различает.
+    func resetPassword(token: String, password: String) async throws
 }
 
 struct AuthRecoveryAPI: AuthRecovering {
@@ -55,6 +59,14 @@ struct AuthRecoveryAPI: AuthRecovering {
     func requestPasswordReset(email: String) async throws {
         struct Body: Encodable { let email: String }
         try await client.send(try publicEndpoint("auth/password/forgot", json: Body(email: email)))
+    }
+
+    func resetPassword(token: String, password: String) async throws {
+        struct Body: Encodable {
+            let token: String
+            let password: String
+        }
+        try await client.send(try publicEndpoint("auth/password/reset", json: Body(token: token, password: password)))
     }
 
     private func publicEndpoint(_ path: String) -> Endpoint {

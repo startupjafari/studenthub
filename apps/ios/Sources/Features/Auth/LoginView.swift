@@ -4,12 +4,15 @@ import SwiftUI
 ///
 /// Логика входа не здесь, а в `LoginModel` (два шага: пароль и код 2FA) и в
 /// `AppSessionModel` (сессия, связка ключей). Экран отвечает только за подачу и за
-/// переходы: вход по QR, восстановление пароля, документы.
+/// переходы: вход по QR, восстановление пароля, документы, а также ссылки из писем —
+/// новый пароль и регистрация по приглашению (`AuthLink`).
 ///
 /// Тексты — как в вебе (`apps/web/messages/*.json`, раздел `Auth`): один продукт не
 /// должен здороваться по-разному на телефоне и в браузере.
 struct LoginView: View {
     let session: AppSessionModel
+    /// Ссылка из письма, с которой открыли приложение: экран открывает её и обнуляет.
+    @Binding var pendingLink: AuthLink?
 
     @State private var model = LoginModel()
     @State private var path: [AuthRoute] = []
@@ -37,7 +40,8 @@ struct LoginView: View {
                         model: model,
                         session: session,
                         forgotPassword: { path.append(.forgotPassword) },
-                        qrSignIn: { path.append(.qrSignIn) }
+                        qrSignIn: { path.append(.qrSignIn) },
+                        pasteLink: { path.append(.pasteLink) }
                     )
                     StudentHubLegalLinks()
                 case .twoFactor:
@@ -54,11 +58,39 @@ struct LoginView: View {
                     ForgotPasswordView(prefill: model.identifier)
                 case .legal(let document):
                     LegalDocumentView(document: document)
+                case .pasteLink:
+                    PasteLinkView { open($0) }
+                case .resetPassword(let token):
+                    ResetPasswordView(
+                        token: token,
+                        backToLogin: { path.removeAll() },
+                        requestNewLink: { path = [.forgotPassword] }
+                    )
+                case .register(let token):
+                    RegisterView(token: token, session: session) { path.removeAll() }
                 }
             }
         }
+        // `initial` — ссылка могла прийти до появления экрана: холодный старт по ссылке.
+        .onChange(of: pendingLink, initial: true) { _, link in
+            guard let link else { return }
+            pendingLink = nil
+            open(link)
+        }
         .sheet(isPresented: $showsEmployerSignup) {
             CareerSignupSheet(session: session)
+        }
+    }
+
+    /// Ссылка из письма открывается поверх формы входа: «назад» ведёт ко входу, а не
+    /// на экран, откуда ссылку вставили.
+    private func open(_ link: AuthLink) {
+        showsEmployerSignup = false
+        switch link {
+        case .resetPassword(let token):
+            path = [.resetPassword(token: token)]
+        case .register(let token):
+            path = [.register(token: token)]
         }
     }
 
@@ -83,6 +115,7 @@ private struct CredentialsStepView: View {
     let session: AppSessionModel
     let forgotPassword: () -> Void
     let qrSignIn: () -> Void
+    let pasteLink: () -> Void
 
     @FocusState private var focus: Field?
     @State private var showsPassword = false
@@ -131,9 +164,20 @@ private struct CredentialsStepView: View {
             PasswordVisibilityToggle(isVisible: $showsPassword)
         }
 
-        HStack {
-            Spacer(minLength: 0)
-            AuthTextLink(title: String(localized: "auth.forgotPassword", defaultValue: "Забыли пароль?"), action: forgotPassword)
+        // Приглашение — в одной строке с «Забыли пароль?»: ссылка нужна раз в жизни, и
+        // отдельная строка отняла бы у формы высоту на низком экране. Не влезли в ширину
+        // (казахский, крупный шрифт) — встают друг под другом.
+        ViewThatFits(in: .horizontal) {
+            HStack {
+                inviteLink
+                Spacer(minLength: Spacing.md)
+                forgotLink
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                forgotLink
+                inviteLink
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, -Spacing.md)
 
@@ -172,6 +216,15 @@ private struct CredentialsStepView: View {
         .submitLabel(.go)
         .focused($focus, equals: .password)
         .onSubmit(submit)
+    }
+
+    private var inviteLink: some View {
+        AuthTextLink(title: String(localized: "auth.haveInvite", defaultValue: "Есть приглашение?"), action: pasteLink)
+            .accessibilityIdentifier("auth.pasteLink")
+    }
+
+    private var forgotLink: some View {
+        AuthTextLink(title: String(localized: "auth.forgotPassword", defaultValue: "Забыли пароль?"), action: forgotPassword)
     }
 
     private var passwordLabel: String {
