@@ -76,7 +76,7 @@
     "@nestjs/testing": "^11.2.8",
     "@types/bcrypt": "^6.0.0",
     "@types/jest": "^30.0.0",
-    "@types/node": "^22.18.10",
+    "@types/node": "^26.6.6",
     "@types/passport-jwt": "^4.0.1",
     "@types/passport-local": "^1.0.38",
     "@types/qrcode": "^1.5.6",
