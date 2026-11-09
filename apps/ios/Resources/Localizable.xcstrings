@@ -89905,6 +89905,856 @@
           }
         }
       }
+    },
+    "auth.birthDate": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дата рождения"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Туған күні"
+          }
+        }
+      }
+    },
+    "auth.birthDateHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нужна, чтобы определить, требуется ли согласие законного представителя"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заңды өкілдің келісімі қажет пе, соны анықтау үшін керек"
+          }
+        }
+      }
+    },
+    "auth.birthDateInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверьте дату рождения"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Туған күніңізді тексеріңіз"
+          }
+        }
+      }
+    },
+    "auth.birthDatePick": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбрать дату"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Күнді таңдау"
+          }
+        }
+      }
+    },
+    "auth.consentRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Без согласия зарегистрироваться нельзя"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Келісімсіз тіркелу мүмкін емес"
+          }
+        }
+      }
+    },
+    "auth.createAccount": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Создать аккаунт"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аккаунт құру"
+          }
+        }
+      }
+    },
+    "auth.createAccountSubtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заполните данные для активации аккаунта"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аккаунтты іске қосу үшін деректерді толтырыңыз"
+          }
+        }
+      }
+    },
+    "auth.createAccountTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Создание аккаунта"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аккаунт құру"
+          }
+        }
+      }
+    },
+    "auth.emailInviteHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приглашение пришло без адреса — укажите email, он станет логином и адресом для восстановления пароля."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шақыру мекенжайсыз келді — email көрсетіңіз: ол логин және құпиясөзді қалпына келтіру мекенжайы болады."
+          }
+        }
+      }
+    },
+    "auth.emailTaken": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пользователь с таким email уже есть"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мұндай email-мен пайдаланушы бар"
+          }
+        }
+      }
+    },
+    "auth.firstName": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Имя"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аты"
+          }
+        }
+      }
+    },
+    "auth.guardianRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нужно согласие законного представителя"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заңды өкілдің келісімі қажет"
+          }
+        }
+      }
+    },
+    "auth.haveInvite": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Есть приглашение?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шақыруыңыз бар ма?"
+          }
+        }
+      }
+    },
+    "auth.inviteExpiredText": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Срок приглашения истёк — оно действует 48 часов. Попросите выдать новое."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шақыру мерзімі бітті — ол 48 сағат жарамды. Жаңасын беруді сұраңыз."
+          }
+        }
+      }
+    },
+    "auth.inviteInvalidText": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ссылка приглашения неверна или повреждена. Запросите новое приглашение у администратора."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шақыру сілтемесі қате немесе бүлінген. Әкімшіден жаңа шақыру сұраңыз."
+          }
+        }
+      }
+    },
+    "auth.inviteInvalidTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приглашение недействительно"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шақыру жарамсыз"
+          }
+        }
+      }
+    },
+    "auth.inviteRateLimitText": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приглашение открывали слишком часто. Попробуйте снова через час."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шақыру тым жиі ашылды. Бір сағаттан кейін қайталап көріңіз."
+          }
+        }
+      }
+    },
+    "auth.inviteRateLimitTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Слишком много попыток"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Әрекет тым көп"
+          }
+        }
+      }
+    },
+    "auth.inviteRevokedText": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приглашение отозвано. Запросите новое у того, кто его выдал."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шақыру қайтарып алынды. Оны берген адамнан жаңасын сұраңыз."
+          }
+        }
+      }
+    },
+    "auth.inviteUsedText": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По этому приглашению уже зарегистрировались. Если это были вы — просто войдите."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бұл шақыру бойынша тіркеліп қойған. Егер бұл сіз болсаңыз — жай ғана кіріңіз."
+          }
+        }
+      }
+    },
+    "auth.inviteValidUntil": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приглашение действует до %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шақыру %@ дейін жарамды"
+          }
+        }
+      }
+    },
+    "auth.lastName": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фамилия"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тегі"
+          }
+        }
+      }
+    },
+    "auth.nameInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заполните поле — до 100 символов"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Өрісті толтырыңыз — 100 таңбаға дейін"
+          }
+        }
+      }
+    },
+    "auth.newPassword": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новый пароль"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жаңа құпия сөз"
+          }
+        }
+      }
+    },
+    "auth.oneTimeTokenNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Токен одноразовый и станет недействителен после регистрации."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Токен бір реттік және тіркелуден кейін жарамсыз болады."
+          }
+        }
+      }
+    },
+    "auth.passwordStrength.fair": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Средний"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Орташа"
+          }
+        }
+      }
+    },
+    "auth.passwordStrength.good": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хороший"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жақсы"
+          }
+        }
+      }
+    },
+    "auth.passwordStrength.strong": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отличный"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Өте жақсы"
+          }
+        }
+      }
+    },
+    "auth.passwordStrength.weak": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Слабый"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Әлсіз"
+          }
+        }
+      }
+    },
+    "auth.passwordStrengthLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надёжность"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сенімділік"
+          }
+        }
+      }
+    },
+    "auth.pasteLink.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставьте ссылку из письма или сообщения — приглашение на регистрацию или ссылку для нового пароля."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хаттағы немесе хабарламадағы сілтемені қойыңыз — тіркелуге шақыру немесе жаңа құпия сөзге арналған сілтеме."
+          }
+        }
+      }
+    },
+    "auth.pasteLink.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ашу"
+          }
+        }
+      }
+    },
+    "auth.pasteLink.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ссылка из письма"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хаттағы сілтеме"
+          }
+        }
+      }
+    },
+    "auth.pasteLink.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У меня есть приглашение"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Менде шақыру бар"
+          }
+        }
+      }
+    },
+    "auth.pasteLink.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это не ссылка-приглашение и не ссылка для нового пароля. Скопируйте её из письма целиком."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бұл шақыру сілтемесі де, жаңа құпия сөз сілтемесі де емес. Оны хаттан толық көшіріңіз."
+          }
+        }
+      }
+    },
+    "auth.resetDoneText": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Войдите с новым паролем."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жаңа құпия сөзбен кіріңіз."
+          }
+        }
+      }
+    },
+    "auth.resetDoneTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пароль изменён"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Құпия сөз өзгертілді"
+          }
+        }
+      }
+    },
+    "auth.resetInvalidText": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Она устарела или уже использована. Запросите новую — она придёт на почту."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ол ескірген немесе қолданылып қойған. Жаңасын сұраңыз — ол поштаға келеді."
+          }
+        }
+      }
+    },
+    "auth.resetInvalidTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ссылка не работает"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сілтеме жұмыс істемейді"
+          }
+        }
+      }
+    },
+    "auth.resetRequestAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запросить новую ссылку"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жаңа сілтеме сұрау"
+          }
+        }
+      }
+    },
+    "auth.resetSubmit": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранить пароль"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Құпия сөзді сақтау"
+          }
+        }
+      }
+    },
+    "auth.resetSubtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "После смены пароля выйдем на всех устройствах — войдите заново."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Құпия сөз ауысқан соң барлық құрылғыдан шығамыз — қайта кіріңіз."
+          }
+        }
+      }
+    },
+    "auth.resetTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новый пароль"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жаңа құпия сөз"
+          }
+        }
+      }
+    },
+    "auth.scopeFaculty": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Факультет"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Факультет"
+          }
+        }
+      }
+    },
+    "auth.scopeGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Группа"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Топ"
+          }
+        }
+      }
+    },
+    "auth.scopeUniversity": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Университет"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Университет"
+          }
+        }
+      }
+    },
+    "auth.username": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Имя пользователя"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пайдаланушы аты"
+          }
+        }
+      }
+    },
+    "auth.usernameHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Латиница, цифры и _, 3–32 символа. По нему можно входить и упоминать в чате."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Латын әріптері, сандар және _, 3–32 таңба. Онымен кіруге және чатта белгілеуге болады."
+          }
+        }
+      }
+    },
+    "auth.usernameInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только латиница, цифры и _, 3–32 символа"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тек латын әріптері, сандар және _, 3–32 таңба"
+          }
+        }
+      }
+    },
+    "auth.usernameTaken": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это имя пользователя уже занято"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бұл пайдаланушы аты бос емес"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
