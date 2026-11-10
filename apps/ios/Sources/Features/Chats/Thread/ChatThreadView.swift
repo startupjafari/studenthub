@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// Экран переписки как в Telegram: обои, по центру шапки — имя и статус, справа —
 /// аватар (ведёт в информацию о чате), плашка закреплённого, лента с пузырями, кнопка
@@ -9,6 +10,7 @@ struct ChatThreadView: View {
     let viewerID: String
 
     @State private var model: ChatThreadModel?
+    @State private var opener = RemoteFileOpener()
     /// Экран уходил (вперёд по стеку или назад): комната сокета отпущена.
     @State private var hasLeft = false
     @State private var forwarding: MessageRecord?
@@ -201,6 +203,7 @@ struct ChatThreadView: View {
 
     private func withDialogs<V: View>(_ view: V) -> some View {
         view
+        .remoteFilePreview(opener)
         .sheet(item: $forwarding) { message in
             ForwardPickerView(excludedChatID: chatID) { targets in
                 guard let model else { return false }
@@ -269,6 +272,25 @@ struct ChatThreadView: View {
             Task { await model.jump(to: id) }
         case .openPost(let id):
             AppServices.router.stacks[.chats, default: []].append(.post(id: id))
+        case .openAttachment(let file):
+            open(file)
+        }
+    }
+
+    /// Вложение — системным просмотром (фото, PDF, Office, видео). Свой файл на диске
+    /// открывается сразу, чужой скачивается по свежей ссылке: подписанная живёт минуты.
+    private func open(_ file: AttachmentRecord) {
+        if let path = file.localPath, FileManager.default.fileExists(atPath: path) {
+            opener.previewURL = URL(filePath: path)
+            return
+        }
+        Task {
+            await opener.open(name: AttachmentFileName.of(file)) {
+                guard let url = await AppServices.attachmentURLs.url(for: file.id) else {
+                    throw URLError(.fileDoesNotExist)
+                }
+                return url
+            }
         }
     }
 }
@@ -516,5 +538,15 @@ private struct ChatScrollDownButton: View {
         .accessibilityValue(count > 0
             ? Text(String(localized: "chats.unreadCount", defaultValue: "Непрочитанных: \(count.formatted())"))
             : Text(verbatim: ""))
+    }
+}
+
+/// Имя файла для просмотра: по расширению система понимает, чем его показать. У фото из
+/// камеры имени нет — берём расширение из типа.
+enum AttachmentFileName {
+    static func of(_ file: AttachmentRecord) -> String {
+        if let name = file.name, !name.isEmpty { return name }
+        let ext = UTType(mimeType: file.mime)?.preferredFilenameExtension ?? "bin"
+        return "\(file.id).\(ext)"
     }
 }

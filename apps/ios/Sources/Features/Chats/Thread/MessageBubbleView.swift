@@ -24,6 +24,7 @@ enum MessageAction {
     case react(String)
     case jump(String)
     case openPost(String)
+    case openAttachment(AttachmentRecord)
 }
 
 /// Пузырь сообщения в духе Telegram.
@@ -129,7 +130,9 @@ struct MessageBubbleView: View {
 
             if !isDeleted {
                 ForEach(item.attachments, id: \.id) { attachment in
-                    AttachmentView(attachment: attachment, isOwn: item.isOwn)
+                    AttachmentView(attachment: attachment, isOwn: item.isOwn) {
+                        onAction(.openAttachment(attachment))
+                    }
                 }
                 if let post = extras.sharedPost {
                     SharedPostCard(post: post, isOwn: item.isOwn) { onAction(.openPost(post.id)) }
