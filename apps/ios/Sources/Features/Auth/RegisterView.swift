@@ -116,6 +116,11 @@ final class RegisterModel {
         }
     }
 
+    /// Поле исправляют — его ошибка снимается, остальные остаются до отправки.
+    func clearError(_ field: Field) {
+        errors[field] = nil
+    }
+
     /// Занятые имя и адрес — ошибки поля, а не общая плашка: по «конфликт данных» не
     /// понять, что исправлять. Ошибки схемы — тоже у своих полей.
     private func apply(_ error: APIError, emailRequired: Bool) {
@@ -238,8 +243,14 @@ struct RegisterView: View {
         _model = State(initialValue: RegisterModel(token: token))
     }
 
+    /// Форма длинная: над клавиатурой держим поле в фокусе, а не кнопку в самом низу.
+    private var focusedField: AnyHashable? {
+        if isPasswordFocused { return AnyHashable(RegisterModel.Field.password) }
+        return focus.map { AnyHashable($0) }
+    }
+
     var body: some View {
-        AuthScaffold {
+        AuthScaffold(keyboardTarget: focusedField, keyboardAnchor: .center) {
             StudentHubBrandHeader(
                 title: String(localized: "auth.createAccountTitle", defaultValue: "Создание аккаунта"),
                 subtitle: String(
@@ -251,8 +262,14 @@ struct RegisterView: View {
         } panel: {
             switch model.phase {
             case .loading:
-                ProgressView()
-                    .frame(maxWidth: .infinity, minHeight: 240)
+                VStack(spacing: Spacing.md) {
+                    ProgressView()
+                    Text(String(localized: "common.loading", defaultValue: "Загрузка"))
+                        .font(.footnote)
+                        .foregroundStyle(Palette.mutedForeground)
+                }
+                .frame(maxWidth: .infinity, minHeight: 160)
+                .accessibilityElement(children: .combine)
             case .form(let preview):
                 form(preview)
             case .invalid(let code):
@@ -273,10 +290,13 @@ struct RegisterView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: model.phase)
+        .animation(AuthMotion.layout(reduceMotion: reduceMotion), value: model.phase)
         .task { await model.load() }
         .sheet(isPresented: $picksBirthDate) {
-            BirthDateSheet(date: model.birthDate) { model.birthDate = $0 }
+            BirthDateSheet(date: model.birthDate) {
+                model.birthDate = $0
+                model.clearError(.birthDate)
+            }
         }
     }
 
@@ -292,14 +312,17 @@ struct RegisterView: View {
             isFocused: focus == .firstName,
             focus: { focus = .firstName }
         ) {
-            TextField(text: $model.firstName, prompt: nil) {
+            TextField(text: $model.firstName, prompt: Text(namePlaceholder)) {
                 Text(String(localized: "auth.firstName", defaultValue: "Имя"))
             }
             .textContentType(.givenName)
+            .textInputAutocapitalization(.words)
             .submitLabel(.next)
             .focused($focus, equals: .firstName)
             .onSubmit { focus = .lastName }
+            .onChange(of: model.firstName) { model.clearError(.firstName) }
         }
+        .id(RegisterModel.Field.firstName)
 
         StudentHubField(
             label: String(localized: "auth.lastName", defaultValue: "Фамилия"),
@@ -307,14 +330,17 @@ struct RegisterView: View {
             isFocused: focus == .lastName,
             focus: { focus = .lastName }
         ) {
-            TextField(text: $model.lastName, prompt: nil) {
+            TextField(text: $model.lastName, prompt: Text(namePlaceholder)) {
                 Text(String(localized: "auth.lastName", defaultValue: "Фамилия"))
             }
             .textContentType(.familyName)
+            .textInputAutocapitalization(.words)
             .submitLabel(.next)
             .focused($focus, equals: .lastName)
             .onSubmit { focus = .username }
+            .onChange(of: model.lastName) { model.clearError(.lastName) }
         }
+        .id(RegisterModel.Field.lastName)
 
         VStack(alignment: .leading, spacing: Spacing.xs) {
             StudentHubField(
@@ -326,12 +352,22 @@ struct RegisterView: View {
                 TextField(text: $model.username, prompt: Text(verbatim: "username")) {
                     Text(String(localized: "auth.username", defaultValue: "Имя пользователя"))
                 }
+                // Пара `.username` + `.newPassword`: iOS предложит надёжный пароль и
+                // сохранит учётную запись в «Пароли» под этим именем.
                 .textContentType(.username)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.next)
                 .focused($focus, equals: .username)
-                .onSubmit { focus = preview.emailRequired ? .email : nil }
+                .onSubmit {
+                    if preview.emailRequired {
+                        focus = .email
+                    } else {
+                        focus = nil
+                        isPasswordFocused = true
+                    }
+                }
+                .onChange(of: model.username) { model.clearError(.username) }
             }
             if model.errors[.username] == nil {
                 FieldHint(String(
@@ -340,6 +376,7 @@ struct RegisterView: View {
                 ))
             }
         }
+        .id(RegisterModel.Field.username)
 
         if preview.emailRequired {
             VStack(alignment: .leading, spacing: Spacing.xs) {
@@ -356,8 +393,13 @@ struct RegisterView: View {
                     .keyboardType(.emailAddress)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                    .submitLabel(.done)
+                    .submitLabel(.next)
                     .focused($focus, equals: .email)
+                    .onSubmit {
+                        focus = nil
+                        isPasswordFocused = true
+                    }
+                    .onChange(of: model.email) { model.clearError(.email) }
                 }
                 if model.errors[.email] == nil {
                     FieldHint(String(
@@ -366,6 +408,7 @@ struct RegisterView: View {
                     ))
                 }
             }
+            .id(RegisterModel.Field.email)
         }
 
         birthDateField
@@ -378,6 +421,8 @@ struct RegisterView: View {
             focus: $isPasswordFocused,
             submit: { isPasswordFocused = false }
         )
+        .id(RegisterModel.Field.password)
+        .onChange(of: model.password) { model.clearError(.password) }
 
         consentToggles
 
@@ -388,6 +433,12 @@ struct RegisterView: View {
             isLoading: model.isSubmitting,
             action: submit
         )
+        .onChange(of: model.isSubmitting) { _, submitting in
+            if submitting {
+                focus = nil
+                isPasswordFocused = false
+            }
+        }
 
         FieldHint(String(
             localized: "auth.oneTimeTokenNote",
@@ -395,6 +446,12 @@ struct RegisterView: View {
         ))
         .frame(maxWidth: .infinity)
         .multilineTextAlignment(.center)
+    }
+
+    /// Подсказка в полях имени и фамилии: подпись над полем уже говорит, что вводить,
+    /// подсказка — в каком виде.
+    private var namePlaceholder: String {
+        String(localized: "auth.namePlaceholder", defaultValue: "Как в документах")
     }
 
     /// Дата рождения — листом с колесом, а не полем: так её нельзя «заполнить» случайно
@@ -450,6 +507,7 @@ struct RegisterView: View {
                 .foregroundStyle(Palette.foreground)
             }
             .tint(Palette.primary)
+            .onChange(of: model.consent) { model.clearError(.consent) }
             FieldError(message: model.errors[.consent])
             StudentHubLegalLinks()
         }
@@ -468,6 +526,7 @@ struct RegisterView: View {
                     .foregroundStyle(Palette.foreground)
                 }
                 .tint(Palette.primary)
+                .onChange(of: model.guardianConsent) { model.clearError(.guardianConsent) }
                 FieldError(message: model.errors[.guardianConsent])
             }
             .transition(.opacity)
@@ -521,10 +580,20 @@ struct RegisterView: View {
         Task { await model.load() }
     }
 
+    /// Ошибки проверки — без запроса: клавиатура остаётся, фокус встаёт в первое
+    /// поле с ошибкой, и экран докручивает до него.
     private func submit() {
-        focus = nil
-        isPasswordFocused = false
-        Task { await model.submit(into: session) }
+        Task {
+            await model.submit(into: session)
+            let order: [RegisterModel.Field] = [.firstName, .lastName, .username, .email]
+            if let first = order.first(where: { model.errors[$0] != nil }) {
+                isPasswordFocused = false
+                focus = first
+            } else if model.errors[.password] != nil {
+                focus = nil
+                isPasswordFocused = true
+            }
+        }
     }
 }
 

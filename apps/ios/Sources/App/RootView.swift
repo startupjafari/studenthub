@@ -22,6 +22,15 @@ struct RootView: View {
             // «уменьшением движения» оно показывается сразу конечным состоянием.
             .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: session.state)
             .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: update.state)
+            // Экран загрузки — поверх содержимого, а не веткой в нём: так его уход
+            // анимируется сам по себе, а смена экранов под ним идёт прежним порядком.
+            .overlay {
+                if isLaunching {
+                    LaunchLoadingView()
+                        .transition(LaunchLoadingView.exitTransition(reduceMotion: reduceMotion))
+                }
+            }
+            .animation(LaunchLoadingView.exitAnimation(reduceMotion: reduceMotion), value: isLaunching)
             .task {
                 // Версию и сессию спрашиваем разом: они не зависят друг от друга, а
                 // по очереди это лишняя секунда к запуску.
@@ -49,6 +58,14 @@ struct RootView: View {
             }
     }
 
+    /// Экран загрузки держится, пока корневому экрану нечего показать: сессия ещё
+    /// поднимается, а блокировки по версии нет. Ни секунды сверх этого — анимация
+    /// знака запуск не задерживает.
+    private var isLaunching: Bool {
+        if case .blocked = update.state { return false }
+        return session.state == .restoring
+    }
+
     @ViewBuilder
     private var content: some View {
         // Проверка версии стоит перед сессией: со сборкой старше контракта не
@@ -67,7 +84,10 @@ struct RootView: View {
     private var signedState: some View {
         switch session.state {
         case .restoring:
-            RestoringView()
+            // Пока сессия поднимается, поверх лежит экран загрузки (`isLaunching`);
+            // под ним — тот же фон, чтобы при его уходе не мелькнул другой цвет.
+            LaunchPalette.background
+                .ignoresSafeArea()
         case .signedOut:
             LoginView(session: session, pendingLink: $authLink)
         case .signedIn(let token):
@@ -79,20 +99,5 @@ struct RootView: View {
                 UnsupportedRoleView(session: session)
             }
         }
-    }
-}
-
-/// Холодный старт: признак сессии есть, токен ещё едет. Показываем имя приложения,
-/// а не спиннер во весь экран — ожидание здесь обычно короче, чем заметно глазу.
-private struct RestoringView: View {
-    var body: some View {
-        VStack(spacing: Spacing.md) {
-            Text(verbatim: "StudentHub")
-                .font(Typography.pageTitle)
-                .foregroundStyle(Palette.foreground)
-            ProgressView()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Palette.background)
     }
 }

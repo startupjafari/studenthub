@@ -37,11 +37,22 @@ struct AdminUniversitiesView: View {
         .adminPinnedSearch($search, prompt: String(localized: "admin.universities.search", defaultValue: "Поиск по названию")) { _ in
             await refilter()
         }
-        .adminFloatingAction(viewerRole == .platformAdmin, String(localized: "admin.universities.add", defaultValue: "Добавить университет")) {
-            creating = true
+        // «+» в панели, а не плавающий круг: круг лежал поверх строк у нижнего края,
+        // рядом с панелью вкладок.
+        .toolbar {
+            if viewerRole == .platformAdmin {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        creating = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel(Text(String(localized: "admin.universities.add", defaultValue: "Добавить университет")))
+                }
+            }
         }
         .onChange(of: status) { _, _ in Task { await refilter() } }
-        .onAppear { if loader.isLoaded { Task { await loader.reload() } } }
+        .reloadsOnAdminChanges(loader)
         .task(id: loader.items.count) { await resolveCities() }
         .sheet(isPresented: $creating) {
             AdminUniversityForm(university: nil, cityName: nil) { await loader.reload() }
@@ -69,16 +80,19 @@ struct AdminUniversityRow: View {
 
     var body: some View {
         let status = AdminText.universityStatus(university.status)
+        // Название — вся ширина и до двух строк; сокращение и город — ниже, дата и
+        // статус — строкой метаданных.
         TelegramStyleRow(
             title: university.name,
             subtitle: AdminUniversityVisual.place(university.shortName, city),
-            meta: university.createdAt.map(DisplayFormat.date)
+            meta: university.createdAt.map {
+                "\(String(localized: "admin.university.createdAt", defaultValue: "Создан")) \(DisplayFormat.date($0))"
+            },
+            layout: .stacked
         ) {
-            RowSymbol(symbol: "building.columns.fill", tint: AdminUniversityVisual.tint(university.status))
+            RowSymbol(symbol: "building.columns.fill", tint: AdminUniversityVisual.tint(university.status), size: 40)
         } accessory: {
-            if university.status != "ACTIVE" {
-                StatusBadge(text: status.text, tint: status.tint)
-            }
+            StatusBadge(text: status.text, tint: status.tint)
         }
     }
 }
@@ -489,7 +503,11 @@ struct AdminDemoRequestsView: View {
     var body: some View {
         PagedList(
             loader: loader,
-            empty: EmptyStateView(title: emptyTitle, symbol: "envelope.open")
+            empty: EmptyStateView(
+                title: isSearching ? String(localized: "admin.universities.nothing", defaultValue: "Ничего не нашлось") : emptyTitle,
+                symbol: isSearching ? "magnifyingglass" : "envelope.open",
+                hint: isSearching ? String(localized: "admin.demo.searchHint", defaultValue: "Поиск ищет по названию вуза, имени контакта и почте — от двух букв") : nil
+            )
         ) {
             FilterChipsRow(
                 options: AdminText.demoStatuses.map { (value: Optional($0), title: AdminText.demoTab($0)) },
@@ -498,12 +516,15 @@ struct AdminDemoRequestsView: View {
         } row: { request in
             NavigationLink(value: AppRoute.admin(.demoRequest(id: request.id))) {
                 let status = AdminText.demoStatus(request.status)
+                // Организация — до двух строк; контакт и почта — отдельными строками ниже,
+                // дата — в метаданных, а не рядом с названием.
                 TelegramStyleRow(
                     title: request.universityName,
-                    subtitle: "\(request.contactName) · \(request.email)",
-                    meta: DisplayFormat.relative(request.createdAt)
+                    subtitle: [request.contactName, request.email].filter { !$0.isEmpty }.joined(separator: "\n"),
+                    meta: DisplayFormat.relative(request.createdAt),
+                    layout: .stacked
                 ) {
-                    RowSymbol(symbol: "envelope.open.fill", tint: AdminDemoVisual.tint(request.status))
+                    RowSymbol(symbol: "envelope.open.fill", tint: AdminDemoVisual.tint(request.status), size: 40)
                 } accessory: {
                     if request.status != "NEW" {
                         StatusBadge(text: status.text, tint: status.tint)
@@ -528,7 +549,12 @@ struct AdminDemoRequestsView: View {
             await refilter()
         }
         .onChange(of: status) { _, _ in Task { await refilter() } }
-        .onAppear { if loader.isLoaded { Task { await loader.reload() } } }
+        .reloadsOnAdminChanges(loader)
+    }
+
+    /// Поиск уходит на сервер от двух букв (`refilter`) — с одной список не меняется.
+    private var isSearching: Bool {
+        search.trimmingCharacters(in: .whitespaces).count >= 2
     }
 
     private var emptyTitle: String {

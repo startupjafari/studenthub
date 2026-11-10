@@ -401,6 +401,30 @@ private struct AdminPinnedSearch: ViewModifier {
 }
 
 extension View {
+    /// Перечитать список при возврате на экран, если через админские ручки что-то
+    /// поменяли (`AdminChanges`). Без изменений список остаётся как был — с долистанными
+    /// страницами и местом прокрутки.
+    func reloadsOnAdminChanges<Item>(_ loader: PagedLoader<Item>) -> some View {
+        modifier(AdminChangesReload(loader: loader))
+    }
+}
+
+private struct AdminChangesReload<Item: Decodable & Identifiable>: ViewModifier {
+    let loader: PagedLoader<Item>
+    /// Отметка, с которой список в последний раз сверялся.
+    @State private var seen: Int?
+
+    func body(content: Content) -> some View {
+        content.onAppear {
+            let current = AdminChanges.revision
+            defer { seen = current }
+            guard let seen, seen != current, loader.isLoaded else { return }
+            Task { await loader.reload() }
+        }
+    }
+}
+
+extension View {
     /// Плавающая кнопка создания, если роли создание доступно.
     @ViewBuilder
     func adminFloatingAction(_ enabled: Bool, _ title: String, symbol: String = "plus", action: @escaping () -> Void) -> some View {

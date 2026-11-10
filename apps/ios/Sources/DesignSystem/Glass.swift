@@ -22,21 +22,6 @@ extension View {
             background(.regularMaterial, in: shape)
         #endif
     }
-
-    /// Панель вкладок сворачивается, пока ленту листают вниз, и возвращается при
-    /// прокрутке вверх — контенту достаётся весь экран, навигация в одном жесте.
-    @ViewBuilder
-    func minimizesTabBarOnScroll() -> some View {
-        #if compiler(>=6.2)
-            if #available(iOS 26, *) {
-                tabBarMinimizeBehavior(.onScrollDown)
-            } else {
-                self
-            }
-        #else
-            self
-        #endif
-    }
 }
 
 // MARK: - Кнопки
@@ -161,5 +146,55 @@ extension View {
         #else
             self
         #endif
+    }
+
+    /// Верхний край для плотных списков и форм (настройки, правка профиля): чёткая
+    /// граница под панелью вместо мягкого размытия. Строки с текстом и полями, уходя под
+    /// заголовок и кнопки панели, иначе просвечивают сквозь них и спорят с заголовком.
+    @ViewBuilder
+    func hardTopEdge() -> some View {
+        #if compiler(>=6.2)
+            if #available(iOS 26, *) {
+                scrollEdgeEffectStyle(.hard, for: .top)
+            } else {
+                self
+            }
+        #else
+            self
+        #endif
+    }
+}
+
+// MARK: - «Назад» для своих сценариев
+
+/// «Назад» там, где системную кнопку приходится заменить: шаг внутри экрана (код 2FA)
+/// или выход, который сначала спрашивает про несохранённое. Выглядит как системная: на
+/// iOS 26 — шеврон в стекле, раньше — шеврон со словом «Назад».
+struct NavigationBackButton: View {
+    /// Что именно делает кнопка — для VoiceOver: «Назад ко входу», а не просто «Назад».
+    var accessibilityLabel = String(localized: "common.back", defaultValue: "Назад")
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            #if compiler(>=6.2)
+                if #available(iOS 26, *) {
+                    Image(systemName: "chevron.backward")
+                } else {
+                    legacyLabel
+                }
+            #else
+                legacyLabel
+            #endif
+        }
+        .accessibilityLabel(Text(accessibilityLabel))
+    }
+
+    private var legacyLabel: some View {
+        HStack(spacing: Spacing.xs) {
+            Image(systemName: "chevron.backward")
+                .fontWeight(.semibold)
+            Text(String(localized: "common.back", defaultValue: "Назад"))
+        }
     }
 }

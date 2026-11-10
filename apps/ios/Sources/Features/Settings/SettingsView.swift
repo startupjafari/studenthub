@@ -3,35 +3,46 @@ import SwiftUI
 /// Настройки — по образцу Telegram: шапка с собой, затем разделы, внизу выход и
 /// опасная зона. Разделы те же, что во вкладках настроек веба (личное, безопасность,
 /// уведомления, внешний вид, приватность, поддержка, опасная зона).
+///
+/// Все строки — `SettingsRow`: одна плитка, высота и выравнивание значения. Экран
+/// открывается в стеке вкладки, панель вкладок под ним остаётся (`AppShellView`).
 struct SettingsView: View {
     let session: AppSessionModel
 
     @Environment(ViewerProfileModel.self) private var viewer
     @Environment(\.viewerRole) private var role
+    @Environment(\.viewerID) private var viewerID
     @State private var showsQRApprove = false
     @State private var confirmsSignOut = false
-    @ScaledMetric(relativeTo: .largeTitle) private var avatarSize: CGFloat = 96
+    /// Профиль освежается один раз за жизнь экрана, а не при каждом возврате из раздела.
+    @State private var refreshed = false
+    @ScaledMetric(relativeTo: .title) private var avatarSize: CGFloat = 72
 
     var body: some View {
         List {
             header
                 .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 0, leading: Spacing.lg, bottom: Spacing.sm, trailing: Spacing.lg))
+                .listRowInsets(EdgeInsets(top: 0, leading: Spacing.xl, bottom: Spacing.xs, trailing: Spacing.xl))
                 .listRowSeparator(.hidden)
 
             Section {
-                NavigationLink(value: AppRoute.section(.profile)) {
-                    IconRow(
+                // Кнопка, а не ссылка со значением маршрута: ссылка оставалась подсвеченной,
+                // когда профиль уже лежал в стеке под настройками, — и открывала его второй
+                // копией. Теперь из профиля — назад к нему, откуда-то ещё — переход.
+                Button(action: openOwnProfile) {
+                    SettingsRow(
                         title: String(localized: "settings.myProfile", defaultValue: "Мой профиль"),
                         symbol: "person.crop.circle.fill",
-                        tint: TileTint.red
+                        tint: TileTint.red,
+                        showsChevron: true
                     )
                 }
+                .buttonStyle(.plain)
                 .accessibilityIdentifier("settings.profile")
                 NavigationLink {
                     SavedPostsView()
                 } label: {
-                    IconRow(
+                    SettingsRow(
                         title: String(localized: "saved.title", defaultValue: "Сохранённое"),
                         symbol: "bookmark.fill",
                         tint: TileTint.blue
@@ -43,7 +54,7 @@ struct SettingsView: View {
                 NavigationLink {
                     ProfileEditView()
                 } label: {
-                    IconRow(
+                    SettingsRow(
                         title: String(localized: "settings.personal", defaultValue: "Личные данные"),
                         symbol: "person.text.rectangle.fill",
                         tint: TileTint.blue
@@ -52,20 +63,18 @@ struct SettingsView: View {
                 NavigationLink {
                     SecuritySettingsView(session: session)
                 } label: {
-                    IconRow(
+                    SettingsRow(
                         title: String(localized: "settings.security", defaultValue: "Безопасность"),
                         symbol: "lock.fill",
                         tint: TileTint.green,
-                        value: viewer.profile?.twoFactorEnabled == true
-                            ? String(localized: "settings.2fa.on", defaultValue: "2FA вкл.")
-                            : nil
+                        value: twoFactorStatus
                     )
                 }
                 .accessibilityIdentifier("settings.security")
                 NavigationLink {
                     PrivacySettingsView()
                 } label: {
-                    IconRow(
+                    SettingsRow(
                         title: String(localized: "settings.privacy", defaultValue: "Конфиденциальность"),
                         symbol: "hand.raised.fill",
                         tint: TileTint.indigo
@@ -74,7 +83,7 @@ struct SettingsView: View {
                 NavigationLink {
                     NotificationSettingsView()
                 } label: {
-                    IconRow(
+                    SettingsRow(
                         title: String(localized: "settings.notifications", defaultValue: "Уведомления"),
                         symbol: "bell.badge.fill",
                         tint: TileTint.red
@@ -85,7 +94,7 @@ struct SettingsView: View {
 
             Section {
                 NavigationLink(value: AppRoute.community(.username)) {
-                    IconRow(
+                    SettingsRow(
                         title: CommunityScreen.username.title,
                         symbol: "at",
                         tint: TileTint.teal,
@@ -93,7 +102,7 @@ struct SettingsView: View {
                     )
                 }
                 NavigationLink(value: AppRoute.community(.notificationLanguage)) {
-                    IconRow(
+                    SettingsRow(
                         title: CommunityScreen.notificationLanguage.title,
                         symbol: "globe",
                         tint: TileTint.blue,
@@ -103,7 +112,7 @@ struct SettingsView: View {
                 // Mini-app в Telegram — инструмент команды платформы, другим ролям сервер откажет.
                 if role == .platformAdmin || role == .platformModerator {
                     NavigationLink(value: AppRoute.community(.telegramLink)) {
-                        IconRow(title: CommunityScreen.telegramLink.title, symbol: "paperplane.fill", tint: TileTint.teal)
+                        SettingsRow(title: CommunityScreen.telegramLink.title, symbol: "paperplane.fill", tint: TileTint.teal)
                     }
                 }
             } header: {
@@ -114,17 +123,18 @@ struct SettingsView: View {
                 NavigationLink {
                     AppearanceSettingsView()
                 } label: {
-                    IconRow(
+                    SettingsRow(
                         title: String(localized: "settings.appearance", defaultValue: "Внешний вид"),
                         symbol: "paintbrush.fill",
                         tint: TileTint.purple
                     )
                 }
                 .accessibilityIdentifier("settings.appearance")
+                // Открывает лист, а не экран: шеврона нет.
                 Button {
                     showsQRApprove = true
                 } label: {
-                    IconRow(
+                    SettingsRow(
                         title: String(localized: "auth.qrApproveTitle", defaultValue: "Вход на другом устройстве"),
                         symbol: "qrcode.viewfinder",
                         tint: TileTint.teal
@@ -139,7 +149,7 @@ struct SettingsView: View {
                 NavigationLink {
                     SupportView()
                 } label: {
-                    IconRow(
+                    SettingsRow(
                         title: String(localized: "settings.support", defaultValue: "Поддержка"),
                         symbol: "questionmark.bubble.fill",
                         tint: TileTint.orange
@@ -147,29 +157,27 @@ struct SettingsView: View {
                 }
                 ForEach(LegalDocument.allCases) { document in
                     NavigationLink(value: AppRoute.legal(document)) {
-                        IconRow(title: document.title, symbol: document.symbol, tint: TileTint.gray)
+                        SettingsRow(title: document.title, symbol: document.symbol, tint: TileTint.gray)
                     }
                 }
-                LabeledContent {
-                    Text(verbatim: "\(AppConfiguration.marketingVersion) (\(AppConfiguration.buildNumber))")
-                        .font(Typography.tabular(Typography.body))
-                } label: {
-                    IconRow(
-                        title: String(localized: "settings.version", defaultValue: "Версия"),
-                        symbol: "info.circle.fill",
-                        tint: TileTint.gray
-                    )
-                }
+                // Сведение, а не переход: без шеврона и без отклика на касание.
+                SettingsRow(
+                    title: String(localized: "settings.version", defaultValue: "Версия"),
+                    symbol: "info.circle.fill",
+                    tint: TileTint.gray,
+                    value: "\(AppConfiguration.marketingVersion) (\(AppConfiguration.buildNumber))"
+                )
             }
 
             Section {
-                Button(role: .destructive) {
+                Button {
                     confirmsSignOut = true
                 } label: {
-                    IconRow(
+                    SettingsRow(
                         title: String(localized: "session.signOut", defaultValue: "Выйти"),
                         symbol: "rectangle.portrait.and.arrow.right",
-                        tint: TileTint.red
+                        tint: TileTint.red,
+                        isDestructive: true
                     )
                 }
                 .buttonStyle(.plain)
@@ -177,17 +185,22 @@ struct SettingsView: View {
             }
 
             // Опасная зона — отдельно и в самом низу: удаление аккаунта не должно
-            // оказаться под пальцем рядом с переключателем темы.
+            // оказаться под пальцем рядом с переключателем темы. Предупреждение — в
+            // подписи, подтверждение — на экране удаления.
             Section {
                 NavigationLink {
                     DeleteAccountView(session: session)
                 } label: {
-                    Text(String(localized: "settings.deleteAccount", defaultValue: "Удалить аккаунт"))
-                        .font(Typography.body)
-                        .foregroundStyle(Palette.destructive)
+                    SettingsRow(
+                        title: String(localized: "settings.deleteAccount", defaultValue: "Удалить аккаунт"),
+                        symbol: "trash.fill",
+                        tint: TileTint.red,
+                        isDestructive: true
+                    )
                 }
             } header: {
                 Text(String(localized: "settings.danger", defaultValue: "Опасная зона"))
+                    .foregroundStyle(Palette.destructive)
             } footer: {
                 Text(String(
                     localized: "settings.danger.footer",
@@ -197,23 +210,28 @@ struct SettingsView: View {
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(.compact)
+        // Шапка — сразу под панелью, без пустой полосы, которую список ставит над
+        // первой секцией.
+        .contentMargins(.top, Spacing.sm, for: .scrollContent)
+        .hardTopEdge()
         .navigationTitle(Text(String(localized: "more.settings", defaultValue: "Настройки")))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
+            // Обе кнопки — справа, одной группой: слева у вложенного экрана «Назад», и
+            // круглая QR-кнопка рядом с ней читалась как вторая «Назад».
+            ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
                     showsQRApprove = true
                 } label: {
                     Image(systemName: "qrcode.viewfinder")
                 }
                 .accessibilityLabel(Text(String(localized: "auth.qrApproveTitle", defaultValue: "Вход на другом устройстве")))
-            }
-            ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
                     ProfileEditView()
                 } label: {
-                    Text(String(localized: "settings.edit", defaultValue: "Изм."))
+                    Text(String(localized: "settings.editShort", defaultValue: "Править"))
                 }
+                .accessibilityLabel(Text(String(localized: "profile.editTitle", defaultValue: "Изменить профиль")))
                 .accessibilityIdentifier("settings.edit")
             }
         }
@@ -229,19 +247,49 @@ struct SettingsView: View {
                 Task { await session.signOut() }
             }
         }
-        .task { await viewer.refresh() }
+        .task {
+            guard !refreshed else { return }
+            refreshed = true
+            await viewer.refresh()
+        }
     }
 
-    /// Шапка как в «Настройках» Telegram: крупный аватар по центру, имя, ниже — почта
-    /// и имя пользователя. Правка — кнопкой «Изм.» в панели.
+    /// Состояние 2FA словами. Пока профиль не пришёл — без значения, а не «выключена».
+    private var twoFactorStatus: String? {
+        guard let enabled = viewer.profile?.twoFactorEnabled else { return nil }
+        return enabled
+            ? String(localized: "settings.2fa.statusOn", defaultValue: "2FA включена")
+            : String(localized: "settings.2fa.statusOff", defaultValue: "2FA выключена")
+    }
+
+    /// «Мой профиль»: если профиль уже в стеке под настройками — вернуться к нему, иначе
+    /// открыть. Вторая копия своего профиля в одном стеке ни к чему.
+    private func openOwnProfile() {
+        let router = AppServices.router
+        let tab = router.selectedTab
+        var stack = router.stacks[tab] ?? []
+        let isOwnProfile: (AppRoute) -> Bool = { route in
+            route == .section(.profile) || (!viewerID.isEmpty && route == .profile(id: viewerID))
+        }
+        if let index = stack.lastIndex(where: isOwnProfile) {
+            stack.removeSubrange((index + 1)...)
+        } else {
+            stack.append(.section(.profile))
+        }
+        router.stacks[tab] = stack
+    }
+
+    /// Шапка как в «Настройках» Telegram: аватар по центру, имя, ниже — почта и имя
+    /// пользователя. Правка — кнопкой «Править» в панели.
     private var header: some View {
-        VStack(spacing: Spacing.sm) {
-            AvatarView(url: viewer.profile?.avatarUrl, name: viewer.profile?.name, size: min(avatarSize, 140))
+        VStack(spacing: Spacing.xs) {
+            AvatarView(url: viewer.profile?.avatarUrl, name: viewer.profile?.name, size: min(avatarSize, 112))
                 .padding(.bottom, Spacing.xs)
             Text(viewer.profile?.name ?? "")
-                .font(.title2.weight(.semibold))
+                .font(.title3.weight(.semibold))
                 .foregroundStyle(Palette.foreground)
                 .multilineTextAlignment(.center)
+                .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
             if !headerSubtitle.isEmpty {
@@ -249,11 +297,14 @@ struct SettingsView: View {
                     .font(.subheadline)
                     .foregroundStyle(Palette.mutedForeground)
                     .multilineTextAlignment(.center)
+                    .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, Spacing.sm)
+        // Высота шапки не зависит от того, пришёл ли профиль: имя без данных — пустая
+        // строка той же высоты, и секции под шапкой не прыгают.
+        .frame(minHeight: min(avatarSize, 112) + 40, alignment: .top)
         .accessibilityElement(children: .combine)
     }
 

@@ -296,8 +296,8 @@ struct QRSignInView: View {
             StudentHubLegalLinks()
         }
         .navigationBarTitleDisplayMode(.inline)
-        .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: model.state)
-        .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: model.isReconnecting)
+        .animation(AuthMotion.layout(reduceMotion: reduceMotion), value: model.state)
+        .animation(AuthMotion.layout(reduceMotion: reduceMotion), value: model.isReconnecting)
         .task(id: attempt) { await model.run(into: session) }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { screenHeight = $0 }
         // Связь вернулась после «нет связи» — новый код без нажатия.

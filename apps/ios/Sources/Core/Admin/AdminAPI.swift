@@ -517,11 +517,37 @@ enum AdminRoles {
 
 // MARK: - API
 
+/// Счётчик успешных записей через админские ручки: сменили статус вуза, одобрили
+/// заявку, заблокировали человека. Список, вернувшись на экран, сверяет его со своим и
+/// перечитывается только при расхождении — а не при каждом возврате из карточки, когда
+/// перезагрузка с первой страницы обрезала долистанный список и сбивала прокрутку.
+@MainActor
+enum AdminChanges {
+    private(set) static var revision = 0
+
+    static func bump() {
+        revision &+= 1
+    }
+}
+
 struct AdminAPI {
     private let client: APIClient
 
     init(client: APIClient = AppServices.api) {
         self.client = client
+    }
+
+    /// Запись через админскую ручку: успех отмечается в `AdminChanges`, и списки при
+    /// возврате на экран перечитываются, только если что-то действительно поменялось.
+    private func write(_ endpoint: Endpoint) async throws {
+        try await client.send(endpoint)
+        await AdminChanges.bump()
+    }
+
+    private func write<Response: Decodable>(_ endpoint: Endpoint, as type: Response.Type) async throws -> Response {
+        let response = try await client.send(endpoint, as: type)
+        await AdminChanges.bump()
+        return response
     }
 
     private func paged(_ request: PageRequest, _ params: [String: String?]) -> [String: String?] {
@@ -561,19 +587,19 @@ struct AdminAPI {
         }
         if applyToDuplicates { body["applyToDuplicates"] = true }
         if let blockDays { body["blockDays"] = .int(blockDays) }
-        try await client.send(.patch("complaints/\(id)/resolve", json: JSONBody(body)))
+        try await write(.patch("complaints/\(id)/resolve", json: JSONBody(body)))
     }
 
     func takeComplaint(id: String) async throws {
-        try await client.send(.patch("complaints/\(id)/take"))
+        try await write(.patch("complaints/\(id)/take"))
     }
 
     func reopenComplaint(id: String) async throws {
-        try await client.send(.patch("complaints/\(id)/reopen"))
+        try await write(.patch("complaints/\(id)/reopen"))
     }
 
     func complaintFromSupport(chatID: String, targetID: String) async throws {
-        try await client.send(.post("complaints/from-support", json: JSONBody(["chatId": .string(chatID), "targetId": .string(targetID)])))
+        try await write(.post("complaints/from-support", json: JSONBody(["chatId": .string(chatID), "targetId": .string(targetID)])))
     }
 
     // MARK: Журнал
@@ -612,24 +638,24 @@ struct AdminAPI {
     func block(userID: String, days: Int?) async throws {
         var body: [String: JSONValue] = [:]
         if let days { body["blockDays"] = .int(days) }
-        try await client.send(.patch("users/\(userID)/block", json: JSONBody(body)))
+        try await write(.patch("users/\(userID)/block", json: JSONBody(body)))
     }
 
     func unblock(userID: String) async throws {
-        try await client.send(.patch("users/\(userID)/unblock"))
+        try await write(.patch("users/\(userID)/unblock"))
     }
 
     func endSessions(userID: String) async throws {
-        try await client.send(.patch("users/\(userID)/logout"))
+        try await write(.patch("users/\(userID)/logout"))
     }
 
     /// Сброс 2FA — только с кодом СВОЕЙ двухфакторной аутентификации.
     func resetTwoFactor(userID: String, code: String) async throws {
-        try await client.send(.post("users/\(userID)/2fa/reset", json: JSONBody(["code": .string(code)])))
+        try await write(.post("users/\(userID)/2fa/reset", json: JSONBody(["code": .string(code)])))
     }
 
     func updateAcademic(userID: String, fields: [String: JSONValue]) async throws {
-        try await client.send(.patch("users/\(userID)/academic", json: JSONBody(fields)))
+        try await write(.patch("users/\(userID)/academic", json: JSONBody(fields)))
     }
 
     /// Выгрузка списка файлом — те же фильтры, что у списка.
@@ -653,11 +679,11 @@ struct AdminAPI {
         if let universityID { body["universityId"] = .string(universityID) }
         if let facultyID { body["facultyId"] = .string(facultyID) }
         if let groupID { body["groupId"] = .string(groupID) }
-        return try await client.send(.post("invites", json: JSONBody(body)), as: AdminCreatedInviteDTO.self)
+        return try await write(.post("invites", json: JSONBody(body)), as: AdminCreatedInviteDTO.self)
     }
 
     func revokeInvite(id: String) async throws {
-        try await client.send(.patch("invites/\(id)/revoke"))
+        try await write(.patch("invites/\(id)/revoke"))
     }
 
     func bulkInvitePreview(file: Data, filename: String) async throws -> AdminBulkPreviewDTO {
@@ -676,7 +702,7 @@ struct AdminAPI {
             if let faculty = row.facultyId { item["facultyId"] = .string(faculty) }
             return .object(item)
         }
-        return try await client.send(.post("invites/bulk", json: JSONBody(["rows": .array(items)])), as: AdminBulkResultDTO.self)
+        return try await write(.post("invites/bulk", json: JSONBody(["rows": .array(items)])), as: AdminBulkResultDTO.self)
     }
 
     func faculties(universityID: String? = nil) async throws -> [AdminNamedRefDTO] {
@@ -711,19 +737,19 @@ struct AdminAPI {
     }
 
     func createUniversity(_ fields: [String: JSONValue]) async throws -> AdminUniversityDTO {
-        try await client.send(.post("universities", json: JSONBody(fields)), as: AdminUniversityDTO.self)
+        try await write(.post("universities", json: JSONBody(fields)), as: AdminUniversityDTO.self)
     }
 
     func updateUniversity(id: String, fields: [String: JSONValue]) async throws {
-        try await client.send(.patch("universities/\(id)", json: JSONBody(fields)))
+        try await write(.patch("universities/\(id)", json: JSONBody(fields)))
     }
 
     func setUniversityStatus(id: String, status: String) async throws {
-        try await client.send(.patch("universities/\(id)/status", json: JSONBody(["status": .string(status)])))
+        try await write(.patch("universities/\(id)/status", json: JSONBody(["status": .string(status)])))
     }
 
     func deleteUniversity(id: String) async throws {
-        try await client.send(.delete("universities/\(id)"))
+        try await write(.delete("universities/\(id)"))
     }
 
     func katoSearch(_ search: String) async throws -> [AdminKatoUnitDTO] {
@@ -756,7 +782,7 @@ struct AdminAPI {
     }
 
     func approveDemoRequest(id: String, fields: [String: JSONValue]) async throws {
-        try await client.send(.post("demo-requests/\(id)/approve", json: JSONBody(fields)))
+        try await write(.post("demo-requests/\(id)/approve", json: JSONBody(fields)))
     }
 
     func rejectDemoRequest(id: String, reason: String, note: String?) async throws {
@@ -764,13 +790,13 @@ struct AdminAPI {
         if let note = note?.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty {
             body["note"] = .string(String(note.prefix(1000)))
         }
-        try await client.send(.post("demo-requests/\(id)/reject", json: JSONBody(body)))
+        try await write(.post("demo-requests/\(id)/reject", json: JSONBody(body)))
     }
 
     /// Новое приглашение администратору вуза: прежнее отзывается, ссылка приходит один раз.
     func reissueDemoInvite(id: String) async throws -> String {
         struct Response: Decodable { let inviteUrl: String }
-        return try await client.send(.post("demo-requests/\(id)/reissue-invite"), as: Response.self).inviteUrl
+        return try await write(.post("demo-requests/\(id)/reissue-invite"), as: Response.self).inviteUrl
     }
 
     // MARK: Поддержка
@@ -802,7 +828,7 @@ struct AdminAPI {
     }
 
     func supportReply(id: String, text: String) async throws {
-        try await client.send(.post("support/\(id)/reply", json: JSONBody(["text": .string(text)])))
+        try await write(.post("support/\(id)/reply", json: JSONBody(["text": .string(text)])))
     }
 
     func supportAssign(id: String, take: Bool) async throws {
@@ -812,19 +838,19 @@ struct AdminAPI {
     }
 
     func supportSetTags(id: String, tags: [String]) async throws {
-        try await client.send(.patch("support/\(id)/tags", json: JSONBody(["tags": .strings(tags)])))
+        try await write(.patch("support/\(id)/tags", json: JSONBody(["tags": .strings(tags)])))
     }
 
     func supportMerge(id: String, into: String) async throws {
-        try await client.send(.post("support/\(id)/merge", json: JSONBody(["intoId": .string(into)])))
+        try await write(.post("support/\(id)/merge", json: JSONBody(["intoId": .string(into)])))
     }
 
     func supportEscalate(id: String) async throws {
-        try await client.send(.post("support/\(id)/escalate", json: JSONBody([:])))
+        try await write(.post("support/\(id)/escalate", json: JSONBody([:])))
     }
 
     func supportClose(id: String) async throws {
-        try await client.send(.patch("support/\(id)/close", json: JSONBody([:])))
+        try await write(.patch("support/\(id)/close", json: JSONBody([:])))
     }
 
     // MARK: Аналитика платформы
@@ -865,7 +891,7 @@ struct AdminAPI {
     // MARK: Спец-доступ к документам
 
     func platformDocument(id: String, reason: String) async throws -> AdminPlatformDocumentDTO {
-        try await client.send(
+        try await write(
             .post("documents/\(id)/platform", json: JSONBody(["reason": .string(reason)])),
             as: AdminPlatformDocumentDTO.self
         )
@@ -874,7 +900,7 @@ struct AdminAPI {
     /// Ссылки на файлы пачкой: одно обращение — одна строка в журнале спец-доступа.
     func platformDocumentURLs(id: String, fileIDs: [String], reason: String) async throws -> [String: String] {
         struct Response: Decodable { let urls: [String: String] }
-        return try await client.send(
+        return try await write(
             .post("documents/\(id)/platform-access", json: JSONBody([
                 "fileIds": .strings(fileIDs), "reason": .string(reason),
             ])),
@@ -892,10 +918,10 @@ struct AdminAPI {
     }
 
     func deletePost(id: String) async throws {
-        try await client.send(.delete("posts/\(id)"))
+        try await write(.delete("posts/\(id)"))
     }
 
     func pinPost(id: String, pinned: Bool) async throws {
-        try await client.send(.patch("posts/\(id)/pin", json: JSONBody(["pinned": .bool(pinned)])))
+        try await write(.patch("posts/\(id)/pin", json: JSONBody(["pinned": .bool(pinned)])))
     }
 }

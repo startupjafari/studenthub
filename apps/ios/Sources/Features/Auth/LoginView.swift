@@ -48,7 +48,7 @@ struct LoginView: View {
                     TwoFactorStepView(model: model, session: session)
                 }
             }
-            .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: model.step)
+            .animation(AuthMotion.layout(reduceMotion: reduceMotion), value: model.step)
             .toolbar { toolbarItems }
             .navigationDestination(for: AuthRoute.self) { route in
                 switch route {
@@ -95,16 +95,28 @@ struct LoginView: View {
     }
 
     /// Регистрация работодателя — единственный вход без инвайта вуза — кнопкой в верхней
-    /// панели: она нужна немногим, и место в форме ей не по чину.
+    /// панели: она нужна немногим, и место в форме ей не по чину. На шаге кода её нет:
+    /// там слева «Назад» — тот же шеврон, что у остальных экранов до входа.
     @ToolbarContentBuilder
     private var toolbarItems: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
-            Button {
-                showsEmployerSignup = true
-            } label: {
-                Text(String(localized: "auth.employerShort", defaultValue: "Работодателям"))
+        if model.step == .twoFactor {
+            ToolbarItem(placement: .topBarLeading) {
+                NavigationBackButton(
+                    accessibilityLabel: String(localized: "auth.twoFactorBack", defaultValue: "Назад ко входу")
+                ) {
+                    model.startOver()
+                }
+                .disabled(model.isBusy)
             }
-            .accessibilityHint(Text(String(localized: "career.signup.entry", defaultValue: "Я работодатель — зарегистрироваться")))
+        } else {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showsEmployerSignup = true
+                } label: {
+                    Text(String(localized: "auth.employerShort", defaultValue: "Работодателям"))
+                }
+                .accessibilityHint(Text(String(localized: "career.signup.entry", defaultValue: "Я работодатель — зарегистрироваться")))
+            }
         }
     }
 }
@@ -151,6 +163,8 @@ private struct CredentialsStepView: View {
             .submitLabel(.next)
             .focused($focus, equals: .identifier)
             .onSubmit { focus = .password }
+            .disabled(model.isBusy)
+            .onChange(of: model.identifier) { model.clearError(for: .identifier) }
         }
 
         StudentHubField(
@@ -189,12 +203,18 @@ private struct CredentialsStepView: View {
             action: submit
         )
         .accessibilityIdentifier("auth.signIn")
+        // Клавиатура уходит, когда запрос действительно ушёл: при пустом поле она
+        // остаётся, а фокус встаёт в поле с ошибкой (`submit`).
+        .onChange(of: model.isBusy) { _, busy in
+            if busy { focus = nil }
+        }
 
         StudentHubSecondaryButton(
             title: String(localized: "auth.qrTab", defaultValue: "Войти по QR-коду"),
             systemImage: "qrcode",
             action: qrSignIn
         )
+        .disabled(model.isBusy)
         .accessibilityIdentifier("auth.qrSignIn")
     }
 
@@ -216,6 +236,8 @@ private struct CredentialsStepView: View {
         .submitLabel(.go)
         .focused($focus, equals: .password)
         .onSubmit(submit)
+        .disabled(model.isBusy)
+        .onChange(of: model.password) { model.clearError(for: .password) }
     }
 
     private var inviteLink: some View {
@@ -232,8 +254,14 @@ private struct CredentialsStepView: View {
     }
 
     private func submit() {
-        focus = nil
-        Task { await model.signIn(into: session) }
+        Task {
+            await model.signIn(into: session)
+            if model.identifierError != nil {
+                focus = .identifier
+            } else if model.passwordError != nil {
+                focus = .password
+            }
+        }
     }
 }
 

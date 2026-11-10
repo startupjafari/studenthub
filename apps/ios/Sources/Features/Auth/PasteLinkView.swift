@@ -39,7 +39,7 @@ struct PasteLinkView: View {
                     Text(String(localized: "auth.pasteLink.placeholder", defaultValue: "Ссылка из письма"))
                 }
                 .lineLimit(1...4)
-                .padding(.vertical, Spacing.md)
+                .padding(.vertical, Spacing.lg)
                 .keyboardType(.URL)
                 .textContentType(.URL)
                 .textInputAutocapitalization(.never)

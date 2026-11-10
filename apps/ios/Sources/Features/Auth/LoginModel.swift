@@ -104,6 +104,22 @@ final class LoginModel {
         }
     }
 
+    /// Поле, у которого есть своя ошибка.
+    enum Input {
+        case identifier, password, code
+    }
+
+    /// Человек исправляет поле — его ошибка больше не про то, что в нём написано.
+    /// Проверку это не отменяет: она снова пройдёт при отправке.
+    @MainActor
+    func clearError(for input: Input) {
+        switch input {
+        case .identifier: identifierError = nil
+        case .password: passwordError = nil
+        case .code: codeError = nil
+        }
+    }
+
     /// Назад к логину и паролю. Challenge при этом выбрасываем: он одноразовый и
     /// живёт считаные минуты — возвращаться к нему всё равно нельзя.
     @MainActor

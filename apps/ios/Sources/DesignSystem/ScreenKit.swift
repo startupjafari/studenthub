@@ -141,28 +141,34 @@ extension HeroActionRow where More == EmptyView {
 }
 
 /// Круг из стекла с символом и подпись под ним.
+///
+/// Круг одного размера у всех кнопок ряда, подпись — строго под ним: зазор больше, чем
+/// стекло раздувается от касания, а подпись занимает свою высоту (до двух строк) и не
+/// сжимается под круг. Ширину ряда делит тот, кто его строит (`HeroActionRow`).
 struct HeroActionLabel: View {
     let title: String
     let symbol: String
     var isDestructive = false
 
-    @ScaledMetric(relativeTo: .body) private var size: CGFloat = 52
+    @ScaledMetric(relativeTo: .body) private var size: CGFloat = 50
 
     var body: some View {
         let tint = isDestructive ? Palette.destructive : Palette.primary
-        VStack(spacing: Spacing.sm) {
+        let side = min(size, 64)
+        VStack(spacing: Spacing.md) {
             Image(systemName: symbol)
                 .font(.title3.weight(.medium))
                 .foregroundStyle(tint)
-                .frame(width: min(size, 72), height: min(size, 72))
+                .frame(width: side, height: side)
                 .glassSurface(in: Circle())
             Text(title)
                 .font(.caption.weight(.medium))
                 .foregroundStyle(tint)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .top)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(title))
@@ -218,53 +224,112 @@ private struct FloatingActionButton: View {
 /// Строка как в списке чатов: заголовок полужирным в одну строку, мета справа сверху
 /// (время, статус), ниже — до двух строк приглушённого текста. Ведущий элемент —
 /// аватар или значок; счётчик/плашка — справа снизу.
+///
+/// `layout: .stacked` — для каталогов с длинными названиями (вузы, заявки, люди):
+/// заголовку отдана вся ширина и до двух строк, а мета и плашка уходят строкой ниже.
+/// В строке чата дата рядом с заголовком уместна — там заголовок короткий; рядом с
+/// названием вуза она съедала половину названия.
 struct TelegramStyleRow<Leading: View, Accessory: View>: View {
+    enum Layout {
+        /// Заголовок в строку, мета справа от него — список чатов.
+        case chat
+        /// Заголовок до двух строк, подзаголовок, ниже — мета и плашка.
+        case stacked
+    }
+
     let title: String
     var subtitle: String?
     var meta: String?
     var metaTint: Color = Palette.mutedForeground
+    var layout: Layout = .chat
     @ViewBuilder var leading: () -> Leading
     @ViewBuilder var accessory: () -> Accessory
 
     var body: some View {
         HStack(alignment: .center, spacing: Spacing.lg) {
             leading()
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
-                    Text(title)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(Palette.foreground)
-                        .lineLimit(1)
-                    Spacer(minLength: Spacing.sm)
-                    if let meta, !meta.isEmpty {
-                        Text(meta)
-                            .font(.subheadline)
-                            .foregroundStyle(metaTint)
-                            .lineLimit(1)
-                    }
-                }
-                HStack(alignment: .bottom, spacing: Spacing.sm) {
-                    if let subtitle, !subtitle.isEmpty {
-                        Text(subtitle)
-                            .font(.subheadline)
-                            .foregroundStyle(Palette.mutedForeground)
-                            .lineLimit(2)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        Spacer(minLength: 0)
-                    }
-                    accessory()
-                }
+            switch layout {
+            case .chat: chatBody
+            case .stacked: stackedBody
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, layout == .chat ? 4 : 2)
         .accessibilityElement(children: .combine)
+    }
+
+    private var chatBody: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+                Text(title)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Palette.foreground)
+                    .lineLimit(1)
+                Spacer(minLength: Spacing.sm)
+                if let meta, !meta.isEmpty {
+                    Text(meta)
+                        .font(.subheadline)
+                        .foregroundStyle(metaTint)
+                        .lineLimit(1)
+                }
+            }
+            HStack(alignment: .bottom, spacing: Spacing.sm) {
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.mutedForeground)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Spacer(minLength: 0)
+                }
+                accessory()
+            }
+        }
+    }
+
+    private var stackedBody: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Palette.foreground)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            if let subtitle, !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.mutedForeground)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            // Мета слева, плашка справа — на одной линии под текстом. Длинная мета
+            // ужимается сама, плашка — никогда.
+            HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+                if let meta, !meta.isEmpty {
+                    Text(meta)
+                        .font(.footnote)
+                        .foregroundStyle(metaTint)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                accessory()
+                    .fixedSize()
+            }
+            .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
 extension TelegramStyleRow where Accessory == EmptyView {
-    init(title: String, subtitle: String? = nil, meta: String? = nil, metaTint: Color = Palette.mutedForeground, @ViewBuilder leading: @escaping () -> Leading) {
-        self.init(title: title, subtitle: subtitle, meta: meta, metaTint: metaTint, leading: leading, accessory: { EmptyView() })
+    init(
+        title: String,
+        subtitle: String? = nil,
+        meta: String? = nil,
+        metaTint: Color = Palette.mutedForeground,
+        layout: Layout = .chat,
+        @ViewBuilder leading: @escaping () -> Leading
+    ) {
+        self.init(title: title, subtitle: subtitle, meta: meta, metaTint: metaTint, layout: layout, leading: leading, accessory: { EmptyView() })
     }
 }
 

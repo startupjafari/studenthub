@@ -95,6 +95,9 @@ targets:
         NSCameraUsageDescription: Чтобы отсканировать QR-код входа на компьютере.
         # Микрофон — только для голосовых сообщений в чате.
         NSMicrophoneUsageDescription: Чтобы записать голосовое сообщение.
+        # Системный экран запуска — только цвет (чисто белый / чисто чёрный), без знака:
+        # знак прорисовывает уже SwiftUI (`LaunchLoadingView`), и её первый кадр
+        # совпадает с этим экраном. Цвет менять вместе с `LaunchPalette.background`.
         UILaunchScreen:
           UIColorName: LaunchBackground
         UISupportedInterfaceOrientations:

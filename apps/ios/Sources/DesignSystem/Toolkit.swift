@@ -86,6 +86,10 @@ struct PagedList<Item: Decodable & Identifiable, Row: View, Header: View>: View 
             }
         }
         .listStyle(.insetGrouped)
+        // Поиск, фильтры и список — плотно, без пустых полос, которые список ставит
+        // над первой секцией и между секциями.
+        .listSectionSpacing(.compact)
+        .contentMargins(.top, Spacing.xs, for: .scrollContent)
         .refreshable { await loader.reload() }
         .task { await loader.loadIfNeeded() }
     }
@@ -441,11 +445,30 @@ struct FilterChips<Value: Hashable>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     // Как папки в Telegram: одна стеклянная капсула-дорожка, внутри — пункты, выбранный
-    // подсвечен «таблеткой», которая переезжает к новому пункту.
+    // подсвечен «таблеткой», которая переезжает к новому пункту. Не влезший в ширину
+    // выбранный пункт дорожка докручивает к себе — и при выборе, и при появлении.
     var body: some View {
+        ScrollViewReader { scroller in
+            chips
+                .onAppear { reveal(selection, with: scroller, animated: false) }
+                .onChange(of: selection) { _, value in reveal(value, with: scroller, animated: true) }
+        }
+        .sensoryFeedback(.selection, trigger: selection)
+    }
+
+    private func reveal(_ value: Value?, with scroller: ScrollViewProxy, animated: Bool) {
+        guard let index = options.firstIndex(where: { $0.value == value }) else { return }
+        if animated, !reduceMotion {
+            withAnimation(.snappy(duration: 0.3)) { scroller.scrollTo(index, anchor: .center) }
+        } else {
+            scroller.scrollTo(index, anchor: .center)
+        }
+    }
+
+    private var chips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 2) {
-                ForEach(Array(options.enumerated()), id: \.offset) { _, option in
+                ForEach(Array(options.enumerated()), id: \.offset) { index, option in
                     let isOn = option.value == selection
                     Button {
                         withAnimation(Motion.respecting(.snappy(duration: 0.3), reduceMotion: reduceMotion)) {
@@ -469,6 +492,7 @@ struct FilterChips<Value: Hashable>: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(isOn ? .isSelected : [])
+                    .id(index)
                 }
             }
             .padding(4)
@@ -476,7 +500,6 @@ struct FilterChips<Value: Hashable>: View {
         .scrollClipDisabled(false)
         .clipShape(Capsule())
         .glassSurface(interactive: false, in: Capsule())
-        .sensoryFeedback(.selection, trigger: selection)
     }
 }
 

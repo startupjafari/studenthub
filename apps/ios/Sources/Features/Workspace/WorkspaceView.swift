@@ -3,6 +3,9 @@ import SwiftUI
 /// Вкладка «Разделы»: всё меню роли из веба, по тем же группам, с поиском. Подача — как
 /// «Настройки» Telegram и iOS: сверху карточка «я», ниже группы однострочных пунктов с
 /// цветными квадратами. Последняя группа — «Аккаунт»: уведомления, настройки.
+///
+/// Пункт меню — `SettingsRow`, та же строка, что в настройках: одна плитка, высота и
+/// шеврон на всё приложение.
 struct WorkspaceView: View {
     let role: Role
 
@@ -31,7 +34,7 @@ struct WorkspaceView: View {
                     ForEach(group.items) { item in
                         NavigationLink(value: item.route) {
                             // Подсказка видна только в поиске: объясняет, почему пункт нашёлся.
-                            IconRow(title: item.title, symbol: item.symbol, tint: item.tint, subtitle: isSearching ? item.hint : nil)
+                            SettingsRow(title: item.title, symbol: item.symbol, tint: item.tint, subtitle: isSearching ? item.hint : nil)
                         }
                     }
                 } header: {
@@ -40,13 +43,16 @@ struct WorkspaceView: View {
             }
         }
         .listStyle(.insetGrouped)
+        // Поиск, карточка «я» и группы — плотно, без полос пустоты между ними.
+        .listSectionSpacing(.compact)
+        .contentMargins(.top, Spacing.xs, for: .scrollContent)
         .navigationTitle(Text(AppTab.workspace.title))
         .searchable(text: $query, prompt: Text(String(localized: "workspace.search", defaultValue: "Поиск раздела")))
         .task { await loadModules() }
     }
 
     private var needle: String {
-        query.trimmingCharacters(in: .whitespaces).lowercased()
+        query.trimmingCharacters(in: .whitespaces)
     }
 
     private var isSearching: Bool { !needle.isEmpty }
@@ -61,8 +67,10 @@ struct WorkspaceView: View {
             }
         }
         return groups.compactMap { group in
+            // Без учёта регистра и диакритики, по правилам языка: «е» находит «ё»,
+            // казахские буквы сравниваются как казахские.
             let items = group.items.filter {
-                $0.title.lowercased().contains(needle) || ($0.hint?.lowercased().contains(needle) ?? false)
+                $0.title.localizedStandardContains(needle) || ($0.hint?.localizedStandardContains(needle) ?? false)
             }
             return items.isEmpty ? nil : WorkspaceGroup(title: group.title, items: items)
         }
@@ -88,26 +96,27 @@ struct WorkspaceProfileRow: View {
     let role: Role
 
     @Environment(ViewerProfileModel.self) private var viewer
-    @ScaledMetric(relativeTo: .title) private var avatarSize: CGFloat = 60
+    /// Карточка ниже прежней: аватар 48 вместо 60 и одна строка подписи — это вход в
+    /// профиль, а не его шапка.
+    @ScaledMetric(relativeTo: .headline) private var avatarSize: CGFloat = 48
 
     var body: some View {
         NavigationLink(value: AppRoute.section(.profile)) {
             HStack(spacing: Spacing.lg) {
-                AvatarView(url: viewer.profile?.avatarUrl, name: viewer.profile?.name, size: min(avatarSize, 84))
+                AvatarView(url: viewer.profile?.avatarUrl, name: viewer.profile?.name, size: min(avatarSize, 64))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(name)
-                        .font(.title3.weight(.semibold))
+                        .font(.headline)
                         .foregroundStyle(Palette.foreground)
                         .lineLimit(2)
                     if !subtitle.isEmpty {
                         Text(subtitle)
                             .font(.subheadline)
                             .foregroundStyle(Palette.mutedForeground)
-                            .lineLimit(2)
+                            .lineLimit(1)
                     }
                 }
             }
-            .padding(.vertical, Spacing.xs)
             .accessibilityElement(children: .combine)
         }
         .accessibilityIdentifier("workspace.profile")

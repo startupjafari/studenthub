@@ -67,33 +67,53 @@ struct AuthBackdrop: View {
 /// Знак StudentHub — академическая шапочка, тот же рисунок, что в QR и документах
 /// сервера (`common/brand/brand-mark.ts`): ромб, тулья, кисточка в сетке 24×24.
 struct StudentHubGlyph: Shape {
+    /// Части знака. По отдельности они нужны экрану запуска: каждая обводится своим
+    /// штрихом, и знак прорисовывается целиком, а не деталь за деталью.
+    enum Part: CaseIterable {
+        case board, crown, tassel
+    }
+
+    /// `nil` — весь знак.
+    var part: Part?
+
+    init(_ part: Part? = nil) {
+        self.part = part
+    }
+
     func path(in rect: CGRect) -> Path {
         let s = min(rect.width, rect.height) / 24
         let ox = rect.midX - 12 * s
         let oy = rect.midY - 12 * s
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: ox + x * s, y: oy + y * s) }
+        func includes(_ candidate: Part) -> Bool { part == nil || part == candidate }
 
         var path = Path()
-        // Ромб-верх.
-        path.move(to: p(12, 3.4))
-        path.addLine(to: p(22.6, 8.6))
-        path.addLine(to: p(12, 13.8))
-        path.addLine(to: p(1.4, 8.6))
-        path.closeSubpath()
-        // Тулья.
-        path.move(to: p(6.4, 11.4))
-        path.addLine(to: p(6.4, 15.3))
-        path.addCurve(to: p(12, 18.1), control1: p(6.4, 16.9), control2: p(8.9, 18.1))
-        path.addCurve(to: p(17.6, 15.3), control1: p(15.1, 18.1), control2: p(17.6, 16.9))
-        path.addLine(to: p(17.6, 11.4))
-        path.addLine(to: p(12, 14.2))
-        path.closeSubpath()
-        // Кисточка.
-        path.addRoundedRect(
-            in: CGRect(origin: p(20.4, 9.4), size: CGSize(width: 1.5 * s, height: 5 * s)),
-            cornerSize: CGSize(width: 0.75 * s, height: 0.75 * s)
-        )
-        path.addEllipse(in: CGRect(origin: p(21.15 - 1.35, 15.4 - 1.35), size: CGSize(width: 2.7 * s, height: 2.7 * s)))
+        if includes(.board) {
+            // Ромб-верх.
+            path.move(to: p(12, 3.4))
+            path.addLine(to: p(22.6, 8.6))
+            path.addLine(to: p(12, 13.8))
+            path.addLine(to: p(1.4, 8.6))
+            path.closeSubpath()
+        }
+        if includes(.crown) {
+            // Тулья.
+            path.move(to: p(6.4, 11.4))
+            path.addLine(to: p(6.4, 15.3))
+            path.addCurve(to: p(12, 18.1), control1: p(6.4, 16.9), control2: p(8.9, 18.1))
+            path.addCurve(to: p(17.6, 15.3), control1: p(15.1, 18.1), control2: p(17.6, 16.9))
+            path.addLine(to: p(17.6, 11.4))
+            path.addLine(to: p(12, 14.2))
+            path.closeSubpath()
+        }
+        if includes(.tassel) {
+            // Кисточка.
+            path.addRoundedRect(
+                in: CGRect(origin: p(20.4, 9.4), size: CGSize(width: 1.5 * s, height: 5 * s)),
+                cornerSize: CGSize(width: 0.75 * s, height: 0.75 * s)
+            )
+            path.addEllipse(in: CGRect(origin: p(21.15 - 1.35, 15.4 - 1.35), size: CGSize(width: 2.7 * s, height: 2.7 * s)))
+        }
         return path
     }
 }
@@ -112,50 +132,88 @@ struct StudentHubLogo: View {
     }
 }
 
+// MARK: - Движение
+
+/// Движение экранов до входа — одно на все: смена шага, фазы и раскладки под клавиатуру.
+///
+/// С «уменьшением движения» раскладка всё равно меняется плавно, но без сдвигов и
+/// масштаба: элементы только растворяются (смена прозрачности — не движение, HIG).
+/// Мгновенный скачок тут хуже: клавиатура едет своей анимацией, и шапка, сжавшаяся
+/// рывком на её фоне, выглядит сбоем.
+enum AuthMotion {
+    static func layout(reduceMotion: Bool) -> Animation {
+        reduceMotion ? .easeInOut(duration: Motion.Duration.layer) : Motion.calm
+    }
+
+    /// Уход и появление частей шапки, когда она сжимается.
+    static func collapse(reduceMotion: Bool) -> AnyTransition {
+        reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.92, anchor: .topLeading))
+    }
+}
+
 // MARK: - Шапка
 
 /// Фирменная шапка экранов до входа: знак и название, затем заголовок и подзаголовок.
 /// Заголовок — крупный и жирный, как большие заголовки iOS; растёт с Dynamic Type.
+///
+/// Пока открыта клавиатура, шапка сжимается до заголовка (и инструкции, без которой
+/// экран непонятен): высота уходит форме, а не фону. Сжатие плавное и идёт вместе с
+/// клавиатурой (`AuthScaffold`).
 struct StudentHubBrandHeader: View {
     var title: String
     var subtitle: String?
     /// На вложенных экранах (QR, восстановление) знак без названия: название уже было.
     var showsWordmark = true
-    /// Подзаголовок — инструкция, без которой экран непонятен: на низком экране он
-    /// остаётся, а прячется знак.
+    /// Подзаголовок — инструкция, без которой экран непонятен: на низком экране и с
+    /// клавиатурой он остаётся, а прячется знак.
     var subtitleIsEssential = false
     /// Знак над заголовком. На экране QR его нет: место отдано коду.
     var showsLogo = true
 
     @Environment(\.authIsCompact) private var isCompact
+    @Environment(\.authKeyboardShown) private var keyboardShown
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Места мало: низкий экран или крупный шрифт специальных возможностей.
+    private var isTight: Bool { isCompact || dynamicTypeSize.isAccessibilitySize }
+
+    private var showsLogoRow: Bool {
+        showsLogo && !keyboardShown && !(isTight && subtitleIsEssential)
+    }
+
+    private var showsSubtitle: Bool {
+        subtitle != nil && (subtitleIsEssential || (!isTight && !keyboardShown))
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: isCompact ? Spacing.md : Spacing.xl) {
-            if showsLogo && !(isCompact && subtitleIsEssential) {
-            HStack(spacing: Spacing.md) {
-                StudentHubLogo(size: isCompact ? 32 : 40)
-                if showsWordmark {
-                    Text(verbatim: "StudentHub")
-                        .font(.system(.title3, design: .rounded, weight: .bold))
-                        .foregroundStyle(AuthPalette.headerPrimary)
+        VStack(alignment: .leading, spacing: isTight || keyboardShown ? Spacing.md : Spacing.xl) {
+            if showsLogoRow {
+                HStack(spacing: Spacing.md) {
+                    StudentHubLogo(size: isTight ? 32 : 40)
+                    if showsWordmark {
+                        Text(verbatim: "StudentHub")
+                            .font(.system(.title3, design: .rounded, weight: .bold))
+                            .foregroundStyle(AuthPalette.headerPrimary)
+                    }
                 }
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text(verbatim: "StudentHub"))
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(verbatim: "StudentHub"))
+                .transition(AuthMotion.collapse(reduceMotion: reduceMotion))
             }
 
             VStack(alignment: .leading, spacing: Spacing.sm) {
                 Text(title)
-                    .font(.system(isCompact ? .title2 : .title, weight: .bold))
+                    .font(.system(isTight ? .title2 : .title, weight: .bold))
                     .foregroundStyle(AuthPalette.headerPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityAddTraits(.isHeader)
-                // На низком экране подзаголовок уступает место форме.
-                if let subtitle, !isCompact || subtitleIsEssential {
+                if showsSubtitle, let subtitle {
                     Text(subtitle)
                         .font(.subheadline)
                         .foregroundStyle(AuthPalette.headerSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .transition(AuthMotion.collapse(reduceMotion: reduceMotion))
                 }
             }
         }
@@ -169,45 +227,103 @@ private struct AuthCompactKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+private struct AuthKeyboardShownKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
 extension EnvironmentValues {
-    /// Экран низкий (iPhone SE, mini, клавиатура открыта): шапка сжимается, чтобы форма
-    /// помещалась без прокрутки.
+    /// Экран низкий (iPhone SE, mini): шапка сжимается, чтобы форма помещалась без
+    /// прокрутки. Считается по высоте без клавиатуры — иначе каждое её открытие меняло
+    /// бы шрифт заголовка рывком.
     var authIsCompact: Bool {
         get { self[AuthCompactKey.self] }
         set { self[AuthCompactKey.self] = newValue }
     }
+
+    /// Открыта клавиатура: шапка сжата до заголовка, у панели отступ над клавиатурой.
+    var authKeyboardShown: Bool {
+        get { self[AuthKeyboardShownKey.self] }
+        set { self[AuthKeyboardShownKey.self] = newValue }
+    }
 }
 
-/// Шапка сверху, панель с формой снизу. Высота не задаётся: на высоком экране между
-/// ними свободное место, на низком (или с клавиатурой) экран прокручивается, и поле в
-/// фокусе остаётся видимым. Ширина ограничена — на iPhone Pro Max форма не растягивается.
+/// Что держать над клавиатурой (`AuthScaffold.keyboardTarget`).
+enum AuthScrollTarget: Hashable {
+    /// Главная кнопка формы: её видно — видно и поля над ней.
+    case primary
+}
+
+/// Шапка сверху, панель с формой снизу; свободное место — вокруг шапки, а не дырой
+/// посередине. На низком экране, с клавиатурой или крупным шрифтом экран прокручивается.
+///
+/// Клавиатура. Экран ужимается по её безопасной области сам; каркас лишь сжимает
+/// шапку и докручивает до `keyboardTarget`: в короткой форме — до главной кнопки (поле в
+/// фокусе над ней, и кнопку не нужно искать под клавиатурой), в длинной — до поля в
+/// фокусе. Ширина ограничена — на iPhone Pro Max форма не растягивается.
 struct AuthScaffold<Header: View, Panel: View>: View {
+    /// `nil` — держать нечего (экран без полей).
+    var keyboardTarget: AnyHashable? = AnyHashable(AuthScrollTarget.primary)
+    var keyboardAnchor: UnitPoint = .bottom
     @ViewBuilder var header: () -> Header
     @ViewBuilder var panel: () -> Panel
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Высота экрана без клавиатуры. Видимая высота — у `GeometryReader`; разница
+    /// между ними и есть клавиатура.
+    @State private var fullHeight: CGFloat = 0
+
     var body: some View {
         GeometryReader { proxy in
-            ScrollView {
-                VStack(spacing: 0) {
-                    header()
-                        .padding(.horizontal, Spacing.xxl)
-                        .padding(.top, Spacing.md)
-                        .padding(.bottom, Spacing.xl)
-                    Spacer(minLength: 0)
-                    AuthBottomPanel(content: panel)
+            // Порог отсекает панель подсказок аппаратной клавиатуры: ради полоски в
+            // полсотни точек шапку не сжимаем.
+            let keyboardShown = fullHeight - proxy.size.height > 80
+            ScrollViewReader { scroller in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        header()
+                            .padding(.horizontal, Spacing.xxl)
+                            .padding(.vertical, Spacing.md)
+                        Spacer(minLength: Spacing.md)
+                        AuthBottomPanel(content: panel)
+                    }
+                    .environment(\.authIsCompact, fullHeight > 0 && fullHeight < 650)
+                    .environment(\.authKeyboardShown, keyboardShown)
+                    .frame(maxWidth: 560)
+                    .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .top)
+                    .animation(AuthMotion.layout(reduceMotion: reduceMotion), value: keyboardShown)
                 }
-                .environment(\.authIsCompact, proxy.size.height < 650)
-                .frame(maxWidth: 560)
-                .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .top)
+                .scrollBounceBehavior(.basedOnSize)
+                .scrollDismissesKeyboard(.interactively)
+                .onChange(of: keyboardShown) { _, shown in
+                    if shown { reveal(with: scroller) }
+                }
+                .onChange(of: keyboardTarget) { _, _ in
+                    if keyboardShown { reveal(with: scroller) }
+                }
             }
-            .scrollBounceBehavior(.basedOnSize)
-            .scrollDismissesKeyboard(.interactively)
+        }
+        .background {
+            Color.clear
+                .ignoresSafeArea(.keyboard)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fullHeight = $0 }
         }
         .background(AuthBackdrop())
         // Белый статус-бар и стрелка «назад» на тёмно-синем фоне — в обеих темах; у верхнего
         // края шапка при прокрутке мягко размывается (iOS 26).
         .toolbarColorScheme(.dark, for: .navigationBar)
         .softTopEdge()
+    }
+
+    /// Докрутка — на следующем такте: к этому моменту раскладка уже знает новую высоту
+    /// над клавиатурой, и цель встаёт ровно над ней.
+    private func reveal(with scroller: ScrollViewProxy) {
+        guard let keyboardTarget else { return }
+        let anchor = keyboardAnchor
+        let animation = AuthMotion.layout(reduceMotion: reduceMotion)
+        Task { @MainActor in
+            withAnimation(animation) { scroller.scrollTo(keyboardTarget, anchor: anchor) }
+        }
     }
 }
 
@@ -216,17 +332,35 @@ struct AuthScaffold<Header: View, Panel: View>: View {
 struct AuthBottomPanel<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
+    @Environment(\.authKeyboardShown) private var keyboardShown
+
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.lg, content: content)
             .padding(.horizontal, Spacing.xxl)
             .padding(.top, Spacing.xxl)
-            .padding(.bottom, Spacing.md)
+            // Без клавиатуры низ панели продолжает полоса «Домой»; с клавиатурой кнопка
+            // не должна лежать на ней вплотную.
+            .padding(.bottom, keyboardShown ? Spacing.xl : Spacing.md)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 AuthPalette.panel,
-                in: UnevenRoundedRectangle(topLeadingRadius: 34, topTrailingRadius: 34, style: .continuous)
+                in: UnevenRoundedRectangle(
+                    topLeadingRadius: AuthMetrics.panelRadius,
+                    topTrailingRadius: AuthMetrics.panelRadius,
+                    style: .continuous
+                )
             )
     }
+}
+
+/// Размеры экранов до входа. Скругления концентричны: поле внутри панели скруглено
+/// мельче, кнопки — капсулы, как у системных кнопок iOS 26.
+enum AuthMetrics {
+    static let panelRadius: CGFloat = 32
+    static let fieldRadius: CGFloat = Radius.xl
+    /// Высота поля — та же, что у главной кнопки (`PrimaryButtonStyle`), и растёт со
+    /// шрифтом.
+    static let fieldHeight: CGFloat = 50
 }
 
 /// Заголовок панели: «Вход в аккаунт» и подпись под ним.
@@ -266,6 +400,8 @@ struct StudentHubField<Field: View, Accessory: View>: View {
     @ViewBuilder var field: () -> Field
     @ViewBuilder var accessory: () -> Accessory
 
+    @ScaledMetric(relativeTo: .body) private var height = AuthMetrics.fieldHeight
+
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             if let label {
@@ -278,20 +414,29 @@ struct StudentHubField<Field: View, Accessory: View>: View {
                 field()
                     .font(.body)
                     .foregroundStyle(Palette.foreground)
-                    .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+                    .frame(maxWidth: .infinity, minHeight: height, alignment: .leading)
+                    // Ошибка читается вместе с полем: VoiceOver, вернувшись в поле, слышит,
+                    // что в нём не так, а не только его название.
+                    .accessibilityHint(Text(verbatim: error ?? ""))
                 accessory()
             }
-            .padding(.horizontal, Spacing.xl)
-            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .padding(.leading, Spacing.xl)
+            .padding(.trailing, Spacing.md)
+            .contentShape(shape)
             .onTapGesture { focus?() }
             .keepsKeyboardOnTap()
-            .background(AuthPalette.field, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(borderColor, lineWidth: error == nil && !isFocused ? 0 : 1.5)
-            )
+            .background(AuthPalette.field, in: shape)
+            .overlay(shape.strokeBorder(borderColor, lineWidth: error == nil && !isFocused ? 0 : 1.5))
             FieldError(message: error)
         }
+        .sensoryFeedback(.error, trigger: error) { old, new in old == nil && new != nil }
+        .onChange(of: error) { old, new in
+            if old == nil, let new { AccessibilityNotification.Announcement(new).post() }
+        }
+    }
+
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: AuthMetrics.fieldRadius, style: .continuous)
     }
 
     private var borderColor: Color {
@@ -435,6 +580,15 @@ struct StudentHubPrimaryButton: View {
         }
         .buttonStyle(PrimaryButtonStyle(isLoading: isLoading))
         .accessibilityAddTraits(isLoading ? .updatesFrequently : [])
+        // По этой метке каркас держит кнопку над клавиатурой. Метка выступает под
+        // кнопкой на `Spacing.xl`: кнопка встаёт не вплотную к клавиатуре, а с зазором.
+        .background(alignment: .bottom) {
+            Color.clear
+                .frame(height: Spacing.xl)
+                .alignmentGuide(.bottom) { $0[.top] }
+                .id(AuthScrollTarget.primary)
+                .accessibilityHidden(true)
+        }
     }
 }
 
@@ -661,11 +815,22 @@ struct AuthFormError: View {
 
     var body: some View {
         if let message {
-            if isOffline {
-                AuthNotice.offline(retry: retry)
-            } else {
-                AuthNotice(kind: .error, title: message)
+            Group {
+                if isOffline {
+                    AuthNotice.offline(retry: retry)
+                } else {
+                    AuthNotice(kind: .error, title: message)
+                }
             }
+            // Ошибка появляется над формой, часто вне взгляда: о ней говорят отклик и
+            // VoiceOver, а не только красная карточка.
+            .onAppear { Self.signal(message) }
+            .onChange(of: message) { _, new in Self.signal(new) }
         }
+    }
+
+    private static func signal(_ message: String) {
+        UINotificationFeedbackGenerator().notificationOccurred(.error)
+        AccessibilityNotification.Announcement(message).post()
     }
 }

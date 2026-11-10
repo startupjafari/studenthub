@@ -38,6 +38,11 @@ final class ResetPasswordModel {
         token.count >= 16 && AuthLink.isWellFormed(token)
     }
 
+    /// Пароль исправляют — прежняя ошибка к нему уже не относится.
+    func clearPasswordError() {
+        passwordError = nil
+    }
+
     func save() async {
         guard !isSaving, phase == .form else { return }
         formError = nil
@@ -126,7 +131,7 @@ struct ResetPasswordView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: model.phase)
+        .animation(AuthMotion.layout(reduceMotion: reduceMotion), value: model.phase)
         .onAppear {
             if model.phase == .form { isPasswordFocused = true }
         }
@@ -142,18 +147,26 @@ struct ResetPasswordView: View {
             isVisible: $showsPassword,
             error: model.passwordError,
             focus: $isPasswordFocused,
+            submitLabel: .go,
             submit: submit
         )
+        .disabled(model.isSaving)
+        .onChange(of: model.password) { model.clearPasswordError() }
 
         StudentHubPrimaryButton(
             title: String(localized: "auth.resetSubmit", defaultValue: "Сохранить пароль"),
             isLoading: model.isSaving,
             action: submit
         )
+        .onChange(of: model.isSaving) { _, saving in
+            if saving { isPasswordFocused = false }
+        }
     }
 
     private func submit() {
-        isPasswordFocused = false
-        Task { await model.save() }
+        Task {
+            await model.save()
+            if model.passwordError != nil { isPasswordFocused = true }
+        }
     }
 }
