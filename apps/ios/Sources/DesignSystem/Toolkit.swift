@@ -160,11 +160,19 @@ struct RemoteContent<Value, Content: View>: View {
 // MARK: - Лист с формой
 
 /// Лист «Отмена — заголовок — Сохранить» над `Form`. Ошибка сохранения показывается
-/// над полями, лист не закрывается; успех закрывает его и зовёт `saved`.
+/// над полями, и лист прокручивается к ней; лист не закрывается. Успех закрывает его и
+/// зовёт `saved`.
+///
+/// Несохранённое в форме — смахнуть лист нельзя, а крестик сначала спрашивает, выбросить
+/// ли правки: без этого заполненная на треть заявка терялась от случайного жеста.
+/// Набранный в полях листа текст лист замечает сам (системные уведомления о вводе), так
+/// что ни одна из форм не теряет напечатанное. `isDirty` — для правок без клавиатуры:
+/// выбор в списке, переключатель, дата.
 struct FormSheet<Content: View>: View {
     let title: String
     var saveTitle: String = String(localized: "common.save", defaultValue: "Сохранить")
     var canSave: Bool = true
+    var isDirty: Bool = false
     let save: () async throws -> Void
     var saved: () async -> Void = {}
     @ViewBuilder let content: () -> Content
@@ -172,25 +180,44 @@ struct FormSheet<Content: View>: View {
     @Environment(\.dismiss) private var dismiss
     @State private var failure: String?
     @State private var isSaving = false
+    @State private var confirmingDiscard = false
+    /// Человек печатал в полях этого листа.
+    @State private var typed = false
+
+    private var hasChanges: Bool { isDirty || typed }
 
     var body: some View {
         NavigationStack {
-            Form {
-                if let failure {
-                    FormAlert(message: failure)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets())
+            ScrollViewReader { proxy in
+                Form {
+                    if let failure {
+                        FormAlert(message: failure)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets())
+                            .id(FormSheetAnchor.failure)
+                    }
+                    content()
                 }
-                content()
+                // Длинная форма прокручена вниз — ошибка над полями была бы не видна, и
+                // «Сохранить» выглядело бы как кнопка, которая ничего не делает.
+                .onChange(of: failure) { _, next in
+                    guard next != nil else { return }
+                    withAnimation { proxy.scrollTo(FormSheetAnchor.failure, anchor: .top) }
+                }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle(Text(title))
             .navigationBarTitleDisplayMode(.inline)
             .softTopEdge()
-            .interactiveDismissDisabled(isSaving)
+            .interactiveDismissDisabled(isSaving || hasChanges)
+            .onReceive(NotificationCenter.default.publisher(for: UITextField.textDidChangeNotification)) { _ in typed = true }
+            .onReceive(NotificationCenter.default.publisher(for: UITextView.textDidChangeNotification)) { _ in typed = true }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    SheetCloseButton { dismiss() }
-                        .disabled(isSaving)
+                    SheetCloseButton {
+                        if hasChanges { confirmingDiscard = true } else { dismiss() }
+                    }
+                    .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     if isSaving {
@@ -202,11 +229,13 @@ struct FormSheet<Content: View>: View {
                     }
                 }
             }
+            .discardChangesDialog(isPresented: $confirmingDiscard) { dismiss() }
         }
     }
 
     @MainActor
     private func run() async {
+        guard !isSaving else { return }
         isSaving = true
         defer { isSaving = false }
         do {
@@ -215,6 +244,24 @@ struct FormSheet<Content: View>: View {
             dismiss()
         } catch {
             failure = error.userMessage
+        }
+    }
+}
+
+private enum FormSheetAnchor: Hashable {
+    case failure
+}
+
+extension View {
+    /// «Отменить изменения?» — общий вопрос всех форм перед тем, как выбросить правки.
+    func discardChangesDialog(isPresented: Binding<Bool>, discard: @escaping () -> Void) -> some View {
+        confirmationDialog(
+            String(localized: "form.discard.title", defaultValue: "Отменить изменения?"),
+            isPresented: isPresented,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "form.discard", defaultValue: "Не сохранять"), role: .destructive, action: discard)
+            Button(String(localized: "form.keepEditing", defaultValue: "Продолжить редактирование"), role: .cancel) {}
         }
     }
 }

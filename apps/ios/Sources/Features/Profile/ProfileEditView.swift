@@ -9,6 +9,9 @@ struct ProfileEditView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var form = ProfileForm()
+    /// Форма как пришла с сервера — по ней видно, есть ли несохранённое.
+    @State private var original = ProfileForm()
+    @State private var confirmingDiscard = false
     @State private var loadedID: String?
     @State private var avatarItem: PhotosPickerItem?
     @State private var coverItem: PhotosPickerItem?
@@ -142,11 +145,15 @@ struct ProfileEditView: View {
                         .autocorrectionDisabled()
                         .focused($focused, equals: .instagram)
                 }
-                TextField(String(localized: "profile.website", defaultValue: "Сайт"), text: $form.website)
-                    .keyboardType(.URL)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .focused($focused, equals: .website)
+                // Сайт сервер хранит только у студента, старосты и преподавателя
+                // (`ProfileForm.update`): у остальных поле молча теряло бы ввод.
+                if role.isAcademic {
+                    TextField(String(localized: "profile.website", defaultValue: "Сайт"), text: $form.website)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .focused($focused, equals: .website)
+                }
             } header: {
                 Text(String(localized: "profile.contacts", defaultValue: "Контакты"))
             } footer: {
@@ -198,9 +205,14 @@ struct ProfileEditView: View {
         .background(Palette.background)
         .navigationTitle(Text(String(localized: "profile.editTitle", defaultValue: "Изменить профиль")))
         .navigationBarTitleDisplayMode(.inline)
+        .interactiveDismissDisabled(isSaving || hasChanges)
+        .discardChangesDialog(isPresented: $confirmingDiscard) { dismiss() }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                SheetCloseButton { dismiss() }
+                SheetCloseButton {
+                    if hasChanges { confirmingDiscard = true } else { dismiss() }
+                }
+                .disabled(isSaving)
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button {
@@ -236,7 +248,10 @@ struct ProfileEditView: View {
         guard let profile = viewer.profile, loadedID != profile.id else { return }
         loadedID = profile.id
         form = ProfileForm(profile)
+        original = form
     }
+
+    private var hasChanges: Bool { loadedID != nil && form != original }
 
     private func addSkill() {
         let skill = newSkill.trimmingCharacters(in: .whitespaces)

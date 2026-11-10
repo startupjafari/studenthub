@@ -176,12 +176,16 @@ extension View {
     /// Плавающая кнопка главного действия списка («Новая заявка», «Добавить книгу») —
     /// синий стеклянный круг в правом нижнем углу над панелью вкладок, как «новый чат».
     /// Кнопку «+» в верхней панели на таком экране не дублируют.
+    ///
+    /// Под кнопкой список получает запас прокрутки её высоты: иначе последняя строка
+    /// (шеврон, статус, «Всего: N») навсегда оставалась под синим кругом.
     func floatingAction(_ title: String, symbol: String = "plus", action: @escaping () -> Void) -> some View {
-        overlay(alignment: .bottomTrailing) {
-            FloatingActionButton(title: title, symbol: symbol, action: action)
-                .padding(.trailing, Spacing.xl)
-                .padding(.bottom, Spacing.xl)
-        }
+        contentMargins(.bottom, FloatingActionButton.clearance, for: .scrollContent)
+            .overlay(alignment: .bottomTrailing) {
+                FloatingActionButton(title: title, symbol: symbol, action: action)
+                    .padding(.trailing, Spacing.xl)
+                    .padding(.bottom, Spacing.xl)
+            }
     }
 }
 
@@ -189,6 +193,9 @@ private struct FloatingActionButton: View {
     let title: String
     let symbol: String
     let action: () -> Void
+
+    /// Высота кнопки с её отступом снизу и зазором над последней строкой.
+    static let clearance: CGFloat = 56 + Spacing.xl * 2
 
     @ScaledMetric(relativeTo: .title2) private var size: CGFloat = 56
 

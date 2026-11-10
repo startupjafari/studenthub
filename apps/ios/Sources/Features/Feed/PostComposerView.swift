@@ -30,6 +30,9 @@ struct PostComposerView: View {
     @State private var isPublishing = false
     @State private var failure: String?
     @State private var published = 0
+    @State private var confirmingDiscard = false
+
+    private var hasDraft: Bool { !trimmed.isEmpty || !media.isEmpty }
     @FocusState private var focused: Bool
 
     private let api: FeedFetching = FeedAPI()
@@ -92,7 +95,12 @@ struct PostComposerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    SheetCloseButton { dismiss() }
+                    // Смахнуть написанное нельзя (`interactiveDismissDisabled` ниже), и
+                    // крестик не должен молча делать то, от чего защищён жест.
+                    SheetCloseButton {
+                        if hasDraft { confirmingDiscard = true } else { dismiss() }
+                    }
+                    .disabled(isPublishing)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
@@ -119,7 +127,8 @@ struct PostComposerView: View {
             .onChange(of: picks) { _, items in
                 Task { await load(items) }
             }
-            .interactiveDismissDisabled(isPublishing || !trimmed.isEmpty || !media.isEmpty)
+            .interactiveDismissDisabled(isPublishing || hasDraft)
+            .discardChangesDialog(isPresented: $confirmingDiscard) { dismiss() }
             .sensoryFeedback(.success, trigger: published)
             .onAppear {
                 focused = true
