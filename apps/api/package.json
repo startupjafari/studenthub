@@ -48,7 +48,7 @@
     "docxtemplater": "^3.71.1",
     "fastify": "^5.12.6",
     "file-type": "^22.3.0",
-    "ioredis": "^5.9.0",
+    "ioredis": "^6.0.0",
     "minio": "^8.0.6",
     "nestjs-pino": "^4.4.1",
     "nestjs-zod": "^5.5.0",
