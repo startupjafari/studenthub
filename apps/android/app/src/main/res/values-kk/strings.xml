@@ -171,4 +171,21 @@
     <string name="chats_sysAvatarChanged">%1$s топ фотосын өзгертті</string>
     <string name="chats_sysMessagePinned">%1$s хабарламаны бекітті</string>
     <string name="chats_sysOwnerChanged">%1$s иелікті %2$s берді</string>
+
+    <!-- Ушли из каталога iOS (его экраны переделаны), а Android их ещё использует. -->
+    <string name="applications_mine">Менің өтінімдерім</string>
+    <string name="auth_identifierPlaceholder">you@example.com немесе username</string>
+    <string name="auth_loginTitle">Кіру</string>
+    <string name="auth_welcomeSubtitle">Аккаунтыңызға кіріңіз</string>
+    <string name="chats_attachPhoto">Фото</string>
+    <string name="documents_noFiles">Файлдар жоқ</string>
+    <string name="home_feed">Лента</string>
+    <string name="profile_saved">Сақталды</string>
+    <string name="profile_saving">Сақталуда…</string>
+    <string name="study_attendanceRate">Сабаққа қатысу</string>
+    <string name="study_link">Сілтеме</string>
+    <string name="study_noGrades">Әзірге бағалар жоқ</string>
+    <string name="study_noScore">—</string>
+    <string name="tab_more">Тағы</string>
+    <string name="tab_study">Оқу</string>
 </resources>
