@@ -91146,6 +91146,108 @@
           }
         }
       }
+    },
+    "common.back": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Назад"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Артқа"
+          }
+        }
+      }
+    },
+    "auth.twoFactor.useBackupCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ввести резервный код"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Резервтік кодты енгізу"
+          }
+        }
+      }
+    },
+    "auth.twoFactor.useAppCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ввести код из приложения"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қосымшадағы кодты енгізу"
+          }
+        }
+      }
+    },
+    "auth.twoFactor.appCodePlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Код из 6 цифр"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "6 цифрлы код"
+          }
+        }
+      }
+    },
+    "auth.twoFactor.backupCodePlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Резервный код"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Резервтік код"
+          }
+        }
+      }
+    },
+    "auth.namePlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как в документах"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Құжаттағыдай"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

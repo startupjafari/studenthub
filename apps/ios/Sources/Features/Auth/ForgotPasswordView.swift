@@ -63,6 +63,11 @@ final class ForgotPasswordModel {
         }
     }
 
+    /// Адрес исправляют — прежняя ошибка к нему уже не относится.
+    func clearEmailError() {
+        emailError = nil
+    }
+
     /// Ввести другой адрес.
     func editAddress() {
         phase = .form
@@ -109,7 +114,7 @@ struct ForgotPasswordView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: model.phase)
+        .animation(AuthMotion.layout(reduceMotion: reduceMotion), value: model.phase)
         .onAppear {
             if model.email.isEmpty, prefill.contains("@") { model.email = prefill }
         }
@@ -135,8 +140,14 @@ struct ForgotPasswordView: View {
             .submitLabel(.send)
             .focused($isEmailFocused)
             .onSubmit(submit)
+            .disabled(model.isSending)
+            .onChange(of: model.email) { model.clearEmailError() }
+            // Поле на экране одно — клавиатура сразу, как на экранах восстановления в iOS.
+            .onAppear { isEmailFocused = true }
         }
 
+        // «Назад» ко входу — системный шеврон в панели навигации, как на всех экранах до
+        // входа; отдельная ссылка под кнопкой его только дублировала.
         StudentHubPrimaryButton(
             title: model.isSending
                 ? String(localized: "auth.forgot.sending", defaultValue: "Отправляем…")
@@ -144,11 +155,9 @@ struct ForgotPasswordView: View {
             isLoading: model.isSending,
             action: submit
         )
-
-        AuthTextLink(title: String(localized: "auth.backToLogin", defaultValue: "Вернуться ко входу")) {
-            dismiss()
+        .onChange(of: model.isSending) { _, sending in
+            if sending { isEmailFocused = false }
         }
-        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
@@ -197,7 +206,9 @@ struct ForgotPasswordView: View {
     }
 
     private func submit() {
-        isEmailFocused = false
-        Task { await model.send() }
+        Task {
+            await model.send()
+            if model.emailError != nil { isEmailFocused = true }
+        }
     }
 }
