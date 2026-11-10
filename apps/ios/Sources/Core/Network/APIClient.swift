@@ -21,18 +21,32 @@ actor APIClient {
     private let session: URLSession
     private let authorization: AuthorizationProvider?
     private let maxRetries: Int
+    private let cookieJar: RefreshCookieJar?
 
     init(
         baseURL: URL = AppConfiguration.apiBaseURL,
-        session: URLSession = .shared,
+        session: URLSession = APIClient.session,
         authorization: AuthorizationProvider? = nil,
-        maxRetries: Int = 2
+        maxRetries: Int = 2,
+        cookieJar: RefreshCookieJar? = .shared
     ) {
         self.baseURL = baseURL
         self.session = session
         self.authorization = authorization
         self.maxRetries = maxRetries
+        self.cookieJar = cookieJar
     }
+
+    /// Соединение без системного хранилища cookie: refresh-cookie оно записало бы на диск,
+    /// в файл резервной копии (`RefreshCookieStore`). Единственную нужную cookie клиент
+    /// ведёт сам — `RefreshCookieJar`.
+    static let session: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieAcceptPolicy = .never
+        return URLSession(configuration: configuration)
+    }()
 
     /// Запрос с телом ответа.
     func send<Response: Decodable>(_ endpoint: Endpoint, as type: Response.Type) async throws -> Response {
@@ -98,9 +112,15 @@ actor APIClient {
             }
 
             do {
-                let (data, response) = try await session.data(for: request(for: endpoint, token: token))
+                let urlRequest = try request(for: endpoint, token: token)
+                let (data, response) = try await session.data(for: urlRequest)
                 guard let http = response as? HTTPURLResponse else {
                     throw APIError.malformedResponse(statusCode: 0)
+                }
+                // Cookie чужой, отложенной сессии (`refreshCookie` у запроса) в общую не
+                // пишем: её стирание ответом на выход разлогинило бы того, кто вошёл сейчас.
+                if endpoint.refreshCookie == nil, let url = urlRequest.url {
+                    cookieJar?.absorb(http, url: url)
                 }
 
                 if (200..<300).contains(http.statusCode) { return data }
@@ -140,6 +160,11 @@ actor APIClient {
         }
         if let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        // Refresh-cookie сервер ждёт только на `auth/*` (путь cookie): в остальные
+        // запросы она не уходит, как не ушла бы и из браузера.
+        if endpoint.path.hasPrefix("auth/"), let cookie = endpoint.refreshCookie ?? cookieJar?.value() {
+            request.setValue(RefreshCookieJar.header(for: cookie), forHTTPHeaderField: "Cookie")
         }
         return request
     }

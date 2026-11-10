@@ -44,8 +44,21 @@ struct PushRegistrar: Sendable {
     func unregister() async {
         guard let token = Self.lastToken else { return }
         struct Body: Encodable { let token: String }
-        _ = try? await client.send(try .post("push/devices/remove", json: Body(token: token)))
+        // Не удалось — токен помним: его же унесёт выход (`SessionStore.signOut`), в том
+        // числе отложенный без сети.
+        guard (try? await client.send(try .post("push/devices/remove", json: Body(token: token)))) != nil else { return }
         Self.lastToken = nil
+    }
+
+    /// Токен этого устройства, если он уже отдан серверу.
+    static var deviceToken: String? { lastToken }
+
+    /// Перестать принимать пуши до следующего входа: выход не дошёл до сервера, и тот
+    /// ещё считает телефон устройством прежнего человека. `requestAuthorization` при
+    /// следующем входе регистрирует устройство заново.
+    @MainActor
+    static func stopDelivery() {
+        UIApplication.shared.unregisterForRemoteNotifications()
     }
 
     /// Последний отданный серверу токен. В `UserDefaults`, а не в связке ключей:

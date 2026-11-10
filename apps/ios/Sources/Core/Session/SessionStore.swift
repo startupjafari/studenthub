@@ -14,13 +14,16 @@ actor SessionStore: AuthorizationProvider {
 
     private var token: AccessToken?
     private var inFlightRefresh: Task<AccessToken?, Never>?
+    /// Последнее продление не дало ответа по существу: не было сети или сервер ответил
+    /// 5xx. Сессия при этом жива — решить, что она кончилась, может только отказ сервера.
+    private var refreshUndecided = false
     /// Сервер окончательно отказал в продлении: интерфейсу пора на экран входа.
     private var sessionEnded: (@Sendable () -> Void)?
 
     init(
         auth: SessionRefreshing = AuthAPI(),
         secrets: SecretStore = Keychain(),
-        cookies: RefreshCookieStore = SystemRefreshCookieStore()
+        cookies: RefreshCookieStore = RefreshCookieJar.shared
     ) {
         self.auth = auth
         self.secrets = secrets
@@ -44,6 +47,22 @@ actor SessionStore: AuthorizationProvider {
     func restoredToken() async -> AccessToken? {
         _ = await accessToken()
         return token
+    }
+
+    /// Холодный старт с ответом на вопрос «что показать».
+    ///
+    /// Сеть не ответила, а вход на устройстве был — открываем приложение по последнему
+    /// токену: расписание и чаты лежат в базе и работают без связи. Запросы при этом
+    /// уходят без токена и упираются в ту же сеть; первый, что пройдёт, продлит сессию,
+    /// а отказ сервера в ней переведёт интерфейс на вход (`onSessionEnded`).
+    func restore() async -> SessionRestoration {
+        if let restored = await restoredToken() { return .active(restored) }
+        guard
+            refreshUndecided, hasStoredSession,
+            let raw = secrets.value(for: .lastAccessToken),
+            let known = AccessToken(raw: raw)
+        else { return .none }
+        return .offline(known)
     }
 
     // MARK: - AuthorizationProvider
@@ -81,6 +100,8 @@ actor SessionStore: AuthorizationProvider {
     func adopt(_ session: AuthSession) -> AccessToken? {
         guard let parsed = AccessToken(raw: session.accessToken) else { return nil }
         token = parsed
+        refreshUndecided = false
+        secrets.set(session.accessToken, for: .lastAccessToken)
         if let refreshCookie = cookies.value() {
             secrets.set(refreshCookie, for: .refreshToken)
         }
@@ -90,10 +111,66 @@ actor SessionStore: AuthorizationProvider {
 
     /// Выход. Сначала гасим сессию на сервере, затем чистим своё — порядок важен:
     /// после очистки отправить запрос уже нечем, и сессия осталась бы живой.
-    func signOut() async {
+    ///
+    /// `deviceToken` — токен пушей: сервер отвязывает его вместе с сессией. Сервер не
+    /// ответил (нет сети) — выход откладывается: refresh-токен и токен пушей остаются в
+    /// связке ключей, и выход досылается, когда связь вернётся. Иначе сессия жила бы на
+    /// сервере ещё месяц, а пуши прежнего человека шли бы на этот телефон.
+    /// `false` — выход отложен.
+    @discardableResult
+    func signOut(deviceToken: String? = nil) async -> Bool {
         restoreRefreshCookieIfNeeded()
-        try? await auth.endSession()
+        let refreshToken = cookies.value() ?? secrets.value(for: .refreshToken)
+        var delivered = true
+        do {
+            try await auth.endSession(deviceToken: deviceToken, refreshToken: nil)
+        } catch let error as APIError where error.isUndecided {
+            if let refreshToken {
+                postpone(PendingLogout(refreshToken: refreshToken, deviceToken: deviceToken))
+                delivered = false
+            }
+        } catch {
+            // Ответ по существу (сессия уже мертва, запрос отклонён) — гасить нечего.
+        }
         forgetSession()
+        return delivered
+    }
+
+    /// Дослать выходы, отложенные без сети. Каждый — своей refresh-cookie: сервер гасит
+    /// сессию того, кто выходил, а не того, кто вошёл после него, и отвязывает токен
+    /// пушей, только если тот ещё числится за вышедшим.
+    func completePendingLogouts() async {
+        var remaining: [PendingLogout] = []
+        for pending in pendingLogouts {
+            do {
+                try await auth.endSession(deviceToken: pending.deviceToken, refreshToken: pending.refreshToken)
+            } catch let error as APIError where error.isUndecided {
+                remaining.append(pending)
+            } catch {
+                // Отказ по существу (сессия уже истекла) — повторять нечего.
+            }
+        }
+        savePendingLogouts(remaining)
+    }
+
+    var hasPendingLogouts: Bool { !pendingLogouts.isEmpty }
+
+    private var pendingLogouts: [PendingLogout] {
+        guard let raw = secrets.value(for: .pendingLogouts), let data = raw.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([PendingLogout].self, from: data)) ?? []
+    }
+
+    private func postpone(_ logout: PendingLogout) {
+        savePendingLogouts(pendingLogouts + [logout])
+    }
+
+    private func savePendingLogouts(_ list: [PendingLogout]) {
+        guard !list.isEmpty else { return secrets.remove(.pendingLogouts) }
+        guard
+            let data = try? JSONEncoder().encode(list),
+            let raw = String(data: data, encoding: .utf8)
+        else { return }
+        secrets.set(raw, for: .pendingLogouts)
     }
 
     private func performRefresh() async -> AccessToken? {
@@ -106,6 +183,8 @@ actor SessionStore: AuthorizationProvider {
             if let apiError = error as? APIError, apiError.code?.meansSessionExpired == true {
                 forgetSession()
                 sessionEnded?()
+            } else {
+                refreshUndecided = true
             }
             return nil
         }
@@ -120,8 +199,43 @@ actor SessionStore: AuthorizationProvider {
 
     private func forgetSession() {
         token = nil
+        refreshUndecided = false
         cookies.clear()
         secrets.remove(.refreshToken)
         secrets.remove(.sessionPresent)
+        secrets.remove(.lastAccessToken)
+    }
+}
+
+/// Чем закончился холодный старт.
+enum SessionRestoration: Equatable {
+    /// Сессия продлена — всё как обычно.
+    case active(AccessToken)
+    /// Сеть не ответила, но вход на устройстве был: работаем по последнему токену.
+    case offline(AccessToken)
+    /// Входа нет или сервер в сессии отказал — экран входа.
+    case none
+}
+
+/// Выход, который не дошёл до сервера.
+struct PendingLogout: Codable, Equatable {
+    let refreshToken: String
+    let deviceToken: String?
+}
+
+extension APIError {
+    /// Ответа по существу нет: сеть, обрыв, 5xx. Решение о сессии за сервером, а он
+    /// его не принял — значит, сессия ещё не решена.
+    var isUndecided: Bool {
+        switch self {
+        case .transport:
+            return true
+        case .server(_, _, _, let statusCode):
+            return statusCode >= 500
+        case .malformedResponse(let statusCode):
+            return statusCode >= 500
+        default:
+            return false
+        }
     }
 }

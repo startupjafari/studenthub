@@ -188,7 +188,7 @@ private actor StubTransport: RealtimeTransport {
 
 private struct SilentAuth: SessionRefreshing {
     func refresh() async throws -> AuthSession { throw APIError.malformedResponse(statusCode: 0) }
-    func endSession() async throws {}
+    func endSession(deviceToken: String?, refreshToken: String?) async throws {}
 }
 
 private final class MemoryKeys: SecretStore, @unchecked Sendable {

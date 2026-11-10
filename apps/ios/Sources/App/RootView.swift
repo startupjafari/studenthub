@@ -8,6 +8,7 @@ import SwiftUI
 /// нужна только для того, чтобы не рисовать разделы, которых у человека нет.
 struct RootView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var session = AppSessionModel()
     @State private var update = UpdateGateModel()
@@ -39,6 +40,12 @@ struct RootView: View {
             }
             .onChange(of: session.state) { _, state in
                 if case .signedIn = state { authLink = nil }
+            }
+            // Вернулись в приложение — возможно, уже со связью: выход, отложенный без
+            // сети, досылаем сразу, а не при следующем запуске.
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                Task { await session.completePendingLogouts() }
             }
     }
 

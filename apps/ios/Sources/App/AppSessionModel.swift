@@ -37,14 +37,29 @@ final class AppSessionModel {
         await store.onSessionEnded { [weak self] in
             Task { @MainActor in await self?.sessionDidEnd() }
         }
-        let restored = await store.restoredToken()
-        if let restored {
-            await LocalData.claim(for: restored.subject)
-        } else {
+        // Прежние сборки держали refresh-cookie в системном хранилище — на диске, в
+        // резервной копии. Значение давно в связке ключей; файл больше не нужен.
+        RefreshCookieJar.purgeSystemStorage()
+        switch await store.restore() {
+        case .active(let token), .offline(let token):
+            // Без сети — по последнему токену: расписание и чаты в базе, а выбросить
+            // человека на вход только потому, что он в метро, — значит отнять у него и их.
+            await LocalData.claim(for: token.subject)
+            state = .signedIn(token)
+        case .none:
             // Сессия не поднялась — отложенная ссылка из пуша никому не адресована.
             AppServices.router.reset()
+            state = .signedOut
         }
-        state = restored.map(State.signedIn) ?? .signedOut
+        // Выход, отложенный без сети в прошлый раз, досылаем, пока есть возможность.
+        await completePendingLogouts()
+    }
+
+    /// Связь вернулась (приложение снова на экране): досылаем отложенные выходы.
+    @MainActor
+    func completePendingLogouts() async {
+        guard await store.hasPendingLogouts else { return }
+        await store.completePendingLogouts()
     }
 
     /// Принять сессию, выданную входом. `false` означает, что токен не разобрался:
@@ -81,9 +96,17 @@ final class AppSessionModel {
         // отключит, но уже со своей стороны и с ошибкой в логе.
         await AppServices.realtime.stop()
         // И отвязываем устройство: иначе следующему человеку на этом телефоне
-        // прилетят чужие уведомления.
+        // прилетят чужие уведомления. Дважды: отдельным запросом (его понимает и
+        // сервер прежней версии) и вместе с выходом — тот без сети откладывается и
+        // досылается без access-токена.
+        let deviceToken = PushRegistrar.deviceToken
         await PushRegistrar().unregister()
-        await store.signOut()
+        let delivered = await store.signOut(deviceToken: deviceToken)
+        if !delivered {
+            // Сервер о выходе пока не знает и шлёт пуши прежнего человека. Пока выход не
+            // дослан, телефон их просто не принимает; следующий вход включит доставку.
+            PushRegistrar.stopDelivery()
+        }
         // Данные прежнего человека не должны достаться следующему (как clearAllTables
         // в Android): список чатов читается из базы и только дописывается.
         await LocalData.erase()

@@ -204,7 +204,7 @@ private struct SilentRefresher: SessionRefreshing {
         throw APIError.malformedResponse(statusCode: 0)
     }
 
-    func endSession() async throws {}
+    func endSession(deviceToken: String?, refreshToken: String?) async throws {}
 }
 
 /// Хранилище cookie системы в юнит-тестах не трогаем: оно общее на процесс, и один
