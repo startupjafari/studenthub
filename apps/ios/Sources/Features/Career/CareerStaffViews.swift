@@ -839,10 +839,16 @@ struct CareerAnalyticsView: View {
     }
 }
 
+/// Отчёт карьерного центра: период, четыре главные цифры с изменением к прошлому
+/// периоду, затем разрезы одной темы. Девять таблиц подряд телефон превращал в простыню;
+/// темы переключаются в одно касание, данные у них общие — запрос один.
 private struct CareerReportView: View {
+    private enum Topic: Hashable { case funnel, graduates, market }
+
     let universityID: String?
 
     @State private var period = "quarter"
+    @State private var topic: Topic = .funnel
     @State private var export = CareerFileExport()
 
     var body: some View {
@@ -863,28 +869,39 @@ private struct CareerReportView: View {
                 }
                 .listRowBackground(Color.clear)
 
-                Section {
-                    StatGrid {
-                        totalTile(data, "applications", String(localized: "career.staff.applications", defaultValue: "Откликов"), "paperplane")
-                        totalTile(data, "hired", String(localized: "career.report.hired", defaultValue: "Трудоустроено"), "checkmark.seal")
-                        totalTile(data, "vacancies", String(localized: "career.report.newVacancies", defaultValue: "Новых вакансий"), "briefcase")
-                        totalTile(data, "companies", String(localized: "career.staff.companiesApproved", defaultValue: "Допущено компаний"), "building.2")
-                    }
-                }
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
+                DashboardMetricsSection(metrics: [
+                    totalMetric(data, "applications", String(localized: "career.staff.applications", defaultValue: "Откликов"), "paperplane"),
+                    totalMetric(data, "hired", String(localized: "career.report.hired", defaultValue: "Трудоустроено"), "checkmark.seal"),
+                    totalMetric(data, "vacancies", String(localized: "career.report.newVacancies", defaultValue: "Новых вакансий"), "briefcase"),
+                    totalMetric(data, "companies", String(localized: "career.staff.companiesApproved", defaultValue: "Допущено компаний"), "building.2"),
+                ])
 
-                timingSection(data)
-                funnelSection(data)
-                outcomesSection(data)
-                facultiesSection(data)
-                graduatesSection(data)
-                companiesSection(data)
-                marketSection(data)
-                salarySection(data)
-                studentsSection(data)
+                DashboardPeriodPicker(
+                    title: String(localized: "admin.dash.topic", defaultValue: "Тема"),
+                    selection: $topic,
+                    options: [
+                        (Topic.funnel, String(localized: "career.report.topic.funnel", defaultValue: "Воронка")),
+                        (Topic.graduates, String(localized: "career.report.topic.graduates", defaultValue: "Выпускники")),
+                        (Topic.market, String(localized: "career.report.topic.market", defaultValue: "Рынок")),
+                    ]
+                )
+
+                switch topic {
+                case .funnel:
+                    funnelSection(data)
+                    timingSection(data)
+                    outcomesSection(data)
+                case .graduates:
+                    graduatesSection(data)
+                    facultiesSection(data)
+                    studentsSection(data)
+                case .market:
+                    companiesSection(data)
+                    marketSection(data)
+                    salarySection(data)
+                }
             }
-            .listStyle(.insetGrouped)
+            .dashboardListStyle()
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -907,12 +924,19 @@ private struct CareerReportView: View {
         }
     }
 
-    private func totalTile(_ data: JSONValue, _ key: String, _ title: String, _ symbol: String) -> StatTile {
+    /// Цифра периода и её изменение к прошлому: рост — зелёным, спад — красным.
+    private func totalMetric(_ data: JSONValue, _ key: String, _ title: String, _ symbol: String) -> DashboardMetric {
         let value = CareerJSON.int(data, "totals", key, "value")
         let previous = CareerJSON.int(data, "totals", key, "previous")
         let delta = value - previous
         let caption = delta == 0 ? nil : (delta > 0 ? "+\(delta.formatted())" : delta.formatted())
-        return StatTile(title: title, value: value.formatted(), symbol: symbol, caption: caption)
+        return DashboardMetric(
+            title: title,
+            value: value.formatted(),
+            symbol: symbol,
+            caption: caption,
+            captionTint: delta > 0 ? Palette.success : Palette.destructive
+        )
     }
 
     private func timingSection(_ data: JSONValue) -> some View {

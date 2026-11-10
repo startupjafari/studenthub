@@ -5,7 +5,14 @@ import SwiftUI
 // каждая из которых отвечает на один управленческий вопрос. Всё считает сервер; панели
 // грузятся независимо, и сбой одной не прячет остальные.
 
+///
+/// На экране — показатели, главный график (динамика посещаемости) и панели одной темы.
+/// Семь панелей подряд телефон превращал в ленту, которую листают не читая; темы
+/// переключаются в одно касание, и панель темы грузится, только когда её открыли.
 struct UAdminDashboardView: View {
+    private enum Topic: Hashable { case attendance, study, services }
+
+    @State private var topic: Topic = .attendance
     @State private var stats: UAdminUniversityStatsDTO?
     @State private var overview: UAdminUniversityOverviewDTO?
     @State private var overviewFailed = false
@@ -23,13 +30,29 @@ struct UAdminDashboardView: View {
             DashboardMetricsSection(metrics: metrics)
 
             Section { TrendPanel(reloadToken: reloadToken) }
-            Section { BreakdownPanel(reloadToken: reloadToken) }
-            Section { worstGroupsPanel }
-            Section { RoomLoadPanel(reloadToken: reloadToken) }
-            Section { ExamResultsPanel(reloadToken: reloadToken) }
-            Section { ApplicationsFlowPanel(reloadToken: reloadToken) }
-            Section { InvitesPanel(reloadToken: reloadToken) }
-            atRiskSection
+
+            DashboardPeriodPicker(
+                title: String(localized: "admin.dash.topic", defaultValue: "Тема"),
+                selection: $topic,
+                options: [
+                    (Topic.attendance, String(localized: "uadmin.dash.topic.attendance", defaultValue: "Посещаемость")),
+                    (Topic.study, String(localized: "uadmin.dash.topic.study", defaultValue: "Учёба")),
+                    (Topic.services, String(localized: "uadmin.dash.topic.services", defaultValue: "Сервисы")),
+                ]
+            )
+
+            switch topic {
+            case .attendance:
+                Section { BreakdownPanel(reloadToken: reloadToken) }
+                Section { worstGroupsPanel }
+                atRiskSection
+            case .study:
+                Section { ExamResultsPanel(reloadToken: reloadToken) }
+                Section { RoomLoadPanel(reloadToken: reloadToken) }
+            case .services:
+                Section { ApplicationsFlowPanel(reloadToken: reloadToken) }
+                Section { InvitesPanel(reloadToken: reloadToken) }
+            }
         }
         .dashboardListStyle()
         .navigationTitle(Text(UniAdminScreen.dashboard.title))

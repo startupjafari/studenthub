@@ -52,7 +52,7 @@ struct UAdminAnalyticsView: View {
                 LoadingStateView().listRowBackground(Color.clear)
             }
         }
-        .listStyle(.insetGrouped)
+        .dashboardListStyle()
         .navigationTitle(Text(String(localized: "uadmin.analytics.title", defaultValue: "Аналитика факультета")))
         .toolbar {
             if tab == .students, risk != nil {
@@ -89,22 +89,39 @@ struct UAdminAnalyticsView: View {
     @ViewBuilder
     private var content: some View {
         if let overview, overview.facultyId == facultyID {
-            Section {
-                StatGrid {
-                    StatTile(title: String(localized: "uadmin.analytics.students", defaultValue: "Студентов"), value: overview.totals.students.formatted(), symbol: "person.2")
-                    StatTile(title: String(localized: "uadmin.analytics.groups", defaultValue: "Групп"), value: overview.totals.groups.formatted(), symbol: "person.3")
-                    StatTile(
-                        title: String(localized: "uadmin.analytics.attendance", defaultValue: "Посещаемость"),
-                        value: overview.totals.attendanceRate.map { DisplayFormat.percent($0) } ?? UAdminText.empty,
-                        symbol: "percent",
-                        tint: (overview.totals.attendanceRate ?? 100) < threshold ? Palette.destructive : Palette.info
-                    )
-                    StatTile(title: String(localized: "uadmin.analytics.submissions", defaultValue: "Работ на проверке"), value: overview.totals.submissionsPending.formatted(), symbol: "tray.full", tint: Palette.warning)
-                    StatTile(title: String(localized: "uadmin.analytics.exams", defaultValue: "Экзаменов впереди"), value: overview.totals.examsUpcoming.formatted(), symbol: "calendar.badge.clock")
-                }
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-            }
+            // Главные цифры — теми же плитками, что на обзорах всех ролей: сначала то, на что
+            // реагируют (посещаемость, проверка), затем размер факультета.
+            DashboardMetricsSection(metrics: [
+                DashboardMetric(
+                    title: String(localized: "uadmin.analytics.attendance", defaultValue: "Посещаемость"),
+                    value: overview.totals.attendanceRate.map { DisplayFormat.percent($0) },
+                    symbol: "percent",
+                    tint: (overview.totals.attendanceRate ?? 100) < threshold ? Palette.destructive : Palette.info
+                ),
+                DashboardMetric(
+                    title: String(localized: "uadmin.analytics.submissions", defaultValue: "Работ на проверке"),
+                    value: overview.totals.submissionsPending.formatted(),
+                    symbol: "tray.full",
+                    tint: Palette.warning
+                ),
+                DashboardMetric(
+                    title: String(localized: "uadmin.analytics.students", defaultValue: "Студентов"),
+                    value: overview.totals.students.formatted(),
+                    symbol: "person.2"
+                ),
+                DashboardMetric(
+                    title: String(localized: "uadmin.analytics.groups", defaultValue: "Групп"),
+                    value: overview.totals.groups.formatted(),
+                    symbol: "person.3",
+                    tint: TileTint.teal
+                ),
+                DashboardMetric(
+                    title: String(localized: "uadmin.analytics.exams", defaultValue: "Экзаменов впереди"),
+                    value: overview.totals.examsUpcoming.formatted(),
+                    symbol: "calendar.badge.clock",
+                    tint: TileTint.purple
+                ),
+            ])
             FilterChipsRow(
                 options: [
                     (value: Optional(AnalyticsTab.students), title: String(localized: "uadmin.analytics.tab.students", defaultValue: "Требуют внимания")),

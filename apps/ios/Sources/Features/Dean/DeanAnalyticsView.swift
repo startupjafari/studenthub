@@ -10,6 +10,7 @@ struct DeanAnalyticsView: View {
     @State private var overview: DeanFacultyOverview?
     @State private var risk: DeanAtRisk?
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var riskFailure: String?
     @State private var tab: Tab? = .students
     @State private var riskSort: RiskSort = .risk
@@ -36,13 +37,13 @@ struct DeanAnalyticsView: View {
                     students(total: overview.totals.students)
                 }
             } else if let failure {
-                ErrorStateView(message: failure) { await load() }
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
                     .listRowBackground(Color.clear)
             } else {
                 LoadingStateView().listRowBackground(Color.clear)
             }
         }
-        .listStyle(.insetGrouped)
+        .dashboardListStyle()
         .navigationTitle(Text(DeanScreen.analytics.title))
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -81,25 +82,41 @@ struct DeanAnalyticsView: View {
 
     // MARK: Показатели
 
-    @ViewBuilder
+    /// Главные цифры факультета — теми же плитками, что на обзорах всех ролей.
     private func summary(_ overview: DeanFacultyOverview) -> some View {
         let totals = overview.totals
-        Section {
-            StatGrid {
-                StatTile(title: String(localized: "dean.kpi.students", defaultValue: "Студенты"), value: totals.students.formatted(), symbol: "person.2")
-                StatTile(title: String(localized: "dean.kpi.groups", defaultValue: "Группы"), value: totals.groups.formatted(), symbol: "person.3")
-                StatTile(
-                    title: String(localized: "dean.kpi.attendance", defaultValue: "Посещаемость"),
-                    value: DeanText.percent(totals.attendanceRate),
-                    symbol: "percent",
-                    tint: (totals.attendanceRate ?? 100) < threshold ? Palette.destructive : Palette.info
-                )
-                StatTile(title: String(localized: "dean.kpi.submissions", defaultValue: "Работ на проверке"), value: totals.submissionsPending.formatted(), symbol: "tray.full", tint: Palette.warning)
-                StatTile(title: String(localized: "dean.kpi.exams", defaultValue: "Экзамены впереди"), value: totals.examsUpcoming.formatted(), symbol: "graduationcap")
-            }
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets())
-        }
+        let lowAttendance = (totals.attendanceRate ?? 100) < threshold
+        return DashboardMetricsSection(metrics: [
+            DashboardMetric(
+                title: String(localized: "dean.kpi.attendance", defaultValue: "Посещаемость"),
+                value: totals.attendanceRate.map { DeanText.percent($0) },
+                symbol: "percent",
+                tint: lowAttendance ? Palette.destructive : Palette.info
+            ),
+            DashboardMetric(
+                title: String(localized: "dean.kpi.submissions", defaultValue: "Работ на проверке"),
+                value: totals.submissionsPending.formatted(),
+                symbol: "tray.full",
+                tint: Palette.warning
+            ),
+            DashboardMetric(
+                title: String(localized: "dean.kpi.students", defaultValue: "Студенты"),
+                value: totals.students.formatted(),
+                symbol: "person.2"
+            ),
+            DashboardMetric(
+                title: String(localized: "dean.kpi.groups", defaultValue: "Группы"),
+                value: totals.groups.formatted(),
+                symbol: "person.3",
+                tint: TileTint.teal
+            ),
+            DashboardMetric(
+                title: String(localized: "dean.kpi.exams", defaultValue: "Экзамены впереди"),
+                value: totals.examsUpcoming.formatted(),
+                symbol: "graduationcap",
+                tint: TileTint.purple
+            ),
+        ])
     }
 
     // MARK: Студенты в риске
@@ -218,6 +235,7 @@ struct DeanAnalyticsView: View {
             return
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
         do {
             risk = try await riskTask

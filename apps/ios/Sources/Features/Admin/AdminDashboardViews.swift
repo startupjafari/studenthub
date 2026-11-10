@@ -5,8 +5,16 @@ import SwiftUI
 
 /// Обзор администратора и модератора платформы: плитки состояния и графики за период.
 /// Период один на все графики — иначе плитки и графики показывали бы разные срезы.
+///
+/// Порядок — от главного к частностям: период, показатели, графики одной темы, детализация
+/// по вузам. Восемь графиков подряд на телефоне не читаются — их листают, не глядя.
+/// Поэтому графики разложены по темам («Пользователи», «Жалобы», «Активность»): на экране
+/// одна тема, остальные в одном касании переключателя.
 struct AdminPlatformDashboardView: View {
+    private enum Topic: Hashable { case users, complaints, activity }
+
     @State private var days = 30
+    @State private var topic: Topic = .users
     @State private var overview: AdminPlatformOverviewDTO?
     @State private var overviewFailure: String?
     @State private var isOffline = false
@@ -43,61 +51,20 @@ struct AdminPlatformDashboardView: View {
                 DashboardMetricsSection(metrics: kpis(overview))
             }
 
-            chart(
-                String(localized: "admin.dash.growth", defaultValue: "Рост пользователей"),
-                hint: String(localized: "admin.dash.growthHint", defaultValue: "Новые регистрации за период, по группам ролей"),
-                growth
-            ) { AdminSeriesChart(series: $0, label: Self.seriesLabel) }
-            chart(
-                String(localized: "admin.dash.active", defaultValue: "Активные пользователи"),
-                hint: String(localized: "admin.dash.activeHint", defaultValue: "Уникальные пользователи с действиями в журнале аудита"),
-                active
-            ) { AdminSeriesChart(series: $0, label: Self.seriesLabel) }
-            chart(
-                String(localized: "admin.dash.flow", defaultValue: "Поток жалоб"),
-                hint: String(localized: "admin.dash.flowHint", defaultValue: "Поступило и разобрано за период"),
-                flow
-            ) { AdminSeriesChart(series: $0, label: Self.seriesLabel) }
-            chart(
-                String(localized: "admin.dash.latency", defaultValue: "Время разбора жалоб"),
-                hint: latency?.medianHours.map {
-                    String(localized: "admin.dash.latencyMedian", defaultValue: "Медиана: \(Self.hours($0))")
-                } ?? String(localized: "admin.dash.latencyHint", defaultValue: "Распределение по времени от подачи до решения"),
-                latency
-            ) { latency in
-                AdminBarChart(bars: Self.latencyOrder.map { key in
-                    (Self.latencyLabel(key), latency.buckets.first { $0.key == key }?.value ?? 0)
-                })
-            }
-            chart(
-                String(localized: "admin.dash.invites", defaultValue: "Воронка приглашений"),
-                hint: invites.map {
-                    String(localized: "admin.dash.invitesConversion", defaultValue: "Конверсия в регистрацию: \(DisplayFormat.percent($0.conversion)) · выдано \($0.total.formatted())")
-                } ?? String(localized: "admin.dash.invitesHint", defaultValue: "Доходят ли приглашения до регистрации"),
-                invites
-            ) { invites in
-                AdminBarChart(bars: ["USED", "PENDING", "EXPIRED", "REVOKED"].map { key in
-                    (AdminText.inviteStatus(key).text, invites.byStatus.first { $0.key == key }?.value ?? 0)
-                })
-            }
-            chart(
-                String(localized: "admin.dash.activity", defaultValue: "Активность по дням недели"),
-                hint: String(localized: "admin.dash.activityHint", defaultValue: "События аудита в среднем за день недели"),
-                heatmap
-            ) { AdminBarChart(bars: Self.weekdayAverages($0)) }
-            chart(
-                String(localized: "admin.dash.actions", defaultValue: "Частые действия"),
-                hint: String(localized: "admin.dash.actionsHint", defaultValue: "Топ действий в журнале аудита за период"),
-                actions
-            ) { actions in
-                if actions.items.isEmpty {
-                    DashboardEmptyPlaceholder(text: DashboardText.periodNoData)
-                } else {
-                    let top = max(actions.items.first?.value ?? 1, 1)
-                    DashboardBarList(bars: actions.items.map { item in
-                        DashboardBar(label: item.action, fraction: item.value / top, valueText: JSONValue.format(item.value))
-                    })
-                }
+            DashboardPeriodPicker(
+                title: String(localized: "admin.dash.topic", defaultValue: "Тема"),
+                selection: $topic,
+                options: [
+                    (Topic.users, String(localized: "admin.dash.topic.users", defaultValue: "Пользователи")),
+                    (Topic.complaints, String(localized: "admin.dash.topic.complaints", defaultValue: "Жалобы")),
+                    (Topic.activity, String(localized: "admin.dash.topic.activity", defaultValue: "Активность")),
+                ]
+            )
+
+            switch topic {
+            case .users: usersCharts
+            case .complaints: complaintsCharts
+            case .activity: activityCharts
             }
 
             DashboardCardSection(
@@ -135,6 +102,77 @@ struct AdminPlatformDashboardView: View {
         }
         .task { await loadOverview() }
         .task(id: days) { await loadRange() }
+    }
+
+    /// Пользователи: главный график — рост; ниже — доходят ли приглашения до регистрации.
+    @ViewBuilder
+    private var usersCharts: some View {
+        chart(
+            String(localized: "admin.dash.growth", defaultValue: "Рост пользователей"),
+            hint: String(localized: "admin.dash.growthHint", defaultValue: "Новые регистрации за период, по группам ролей"),
+            growth
+        ) { AdminSeriesChart(series: $0, label: Self.seriesLabel) }
+        chart(
+            String(localized: "admin.dash.invites", defaultValue: "Воронка приглашений"),
+            hint: invites.map {
+                String(localized: "admin.dash.invitesConversion", defaultValue: "Конверсия в регистрацию: \(DisplayFormat.percent($0.conversion)) · выдано \($0.total.formatted())")
+            } ?? String(localized: "admin.dash.invitesHint", defaultValue: "Доходят ли приглашения до регистрации"),
+            invites
+        ) { invites in
+            AdminBarChart(bars: ["USED", "PENDING", "EXPIRED", "REVOKED"].map { key in
+                (AdminText.inviteStatus(key).text, invites.byStatus.first { $0.key == key }?.value ?? 0)
+            })
+        }
+    }
+
+    /// Жалобы: сколько пришло и разобрано, и как быстро.
+    @ViewBuilder
+    private var complaintsCharts: some View {
+        chart(
+            String(localized: "admin.dash.flow", defaultValue: "Поток жалоб"),
+            hint: String(localized: "admin.dash.flowHint", defaultValue: "Поступило и разобрано за период"),
+            flow
+        ) { AdminSeriesChart(series: $0, label: Self.seriesLabel) }
+        chart(
+            String(localized: "admin.dash.latency", defaultValue: "Время разбора жалоб"),
+            hint: latency?.medianHours.map {
+                String(localized: "admin.dash.latencyMedian", defaultValue: "Медиана: \(Self.hours($0))")
+            } ?? String(localized: "admin.dash.latencyHint", defaultValue: "Распределение по времени от подачи до решения"),
+            latency
+        ) { latency in
+            AdminBarChart(bars: Self.latencyOrder.map { key in
+                (Self.latencyLabel(key), latency.buckets.first { $0.key == key }?.value ?? 0)
+            })
+        }
+    }
+
+    /// Активность: кто действует, в какие дни и что делает чаще всего.
+    @ViewBuilder
+    private var activityCharts: some View {
+        chart(
+            String(localized: "admin.dash.active", defaultValue: "Активные пользователи"),
+            hint: String(localized: "admin.dash.activeHint", defaultValue: "Уникальные пользователи с действиями в журнале аудита"),
+            active
+        ) { AdminSeriesChart(series: $0, label: Self.seriesLabel) }
+        chart(
+            String(localized: "admin.dash.activity", defaultValue: "Активность по дням недели"),
+            hint: String(localized: "admin.dash.activityHint", defaultValue: "События аудита в среднем за день недели"),
+            heatmap
+        ) { AdminBarChart(bars: Self.weekdayAverages($0)) }
+        chart(
+            String(localized: "admin.dash.actions", defaultValue: "Частые действия"),
+            hint: String(localized: "admin.dash.actionsHint", defaultValue: "Топ действий в журнале аудита за период"),
+            actions
+        ) { actions in
+            if actions.items.isEmpty {
+                DashboardEmptyPlaceholder(text: DashboardText.periodNoData)
+            } else {
+                let top = max(actions.items.first?.value ?? 1, 1)
+                DashboardBarList(bars: actions.items.map { item in
+                    DashboardBar(label: item.action, fraction: item.value / top, valueText: JSONValue.format(item.value))
+                })
+            }
+        }
     }
 
     /// Карточка графика периода: загрузка, сбой или содержимое.
