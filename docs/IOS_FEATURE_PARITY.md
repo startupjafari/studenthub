@@ -21,18 +21,22 @@
 
 ## Роли и оболочка
 
-| Роль | Вкладки | Стартовый экран («Обзор») | Статус |
+Панель одна на всех: «Главная», «Чаты», «Разделы», «Лента», «Поиск» (iOS 18+ — кнопка у края
+панели). Роль решает, какие вкладки у неё есть и что на «Главной». Расписание, учёба и сервисы —
+группы «Разделов»: шестая вкладка на iPhone уходила в системное «Ещё».
+
+| Роль | Вкладки | «Главная» | Статус |
 |---|---|---|---|
-| STUDENT, STAROSTA | Главная, Расписание, Чаты, Учёба, Сервисы | лента | Implemented |
-| TEACHER | Главная, Расписание, Чаты, Учёба, Сервисы | лента; обзор преподавателя — в «Учёбе» | Implemented |
-| DEAN | Обзор, Расписание (факультета), Чаты, Разделы, Лента | `DeanScreen.dashboard` | Implemented |
-| UNIVERSITY_ADMIN | Обзор, Чаты, Разделы, Лента | `UniAdminScreen.dashboard` | Implemented |
-| UNIVERSITY_MODERATOR | Обзор, Чаты, Разделы, Лента | `AdminScreen.universityModeratorDashboard` | Implemented |
-| PLATFORM_ADMIN | Обзор, Чаты, Разделы | `AdminScreen.platformDashboard` | Implemented |
-| PLATFORM_MODERATOR | Обзор, Чаты, Разделы | `AdminScreen.platformModeratorDashboard` | Implemented |
-| EMPLOYER | Обзор, Чаты, Разделы | `CareerScreen.employerHome` | Implemented |
-| SECURITY_GUARD | Обзор, Разделы (без чатов и ленты) | `SecurityScreen.post` | Implemented |
-| LIBRARIAN | Обзор, Разделы (без чатов и ленты) | `LibrarianScreen.home` | Implemented |
+| STUDENT, STAROSTA | Главная, Чаты, Разделы, Лента, Поиск | `StudentHomeView`: пары сегодня, быстрые действия, успеваемость, сроки, непрочитанное, заявки, события | Implemented |
+| TEACHER | Главная, Чаты, Разделы, Лента, Поиск | `TeachingDashboardView` — рабочий день преподавателя | Implemented |
+| DEAN | Главная, Чаты, Разделы, Лента, Поиск | `DeanScreen.dashboard`; расписание факультета — в «Разделах» | Implemented |
+| UNIVERSITY_ADMIN | Главная, Чаты, Разделы, Лента, Поиск | `UniAdminScreen.dashboard` | Implemented |
+| UNIVERSITY_MODERATOR | Главная, Чаты, Разделы, Лента, Поиск | `AdminScreen.universityModeratorDashboard` | Implemented |
+| PLATFORM_ADMIN | Главная, Чаты, Разделы | `AdminScreen.platformDashboard` | Implemented |
+| PLATFORM_MODERATOR | Главная, Чаты, Разделы | `AdminScreen.platformModeratorDashboard` | Implemented |
+| EMPLOYER | Главная, Чаты, Разделы | `CareerScreen.employerHome` | Implemented |
+| SECURITY_GUARD | Главная, Разделы (без чатов и ленты) | `SecurityScreen.post` | Implemented |
+| LIBRARIAN | Главная, Разделы (без чатов и ленты) | `LibrarianScreen.home` | Implemented |
 
 | Функция | iOS | Статус |
 |---|---|---|
