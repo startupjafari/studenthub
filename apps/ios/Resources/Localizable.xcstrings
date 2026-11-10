@@ -90789,6 +90789,40 @@
           }
         }
       }
+    },
+    "settings.support.sent": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обращение отправлено"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Өтініш жіберілді"
+          }
+        }
+      }
+    },
+    "settings.support.sent.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команда поддержки получила его и свяжется с вами."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қолдау қызметі оны алды және сізбен байланысады."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

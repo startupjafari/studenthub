@@ -1,11 +1,15 @@
 import SwiftUI
 
 /// Обращение в поддержку. Сервер заводит чат с командой платформы и отвечает его
-/// id — туда и переходим: ответ придёт в переписку, а не в никуда.
+/// id — туда и переходим: ответ придёт в переписку, а не в никуда. У охраны и
+/// библиотеки чатов нет (`hasChats` в вебе): им — подтверждение на месте.
 struct SupportView: View {
+    @Environment(\.viewerRole) private var role
+    @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var failure: String?
     @State private var isSending = false
+    @State private var sent = false
 
     private var canSend: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).count >= 10 && !isSending }
 
@@ -42,18 +46,31 @@ struct SupportView: View {
         }
         .navigationTitle(Text(String(localized: "settings.support", defaultValue: "Поддержка")))
         .navigationBarTitleDisplayMode(.inline)
+        .alert(
+            String(localized: "settings.support.sent", defaultValue: "Обращение отправлено"),
+            isPresented: $sent
+        ) {
+            Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) { dismiss() }
+        } message: {
+            Text(String(localized: "settings.support.sent.hint", defaultValue: "Команда поддержки получила его и свяжется с вами."))
+        }
     }
 
     @MainActor
     private func send() async {
+        guard !isSending else { return }
         isSending = true
         defer { isSending = false }
         do {
             let ticket = try await AccountAPI().contactSupport(text: text.trimmingCharacters(in: .whitespacesAndNewlines))
             text = ""
             failure = nil
-            AppServices.router.select(.chats)
-            AppServices.router.stacks[.chats] = [.chat(id: ticket.id)]
+            if AppTab.tabs(for: role).contains(.chats) {
+                AppServices.router.select(.chats)
+                AppServices.router.stacks[.chats] = [.chat(id: ticket.id)]
+            } else {
+                sent = true
+            }
         } catch {
             failure = error.userMessage
         }
