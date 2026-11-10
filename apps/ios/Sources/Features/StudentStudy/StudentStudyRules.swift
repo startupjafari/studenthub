@@ -184,9 +184,11 @@ enum StudentPlan {
         columns: [CourseGradesDTO.Column],
         exams: [(date: Date, status: String)]
     ) -> StudentPlanStatus {
-        let phase = term.map { phase($0, today: today) }
-        if phase == .current { return .studying }
-        if phase == .future { return .upcoming }
+        // Не `phase`: локальное имя совпадало бы с функцией, и Swift 6.1 (Xcode 16)
+        // искал `map` у жестов SwiftUI вместо `Optional`.
+        let termPhase = term.map { Self.phase($0, today: today) }
+        if termPhase == .current { return .studying }
+        if termPhase == .future { return .upcoming }
         // Итог экзамена — последний по дате, не «назначен».
         if let final = exams.filter({ $0.status != "SCHEDULED" }).max(by: { $0.date < $1.date }) {
             return final.status == "PASSED" ? .completed : .notPassed
@@ -195,7 +197,7 @@ enum StudentPlan {
             return examPercent >= passThreshold ? .completed : .notPassed
         }
         let percent = StudentGradeMath.percent(columns)
-        if phase == nil { return percent == nil ? .upcoming : .studying }
+        if termPhase == nil { return percent == nil ? .upcoming : .studying }
         guard let percent else { return .noResult }
         return percent >= passThreshold ? .completed : .notPassed
     }

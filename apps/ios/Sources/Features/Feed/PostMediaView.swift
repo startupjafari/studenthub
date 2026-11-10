@@ -230,10 +230,17 @@ struct MediaViewer: View {
     @State private var selection = 0
     @State private var dragOffset: CGFloat = 0
 
+    /// Затемнение фона тает, пока снимок тянут вниз. Отдельным свойством с явным
+    /// `Double`: в выражении `1 - min(abs(x) / 400, 0.6)` Swift 6.1 (Xcode 16) не мог
+    /// выбрать между `CGFloat` и `Double`.
+    private var backdropOpacity: Double {
+        1 - min(Double(abs(dragOffset)) / 400, 0.6)
+    }
+
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Color.black
-                .opacity(1 - min(abs(dragOffset) / 400, 0.6))
+                .opacity(backdropOpacity)
                 .ignoresSafeArea()
 
             TabView(selection: $selection) {
