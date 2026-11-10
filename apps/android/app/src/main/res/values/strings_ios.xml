@@ -187,6 +187,7 @@
     <string name="admin_demo_rejectConfirm">Отклонить</string>
     <string name="admin_demo_role">Должность</string>
     <string name="admin_demo_search">Вуз, контакт или почта</string>
+    <string name="admin_demo_searchHint">Поиск ищет по названию вуза, имени контакта и почте — от двух букв</string>
     <string name="admin_demo_siteShort">Сайт</string>
     <string name="admin_demo_status_approved">Одобрена</string>
     <string name="admin_demo_status_new">Новая</string>
@@ -563,6 +564,7 @@
     <string name="auth_inviteValidUntil">Приглашение действует до %1$s</string>
     <string name="auth_lastName">Фамилия</string>
     <string name="auth_nameInvalid">Заполните поле — до 100 символов</string>
+    <string name="auth_namePlaceholder">Как в документах</string>
     <string name="auth_newPassword">Новый пароль</string>
     <string name="auth_offline_hint">Проверьте интернет — как только связь появится, попробуйте ещё раз.</string>
     <string name="auth_oneTimeTokenNote">Токен одноразовый и станет недействителен после регистрации.</string>
@@ -624,6 +626,10 @@
     <string name="auth_showPassword">Показать пароль</string>
     <string name="auth_signIn">Войти</string>
     <string name="auth_signingIn">Входим…</string>
+    <string name="auth_twoFactor_appCodePlaceholder">Код из 6 цифр</string>
+    <string name="auth_twoFactor_backupCodePlaceholder">Резервный код</string>
+    <string name="auth_twoFactor_useAppCode">Ввести код из приложения</string>
+    <string name="auth_twoFactor_useBackupCode">Ввести резервный код</string>
     <string name="auth_twoFactorBack">Назад ко входу</string>
     <string name="auth_twoFactorBackupHint">Нет доступа к приложению? Введите один из резервных кодов</string>
     <string name="auth_twoFactorCodeLabel">Код подтверждения</string>
@@ -2201,6 +2207,8 @@
     <string name="form_discard">Не сохранять</string>
     <string name="form_discard_title">Отменить изменения?</string>
     <string name="form_keepEditing">Продолжить редактирование</string>
+    <string name="form_nextField">Следующее поле</string>
+    <string name="form_prevField">Предыдущее поле</string>
     <string name="friends_accept">Принять</string>
     <string name="friends_decline">Отклонить</string>
     <string name="group_count">Всего: %1$s</string>
@@ -2817,6 +2825,7 @@
     <string name="profile_about">О себе</string>
     <string name="profile_article_minutes">%1$s мин</string>
     <string name="profile_bio">О себе</string>
+    <string name="profile_bio_prompt">Пара слов о себе</string>
     <string name="profile_changeAvatar">Сменить фото</string>
     <string name="profile_changeCover">Сменить обложку</string>
     <string name="profile_contacts">Контакты</string>
@@ -2829,8 +2838,19 @@
     <string name="profile_details_empty">Сведений пока нет</string>
     <string name="profile_details_emptyHint">Заполните их в «Изменить профиль»</string>
     <string name="profile_edit">Изменить</string>
+    <string name="profile_edit_exitTitle">Сохранить изменения?</string>
     <string name="profile_editTitle">Изменить профиль</string>
+    <string name="profile_editTitle_short">Редактирование</string>
     <string name="profile_email">Почта</string>
+    <string name="profile_empty_articles">Статей пока нет</string>
+    <string name="profile_empty_articlesHint">Ваши статьи появятся здесь</string>
+    <string name="profile_empty_photos">Фото пока нет</string>
+    <string name="profile_empty_photosHint">Загруженные фото появятся здесь</string>
+    <string name="profile_empty_polls">Опросов пока нет</string>
+    <string name="profile_empty_pollsHint">Ваши опросы появятся здесь</string>
+    <string name="profile_empty_postsHint">Ваши публикации появятся здесь</string>
+    <string name="profile_empty_videos">Видео пока нет</string>
+    <string name="profile_empty_videosHint">Загруженные видео появятся здесь</string>
     <string name="profile_emptyTab">Здесь пока пусто</string>
     <string name="profile_faculty">Факультет</string>
     <string name="profile_firstName">Имя</string>
@@ -2844,6 +2864,7 @@
     <string name="profile_gpa">Средний балл (GPA)</string>
     <string name="profile_group">Группа</string>
     <string name="profile_headline">Строка под именем</string>
+    <string name="profile_headline_prompt">Коротко о главном</string>
     <string name="profile_imageUnreadable">Не удалось прочитать изображение</string>
     <string name="profile_instagram">Instagram (без @)</string>
     <string name="profile_interests">Интересы</string>
@@ -2869,6 +2890,7 @@
     <string name="profile_removeAvatar_confirm">Удалить фото профиля?</string>
     <string name="profile_removeCover">Удалить обложку</string>
     <string name="profile_removeCover_confirm">Удалить обложку?</string>
+    <string name="profile_required">Заполните поле</string>
     <string name="profile_skills">Навыки</string>
     <string name="profile_skills_add">Добавить навык</string>
     <string name="profile_skills_footer">До 30 навыков. Смахните влево, чтобы удалить.</string>
@@ -3170,12 +3192,13 @@
     <string name="settings_2fa_enable">Включить двухфакторную защиту</string>
     <string name="settings_2fa_enabled">Двухфакторная защита включена</string>
     <string name="settings_2fa_footer">При входе кроме пароля понадобится код из приложения-аутентификатора.</string>
-    <string name="settings_2fa_on">2FA вкл.</string>
     <string name="settings_2fa_openApp">Открыть в приложении-аутентификаторе</string>
     <string name="settings_2fa_qr">QR-код для приложения-аутентификатора</string>
     <string name="settings_2fa_saveCodes">Сохранить коды</string>
     <string name="settings_2fa_secret">Ключ</string>
     <string name="settings_2fa_setupFooter">Отсканируйте код или добавьте ключ вручную, затем введите шесть цифр из приложения.</string>
+    <string name="settings_2fa_statusOff">2FA выключена</string>
+    <string name="settings_2fa_statusOn">2FA включена</string>
     <string name="settings_app">Приложение</string>
     <string name="settings_appearance">Внешний вид</string>
     <string name="settings_danger">Опасная зона</string>
@@ -3186,7 +3209,7 @@
     <string name="settings_delete_libraryDebts">На руках книги из библиотеки — сначала верните их</string>
     <string name="settings_delete_other">Аккаунт нельзя удалить — обратитесь в поддержку</string>
     <string name="settings_deleteAccount">Удалить аккаунт</string>
-    <string name="settings_edit">Изм.</string>
+    <string name="settings_editShort">Править</string>
     <string name="settings_export">Выгрузить мои данные</string>
     <string name="settings_export_footer">Файл JSON со всем, что платформа хранит о вас. Не чаще трёх раз в час.</string>
     <string name="settings_language_footer">Язык меняется в настройках iPhone для приложения StudentHub. Язык писем и уведомлений — в разделе «Уведомления».</string>
