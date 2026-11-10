@@ -67,33 +67,53 @@ struct AuthBackdrop: View {
 /// Знак StudentHub — академическая шапочка, тот же рисунок, что в QR и документах
 /// сервера (`common/brand/brand-mark.ts`): ромб, тулья, кисточка в сетке 24×24.
 struct StudentHubGlyph: Shape {
+    /// Части знака. По отдельности они нужны экрану запуска: каждая обводится своим
+    /// штрихом, и знак прорисовывается целиком, а не деталь за деталью.
+    enum Part: CaseIterable {
+        case board, crown, tassel
+    }
+
+    /// `nil` — весь знак.
+    var part: Part?
+
+    init(_ part: Part? = nil) {
+        self.part = part
+    }
+
     func path(in rect: CGRect) -> Path {
         let s = min(rect.width, rect.height) / 24
         let ox = rect.midX - 12 * s
         let oy = rect.midY - 12 * s
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: ox + x * s, y: oy + y * s) }
+        func includes(_ candidate: Part) -> Bool { part == nil || part == candidate }
 
         var path = Path()
-        // Ромб-верх.
-        path.move(to: p(12, 3.4))
-        path.addLine(to: p(22.6, 8.6))
-        path.addLine(to: p(12, 13.8))
-        path.addLine(to: p(1.4, 8.6))
-        path.closeSubpath()
-        // Тулья.
-        path.move(to: p(6.4, 11.4))
-        path.addLine(to: p(6.4, 15.3))
-        path.addCurve(to: p(12, 18.1), control1: p(6.4, 16.9), control2: p(8.9, 18.1))
-        path.addCurve(to: p(17.6, 15.3), control1: p(15.1, 18.1), control2: p(17.6, 16.9))
-        path.addLine(to: p(17.6, 11.4))
-        path.addLine(to: p(12, 14.2))
-        path.closeSubpath()
-        // Кисточка.
-        path.addRoundedRect(
-            in: CGRect(origin: p(20.4, 9.4), size: CGSize(width: 1.5 * s, height: 5 * s)),
-            cornerSize: CGSize(width: 0.75 * s, height: 0.75 * s)
-        )
-        path.addEllipse(in: CGRect(origin: p(21.15 - 1.35, 15.4 - 1.35), size: CGSize(width: 2.7 * s, height: 2.7 * s)))
+        if includes(.board) {
+            // Ромб-верх.
+            path.move(to: p(12, 3.4))
+            path.addLine(to: p(22.6, 8.6))
+            path.addLine(to: p(12, 13.8))
+            path.addLine(to: p(1.4, 8.6))
+            path.closeSubpath()
+        }
+        if includes(.crown) {
+            // Тулья.
+            path.move(to: p(6.4, 11.4))
+            path.addLine(to: p(6.4, 15.3))
+            path.addCurve(to: p(12, 18.1), control1: p(6.4, 16.9), control2: p(8.9, 18.1))
+            path.addCurve(to: p(17.6, 15.3), control1: p(15.1, 18.1), control2: p(17.6, 16.9))
+            path.addLine(to: p(17.6, 11.4))
+            path.addLine(to: p(12, 14.2))
+            path.closeSubpath()
+        }
+        if includes(.tassel) {
+            // Кисточка.
+            path.addRoundedRect(
+                in: CGRect(origin: p(20.4, 9.4), size: CGSize(width: 1.5 * s, height: 5 * s)),
+                cornerSize: CGSize(width: 0.75 * s, height: 0.75 * s)
+            )
+            path.addEllipse(in: CGRect(origin: p(21.15 - 1.35, 15.4 - 1.35), size: CGSize(width: 2.7 * s, height: 2.7 * s)))
+        }
         return path
     }
 }
