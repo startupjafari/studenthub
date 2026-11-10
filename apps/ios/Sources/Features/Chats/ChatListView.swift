@@ -21,6 +21,7 @@ struct ChatListView: View {
     @State private var editMode: EditMode = .inactive
     @State private var selection: Set<String> = []
     @State private var showsArchive = false
+    @State private var didStart = false
     @Environment(\.viewerID) private var viewerID
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var realtime: RealtimeCoordinator { AppServices.realtime }
@@ -31,6 +32,11 @@ struct ChatListView: View {
     var body: some View {
         withDialogs(list)
             .task {
+                // `.task` повторяется при каждом возврате из чата. Наблюдения за базой
+                // живут, пока жив экран, — пересоздавать их незачем, а сокет и так держит
+                // список свежим; полный обход страниц — раз за показ вкладки и жестом.
+                guard !didStart else { return }
+                didStart = true
                 model.start(archive: isArchive)
                 await model.refresh()
             }
