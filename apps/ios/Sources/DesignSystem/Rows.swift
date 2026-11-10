@@ -56,6 +56,54 @@ struct IconRow: View {
     }
 }
 
+/// Строка настроек: значок-плитка, название, необязательное значение справа и шеврон.
+///
+/// Одна строка на настройки и правку профиля: одинаковые плитка, высота (не ниже 44 pt),
+/// отступы и выравнивание значения. Шеврон у `NavigationLink` рисует сама система, поэтому
+/// здесь он только для строк-кнопок, которые тоже ведут на другой экран
+/// (`showsChevron`). Информационная строка (версия) — без шеврона: она никуда не ведёт.
+struct SettingsRow: View {
+    let title: String
+    let symbol: String
+    var tint: Color = Palette.primary
+    var value: String?
+    /// Действие необратимое или выводит из аккаунта: название красным.
+    var isDestructive = false
+    var showsChevron = false
+    /// Справа вместо значения — индикатор: идёт загрузка.
+    var isBusy = false
+
+    var body: some View {
+        HStack(spacing: Spacing.lg) {
+            IconTile(symbol: symbol, tint: tint)
+            Text(title)
+                .font(Typography.body)
+                .foregroundStyle(isDestructive ? Palette.destructive : Palette.foreground)
+                .lineLimit(2)
+                .layoutPriority(1)
+            Spacer(minLength: Spacing.md)
+            if isBusy {
+                ProgressView()
+            } else if let value, !value.isEmpty {
+                Text(value)
+                    .font(Typography.body.monospacedDigit())
+                    .foregroundStyle(Palette.mutedForeground)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            if showsChevron {
+                Image(systemName: "chevron.forward")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+            }
+        }
+        .frame(minHeight: ControlHeight.xl)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// Пара «подпись — значение» для карточек сведений: занятие, профиль, заявка.
 /// Значение переносится целиком: обрезанная аудитория или ФИО бесполезны.
 struct DetailRow: View {
