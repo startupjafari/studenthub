@@ -155,6 +155,11 @@ final class ServicesCatalogTests: XCTestCase {
             let routes = (Workspace.groups(for: role, modules: modules) + [Workspace.accountGroup(for: role)])
                 .flatMap(\.items).map(\.route)
             for section in MoreSection.sections(for: role) + MoreSection.modules(for: role) {
+                // «Одногруппники» старосты — пункт «Моя группа» (тот же экран).
+                if section == .classmates {
+                    XCTAssertTrue(routes.contains(.starosta(.myGroup)), "у \(role) нет «Моей группы»")
+                    continue
+                }
                 XCTAssertTrue(routes.contains(.section(section)), "\(section) у \(role) вне групп")
             }
         }

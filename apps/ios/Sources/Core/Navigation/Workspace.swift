@@ -86,7 +86,9 @@ enum Workspace {
             ),
             WorkspaceGroup(
                 title: String(localized: "services.group.community", defaultValue: "Сообщество"),
-                items: items([.events, .classmates])
+                // Одногруппники у старосты — «Моя группа» в его группе ниже: второй пункт
+                // на тот же состав группы только путал бы.
+                items: items([.events])
             ),
         ]
         if role == .starosta {

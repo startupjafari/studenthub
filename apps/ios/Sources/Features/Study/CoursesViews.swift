@@ -343,17 +343,6 @@ struct GroupMembersView: View {
     }
 }
 
-/// Одногруппники старосты: группа берётся из своего профиля.
-struct ClassmatesView: View {
-    @Environment(ViewerProfileModel.self) private var viewer
-
-    var body: some View {
-        GroupMembersView(groupID: viewer.profile?.groupId, title: MoreSection.classmates.title)
-            .id(viewer.profile?.groupId)
-            .task { if viewer.profile == nil { await viewer.refresh() } }
-    }
-}
-
 /// Группы преподавателя — те, у которых он ведёт дисциплины.
 struct TeacherGroupsView: View {
     /// Группа из `GET /groups`: страница с поиском на сервере, как в вебе

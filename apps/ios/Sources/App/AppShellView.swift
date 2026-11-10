@@ -177,7 +177,9 @@ struct AppShellView: View {
         case .section(.groups):
             TeacherGroupsView()
         case .section(.classmates):
-            ClassmatesView()
+            // «Одногруппники» — у старосты это его «Моя группа»: тот же состав группы
+            // плюс его действия. Старые ссылки ведут туда же, второго экрана нет.
+            StarostaScreen.myGroup.destination
         case .section(.campusMap):
             CampusMapView()
         case .chat(let id):
