@@ -11,6 +11,9 @@ struct CommunityHighlightsStrip: View {
 
     @State private var highlights: [CommunityHighlightDTO] = []
     @State private var playing: CommunityHighlightTarget?
+    /// Чья полоса уже загружена. Полоса живёт в ленивом стеке профиля и появляется
+    /// заново при каждом возврате к верху — перезапрашивать её при этом незачем.
+    @State private var loadedFor: String?
 
     var body: some View {
         Group {
@@ -43,8 +46,11 @@ struct CommunityHighlightsStrip: View {
             }
         }
         .task(id: userID) {
-            guard !userID.isEmpty else { return }
-            highlights = (try? await CommunityAPI().highlights(ownerID: userID)) ?? []
+            guard !userID.isEmpty, loadedFor != userID else { return }
+            // Сбой не запоминаем: при следующем появлении полоса спросит снова.
+            guard let loaded = try? await CommunityAPI().highlights(ownerID: userID) else { return }
+            highlights = loaded
+            loadedFor = userID
         }
         .fullScreenCover(item: $playing) { target in
             CommunityHighlightPlayer(highlightID: target.id) {

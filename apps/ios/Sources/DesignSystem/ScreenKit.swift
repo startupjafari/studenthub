@@ -141,28 +141,34 @@ extension HeroActionRow where More == EmptyView {
 }
 
 /// Круг из стекла с символом и подпись под ним.
+///
+/// Круг одного размера у всех кнопок ряда, подпись — строго под ним: зазор больше, чем
+/// стекло раздувается от касания, а подпись занимает свою высоту (до двух строк) и не
+/// сжимается под круг. Ширину ряда делит тот, кто его строит (`HeroActionRow`).
 struct HeroActionLabel: View {
     let title: String
     let symbol: String
     var isDestructive = false
 
-    @ScaledMetric(relativeTo: .body) private var size: CGFloat = 52
+    @ScaledMetric(relativeTo: .body) private var size: CGFloat = 50
 
     var body: some View {
         let tint = isDestructive ? Palette.destructive : Palette.primary
-        VStack(spacing: Spacing.sm) {
+        let side = min(size, 64)
+        VStack(spacing: Spacing.md) {
             Image(systemName: symbol)
                 .font(.title3.weight(.medium))
                 .foregroundStyle(tint)
-                .frame(width: min(size, 72), height: min(size, 72))
+                .frame(width: side, height: side)
                 .glassSurface(in: Circle())
             Text(title)
                 .font(.caption.weight(.medium))
                 .foregroundStyle(tint)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .top)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(title))
