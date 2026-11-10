@@ -30,7 +30,10 @@ final class FeedModelTests: XCTestCase {
 
         XCTAssertFalse(model.isMine("👍", in: "p-1"))
         XCTAssertEqual(model.count("👍", in: "p-1"), 2)
-        XCTAssertNotNil(model.failure)
+        // Отказ действия — сбой действия (`actionFailure`, алерт), а не ленты: полоса
+        // «данные устарели» над свежей лентой солгала бы.
+        XCTAssertNotNil(model.actionFailure)
+        XCTAssertNil(model.failure)
     }
 
     /// Снятие своей реакции уменьшает счётчик, но не уводит его в минус.
