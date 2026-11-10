@@ -11,12 +11,16 @@ struct ProfileView: View {
 
     @Environment(\.viewerID) private var viewerID
     @Environment(ViewerProfileModel.self) private var viewer
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var model: ProfileModel
     @State private var posts: FeedModel
-    @State private var tab: ProfileTab = .posts
+    /// Выбранная вкладка переживает уход с экрана и восстановление сцены — у каждого
+    /// профиля своя: вернувшись к себе, человек видит те же «Фото», где был.
+    @SceneStorage private var tab: ProfileTab
     @State private var editing = false
     @State private var showsDetails = false
     @State private var viewing: MediaTarget?
+    @State private var scroll = ProfileScrollMetrics()
 
     init(userID: String?) {
         self.userID = userID
@@ -24,6 +28,7 @@ struct ProfileView: View {
         // Посты автора — та же лента, что на главной, со своим срезом. Для своего
         // профиля id подставляется из токена в `task`, до того — общий срез не грузим.
         _posts = State(initialValue: FeedModel(api: FeedAPI(scope: userID.map { .author(id: $0) } ?? .all)))
+        _tab = SceneStorage(wrappedValue: .posts, "profile.tab.\(userID ?? "me")")
     }
 
     var body: some View {
@@ -37,9 +42,22 @@ struct ProfileView: View {
             }
         }
         .background(Palette.background)
-        .navigationTitle(Text(model.profile?.name ?? String(localized: "more.profile", defaultValue: "Профиль")))
+        .navigationTitle(Text(navigationName))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            // Полное имя — в шапке, до двух строк. В панели — короткое, и только когда
+            // шапка уехала под неё: длинное ФИО не обрезается многоточием поверх шапки,
+            // где оно и так видно целиком.
+            ToolbarItem(placement: .principal) {
+                let shows = scroll.nameScrolledAway || model.profile == nil
+                Text(navigationName)
+                    .font(.headline)
+                    .foregroundStyle(Palette.foreground)
+                    .lineLimit(1)
+                    .opacity(shows ? 1 : 0)
+                    .animation(.easeInOut(duration: Motion.Duration.feedback), value: shows)
+                    .accessibilityHidden(!shows)
+            }
             if model.isMine {
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink(value: AppRoute.section(.settings)) {
@@ -95,79 +113,135 @@ struct ProfileView: View {
         }
     }
 
+    private var navigationName: String {
+        model.profile.map(Self.compactName) ?? String(localized: "more.profile", defaultValue: "Профиль")
+    }
+
+    /// Короткое имя для панели навигации: имя и фамилия, а если вместе не влезают —
+    /// фамилия первой буквой. Отчество в панели лишнее, оно есть в шапке.
+    static func compactName(_ profile: UserProfileDTO) -> String {
+        let first = profile.firstName?.trimmingCharacters(in: .whitespaces) ?? ""
+        let last = profile.lastName?.trimmingCharacters(in: .whitespaces) ?? ""
+        guard !first.isEmpty else { return profile.name }
+        guard !last.isEmpty else { return first }
+        let full = "\(first) \(last)"
+        return full.count <= 22 ? full : "\(first) \(last.prefix(1))."
+    }
+
     private func content(_ profile: UserProfileDTO) -> some View {
         PostActionsHost(model: posts) { actions in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                    ProfileHeaderView(
-                        profile: profile,
-                        model: model,
-                        edit: { editing = true },
-                        details: { showsDetails = true }
-                    )
-
-                    if !profile.isLimited {
-                        CommunityHighlightsStrip(userID: profile.id)
-                            .padding(.bottom, Spacing.md)
-                    }
-
-                    if profile.isLimited {
-                        EmptyStateView(
-                            title: String(localized: "profile.limited", defaultValue: "Профиль закрыт"),
-                            symbol: "lock",
-                            hint: String(localized: "profile.limited.hint", defaultValue: "Владелец ограничил, кто видит его страницу")
+            ScrollViewReader { scroller in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                        ProfileHeaderView(
+                            profile: profile,
+                            model: model,
+                            scrollTopInset: scroll.topInset,
+                            nameScrolledAway: $scroll.nameScrolledAway,
+                            edit: { editing = true },
+                            details: { showsDetails = true },
+                            open: { select($0, revealing: true, with: scroller) }
                         )
-                        .padding(.vertical, Spacing.xxl)
-                    } else {
-                        Section {
-                            tabContent(actions: actions)
-                                .padding(.top, Spacing.lg)
-                        } header: {
-                            ProfileTabBar(selection: $tab, counts: model.counts)
+
+                        if profile.isLimited {
+                            EmptyStateView(
+                                title: String(localized: "profile.limited", defaultValue: "Профиль закрыт"),
+                                symbol: "lock",
+                                hint: String(localized: "profile.limited.hint", defaultValue: "Владелец ограничил, кто видит его страницу")
+                            )
+                            .padding(.vertical, Spacing.xxl)
+                        } else {
+                            CommunityHighlightsStrip(userID: profile.id)
+                                .padding(.bottom, Spacing.md)
+
+                            // Метка начала вкладок: к ней прокручивается экран при смене
+                            // вкладки, когда полоса вкладок уже прилипла к верху.
+                            Color.clear
+                                .frame(height: 0)
+                                .id(ProfileScrollMetrics.tabsAnchor)
+
+                            Section {
+                                tabContent(actions: actions)
+                                    .padding(.top, Spacing.lg)
+                                    // Короткая вкладка не короче экрана под полосой: при
+                                    // переключении с длинной ленты экран не прыгает вверх.
+                                    .frame(minHeight: scroll.tabContentMinHeight, alignment: .top)
+                            } header: {
+                                ProfileTabBar(
+                                    selection: Binding(get: { tab }, set: { select($0, revealing: false, with: scroller) }),
+                                    counts: model.counts
+                                )
+                                // Признак, а не координата: координата меняется на каждом
+                                // кадре прокрутки и перерисовывала бы весь экран.
+                                .onGeometryChange(for: Bool.self) { [topInset = scroll.topInset] proxy in
+                                    proxy.frame(in: .scrollView).minY <= topInset + 1
+                                } action: { pinned in
+                                    scroll.tabsPinned = pinned
+                                }
+                                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { scroll.tabBarHeight = $0 }
+                            }
                         }
                     }
+                    .padding(.bottom, Spacing.xxl)
                 }
-                .padding(.bottom, Spacing.xxl)
+                .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { scroll.insets = $0 }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { scroll.height = $0 }
             }
         }
-        .onChange(of: tab) { _, next in
-            Task { await model.loadTab(next) }
+    }
+
+    /// Смена вкладки. Полоса вкладок прилипла — экран встаёт к началу новой вкладки, а
+    /// не остаётся посреди прежней ленты. `revealing` — прокрутить к вкладкам в любом
+    /// случае (касание итога в шапке).
+    private func select(_ next: ProfileTab, revealing: Bool, with scroller: ScrollViewProxy) {
+        let animation = Motion.respecting(.snappy(duration: 0.3), reduceMotion: reduceMotion)
+        let reveals = revealing || scroll.tabsPinned
+        withAnimation(animation) {
+            tab = next
+            if reveals { scroller.scrollTo(ProfileScrollMetrics.tabsAnchor, anchor: .top) }
         }
+        Task { await model.loadTab(next) }
     }
 
     @ViewBuilder
     private func tabContent(actions: PostCardActions) -> some View {
-        switch tab {
-        case .posts:
-            postsTab(actions: actions)
-        case .photos:
-            mediaGrid(model.photos, tab: .photos)
-        case .videos:
-            mediaGrid(model.videos, tab: .videos)
-        case .articles:
-            tabState(model.articles, tab: .articles) { articles in
-                LazyVStack(spacing: Spacing.lg) {
-                    ForEach(articles) { article in
-                        NavigationLink(value: AppRoute.community(.article(id: article.id))) {
-                            ArticleCardRow(article: article)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, Spacing.xl)
-            }
-        case .polls:
-            tabState(model.polls, tab: .polls) { polls in
-                LazyVStack(spacing: Spacing.lg) {
-                    ForEach(polls) { poll in
-                        ProfilePollCard(poll: poll) { options in
-                            Task { await model.vote(poll: poll, optionIDs: options) }
+        Group {
+            switch tab {
+            case .posts:
+                postsTab(actions: actions)
+            case .photos:
+                mediaGrid(model.photos, tab: .photos)
+            case .videos:
+                mediaGrid(model.videos, tab: .videos)
+            case .articles:
+                tabState(model.articles, tab: .articles) { articles in
+                    LazyVStack(spacing: Spacing.md) {
+                        ForEach(articles) { article in
+                            NavigationLink(value: AppRoute.community(.article(id: article.id))) {
+                                ArticleCardRow(article: article)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
+                    .padding(.horizontal, Spacing.xl)
                 }
-                .padding(.horizontal, Spacing.xl)
+            case .polls:
+                tabState(model.polls, tab: .polls) { polls in
+                    LazyVStack(spacing: Spacing.md) {
+                        ForEach(polls) { poll in
+                            ProfilePollCard(poll: poll) { options in
+                                Task { await model.vote(poll: poll, optionIDs: options) }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, Spacing.xl)
+                }
             }
         }
+        // Вкладка сменяется растворением, без сдвига: содержимое разной высоты, и
+        // сдвиг читался бы как прыжок.
+        .id(tab)
+        .transition(.opacity)
     }
 
     @ViewBuilder
@@ -180,10 +254,7 @@ struct ProfileView: View {
         } else if let failure = posts.failure, posts.posts.isEmpty {
             ErrorStateView(message: failure, isOffline: posts.isOffline) { await posts.refresh() }
         } else if posts.posts.isEmpty {
-            EmptyStateView(
-                title: String(localized: "profile.noPosts", defaultValue: "Публикаций пока нет"),
-                symbol: ProfileTab.posts.symbol
-            )
+            ProfileEmptyState(tab: .posts, isMine: model.isMine)
         } else {
             LazyVStack(spacing: Spacing.lg) {
                 ForEach(posts.posts) { post in
@@ -201,64 +272,39 @@ struct ProfileView: View {
     }
 
     private func mediaGrid(_ items: [ProfileMediaDTO]?, tab: ProfileTab) -> some View {
-        VStack(spacing: Spacing.md) {
+        VStack(spacing: Spacing.lg) {
             mediaActions(tab: tab)
-            mediaTiles(items, tab: tab)
+            tabState(items, tab: tab) { items in
+                ProfileMediaGrid(items: items) { index in
+                    viewing = MediaTarget(media: items.map(\.asPostMedia), start: index)
+                }
+            }
         }
     }
 
-    /// Загрузка в профиль и альбомы — над сеткой фото и видео.
+    /// Загрузка в профиль и альбомы — над сеткой фото и видео. Две капсулы одного
+    /// стиля и одной ширины; у чужого профиля — одни «Альбомы» на всю ширину.
     private func mediaActions(tab: ProfileTab) -> some View {
         HStack(spacing: Spacing.md) {
             if model.isMine {
-                CommunityMediaUploadButton(title: String(localized: "community.albums.uploadHere", defaultValue: "Загрузить")) { _ in
+                CommunityMediaUploadButton(
+                    title: String(localized: "community.albums.uploadHere", defaultValue: "Загрузить"),
+                    layout: .capsule
+                ) { _ in
                     await model.loadTab(tab, force: true)
                 }
-                .glassButton()
             }
             if let owner = model.userID ?? (viewerID.isEmpty ? nil : viewerID) {
                 NavigationLink(value: AppRoute.community(.albums(userID: model.isMine ? nil : owner))) {
-                    Label(CommunityScreen.albums(userID: nil).title, systemImage: "photo.stack")
+                    MediaActionLabel(title: CommunityScreen.albums(userID: nil).title, symbol: "photo.stack")
                 }
-                .glassButton()
             }
-            Spacer(minLength: 0)
         }
-        .font(Typography.meta)
+        .font(.subheadline.weight(.medium))
+        .glassButton()
+        .buttonBorderShape(.capsule)
+        .controlSize(.large)
         .padding(.horizontal, Spacing.xl)
-    }
-
-    private func mediaTiles(_ items: [ProfileMediaDTO]?, tab: ProfileTab) -> some View {
-        tabState(items, tab: tab) { items in
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 3), spacing: 2) {
-                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                    Button {
-                        viewing = MediaTarget(media: items.map(\.asPostMedia), start: index)
-                    } label: {
-                        Palette.muted
-                            .aspectRatio(1, contentMode: .fit)
-                            .overlay {
-                                RemoteImage(url: item.thumbnailURL, cacheKey: "profile-media:\(item.id)")
-                            }
-                            .overlay(alignment: .topTrailing) {
-                                if item.isVideo {
-                                    Image(systemName: "play.fill")
-                                        .font(.caption)
-                                        .foregroundStyle(.white)
-                                        .padding(Spacing.sm)
-                                        .shadow(radius: 2)
-                                }
-                            }
-                            .clipped()
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Text(item.isVideo
-                        ? String(localized: "profile.video", defaultValue: "Видео")
-                        : String(localized: "profile.photo", defaultValue: "Фото")))
-                }
-            }
-        }
     }
 
     /// Загрузка → ошибка → пусто → содержимое для ленивой вкладки.
@@ -270,10 +316,7 @@ struct ProfileView: View {
     ) -> some View {
         if let items {
             if items.isEmpty {
-                EmptyStateView(
-                    title: String(localized: "profile.emptyTab", defaultValue: "Здесь пока пусто"),
-                    symbol: tab.symbol
-                )
+                ProfileEmptyState(tab: tab, isMine: model.isMine)
             } else {
                 content(items)
             }
@@ -288,65 +331,150 @@ struct ProfileView: View {
     }
 }
 
+/// Геометрия прокрутки профиля: что видно под панелью навигации.
+private struct ProfileScrollMetrics {
+    static let tabsAnchor = "profile.tabs.anchor"
+
+    /// Отступы безопасной области прокрутки: сверху — панель навигации, снизу — вкладки
+    /// приложения (кнопка «Домой» и соседи).
+    var insets = EdgeInsets()
+    var height: CGFloat = 0
+    var tabBarHeight: CGFloat = 52
+    /// Имя в шапке уехало под панель навигации.
+    var nameScrolledAway = false
+    /// Полоса вкладок прилипла к верху (с запасом в точку на округление).
+    var tabsPinned = false
+
+    var topInset: CGFloat { insets.top }
+
+    /// Видимая высота под прилипшей полосой вкладок.
+    var tabContentMinHeight: CGFloat {
+        max(0, height - insets.top - insets.bottom - tabBarHeight)
+    }
+}
+
 private struct MediaTarget: Identifiable {
     let id = UUID()
     let media: [PostDTO.Media]
     let start: Int
 }
 
+/// Пустая вкладка — одна на все пять: заголовок и значок по вкладке, подсказка — только
+/// в своём профиле.
+private struct ProfileEmptyState: View {
+    let tab: ProfileTab
+    let isMine: Bool
+
+    var body: some View {
+        EmptyStateView(title: tab.emptyTitle, symbol: tab.symbol, hint: isMine ? tab.emptyHint : nil)
+            .padding(.vertical, Spacing.md)
+    }
+}
+
+// MARK: - Сетка медиа
+
+/// Сетка фото или видео в три колонки, как в Instagram.
+///
+/// Плитка берёт копию под свой размер, а не полный кадр: распакованный снимок с
+/// телефона — десятки мегабайт, а плитке нужна треть ширины экрана. Ключ кэша включает
+/// размер копии, чтобы её не перепутать с полноразмерной из просмотра.
+private struct ProfileMediaGrid: View {
+    let items: [ProfileMediaDTO]
+    let open: (Int) -> Void
+
+    @Environment(\.displayScale) private var displayScale
+    @State private var tileSide: CGFloat = 130
+
+    private static let gap: CGFloat = 2
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: gap), count: 3)
+
+    var body: some View {
+        // Размер копии округлён до шага: поворот или другой экран не плодят по копии
+        // на каждую точку ширины.
+        let pixels = max(64, (tileSide * displayScale / 64).rounded(.up) * 64)
+        LazyVGrid(columns: columns, spacing: Self.gap) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                Button {
+                    open(index)
+                } label: {
+                    ProfileMediaTile(item: item, pixels: pixels)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(item.isVideo
+                    ? String(localized: "profile.video", defaultValue: "Видео")
+                    : String(localized: "profile.photo", defaultValue: "Фото")))
+            }
+        }
+        .onGeometryChange(for: CGFloat.self) { ($0.size.width - Self.gap * 2) / 3 } action: { side in
+            tileSide = max(side, 1)
+        }
+    }
+}
+
+private struct ProfileMediaTile: View {
+    let item: ProfileMediaDTO
+    let pixels: CGFloat
+
+    var body: some View {
+        // Квадрат задан до загрузки картинки — плитка не меняет размер, когда она приходит.
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)
+            .overlay {
+                RemoteImage(
+                    url: item.thumbnailURL,
+                    cacheKey: "profile-media:\(item.id):\(Int(pixels))",
+                    maxPixelSize: pixels
+                )
+            }
+            .overlay(alignment: .topTrailing) {
+                if item.isVideo {
+                    Image(systemName: "play.fill")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(Spacing.sm)
+                        .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
+                        .accessibilityHidden(true)
+                }
+            }
+            .clipped()
+            .contentShape(Rectangle())
+    }
+}
+
 // MARK: - Шапка
 
-/// Шапка как профиль в Telegram: крупный аватар по центру (на обложке, если она есть),
-/// имя, кто это, ряд круглых стеклянных кнопок и карточка «о себе» под ним.
+/// Шапка как профиль в Telegram: аватар по центру (на обложке, если она есть), имя до
+/// двух строк, кто это, итоги одной строкой, ряд круглых стеклянных кнопок и компактная
+/// карточка «о себе».
 private struct ProfileHeaderView: View {
     let profile: UserProfileDTO
     let model: ProfileModel
+    /// Верхний отступ прокрутки (панель навигации): по нему видно, ушло ли имя под неё.
+    let scrollTopInset: CGFloat
+    @Binding var nameScrolledAway: Bool
     let edit: () -> Void
     let details: () -> Void
+    /// Открыть вкладку по касанию итога («12 фото» → «Фото»).
+    let open: (ProfileTab) -> Void
 
     @Environment(\.viewerID) private var viewerID
-    @ScaledMetric(relativeTo: .largeTitle) private var avatarSize: CGFloat = 100
+    @ScaledMetric(relativeTo: .title) private var avatarSize: CGFloat = 84
     @State private var confirmsUnfriend = false
 
-    private let coverHeight: CGFloat = 128
+    private let coverHeight: CGFloat = 112
+    /// Ширина колонки кнопки: четыре колонки на любом iPhone, у трёх — та же ширина.
+    private let actionWidth: CGFloat = 92
 
     var body: some View {
         VStack(spacing: Spacing.sm) {
             visual
                 .padding(.bottom, Spacing.xs)
 
-            Text(profile.name)
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(Palette.foreground)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityAddTraits(.isHeader)
-                .padding(.horizontal, Spacing.xl)
-
-            if let headline = profile.headline, !headline.isEmpty {
-                Text(headline)
-                    .font(.subheadline)
-                    .foregroundStyle(Palette.foreground)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, Spacing.xl)
-            }
-            if !subtitle.isEmpty {
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(Palette.mutedForeground)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, Spacing.xl)
-            }
-            if let status = profile.academicStatus, !status.isEmpty {
-                StatusBadge(text: status, tint: Palette.success)
-            }
-
-            actionRow
-                .padding(.top, Spacing.md)
+            identity
 
             stats
+
+            actionRow
                 .padding(.top, Spacing.sm)
 
             if !profile.isLimited {
@@ -372,7 +500,7 @@ private struct ProfileHeaderView: View {
 
     @ViewBuilder
     private var visual: some View {
-        let side = min(avatarSize, 140)
+        let side = min(avatarSize, 112)
         if let url = profile.coverUrl.flatMap(URL.init(string:)) {
             // Обложка — спокойной карточкой, аватар наполовину на ней, как в Telegram
             // у каналов с фоном: имя и кнопки остаются на чистом фоне и читаются.
@@ -389,8 +517,52 @@ private struct ProfileHeaderView: View {
             }
         } else {
             AvatarView(url: profile.avatarUrl, name: profile.name, size: side)
-                .padding(.top, Spacing.md)
+                .padding(.top, Spacing.sm)
         }
+    }
+
+    // MARK: Кто это
+
+    private var identity: some View {
+        VStack(spacing: Spacing.xs) {
+            // Полное имя — до двух строк, длинное слегка ужимается, а не режется
+            // посередине фамилии.
+            Text(profile.name)
+                .font(.title2.weight(.bold))
+                .foregroundStyle(Palette.foreground)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.85)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
+                .onGeometryChange(for: Bool.self) { proxy in
+                    proxy.frame(in: .scrollView).maxY < scrollTopInset
+                } action: { hidden in
+                    nameScrolledAway = hidden
+                }
+
+            if let headline = profile.headline, !headline.isEmpty {
+                Text(headline)
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.foreground)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.mutedForeground)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let status = profile.academicStatus, !status.isEmpty {
+                StatusBadge(text: status, tint: Palette.success)
+                    .padding(.top, Spacing.xs)
+            }
+        }
+        .padding(.horizontal, Spacing.xl)
     }
 
     /// Роль, курс, специальность, группа — то, по чему человека узнают в вузе.
@@ -412,25 +584,31 @@ private struct ProfileHeaderView: View {
 
     /// Ряд круглых стеклянных кнопок. У себя — правка, друзья, сохранённое и «Ещё»;
     /// у другого — «Написать», дружба и «Ещё». Редкое — в меню, чтобы ряд не дробился.
+    ///
+    /// У каждой кнопки, включая меню, — колонка одной ширины: круги стоят на равных
+    /// расстояниях, подписи — строго под своим кругом.
     private var actionRow: some View {
         GlassGroup(spacing: Spacing.lg) {
-            HStack(alignment: .top, spacing: Spacing.md) {
+            HStack(alignment: .top, spacing: Spacing.xs) {
                 if model.isMine {
                     Button(action: edit) {
                         HeroActionLabel(title: String(localized: "profile.edit", defaultValue: "Изменить"), symbol: "pencil")
                     }
                     .buttonStyle(.plain)
+                    .frame(maxWidth: actionWidth)
                     .accessibilityIdentifier("profile.edit")
                     NavigationLink(value: AppRoute.community(.friends(userID: nil))) {
                         HeroActionLabel(title: CommunityScreen.friends(userID: nil).title, symbol: "person.2.fill")
                     }
                     .buttonStyle(.plain)
+                    .frame(maxWidth: actionWidth)
                     NavigationLink {
                         SavedPostsView()
                     } label: {
                         HeroActionLabel(title: String(localized: "saved.title", defaultValue: "Сохранённое"), symbol: "bookmark.fill")
                     }
                     .buttonStyle(.plain)
+                    .frame(maxWidth: actionWidth)
                 } else if !profile.isLimited || model.friendship != nil {
                     if !CommunityPlatformState.shared.isDisabled("chats") {
                         Button {
@@ -439,15 +617,19 @@ private struct ProfileHeaderView: View {
                             HeroActionLabel(title: String(localized: "profile.message", defaultValue: "Написать"), symbol: "bubble.left.fill")
                         }
                         .buttonStyle(.plain)
+                        .frame(maxWidth: actionWidth)
                     }
                     if let friendship = model.friendship {
                         friendshipButton(friendship)
+                            .frame(maxWidth: actionWidth)
                     }
                 }
                 moreMenu
+                    .frame(maxWidth: actionWidth)
             }
+            .frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, Spacing.xl)
+        .padding(.horizontal, Spacing.md)
     }
 
     /// Добавить и принять — сразу; убрать из друзей и отозвать заявку — через
@@ -484,6 +666,8 @@ private struct ProfileHeaderView: View {
             : String(localized: "profile.friends.removeAction", defaultValue: "Удалить из друзей")
     }
 
+    /// Меню рисуется как обычная кнопка ряда: без системного оформления меню, которое
+    /// на iOS 26 обводит подпись своим стеклом и сбивает её с места.
     private var moreMenu: some View {
         Menu {
             if !profile.isLimited {
@@ -529,90 +713,132 @@ private struct ProfileHeaderView: View {
         } label: {
             HeroActionLabel(title: String(localized: "profile.more", defaultValue: "Ещё"), symbol: "ellipsis")
         }
+        .menuStyle(.button)
         .buttonStyle(.plain)
+        .menuIndicator(.hidden)
         .accessibilityIdentifier("profile.more")
     }
 
     // MARK: Итоги
 
+    private struct Stat: Identifiable {
+        let id: String
+        let title: String
+        let value: Int
+        /// Вкладка профиля, которую открывает касание. `nil` — друзья (свой список).
+        let tab: ProfileTab?
+    }
+
+    private var statItems: [Stat] {
+        var items: [Stat] = []
+        if let friends = model.friendsCount {
+            items.append(Stat(id: "friends", title: String(localized: "profile.stat.friends", defaultValue: "друзей"), value: friends, tab: nil))
+        }
+        if let counts = model.counts {
+            items.append(Stat(id: "photos", title: String(localized: "profile.stat.photos", defaultValue: "фото"), value: counts.photos, tab: .photos))
+            items.append(Stat(id: "videos", title: String(localized: "profile.stat.videos", defaultValue: "видео"), value: counts.videos, tab: .videos))
+            items.append(Stat(id: "articles", title: String(localized: "profile.stat.articles", defaultValue: "статей"), value: counts.articles, tab: .articles))
+        }
+        return items
+    }
+
+    /// Итоги одной строкой под именем, как в Instagram: число и подпись. Касание открывает
+    /// свою вкладку, «друзей» — список друзей.
     @ViewBuilder
     private var stats: some View {
-        let items: [(String, Int?)] = [
-            (String(localized: "profile.stat.friends", defaultValue: "друзей"), model.friendsCount),
-            (String(localized: "profile.stat.photos", defaultValue: "фото"), model.counts?.photos),
-            (String(localized: "profile.stat.videos", defaultValue: "видео"), model.counts?.videos),
-            (String(localized: "profile.stat.articles", defaultValue: "статей"), model.counts?.articles),
-        ].filter { $0.1 != nil }
+        let items = statItems
         if !items.isEmpty {
-            HStack(spacing: Spacing.xl) {
-                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                    VStack(spacing: 0) {
-                        Text(verbatim: "\(item.1 ?? 0)")
-                            .font(Typography.tabular(.headline))
-                            .foregroundStyle(Palette.foreground)
-                        Text(item.0)
-                            .font(.caption)
-                            .foregroundStyle(Palette.mutedForeground)
-                    }
-                    .accessibilityElement(children: .combine)
+            HStack(alignment: .top, spacing: 0) {
+                ForEach(items) { item in
+                    statButton(item)
+                        .frame(maxWidth: actionWidth)
                 }
             }
-            .padding(.horizontal, Spacing.xl)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, Spacing.md)
+            .padding(.top, Spacing.xs)
+        }
+    }
+
+    @ViewBuilder
+    private func statButton(_ item: Stat) -> some View {
+        let label = VStack(spacing: 0) {
+            Text(verbatim: "\(item.value)")
+                .font(Typography.tabular(.headline))
+                .foregroundStyle(Palette.foreground)
+            Text(item.title)
+                .font(.caption)
+                .foregroundStyle(Palette.mutedForeground)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .contentShape(Rectangle())
+
+        if let tab = item.tab {
+            Button { open(tab) } label: { label }
+                .buttonStyle(.plain)
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isButton)
+        } else if model.isMine {
+            NavigationLink(value: AppRoute.community(.friends(userID: nil))) { label }
+                .buttonStyle(.plain)
+                .accessibilityElement(children: .combine)
+        } else {
+            label.accessibilityElement(children: .combine)
         }
     }
 
     // MARK: О себе
 
     /// Карточка сведений под кнопками, как «о себе» и имя пользователя в Telegram:
-    /// главное видно сразу, остальное — по строке «Подробнее».
+    /// главное видно сразу, остальное — по строке «Подробнее». Строки — однострочные, со
+    /// значком вместо подписи сверху: подпись читает VoiceOver.
     private var aboutCard: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let bio = profile.bio, !bio.isEmpty {
-                aboutRow(title: String(localized: "profile.about", defaultValue: "О себе")) {
-                    Text(bio)
-                        .font(Typography.body)
-                        .foregroundStyle(Palette.foreground)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
-                }
-                Divider().padding(.leading, Spacing.xl)
+                Text(bio)
+                    .font(Typography.body)
+                    .foregroundStyle(Palette.foreground)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, Spacing.xl)
+                    .padding(.vertical, Spacing.lg)
+                    .accessibilityLabel(Text(String(localized: "profile.about", defaultValue: "О себе")))
+                    .accessibilityValue(Text(bio))
+                rowDivider
             }
             if let username = profile.username, !username.isEmpty {
-                aboutRow(title: String(localized: "profile.usernameTitle", defaultValue: "Имя пользователя")) {
-                    Text(verbatim: "@\(username)")
-                        .font(Typography.body)
-                        .foregroundStyle(Palette.primary)
-                        .textSelection(.enabled)
-                }
-                Divider().padding(.leading, Spacing.xl)
+                aboutRow(
+                    symbol: "at",
+                    text: "@\(username)",
+                    tint: Palette.primary,
+                    title: String(localized: "profile.usernameTitle", defaultValue: "Имя пользователя"),
+                    selectable: true
+                )
+                rowDivider
             }
             if let universityID = profile.universityId, let university = profile.universityName, !university.isEmpty {
                 NavigationLink(value: AppRoute.community(.university(id: universityID))) {
-                    aboutRow(title: String(localized: "profile.university", defaultValue: "Вуз"), chevron: true) {
-                        Text(university)
-                            .font(Typography.body)
-                            .foregroundStyle(Palette.foreground)
-                            .multilineTextAlignment(.leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                    aboutRow(
+                        symbol: "building.columns",
+                        text: university,
+                        tint: Palette.foreground,
+                        title: String(localized: "profile.university", defaultValue: "Вуз"),
+                        chevron: true
+                    )
                 }
                 .buttonStyle(.plain)
-                Divider().padding(.leading, Spacing.xl)
+                rowDivider
             }
             Button(action: details) {
-                HStack {
-                    Text(String(localized: "profile.details", defaultValue: "Подробнее"))
-                        .font(Typography.body)
-                        .foregroundStyle(Palette.primary)
-                    Spacer(minLength: Spacing.md)
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Palette.mutedForeground.opacity(0.6))
-                        .accessibilityHidden(true)
-                }
-                .padding(.horizontal, Spacing.xl)
-                .padding(.vertical, Spacing.lg)
-                .contentShape(Rectangle())
+                aboutRow(
+                    symbol: "info.circle",
+                    text: String(localized: "profile.details", defaultValue: "Подробнее"),
+                    tint: Palette.primary,
+                    chevron: true
+                )
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("profile.details")
@@ -620,14 +846,42 @@ private struct ProfileHeaderView: View {
         .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
     }
 
-    private func aboutRow<Value: View>(title: String, chevron: Bool = false, @ViewBuilder value: () -> Value) -> some View {
-        HStack(spacing: Spacing.md) {
-            VStack(alignment: .leading, spacing: 2) {
-                value()
-                Text(title)
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
+    /// Разделитель — от начала текста строки, как в сгруппированном списке iOS.
+    private var rowDivider: some View {
+        Divider().padding(.leading, Spacing.xl + Self.rowIconWidth + Spacing.lg)
+    }
+
+    private static let rowIconWidth: CGFloat = 24
+
+    /// Строка карточки: значок, значение до двух строк, шеврон у переходов. Подпись
+    /// («Имя пользователя», «Вуз») не рисуется — её читает VoiceOver, а значок и так
+    /// говорит, что это за строка.
+    @ViewBuilder
+    private func aboutRow(
+        symbol: String,
+        text: String,
+        tint: Color,
+        title: String? = nil,
+        chevron: Bool = false,
+        selectable: Bool = false
+    ) -> some View {
+        let row = HStack(spacing: Spacing.lg) {
+            Image(systemName: symbol)
+                .font(.body)
+                .foregroundStyle(Palette.mutedForeground)
+                .frame(width: Self.rowIconWidth)
+                .accessibilityHidden(true)
+            Group {
+                if selectable {
+                    Text(verbatim: text).textSelection(.enabled)
+                } else {
+                    Text(verbatim: text)
+                }
             }
+            .font(Typography.body)
+            .foregroundStyle(tint)
+            .lineLimit(2)
+            .multilineTextAlignment(.leading)
             Spacer(minLength: 0)
             if chevron {
                 Image(systemName: "chevron.right")
@@ -637,10 +891,20 @@ private struct ProfileHeaderView: View {
             }
         }
         .padding(.horizontal, Spacing.xl)
-        .padding(.vertical, Spacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, Spacing.md)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
+
+        if let title {
+            row
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(title))
+                .accessibilityValue(Text(verbatim: text))
+        } else {
+            row
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(verbatim: text))
+        }
     }
 
     @MainActor
@@ -685,7 +949,8 @@ extension Role {
 // MARK: - Вкладки
 
 /// Переключатель вкладок — капсула-дорожка как папки в Telegram, прилипает к верху
-/// при прокрутке. Число рядом с названием — сколько там всего.
+/// при прокрутке. Число рядом с названием — сколько там всего. Выбранную вкладку
+/// дорожка сама докручивает в поле зрения (`FilterChips`).
 private struct ProfileTabBar: View {
     @Binding var selection: ProfileTab
     let counts: ProfileCountsDTO?
@@ -752,8 +1017,7 @@ private struct ArticleCardRow: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(Spacing.lg)
-        .cardSurface()
+        .cardSurface(padding: Spacing.lg)
         .accessibilityElement(children: .combine)
     }
 }
@@ -818,8 +1082,7 @@ private struct ProfilePollCard: View {
             .font(Typography.meta)
             .foregroundStyle(Palette.mutedForeground)
         }
-        .padding(Spacing.lg)
-        .cardSurface()
+        .cardSurface(padding: Spacing.lg)
     }
 
     private func result(_ option: ProfilePollDTO.Option) -> some View {
