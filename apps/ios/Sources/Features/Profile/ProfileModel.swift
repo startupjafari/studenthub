@@ -31,6 +31,40 @@ enum ProfileTab: String, CaseIterable, Identifiable {
         case .polls: return "chart.bar.xaxis"
         }
     }
+
+    /// Заголовок пустой вкладки — про то, чего именно нет, а не общее «пусто».
+    var emptyTitle: String {
+        switch self {
+        case .posts: return String(localized: "profile.noPosts", defaultValue: "Публикаций пока нет")
+        case .photos: return String(localized: "profile.empty.photos", defaultValue: "Фото пока нет")
+        case .videos: return String(localized: "profile.empty.videos", defaultValue: "Видео пока нет")
+        case .articles: return String(localized: "profile.empty.articles", defaultValue: "Статей пока нет")
+        case .polls: return String(localized: "profile.empty.polls", defaultValue: "Опросов пока нет")
+        }
+    }
+
+    /// Подсказка в своём профиле: что сюда попадёт. В чужом подсказки нет — там
+    /// человеку нечего с этим делать.
+    var emptyHint: String {
+        switch self {
+        case .posts: return String(localized: "profile.empty.postsHint", defaultValue: "Ваши публикации появятся здесь")
+        case .photos: return String(localized: "profile.empty.photosHint", defaultValue: "Загруженные фото появятся здесь")
+        case .videos: return String(localized: "profile.empty.videosHint", defaultValue: "Загруженные видео появятся здесь")
+        case .articles: return String(localized: "profile.empty.articlesHint", defaultValue: "Ваши статьи появятся здесь")
+        case .polls: return String(localized: "profile.empty.pollsHint", defaultValue: "Ваши опросы появятся здесь")
+        }
+    }
+
+    /// Что грузит вкладка. Фото и видео — один запрос: открыв одну из них, вторую
+    /// второй раз не спрашиваем.
+    fileprivate var source: ProfileTab {
+        self == .videos ? .photos : self
+    }
+
+    /// Вкладки, которые делят запрос с этой.
+    fileprivate var sharing: [ProfileTab] {
+        source == .photos ? [.photos, .videos] : [self]
+    }
 }
 
 /// Данные профиля: карточка, итоги вкладок, содержимое вкладок и дружба.
@@ -67,8 +101,13 @@ final class ProfileModel {
     var isMine: Bool { userID == nil }
     var resolvedID: String? { userID ?? profile?.id }
 
-    var photos: [ProfileMediaDTO]? { media?.filter { !$0.isVideo } }
-    var videos: [ProfileMediaDTO]? { media?.filter(\.isVideo) }
+    /// Фото и видео разделяются один раз, при загрузке, а не при каждой отрисовке сетки.
+    private(set) var photos: [ProfileMediaDTO]?
+    private(set) var videos: [ProfileMediaDTO]?
+
+    /// Вкладки, чей запрос уже в пути. Вкладку спрашивают и смена выбора, и появление
+    /// её заглушки — без этого уходило два одинаковых запроса.
+    private var loadingTabs: Set<ProfileTab> = []
 
     @MainActor
     func load() async {
@@ -104,14 +143,21 @@ final class ProfileModel {
 
     @MainActor
     func loadTab(_ tab: ProfileTab, force: Bool = false) async {
-        guard let id = resolvedID else { return }
+        guard let id = resolvedID, tab != .posts else { return }
+        let source = tab.source
+        guard force || !loadingTabs.contains(source) else { return }
+        loadingTabs.insert(source)
+        defer { loadingTabs.remove(source) }
         do {
             switch tab {
             case .posts:
                 return
             case .photos, .videos:
                 guard force || media == nil else { return }
-                media = try await content.media(userID: id)
+                let loaded = try await content.media(userID: id)
+                media = loaded
+                photos = loaded.filter { !$0.isVideo }
+                videos = loaded.filter(\.isVideo)
             case .articles:
                 guard force || articles == nil else { return }
                 articles = try await content.articles(userID: id)
@@ -119,11 +165,17 @@ final class ProfileModel {
                 guard force || polls == nil else { return }
                 polls = try await content.polls(userID: id)
             }
-            tabFailure[tab] = nil
-            offlineTabs.remove(tab)
+            for affected in tab.sharing {
+                tabFailure[affected] = nil
+                offlineTabs.remove(affected)
+            }
         } catch {
-            tabFailure[tab] = error.userMessage
-            if error.isOffline { offlineTabs.insert(tab) } else { offlineTabs.remove(tab) }
+            // Сбой общего запроса — сбой обеих вкладок: открытая, пока он шёл, иначе
+            // так и крутила бы загрузку.
+            for affected in tab.sharing {
+                tabFailure[affected] = error.userMessage
+                if error.isOffline { offlineTabs.insert(affected) } else { offlineTabs.remove(affected) }
+            }
         }
     }
 
