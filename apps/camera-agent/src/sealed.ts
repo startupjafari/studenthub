@@ -4,8 +4,12 @@ import {
   createPublicKey,
   diffieHellman,
   hkdfSync,
-  type JsonWebKey,
+  type webcrypto,
 } from 'node:crypto'
+
+// `JsonWebKey` в @types/node 26 живёт только в `webcrypto`: прежний экспорт из
+// `node:crypto` убран (в 22-й версии было оба).
+type JsonWebKey = webcrypto.JsonWebKey
 
 // Вскрытие конверта с паролем камеры. Зеркало apps/api/src/common/crypto/sealed-box.ts:
 // формат `v1.<одноразовый открытый ключ>.<iv>.<tag>.<шифртекст>` (base64url), X25519 →

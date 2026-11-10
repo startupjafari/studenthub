@@ -1,6 +1,10 @@
-import { generateKeyPairSync, type JsonWebKey } from 'node:crypto'
+import { generateKeyPairSync, type webcrypto } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+
+// `JsonWebKey` в @types/node 26 живёт только в `webcrypto`: прежний экспорт из
+// `node:crypto` убран (в 22-й версии было оба).
+type JsonWebKey = webcrypto.JsonWebKey
 
 // Ключ агента X25519. Открытая часть уходит платформе, ею шифруются пароли камер;
 // закрытая — только здесь, в файле с правами 600. Потерять файл (пересоздали контейнер

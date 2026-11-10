@@ -187,6 +187,7 @@
     <string name="admin_demo_rejectConfirm">Қабылдамау</string>
     <string name="admin_demo_role">Лауазымы</string>
     <string name="admin_demo_search">ЖОО, байланыс немесе пошта</string>
+    <string name="admin_demo_searchHint">Іздеу ЖОО атауы, байланыс тұлғасының аты және пошта бойынша — екі әріптен бастап</string>
     <string name="admin_demo_siteShort">Сайт</string>
     <string name="admin_demo_status_approved">Мақұлданған</string>
     <string name="admin_demo_status_new">Жаңа</string>
@@ -563,6 +564,7 @@
     <string name="auth_inviteValidUntil">Шақыру %1$s дейін жарамды</string>
     <string name="auth_lastName">Тегі</string>
     <string name="auth_nameInvalid">Өрісті толтырыңыз — 100 таңбаға дейін</string>
+    <string name="auth_namePlaceholder">Құжаттағыдай</string>
     <string name="auth_newPassword">Жаңа құпия сөз</string>
     <string name="auth_offline_hint">Интернетті тексеріңіз — байланыс пайда болғанда, қайталап көріңіз.</string>
     <string name="auth_oneTimeTokenNote">Токен бір реттік және тіркелуден кейін жарамсыз болады.</string>
@@ -624,6 +626,10 @@
     <string name="auth_showPassword">Құпиясөзді көрсету</string>
     <string name="auth_signIn">Кіру</string>
     <string name="auth_signingIn">Кіруде…</string>
+    <string name="auth_twoFactor_appCodePlaceholder">6 цифрлы код</string>
+    <string name="auth_twoFactor_backupCodePlaceholder">Резервтік код</string>
+    <string name="auth_twoFactor_useAppCode">Қосымшадағы кодты енгізу</string>
+    <string name="auth_twoFactor_useBackupCode">Резервтік кодты енгізу</string>
     <string name="auth_twoFactorBack">Кіруге оралу</string>
     <string name="auth_twoFactorBackupHint">Қосымшаға қол жеткізе алмайсыз ба? Резервтік кодтардың бірін енгізіңіз</string>
     <string name="auth_twoFactorCodeLabel">Растау коды</string>
@@ -2201,6 +2207,8 @@
     <string name="form_discard">Сақтамау</string>
     <string name="form_discard_title">Өзгерістерден бас тарту керек пе?</string>
     <string name="form_keepEditing">Өңдеуді жалғастыру</string>
+    <string name="form_nextField">Келесі өріс</string>
+    <string name="form_prevField">Алдыңғы өріс</string>
     <string name="friends_accept">Қабылдау</string>
     <string name="friends_decline">Қабылдамау</string>
     <string name="group_count">Барлығы: %1$s</string>
@@ -2817,6 +2825,7 @@
     <string name="profile_about">Өзім туралы</string>
     <string name="profile_article_minutes">%1$s мин</string>
     <string name="profile_bio">Өзім туралы</string>
+    <string name="profile_bio_prompt">Өзіңіз туралы бірер сөз</string>
     <string name="profile_changeAvatar">Фотоны өзгерту</string>
     <string name="profile_changeCover">Мұқабаны ауыстыру</string>
     <string name="profile_contacts">Байланыс</string>
@@ -2829,8 +2838,19 @@
     <string name="profile_details_empty">Әзірге мәліметтер жоқ</string>
     <string name="profile_details_emptyHint">Оларды «Профильді өзгерту» бөлімінде толтырыңыз</string>
     <string name="profile_edit">Өзгерту</string>
+    <string name="profile_edit_exitTitle">Өзгерістерді сақтау керек пе?</string>
     <string name="profile_editTitle">Профильді өзгерту</string>
+    <string name="profile_editTitle_short">Өңдеу</string>
     <string name="profile_email">Пошта</string>
+    <string name="profile_empty_articles">Әзірге мақала жоқ</string>
+    <string name="profile_empty_articlesHint">Мақалаларыңыз осында көрсетіледі</string>
+    <string name="profile_empty_photos">Әзірге фото жоқ</string>
+    <string name="profile_empty_photosHint">Жүктелген фотолар осында көрсетіледі</string>
+    <string name="profile_empty_polls">Әзірге сауалнама жоқ</string>
+    <string name="profile_empty_pollsHint">Сауалнамаларыңыз осында көрсетіледі</string>
+    <string name="profile_empty_postsHint">Жарияланымдарыңыз осында көрсетіледі</string>
+    <string name="profile_empty_videos">Әзірге бейне жоқ</string>
+    <string name="profile_empty_videosHint">Жүктелген бейнелер осында көрсетіледі</string>
     <string name="profile_emptyTab">Мұнда әзірге бос</string>
     <string name="profile_faculty">Факультет</string>
     <string name="profile_firstName">Аты</string>
@@ -2844,6 +2864,7 @@
     <string name="profile_gpa">Орташа балл (GPA)</string>
     <string name="profile_group">Топ</string>
     <string name="profile_headline">Аты астындағы жол</string>
+    <string name="profile_headline_prompt">Ең бастысы қысқаша</string>
     <string name="profile_imageUnreadable">Суретті оқу мүмкін болмады</string>
     <string name="profile_instagram">Instagram (@ белгісіз)</string>
     <string name="profile_interests">Қызығушылық</string>
@@ -2869,6 +2890,7 @@
     <string name="profile_removeAvatar_confirm">Профиль фотосын жою керек пе?</string>
     <string name="profile_removeCover">Мұқабаны жою</string>
     <string name="profile_removeCover_confirm">Мұқабаны жою керек пе?</string>
+    <string name="profile_required">Өрісті толтырыңыз</string>
     <string name="profile_skills">Дағдылар</string>
     <string name="profile_skills_add">Дағды қосу</string>
     <string name="profile_skills_footer">30 дағдыға дейін. Жою үшін солға сырғытыңыз.</string>
@@ -3170,12 +3192,13 @@
     <string name="settings_2fa_enable">Екі факторлы қорғанысты қосу</string>
     <string name="settings_2fa_enabled">Екі факторлы қорғаныс қосулы</string>
     <string name="settings_2fa_footer">Кіру кезінде құпиясөзден бөлек аутентификатор қолданбасындағы код қажет болады.</string>
-    <string name="settings_2fa_on">2FA қосулы</string>
     <string name="settings_2fa_openApp">Аутентификатор қолданбасында ашу</string>
     <string name="settings_2fa_qr">Аутентификатор қолданбасына арналған QR-код</string>
     <string name="settings_2fa_saveCodes">Кодтарды сақтау</string>
     <string name="settings_2fa_secret">Кілт</string>
     <string name="settings_2fa_setupFooter">Кодты сканерлеңіз немесе кілтті қолмен қосыңыз, содан кейін қолданбадағы алты цифрды енгізіңіз.</string>
+    <string name="settings_2fa_statusOff">2FA өшірулі</string>
+    <string name="settings_2fa_statusOn">2FA қосулы</string>
     <string name="settings_app">Қолданба</string>
     <string name="settings_appearance">Сыртқы түрі</string>
     <string name="settings_danger">Қауіпті аймақ</string>
@@ -3186,7 +3209,7 @@
     <string name="settings_delete_libraryDebts">Қолыңызда кітапхана кітаптары бар — алдымен оларды қайтарыңыз</string>
     <string name="settings_delete_other">Аккаунтты жою мүмкін емес — қолдау қызметіне хабарласыңыз</string>
     <string name="settings_deleteAccount">Аккаунтты жою</string>
-    <string name="settings_edit">Өзг.</string>
+    <string name="settings_editShort">Өңдеу</string>
     <string name="settings_export">Деректерімді жүктеп алу</string>
     <string name="settings_export_footer">Платформа сіз туралы сақтайтын барлық деректер бар JSON файлы. Сағатына үш реттен жиі емес.</string>
     <string name="settings_language_footer">Тіл iPhone баптауларында StudentHub қолданбасы үшін өзгертіледі. Хаттар мен хабарламалар тілі — «Хабарламалар» бөлімінде.</string>

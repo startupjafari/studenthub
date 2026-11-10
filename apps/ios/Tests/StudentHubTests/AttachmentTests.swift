@@ -75,12 +75,16 @@ final class AttachmentTests: XCTestCase {
         XCTAssertNotNil(stored?.localPath, "без копии на диске повторять нечего")
 
         let failedID = try XCTUnwrap(failed?.id)
+        // Первая попытка падает ещё на подписи (`presign`) и до загрузки байтов может не
+        // дойти — поэтому сверяем прирост, а не абсолютное число: повтор обязан залить
+        // файл ровно один раз.
+        let uploadsBefore = api.uploads
         api.failure = nil
         api.message = message(id: "server-1", fileID: "file-1")
         let retried = await uploader.retry(messageID: failedID)
 
         XCTAssertTrue(retried)
-        XCTAssertEqual(api.uploads, 2)
+        XCTAssertEqual(api.uploads, uploadsBefore + 1)
         try await database.reader.read { db in
             XCTAssertEqual(try MessageRecord.fetchOne(db)?.sendState, .sent)
             XCTAssertEqual(try AttachmentRecord.fetchOne(db)?.id, "file-1")
