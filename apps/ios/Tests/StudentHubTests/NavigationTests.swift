@@ -292,6 +292,7 @@ final class RoleTabsTests: XCTestCase {
     }
 
     /// Пост из пуша у администратора платформы открывается не в ленте, которой у него нет.
+    @MainActor
     func testPostOpensInExistingTabForPlatformAdmin() {
         let router = AppRouter()
         router.adopt(role: .platformAdmin)
