@@ -59,7 +59,7 @@ struct PostDTO: Decodable, Equatable, Identifiable {
     }
 
     struct Counts: Decodable, Equatable {
-        let comments: Int?
+        var comments: Int?
     }
 
     let id: String
@@ -70,8 +70,9 @@ struct PostDTO: Decodable, Equatable, Identifiable {
     /// Сводка реакций. Устаревшее поле `reactions` сервер отдаёт массивом строк
     /// `{ emoji, userId }`, а клиент ждал словарь — typeMismatch ронял всю ленту.
     let reactionSummary: [ReactionSummary]?
-    /// Счётчики Prisma: `_count.comments` — число комментариев.
-    let counts: Counts?
+    /// Счётчики Prisma: `_count.comments` — число комментариев. Меняется и на месте:
+    /// свой комментарий из листа увеличивает его, не перечитывая ленту.
+    var counts: Counts?
 
     var authorId: String? = nil
     var title: String? = nil

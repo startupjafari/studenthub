@@ -23,7 +23,9 @@ struct PostActionsHost<Content: View>: View {
         content(actions)
             .sheet(item: $commentsFor) { post in
                 NavigationStack {
-                    PostCommentsView(postID: post.id, showsPost: false)
+                    PostCommentsView(postID: post.id, showsPost: false) { delta in
+                        model.adjustComments(of: post.id, by: delta)
+                    }
                 }
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)

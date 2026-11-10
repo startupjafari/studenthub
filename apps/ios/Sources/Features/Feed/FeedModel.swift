@@ -218,6 +218,14 @@ final class FeedModel {
         }
     }
 
+    /// Комментарий отправили или удалили — счётчик на карточке меняется сразу.
+    @MainActor
+    func adjustComments(of postID: String, by delta: Int) {
+        guard delta != 0, let index = posts.firstIndex(where: { $0.id == postID }) else { return }
+        let current = posts[index].commentsCount
+        posts[index].counts = PostDTO.Counts(comments: max(0, current + delta))
+    }
+
     /// Пост, только что созданный на этом телефоне.
     @MainActor
     func insert(_ post: PostDTO) {
@@ -288,6 +296,9 @@ final class PostCommentsModel {
     private(set) var isLoadingOlder = false
     private(set) var isSending = false
     private(set) var failure: String?
+    /// Сколько комментариев добавилось за время на экране (минус удалённые) — на
+    /// столько меняется счётчик на карточке поста в ленте.
+    private(set) var countChange = 0
     /// На какой комментарий отвечаем. Ответ на ответ сервер всё равно вешает на корень.
     var replyTo: PostCommentDTO?
     var draft = ""
@@ -367,6 +378,7 @@ final class PostCommentsModel {
         do {
             let created = try await api.comment(postID: postID, text: text, parentID: parent)
             comments.append(created)
+            countChange += 1
             replyTo = nil
             failure = nil
         } catch {
@@ -384,6 +396,7 @@ final class PostCommentsModel {
         comments.removeAll { $0.id == comment.id }
         do {
             try await api.deleteComment(postID: postID, commentID: comment.id)
+            countChange -= 1
         } catch {
             comments = snapshot
             failure = message(for: error)

@@ -8,6 +8,8 @@ import UIKit
 struct PostCommentsView: View {
     let postID: String
     var showsPost = true
+    /// Счётчик комментариев изменился на столько — карточке в ленте, откуда открыт лист.
+    var onCountChange: (Int) -> Void = { _ in }
 
     @Environment(\.viewerID) private var viewerID
     @Environment(\.dismiss) private var dismiss
@@ -76,6 +78,10 @@ struct PostCommentsView: View {
         }
         .alert(String(localized: "feed.report.sent", defaultValue: "Жалоба отправлена"), isPresented: $reported) {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}
+        }
+        .onChange(of: model?.countChange ?? 0) { old, new in
+            feed.adjustComments(of: postID, by: new - old)
+            onCountChange(new - old)
         }
         .task {
             guard model == nil else { return }
