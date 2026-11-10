@@ -32,6 +32,11 @@ enum JSONCoding {
         return encoder
     }()
 
+    /// Момент для параметра запроса — тем же форматом, что и в теле.
+    static func isoString(_ date: Date) -> String {
+        fractional.string(from: date)
+    }
+
     private static let fractional: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

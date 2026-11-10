@@ -101,6 +101,8 @@ targets:
           - UIInterfaceOrientationPortrait
         # Адрес API приходит из xcconfig, а не из кода: у Debug и Release он разный.
         SHAPIBaseURL: $(API_BASE_URL)
+        # Адрес веба — для «Поделиться» и «Копировать ссылку» на пост.
+        SHWebBaseURL: $(WEB_BASE_URL)
         # Пусто — трекер не инициализируется вовсе, как и на бэкенде без DSN.
         SHSentryDSN: $(SENTRY_DSN)
     settings:

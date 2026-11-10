@@ -81,6 +81,28 @@ final class MessageStoreTests: XCTestCase {
 
     // MARK: - Помощники
 
+    /// Повтор того, что уже едет, — не повод отправить второй раз: двойное нажатие
+    /// «Повторить» или досылка при входе в чат во время отправки дали бы дубль.
+    func testRetryOfPendingMessageSendsNothing() async throws {
+        let database = try AppDatabase.inMemory()
+        try await seedChat(in: database)
+        let api = StubSender()
+        api.failure = .transport(URLError(.notConnectedToInternet))
+        let outbox = MessageOutbox(database: database, api: api)
+        await outbox.send(text: "привет", chatID: "c-1", senderID: "u-me", replyToID: nil)
+        let failed = try await database.reader.read { db in try MessageRecord.fetchOne(db) }
+        var pending = try XCTUnwrap(failed)
+        pending.sendState = .pending
+        try await database.writer.write { [pending] db in try pending.update(db) }
+        let attempts = api.sent.count
+
+        let delivered = await outbox.retry(pending)
+        await outbox.flush(chatID: "c-1")
+
+        XCTAssertFalse(delivered)
+        XCTAssertEqual(api.sent.count, attempts)
+    }
+
     private func seedChat(in database: AppDatabase) async throws {
         try await database.writer.write { db in
             try ChatRecord(

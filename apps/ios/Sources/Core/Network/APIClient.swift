@@ -21,18 +21,32 @@ actor APIClient {
     private let session: URLSession
     private let authorization: AuthorizationProvider?
     private let maxRetries: Int
+    private let cookieJar: RefreshCookieJar?
 
     init(
         baseURL: URL = AppConfiguration.apiBaseURL,
-        session: URLSession = .shared,
+        session: URLSession = APIClient.session,
         authorization: AuthorizationProvider? = nil,
-        maxRetries: Int = 2
+        maxRetries: Int = 2,
+        cookieJar: RefreshCookieJar? = .shared
     ) {
         self.baseURL = baseURL
         self.session = session
         self.authorization = authorization
         self.maxRetries = maxRetries
+        self.cookieJar = cookieJar
     }
+
+    /// Соединение без системного хранилища cookie: refresh-cookie оно записало бы на диск,
+    /// в файл резервной копии (`RefreshCookieStore`). Единственную нужную cookie клиент
+    /// ведёт сам — `RefreshCookieJar`.
+    static let session: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieAcceptPolicy = .never
+        return URLSession(configuration: configuration)
+    }()
 
     /// Запрос с телом ответа.
     func send<Response: Decodable>(_ endpoint: Endpoint, as type: Response.Type) async throws -> Response {
@@ -53,6 +67,11 @@ actor APIClient {
         } catch {
             throw APIError.decoding(underlying: error, statusCode: 200)
         }
+    }
+
+    /// Ответ как есть, без конверта: файл выгрузки отдаётся телом, а не в `data`.
+    func data(_ endpoint: Endpoint) async throws -> Data {
+        try await perform(endpoint)
     }
 
     /// Запрос без тела ответа (204 и операции, у которых ответ не нужен).
@@ -83,16 +102,25 @@ actor APIClient {
         var lastTransportError: URLError?
 
         for retry in 0...maxRetries {
+            // Отменённый запрос (ушли с экрана, сменили фильтр) не повторяем и не
+            // выдаём за «нет связи»: экран, который его ждал, уже не ждёт.
+            try Task.checkCancellation()
             if retry > 0 {
                 // Выдержка с ростом: 0.5 с, затем 1 с. Без неё повтор приходит в тот
                 // же обрыв связи, только быстрее.
-                try? await Task.sleep(for: .milliseconds(500 * (1 << (retry - 1))))
+                try await Task.sleep(for: .milliseconds(500 * (1 << (retry - 1))))
             }
 
             do {
-                let (data, response) = try await session.data(for: request(for: endpoint, token: token))
+                let urlRequest = try request(for: endpoint, token: token)
+                let (data, response) = try await session.data(for: urlRequest)
                 guard let http = response as? HTTPURLResponse else {
                     throw APIError.malformedResponse(statusCode: 0)
+                }
+                // Cookie чужой, отложенной сессии (`refreshCookie` у запроса) в общую не
+                // пишем: её стирание ответом на выход разлогинило бы того, кто вошёл сейчас.
+                if endpoint.refreshCookie == nil, let url = urlRequest.url {
+                    cookieJar?.absorb(http, url: url)
                 }
 
                 if (200..<300).contains(http.statusCode) { return data }
@@ -104,6 +132,7 @@ actor APIClient {
                 if worthRetrying, endpoint.isIdempotent, retry < maxRetries { continue }
                 throw failure
             } catch let urlError as URLError {
+                if urlError.code == .cancelled { throw CancellationError() }
                 guard endpoint.isIdempotent, retry < maxRetries else {
                     throw APIError.transport(urlError)
                 }
@@ -131,6 +160,11 @@ actor APIClient {
         }
         if let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        // Refresh-cookie сервер ждёт только на `auth/*` (путь cookie): в остальные
+        // запросы она не уходит, как не ушла бы и из браузера.
+        if endpoint.path.hasPrefix("auth/"), let cookie = endpoint.refreshCookie ?? cookieJar?.value() {
+            request.setValue(RefreshCookieJar.header(for: cookie), forHTTPHeaderField: "Cookie")
         }
         return request
     }

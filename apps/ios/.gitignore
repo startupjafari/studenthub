@@ -25,3 +25,11 @@ fastlane/screenshots/
 
 # Отчёт xcodebuild (пишет CI)
 TestResults.xcresult/
+
+# Сборка на iPhone через xtool (scripts/device.sh): сгенерированные Info.plist и
+# таблицы строк, собранное приложение, конфиг LSP и зафиксированные версии пакетов —
+# у сборки Xcode Package.resolved тоже не коммитится (project.yml)
+.device/
+/xtool/
+.bsp/
+Package.resolved

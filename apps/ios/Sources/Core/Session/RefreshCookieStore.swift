@@ -4,66 +4,76 @@ import Foundation
 ///
 /// Сервер отдаёт refresh только в cookie и в теле ответа не отдаёт никогда
 /// (`BACKEND_RULES §18.6`). Нативному клиенту это не мешает: httpOnly ограничивает
-/// JavaScript в браузере, а не владельца хранилища — `HTTPCookieStorage` эту cookie
-/// приложению показывает.
+/// JavaScript в браузере, а не владельца соединения — клиент API сам читает
+/// `Set-Cookie` и сам подставляет `Cookie` (`APIClient`).
 ///
-/// Зачем тогда копировать её в связку ключей. Хранилище cookie — кэш, а не надёжное
-/// место: система вправе его очистить (выгрузка приложения с сохранением данных,
-/// восстановление из резервной копии), и человек без всякой причины окажется на
-/// экране входа. Связка ключей это переживает, и перед обновлением сессии значение
-/// возвращается в cookie-хранилище.
+/// Системное хранилище cookie (`HTTPCookieStorage`) для этого не годится: cookie с
+/// `Max-Age` оно пишет в `Library/Cookies`, а этот файл уезжает в резервную копию
+/// iCloud/Finder и не защищён как `ThisDeviceOnly`. Копия телефона получала бы живую
+/// сессию владельца в обход связки ключей. Поэтому cookie живёт только в памяти
+/// процесса, а между запусками — в связке ключей (`SessionStore` переносит её туда).
 protocol RefreshCookieStore: Sendable {
-    /// Значение refresh-cookie, если оно сейчас есть у `URLSession`.
+    /// Значение refresh-cookie, если оно сейчас есть у клиента.
     func value() -> String?
-    /// Вернуть значение в хранилище cookie — после того как оно опустело.
+    /// Вернуть значение — из связки ключей после перезапуска.
     func restore(_ value: String)
     func clear()
 }
 
-/// Хранилище cookie самой системы.
-///
-/// `@unchecked Sendable`: `HTTPCookieStorage` потокобезопасно, но Sendable не
-/// помечено — ручная пометка здесь честнее, чем копия состояния.
-struct SystemRefreshCookieStore: RefreshCookieStore, @unchecked Sendable {
-    /// Имя и путь заданы сервером (`apps/api/src/modules/auth/auth.constants.ts`):
-    /// меняются они только вместе с API.
+/// Refresh-cookie в памяти процесса. Одна на приложение: её кладут ответы входа,
+/// продления и регистрации, а берёт обмен на новый токен и выход.
+final class RefreshCookieJar: RefreshCookieStore, @unchecked Sendable {
+    static let shared = RefreshCookieJar()
+
+    /// Имя задано сервером (`apps/api/src/modules/auth/auth.constants.ts`): меняется
+    /// только вместе с API.
     static let cookieName = "sh_refresh"
 
-    /// Срок жизни refresh-токена на сервере — 30 дней. Ставим столько же: cookie,
-    /// пережившая свой токен, только вводит в заблуждение.
-    private static let lifetime: TimeInterval = 30 * 24 * 60 * 60
-
-    private let authURL: URL
-    private let storage: HTTPCookieStorage
-
-    init(baseURL: URL = AppConfiguration.apiBaseURL, storage: HTTPCookieStorage = .shared) {
-        // Cookie выставлена на auth-путь, а не на корень: по другому адресу система
-        // её не отдаст и не примет.
-        authURL = baseURL.appendingPathComponent("auth")
-        self.storage = storage
-    }
+    private let lock = NSLock()
+    private var stored: String?
 
     func value() -> String? {
-        storage.cookies(for: authURL)?.first { $0.name == Self.cookieName }?.value
+        lock.withLock { stored }
     }
 
     func restore(_ value: String) {
-        guard let host = authURL.host else { return }
-        let cookie = HTTPCookie(properties: [
-            .name: Self.cookieName,
-            .value: value,
-            .domain: host,
-            .path: authURL.path,
-            .secure: authURL.scheme == "https" ? "TRUE" : "FALSE",
-            .expires: Date().addingTimeInterval(Self.lifetime),
-        ])
-        guard let cookie else { return }
-        storage.setCookie(cookie)
+        lock.withLock { stored = value }
     }
 
     func clear() {
-        storage.cookies(for: authURL)?
-            .filter { $0.name == Self.cookieName }
-            .forEach { storage.deleteCookie($0) }
+        lock.withLock { stored = nil }
+    }
+
+    /// Заголовок для запроса к `auth/*`.
+    static func header(for value: String) -> String {
+        "\(cookieName)=\(value)"
+    }
+
+    /// Ответ сервера: новая refresh-cookie (вход, продление) или её стирание (выход,
+    /// отказ в сессии — пустое значение или срок в прошлом).
+    func absorb(_ response: HTTPURLResponse, url: URL) {
+        var fields: [String: String] = [:]
+        for (key, value) in response.allHeaderFields {
+            guard let key = key as? String, let value = value as? String else { continue }
+            fields[key] = value
+        }
+        let cookies = HTTPCookie.cookies(withResponseHeaderFields: fields, for: url)
+        guard let cookie = cookies.first(where: { $0.name == Self.cookieName }) else { return }
+        if cookie.value.isEmpty || (cookie.expiresDate.map { $0 <= Date() } ?? false) {
+            clear()
+        } else {
+            restore(cookie.value)
+        }
+    }
+
+    /// Прежние сборки держали cookie в системном хранилище — а значит, и на диске, в
+    /// файле резервной копии. Стираем всё, что там лежит для адреса API: клиент cookie
+    /// оттуда больше не берёт, а значение уже перенесено в связку ключей.
+    static func purgeSystemStorage(baseURL: URL = AppConfiguration.apiBaseURL) {
+        guard let host = baseURL.host else { return }
+        let storage = HTTPCookieStorage.shared
+        for cookie in storage.cookies ?? [] where host.hasSuffix(cookie.domain.trimmingCharacters(in: CharacterSet(charactersIn: "."))) {
+            storage.deleteCookie(cookie)
+        }
     }
 }

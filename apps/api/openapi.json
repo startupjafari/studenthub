@@ -3525,11 +3525,25 @@
     },
     "/auth/logout": {
       "post": {
+        "description": "Тело необязательно. `deviceToken` — токен пушей устройства (нативный клиент): отвязывается вместе с сессией, если принадлежит её владельцу.",
         "operationId": "AuthController_logout",
         "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogoutDto"
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
-            "description": ""
+            "description": "Сессия погашена (или её не было), cookie очищены"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — неверный deviceToken"
           }
         },
         "summary": "Выход: инвалидация сессии и очистка cookie",
@@ -27401,6 +27415,18 @@
           "password"
         ],
         "additionalProperties": false
+      },
+      "LogoutDto": {
+        "type": "object",
+        "properties": {
+          "deviceToken": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 400
+          }
+        },
+        "additionalProperties": false,
+        "default": {}
       },
       "TwoFactorEnableDto": {
         "type": "object",

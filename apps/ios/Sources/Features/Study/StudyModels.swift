@@ -11,6 +11,7 @@ final class StudySectionModel<Value> {
     private(set) var value: Value?
     private(set) var isLoading = false
     private(set) var failure: String?
+    private(set) var isOffline = false
 
     private let load: @Sendable () async throws -> Value
 
@@ -28,11 +29,12 @@ final class StudySectionModel<Value> {
         do {
             value = try await load()
             failure = nil
+            isOffline = false
         } catch {
             // Данные с прошлого раза не стираем: пустой экран с ошибкой хуже, чем
             // вчерашние оценки с пометкой об ошибке обновления.
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 }
@@ -75,8 +77,7 @@ final class AttendanceMarkingModel {
             )
             failure = nil
         } catch {
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
         }
     }
 
@@ -108,8 +109,7 @@ final class AttendanceMarkingModel {
             savedAt = Date()
             failure = nil
         } catch {
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
         }
     }
 }

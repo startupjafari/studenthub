@@ -123,6 +123,90 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertNil(cookies.value())
     }
 
+    // MARK: - Холодный старт без сети
+
+    /// Сеть не ответила, а вход был — приложение открывается по последнему токену, а не
+    /// выбрасывает на вход: расписание и чаты лежат в базе.
+    func testOfflineColdStartKeepsLastKnownUser() async {
+        let secrets = MemorySecrets()
+        secrets.set("rt-1", for: .refreshToken)
+        secrets.set("1", for: .sessionPresent)
+        secrets.set(longLivedToken, for: .lastAccessToken)
+        let auth = StubAuth(token: longLivedToken)
+        await auth.failNext(with: .transport(URLError(.notConnectedToInternet)))
+        let store = makeStore(auth: auth, secrets: secrets)
+
+        let restoration = await store.restore()
+
+        XCTAssertEqual(restoration, .offline(AccessToken(raw: longLivedToken)!))
+        let hasSession = await store.hasStoredSession
+        XCTAssertTrue(hasSession)
+    }
+
+    /// Отказ сервера — не «нет сети»: сессия кончилась, показываем вход.
+    func testRejectedSessionOnColdStartShowsLogin() async {
+        let secrets = MemorySecrets()
+        secrets.set("rt-1", for: .refreshToken)
+        secrets.set("1", for: .sessionPresent)
+        secrets.set(longLivedToken, for: .lastAccessToken)
+        let auth = StubAuth(token: longLivedToken)
+        await auth.failNext(
+            with: .server(code: .tokenExpired, message: "Сессия истекла", details: [], statusCode: 401)
+        )
+        let store = makeStore(auth: auth, secrets: secrets)
+
+        let restoration = await store.restore()
+
+        XCTAssertEqual(restoration, .none)
+        XCTAssertNil(secrets.value(for: .lastAccessToken))
+    }
+
+    // MARK: - Выход без сети
+
+    /// Выход не дошёл до сервера — он откладывается вместе с refresh-токеном и токеном
+    /// пушей и досылается потом, этой самой cookie, а не текущей.
+    func testSignOutWithoutNetworkIsCompletedLater() async {
+        let secrets = MemorySecrets()
+        let auth = StubAuth(token: longLivedToken)
+        let store = makeStore(auth: auth, secrets: secrets, cookies: MemoryCookies(value: "rt-1"))
+        await store.adopt(AuthSession(accessToken: longLivedToken))
+        await auth.failNextEnd(with: .transport(URLError(.notConnectedToInternet)))
+
+        let delivered = await store.signOut(deviceToken: "apns-0123456789abcdef")
+
+        XCTAssertFalse(delivered)
+        let hasSession = await store.hasStoredSession
+        XCTAssertFalse(hasSession, "локально человек вышел сразу")
+        var pending = await store.hasPendingLogouts
+        XCTAssertTrue(pending)
+
+        await store.completePendingLogouts()
+
+        pending = await store.hasPendingLogouts
+        XCTAssertFalse(pending)
+        let ended = await auth.endedSessions
+        XCTAssertEqual(ended.last?.refreshToken, "rt-1")
+        XCTAssertEqual(ended.last?.deviceToken, "apns-0123456789abcdef")
+    }
+
+    /// Отказ сервера при досылке — повод забыть выход, а не повторять его вечно.
+    func testRejectedPendingLogoutIsDropped() async {
+        let secrets = MemorySecrets()
+        let auth = StubAuth(token: longLivedToken)
+        let store = makeStore(auth: auth, secrets: secrets, cookies: MemoryCookies(value: "rt-1"))
+        await store.adopt(AuthSession(accessToken: longLivedToken))
+        await auth.failNextEnd(with: .transport(URLError(.timedOut)))
+        await store.signOut(deviceToken: nil)
+        await auth.failNextEnd(
+            with: .server(code: .unauthorized, message: "Нет сессии", details: [], statusCode: 401)
+        )
+
+        await store.completePendingLogouts()
+
+        let pending = await store.hasPendingLogouts
+        XCTAssertFalse(pending)
+    }
+
     private func makeStore(
         auth: StubAuth? = nil,
         secrets: MemorySecrets = MemorySecrets(),
@@ -136,12 +220,15 @@ final class SessionStoreTests: XCTestCase {
 
 private actor StubAuth: SessionRefreshing {
     private(set) var refreshCalls = 0
+    private(set) var endedSessions: [(deviceToken: String?, refreshToken: String?)] = []
     private let token: String
     private var nextFailure: APIError?
+    private var nextEndFailure: APIError?
 
     init(token: String) { self.token = token }
 
     func failNext(with error: APIError) { nextFailure = error }
+    func failNextEnd(with error: APIError) { nextEndFailure = error }
 
     func refresh() async throws -> AuthSession {
         refreshCalls += 1
@@ -154,7 +241,13 @@ private actor StubAuth: SessionRefreshing {
         return AuthSession(accessToken: token)
     }
 
-    func endSession() async throws {}
+    func endSession(deviceToken: String?, refreshToken: String?) async throws {
+        if let nextEndFailure {
+            self.nextEndFailure = nil
+            throw nextEndFailure
+        }
+        endedSessions.append((deviceToken, refreshToken))
+    }
 }
 
 /// Связка ключей симулятора в юнит-тестах недоступна без прав на подпись.
@@ -186,4 +279,47 @@ private final class MemoryCookies: RefreshCookieStore, @unchecked Sendable {
     func value() -> String? { lock.withLock { stored } }
     func restore(_ value: String) { lock.withLock { stored = value } }
     func clear() { lock.withLock { stored = nil } }
+}
+
+final class RefreshCookieJarTests: XCTestCase {
+    private let url = URL(string: "https://api.example.kz/api/v1/auth/refresh")!
+
+    /// Ответ входа или продления кладёт refresh-cookie — в память, а не в системное
+    /// хранилище, которое пишет её на диск.
+    func testSetCookieIsAbsorbed() {
+        let jar = RefreshCookieJar()
+        let response = HTTPURLResponse(
+            url: url, statusCode: 200, httpVersion: nil,
+            headerFields: ["Set-Cookie": "sh_refresh=rt-9; Path=/api/v1/auth; Max-Age=2592000; HttpOnly; Secure"]
+        )!
+
+        jar.absorb(response, url: url)
+
+        XCTAssertEqual(jar.value(), "rt-9")
+    }
+
+    /// Выход и отказ в сессии стирают cookie сроком в прошлом.
+    func testExpiredSetCookieClearsTheJar() {
+        let jar = RefreshCookieJar()
+        jar.restore("rt-9")
+        let response = HTTPURLResponse(
+            url: url, statusCode: 200, httpVersion: nil,
+            headerFields: ["Set-Cookie": "sh_refresh=; Path=/api/v1/auth; Expires=Thu, 01 Jan 1970 00:00:00 GMT"]
+        )!
+
+        jar.absorb(response, url: url)
+
+        XCTAssertNil(jar.value())
+    }
+
+    /// Ответ без нашей cookie ничего не трогает.
+    func testUnrelatedResponseKeepsTheCookie() {
+        let jar = RefreshCookieJar()
+        jar.restore("rt-9")
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [:])!
+
+        jar.absorb(response, url: url)
+
+        XCTAssertEqual(jar.value(), "rt-9")
+    }
 }

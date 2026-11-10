@@ -1,5 +1,9 @@
 import Foundation
-import Sentry
+// Sentry есть в сборке Xcode (project.yml). В сборке на устройство через xtool
+// (Package.swift) его нет: DSN там пуст, трекер всё равно молчал бы.
+#if canImport(Sentry)
+    import Sentry
+#endif
 import UIKit
 
 /// Наблюдаемость приложения (задача 5.5 плана).
@@ -20,31 +24,35 @@ enum Observability {
             !dsn.trimmingCharacters(in: .whitespaces).isEmpty
         else { return }
 
-        SentrySDK.start { options in
-            options.dsn = dsn
-            options.releaseName = "ios@\(AppConfiguration.marketingVersion)+\(AppConfiguration.buildNumber)"
-            options.environment = AppConfiguration.isRelease ? "production" : "development"
-            // Персональных данных в трекер не отправляем: правило проекта — наружу
-            // уходит только идентификатор (BACKEND_RULES §11.3).
-            options.sendDefaultPii = false
-            options.attachScreenshot = false
-            options.attachViewHierarchy = false
-            options.beforeSend = { event in
-                event.user?.email = nil
-                event.user?.username = nil
-                event.user?.ipAddress = nil
-                return event
+        #if canImport(Sentry)
+            SentrySDK.start { options in
+                options.dsn = dsn
+                options.releaseName = "ios@\(AppConfiguration.marketingVersion)+\(AppConfiguration.buildNumber)"
+                options.environment = AppConfiguration.isRelease ? "production" : "development"
+                // Персональных данных в трекер не отправляем: правило проекта — наружу
+                // уходит только идентификатор (BACKEND_RULES §11.3).
+                options.sendDefaultPii = false
+                options.attachScreenshot = false
+                options.attachViewHierarchy = false
+                options.beforeSend = { event in
+                    event.user?.email = nil
+                    event.user?.username = nil
+                    event.user?.ipAddress = nil
+                    return event
+                }
             }
-        }
+        #endif
     }
 
     /// Кто сейчас в приложении — только id, как и на сервере.
     static func identify(userID: String?) {
-        SentrySDK.setUser(userID.map { id in
-            let user = User()
-            user.userId = id
-            return user
-        })
+        #if canImport(Sentry)
+            SentrySDK.setUser(userID.map { id in
+                let user = User()
+                user.userId = id
+                return user
+            })
+        #endif
     }
 
     /// Первый экран показан. Меряем от старта процесса: человеку важно время до
@@ -71,9 +79,17 @@ enum Observability {
         breadcrumb("push", data: ["action": "register-failed", "error": error.localizedDescription])
     }
 
+    /// Ответ, который приложение не смогло прочитать. Только статус и тип ошибки:
+    /// тело ответа может содержать персональные данные и в трекер не уходит.
+    static func unexpectedResponse(statusCode: Int, kind: String) {
+        breadcrumb("api", data: ["status": String(statusCode), "kind": kind])
+    }
+
     private static func breadcrumb(_ category: String, data: [String: String]) {
-        let crumb = Breadcrumb(level: .info, category: category)
-        crumb.data = data
-        SentrySDK.addBreadcrumb(crumb)
+        #if canImport(Sentry)
+            let crumb = Breadcrumb(level: .info, category: category)
+            crumb.data = data
+            SentrySDK.addBreadcrumb(crumb)
+        #endif
     }
 }

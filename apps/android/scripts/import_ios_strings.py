@@ -6,7 +6,9 @@
 Localizable.xcstrings`; этот скрипт пересобирает из него `values/strings_ios.xml`,
 `values-kk/strings_ios.xml` и `values-en/strings_ios.xml` (английский пока есть только у
 части строк — например, у сообщений валидации; остальное показывается по-русски). Руками эти файлы не правятся — правится каталог, затем
-скрипт запускается заново. Строки, которых в iOS нет, живут в `strings.xml`.
+скрипт запускается заново. Строки, которых в iOS нет, живут в `strings.xml`. Там же —
+свои формулировки Android под ключом iOS (например, версия с номером сборки): ключ из
+`strings.xml` из каталога не переносится, иначе ресурс задвоится и сборка упадёт.
 
 Имя ресурса — ключ каталога с точками, заменёнными на подчёркивание:
 `auth.loginTitle` → `R.string.auth_loginTitle`.
@@ -88,10 +90,21 @@ def write(path: pathlib.Path, rows: list[tuple[str, str]]) -> None:
     path.write_text("".join(lines), encoding="utf-8")
 
 
+def own_names() -> set[str]:
+    """Имена строк, которые Android определяет сам (`values/strings.xml`)."""
+    own = RES / "values/strings.xml"
+    if not own.exists():
+        return set()
+    return set(re.findall(r'<string name="([^"]+)"', own.read_text(encoding="utf-8")))
+
+
 def main() -> None:
     catalog = json.loads(CATALOG.read_text(encoding="utf-8"))["strings"]
+    own = own_names()
     russian, kazakh, english = [], [], []
     for key in sorted(catalog):
+        if key.replace(".", "_") in own:
+            continue
         entry = catalog[key]
         ru = unit(entry, "ru")
         if ru is None:

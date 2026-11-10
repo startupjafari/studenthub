@@ -160,6 +160,18 @@ export type TwoFactorDisableInput = z.infer<typeof TwoFactorDisableSchema>
 export const TwoFactorConfirmSchema = z.object({ code: z.string().min(6).max(20) }).strict()
 export type TwoFactorConfirmInput = z.infer<typeof TwoFactorConfirmSchema>
 
+// ── Выход ─────────────────────────────────────────────────────────────────────
+
+// Выход. Сессию опознаёт refresh-cookie; тело необязательно. Нативный клиент кладёт сюда
+// токен пушей устройства — сервер отвязывает его вместе с сессией. Так выход, отложенный
+// без сети, досылается одним запросом без access-токена: отдельная отвязка требует входа,
+// а его к тому моменту уже нет. Запрос без тела схема превращает в {}.
+export const LogoutSchema = z
+  .object({ deviceToken: z.string().min(16).max(400).optional() })
+  .strict()
+  .default({})
+export type LogoutInput = z.infer<typeof LogoutSchema>
+
 // ── Вход по QR (Telegram Web-стиль) ──────────────────────────────────────────
 
 // Подтверждение входа с уже залогиненного устройства (телефона): approveToken из QR.

@@ -106,6 +106,8 @@ struct AttachmentUploader: Sendable {
             createdAt: Date(),
             sendState: .pending
         )
+        // Файл кладём на диск, если его там ещё нет: без копии «Повторить» после
+        // сбоя было бы нечем, а свой снимок в ленте показывается из неё же, до загрузки.
         let local = AttachmentRecord(
             id: UUID().uuidString,
             messageId: message.id,
@@ -114,7 +116,7 @@ struct AttachmentUploader: Sendable {
             size: attachment.data.count,
             width: attachment.width,
             height: attachment.height,
-            localPath: attachment.cachedPath
+            localPath: attachment.cachedPath ?? Self.keep(attachment.data, name: attachment.name)
         )
 
         do {
@@ -125,15 +127,44 @@ struct AttachmentUploader: Sendable {
         } catch {
             return false
         }
+        return await deliver(message: message, local: local, data: attachment.data)
+    }
 
+    /// Повторить неудавшееся вложение — по кнопке у сообщения. Байты — из копии на
+    /// диске; если система её уже вычистила, сообщение остаётся неотправленным.
+    /// Состояние меняется в одной транзакции «неудача → в пути»: второе нажатие, пока
+    /// первое ещё едет, ничего не отправит.
+    @discardableResult
+    func retry(messageID: String) async -> Bool {
+        let claimed = try? await database.writer.write { db -> (MessageRecord, AttachmentRecord)? in
+            guard
+                var message = try MessageRecord.fetchOne(db, key: messageID),
+                message.remoteId == nil, message.sendState == .failed,
+                let local = try AttachmentRecord.filter(AttachmentRecord.Columns.messageId == messageID).fetchOne(db)
+            else { return nil }
+            message.sendState = .pending
+            try message.update(db)
+            return (message, local)
+        }
+        guard let (message, local) = claimed ?? nil else { return false }
+        guard let path = local.localPath, let data = FileManager.default.contents(atPath: path) else {
+            await markFailed(message.id)
+            return false
+        }
+        return await deliver(message: message, local: local, data: data)
+    }
+
+    /// Три шага сервера и подтверждение в базе.
+    private func deliver(message: MessageRecord, local: AttachmentRecord, data: Data) async -> Bool {
+        let caption = message.content.isEmpty ? nil : message.content
         do {
-            let ticket = try await api.presign(chatID: chatID, mime: attachment.mime)
-            try await api.upload(attachment.data, to: ticket.url, mime: attachment.mime)
+            let ticket = try await api.presign(chatID: message.chatId, mime: local.mime)
+            try await api.upload(data, to: ticket.url, mime: local.mime)
             let sent = try await api.sendUploaded(
-                chatID: chatID,
+                chatID: message.chatId,
                 content: caption,
-                replyToID: replyToID,
-                attachments: [AttachmentUpload(key: ticket.key, name: attachment.name)]
+                replyToID: message.replyToId,
+                attachments: [AttachmentUpload(key: ticket.key, name: local.name)]
             )
             try await database.writer.write { db in
                 try MessageStore.confirm(localID: message.id, with: sent, in: db)
@@ -150,12 +181,36 @@ struct AttachmentUploader: Sendable {
             }
             return true
         } catch {
-            try? await database.writer.write { db in
-                guard var row = try MessageRecord.fetchOne(db, key: message.id) else { return }
-                row.sendState = .failed
-                try row.update(db)
-            }
+            await markFailed(message.id)
             return false
+        }
+    }
+
+    private func markFailed(_ id: String) async {
+        try? await database.writer.write { db in
+            guard var row = try MessageRecord.fetchOne(db, key: id) else { return }
+            row.sendState = .failed
+            try row.update(db)
+        }
+    }
+
+    /// Каталог копий исходящих файлов — в кэше: система вправе его чистить, и это
+    /// не страшно, сервер к тому времени файл уже хранит.
+    static var outboxDirectory: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appending(path: "chat-outbox", directoryHint: .isDirectory)
+    }
+
+    private static func keep(_ data: Data, name: String?) -> String? {
+        let directory = outboxDirectory
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let ext = name.map { ($0 as NSString).pathExtension } ?? ""
+        let url = directory.appending(path: UUID().uuidString + (ext.isEmpty ? "" : ".\(ext)"))
+        do {
+            try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            return url.path
+        } catch {
+            return nil
         }
     }
 }

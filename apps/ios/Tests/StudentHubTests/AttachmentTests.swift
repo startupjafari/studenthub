@@ -55,6 +55,38 @@ final class AttachmentTests: XCTestCase {
         }
     }
 
+    /// «Повторить» у неудавшегося вложения отправляет файл, а не одну подпись: байты
+    /// берутся из копии, которую загрузчик положил на диск при первой попытке.
+    func testRetryUploadsTheFileAgain() async throws {
+        let database = try await seeded()
+        let api = StubAttachments()
+        api.failure = .transport(URLError(.timedOut))
+        let uploader = AttachmentUploader(database: database, api: api)
+        let sent = await uploader.send(
+            OutgoingAttachment(data: Data("байты".utf8), mime: "image/jpeg", name: "photo.jpg"),
+            chatID: "c-1",
+            senderID: "u-me",
+            caption: nil,
+            replyToID: nil
+        )
+        XCTAssertFalse(sent)
+        let failed = try await database.reader.read { db in try MessageRecord.fetchOne(db) }
+        let stored = try await database.reader.read { db in try AttachmentRecord.fetchOne(db) }
+        XCTAssertNotNil(stored?.localPath, "без копии на диске повторять нечего")
+
+        let failedID = try XCTUnwrap(failed?.id)
+        api.failure = nil
+        api.message = message(id: "server-1", fileID: "file-1")
+        let retried = await uploader.retry(messageID: failedID)
+
+        XCTAssertTrue(retried)
+        XCTAssertEqual(api.uploads, 2)
+        try await database.reader.read { db in
+            XCTAssertEqual(try MessageRecord.fetchOne(db)?.sendState, .sent)
+            XCTAssertEqual(try AttachmentRecord.fetchOne(db)?.id, "file-1")
+        }
+    }
+
     /// Вложения входящего сообщения кладутся вместе с ним, а повторная синхронизация
     /// не теряет уже скачанный файл.
     func testIncomingAttachmentsAreStoredAndKeepLocalCopy() async throws {

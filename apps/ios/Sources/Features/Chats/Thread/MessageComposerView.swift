@@ -2,7 +2,8 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Поле ввода.
+/// Поле ввода как в Telegram для iOS 26: слева скрепка в стеклянном круге, посередине —
+/// поле-капсула, справа — микрофон, а когда есть текст — синяя «отправить».
 ///
 /// Высота панели — 48 pt: осознанное исключение из высоты островов (DESIGN_SYSTEM
 /// §4), потому что в открытом чате нижняя навигация скрыта и совпадать не с чем.
@@ -13,11 +14,26 @@ struct MessageComposerView: View {
     @State private var recorder = VoiceRecorder()
     @State private var photo: PhotosPickerItem?
     @State private var showsFileImporter = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
-            if let replyTo = model.replyTo {
-                ReplyBar(text: replyTo.content) { model.cancelReply() }
+            if let editing = model.editing {
+                ReplyBar(
+                    title: String(localized: "chats.editing", defaultValue: "Редактирование"),
+                    text: editing.content,
+                    symbol: "pencil"
+                ) { model.cancelEdit() }
+            } else if let replyTo = model.replyTo {
+                ReplyBar(
+                    title: replyTo.senderName.map {
+                        String(localized: "chats.replyingToName", defaultValue: "Ответ \($0)")
+                    } ?? String(localized: "chats.replyingTo", defaultValue: "Ответ"),
+                    text: replyTo.content.isEmpty
+                        ? String(localized: "chats.attachmentPreview", defaultValue: "Вложение")
+                        : replyTo.content,
+                    symbol: "arrowshape.turn.up.left"
+                ) { model.cancelReply() }
             }
 
             if recorder.isRecording {
@@ -32,11 +48,12 @@ struct MessageComposerView: View {
                 )
             }
 
+            GlassGroup(spacing: Spacing.md) {
             HStack(alignment: .bottom, spacing: Spacing.md) {
                 Menu {
-                    PhotosPicker(selection: $photo, matching: .images) {
+                    PhotosPicker(selection: $photo, matching: .any(of: [.images, .videos])) {
                         Label(
-                            String(localized: "chats.attachPhoto", defaultValue: "Фото"),
+                            String(localized: "chats.attachMedia", defaultValue: "Фото или видео"),
                             systemImage: "photo"
                         )
                     }
@@ -50,9 +67,10 @@ struct MessageComposerView: View {
                     }
                 } label: {
                     Image(systemName: "paperclip")
-                        .font(Typography.body)
+                        .font(.title3)
                         .foregroundStyle(Palette.mutedForeground)
                         .frame(width: ControlHeight.lg, height: ControlHeight.lg)
+                        .composerGlass(in: Circle())
                 }
                 .accessibilityLabel(Text(String(localized: "chats.attach", defaultValue: "Вложение")))
 
@@ -64,33 +82,37 @@ struct MessageComposerView: View {
                     Text(verbatim: String(localized: "chats.placeholder", defaultValue: "Сообщение"))
                 }
                 .labelsHidden()
-                .lineLimit(1...5)
+                .lineLimit(1...6)
                 .font(Typography.body)
                 .foregroundStyle(Palette.foreground)
                 .focused($isFocused)
                 .padding(.horizontal, Spacing.lg)
                 .padding(.vertical, Spacing.md)
-                .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.xl))
+                .frame(minHeight: ControlHeight.lg)
+                // Радиус — половина высоты одной строки: в одну строку поле — капсула,
+                // в несколько — скруглённый прямоугольник, как в Telegram.
+                .composerGlass(in: RoundedRectangle(cornerRadius: ControlHeight.lg / 2, style: .continuous))
                 .onChange(of: model.draft) {
                     model.draftChanged()
                 }
 
-                if canSend {
-                    sendButton
-                } else {
-                    micButton
+                Group {
+                    if canSend {
+                        sendButton
+                    } else {
+                        micButton
+                    }
                 }
+                .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: canSend)
             }
             .padding(.horizontal, Spacing.xl)
             .padding(.vertical, Spacing.md)
             .frame(minHeight: ControlHeight.chatInput)
+            }
         }
-        .background(Palette.background)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(Palette.border)
-                .frame(height: 1)
-        }
+        .modifier(ComposerBarBackground())
+        // «Отправить», вложение, микрофон — клавиатура остаётся, как в мессенджерах.
+        .keepsKeyboardOnTap()
         .onChange(of: photo) {
             Task { await sendPickedPhoto() }
         }
@@ -103,14 +125,17 @@ struct MessageComposerView: View {
         Button {
             Task { await model.send() }
         } label: {
-            Image(systemName: "arrow.up")
-                        .font(Typography.body.weight(.semibold))
-                        .foregroundStyle(Palette.primaryForeground)
-                        .frame(width: ControlHeight.lg, height: ControlHeight.lg)
-                .background(Palette.primary, in: Circle())
+            Image(systemName: model.editing == nil ? "arrow.up" : "checkmark")
+                .font(Typography.body.weight(.bold))
+                .foregroundStyle(Palette.primaryForeground)
+                .frame(width: ControlHeight.lg, height: ControlHeight.lg)
+                .glassSurface(tint: Palette.primary, in: Circle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(Text(String(localized: "chats.send", defaultValue: "Отправить")))
+        .transition(.scale(scale: 0.6).combined(with: .opacity))
+        .accessibilityLabel(Text(model.editing == nil
+            ? String(localized: "chats.send", defaultValue: "Отправить")
+            : String(localized: "common.save", defaultValue: "Сохранить")))
     }
 
     /// Пустое поле — вместо «отправить» микрофон: та же кнопка, что и во всех
@@ -126,24 +151,35 @@ struct MessageComposerView: View {
                 }
             }
         } label: {
-            Image(systemName: recorder.isRecording ? "stop.fill" : "mic.fill")
-                .font(Typography.body)
-                .foregroundStyle(Palette.primaryForeground)
+            Image(systemName: recorder.isRecording ? "stop.fill" : "mic")
+                .font(.title3)
+                .foregroundStyle(recorder.isRecording ? Palette.primaryForeground : Palette.mutedForeground)
                 .frame(width: ControlHeight.lg, height: ControlHeight.lg)
-                .background(recorder.isRecording ? Palette.destructive : Palette.primary, in: Circle())
+                .glassSurface(tint: recorder.isRecording ? Palette.destructive : nil, in: Circle())
         }
         .buttonStyle(.plain)
+        .transition(.scale(scale: 0.6).combined(with: .opacity))
         .accessibilityLabel(Text(recorder.isRecording
             ? String(localized: "chats.voice.stop", defaultValue: "Остановить запись")
             : String(localized: "chats.voice.record", defaultValue: "Записать голосовое")))
     }
 
+    /// Снимок камеры iPhone — HEIC, ролик — MOV. Сервер проверяет тип по содержимому
+    /// и такие не берёт, поэтому файл сначала переводится в JPEG или MP4 — так же, как
+    /// в ленте.
     private func sendPickedPhoto() async {
         guard let photo else { return }
         self.photo = nil
-        guard let data = try? await photo.loadTransferable(type: Data.self) else { return }
+        guard let prepared = try? await MediaPreparation.prepare(photo) else { return }
+        let size = prepared.preview?.size
         await model.attach(
-            OutgoingAttachment(data: data, mime: "image/jpeg", name: "photo.jpg", width: nil, height: nil)
+            OutgoingAttachment(
+                data: prepared.data,
+                mime: prepared.mime,
+                name: prepared.filename,
+                width: size.map { Int($0.width) },
+                height: size.map { Int($0.height) }
+            )
         )
     }
 
@@ -172,20 +208,27 @@ struct MessageComposerView: View {
     }
 }
 
-/// Полоска «отвечаю на…» над полем ввода.
+/// Полоска «отвечаю на…» или «редактирую» над полем ввода.
 private struct ReplyBar: View {
+    let title: String
     let text: String
+    var symbol = "arrowshape.turn.up.left"
     let onCancel: () -> Void
 
     var body: some View {
         HStack(spacing: Spacing.md) {
-            Rectangle()
+            Image(systemName: symbol)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Palette.primary)
+                .accessibilityHidden(true)
+            Capsule()
                 .fill(Palette.primary)
-                .frame(width: 2, height: ControlHeight.sm)
+                .frame(width: 3, height: ControlHeight.sm)
             VStack(alignment: .leading, spacing: 0) {
-                Text(String(localized: "chats.replyingTo", defaultValue: "Ответ"))
-                    .font(Typography.meta)
+                Text(title)
+                    .font(Typography.meta.weight(.semibold))
                     .foregroundStyle(Palette.primary)
+                    .lineLimit(1)
                 Text(text)
                     .font(Typography.meta)
                     .foregroundStyle(Palette.mutedForeground)
@@ -194,15 +237,19 @@ private struct ReplyBar: View {
             Spacer(minLength: Spacing.md)
             Button(action: onCancel) {
                 Image(systemName: "xmark")
-                    .font(Typography.meta)
+                    .font(.footnote.weight(.semibold))
                     .foregroundStyle(Palette.mutedForeground)
+                    .frame(width: ControlHeight.sm, height: ControlHeight.sm)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(Text(String(localized: "common.cancel", defaultValue: "Отменить")))
+            .accessibilityLabel(Text(String(localized: "chats.cancelAction", defaultValue: "Отменить")))
         }
-        .padding(.horizontal, Spacing.xl)
-        .padding(.vertical, Spacing.md)
-        .background(Palette.muted)
+        .padding(.leading, Spacing.lg)
+        .padding(.trailing, Spacing.sm)
+        .padding(.vertical, Spacing.sm)
+        .chatPanelSurface()
+        .padding(.top, Spacing.sm)
     }
 }
 
@@ -213,7 +260,7 @@ struct ChatActionCaption: View {
     let action: String
 
     var body: some View {
-        Text(title)
+        Text(Self.title(for: action))
             .font(Typography.meta)
             .foregroundStyle(Palette.mutedForeground)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -222,7 +269,7 @@ struct ChatActionCaption: View {
             .accessibilityAddTraits(.updatesFrequently)
     }
 
-    private var title: String {
+    static func title(for action: String) -> String {
         switch action {
         case "RECORDING_VOICE":
             return String(localized: "chats.action.voice", defaultValue: "записывает голосовое…")
@@ -255,7 +302,7 @@ struct RecordingBar: View {
                     .foregroundStyle(Palette.destructive)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(Text(String(localized: "common.cancel", defaultValue: "Отменить")))
+            .accessibilityLabel(Text(String(localized: "chats.cancelAction", defaultValue: "Отменить")))
 
             WaveformView(levels: levels)
                 .frame(maxWidth: .infinity)
@@ -267,14 +314,16 @@ struct RecordingBar: View {
 
             Button(action: onSend) {
                 Image(systemName: "arrow.up.circle.fill")
+                    .font(.title2)
                     .foregroundStyle(Palette.primary)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Text(String(localized: "chats.send", defaultValue: "Отправить")))
         }
-        .padding(.horizontal, Spacing.xl)
-        .padding(.vertical, Spacing.md)
-        .background(Palette.muted)
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.sm)
+        .chatPanelSurface()
+        .padding(.top, Spacing.sm)
     }
 
     private var time: String {
@@ -301,5 +350,36 @@ struct WaveformView: View {
             .frame(maxHeight: .infinity, alignment: .center)
         }
         .accessibilityHidden(true)
+    }
+}
+
+
+/// Подложка панели ввода. На iOS 26 её нет: поле и кнопки — стекло над перепиской, как
+/// в «Сообщениях», и лента видна под ними. Раньше — непрозрачная полоса с линией сверху.
+private struct ComposerBarBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *) {
+            content
+        } else {
+            content
+                .background(Palette.plainBackground)
+                .overlay(alignment: .top) {
+                    Rectangle()
+                        .fill(Palette.border)
+                        .frame(height: 1)
+                }
+        }
+    }
+}
+
+private extension View {
+    /// Элемент панели ввода: на iOS 26 — стекло, раньше — серая заливка.
+    @ViewBuilder
+    func composerGlass<S: Shape>(in shape: S) -> some View {
+        if #available(iOS 26, *) {
+            glassSurface(in: shape)
+        } else {
+            background(Palette.muted, in: shape)
+        }
     }
 }

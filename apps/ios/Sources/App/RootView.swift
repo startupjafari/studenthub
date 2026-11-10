@@ -8,9 +8,12 @@ import SwiftUI
 /// нужна только для того, чтобы не рисовать разделы, которых у человека нет.
 struct RootView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var session = AppSessionModel()
     @State private var update = UpdateGateModel()
+    /// Ссылка из письма (новый пароль, приглашение), пришедшая до входа.
+    @State private var authLink: AuthLink?
 
     var body: some View {
         content
@@ -27,6 +30,22 @@ struct RootView: View {
                 _ = await (version, restored)
                 Observability.identify(userID: session.token?.subject)
                 Observability.launchFinished()
+            }
+            // Ссылки внутрь приложения разбирает оболочка (`AppShellView`); здесь — только
+            // ссылки экранов до входа. Вошедшему человеку они ни к чему: регистрироваться
+            // второй раз незачем, а пароль меняется в настройках.
+            .onOpenURL { url in
+                guard let link = AuthLink(url: url), session.token == nil else { return }
+                authLink = link
+            }
+            .onChange(of: session.state) { _, state in
+                if case .signedIn = state { authLink = nil }
+            }
+            // Вернулись в приложение — возможно, уже со связью: выход, отложенный без
+            // сети, досылаем сразу, а не при следующем запуске.
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                Task { await session.completePendingLogouts() }
             }
     }
 
@@ -50,7 +69,7 @@ struct RootView: View {
         case .restoring:
             RestoringView()
         case .signedOut:
-            LoginView(session: session)
+            LoginView(session: session, pendingLink: $authLink)
         case .signedIn(let token):
             // Роли вне MVP приложение не ведёт: им честнее сказать про браузер,
             // чем показать оболочку с пятью пустыми вкладками.

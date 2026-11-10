@@ -23,24 +23,55 @@ struct PrimaryButtonStyle: ButtonStyle {
         @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
         var body: some View {
+            label
+                .font(Typography.body.weight(.semibold))
+                .frame(maxWidth: .infinity, minHeight: 50)
+                .foregroundStyle(isLoading ? Palette.mutedForeground : Palette.primaryForeground)
+                .modifier(PrimarySurface(isLoading: isLoading, isPressed: configuration.isPressed))
+                .opacity(isEnabled || isLoading ? 1 : 0.5)
+                .contentShape(Capsule())
+                .animation(
+                    Motion.respecting(.easeOut(duration: Motion.Duration.feedback), reduceMotion: reduceMotion),
+                    value: configuration.isPressed
+                )
+        }
+
+        private var label: some View {
             ZStack {
                 configuration.label.opacity(isLoading ? 0 : 1)
                 if isLoading {
                     ProgressView().tint(Palette.mutedForeground)
                 }
             }
-            .font(Typography.body.weight(.medium))
-            .frame(maxWidth: .infinity, minHeight: ControlHeight.xl)
-            .background(isLoading ? Palette.muted : Palette.primary, in: RoundedRectangle(cornerRadius: Radius.xl))
-            .foregroundStyle(isLoading ? Palette.mutedForeground : Palette.primaryForeground)
-            .opacity(isEnabled || isLoading ? 1 : 0.5)
-            // §8: нажатие сдвигает кнопку на пиксель вниз — тот же отклик, что в вебе.
-            .offset(y: configuration.isPressed ? 1 : 0)
-            .animation(
-                Motion.respecting(.easeOut(duration: Motion.Duration.feedback), reduceMotion: reduceMotion),
-                value: configuration.isPressed
-            )
         }
+    }
+}
+
+/// Поверхность главной кнопки: на iOS 26 — капсула тонированного стекла, как
+/// `.glassProminent`; раньше — заливка с откликом сдвигом на пиксель (DESIGN_SYSTEM §8).
+private struct PrimarySurface: ViewModifier {
+    let isLoading: Bool
+    let isPressed: Bool
+
+    func body(content: Content) -> some View {
+        #if compiler(>=6.2)
+            if #available(iOS 26, *) {
+                content.glassEffect(
+                    isLoading ? .regular.interactive() : .regular.tint(Palette.primary).interactive(),
+                    in: Capsule()
+                )
+            } else {
+                legacy(content)
+            }
+        #else
+            legacy(content)
+        #endif
+    }
+
+    private func legacy(_ content: Content) -> some View {
+        content
+            .background(isLoading ? Palette.muted : Palette.primary, in: Capsule())
+            .offset(y: isPressed ? 1 : 0)
     }
 }
 
@@ -50,12 +81,27 @@ struct QuietButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(Typography.body)
-            .frame(maxWidth: .infinity, minHeight: ControlHeight.xl)
+            .frame(maxWidth: .infinity, minHeight: 50)
             .foregroundStyle(Palette.foreground)
-            .background(
-                configuration.isPressed ? Palette.muted : Color.clear,
-                in: RoundedRectangle(cornerRadius: Radius.xl)
-            )
+            .modifier(QuietSurface(isPressed: configuration.isPressed))
+            .contentShape(Capsule())
+    }
+}
+
+/// На iOS 26 — прозрачное стекло, как `.glass`; раньше — подсветка при нажатии.
+private struct QuietSurface: ViewModifier {
+    let isPressed: Bool
+
+    func body(content: Content) -> some View {
+        #if compiler(>=6.2)
+            if #available(iOS 26, *) {
+                content.glassEffect(.regular.interactive(), in: Capsule())
+            } else {
+                content.background(isPressed ? Palette.muted : Color.clear, in: Capsule())
+            }
+        #else
+            content.background(isPressed ? Palette.muted : Color.clear, in: Capsule())
+        #endif
     }
 }
 
@@ -71,14 +117,14 @@ struct FormFieldModifier: ViewModifier {
             .font(Typography.body)
             .foregroundStyle(Palette.foreground)
             .padding(.horizontal, Spacing.lg)
-            .frame(minHeight: ControlHeight.xl)
-            .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.xl))
+            .frame(minHeight: 50)
+            .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.xxl, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: Radius.xl)
-                    .strokeBorder(borderColor, lineWidth: isFocused || isInvalid ? 1.5 : 1)
+                RoundedRectangle(cornerRadius: Radius.xxl, style: .continuous)
+                    .strokeBorder(borderColor, lineWidth: isFocused || isInvalid ? 1.5 : 0)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: Radius.xl)
+                RoundedRectangle(cornerRadius: Radius.xxl + 4, style: .continuous)
                     .strokeBorder(ringColor, lineWidth: 4)
                     .padding(-4)
             )
@@ -134,7 +180,7 @@ struct FormAlert: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(Spacing.lg)
-            .background(Palette.destructive.opacity(0.1), in: RoundedRectangle(cornerRadius: Radius.xl))
+            .background(Palette.destructive.opacity(0.12), in: RoundedRectangle(cornerRadius: Radius.xxl, style: .continuous))
         }
     }
 }

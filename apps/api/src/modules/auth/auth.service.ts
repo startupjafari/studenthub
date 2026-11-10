@@ -596,7 +596,15 @@ export class AuthService {
   }
 
   /** Logout: инвалидирует всю цепочку текущей сессии. */
-  async logout(rawToken: string | undefined, ctx: RequestContext): Promise<void> {
+  /**
+   * Выход. `deviceToken` — токен пушей устройства: отвязывается вместе с сессией и только у
+   * её владельца. Чужой токен (устройство уже числится за другим, вошедшим позже) не трогаем.
+   */
+  async logout(
+    rawToken: string | undefined,
+    ctx: RequestContext,
+    deviceToken?: string,
+  ): Promise<void> {
     const parsed = this.parseRawToken(rawToken)
     if (!parsed) {
       return
@@ -608,6 +616,7 @@ export class AuthService {
       return
     }
     await this.revokeFamily(record.familyId)
+    if (deviceToken) await this.push.unregisterDevice(record.userId, deviceToken)
     await this.audit.record({ userId: record.userId, action: 'logout', ...ctx })
   }
 

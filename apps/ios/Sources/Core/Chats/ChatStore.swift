@@ -95,7 +95,12 @@ struct ChatStore: Sendable {
             // Номер только растёт: страница списка может приехать с отставанием от
             // сокета, и откатить позицию догона означало бы перекачать переписку.
             lastSeq: max(known?.lastSeq ?? 0, item.lastMessage?.seq ?? 0),
-            updatedAt: item.updatedAt
+            updatedAt: item.updatedAt,
+            online: item.online ?? false,
+            isOwner: item.isOwner ?? false,
+            isAdmin: item.isAdmin ?? false,
+            blocked: item.blocked ?? false,
+            blockedBy: item.blockedBy ?? false
         )
         try chat.upsert(db)
 
@@ -111,22 +116,9 @@ struct ChatStore: Sendable {
     /// Сообщение-превью кладём в ту же таблицу, что и историю: это то же сообщение,
     /// и когда человек откроет чат, строка просто обновится.
     private func save(_ message: ChatMessageDTO, in db: Database) throws {
-        try MessageRecord(
-            id: message.id,
-            remoteId: message.id,
-            chatId: message.chatId,
-            seq: message.seq,
-            senderId: message.senderId,
-            content: message.content,
-            replyToId: message.replyToId,
-            replyQuote: message.replyQuote,
-            systemType: message.systemType,
-            editedAt: message.editedAt,
-            deletedAt: message.deletedAt,
-            pinnedAt: message.pinnedAt,
-            createdAt: message.createdAt,
-            sendState: .sent
-        ).upsert(db)
+        // Своё отправленное лежит под локальным ключом — его обновляет общий путь
+        // переписки, иначе превью вставило бы дубль с тем же `remoteId`.
+        try MessageStore.upsert(message, in: db)
     }
 
     /// Черновик с сервера принимаем, только если своего неотправленного нет.

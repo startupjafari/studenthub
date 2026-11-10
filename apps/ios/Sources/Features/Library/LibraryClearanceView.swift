@@ -9,27 +9,21 @@ struct LibraryClearanceView: View {
 
     var body: some View {
         List {
-            if let failure = model.failure {
-                FormAlert(message: failure)
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            }
-
             if let summary = model.summary {
                 statusSection(summary)
                 if !summary.isClear {
                     debtsSection(summary)
                 }
                 detailsSection(summary)
-            } else if model.isLoading {
-                ProgressView()
-                    .frame(maxWidth: .infinity)
+            } else if let failure = model.failure, !model.isLoading {
+                ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
                     .listRowBackground(Color.clear)
+            } else {
+                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
+        .listSectionSpacing(.compact)
         .navigationTitle(Text(String(localized: "library.clearance", defaultValue: "Справка из библиотеки")))
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await model.refresh() }
@@ -38,49 +32,34 @@ struct LibraryClearanceView: View {
 
     // MARK: - Секции
 
+    /// Итог крупно, как шапка карточки: зелёная печать — справку можно показывать,
+    /// красный треугольник — сначала вернуть долги.
     private func statusSection(_ summary: ClearanceSummary) -> some View {
         Section {
             if summary.isClear {
-                HStack(alignment: .top, spacing: Spacing.lg) {
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 28))
-                        .foregroundStyle(Palette.success)
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: Spacing.xs) {
-                        Text(String(localized: "library.clearTitle", defaultValue: "Задолженностей нет"))
-                            .font(Typography.cardTitle)
-                            .foregroundStyle(Palette.foreground)
-                        Text(LibraryText.fill(
-                            String(
-                                localized: "library.clearBody",
-                                defaultValue: "За {name} нет книг на руках на {date}."
-                            ),
-                            ["name": summary.reader.name, "date": Self.checked(summary.checkedAt)]
-                        ))
-                        .font(Typography.body)
-                        .foregroundStyle(Palette.foreground)
-                    }
-                }
-                .padding(.vertical, Spacing.xs)
-                .accessibilityElement(children: .combine)
+                HeroHeader(
+                    visual: .symbol("checkmark.seal.fill", tint: Palette.success),
+                    title: String(localized: "library.clearTitle", defaultValue: "Задолженностей нет"),
+                    subtitle: LibraryText.fill(
+                        String(
+                            localized: "library.clearBody",
+                            defaultValue: "За {name} нет книг на руках на {date}."
+                        ),
+                        ["name": summary.reader.name, "date": Self.checked(summary.checkedAt)]
+                    )
+                )
             } else {
-                HStack(alignment: .top, spacing: Spacing.lg) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 24))
-                        .foregroundStyle(Palette.destructive)
-                        .accessibilityHidden(true)
-                    Text(LibraryText.fill(
+                HeroHeader(
+                    visual: .symbol("exclamationmark.triangle.fill", tint: Palette.destructive),
+                    title: LibraryText.fill(
                         String(
                             localized: "library.notClearTitle",
                             defaultValue: "Долгов перед библиотекой: {count}. Верните книги, чтобы получить справку."
                         ),
                         ["count": String(summary.debts.count)]
-                    ))
-                    .font(Typography.cardTitle)
-                    .foregroundStyle(Palette.foreground)
-                }
-                .padding(.vertical, Spacing.xs)
-                .accessibilityElement(children: .combine)
+                    ),
+                    subtitle: summary.reader.name
+                )
             }
         } footer: {
             Text(summary.isClear
@@ -95,31 +74,34 @@ struct LibraryClearanceView: View {
                     localized: "library.clearanceSubtitle",
                     defaultValue: "Для обходного листа при выпуске или переводе"
                 ))
+            .frame(maxWidth: .infinity)
+            .multilineTextAlignment(.center)
         }
-        .listRowBackground(summary.isClear ? Palette.success.opacity(0.1) : Palette.destructive.opacity(0.08))
     }
 
     private func debtsSection(_ summary: ClearanceSummary) -> some View {
         Section {
             ForEach(summary.debts) { loan in
                 NavigationLink(value: AppRoute.book(id: loan.book.id)) {
-                    HStack(alignment: .top, spacing: Spacing.lg) {
-                        BookCoverView(url: loan.book.coverUrl, width: 32)
-                        VStack(alignment: .leading, spacing: Spacing.xs) {
+                    HStack(alignment: .center, spacing: Spacing.lg) {
+                        BookCoverView(url: loan.book.coverUrl, width: 44)
+                        VStack(alignment: .leading, spacing: 3) {
                             Text(loan.book.title)
-                                .font(Typography.cardTitle)
+                                .font(.body.weight(.semibold))
                                 .foregroundStyle(Palette.foreground)
                                 .lineLimit(2)
                             Text(LibraryText.fill(
                                 String(localized: "library.inventoryNumber", defaultValue: "инв. {number}"),
                                 ["number": loan.copy.inventoryNumber]
                             ))
-                            .font(Typography.meta)
+                            .font(.subheadline)
                             .foregroundStyle(Palette.mutedForeground)
                             ClearanceDebtBadge(loan: loan)
+                                .padding(.top, 2)
                         }
                     }
-                    .padding(.vertical, Spacing.xs)
+                    .padding(.vertical, 2)
+                    .accessibilityElement(children: .combine)
                 }
             }
         } header: {
@@ -135,42 +117,34 @@ struct LibraryClearanceView: View {
                 ))
             }
         }
-        .listRowBackground(Palette.card)
     }
 
     private func detailsSection(_ summary: ClearanceSummary) -> some View {
         Section {
-            detailRow(String(localized: "library.clearanceName", defaultValue: "ФИО"), summary.reader.name)
-            detailRow(String(localized: "library.clearanceGroup", defaultValue: "Группа"), summary.reader.group)
-            detailRow(String(localized: "library.clearanceFaculty", defaultValue: "Факультет"), summary.reader.faculty)
+            detailRow(String(localized: "library.clearanceName", defaultValue: "ФИО"), summary.reader.name, symbol: "person")
+            detailRow(String(localized: "library.clearanceGroup", defaultValue: "Группа"), summary.reader.group, symbol: "person.3")
+            detailRow(String(localized: "library.clearanceFaculty", defaultValue: "Факультет"), summary.reader.faculty, symbol: "building.columns")
             detailRow(
                 String(localized: "library.clearanceCard", defaultValue: "№ студенческого"),
-                summary.reader.studentCardNumber
+                summary.reader.studentCardNumber,
+                symbol: "person.text.rectangle"
             )
-            detailRow(String(localized: "library.clearanceUniversity", defaultValue: "Вуз"), summary.university)
+            detailRow(String(localized: "library.clearanceUniversity", defaultValue: "Вуз"), summary.university, symbol: "graduationcap")
             detailRow(
                 String(localized: "library.clearanceChecked", defaultValue: "Проверено"),
-                Self.checked(summary.checkedAt)
+                Self.checked(summary.checkedAt),
+                symbol: "clock"
             )
         } header: {
             Text(String(localized: "library.clearanceDetails", defaultValue: "Сведения"))
         }
-        .listRowBackground(Palette.card)
     }
 
     /// Строка сведений; пустое поле (нет группы, не указан билет) не рисуется вовсе.
     @ViewBuilder
-    private func detailRow(_ label: String, _ value: String?) -> some View {
+    private func detailRow(_ label: String, _ value: String?, symbol: String) -> some View {
         if let value, !value.trimmingCharacters(in: .whitespaces).isEmpty {
-            LabeledContent {
-                Text(value)
-                    .foregroundStyle(Palette.foreground)
-                    .multilineTextAlignment(.trailing)
-            } label: {
-                Text(label)
-                    .foregroundStyle(Palette.mutedForeground)
-            }
-            .font(Typography.body)
+            DetailRow(title: label, value: value, symbol: symbol)
         }
     }
 

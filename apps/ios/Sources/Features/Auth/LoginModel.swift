@@ -21,6 +21,8 @@ final class LoginModel {
     private(set) var isBusy = false
     /// Ошибка всей формы: неверная пара логин-пароль, блокировка, нет связи.
     private(set) var formError: String?
+    /// Ошибка формы — обрыв связи: экран показывает «нет связи» с повтором, а не текст сбоя.
+    private(set) var formErrorIsOffline = false
     private(set) var identifierError: String?
     private(set) var passwordError: String?
     private(set) var codeError: String?
@@ -118,7 +120,7 @@ final class LoginModel {
     @MainActor
     private func adopt(_ issued: AuthSession, into session: AppSessionModel) async {
         guard await session.adopt(issued) else {
-            formError = String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            formError = String(localized: "error.generic", defaultValue: "Что-то пошло не так. Попробуйте ещё раз")
             return
         }
         password = ""
@@ -132,8 +134,9 @@ final class LoginModel {
     /// валидации и переводится каталогом; прочие серверные тексты — как есть.
     @MainActor
     private func handle(_ error: Error) {
+        formErrorIsOffline = error.isOffline
         guard let apiError = error as? APIError else {
-            formError = String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            formError = error.userMessage
             return
         }
 
@@ -162,6 +165,7 @@ final class LoginModel {
     @MainActor
     private func clearErrors() {
         formError = nil
+        formErrorIsOffline = false
         identifierError = nil
         passwordError = nil
         codeError = nil

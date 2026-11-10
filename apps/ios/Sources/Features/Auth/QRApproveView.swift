@@ -178,7 +178,7 @@ struct QRApproveView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Spacing.lg)
-        .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.xl))
+        .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
     }
 
     private func waiting(_ text: String) -> some View {

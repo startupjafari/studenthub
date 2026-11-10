@@ -52,6 +52,7 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild test \
+            -project StudentHub.xcodeproj \
             -scheme StudentHub \
             -destination 'platform=iOS Simulator,name=iPhone 16' \
             -resultBundlePath TestResults.xcresult \

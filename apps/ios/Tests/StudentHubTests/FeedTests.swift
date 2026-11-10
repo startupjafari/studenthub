@@ -129,11 +129,87 @@ final class PostCommentsModelTests: XCTestCase {
     }
 }
 
+@MainActor
+final class FeedActionsTests: XCTestCase {
+    /// Закладка ставится сразу, а отказ сервера её снимает: иначе человек уверен, что
+    /// пост сохранён.
+    func testFailedBookmarkRollsBack() async {
+        let api = StubFeed()
+        api.posts = [PostDTO(
+            id: "p-1", content: "текст", createdAt: Date(), author: nil, media: nil, reactionSummary: nil,
+            counts: nil
+        )]
+        let model = FeedModel(api: api)
+        await model.refresh()
+        api.failure = .transport(URLError(.notConnectedToInternet))
+
+        await model.toggleBookmark("p-1")
+
+        XCTAssertFalse(model.isBookmarked("p-1"))
+        XCTAssertNotNil(model.actionFailure)
+    }
+
+    /// Ответ на ответ уходит на корень: вложенность у сервера одна.
+    func testReplyToReplyTargetsRoot() async {
+        let api = StubFeed()
+        let model = PostCommentsModel(postID: "p-1", api: api)
+        model.replyTo = PostCommentDTO(id: "c-2", content: "ответ", createdAt: Date(), author: nil, parentId: "c-1")
+        model.draft = "ещё ответ"
+
+        await model.send()
+
+        XCTAssertEqual(model.comments.last?.parentId, "c-1")
+        XCTAssertNil(model.replyTo)
+    }
+
+    /// Неизвестная наклейка истории не роняет разбор: сервер добавит тип раньше, чем
+    /// обновятся телефоны.
+    func testUnknownStoryElementIsSkipped() throws {
+        let json = Data(
+            """
+            [{"type":"sticker3d","x":0.2,"y":0.3,"scale":1,"rotation":0},
+             {"type":"mention","userId":"u-1","name":"Аян","x":0.5,"y":0.5,"scale":1,"rotation":10}]
+            """.utf8
+        )
+
+        let elements = try JSONCoding.decoder.decode([StoryElement].self, from: json)
+
+        XCTAssertEqual(elements.first?.kind, .unknown)
+        XCTAssertEqual(elements.last?.kind, .mention(userID: "u-1", name: "Аян"))
+        XCTAssertEqual(elements.last?.rotation, 10)
+    }
+
+    /// Пост ленты разбирает медиа с копиями и HLS, репост и права.
+    func testPostDecodesMediaAndRepost() throws {
+        let json = Data(
+            """
+            {"id":"p-2","content":"","createdAt":"2026-11-07T10:00:00.000Z","authorId":"u-1",
+            "author":{"id":"u-1","firstName":"Аян","lastName":"Серик","role":"TEACHER","avatarUrl":null},
+            "audience":"GROUP","originalPostId":"p-1","original":null,"bookmarked":true,"canDelete":false,
+            "media":[{"id":"m-1","mime":"video/mp4","width":1920,"height":1080,"placeholder":null,
+            "sources":[],"poster":[{"width":640,"height":360,"url":"https://cdn/p.webp"}],
+            "hls":"/api/v1/media/m-1/hls/master.m3u8?t=x","status":"READY","durationMs":12000}],
+            "reactionSummary":[],"_count":{"comments":0}}
+            """.utf8
+        )
+
+        let post = try JSONCoding.decoder.decode(PostDTO.self, from: json)
+
+        XCTAssertTrue(post.isRepost)
+        XCTAssertNil(post.original)
+        XCTAssertEqual(post.author?.role, "TEACHER")
+        XCTAssertEqual(post.media?.first?.isVideo, true)
+        XCTAssertEqual(post.media?.first?.aspectRatio, 1920.0 / 1080.0)
+        XCTAssertEqual(post.bookmarked, true)
+    }
+}
+
 private final class StubFeed: FeedFetching, @unchecked Sendable {
     private let lock = NSLock()
     var posts: [PostDTO] = []
     var events: [EventDTO] = []
     var failure: APIError?
+    var bookmarkResult = true
 
     func posts(cursor: String?) async throws -> Page<PostDTO> {
         Page(items: lock.withLock { posts }, meta: nil)
@@ -144,14 +220,51 @@ private final class StubFeed: FeedFetching, @unchecked Sendable {
         }
         return post
     }
-    func comments(postID: String) async throws -> [PostCommentDTO] { [] }
-    func comment(postID: String, text: String) async throws -> PostCommentDTO {
+    func comments(postID: String, cursor: String?) async throws -> Page<PostCommentDTO> {
+        Page(items: [], meta: nil)
+    }
+    func comment(postID: String, text: String, parentID: String?) async throws -> PostCommentDTO {
         if let failure = lock.withLock({ failure }) { throw failure }
-        return PostCommentDTO(id: "c-1", content: text, createdAt: Date(), author: nil)
+        return PostCommentDTO(id: "c-1", content: text, createdAt: Date(), author: nil, parentId: parentID)
+    }
+    func deleteComment(postID: String, commentID: String) async throws {
+        if let failure = lock.withLock({ failure }) { throw failure }
     }
     func react(postID: String, emoji: String, on: Bool) async throws {
         if let failure = lock.withLock({ failure }) { throw failure }
     }
+    func toggleBookmark(postID: String) async throws -> Bool {
+        if let failure = lock.withLock({ failure }) { throw failure }
+        return lock.withLock { bookmarkResult }
+    }
+    func repost(postID: String, note: String?) async throws -> PostDTO {
+        if let failure = lock.withLock({ failure }) { throw failure }
+        return PostDTO(
+            id: "r-1", content: note, createdAt: Date(), author: nil, media: nil, reactionSummary: nil,
+            counts: nil, originalPostId: postID
+        )
+    }
+    func editPost(id: String, content: String) async throws -> PostDTO {
+        if let failure = lock.withLock({ failure }) { throw failure }
+        return PostDTO(
+            id: id, content: content, createdAt: Date(), author: nil, media: nil, reactionSummary: nil,
+            counts: nil
+        )
+    }
+    func deletePost(id: String) async throws {
+        if let failure = lock.withLock({ failure }) { throw failure }
+    }
+    func markViewed(postID: String) async throws {}
+    func createPost(content: String, mediaIDs: [String], targetUserID: String?) async throws -> PostDTO {
+        PostDTO(id: "n-1", content: content, createdAt: Date(), author: nil, media: nil, reactionSummary: nil, counts: nil)
+    }
+    func upload(_ data: Data, mime: String, filename: String, bucket: UploadBucket) async throws -> UploadedFileDTO {
+        UploadedFileDTO(id: "f-1", mime: mime)
+    }
+    func report(_ target: ComplaintTarget, id: String, reason: String) async throws {}
+    func upcomingEvents() async throws -> [EventDTO] { lock.withLock { events } }
+    func unreadNotifications() async throws -> Int { 0 }
+    func search(_ query: String) async throws -> SearchResultsDTO { SearchResultsDTO(people: [], events: []) }
     func events(onlyMine: Bool) async throws -> Page<EventDTO> {
         Page(items: lock.withLock { events }, meta: nil)
     }

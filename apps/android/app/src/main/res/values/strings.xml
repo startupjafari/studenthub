@@ -187,4 +187,31 @@
     <string name="chats_sysAvatarChanged">%1$s изменил(а) фото группы</string>
     <string name="chats_sysMessagePinned">%1$s закрепил(а) сообщение</string>
     <string name="chats_sysOwnerChanged">%1$s передал(а) владение %2$s</string>
+
+    <!-- Ушли из каталога iOS (его экраны переделаны), а Android их ещё использует. -->
+    <string name="applications_mine">Мои заявки</string>
+    <string name="applications_openDocument">Готовый документ</string>
+    <string name="applications_sending">Отправляем…</string>
+    <string name="applications_sent">Заявка подана</string>
+    <string name="auth_identifierPlaceholder">you@example.com или username</string>
+    <string name="auth_loginTitle">Вход</string>
+    <string name="auth_welcomeSubtitle">Войдите в свой аккаунт</string>
+    <string name="chats_attachPhoto">Фото</string>
+    <string name="documents_noFiles">Файлов нет</string>
+    <string name="home_feed">Лента</string>
+    <string name="home_nextPair">Ближайшая пара</string>
+    <string name="profile_saved">Сохранено</string>
+    <string name="profile_saving">Сохраняем…</string>
+    <string name="session_roleInWebHint">Приложение сделано для студентов, старост и преподавателей. Остальные разделы платформы откройте в браузере.</string>
+    <string name="session_roleInWebTitle">Эта роль работает в браузере</string>
+    <string name="shell_placeholder">Этот раздел появится в следующем обновлении</string>
+    <string name="study_attendanceLog">Занятия</string>
+    <string name="study_attendanceRate">Посещаемость</string>
+    <string name="study_lesson">Занятие</string>
+    <string name="study_link">Ссылка</string>
+    <string name="study_noGrades">Оценок пока нет</string>
+    <string name="study_noScore">—</string>
+    <string name="study_sending">Отправляем…</string>
+    <string name="tab_more">Ещё</string>
+    <string name="tab_study">Учёба</string>
 </resources>
