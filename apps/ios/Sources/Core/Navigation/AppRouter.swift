@@ -20,7 +20,7 @@ enum AppRoute: Hashable {
     case libraryClearance
     case book(id: String)
     case bookCopy(code: String)
-    /// Поиск людей и событий из верхней панели главной.
+    /// Поиск людей и событий из верхней панели ленты (iOS 17: без вкладки поиска).
     case search
     /// Информация о чате: участники, содержимое, управление.
     case chatInfo(id: String)
@@ -116,26 +116,27 @@ final class AppRouter {
                 MoreSection.sections(for: role).contains(section)
                     || MoreSection.modules(for: role).contains(section)
             else { return false }
-            push(.services, [.section(section)])
+            push(.workspace, [.section(section)])
         case .chat(let id):
             push(.chats, [.chat(id: id)])
         case .post(let id):
-            push(.home, [.post(id: id)])
+            push(.feed, [.post(id: id)])
         case .profile(let id):
-            push(.home, [.profile(id: id)])
+            push(.feed, [.profile(id: id)])
         case .lesson(let id):
-            push(.schedule, [.lesson(id: id)])
+            // Под занятием — расписание: «назад» из пары, открытой пушем, ведёт в него.
+            push(.workspace, [.section(.schedule), .lesson(id: id)])
         case .application(let id):
             // Под карточкой оставляем список: «назад» из заявки, открытой пушем,
             // должно вести к заявкам, а не выбрасывать на главную.
-            push(.services, [.section(.applications), .application(id: id)])
+            push(.workspace, [.section(.applications), .application(id: id)])
         case .event(let id):
-            push(.services, [.section(.events), .event(id: id)])
+            push(.workspace, [.section(.events), .event(id: id)])
         case .myBooks, .book, .bookCopy:
             // Под книгой и «Моими книгами» — каталог: «назад» из уведомления библиотеки
             // ведёт в библиотеку, а не выбрасывает на главную.
             guard MoreSection.modules(for: role).contains(.library) else { return false }
-            push(.services, [.section(.library), Self.libraryRoute(link)])
+            push(.workspace, [.section(.library), Self.libraryRoute(link)])
         }
         return true
     }

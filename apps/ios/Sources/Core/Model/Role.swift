@@ -32,7 +32,7 @@ enum Role: String, Decodable, Equatable, CaseIterable, Sendable {
         self != .unknown
     }
 
-    /// Учебные роли с вкладками «Расписание», «Учёба», «Сервисы».
+    /// Учебные роли: их «Разделы» начинаются с учёбы, «Главная» — их учебный день.
     var isAcademic: Bool {
         self == .student || self == .starosta || self == .teacher
     }

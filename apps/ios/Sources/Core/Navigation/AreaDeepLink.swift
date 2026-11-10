@@ -48,9 +48,9 @@ struct AreaDeepLink: Equatable {
         switch (head, rest.first, rest.count) {
         case ("checkin", nil, 0) where role == .student || role == .starosta:
             let screen: StudentScreen = value("t").map { .checkinToken($0) } ?? .checkin
-            return AreaDeepLink(tab: .services, routes: [.student(screen)])
+            return AreaDeepLink(tab: .workspace, routes: [.student(screen)])
         case ("r", "resume", 2):
-            return AreaDeepLink(tab: .home, routes: [.career(.publicResume(slug: rest[1]))])
+            return AreaDeepLink(tab: .workspace, routes: [.career(.publicResume(slug: rest[1]))])
         case ("r", .some(let code), 1) where role == .securityGuard:
             return AreaDeepLink(tab: .workspace, routes: [.security(.roomStatus(code: code))])
         case ("c", .some(let code), 1) where role == .librarian:
@@ -58,17 +58,17 @@ struct AreaDeepLink: Equatable {
         case ("verify-id", _, _) where role == .securityGuard:
             return AreaDeepLink(tab: .workspace, routes: [.security(.verifyID)])
         case ("companies", .some(let id), 1) where !CareerScreen.items(for: role).isEmpty || role == .employer:
-            return AreaDeepLink(tab: .home, routes: [.career(.company(id: id))])
+            return AreaDeepLink(tab: .workspace, routes: [.career(.company(id: id))])
         case ("calendar", nil, 0) where role.isAcademic || role == .dean:
-            return AreaDeepLink(tab: role == .dean ? .workspace : .study, routes: [.student(.calendar)])
+            return AreaDeepLink(tab: .workspace, routes: [.student(.calendar)])
         case ("tasks", nil, 0) where role == .student || role == .starosta:
-            return AreaDeepLink(tab: .study, routes: [.student(.tasks)])
+            return AreaDeepLink(tab: .workspace, routes: [.student(.tasks)])
         case ("exams", nil, 0) where role == .student || role == .starosta:
-            return AreaDeepLink(tab: .study, routes: [.student(.exams)])
+            return AreaDeepLink(tab: .workspace, routes: [.student(.exams)])
         case ("study-plan", nil, 0) where role == .student || role == .starosta:
-            return AreaDeepLink(tab: .study, routes: [.student(.studyPlan)])
+            return AreaDeepLink(tab: .workspace, routes: [.student(.studyPlan)])
         case ("student-id", nil, 0) where role == .student || role == .starosta:
-            return AreaDeepLink(tab: .services, routes: [.student(.studentID)])
+            return AreaDeepLink(tab: .workspace, routes: [.student(.studentID)])
         case ("career", _, _):
             return career(rest, role: role)
         default:
@@ -96,20 +96,19 @@ struct AreaDeepLink: Equatable {
         case ("employer", .employer):
             return section(rest, tab: .workspace, table: employerTable)
         case ("teacher", .teacher):
-            return section(rest, tab: .study, table: teacherTable)
+            return section(rest, tab: .workspace, table: teacherTable)
         case ("starosta", .starosta):
-            return section(rest, tab: .services, table: starostaTable)
+            return section(rest, tab: .workspace, table: starostaTable)
         default:
             return nil
         }
     }
 
     /// Раздел роли по первому сегменту после префикса. Пустой путь — корень роли:
-    /// открываем вкладку «Обзор» без экранов поверх.
+    /// открываем «Главную» без экранов поверх.
     private static func section(_ rest: [String], tab: AppTab, table: [String: AppRoute]) -> AreaDeepLink? {
         guard let name = rest.first else {
-            // У учебных ролей корень раздела — их главная, её разбирает `DeepLink`.
-            return tab == .workspace ? AreaDeepLink(tab: .dashboard, routes: []) : nil
+            return AreaDeepLink(tab: .home, routes: [])
         }
         guard rest.count == 1, let route = table[name] else { return nil }
         return AreaDeepLink(tab: tab, routes: [route])
@@ -117,7 +116,7 @@ struct AreaDeepLink: Equatable {
 
     private static func career(_ rest: [String], role: Role) -> AreaDeepLink? {
         let allowed = CareerScreen.items(for: role).map(\.route)
-        let tab: AppTab = role.isAcademic ? .services : .workspace
+        let tab = AppTab.workspace
         guard let name = rest.first else {
             return allowed.contains(.career(.home)) ? AreaDeepLink(tab: tab, routes: [.career(.home)]) : nil
         }

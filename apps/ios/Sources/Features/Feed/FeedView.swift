@@ -1,19 +1,16 @@
 import SwiftUI
 
-/// Главная: истории, ближайшая пара, «Что нового?» и лента.
+/// Лента: истории, «Что нового?», заявки в друзья и публикации.
 ///
-/// Порядок не случаен: сверху свежее у своих (истории) и то, ради чего открывают
-/// приложение («когда и где я должен быть»), ниже — то, что читают, если есть
-/// минута. Кто я — аватар в верхней панели, отдельная карточка ему не нужна.
-/// Боковая колонка веба (события, заявки в друзья) превращена в компактные полосы
-/// над лентой и появляется, только когда в ней что-то есть.
-struct HomeView: View {
+/// Как в любой социальной ленте, сверху свежее у своих (истории), ниже — то, что читают,
+/// если есть минута. Учебный день (ближайшая пара, сроки, события) — на «Главной»: лента
+/// не дублирует его, чтобы оставаться лентой. Кто я — аватар в верхней панели.
+struct FeedView: View {
     let role: Role
 
     @Environment(\.viewerID) private var viewerID
     @Environment(ViewerProfileModel.self) private var viewer
     @State private var feed = FeedModel()
-    @State private var schedule = ScheduleModel()
     @State private var home = HomeModel()
     @State private var stories = StoriesModel()
     @State private var viewingRing: String?
@@ -26,22 +23,11 @@ struct HomeView: View {
         PostActionsHost(model: feed) { actions in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Spacing.lg) {
-                    // Истории — первыми, как в любой социальной ленте: свежее у друзей
-                    // и группы видно, не прокручивая.
                     storiesSection
-
-                    if let next = schedule.nextPair() {
-                        NextClassCard(pair: next)
-                            .padding(.horizontal, Spacing.xl)
-                    }
 
                     if !home.friendRequests.isEmpty {
                         FriendRequestsCard(model: home)
                             .padding(.horizontal, Spacing.xl)
-                    }
-
-                    if !home.events.isEmpty, !CommunityPlatformState.shared.isDisabled("events") {
-                        EventsStrip(events: home.events)
                     }
 
                     if !CommunityPostAudience.allowed(for: role).isEmpty {
@@ -59,8 +45,8 @@ struct HomeView: View {
             }
             .background(Palette.background)
         }
-        .navigationTitle(Text(AppTab.home.title))
-        // Компактная панель: на главной место у историй и ленты, а не у заголовка.
+        .navigationTitle(Text(AppTab.feed.title))
+        // Компактная панель: в ленте место у историй и публикаций, а не у заголовка.
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -71,7 +57,7 @@ struct HomeView: View {
             }
         }
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
+            ToolbarItem(placement: .topBarTrailing) {
                 // С iOS 18 поиск — своя вкладка у края панели; здесь он нужен только на iOS 17.
                 if #available(iOS 18, *) {
                     EmptyView()
@@ -81,38 +67,14 @@ struct HomeView: View {
                     }
                     .accessibilityLabel(Text(String(localized: "search.title", defaultValue: "Поиск")))
                 }
-
-                NavigationLink(value: AppRoute.section(.notifications)) {
-                    Image(systemName: home.unreadNotifications > 0 ? "bell.badge" : "bell")
-                        .symbolRenderingMode(.multicolor)
-                }
-                .accessibilityLabel(Text(String(localized: "home.notifications", defaultValue: "Уведомления")))
-                .accessibilityValue(Text(home.unreadNotifications > 0
-                    ? String(localized: "home.notifications.unread", defaultValue: "Непрочитанных: \(home.unreadNotifications)")
-                    : ""))
             }
         }
-        .refreshable {
-            async let posts: Void = feed.refresh()
-            async let pairs: Void = schedule.refresh()
-            async let side: Void = home.refresh()
-            async let rings: Void = stories.refresh()
-            async let me: Void = viewer.refresh()
-            _ = await (posts, pairs, side, rings, me)
-        }
+        .refreshable { await reload() }
         .task {
-            schedule.start()
-            // Выключенные платформой разделы: от них зависят пункты меню постов и полосы.
-            await CommunityPlatformState.shared.refresh()
-            async let posts: Void = feed.refresh()
-            async let pairs: Void = schedule.refresh()
-            async let side: Void = home.refresh()
-            async let rings: Void = stories.refresh()
-            _ = await (posts, pairs, side, rings)
-        }
-        .onAppear {
-            // Вернулись из уведомлений — точка на колокольчике должна погаснуть.
-            Task { await home.refreshUnread() }
+            // Вкладка возвращается на экран после каждого перехода назад; лента, прокрученная
+            // на пятую страницу, не должна сбрасываться к первой. Обновление — жестом.
+            guard !feed.hasLoaded else { return }
+            await reload()
         }
         .onChange(of: filter) { _, next in
             let scope: FeedScope
@@ -147,6 +109,16 @@ struct HomeView: View {
         } message: {
             Text(home.actionFailure ?? "")
         }
+    }
+
+    /// Всё разом: выключенные платформой разделы (от них зависят пункты меню постов),
+    /// публикации, истории, заявки в друзья — запросы не зависят друг от друга.
+    private func reload() async {
+        async let platform: Void = CommunityPlatformState.shared.refresh()
+        async let posts: Void = feed.refresh()
+        async let requests: Void = home.refreshFriendRequests()
+        async let rings: Void = stories.refresh()
+        _ = await (platform, posts, requests, rings)
     }
 
     /// Разделы ленты, как вкладки над лентой веба. «Модерация» — только ролям, которые
@@ -238,75 +210,6 @@ private struct RingTarget: Identifiable {
 
 // MARK: - Блоки над лентой
 
-/// Ближайшая пара. Нажатие ведёт в расписание — там весь день и изменения.
-private struct NextClassCard: View {
-    let pair: SchedulePair
-
-    var body: some View {
-        Button {
-            AppServices.router.select(.schedule)
-        } label: {
-            HStack(alignment: .top, spacing: Spacing.lg) {
-                VStack(spacing: 2) {
-                    Text(verbatim: pair.startTime)
-                        .font(Typography.tabular(.headline))
-                    Text(verbatim: pair.endTime)
-                        .font(Typography.tabular(Typography.meta))
-                        .foregroundStyle(Palette.mutedForeground)
-                }
-                .frame(minWidth: 52)
-                .padding(.vertical, Spacing.sm)
-                .background(Palette.primary.opacity(0.1), in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
-                .foregroundStyle(Palette.primary)
-
-                VStack(alignment: .leading, spacing: Spacing.xs) {
-                    Text(isNow
-                        ? String(localized: "home.nowPair", defaultValue: "Сейчас идёт")
-                        : String(localized: "home.nextPair", defaultValue: "Ближайшая пара"))
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(isNow ? Palette.success : Palette.mutedForeground)
-                        .textCase(.uppercase)
-                    Text(pair.pair.subject)
-                        .font(Typography.cardTitle)
-                        .foregroundStyle(Palette.foreground)
-                        .lineLimit(2)
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: Spacing.lg) { details }
-                        VStack(alignment: .leading, spacing: Spacing.xs) { details }
-                    }
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
-                    if let note = pair.changeNote {
-                        Label(note, systemImage: "exclamationmark.circle")
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.warning)
-                    }
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(Spacing.lg)
-            .cardSurface()
-        }
-        .buttonStyle(.plain)
-        .accessibilityHint(Text(String(localized: "home.nextPair.open", defaultValue: "Открыть расписание")))
-    }
-
-    @ViewBuilder
-    private var details: some View {
-        if let room = pair.pair.roomName, !room.isEmpty {
-            Label(room, systemImage: "mappin.and.ellipse").lineLimit(1)
-        }
-        if let teacher = pair.pair.teacherName, !teacher.isEmpty {
-            Label(teacher, systemImage: "person").lineLimit(1)
-        }
-    }
-
-    private var isNow: Bool {
-        let now = ScheduleModel.clock(of: Date(), calendar: .current)
-        return pair.startTime <= now && now < pair.endTime
-    }
-}
-
 /// Входящие заявки в друзья: принять или отклонить, не уходя с главной.
 private struct FriendRequestsCard: View {
     let model: HomeModel
@@ -358,59 +261,6 @@ private struct FriendRequestsCard: View {
         }
         .padding(Spacing.lg)
         .cardSurface()
-    }
-}
-
-/// Ближайшие события — горизонтальная полоса карточек.
-private struct EventsStrip: View {
-    let events: [EventDTO]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.md) {
-            HStack {
-                Text(String(localized: "home.events", defaultValue: "Ближайшие события"))
-                    .font(Typography.sectionTitle)
-                Spacer()
-                NavigationLink(value: AppRoute.section(.events)) {
-                    Text(String(localized: "home.all", defaultValue: "Все"))
-                        .font(Typography.meta.weight(.medium))
-                }
-            }
-            .padding(.horizontal, Spacing.xl)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: Spacing.md) {
-                    ForEach(events) { event in
-                        NavigationLink(value: AppRoute.community(.event(id: event.id))) {
-                            VStack(alignment: .leading, spacing: Spacing.xs) {
-                                Text(event.startsAt, format: .dateTime.day().month(.abbreviated).hour().minute())
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(Palette.primary)
-                                Text(event.title)
-                                    .font(Typography.body.weight(.medium))
-                                    .foregroundStyle(Palette.foreground)
-                                    .lineLimit(2)
-                                    .multilineTextAlignment(.leading)
-                                Spacer(minLength: 0)
-                                if let location = event.location, !location.isEmpty {
-                                    Label(location, systemImage: "mappin")
-                                        .font(Typography.meta)
-                                        .foregroundStyle(Palette.mutedForeground)
-                                        .lineLimit(1)
-                                }
-                            }
-                            .padding(Spacing.lg)
-                            .frame(width: 220, alignment: .leading)
-                            .frame(minHeight: 110, alignment: .topLeading)
-                            .cardSurface()
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, Spacing.xl)
-            }
-            .scrollClipDisabled()
-        }
     }
 }
 

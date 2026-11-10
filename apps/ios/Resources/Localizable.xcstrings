@@ -6223,40 +6223,6 @@
         }
       }
     },
-    "home.nextPair": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ближайшая пара"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Жақын сабақ"
-          }
-        }
-      }
-    },
-    "home.nextPair.open": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Открыть расписание"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Кестені ашу"
-          }
-        }
-      }
-    },
     "home.notifications": {
       "extractionState": "manual",
       "localizations": {
@@ -10558,23 +10524,6 @@
         }
       }
     },
-    "services.search": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Поиск сервиса"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сервисті іздеу"
-          }
-        }
-      }
-    },
     "session.signOut": {
       "extractionState": "manual",
       "localizations": {
@@ -12309,23 +12258,6 @@
         }
       }
     },
-    "study.events": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "События и календарь"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Іс-шаралар және күнтізбе"
-          }
-        }
-      }
-    },
     "study.excused": {
       "extractionState": "manual",
       "localizations": {
@@ -12632,40 +12564,6 @@
         }
       }
     },
-    "study.summary": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Моя учёба"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Менің оқуым"
-          }
-        }
-      }
-    },
-    "study.summary.course": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld курс"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld-курс"
-          }
-        }
-      }
-    },
     "study.yourWork": {
       "extractionState": "manual",
       "localizations": {
@@ -12730,40 +12628,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Кесте"
-          }
-        }
-      }
-    },
-    "tab.services": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сервисы"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сервистер"
-          }
-        }
-      }
-    },
-    "tab.study": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Учёба"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Оқу"
           }
         }
       }
@@ -14779,23 +14643,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Пайдаланушы"
-          }
-        }
-      }
-    },
-    "tab.dashboard": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Обзор"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Шолу"
           }
         }
       }
@@ -16819,23 +16666,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Оқытушыға"
-          }
-        }
-      }
-    },
-    "study.more": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ещё по учёбе"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Оқу бойынша тағы"
           }
         }
       }
@@ -90752,6 +90582,210 @@
           "stringUnit": {
             "state": "translated",
             "value": "Бұл пайдаланушы аты бос емес"
+          }
+        }
+      }
+    },
+    "home.applications.active": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заявки в работе"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жұмыстағы өтініштер"
+          }
+        }
+      }
+    },
+    "home.applications.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все заявки"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Барлық өтініштер"
+          }
+        }
+      }
+    },
+    "home.assignments.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все задания"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Барлық тапсырмалар"
+          }
+        }
+      }
+    },
+    "home.events.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все события"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Барлық іс-шаралар"
+          }
+        }
+      }
+    },
+    "home.newApplication": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новая заявка"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жаңа өтініш"
+          }
+        }
+      }
+    },
+    "home.notifications.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все уведомления"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Барлық хабарламалар"
+          }
+        }
+      }
+    },
+    "home.notifications.unreadTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Непрочитанные уведомления"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оқылмаған хабарламалар"
+          }
+        }
+      }
+    },
+    "home.offline.schedule": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет связи — расписание из сохранённого"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Байланыс жоқ — сақталған кесте көрсетілген"
+          }
+        }
+      }
+    },
+    "home.schedule.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всё расписание"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бүкіл кесте"
+          }
+        }
+      }
+    },
+    "home.schedule.more": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "И ещё пар сегодня: %lld"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бүгін тағы сабақтар: %lld"
+          }
+        }
+      }
+    },
+    "home.student.progress": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Успеваемость"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Үлгерім"
+          }
+        }
+      }
+    },
+    "workspace.schedule.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пары на день и неделю"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Күнге және аптаға сабақтар"
           }
         }
       }

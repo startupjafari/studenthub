@@ -147,12 +147,15 @@ final class ProfileFormTests: XCTestCase {
 
 final class ServicesCatalogTests: XCTestCase {
     /// Раздел роли, не попавший ни в одну группу каталога, просто исчез бы из
-    /// «Сервисов» — и до него нельзя было бы дойти иначе как по ссылке.
+    /// «Разделов» — и до него нельзя было бы дойти иначе как по ссылке.
+    @MainActor
     func testEveryRoleSectionHasAGroup() {
-        let grouped = Set(ServiceGroup.allCases.flatMap(\.order))
         for role in [Role.student, .starosta, .teacher] {
+            let modules = Set(MoreSection.modules(for: role))
+            let routes = (Workspace.groups(for: role, modules: modules) + [Workspace.accountGroup(for: role)])
+                .flatMap(\.items).map(\.route)
             for section in MoreSection.sections(for: role) + MoreSection.modules(for: role) {
-                XCTAssertTrue(grouped.contains(section), "\(section) у \(role) вне групп")
+                XCTAssertTrue(routes.contains(.section(section)), "\(section) у \(role) вне групп")
             }
         }
     }
@@ -172,8 +175,8 @@ final class ServiceDeepLinkTests: XCTestCase {
 
         let router = AppRouter()
         XCTAssertTrue(router.open(URL(string: "studenthub://portfolio")!, for: .student))
-        XCTAssertEqual(router.selectedTab, .services)
-        XCTAssertEqual(router.stack(for: .services), [.section(.portfolio)])
+        XCTAssertEqual(router.selectedTab, .workspace)
+        XCTAssertEqual(router.stack(for: .workspace), [.section(.portfolio)])
     }
 
     /// Деканат — только студенту и старосте: преподавателю ссылку откроет браузер.

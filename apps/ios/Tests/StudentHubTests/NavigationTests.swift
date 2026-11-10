@@ -17,26 +17,26 @@ final class DeepLinkTests: XCTestCase {
         XCTAssertEqual(link("studenthub://"), .tab(.home))
         XCTAssertEqual(link("https://studenthub.kz/"), .tab(.home))
         XCTAssertEqual(link("https://studenthub.kz/chats"), .tab(.chats))
-        XCTAssertEqual(link("https://studenthub.kz/schedule"), .tab(.schedule))
+        XCTAssertEqual(link("https://studenthub.kz/schedule"), .section(.schedule))
     }
 
-    /// Учёба в вебе — несколько разделов, на телефоне — одна вкладка.
-    func testStudyRoutesCollapseIntoOneTab() {
+    /// Учёба в вебе — несколько разделов, на телефоне — группа «Разделов».
+    func testStudyRoutesOpenSections() {
         for path in ["grades", "assignments", "attendance", "courses", "academic"] {
-            XCTAssertEqual(link("https://studenthub.kz/\(path)"), .tab(.study), "не сошлось на /\(path)")
+            XCTAssertEqual(link("https://studenthub.kz/\(path)"), .tab(.workspace), "не сошлось на /\(path)")
         }
     }
 
     /// Уведомления о постах и подписках ведут в ленту и в чужой профиль.
     func testFeedAndProfileLinks() {
-        XCTAssertEqual(link("https://studenthub.kz/feed"), .tab(.home))
+        XCTAssertEqual(link("https://studenthub.kz/feed"), .tab(.feed))
         XCTAssertEqual(link("studenthub://profile/u-7"), .profile(id: "u-7"))
         XCTAssertEqual(link("https://studenthub.kz/profile"), .section(.profile))
     }
 
     /// Ролевой префикс веба на телефоне ничего не значит: вкладки у всех одни.
     func testRolePrefixIsIgnored() {
-        XCTAssertEqual(link("https://studenthub.kz/teacher/schedule"), .tab(.schedule))
+        XCTAssertEqual(link("https://studenthub.kz/teacher/schedule"), .section(.schedule))
         XCTAssertEqual(link("https://studenthub.kz/teacher/chats"), .tab(.chats))
     }
 
@@ -96,19 +96,35 @@ final class AppRouterTests: XCTestCase {
 
         XCTAssertTrue(router.open(.application(id: "app-1"), for: .student))
 
-        XCTAssertEqual(router.selectedTab, .services)
-        XCTAssertEqual(router.stack(for: .services), [.section(.applications), .application(id: "app-1")])
+        XCTAssertEqual(router.selectedTab, .workspace)
+        XCTAssertEqual(router.stack(for: .workspace), [.section(.applications), .application(id: "app-1")])
     }
 
-    /// У каждой вкладки свой стек: уход в расписание и возврат оставляют открытый
+    /// Пара из пуша открывается поверх расписания: «назад» ведёт в него.
+    func testLessonKeepsScheduleBeneathIt() {
+        let router = AppRouter()
+
+        XCTAssertTrue(router.open(.lesson(id: "pair-1"), for: .student))
+
+        XCTAssertEqual(router.selectedTab, .workspace)
+        XCTAssertEqual(router.stack(for: .workspace), [.section(.schedule), .lesson(id: "pair-1")])
+    }
+
+    /// Расписание декана — раздел «Разделов»: ссылка на него открывается в приложении.
+    func testDeanOpensScheduleSection() {
+        XCTAssertTrue(AppRouter().open(.section(.schedule), for: .dean))
+        XCTAssertFalse(AppRouter().open(.section(.schedule), for: .platformAdmin))
+    }
+
+    /// У каждой вкладки свой стек: уход в ленту и возврат оставляют открытый
     /// чат на месте.
     func testTabsKeepTheirOwnStacks() {
         let router = AppRouter()
         router.open(.chat(id: "chat-1"), for: .student)
 
-        router.select(.schedule)
+        router.select(.feed)
 
-        XCTAssertEqual(router.selectedTab, .schedule)
+        XCTAssertEqual(router.selectedTab, .feed)
         XCTAssertEqual(router.stack(for: .chats), [.chat(id: "chat-1")])
     }
 
@@ -127,14 +143,14 @@ final class AppRouterTests: XCTestCase {
         let router = AppRouter()
 
         XCTAssertTrue(router.open(.book(id: "book-1"), for: .student))
-        XCTAssertEqual(router.selectedTab, .services)
-        XCTAssertEqual(router.stack(for: .services), [.section(.library), .book(id: "book-1")])
+        XCTAssertEqual(router.selectedTab, .workspace)
+        XCTAssertEqual(router.stack(for: .workspace), [.section(.library), .book(id: "book-1")])
 
         XCTAssertTrue(router.open(.myBooks, for: .starosta))
-        XCTAssertEqual(router.stack(for: .services), [.section(.library), .myBooks])
+        XCTAssertEqual(router.stack(for: .workspace), [.section(.library), .myBooks])
 
         XCTAssertTrue(router.open(.bookCopy(code: "AB12CD34"), for: .student))
-        XCTAssertEqual(router.stack(for: .services), [.section(.library), .bookCopy(code: "AB12CD34")])
+        XCTAssertEqual(router.stack(for: .workspace), [.section(.library), .bookCopy(code: "AB12CD34")])
     }
 
     /// Библиотека — для читателей: у преподавателя в приложении её нет.
@@ -160,11 +176,11 @@ final class AppRouterTests: XCTestCase {
         let router = AppRouter()
 
         router.postpone(.myBooks)
-        XCTAssertTrue(router.stack(for: .services).isEmpty)
+        XCTAssertTrue(router.stack(for: .workspace).isEmpty)
 
         router.openPending(for: .student)
-        XCTAssertEqual(router.selectedTab, .services)
-        XCTAssertEqual(router.stack(for: .services), [.section(.library), .myBooks])
+        XCTAssertEqual(router.selectedTab, .workspace)
+        XCTAssertEqual(router.stack(for: .workspace), [.section(.library), .myBooks])
     }
 
     /// Выход: следующий человек начинает с главной и не получает ни открытого чата
@@ -184,7 +200,7 @@ final class AppRouterTests: XCTestCase {
 
 final class MoreSectionTests: XCTestCase {
     func testStudentSeesCommonSectionsAndDeanery() {
-        XCTAssertEqual(MoreSection.sections(for: .student), MoreSection.common + [.deanery])
+        XCTAssertEqual(MoreSection.sections(for: .student), MoreSection.common + [.schedule, .deanery])
     }
 
     /// Запись в деканат сервер принимает только от студента и старосты.
@@ -227,10 +243,17 @@ final class MoreSectionTests: XCTestCase {
 }
 
 final class RoleTabsTests: XCTestCase {
-    /// Учебные роли живут в прежних пяти вкладках.
-    func testAcademicRolesKeepFiveTabs() {
-        for role in [Role.student, .starosta, .teacher] {
-            XCTAssertEqual(Array(AppTab.tabs(for: role).prefix(5)), [.home, .schedule, .chats, .study, .services])
+    /// У ролей вуза с лентой — одна и та же панель: «Главная», «Чаты», «Разделы», «Лента».
+    func testUniversityRolesShareOneTabBar() {
+        for role in [Role.student, .starosta, .teacher, .dean, .universityAdmin, .universityModerator] {
+            XCTAssertEqual(Array(AppTab.tabs(for: role).prefix(4)), [.home, .chats, .workspace, .feed], "\(role)")
+        }
+    }
+
+    /// Пять вкладок — предел панели iPhone: шестая уехала бы в системное «Ещё».
+    func testNoRoleHasMoreThanFiveTabs() {
+        for role in Role.allCases {
+            XCTAssertLessThanOrEqual(AppTab.tabs(for: role).count, 5, "\(role)")
         }
     }
 
@@ -244,10 +267,10 @@ final class RoleTabsTests: XCTestCase {
         XCTAssertFalse(AppTab.tabs(for: .librarian).contains(.search))
     }
 
-    /// У остальных первая вкладка — «Обзор», как стартовая страница роли в вебе.
-    func testOtherRolesStartWithDashboard() {
-        for role in Role.allCases where !role.isAcademic && role != .unknown {
-            XCTAssertEqual(AppTab.tabs(for: role).first, .dashboard, "\(role)")
+    /// Каждая роль начинает с «Главной» и находит всё в «Разделах».
+    func testEveryRoleStartsAtHome() {
+        for role in Role.allCases where role != .unknown {
+            XCTAssertEqual(AppTab.tabs(for: role).first, .home, "\(role)")
             XCTAssertTrue(AppTab.tabs(for: role).contains(.workspace), "\(role)")
         }
     }
@@ -256,15 +279,15 @@ final class RoleTabsTests: XCTestCase {
     func testRestrictedRolesHaveNoChatsOrFeed() {
         for role in [Role.securityGuard, .librarian] {
             XCTAssertFalse(AppTab.tabs(for: role).contains(.chats))
-            XCTAssertFalse(AppTab.tabs(for: role).contains(.home))
+            XCTAssertFalse(AppTab.tabs(for: role).contains(.feed))
         }
         XCTAssertTrue(AppTab.tabs(for: .dean).contains(.chats))
     }
 
     /// Ссылка на вкладку, которой у роли нет, открывается в ближайшей, что есть.
     func testMissingTabResolvesToExistingOne() {
-        XCTAssertEqual(AppTab.resolve(.home, for: .platformAdmin), .dashboard)
-        XCTAssertEqual(AppTab.resolve(.services, for: .librarian), .workspace)
+        XCTAssertEqual(AppTab.resolve(.feed, for: .platformAdmin), .home)
+        XCTAssertEqual(AppTab.resolve(.chats, for: .librarian), .home)
         XCTAssertEqual(AppTab.resolve(.chats, for: .student), .chats)
     }
 
@@ -278,7 +301,7 @@ final class RoleTabsTests: XCTestCase {
         XCTAssertEqual(router.stack(for: router.selectedTab), [.post(id: "p-1")])
     }
 
-    /// Каталог «Разделов» не пуст ни у одной роли без учебной оболочки.
+    /// Каталог «Разделов» не пуст ни у одной роли.
     @MainActor
     func testEveryWorkspaceRoleHasSections() {
         for role in Role.allCases where AppTab.tabs(for: role).contains(.workspace) {
@@ -312,9 +335,9 @@ final class AreaDeepLinkTests: XCTestCase {
         )
     }
 
-    /// Корень раздела сотрудника — его «Обзор».
-    func testRoleRootOpensDashboard() {
-        XCTAssertEqual(link("https://studenthub.kz/university-admin", .universityAdmin), AreaDeepLink(tab: .dashboard, routes: []))
+    /// Корень раздела роли — её «Главная».
+    func testRoleRootOpensHome() {
+        XCTAssertEqual(link("https://studenthub.kz/university-admin", .universityAdmin), AreaDeepLink(tab: .home, routes: []))
     }
 
     /// Модератор: префикс платформы или вуза должен совпасть с ролью.
@@ -327,7 +350,7 @@ final class AreaDeepLinkTests: XCTestCase {
     func testCheckinLinkCarriesToken() {
         XCTAssertEqual(
             link("https://studenthub.kz/checkin?t=abc", .student),
-            AreaDeepLink(tab: .services, routes: [.student(.checkinToken("abc"))])
+            AreaDeepLink(tab: .workspace, routes: [.student(.checkinToken("abc"))])
         )
         XCTAssertNil(link("https://studenthub.kz/checkin?t=abc", .teacher))
     }
@@ -340,7 +363,7 @@ final class AreaDeepLinkTests: XCTestCase {
     }
 
     /// Учебные разделы преподавателя (`/teacher/schedule`, `/teacher/chats`) остаются
-    /// за общим разбором — вкладками.
+    /// за общим разбором.
     func testTeacherTabsAreLeftToDeepLink() {
         XCTAssertNil(link("https://studenthub.kz/teacher/schedule", .teacher))
         XCTAssertNotNil(link("https://studenthub.kz/teacher/gradebook", .teacher))

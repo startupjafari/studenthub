@@ -76,18 +76,17 @@ enum DeepLink: Equatable {
             self = .chat(id: id)
 
         case ("schedule", nil):
-            self = value("lesson").map { DeepLink.lesson(id: $0) } ?? .tab(.schedule)
+            self = value("lesson").map { DeepLink.lesson(id: $0) } ?? .section(.schedule)
         case ("schedule", .some(let id)):
             self = .lesson(id: id)
 
-        // Учёба — одна вкладка на несколько разделов веба.
+        // Учёба — группа «Разделов» на несколько разделов веба.
         case ("academic", nil), ("grades", nil), ("assignments", nil), ("attendance", nil),
             ("courses", nil), ("materials", nil), ("gradebook", nil), ("exams", nil):
-            self = .tab(.study)
+            self = .tab(.workspace)
 
-        // Лента в вебе — отдельный адрес, на телефоне она живёт на «Главной».
         case ("feed", nil), ("posts", nil):
-            self = .tab(.home)
+            self = .tab(.feed)
         case ("posts", .some(let id)):
             self = .post(id: id)
 
@@ -181,16 +180,16 @@ struct CommunityDeepLink: Equatable {
             guard let code = value("k") else { return nil }
             self.init(tab: .chats, routes: [.community(.joinChat(id: id, code: code))])
         case ("articles", .some(let id)):
-            self.init(tab: .home, routes: [.community(.article(id: id))])
+            self.init(tab: .feed, routes: [.community(.article(id: id))])
         case ("universities", .some(let id)):
-            self.init(tab: .home, routes: [.community(.university(id: id))])
+            self.init(tab: .feed, routes: [.community(.university(id: id))])
         case ("friends", _):
-            self.init(tab: .home, routes: [.community(.friends(userID: nil))])
+            self.init(tab: .feed, routes: [.community(.friends(userID: nil))])
         // Карточка события: под ней — список, чтобы «назад» вёл к событиям.
         case ("events", .some(let id)):
-            self.init(tab: .services, routes: [.section(.events), .community(.event(id: id))])
+            self.init(tab: .workspace, routes: [.section(.events), .community(.event(id: id))])
         case ("documents", nil) where value("section") == "requests":
-            self.init(tab: .services, routes: [.section(.documents), .community(.documentRequests)])
+            self.init(tab: .workspace, routes: [.section(.documents), .community(.documentRequests)])
         default:
             return nil
         }

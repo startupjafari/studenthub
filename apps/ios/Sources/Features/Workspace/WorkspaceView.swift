@@ -2,11 +2,13 @@ import SwiftUI
 
 /// Вкладка «Разделы»: всё меню роли из веба, по тем же группам, с поиском. Подача — как
 /// «Настройки» Telegram и iOS: сверху карточка «я», ниже группы однострочных пунктов с
-/// цветными квадратами. Последняя группа — «Аккаунт»: уведомления, документы, настройки.
+/// цветными квадратами. Последняя группа — «Аккаунт»: уведомления, настройки.
 struct WorkspaceView: View {
     let role: Role
 
     @State private var query = ""
+    /// Включённые вузом модули: пункт выключенного не показываем вовсе.
+    @State private var enabledModules: Set<MoreSection> = []
 
     var body: some View {
         List {
@@ -40,6 +42,7 @@ struct WorkspaceView: View {
         .listStyle(.insetGrouped)
         .navigationTitle(Text(AppTab.workspace.title))
         .searchable(text: $query, prompt: Text(String(localized: "workspace.search", defaultValue: "Поиск раздела")))
+        .task { await loadModules() }
     }
 
     private var needle: String {
@@ -49,7 +52,7 @@ struct WorkspaceView: View {
     private var isSearching: Bool { !needle.isEmpty }
 
     private var visibleGroups: [WorkspaceGroup] {
-        let groups = Workspace.groups(for: role) + [Workspace.accountGroup(for: role)]
+        let groups = Workspace.groups(for: role, modules: enabledModules) + [Workspace.accountGroup(for: role)]
         guard isSearching else {
             // Профиль уже открыт карточкой сверху — второй строкой в «Аккаунте» он не нужен.
             return groups.compactMap { group in
@@ -64,10 +67,23 @@ struct WorkspaceView: View {
             return items.isEmpty ? nil : WorkspaceGroup(title: group.title, items: items)
         }
     }
+
+    /// Спрашиваем при каждом показе вкладки: админ вуза включает модуль, когда
+    /// захочет, и пункт должен появиться без перезапуска приложения. Отказ сети пункт
+    /// не прячет — прошлое знание лучше мигания.
+    private func loadModules() async {
+        guard MoreSection.modules(for: role).contains(.library) else { return }
+        guard let settings = try? await LibraryAPI().settings() else { return }
+        if settings.enabled {
+            enabledModules.insert(.library)
+        } else {
+            enabledModules.remove(.library)
+        }
+    }
 }
 
 /// Карточка «я» над списком разделов — как верхняя строка «Настроек»: аватар, имя, кто
-/// я и где. Ведёт в профиль; общая для «Разделов» и «Сервисов».
+/// я и где. Ведёт в профиль.
 struct WorkspaceProfileRow: View {
     let role: Role
 

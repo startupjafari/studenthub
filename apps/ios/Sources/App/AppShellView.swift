@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// Оболочка приложения: пять вкладок, у каждой свой стек.
+/// Оболочка приложения: до пяти вкладок, у каждой свой стек.
 ///
-/// Наполнение вкладок приходит из ролей, а структура — нет: ни одна роль MVP не
-/// теряет и не добавляет вкладку.
+/// Структура одна на всех — «Главная», «Чаты», «Разделы», «Лента», «Поиск»; роль решает,
+/// какие из них у неё есть и что лежит на «Главной» (`AppTab.tabs(for:)`).
 struct AppShellView: View {
     let session: AppSessionModel
     /// Разобранный токен: из него берутся роль для состава разделов и свой
@@ -68,7 +68,7 @@ struct AppShellView: View {
                     Tab(value: tab, role: tab == .search ? .search : nil) {
                         stack(for: tab)
                     } label: {
-                        Label(tab.title(for: role), systemImage: tab.symbol(for: role))
+                        Label(tab.title, systemImage: tab.symbol)
                     }
                     // Ноль бейдж прячет: у остальных вкладок счётчика нет.
                     .badge(tab == .chats ? chatBadge.unread : 0)
@@ -79,7 +79,7 @@ struct AppShellView: View {
                 ForEach(AppTab.tabs(for: role)) { tab in
                     stack(for: tab)
                         .tabItem {
-                            Label(tab.title(for: role), systemImage: tab.symbol(for: role))
+                            Label(tab.title, systemImage: tab.symbol)
                         }
                         .badge(tab == .chats ? chatBadge.unread : 0)
                         .tag(tab)
@@ -108,26 +108,14 @@ struct AppShellView: View {
     @ViewBuilder
     private func root(for tab: AppTab) -> some View {
         switch tab {
+        case .home:
+            RoleHomeView(role: role)
         case .chats:
             ChatListView()
-        case .schedule:
-            // У декана расписание — весь факультет: без выбора группы общий дневной вид
-            // смешал бы сотни пар. Его вкладка — расписание факультета, как `/dean/schedule`.
-            if role == .dean {
-                DeanScreen.schedule.destination
-            } else {
-                ScheduleView()
-            }
-        case .study:
-            StudyView(role: role)
-        case .home:
-            HomeView(role: role)
-        case .services:
-            ServicesView(session: session, role: role)
-        case .dashboard:
-            RoleDashboardView(role: role)
         case .workspace:
             WorkspaceView(role: role)
+        case .feed:
+            FeedView(role: role)
         case .search:
             SearchView()
         }
@@ -160,6 +148,14 @@ struct AppShellView: View {
             LibraryCatalogView()
         case .section(.settings):
             SettingsView(session: session)
+        case .section(.schedule):
+            // У декана расписание — весь факультет: без выбора группы общий дневной вид
+            // смешал бы сотни пар. Его раздел — расписание факультета, как `/dean/schedule`.
+            if role == .dean {
+                DeanScreen.schedule.destination
+            } else {
+                ScheduleView()
+            }
         case .section(.consultations):
             ConsultationsView(role: role)
         case .section(.deanery):

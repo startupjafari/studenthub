@@ -1,6 +1,6 @@
 import Foundation
 
-/// Разделы вкладки «Сервисы».
+/// Общие разделы учебных ролей во вкладке «Разделы».
 ///
 /// Здесь роль и решает состав: студенту — деканат и его заявки, старосте к ним —
 /// его группа, преподавателю — дисциплины и группы. Список один и тот же и для
@@ -12,13 +12,14 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
     case events
     case documents
     case settings
+    /// Расписание: у учебных ролей — своё, у декана — расписание факультета.
+    case schedule
     /// Староста.
     case classmates
     /// Преподаватель.
     case subjects
     case groups
-    /// Разделы вкладки «Учёба». В списке «Ещё» их нет — там они были бы вторым
-    /// входом в то же место, но маршрут им нужен такой же.
+    /// Учёба: группа «Учёба» в «Разделах».
     case grades
     case attendance
     case assignments
@@ -42,22 +43,27 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
         .settings,
     ]
 
+    /// Сотрудники и работодатель: общий аккаунт, документы, события и карта.
+    private static let staff: [MoreSection] = [.profile, .settings, .documents, .events, .campusMap, .applications]
+
     static func sections(for role: Role) -> [MoreSection] {
         switch role {
         case .student:
-            return common + [.deanery]
+            return common + [.schedule, .deanery]
         case .starosta:
-            return common + [.deanery, .classmates]
+            return common + [.schedule, .deanery, .classmates]
         case .teacher:
-            return common + [.subjects, .groups]
+            return common + [.schedule, .subjects, .groups]
         case .securityGuard, .librarian:
             // Роли с запретом по умолчанию: только свой аккаунт и карта (у охраны).
             return role == .securityGuard ? [.profile, .settings, .campusMap] : [.profile, .settings]
         case .unknown:
             return []
+        case .dean:
+            // Расписание факультета — раздел «Разделов», а не вкладка.
+            return staff + [.schedule]
         default:
-            // Сотрудники и работодатель: общий аккаунт, документы, события и карта.
-            return [.profile, .settings, .documents, .events, .campusMap, .applications]
+            return staff
         }
     }
 
@@ -85,6 +91,8 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
             return String(localized: "more.documents", defaultValue: "Документы")
         case .settings:
             return String(localized: "more.settings", defaultValue: "Настройки")
+        case .schedule:
+            return String(localized: "tab.schedule", defaultValue: "Расписание")
         case .classmates:
             return String(localized: "more.classmates", defaultValue: "Одногруппники")
         case .subjects:
@@ -123,6 +131,7 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
         case .events: return "calendar.badge.clock"
         case .documents: return "folder"
         case .settings: return "gearshape"
+        case .schedule: return "calendar"
         case .classmates: return "person.3"
         case .subjects: return "book"
         case .groups: return "person.2"

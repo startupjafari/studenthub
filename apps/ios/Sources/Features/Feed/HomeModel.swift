@@ -1,8 +1,8 @@
 import Foundation
 import Observation
 
-/// Всё, что на главной не лента и не истории: сколько непрочитанного, ближайшие
-/// события и заявки в друзья (свой профиль — у оболочки, `ViewerProfileModel`) — то, что в вебе стоит в боковой колонке.
+/// Боковая колонка веба: сколько непрочитанного и ближайшие события — для «Главной»,
+/// заявки в друзья — для ленты (свой профиль — у оболочки, `ViewerProfileModel`).
 @Observable
 final class HomeModel {
     private(set) var unreadNotifications = 0
@@ -28,6 +28,21 @@ final class HomeModel {
         if let value = await unread { unreadNotifications = value }
         if let value = await events { self.events = value }
         if let value = await requests { friendRequests = value }
+    }
+
+    /// Колокольчик и события — для «Главной»: заявки в друзья живут в ленте.
+    @MainActor
+    func refreshSummary() async {
+        async let unread = try? feed.unreadNotifications()
+        async let events = try? feed.upcomingEvents()
+        if let value = await unread { unreadNotifications = value }
+        if let value = await events { self.events = value }
+    }
+
+    /// Только заявки в друзья — для ленты: события и колокольчик живут на «Главной».
+    @MainActor
+    func refreshFriendRequests() async {
+        if let value = try? await friends.incomingRequests() { friendRequests = value }
     }
 
     @MainActor

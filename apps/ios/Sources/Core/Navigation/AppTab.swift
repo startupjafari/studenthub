@@ -2,26 +2,25 @@ import Foundation
 
 /// Вкладки оболочки.
 ///
-/// Учебные роли (студент, староста, преподаватель) живут в пяти вкладках: главная,
-/// расписание, чаты, учёба, сервисы. У сотрудников вуза и платформы, работодателя,
-/// охраны и библиотеки своя главная — «Обзор» (как дашборд роли в вебе, `ROLE_HOME`),
-/// а все разделы меню веба собраны во вкладке «Разделы». Состав решает роль
-/// (`tabs(for:)`), устройство одно на всех.
+/// Устройство одно на все роли: «Главная» — личная точка входа роли, «Чаты», «Разделы» —
+/// весь каталог функций роли с поиском, «Лента» — соцчасть вуза, «Поиск» людей и событий.
+/// Роль решает только, какие из них у неё есть (`tabs(for:)`), и что лежит на «Главной».
+///
+/// Расписание, учёба и сервисы — не вкладки, а группы «Разделов»: пять вкладок — предел
+/// панели iPhone, а шестая уезжала бы в системное «Ещё». Ближайшие пары при этом на
+/// «Главной», в одном касании от запуска.
 enum AppTab: String, CaseIterable, Identifiable, Hashable {
+    /// Личная главная роли: у студента — день, сроки, заявки; у преподавателя — его
+    /// рабочий день; у сотрудников — обзор роли, как `ROLE_HOME` в вебе.
     case home
-    case schedule
     case chats
-    case study
-    /// Сервисы вуза: каталог разделов веба, сгруппированный по смыслу.
-    case services
-    /// Обзор роли: дашборд деканата, администратора, модератора, работодателя, поста
-    /// охраны, библиотеки.
-    case dashboard
-    /// Все разделы меню роли, сгруппированные как в боковом меню веба.
+    /// Все разделы роли, сгруппированные как в боковом меню веба.
     case workspace
+    /// Лента вуза: истории, публикации, заявки в друзья.
+    case feed
     /// Поиск людей и событий. На iOS 18+ — отдельная кнопка у края панели вкладок
     /// (`Tab(role: .search)`), на iOS 26 — стеклянный круг, в который превращается поле
-    /// поиска. На iOS 17 вкладки нет: поиск открывается из верхней панели главной.
+    /// поиска. На iOS 17 вкладки нет: поиск открывается из верхней панели ленты.
     case search
 
     var id: AppTab { self }
@@ -32,40 +31,29 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
         let base = baseTabs(for: role)
         // Поиск — у ролей с лентой: люди и события вуза. Роли платформы и работодатель
         // своего вуза не имеют, охране и библиотеке поиск не открыт.
-        guard base.contains(.home), #available(iOS 18, *) else { return base }
+        guard base.contains(.feed), #available(iOS 18, *) else { return base }
         return base + [.search]
     }
 
     private static func baseTabs(for role: Role) -> [AppTab] {
         switch role {
-        case .student, .starosta, .teacher:
-            return [.home, .schedule, .chats, .study, .services]
-        case .dean:
-            return [.dashboard, .schedule, .chats, .workspace, .home]
-        case .universityAdmin, .universityModerator:
-            return [.dashboard, .chats, .workspace, .home]
+        case .student, .starosta, .teacher, .dean, .universityAdmin, .universityModerator:
+            return [.home, .chats, .workspace, .feed]
         case .platformAdmin, .platformModerator, .employer:
-            return [.dashboard, .chats, .workspace]
+            return [.home, .chats, .workspace]
         case .securityGuard, .librarian:
-            return [.dashboard, .workspace]
+            return [.home, .workspace]
         case .unknown:
             return [.home]
         }
     }
 
-    /// Куда открыть ссылку, если у роли нет нужной вкладки: лента у администратора
-    /// платформы не живёт, и пост из пуша откроется поверх «Разделов».
+    /// Куда открыть ссылку, если у роли нет нужной вкладки: ленты у администратора
+    /// платформы нет, и пост из пуша откроется поверх «Главной».
     static func resolve(_ tab: AppTab, for role: Role) -> AppTab {
         let available = tabs(for: role)
         if available.contains(tab) { return tab }
-        switch tab {
-        case .services, .study:
-            if available.contains(.workspace) { return .workspace }
-        case .home:
-            if available.contains(.dashboard) { return .dashboard }
-        default:
-            break
-        }
+        if tab == .search, available.contains(.feed) { return .feed }
         return available.first ?? .home
     }
 
@@ -73,30 +61,15 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .home:
             return String(localized: "tab.home", defaultValue: "Главная")
-        case .schedule:
-            return String(localized: "tab.schedule", defaultValue: "Расписание")
         case .chats:
             return String(localized: "tab.chats", defaultValue: "Чаты")
-        case .study:
-            return String(localized: "tab.study", defaultValue: "Учёба")
-        case .services:
-            return String(localized: "tab.services", defaultValue: "Сервисы")
-        case .dashboard:
-            return String(localized: "tab.dashboard", defaultValue: "Обзор")
         case .workspace:
             return String(localized: "tab.workspace", defaultValue: "Разделы")
+        case .feed:
+            return String(localized: "tab.feed", defaultValue: "Лента")
         case .search:
             return String(localized: "tab.search", defaultValue: "Поиск")
         }
-    }
-
-    /// Подпись вкладки у роли. Главная сотрудника — это лента вуза, а не его стартовый
-    /// экран: стартовый у него «Обзор».
-    func title(for role: Role) -> String {
-        if self == .home, !role.isAcademic {
-            return String(localized: "tab.feed", defaultValue: "Лента")
-        }
-        return title
     }
 
     /// Системные символы, а не свои иконки: в панели вкладок они совпадают по весу
@@ -104,18 +77,10 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
     var symbol: String {
         switch self {
         case .home: return "house"
-        case .schedule: return "calendar"
         case .chats: return "bubble.left.and.bubble.right"
-        case .study: return "graduationcap"
-        case .services: return "square.grid.2x2"
-        case .dashboard: return "rectangle.3.group"
         case .workspace: return "square.grid.2x2"
+        case .feed: return "newspaper"
         case .search: return "magnifyingglass"
         }
-    }
-
-    func symbol(for role: Role) -> String {
-        if self == .home, !role.isAcademic { return "newspaper" }
-        return symbol
     }
 }

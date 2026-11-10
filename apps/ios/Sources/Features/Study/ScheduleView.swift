@@ -26,7 +26,7 @@ struct ScheduleView: View {
         }
         .safeAreaInset(edge: .top, spacing: 0) { header }
         .background(Palette.plainBackground)
-        .navigationTitle(Text(AppTab.schedule.title))
+        .navigationTitle(Text(MoreSection.schedule.title))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
