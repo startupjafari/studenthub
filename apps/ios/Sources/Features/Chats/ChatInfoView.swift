@@ -408,7 +408,13 @@ struct ChatInfoView: View {
                 titleVisibility: .visible
             ) {
                 Button(String(localized: "chats.clear", defaultValue: "Очистить историю"), role: .destructive) {
-                    Task { await run { try await api.clearHistory(chatID: chatID) } }
+                    Task {
+                        await run {
+                            try await api.clearHistory(chatID: chatID)
+                            // Лента читает базу: без этого очищенная история оставалась бы на экране.
+                            try await MessageStore().clearHistory(chatID: chatID)
+                        }
+                    }
                 }
             }
             .confirmationDialog(

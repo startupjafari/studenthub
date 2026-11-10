@@ -9,6 +9,8 @@ struct ChatThreadView: View {
     let viewerID: String
 
     @State private var model: ChatThreadModel?
+    /// Экран уходил (вперёд по стеку или назад): комната сокета отпущена.
+    @State private var hasLeft = false
     @State private var forwarding: MessageRecord?
     @State private var reporting: MessageRecord?
     @State private var deleting: MessageRecord?
@@ -175,11 +177,17 @@ struct ChatThreadView: View {
         .onChange(of: realtime.pinnedVersions[chatID] ?? 0) {
             Task { await model?.loadPinned() }
         }
-        .onChange(of: model?.days.count ?? 0) {
+        .onChange(of: model?.newestIncomingID) {
             // Пришло новое — пока чат открыт, оно прочитано.
             Task { await model?.markRead() }
         }
+        .onAppear {
+            guard hasLeft, let model else { return }
+            hasLeft = false
+            Task { await model.rejoin() }
+        }
         .onDisappear {
+            hasLeft = true
             Task { [model] in await model?.leave() }
         }
     }

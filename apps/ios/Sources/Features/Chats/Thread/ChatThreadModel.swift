@@ -52,6 +52,7 @@ final class ChatThreadModel {
     private var reachedBeginning = false
     private var didPickAnchor = false
     private var draftTask: Task<Void, Never>?
+    private var markReadRetry: Task<Void, Never>?
     private var lastReadSent: String?
     private var lastReadAt: Date?
     private var lastActionAt: Date?
@@ -83,6 +84,7 @@ final class ChatThreadModel {
         messagesTask?.cancel()
         chatTask?.cancel()
         draftTask?.cancel()
+        markReadRetry?.cancel()
     }
 
     @MainActor
@@ -121,12 +123,17 @@ final class ChatThreadModel {
         realtime.actions[chatID]?.values.first
     }
 
-    /// Открытие чата: догнать разницу, а если истории нет вовсе — скачать последнюю
+    /// Открытие чата: догнать разницу, а если истории толком нет — скачать последнюю
     /// страницу.
+    ///
+    /// «Толком нет» — меньше страницы на руках при первом открытии: список чатов кладёт
+    /// в базу последнее сообщение каждого чата, и `lastSeq` у ни разу не открытого чата
+    /// уже есть. Догонялка от него ничего не скачает, и лента показала бы одно сообщение.
     @MainActor
     func open() async {
         let known = (try? await store.lastSeq(chatID: chatID)) ?? 0
-        if known == 0 || messages.isEmpty {
+        let firstOpen = olderCursor == nil && !reachedBeginning
+        if known == 0 || messages.isEmpty || (firstOpen && messages.count < ChatsAPI.messagePageLimit) {
             await loadLatest()
         } else {
             await catchUp(since: known)
@@ -199,7 +206,12 @@ final class ChatThreadModel {
 
     @MainActor
     func retry(_ message: MessageRecord) async {
-        await outbox.retry(message)
+        // Сообщение с файлом повторяет загрузчик: текстовая отправка унесла бы одну подпись.
+        if days.lazy.flatMap(\.items).first(where: { $0.message.id == message.id })?.attachments.isEmpty == false {
+            await uploader.retry(messageID: message.id)
+        } else {
+            await outbox.retry(message)
+        }
     }
 
     @MainActor
@@ -417,10 +429,36 @@ final class ChatThreadModel {
             let id = last.remoteId,
             id != lastReadSent
         else { return }
-        if let sentAt = lastReadAt, Date().timeIntervalSince(sentAt) < 0.8 { return }
+        if let sentAt = lastReadAt, Date().timeIntervalSince(sentAt) < 0.8 {
+            // Слишком часто — не теряем отметку, а досылаем её после паузы: иначе
+            // последнее из пачки сообщений осталось бы непрочитанным.
+            guard markReadRetry == nil else { return }
+            markReadRetry = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(900))
+                guard let self, !Task.isCancelled else { return }
+                self.markReadRetry = nil
+                await self.markRead()
+            }
+            return
+        }
         lastReadSent = id
         lastReadAt = Date()
         await realtime.markRead(chatID: chatID, messageID: id)
+    }
+
+    /// Последнее чужое сообщение, уже получившее id на сервере: новое пришло — пока
+    /// чат открыт, оно прочитано.
+    var newestIncomingID: String? {
+        messages.last { $0.senderId != viewerID && $0.remoteId != nil }?.remoteId
+    }
+
+    /// Возврат в чат из вложенного экрана («Информация», профиль): уход вперёд по стеку
+    /// отпустил комнату, а без неё не придут ни «печатает…», ни счётчик прочтения.
+    @MainActor
+    func rejoin() async {
+        await realtime.open(chatID: chatID)
+        await catchUpAfterReconnect()
+        await markRead()
     }
 
     @MainActor
@@ -560,9 +598,11 @@ final class ChatThreadModel {
                 attachments: Dictionary(grouping: attachments, by: \.messageId)
             )
         }
+        // Сильная ссылка живёт только на шаг цикла: держи её задача весь бесконечный
+        // поток, модель (и её наблюдения) не освободились бы и после ухода из чата.
         messagesTask = Task { @MainActor [weak self, database] in
-            guard let self else { return }
             for await snapshot in AsyncValues.stream(of: observation, in: database.reader) {
+                guard let self else { return }
                 self.messages = snapshot.messages
                 self.days = MessageTimeline.build(
                     from: snapshot.messages,
@@ -580,8 +620,8 @@ final class ChatThreadModel {
         let id = chatID
         let observation = ValueObservation.tracking { db in try ChatRecord.fetchOne(db, key: id) }
         chatTask = Task { @MainActor [weak self, database] in
-            guard let self else { return }
             for await chat in AsyncValues.stream(of: observation, in: database.reader) {
+                guard let self else { return }
                 self.chat = chat
                 self.title = chat?.title
                 self.unreadCount = chat?.unreadCount ?? 0
@@ -596,7 +636,9 @@ final class ChatThreadModel {
     /// сообщение значило бы дёргать ленту под пальцем.
     @MainActor
     private func pickAnchorIfNeeded() {
-        guard !didPickAnchor, !messages.isEmpty else { return }
+        // Без строки чата неизвестно, сколько непрочитанного: якорь «ничего нового»
+        // зафиксировался бы навсегда.
+        guard !didPickAnchor, !messages.isEmpty, chat != nil else { return }
         didPickAnchor = true
         openingAnchor = MessageTimeline.firstUnreadID(
             in: messages,

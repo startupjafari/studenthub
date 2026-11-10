@@ -57,11 +57,23 @@ final class MessageListViewController: UIViewController {
     private var itemsByID: [String: MessageTimeline.Item] = [:]
     private var appliedAnchor: String?
     private var hasContent = false
+    private var lastBoundsHeight: CGFloat = 0
 
     override func viewDidLoad() {
         super.viewDidLoad()
         configureCollectionView()
         configureDataSource()
+    }
+
+    /// Высота ленты меняется под клавиатуру, растущее поле ввода, полосы ответа и
+    /// записи. Стоял человек у последнего сообщения — остаётся у него: иначе свежие
+    /// сообщения уезжают под клавиатуру ровно тогда, когда на них отвечают.
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let height = collectionView.bounds.height
+        defer { lastBoundsHeight = height }
+        guard hasContent, lastBoundsHeight > 0, abs(height - lastBoundsHeight) > 0.5, reportedAtBottom else { return }
+        scrollToBottom(animated: false)
     }
 
     /// Применить срез.
@@ -99,6 +111,7 @@ final class MessageListViewController: UIViewController {
 
         dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
             guard let self else { return }
+            defer { self.requestOlderIfScreenNotFilled() }
 
             if isFirstFill, let anchor, anchor != self.appliedAnchor {
                 self.appliedAnchor = anchor
@@ -115,6 +128,13 @@ final class MessageListViewController: UIViewController {
                 self.collectionView.contentOffset.y = oldOffset + grown
             }
         }
+    }
+
+    /// Короткая история помещается на экран целиком — прокрутки нет, и подгрузка
+    /// вверх по прокрутке не случится никогда. Просим следующую страницу сами.
+    private func requestOlderIfScreenNotFilled() {
+        guard hasContent, collectionView.contentSize.height < collectionView.bounds.height else { return }
+        DispatchQueue.main.async { [weak self] in self?.onReachTop?() }
     }
 
     // MARK: - Сборка
@@ -139,6 +159,8 @@ final class MessageListViewController: UIViewController {
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         collectionView.backgroundColor = .clear
         collectionView.keyboardDismissMode = .interactive
+        // Короткая переписка тоже тянется: жест к началу ленты есть всегда.
+        collectionView.alwaysBounceVertical = true
         collectionView.delegate = self
         collectionView.translatesAutoresizingMaskIntoConstraints = false
 

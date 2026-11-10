@@ -59,7 +59,12 @@ struct ChatSearchResults: View {
             if !messages.isEmpty {
                 Section(String(localized: "chats.search.messages", defaultValue: "Сообщения")) {
                     ForEach(messages, id: \.id) { message in
-                        NavigationLink(value: AppRoute.chat(id: message.chatId)) {
+                        // Чат открывается на найденном сообщении, а не внизу: просьба
+                        // прокрутить ставится до перехода, переписка заберёт её при показе.
+                        Button {
+                            ChatJumpRequests.shared.pending[message.chatId] = message.id
+                            AppServices.router.stacks[.chats, default: []].append(.chat(id: message.chatId))
+                        } label: {
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack {
                                     Text(rows.first { $0.id == message.chatId }?.displayTitle ?? message.sender?.name ?? "")
@@ -76,7 +81,9 @@ struct ChatSearchResults: View {
                                     .foregroundStyle(Palette.mutedForeground)
                                     .lineLimit(2)
                             }
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
                     }
                 }
             }
