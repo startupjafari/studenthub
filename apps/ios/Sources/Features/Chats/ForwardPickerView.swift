@@ -8,6 +8,8 @@ struct ForwardPickerView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var rows: [ChatListRow] = []
+    /// База прочитана — до этого пустой список не значит «чатов нет».
+    @State private var loaded = false
     @State private var selected: Set<String> = []
     @State private var query = ""
     @State private var isSending = false
@@ -31,6 +33,16 @@ struct ForwardPickerView: View {
                     }
                 }
                 .accessibilityAddTraits(selected.contains(row.id) ? .isSelected : [])
+            }
+            .overlay {
+                if loaded, filtered.isEmpty {
+                    EmptyStateView(
+                        title: query.trimmingCharacters(in: .whitespaces).isEmpty
+                            ? String(localized: "chats.empty", defaultValue: "Чатов пока нет")
+                            : String(localized: "services.notFound", defaultValue: "Ничего не нашлось"),
+                        symbol: query.trimmingCharacters(in: .whitespaces).isEmpty ? "bubble.left.and.bubble.right" : "magnifyingglass"
+                    )
+                }
             }
             .searchable(text: $query, prompt: Text(String(localized: "chats.forward.search", defaultValue: "Поиск")))
             .navigationTitle(Text(String(localized: "chats.forward", defaultValue: "Переслать")))
@@ -75,5 +87,6 @@ struct ForwardPickerView: View {
         }) ?? []
         let candidates = all.filter { $0.id != excludedChatID }
         rows = candidates.filter { $0.kind == .saved } + candidates.filter { $0.kind != .saved }
+        loaded = true
     }
 }

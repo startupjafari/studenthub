@@ -9,6 +9,9 @@ struct ChatSearchResults: View {
     @State private var people: [DirectoryUserDTO] = []
     @State private var messages: [ChatMessageDTO] = []
     @State private var isSearching = false
+    /// Люди или сообщения не пришли: без этого сбой выглядел бы как «нет результатов».
+    @State private var failure: String?
+    @State private var isOffline = false
     @State private var opening: String?
     private let api: ChatActing = ChatsAPI()
 
@@ -20,6 +23,13 @@ struct ChatSearchResults: View {
 
     var body: some View {
         Group {
+            // Что-то нашлось (хотя бы чаты из базы) — сбой сети полосой над найденным.
+            if let failure, !chats.isEmpty || !people.isEmpty || !messages.isEmpty {
+                StaleDataBanner(message: failure, isOffline: isOffline) { await search() }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+            }
             if !chats.isEmpty {
                 Section(String(localized: "chats.search.chats", defaultValue: "Чаты")) {
                     ForEach(chats) { row in
@@ -42,7 +52,7 @@ struct ChatSearchResults: View {
                                 AvatarView(url: person.avatarUrl, name: person.name, size: 40)
                                 VStack(alignment: .leading, spacing: 0) {
                                     Text(person.name).foregroundStyle(Palette.foreground)
-                                    if let detail = person.group?.name ?? person.role.flatMap(Role.init(rawValue:))?.feedTitle {
+                                    if let detail = person.groupTitle ?? person.role.flatMap(Role.init(rawValue:))?.feedTitle {
                                         Text(detail)
                                             .font(Typography.meta)
                                             .foregroundStyle(Palette.mutedForeground)
@@ -91,6 +101,8 @@ struct ChatSearchResults: View {
                 Group {
                     if isSearching {
                         ProgressView().frame(maxWidth: .infinity)
+                    } else if let failure {
+                        ErrorStateView(message: failure, isOffline: isOffline) { await search() }
                     } else {
                         ContentUnavailableView.search(text: trimmed)
                     }
@@ -106,16 +118,37 @@ struct ChatSearchResults: View {
         guard trimmed.count >= 2 else {
             people = []
             messages = []
+            failure = nil
             return
         }
         try? await Task.sleep(for: .milliseconds(300))
         guard !Task.isCancelled else { return }
         isSearching = true
         defer { isSearching = false }
-        async let foundPeople = try? api.directory(String(trimmed.prefix(100)))
-        async let foundMessages = try? api.searchMessages(String(trimmed.prefix(100)), chatID: nil)
-        people = Array((await foundPeople ?? []).prefix(20))
-        messages = await foundMessages ?? []
+        let text = String(trimmed.prefix(100))
+        async let foundPeople = chatSearchOutcome { try await api.directory(text) }
+        async let foundMessages = chatSearchOutcome { try await api.searchMessages(text, chatID: nil) }
+        let peopleOutcome = await foundPeople
+        let messagesOutcome = await foundMessages
+        guard !Task.isCancelled else { return }
+        // Результаты прошлого запроса к новому не относятся: при сбое — пусто и ошибка.
+        var lastError: Error?
+        switch peopleOutcome {
+        case .success(let list):
+            people = Array(list.prefix(20))
+        case .failure(let error):
+            people = []
+            lastError = error
+        }
+        switch messagesOutcome {
+        case .success(let list):
+            messages = list
+        case .failure(let error):
+            messages = []
+            lastError = error
+        }
+        failure = lastError?.userMessage
+        isOffline = lastError?.isOffline ?? false
     }
 
     /// Личный чат не дублируется: сервер вернёт уже существующий.
@@ -127,6 +160,15 @@ struct ChatSearchResults: View {
             try? await ChatStore().save(chats: page.items)
         }
         AppServices.router.stacks[.chats, default: []].append(.chat(id: id))
+    }
+}
+
+/// Ответ вместе с ошибкой: два поиска идут параллельно, и сбой одного не теряется.
+private func chatSearchOutcome<T>(_ body: () async throws -> T) async -> Result<T, Error> {
+    do {
+        return .success(try await body())
+    } catch {
+        return .failure(error)
     }
 }
 
@@ -149,6 +191,10 @@ struct NewChatView: View {
     @State private var title = ""
     @State private var isCreating = false
     @State private var failure: String?
+    /// Поиск людей: сбой отдельно от ошибки создания — у него свой повтор.
+    @State private var isSearching = false
+    @State private var searchFailure: String?
+    @State private var searchOffline = false
     private let api: ChatActing = ChatsAPI()
 
     var body: some View {
@@ -198,7 +244,7 @@ struct NewChatView: View {
                                 AvatarView(url: person.avatarUrl, name: person.name, size: 40)
                                 VStack(alignment: .leading, spacing: 0) {
                                     Text(person.name).foregroundStyle(Palette.foreground)
-                                    if let group = person.group?.name {
+                                    if let group = person.groupTitle {
                                         Text(group).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
                                     }
                                 }
@@ -215,10 +261,21 @@ struct NewChatView: View {
             }
             .overlay {
                 if people.isEmpty {
-                    ContentUnavailableView(
-                        String(localized: "search.hint", defaultValue: "Введите хотя бы две буквы"),
-                        systemImage: "person.crop.circle.badge.plus"
-                    )
+                    if query.trimmingCharacters(in: .whitespaces).count < 2 {
+                        ContentUnavailableView(
+                            String(localized: "search.hint", defaultValue: "Введите хотя бы две буквы"),
+                            systemImage: "person.crop.circle.badge.plus"
+                        )
+                    } else if isSearching {
+                        LoadingStateView()
+                    } else if let searchFailure {
+                        ErrorStateView(message: searchFailure, isOffline: searchOffline) { await search() }
+                    } else {
+                        EmptyStateView(
+                            title: String(localized: "search.empty", defaultValue: "Никого не нашли"),
+                            symbol: "person.crop.circle.badge.questionmark"
+                        )
+                    }
                 }
             }
             .searchable(
@@ -265,11 +322,22 @@ struct NewChatView: View {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         guard trimmed.count >= 2 else {
             people = []
+            searchFailure = nil
             return
         }
         try? await Task.sleep(for: .milliseconds(300))
         guard !Task.isCancelled else { return }
-        people = (try? await api.directory(String(trimmed.prefix(100)))) ?? []
+        isSearching = true
+        defer { isSearching = false }
+        do {
+            people = try await api.directory(String(trimmed.prefix(100)))
+            searchFailure = nil
+        } catch {
+            guard !Task.isCancelled else { return }
+            people = []
+            searchFailure = error.userMessage
+            searchOffline = error.isOffline
+        }
     }
 
     private func createPrivate(with userID: String) async {
@@ -278,7 +346,7 @@ struct NewChatView: View {
         do {
             created(try await api.createPrivate(with: userID))
         } catch {
-            failure = (error as? APIError)?.displayMessage
+            failure = error.userMessage
         }
     }
 
@@ -289,7 +357,7 @@ struct NewChatView: View {
             let name = String(title.trimmingCharacters(in: .whitespaces).prefix(150))
             created(try await api.createGroup(title: name, memberIDs: selected.map(\.id)))
         } catch {
-            failure = (error as? APIError)?.displayMessage
+            failure = error.userMessage
         }
     }
 }

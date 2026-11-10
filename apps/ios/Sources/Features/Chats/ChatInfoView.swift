@@ -15,6 +15,8 @@ struct ChatInfoView: View {
     @State private var chat: ChatRecord?
     @State private var members: [ChatMemberDTO] = []
     @State private var membersLoaded = false
+    /// Состав не пришёл — это сбой, а не пустой чат.
+    @State private var membersFailure: String?
     @State private var section: ChatMediaKindTab = .media
     @State private var editing = false
     @State private var addingMember = false
@@ -347,8 +349,17 @@ struct ChatInfoView: View {
                     }
                 }
             }
-            if members.isEmpty, !membersLoaded {
-                ProgressView().frame(maxWidth: .infinity)
+            if members.isEmpty {
+                if let membersFailure {
+                    DashboardFailurePlaceholder(message: membersFailure) { await loadMembers() }
+                } else if !membersLoaded {
+                    ProgressView().frame(maxWidth: .infinity)
+                } else {
+                    DashboardEmptyRow(
+                        text: String(localized: "chats.info.empty", defaultValue: "Здесь пока пусто"),
+                        symbol: "person.2"
+                    )
+                }
             }
         } header: {
             Text(String(localized: "chats.group.members", defaultValue: "Участники"))
@@ -468,7 +479,15 @@ struct ChatInfoView: View {
             membersLoaded = true
             return
         }
-        if let list = try? await api.members(chatID: chatID) { members = list }
+        do {
+            members = try await api.members(chatID: chatID)
+            membersFailure = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            // Прежний состав остаётся; сбой виден, только когда показать нечего.
+            membersFailure = error.userMessage
+        }
         membersLoaded = true
     }
 
@@ -587,6 +606,7 @@ private struct ChatInfoSearchSheet: View {
     @State private var results: [ChatMessageDTO] = []
     @State private var isSearching = false
     @State private var failure: String?
+    @State private var isOffline = false
     private let api: ChatActing = ChatsAPI()
 
     private var trimmed: String { query.trimmingCharacters(in: .whitespaces) }
@@ -623,7 +643,7 @@ private struct ChatInfoSearchSheet: View {
                     if isSearching {
                         ProgressView()
                     } else if let failure {
-                        ContentUnavailableView(failure, systemImage: "exclamationmark.triangle")
+                        ErrorStateView(message: failure, isOffline: isOffline) { await search() }
                     } else if trimmed.count >= 2 {
                         ContentUnavailableView.search(text: trimmed)
                     } else {
@@ -664,8 +684,10 @@ private struct ChatInfoSearchSheet: View {
             results = try await api.searchMessages(String(trimmed.prefix(100)), chatID: chatID)
             failure = nil
         } catch {
+            guard !Task.isCancelled else { return }
             results = []
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 }
@@ -745,6 +767,8 @@ private struct ChatContentList: View {
     @State private var media: [ChatMediaItemDTO] = []
     @State private var links: [ChatLinkItemDTO] = []
     @State private var loaded = false
+    /// Раздел не пришёл — это не «здесь пусто».
+    @State private var failure: String?
     private let api: ChatActing = ChatsAPI()
 
     var body: some View {
@@ -787,6 +811,8 @@ private struct ChatContentList: View {
                         }
                     }
                 }
+            } else if let failure {
+                DashboardFailurePlaceholder(message: failure) { await load() }
             } else if loaded {
                 Text(String(localized: "chats.info.empty", defaultValue: "Здесь пока пусто"))
                     .font(Typography.meta)
@@ -812,12 +838,19 @@ private struct ChatContentList: View {
 
     private func load() async {
         loaded = false
+        failure = nil
         media = []
         links = []
-        if let kind = tab.kind {
-            media = (try? await api.media(chatID: chatID, kind: kind, cursor: nil).items) ?? []
-        } else {
-            links = (try? await api.links(chatID: chatID, cursor: nil).items) ?? []
+        do {
+            if let kind = tab.kind {
+                media = try await api.media(chatID: chatID, kind: kind, cursor: nil).items
+            } else {
+                links = try await api.links(chatID: chatID, cursor: nil).items
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            failure = error.userMessage
         }
         loaded = true
     }

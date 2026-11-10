@@ -46,7 +46,9 @@ struct ChatListView: View {
 
     private var list: some View {
         List(selection: $selection) {
-            if let failure = model.failure {
+            // Пустой список со сбоем загрузки — ошибка на весь экран (`emptyState`), строка
+            // не нужна. Отказ действия показывается строкой всегда.
+            if let failure = model.failure, !(showsEmptyState && model.loadFailure == failure) {
                 FormAlert(message: failure)
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
@@ -111,11 +113,18 @@ struct ChatListView: View {
 
     static let rowInsets = EdgeInsets(top: 0, leading: Spacing.lg, bottom: 0, trailing: Spacing.lg)
 
+    private var showsEmptyState: Bool {
+        model.rows.isEmpty && !isSearching && !showsArchiveRow
+    }
+
     @ViewBuilder
     private var emptyState: some View {
-        if model.rows.isEmpty, !isSearching, !showsArchiveRow {
+        if showsEmptyState {
             if model.isRefreshing {
                 ProgressView()
+            } else if let failure = model.loadFailure {
+                // В базе пусто и сервер не ответил — это не «чатов нет».
+                ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
             } else if isArchive {
                 ContentUnavailableView(
                     String(localized: "chats.archive.empty", defaultValue: "В архиве пусто"),

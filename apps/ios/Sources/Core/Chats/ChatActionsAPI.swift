@@ -34,6 +34,11 @@ struct DirectoryUserDTO: Decodable, Equatable, Identifiable {
     let avatarUrl: String?
     let role: String?
     let group: Named?
+    /// Справочник отдаёт группу плоским полем; `group` — у прежних ответов.
+    var groupName: String? = nil
+
+    /// Группа человека, чем бы её ни прислал сервер.
+    var groupTitle: String? { groupName ?? group?.name }
 
     var name: String {
         [lastName, firstName].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
@@ -246,11 +251,16 @@ extension ChatsAPI: ChatActing {
         )
     }
 
+    /// Справочник «кому написать». Ответ — страница `{ items, hasMore }`, а не массив:
+    /// разбор массивом падал на каждом запросе, и поиск людей в чатах всегда был пуст.
     func directory(_ query: String) async throws -> [DirectoryUserDTO] {
-        try await client.send(
+        struct Answer: Decodable {
+            let items: [DirectoryUserDTO]
+        }
+        return try await client.send(
             .get("users/directory", query: [URLQueryItem(name: "q", value: query), URLQueryItem(name: "limit", value: "30")]),
-            as: [DirectoryUserDTO].self
-        )
+            as: Answer.self
+        ).items
     }
 
     /// Личный чат не дублируется: сервер вернёт уже существующий.

@@ -18,6 +18,11 @@ final class ChatListModel {
     /// Сообщение о последней неудаче. Список при этом продолжает работать: он читает
     /// базу, и отсутствие сети ему не мешает.
     private(set) var failure: String?
+    /// Последнее обновление не прошло из-за связи — пустой экран говорит «нет связи».
+    private(set) var isOffline = false
+    /// Сбой обновления списка — отдельно от отказа действия (удалить, очистить): пустой
+    /// экран с ошибкой загрузки говорит только о первом.
+    private(set) var loadFailure: String?
 
     private let database: AppDatabase
     private let api: ChatsFetching
@@ -89,8 +94,12 @@ final class ChatListModel {
             }
             try await store.save(folders: try await api.folders())
             failure = nil
+            loadFailure = nil
+            isOffline = false
         } catch {
             failure = error.userMessage
+            loadFailure = failure
+            isOffline = error.isOffline
         }
     }
 
