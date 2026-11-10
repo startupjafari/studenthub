@@ -73,6 +73,12 @@ struct CampusMapView: View {
                     symbol: "map",
                     hint: String(localized: "campus.empty.hint", defaultValue: "Вуз ещё не опубликовал карту")
                 )
+            } else if model.hasNothingToDraw {
+                EmptyStateView(
+                    title: String(localized: "campus.noPlan", defaultValue: "План корпуса ещё не готов"),
+                    symbol: "building.2",
+                    hint: String(localized: "campus.noPlan.hint", defaultValue: "Вуз ещё не добавил на карту корпуса и этажи")
+                )
             } else {
                 LoadingStateView()
             }

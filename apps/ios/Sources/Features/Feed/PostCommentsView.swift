@@ -10,6 +10,7 @@ struct PostCommentsView: View {
     var showsPost = true
 
     @Environment(\.viewerID) private var viewerID
+    @Environment(\.dismiss) private var dismiss
     @State private var model: PostCommentsModel?
     @State private var feed = FeedModel()
     @State private var reportingComment: PostCommentDTO?
@@ -20,32 +21,40 @@ struct PostCommentsView: View {
     @FocusState private var inputFocused: Bool
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: Spacing.xl) {
-                    if let failure = model?.failure {
-                        FormAlert(message: failure)
-                    }
+        // Листы и диалоги поста — над прокруткой, а не в ленивой строке: выгруженная при
+        // прокрутке строка унесла бы с собой открытый лист. Удалили пост — экран его
+        // комментариев больше не нужен.
+        PostActionsHost(model: feed, onDeleted: { dismiss() }) { actions in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: Spacing.xl) {
+                        // Ошибка над уже показанным (не ушёл комментарий, не обновилось) —
+                        // полосой; без данных её показывает `commentsSection` с повтором.
+                        if let failure = model?.failure, model?.comments.isEmpty == false {
+                            FormAlert(message: failure)
+                        }
 
-                    if showsPost, let post = feed.posts.first {
-                        PostActionsHost(model: feed) { actions in
+                        if showsPost, let post = feed.posts.first {
                             PostCardView(post: post, model: feed, viewerID: viewerID, actions: actions)
                         }
-                    }
 
-                    commentsSection
+                        commentsSection
+                    }
+                    .padding(Spacing.xl)
                 }
-                .padding(Spacing.xl)
-            }
-            .scrollDismissesKeyboard(.interactively)
-            .background(Palette.background)
-            .onChange(of: model?.comments.last?.id) { _, last in
-                guard let last, didLoad else { return }
-                withAnimation(Motion.calm) { proxy.scrollTo(last, anchor: .bottom) }
+                .scrollDismissesKeyboard(.interactively)
+                .background(Palette.background)
+                .refreshable { await reload() }
+                .onChange(of: model?.comments.last?.id) { _, last in
+                    guard let last, didLoad else { return }
+                    withAnimation(Motion.calm) { proxy.scrollTo(last, anchor: .bottom) }
+                }
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if let model {
+            // Писать есть куда, только когда пост открылся: под ошибкой поле ввода
+            // обещало бы комментарий к тому, чего на экране нет.
+            if let model, model.post != nil {
                 CommentInputBar(model: model, focused: $inputFocused)
             }
         }
@@ -69,11 +78,16 @@ struct PostCommentsView: View {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}
         }
         .task {
-            if model == nil { model = PostCommentsModel(postID: postID) }
-            await model?.load()
-            if let post = model?.post { feed.insert(post) }
+            guard model == nil else { return }
+            model = PostCommentsModel(postID: postID)
+            await reload()
             didLoad = true
         }
+    }
+
+    private func reload() async {
+        await model?.load()
+        if let post = model?.post { feed.insert(post) }
     }
 
     @ViewBuilder
@@ -104,6 +118,8 @@ struct PostCommentsView: View {
                         }
                     }
                 }
+            } else if let failure = model.failure, model.comments.isEmpty {
+                ErrorStateView(message: failure) { await reload() }
             } else if model.comments.isEmpty {
                 EmptyStateView(
                     title: String(localized: "feed.noComments", defaultValue: "Комментариев пока нет"),

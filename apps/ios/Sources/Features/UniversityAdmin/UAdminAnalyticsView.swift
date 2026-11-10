@@ -117,8 +117,11 @@ struct UAdminAnalyticsView: View {
             case .students: riskSection(totalStudents: overview.totals.students)
             case .groups: groupsSection(overview.groups)
             }
-        } else if failure != nil {
-            EmptyView()
+        } else if let failure {
+            // Факультеты пришли, сводка факультета — нет: под чипами должна быть ошибка
+            // с повтором, а не пустота.
+            ErrorStateView(message: failure, isOffline: isOffline) { await loadFaculty() }
+                .listRowBackground(Color.clear)
         } else {
             LoadingStateView().listRowBackground(Color.clear)
         }

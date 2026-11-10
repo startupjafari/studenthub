@@ -185,7 +185,9 @@ struct AppShellView: View {
         case .post(let id):
             PostDetailView(postID: id)
         case .profile(let id):
-            ProfileView(userID: id)
+            // Своё имя в шапке поста или в комментарии ведёт в свой профиль — с «Изменить»
+            // и настройками, а не в чужой с «Написать» самому себе.
+            ProfileView(userID: id == viewer.subject ? nil : id)
         case .application(let id):
             ApplicationDetailView(applicationID: id)
         case .service(let id):

@@ -51,6 +51,10 @@ struct ProfileView: View {
             }
         }
         .task {
+            // Экран возвращается после каждого «назад» из поста или списка друзей:
+            // перечитывать профиль и пересоздавать ленту (со скелетом и потерей прокрутки)
+            // незачем — обновление жестом.
+            guard !posts.hasLoaded else { return }
             if model.isMine, !viewerID.isEmpty {
                 posts = FeedModel(api: FeedAPI(scope: .author(id: viewerID)))
             }
@@ -457,6 +461,7 @@ private struct ProfileHeaderView: View {
                 Task { await model.friendshipAction() }
             } label: { label }
                 .buttonStyle(.plain)
+                .disabled(model.isChangingFriendship)
                 .sensoryFeedback(.success, trigger: friendship.status)
         default:
             Button {

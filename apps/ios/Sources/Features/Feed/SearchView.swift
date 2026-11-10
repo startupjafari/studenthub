@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// Поиск из верхней панели главной: люди и события.
+/// Поиск людей и событий: вкладка у края панели (iOS 18+) или кнопка в ленте (iOS 17).
 ///
 /// Курсы, задания и материалы веб тоже находит, но их экраны в приложении живут в
-/// «Учёбе», и переход из поиска в чужую вкладку путал бы навигацию. Поэтому здесь —
-/// то, что открывается во вкладке «Главная».
+/// «Разделах», и переход из поиска в чужую вкладку путал бы навигацию. Поэтому здесь —
+/// люди и события.
 struct SearchView: View {
     @State private var query = ""
     @State private var results: SearchResultsDTO?
@@ -52,7 +52,8 @@ struct SearchView: View {
             }
         }
         .overlay {
-            if isEmpty, !isSearching {
+            // Ошибка уже показана строкой списка — «Никого не нашли» поверх неё солгало бы.
+            if isEmpty, !isSearching, failure == nil {
                 if query.trimmingCharacters(in: .whitespaces).count < 2 {
                     EmptyStateView(
                         title: String(localized: "search.hint", defaultValue: "Введите хотя бы две буквы"),

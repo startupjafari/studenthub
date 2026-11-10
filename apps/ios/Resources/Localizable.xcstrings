@@ -90823,6 +90823,91 @@
           }
         }
       }
+    },
+    "campus.noPlan": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "План корпуса ещё не готов"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Корпус жоспары әлі дайын емес"
+          }
+        }
+      }
+    },
+    "campus.noPlan.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вуз ещё не добавил на карту корпуса и этажи"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ЖОО картаға корпустар мен қабаттарды әлі қоспаған"
+          }
+        }
+      }
+    },
+    "form.discard": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не сохранять"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сақтамау"
+          }
+        }
+      }
+    },
+    "form.discard.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отменить изменения?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Өзгерістерден бас тарту керек пе?"
+          }
+        }
+      }
+    },
+    "form.keepEditing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продолжить редактирование"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Өңдеуді жалғастыру"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -57,6 +57,13 @@ final class CampusMapModel {
         await loadCampuses()
     }
 
+    /// Карта опубликована, но рисовать нечего: ни одного корпуса или у корпуса нет
+    /// этажей. Без этого признака экран навсегда оставался в загрузке.
+    var hasNothingToDraw: Bool {
+        guard let published, failure == nil, !isLoadingFloor, geometry == nil else { return false }
+        return published.manifest.buildings.isEmpty || floors.isEmpty
+    }
+
     @MainActor
     func loadCampuses() async {
         do {

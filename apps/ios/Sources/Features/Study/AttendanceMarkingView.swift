@@ -21,7 +21,7 @@ struct AttendanceMarkingView: View {
 
     var body: some View {
         List {
-            if let failure = model?.failure {
+            if let failure = model?.failure, model?.isLoaded == true {
                 FormAlert(message: failure)
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
@@ -58,7 +58,11 @@ struct AttendanceMarkingView: View {
                         }
                     }
                 }
-            } else if model?.failure == nil {
+            } else if let model, let failure = model.failure {
+                // Список не пришёл — не только полоса, но и повтор.
+                ErrorStateView(message: failure) { await model.load(keepEdits: true) }
+                    .listRowBackground(Color.clear)
+            } else {
                 LoadingStateView().listRowBackground(Color.clear)
             }
         }
@@ -107,10 +111,15 @@ struct AttendanceMarkingView: View {
         .sensoryFeedback(.success, trigger: model?.savedAt)
         .refreshable { await model?.load(keepEdits: true) }
         .task {
-            if model == nil {
-                model = TeachingAttendanceModel(pairID: pairID, date: date)
+            // `.task` срабатывает и при возврате на экран (переключили вкладку, открыли
+            // карточку студента): чистая загрузка там стёрла бы несохранённые отметки.
+            if let model {
+                if !model.isLoaded { await model.load(keepEdits: true) }
+                return
             }
-            await model?.load()
+            let created = TeachingAttendanceModel(pairID: pairID, date: date)
+            model = created
+            await created.load()
         }
     }
 

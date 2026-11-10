@@ -230,23 +230,44 @@ private struct PostMenu: View {
 
 /// Текст поста. Длинный сворачивается до восьми строк с «Ещё»: одна простыня не
 /// должна занимать весь экран ленты.
+///
+/// «Ещё» появляется, когда текст на самом деле обрезан, — по замеру, а не по числу
+/// символов: при крупном шрифте и 250 символов не влезают в восемь строк.
 struct PostTextView: View {
     let content: String
     var lineLimit = 8
 
     @State private var expanded = false
+    @State private var limitedHeight: CGFloat = 0
+    @State private var fullHeight: CGFloat = 0
+
+    private var isTruncated: Bool { fullHeight > limitedHeight + 1 }
 
     var body: some View {
+        // Разбор один на оба экземпляра текста — видимый и мерный.
+        let text = RichText.attributed(content)
         VStack(alignment: .leading, spacing: Spacing.xs) {
-            Text(RichText.attributed(content))
+            Text(text)
                 .font(Typography.body)
                 .foregroundStyle(Palette.foreground)
                 .tint(Palette.primary)
                 .lineLimit(expanded ? nil : lineLimit)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { limitedHeight = $0 }
+                // Полный текст той же ширины — невидимый, только для замера.
+                .background(alignment: .topLeading) {
+                    if !expanded {
+                        Text(text)
+                            .font(Typography.body)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .hidden()
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fullHeight = $0 }
+                            .accessibilityHidden(true)
+                    }
+                }
 
-            if !expanded, content.count > 400 || content.filter(\.isNewline).count >= lineLimit {
+            if !expanded, isTruncated {
                 Button(String(localized: "feed.readMore", defaultValue: "Ещё")) {
                     expanded = true
                 }

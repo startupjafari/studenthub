@@ -135,9 +135,14 @@ final class ProfileModel {
 
     // MARK: Дружба
 
+    /// Запрос дружбы в пути: второе касание не шлёт вторую заявку.
+    private(set) var isChangingFriendship = false
+
     @MainActor
     func friendshipAction() async {
-        guard let id = userID, let current = friendship else { return }
+        guard let id = userID, let current = friendship, !isChangingFriendship else { return }
+        isChangingFriendship = true
+        defer { isChangingFriendship = false }
         do {
             switch current.status {
             case "NONE":
