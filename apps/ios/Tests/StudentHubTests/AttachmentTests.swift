@@ -74,9 +74,10 @@ final class AttachmentTests: XCTestCase {
         let stored = try await database.reader.read { db in try AttachmentRecord.fetchOne(db) }
         XCTAssertNotNil(stored?.localPath, "без копии на диске повторять нечего")
 
+        let failedID = try XCTUnwrap(failed?.id)
         api.failure = nil
         api.message = message(id: "server-1", fileID: "file-1")
-        let retried = await uploader.retry(messageID: try XCTUnwrap(failed?.id))
+        let retried = await uploader.retry(messageID: failedID)
 
         XCTAssertTrue(retried)
         XCTAssertEqual(api.uploads, 2)
