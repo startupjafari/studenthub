@@ -91537,6 +91537,23 @@
           }
         }
       }
+    },
+    "admin.demo.searchHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск ищет по названию вуза, имени контакта и почте — от двух букв"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Іздеу ЖОО атауы, байланыс тұлғасының аты және пошта бойынша — екі әріптен бастап"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

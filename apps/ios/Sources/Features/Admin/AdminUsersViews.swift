@@ -113,7 +113,7 @@ struct AdminUsersView: View {
         }
         .onChange(of: roleFilter) { _, _ in Task { await refilter() } }
         .onChange(of: onlyBlocked) { _, _ in Task { await refilter() } }
-        .onAppear { if loader.isLoaded { Task { await loader.reload() } } }
+        .reloadsOnAdminChanges(loader)
         .sheet(item: $exported) { file in
             AdminShareSheet(items: [file.url])
         }
@@ -170,12 +170,14 @@ struct AdminUsersView: View {
 struct AdminUserRow: View {
     let user: AdminUserDTO
 
+    /// ФИО — главное, до двух строк; роль и почта — приглушённо ниже, каждая своей строкой.
     var body: some View {
         TelegramStyleRow(
             title: user.name,
-            subtitle: [AdminRoles.title(user.role), user.email ?? ""].filter { !$0.isEmpty }.joined(separator: "\n")
+            subtitle: [AdminRoles.title(user.role), user.email ?? ""].filter { !$0.isEmpty }.joined(separator: "\n"),
+            layout: .stacked
         ) {
-            AvatarView(url: user.avatarThumbUrl ?? user.avatarUrl, name: user.name, size: 44)
+            AvatarView(url: user.avatarThumbUrl ?? user.avatarUrl, name: user.name, size: 40)
         } accessory: {
             if user.isBlocked == true {
                 StatusBadge(text: String(localized: "admin.users.blocked", defaultValue: "Заблокирован"), tint: Palette.destructive)
