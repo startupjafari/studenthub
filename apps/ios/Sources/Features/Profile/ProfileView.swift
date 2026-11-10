@@ -86,10 +86,16 @@ struct ProfileView: View {
             async let current: Void = model.loadTab(tab, force: true)
             _ = await (card, feed, current)
         }
-        .sheet(isPresented: $editing, onDismiss: {
-            if let updated = viewer.profile { model.adopt(updated) }
-        }) {
-            NavigationStack { ProfileEditView() }
+        // Правка — переходом в том же стеке, а не листом со своей панелью: панель
+        // вкладок остаётся, выход один — «Назад».
+        .navigationDestination(isPresented: $editing) {
+            ProfileEditView()
+        }
+        // Сохранённое в правке (и новое фото) приходит общим профилем — шапка
+        // обновляется без запроса.
+        .onChange(of: viewer.profile) { _, updated in
+            guard model.isMine, let updated, model.profile != nil else { return }
+            model.adopt(updated)
         }
         .sheet(isPresented: $showsDetails) {
             if let profile = model.profile {
