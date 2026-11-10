@@ -17,6 +17,8 @@ final class FeedModel {
     private(set) var failure: String?
     /// Ошибка — отсутствие связи, а не отказ сервера: текст и иконка другие.
     private(set) var isOffline = false
+    /// Следующая страница не пришла: под лентой — «Повторить».
+    private(set) var pageFailure: String?
     /// Сообщение о неудавшемся действии над постом (реакция, закладка, удаление).
     private(set) var actionFailure: String?
     /// Локальные поправки к реакциям: id поста → эмодзи → моё состояние.
@@ -72,9 +74,13 @@ final class FeedModel {
             // счётчики показывались нулями.
             remember(fresh)
             self.cursor = page.meta?.hasNext == true ? page.meta?.cursor : nil
+            pageFailure = nil
+        } catch is CancellationError {
+            return
         } catch {
-            // Молча: хвост ленты не доехал — это не повод рисовать ошибку поверх
-            // того, что человек уже читает. Следующая прокрутка до конца повторит.
+            // Не поверх того, что человек читает, а строкой под лентой — там, где он
+            // ждёт продолжения.
+            pageFailure = message(for: error)
         }
     }
 
@@ -110,7 +116,8 @@ final class FeedModel {
             try await api.react(postID: postID, emoji: emoji, on: !wasMine)
         } catch {
             apply(emoji: emoji, postID: postID, mine: wasMine)
-            failure = message(for: error)
+            // Отказ действия — не отказ ленты: полоса «данные устарели» здесь солгала бы.
+            actionFailure = message(for: error)
         }
     }
 

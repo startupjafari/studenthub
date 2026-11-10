@@ -193,6 +193,8 @@ struct FeedView: View {
                 ProgressView()
                     .frame(maxWidth: .infinity)
                     .padding(Spacing.lg)
+            } else if let pageFailure = feed.pageFailure {
+                PageFailureRow(message: pageFailure) { await feed.loadMore() }
             } else if !feed.hasMore {
                 Text(String(localized: "home.feedEnd", defaultValue: "Это все публикации"))
                     .font(Typography.meta)

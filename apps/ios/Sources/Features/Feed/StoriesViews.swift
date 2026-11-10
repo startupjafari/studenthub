@@ -99,7 +99,11 @@ struct StoryAvatar: View {
                             .frame(width: 22, height: 22)
                             .background(Palette.primary, in: Circle())
                             .overlay(Circle().strokeBorder(Palette.background, lineWidth: 2))
+                            // Значок маленький, а палец — нет: зона касания шире кружка.
+                            .padding(Spacing.md)
+                            .contentShape(Rectangle())
                             .onTapGesture { (addAction ?? action)() }
+                            .padding(-Spacing.md)
                             .accessibilityHidden(true)
                     }
                 }
@@ -117,6 +121,12 @@ struct StoryAvatar: View {
         .accessibilityValue(Text(state == .unseen
             ? String(localized: "stories.unseen", defaultValue: "Есть новые истории")
             : ""))
+        // Значок «+» скрыт от VoiceOver — его действие доступно из меню действий кнопки.
+        .accessibilityActions {
+            if showsAdd, let addAction {
+                Button(String(localized: "stories.add", defaultValue: "Добавить"), action: addAction)
+            }
+        }
     }
 }
 
@@ -165,6 +175,9 @@ struct StoryViewer: View {
     @State private var showingViewers = false
     @State private var addingToHighlight = false
     @State private var dragOffset: CGSize = .zero
+    /// Автор на экране — по нему просмотр находит своё место, когда кольца меняются
+    /// под ним: удалили историю, скрыли автора.
+    @State private var shownRingID: String?
     @FocusState private var replyFocused: Bool
 
     /// Кадр без видео и без своей длительности — шесть секунд, как в вебе.
@@ -202,6 +215,20 @@ struct StoryViewer: View {
                     .gesture(dismissDrag)
                     .id(story.id)
                     .transition(.opacity)
+            } else {
+                // Кадра нет (кольца поменялись под просмотром) — выход всё равно на месте:
+                // чёрный экран без крестика был бы ловушкой.
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel(Text(String(localized: "common.close", defaultValue: "Закрыть")))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(Spacing.lg)
             }
         }
         .statusBarHidden()
@@ -214,9 +241,7 @@ struct StoryViewer: View {
             // непросмотренной, как в вебе.
             storyIndex = ring?.stories.firstIndex { $0.seen != true } ?? 0
         }
-        .onChange(of: rings.count) { _, count in
-            if count == 0 || ring == nil { dismiss() }
-        }
+        .onChange(of: rings) { _, _ in realign() }
         .sheet(isPresented: $showingViewers) {
             if let story {
                 CommunityStoryViewersView(storyID: story.id)
@@ -268,6 +293,7 @@ struct StoryViewer: View {
 
     private func run() async {
         guard let story else { return }
+        shownRingID = ring?.id
         progress = 0
         prefetchNeighbours()
         await model.markViewed(story, viewerID: viewerID)
@@ -300,6 +326,22 @@ struct StoryViewer: View {
             guard ImageMemoryCache.shared.image(for: key) == nil else { continue }
             Task.detached(priority: .utility) { _ = await ImageMemoryCache.shared.load(url, key: key) }
         }
+    }
+
+    /// Кольца поменялись под просмотром. Автор остался — стоим на нём, а номер кадра
+    /// не дальше последнего (удалили последнюю историю). Автора скрыли — переходим к
+    /// следующему, как после его последнего кадра. Смотреть больше нечего — закрываем.
+    private func realign() {
+        if let shownRingID, let index = rings.firstIndex(where: { $0.id == shownRingID }) {
+            ringIndex = index
+            storyIndex = min(storyIndex, rings[index].stories.count - 1)
+        } else if rings.indices.contains(ringIndex) {
+            storyIndex = rings[ringIndex].stories.firstIndex { $0.seen != true } ?? 0
+        } else {
+            dismiss()
+            return
+        }
+        if story == nil { dismiss() }
     }
 
     private func advance() {
@@ -893,7 +935,9 @@ struct StoryComposerView: View {
     @State private var linkLabel = ""
     @State private var pollOn = false
     @State private var pollQuestion = ""
-    @State private var pollOptions = ["", ""]
+    /// Варианты опроса со своими id: поле, привязанное к номеру, после удаления
+    /// соседнего варианта указывало бы за конец массива.
+    @State private var pollOptions = [PollDraftOption(), PollDraftOption()]
     @State private var mentions: [SearchResultsDTO.Person] = []
     @State private var pickingMention = false
 
@@ -1040,7 +1084,7 @@ struct StoryComposerView: View {
     }
 
     private var pollChoices: [String] {
-        pollOptions.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        pollOptions.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
     }
 
     private var pollIsValid: Bool {
@@ -1095,15 +1139,16 @@ struct StoryComposerView: View {
                 }
                 if pollOn {
                     TextField(String(localized: "community.story.pollQuestion", defaultValue: "Вопрос"), text: $pollQuestion)
-                    ForEach(pollOptions.indices, id: \.self) { index in
+                    ForEach($pollOptions) { $option in
+                        let index = pollOptions.firstIndex { $0.id == option.id } ?? 0
                         HStack {
                             TextField(
                                 String(localized: "community.story.pollOption", defaultValue: "Вариант \((index + 1).formatted())"),
-                                text: $pollOptions[index]
+                                text: $option.text
                             )
                             if pollOptions.count > 2 {
                                 Button {
-                                    pollOptions.remove(at: index)
+                                    pollOptions.removeAll { $0.id == option.id }
                                 } label: {
                                     Image(systemName: "minus.circle").foregroundStyle(Palette.destructive)
                                 }
@@ -1114,7 +1159,7 @@ struct StoryComposerView: View {
                     }
                     if pollOptions.count < 4 {
                         Button {
-                            pollOptions.append("")
+                            pollOptions.append(PollDraftOption())
                         } label: {
                             Label(String(localized: "community.story.addOption", defaultValue: "Добавить вариант"), systemImage: "plus")
                         }
@@ -1187,4 +1232,10 @@ struct StoryComposerView: View {
             model.dismissActionFailure()
         }
     }
+}
+
+/// Вариант опроса в редакторе истории.
+private struct PollDraftOption: Identifiable {
+    let id = UUID()
+    var text = ""
 }

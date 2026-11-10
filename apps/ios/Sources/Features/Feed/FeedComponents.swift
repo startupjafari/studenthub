@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageIO
 import UIKit
 
 // Общие детали ленты и историй: картинка с кэшем, аватар, форматированный текст,
@@ -22,6 +23,11 @@ final class ImageMemoryCache: @unchecked Sendable {
         cache.object(forKey: key as NSString)
     }
 
+    /// Выход из аккаунта: фото и аватары прежнего человека следующему ни к чему.
+    func removeAll() {
+        cache.removeAllObjects()
+    }
+
     func store(_ image: UIImage, for key: String) {
         let cost = Int(image.size.width * image.size.height * image.scale * image.scale * 4)
         cache.setObject(image, forKey: key as NSString, cost: cost)
@@ -29,16 +35,43 @@ final class ImageMemoryCache: @unchecked Sendable {
 
     /// Загрузка с декодированием вне главного потока: крупный JPEG, распакованный при
     /// первом показе, дёргает прокрутку.
-    func load(_ url: URL, key: String) async -> UIImage? {
+    ///
+    /// `maxPixelSize` — длинная сторона копии в пикселях. Аватар хранится до 1024 px, а
+    /// рисуется кружком в 40 pt: распакованный целиком, он занимал бы 4 МБ памяти вместо
+    /// 60 КБ, и кэш вмещал бы два десятка лиц. Уменьшенная копия делается прямо при
+    /// декодировании (`CGImageSource`), полный кадр в память не попадает вовсе.
+    func load(_ url: URL, key: String, maxPixelSize: CGFloat? = nil) async -> UIImage? {
         if let cached = image(for: key) { return cached }
         guard
             let (data, response) = try? await URLSession.shared.data(from: url),
-            (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true,
-            let image = UIImage(data: data)
+            (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true
         else { return nil }
-        let prepared = await image.byPreparingForDisplay() ?? image
-        store(prepared, for: key)
-        return prepared
+        let decoded: UIImage?
+        if let maxPixelSize {
+            decoded = Self.thumbnail(data, maxPixelSize: maxPixelSize)
+        } else if let image = UIImage(data: data) {
+            decoded = await image.byPreparingForDisplay() ?? image
+        } else {
+            decoded = nil
+        }
+        guard let decoded else { return nil }
+        store(decoded, for: key)
+        return decoded
+    }
+
+    /// Уменьшенная декодированная копия. Меньше исходника не растягивает: маленькую
+    /// картинку отдаёт как есть.
+    private static func thumbnail(_ data: Data, maxPixelSize: CGFloat) -> UIImage? {
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(Int(maxPixelSize), 1),
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        return UIImage(cgImage: image)
     }
 }
 
@@ -49,6 +82,8 @@ struct RemoteImage: View {
     let cacheKey: String
     var placeholder: String?
     var contentMode: ContentMode = .fill
+    /// Длинная сторона копии в пикселях: аватару и миниатюре полный кадр не нужен.
+    var maxPixelSize: CGFloat?
 
     @State private var image: UIImage?
     @State private var failed = false
@@ -83,7 +118,7 @@ struct RemoteImage: View {
                 failed = true
                 return
             }
-            let loaded = await ImageMemoryCache.shared.load(url, key: cacheKey)
+            let loaded = await ImageMemoryCache.shared.load(url, key: cacheKey, maxPixelSize: maxPixelSize)
             withAnimation(.easeOut(duration: Motion.Duration.feedback)) {
                 image = loaded
                 failed = loaded == nil
@@ -131,10 +166,19 @@ struct AvatarView: View {
     let name: String?
     var size: CGFloat = ControlHeight.island
 
+    @Environment(\.displayScale) private var displayScale
+
     var body: some View {
         Group {
             if let url, let parsed = URL(string: url) {
-                RemoteImage(url: parsed, cacheKey: "avatar:\(url.split(separator: "?").first ?? "")")
+                // Копия под размер кружка; в ключе — её размер, иначе маленькая копия из
+                // ленты растягивалась бы на крупном аватаре профиля.
+                let pixels = (size * displayScale).rounded(.up)
+                RemoteImage(
+                    url: parsed,
+                    cacheKey: "avatar:\(url.split(separator: "?").first ?? ""):\(Int(pixels))",
+                    maxPixelSize: pixels
+                )
             } else {
                 ZStack {
                     Circle().fill(Palette.primary.opacity(0.12))
