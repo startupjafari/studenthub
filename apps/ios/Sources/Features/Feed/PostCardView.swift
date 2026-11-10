@@ -343,6 +343,7 @@ struct PostActionsView: View {
 
     @State private var reactionTick = 0
     @State private var bookmarkTick = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: Spacing.xs) {
@@ -439,7 +440,10 @@ struct PostActionsView: View {
             .frame(height: ControlHeight.md)
             .background(reacted ? Palette.primary.opacity(0.12) : Palette.muted, in: Capsule())
             .foregroundStyle(reacted ? Palette.primary : Palette.mutedForeground)
-            .animation(Motion.lively, value: total)
+            // Капсула 36 pt, а палец — 44: зона касания шире рисунка (HIG).
+            .frame(minHeight: ControlHeight.xl)
+            .contentShape(Rectangle())
+            .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: total)
         } primaryAction: {
             react(mine.first ?? PostReactions.quick)
         }
@@ -469,7 +473,8 @@ struct PostActionsView: View {
             .padding(.horizontal, Spacing.lg)
             .frame(height: ControlHeight.md)
             .foregroundStyle(Palette.mutedForeground)
-            .contentShape(Capsule())
+            .frame(minHeight: ControlHeight.xl)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(label))

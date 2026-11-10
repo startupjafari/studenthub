@@ -239,6 +239,8 @@ private struct FriendRequestsCard: View {
                         Image(systemName: "xmark")
                             .frame(width: ControlHeight.md, height: ControlHeight.md)
                             .background(Palette.muted, in: Circle())
+                            .frame(width: ControlHeight.xl, height: ControlHeight.xl)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Text(String(localized: "friends.decline", defaultValue: "Отклонить")))
@@ -249,6 +251,8 @@ private struct FriendRequestsCard: View {
                             .foregroundStyle(Palette.primaryForeground)
                             .frame(width: ControlHeight.md, height: ControlHeight.md)
                             .background(Palette.primary, in: Circle())
+                            .frame(width: ControlHeight.xl, height: ControlHeight.xl)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .sensoryFeedback(.success, trigger: model.friendRequests.count)
