@@ -12,6 +12,7 @@ struct AppShellView: View {
 
     /// Общий маршрутизатор: по нему же ходит переход из уведомления.
     @Bindable private var router = AppServices.router
+    @Environment(\.scenePhase) private var scenePhase
 
     /// Действует ли согласие на обработку ПДн: без него приложение закрыто экраном
     /// согласия, как окном `ConsentGate` в вебе.
@@ -54,6 +55,15 @@ struct AppShellView: View {
         // где работает полная версия.
         .onOpenURL { url in
             router.open(url, for: role)
+        }
+        // Вернулись в приложение: сокет, порванный в фоне, поднимаем сразу, а
+        // пропущенное за это время догоняем — пуши могли прийти не все.
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task {
+                await AppServices.realtime.resume()
+                await AppServices.pushSync.catchUp()
+            }
         }
     }
 

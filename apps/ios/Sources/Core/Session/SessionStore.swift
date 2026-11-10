@@ -14,6 +14,8 @@ actor SessionStore: AuthorizationProvider {
 
     private var token: AccessToken?
     private var inFlightRefresh: Task<AccessToken?, Never>?
+    /// Сервер окончательно отказал в продлении: интерфейсу пора на экран входа.
+    private var sessionEnded: (@Sendable () -> Void)?
 
     init(
         auth: SessionRefreshing = AuthAPI(),
@@ -62,6 +64,12 @@ actor SessionStore: AuthorizationProvider {
         return refreshed?.raw
     }
 
+    /// Подписка на конец сессии, который случился не по кнопке «Выйти»: refresh-токен
+    /// отозвали (выход на другом устройстве, смена пароля) или он истёк.
+    func onSessionEnded(_ handler: @escaping @Sendable () -> Void) {
+        sessionEnded = handler
+    }
+
     // MARK: - Жизненный цикл сессии
 
     /// Принять сессию, выданную входом или обновлением.
@@ -97,6 +105,7 @@ actor SessionStore: AuthorizationProvider {
             // будет заново ломиться в обновление.
             if let apiError = error as? APIError, apiError.code?.meansSessionExpired == true {
                 forgetSession()
+                sessionEnded?()
             }
             return nil
         }

@@ -291,9 +291,23 @@ final class RealtimeCoordinator {
         }
     }
 
+    @MainActor
     private func connect() async {
-        guard let token = await session.accessToken() else { return }
+        // Токена нет (сеть не дала продлить сессию) — пробуем позже, а не сдаёмся до
+        // перезапуска приложения.
+        guard let token = await session.accessToken() else { return scheduleReconnect() }
         await transport.connect(token: token)
+    }
+
+    /// Приложение вернулось на передний план. В фоне система рвёт сокет, а пауза до
+    /// переподключения могла дорасти до минуты — человек не должен её ждать.
+    @MainActor
+    func resume() async {
+        guard active, !isConnected else { return }
+        reconnect?.cancel()
+        reconnect = nil
+        reconnectDelay = Self.firstReconnectDelay
+        await connect()
     }
 
     /// Обрыв: через паузу подключиться заново с токеном, который выдаст сессия сейчас

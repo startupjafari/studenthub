@@ -44,9 +44,14 @@ actor SocketIORealtimeTransport: RealtimeTransport {
         (events, continuation) = AsyncStream<RealtimeEvent>.makeStream()
         // Сокет живёт на корне домена, а не под префиксом API: путь `/socket.io`
         // задаёт сам сервер.
+        //
+        // Своё переподключение библиотеки выключено: она повторяет CONNECT с исходным
+        // токеном, а он живёт 15 минут — после долгого обрыва сервер такой отклоняет, и
+        // реальное время молча умирает. Обрыв уходит в координатор событием
+        // `disconnected`, тот подключается заново с токеном, который выдаст сессия.
         manager = SocketManager(
             socketURL: Self.origin(of: baseURL),
-            config: [.compress, .reconnects(true), .forceWebsockets(true)]
+            config: [.compress, .reconnects(false), .forceWebsockets(true)]
         )
         socket = manager.defaultSocket
     }

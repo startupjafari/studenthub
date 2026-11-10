@@ -34,6 +34,9 @@ final class AppSessionModel {
 
     @MainActor
     func restore() async {
+        await store.onSessionEnded { [weak self] in
+            Task { @MainActor in await self?.sessionDidEnd() }
+        }
         let restored = await store.restoredToken()
         if let restored {
             await LocalData.claim(for: restored.subject)
@@ -57,6 +60,19 @@ final class AppSessionModel {
         Observability.identify(userID: token.subject)
         state = .signedIn(token)
         return true
+    }
+
+    /// Сессию закрыл сервер, а не человек. Без этого интерфейс оставался «вошедшим»:
+    /// каждый экран ловил «Unauthorized», а каждый запрос — лишнюю попытку продления.
+    /// Данные на устройстве не стираем: войдёт тот же человек — они ему пригодятся,
+    /// другой — их сотрёт `LocalData.claim`.
+    @MainActor
+    private func sessionDidEnd() async {
+        guard case .signedIn = state else { return }
+        await AppServices.realtime.stop()
+        AppServices.router.reset()
+        Observability.identify(userID: nil)
+        state = .signedOut
     }
 
     @MainActor
@@ -98,6 +114,10 @@ enum LocalData {
     static func erase() async {
         try? await AppServices.database.eraseAll()
         await AppServices.attachmentURLs.clear()
+        // Фото, аватары и свои вложения прежнего человека — тоже его данные.
+        ImageMemoryCache.shared.removeAll()
+        URLCache.shared.removeAllCachedResponses()
+        try? FileManager.default.removeItem(at: AttachmentUploader.outboxDirectory)
         UserDefaults.standard.removeObject(forKey: ScheduleModel.syncedKey)
         UserDefaults.standard.removeObject(forKey: ScheduleModel.timeZoneKey)
         UserDefaults.standard.removeObject(forKey: ownerKey)
