@@ -56,9 +56,10 @@ struct IconRow: View {
     }
 }
 
-/// Строка настроек: значок-плитка, название, необязательное значение справа и шеврон.
+/// Строка меню и настроек: значок-плитка, название, необязательные подпись, значение
+/// справа и шеврон.
 ///
-/// Одна строка на настройки и правку профиля: одинаковые плитка, высота (не ниже 44 pt),
+/// Одна строка на «Разделы», настройки и правку профиля: одинаковые плитка, высота (не ниже 44 pt),
 /// отступы и выравнивание значения. Шеврон у `NavigationLink` рисует сама система, поэтому
 /// здесь он только для строк-кнопок, которые тоже ведут на другой экран
 /// (`showsChevron`). Информационная строка (версия) — без шеврона: она никуда не ведёт.
@@ -66,6 +67,8 @@ struct SettingsRow: View {
     let title: String
     let symbol: String
     var tint: Color = Palette.primary
+    /// Строка под названием — например, почему пункт нашёлся в поиске.
+    var subtitle: String?
     var value: String?
     /// Действие необратимое или выводит из аккаунта: название красным.
     var isDestructive = false
@@ -73,14 +76,29 @@ struct SettingsRow: View {
     /// Справа вместо значения — индикатор: идёт загрузка.
     var isBusy = false
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// Плитка растёт со шрифтом, но не до размеров, при которых съест строку.
+    @ScaledMetric(relativeTo: .body) private var tileSize: CGFloat = 30
+
     var body: some View {
-        HStack(spacing: Spacing.lg) {
-            IconTile(symbol: symbol, tint: tint)
-            Text(title)
-                .font(Typography.body)
-                .foregroundStyle(isDestructive ? Palette.destructive : Palette.foreground)
-                .lineLimit(2)
-                .layoutPriority(1)
+        // При крупном шрифте специальных возможностей текст переносится, а плитка стоит у
+        // первой строки — не посередине многострочного названия.
+        let isLarge = dynamicTypeSize.isAccessibilitySize
+        HStack(alignment: isLarge ? .top : .center, spacing: Spacing.lg) {
+            IconTile(symbol: symbol, tint: tint, size: min(tileSize, 40))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(Typography.body)
+                    .foregroundStyle(isDestructive ? Palette.destructive : Palette.foreground)
+                    .lineLimit(isLarge ? 4 : 2)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(Typography.meta)
+                        .foregroundStyle(Palette.mutedForeground)
+                        .lineLimit(2)
+                }
+            }
+            .layoutPriority(1)
             Spacer(minLength: Spacing.md)
             if isBusy {
                 ProgressView()

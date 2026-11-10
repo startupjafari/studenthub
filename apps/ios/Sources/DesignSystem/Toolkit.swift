@@ -86,6 +86,10 @@ struct PagedList<Item: Decodable & Identifiable, Row: View, Header: View>: View 
             }
         }
         .listStyle(.insetGrouped)
+        // Поиск, фильтры и список — плотно, без пустых полос, которые список ставит
+        // над первой секцией и между секциями.
+        .listSectionSpacing(.compact)
+        .contentMargins(.top, Spacing.xs, for: .scrollContent)
         .refreshable { await loader.reload() }
         .task { await loader.loadIfNeeded() }
     }

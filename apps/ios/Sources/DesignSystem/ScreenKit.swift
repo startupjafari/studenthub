@@ -224,53 +224,112 @@ private struct FloatingActionButton: View {
 /// Строка как в списке чатов: заголовок полужирным в одну строку, мета справа сверху
 /// (время, статус), ниже — до двух строк приглушённого текста. Ведущий элемент —
 /// аватар или значок; счётчик/плашка — справа снизу.
+///
+/// `layout: .stacked` — для каталогов с длинными названиями (вузы, заявки, люди):
+/// заголовку отдана вся ширина и до двух строк, а мета и плашка уходят строкой ниже.
+/// В строке чата дата рядом с заголовком уместна — там заголовок короткий; рядом с
+/// названием вуза она съедала половину названия.
 struct TelegramStyleRow<Leading: View, Accessory: View>: View {
+    enum Layout {
+        /// Заголовок в строку, мета справа от него — список чатов.
+        case chat
+        /// Заголовок до двух строк, подзаголовок, ниже — мета и плашка.
+        case stacked
+    }
+
     let title: String
     var subtitle: String?
     var meta: String?
     var metaTint: Color = Palette.mutedForeground
+    var layout: Layout = .chat
     @ViewBuilder var leading: () -> Leading
     @ViewBuilder var accessory: () -> Accessory
 
     var body: some View {
         HStack(alignment: .center, spacing: Spacing.lg) {
             leading()
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
-                    Text(title)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(Palette.foreground)
-                        .lineLimit(1)
-                    Spacer(minLength: Spacing.sm)
-                    if let meta, !meta.isEmpty {
-                        Text(meta)
-                            .font(.subheadline)
-                            .foregroundStyle(metaTint)
-                            .lineLimit(1)
-                    }
-                }
-                HStack(alignment: .bottom, spacing: Spacing.sm) {
-                    if let subtitle, !subtitle.isEmpty {
-                        Text(subtitle)
-                            .font(.subheadline)
-                            .foregroundStyle(Palette.mutedForeground)
-                            .lineLimit(2)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        Spacer(minLength: 0)
-                    }
-                    accessory()
-                }
+            switch layout {
+            case .chat: chatBody
+            case .stacked: stackedBody
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, layout == .chat ? 4 : 2)
         .accessibilityElement(children: .combine)
+    }
+
+    private var chatBody: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+                Text(title)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Palette.foreground)
+                    .lineLimit(1)
+                Spacer(minLength: Spacing.sm)
+                if let meta, !meta.isEmpty {
+                    Text(meta)
+                        .font(.subheadline)
+                        .foregroundStyle(metaTint)
+                        .lineLimit(1)
+                }
+            }
+            HStack(alignment: .bottom, spacing: Spacing.sm) {
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.mutedForeground)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Spacer(minLength: 0)
+                }
+                accessory()
+            }
+        }
+    }
+
+    private var stackedBody: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Palette.foreground)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            if let subtitle, !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.mutedForeground)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            // Мета слева, плашка справа — на одной линии под текстом. Длинная мета
+            // ужимается сама, плашка — никогда.
+            HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+                if let meta, !meta.isEmpty {
+                    Text(meta)
+                        .font(.footnote)
+                        .foregroundStyle(metaTint)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                accessory()
+                    .fixedSize()
+            }
+            .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
 extension TelegramStyleRow where Accessory == EmptyView {
-    init(title: String, subtitle: String? = nil, meta: String? = nil, metaTint: Color = Palette.mutedForeground, @ViewBuilder leading: @escaping () -> Leading) {
-        self.init(title: title, subtitle: subtitle, meta: meta, metaTint: metaTint, leading: leading, accessory: { EmptyView() })
+    init(
+        title: String,
+        subtitle: String? = nil,
+        meta: String? = nil,
+        metaTint: Color = Palette.mutedForeground,
+        layout: Layout = .chat,
+        @ViewBuilder leading: @escaping () -> Leading
+    ) {
+        self.init(title: title, subtitle: subtitle, meta: meta, metaTint: metaTint, layout: layout, leading: leading, accessory: { EmptyView() })
     }
 }
 
