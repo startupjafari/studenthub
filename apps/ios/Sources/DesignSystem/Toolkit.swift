@@ -134,6 +134,15 @@ struct RemoteContent<Value, Content: View>: View {
         Group {
             if let value {
                 content(value)
+                    // Обновление не удалось, а старое на экране: говорим об этом полосой,
+                    // а не молча показываем несвежее (и не стираем его ошибкой).
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        if let failure {
+                            StaleDataBanner(message: failure, isOffline: isOffline) { await run() }
+                                .padding(.horizontal, Spacing.xl)
+                                .padding(.vertical, Spacing.sm)
+                        }
+                    }
             } else if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await run() }
             } else {

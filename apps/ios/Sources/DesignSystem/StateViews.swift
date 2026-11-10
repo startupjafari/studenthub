@@ -146,10 +146,19 @@ struct LoadableContent<Value, Content: View>: View {
 
     var body: some View {
         if let value {
-            if isEmpty(value), let empty {
-                empty
-            } else {
-                content(value)
+            Group {
+                if isEmpty(value), let empty {
+                    empty
+                } else {
+                    content(value)
+                }
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if let failure {
+                    StaleDataBanner(message: failure, isOffline: isOffline, retry: retry)
+                        .padding(.horizontal, Spacing.xl)
+                        .padding(.vertical, Spacing.sm)
+                }
             }
         } else if let failure {
             ErrorStateView(message: failure, isOffline: isOffline, retry: retry)
