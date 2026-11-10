@@ -36,6 +36,8 @@ final class PagedLoader<Item: Decodable & Identifiable> {
     private(set) var failure: String?
     private(set) var isOffline = false
     private(set) var hasMore = false
+    /// Следующая страница не пришла. Список не обрывается молча: внизу — «Повторить».
+    private(set) var pageFailure: String?
 
     let limit: Int
     @ObservationIgnored private var fetch: (PageRequest) async throws -> Page<Item>
@@ -67,6 +69,7 @@ final class PagedLoader<Item: Decodable & Identifiable> {
             items = result.items
             apply(result.meta, received: result.items.count, page: 1)
             failure = nil
+            pageFailure = nil
             isOffline = false
             isLoaded = true
         } catch is CancellationError {
@@ -87,7 +90,7 @@ final class PagedLoader<Item: Decodable & Identifiable> {
 
     /// Следующая страница, когда на экране показался последний элемент.
     func loadMore(after item: Item) async {
-        guard hasMore, !isLoading, item.id == items.last?.id else { return }
+        guard hasMore, !isLoading, pageFailure == nil, item.id == items.last?.id else { return }
         let current = generation
         isLoading = true
         defer { if current == generation { isLoading = false } }
@@ -98,11 +101,22 @@ final class PagedLoader<Item: Decodable & Identifiable> {
             let known = Set(items.map { AnyHashable($0.id) })
             items += result.items.filter { !known.contains(AnyHashable($0.id)) }
             apply(result.meta, received: result.items.count, page: nextPage)
+            pageFailure = nil
+        } catch is CancellationError {
+            // Строка ушла с экрана посреди запроса — страница не потеряна, её попросит
+            // следующее появление последней строки.
+            return
         } catch {
             guard current == generation else { return }
-            failure = error.userMessage
-            hasMore = false
+            pageFailure = error.userMessage
         }
+    }
+
+    /// «Повторить» под списком после сбоя подгрузки.
+    func retryMore() async {
+        guard let last = items.last else { return }
+        pageFailure = nil
+        await loadMore(after: last)
     }
 
     /// Правка на месте — после действия над строкой, без перезагрузки всего списка.

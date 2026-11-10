@@ -88,10 +88,13 @@ actor APIClient {
         var lastTransportError: URLError?
 
         for retry in 0...maxRetries {
+            // Отменённый запрос (ушли с экрана, сменили фильтр) не повторяем и не
+            // выдаём за «нет связи»: экран, который его ждал, уже не ждёт.
+            try Task.checkCancellation()
             if retry > 0 {
                 // Выдержка с ростом: 0.5 с, затем 1 с. Без неё повтор приходит в тот
                 // же обрыв связи, только быстрее.
-                try? await Task.sleep(for: .milliseconds(500 * (1 << (retry - 1))))
+                try await Task.sleep(for: .milliseconds(500 * (1 << (retry - 1))))
             }
 
             do {
@@ -109,6 +112,7 @@ actor APIClient {
                 if worthRetrying, endpoint.isIdempotent, retry < maxRetries { continue }
                 throw failure
             } catch let urlError as URLError {
+                if urlError.code == .cancelled { throw CancellationError() }
                 guard endpoint.isIdempotent, retry < maxRetries else {
                     throw APIError.transport(urlError)
                 }

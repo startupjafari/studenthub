@@ -61,7 +61,9 @@ struct PagedList<Item: Decodable & Identifiable, Row: View, Header: View>: View 
                             row(item)
                                 .task { await loader.loadMore(after: item) }
                         }
-                        if loader.hasMore {
+                        if let pageFailure = loader.pageFailure {
+                            PageFailureRow(message: pageFailure) { await loader.retryMore() }
+                        } else if loader.hasMore {
                             HStack {
                                 Spacer()
                                 ProgressView()
@@ -86,6 +88,26 @@ struct PagedList<Item: Decodable & Identifiable, Row: View, Header: View>: View 
         .listStyle(.insetGrouped)
         .refreshable { await loader.reload() }
         .task { await loader.loadIfNeeded() }
+    }
+}
+
+/// Строка под списком: следующая страница не пришла. Сразу под последним элементом —
+/// там, куда человек смотрит, а не полосой наверху, которую он уже пролистал.
+struct PageFailureRow: View {
+    let message: String
+    let retry: () async -> Void
+
+    var body: some View {
+        VStack(spacing: Spacing.sm) {
+            Text(message)
+                .font(Typography.meta)
+                .foregroundStyle(Palette.mutedForeground)
+                .multilineTextAlignment(.center)
+            RetryButton(action: retry)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Spacing.md)
+        .listRowBackground(Color.clear)
     }
 }
 
