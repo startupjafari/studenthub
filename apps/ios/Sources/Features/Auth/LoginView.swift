@@ -101,7 +101,7 @@ struct LoginView: View {
     private var toolbarItems: some ToolbarContent {
         if model.step == .twoFactor {
             ToolbarItem(placement: .topBarLeading) {
-                AuthBackButton(
+                NavigationBackButton(
                     accessibilityLabel: String(localized: "auth.twoFactorBack", defaultValue: "Назад ко входу")
                 ) {
                     model.startOver()

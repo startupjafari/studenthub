@@ -592,38 +592,6 @@ struct StudentHubPrimaryButton: View {
     }
 }
 
-/// «Назад» для шага внутри экрана — код 2FA. Выглядит как системная кнопка навигации
-/// на остальных экранах: на iOS 26 — шеврон в стекле, раньше — шеврон со словом «Назад».
-/// Системную кнопку здесь не поставить: шаг не отдельный экран в стеке, а смена формы.
-struct AuthBackButton: View {
-    /// Что именно делает кнопка — для VoiceOver: «Назад ко входу», а не просто «Назад».
-    let accessibilityLabel: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            #if compiler(>=6.2)
-                if #available(iOS 26, *) {
-                    Image(systemName: "chevron.backward")
-                } else {
-                    legacyLabel
-                }
-            #else
-                legacyLabel
-            #endif
-        }
-        .accessibilityLabel(Text(accessibilityLabel))
-    }
-
-    private var legacyLabel: some View {
-        HStack(spacing: Spacing.xs) {
-            Image(systemName: "chevron.backward")
-                .fontWeight(.semibold)
-            Text(String(localized: "common.back", defaultValue: "Назад"))
-        }
-    }
-}
-
 /// Второстепенное действие с иконкой: прозрачное стекло на iOS 26.
 struct StudentHubSecondaryButton: View {
     let title: String
