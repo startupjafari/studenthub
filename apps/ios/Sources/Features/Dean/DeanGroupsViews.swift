@@ -118,6 +118,12 @@ struct DeanGroupView: View {
         var risk: [DeanAtRisk.Student]
         var courses: [DeanCourse]
         var pairs: [DeanPair]
+        /// Сбой сводки показывается в её секции, а не пустотой («не отмечали», «нет
+        /// дисциплин», «нет расписания») и не пропавшим блоком «Требуют внимания».
+        var attendanceFailure: String?
+        var riskFailure: String?
+        var coursesFailure: String?
+        var scheduleFailure: String?
 
         var students: [DeanGroupMember] {
             members.filter { $0.roleValue == .student || $0.roleValue == .starosta }
@@ -142,18 +148,29 @@ struct DeanGroupView: View {
     private func load() async throws -> Snapshot {
         async let group = api.group(id: groupID)
         async let members = api.groupMembers(id: groupID)
-        // Сводки — дополнение к карточке: их сбой не должен прятать состав.
-        async let attendance = try? api.groupAttendance(groupID: groupID)
-        async let risk = try? api.atRisk()
-        async let courses = try? api.courses(PageRequest(cursor: nil, page: 1, limit: 100), sort: "subject", ascending: true, groupID: groupID)
-        async let schedule = try? api.schedule(groupID: groupID)
+        // Сводки — дополнение к карточке: их сбой не должен прятать состав, но и не
+        // выдаёт себя за пустоту — у каждой секции свой «Повторить».
+        async let attendance = DeanPart<DeanGroupAttendance>.load { try await api.groupAttendance(groupID: groupID) }
+        async let risk = DeanPart<DeanAtRisk>.load { try await api.atRisk() }
+        async let courses = DeanPart<Page<DeanCourse>>.load {
+            try await api.courses(PageRequest(cursor: nil, page: 1, limit: 100), sort: "subject", ascending: true, groupID: groupID)
+        }
+        async let schedule = DeanPart<[DeanPair]>.load { try await api.schedule(groupID: groupID).pairs }
+        let (attendancePart, riskPart, coursesPart, schedulePart) = await (attendance, risk, courses, schedule)
+        // Экран ушёл посреди загрузки — снимок с пустыми частями не должен лечь поверх
+        // показанного как «сбой».
+        try Task.checkCancellation()
         return Snapshot(
             group: try await group,
             members: try await members,
-            attendance: await attendance,
-            risk: (await risk)?.students.filter { $0.groupId == groupID } ?? [],
-            courses: (await courses)?.items ?? [],
-            pairs: (await schedule)?.pairs ?? []
+            attendance: attendancePart.value,
+            risk: riskPart.value?.students.filter { $0.groupId == groupID } ?? [],
+            courses: coursesPart.value?.items ?? [],
+            pairs: schedulePart.value ?? [],
+            attendanceFailure: attendancePart.failure,
+            riskFailure: riskPart.failure,
+            coursesFailure: coursesPart.failure,
+            scheduleFailure: schedulePart.failure
         )
     }
 
@@ -164,7 +181,7 @@ struct DeanGroupView: View {
                 header(data, proxy: proxy)
                 starostaSection(data)
                 membersSection(data)
-                if !data.risk.isEmpty {
+                if !data.risk.isEmpty || data.riskFailure != nil {
                     riskSection(data)
                 }
                 attendanceSection(data)
@@ -349,6 +366,9 @@ struct DeanGroupView: View {
 
     private func riskSection(_ data: Snapshot) -> some View {
         Section {
+            if let failure = data.riskFailure {
+                DashboardFailurePlaceholder(message: failure) { reload += 1 }
+            }
             ForEach(data.risk) { student in
                 NavigationLink(value: AppRoute.dean(.student(id: student.studentId))) {
                     DeanRiskMemberRow(student: student)
@@ -372,6 +392,8 @@ struct DeanGroupView: View {
                         )
                     }
                 }
+            } else if let failure = data.attendanceFailure {
+                DashboardFailurePlaceholder(message: failure) { reload += 1 }
             } else {
                 IconRow(
                     title: String(localized: "dean.chart.noAttendance", defaultValue: "Посещаемость ещё не отмечали"),
@@ -391,7 +413,9 @@ struct DeanGroupView: View {
 
     private func coursesSection(_ data: Snapshot) -> some View {
         Section {
-            if data.courses.isEmpty {
+            if let failure = data.coursesFailure {
+                DashboardFailurePlaceholder(message: failure) { reload += 1 }
+            } else if data.courses.isEmpty {
                 IconRow(
                     title: String(localized: "dean.courses.emptyGroup", defaultValue: "Группе ещё не назначены дисциплины"),
                     symbol: "book",
@@ -408,7 +432,9 @@ struct DeanGroupView: View {
 
     private func scheduleSection(_ data: Snapshot) -> some View {
         Section {
-            if data.pairs.isEmpty {
+            if let failure = data.scheduleFailure {
+                DashboardFailurePlaceholder(message: failure) { reload += 1 }
+            } else if data.pairs.isEmpty {
                 IconRow(
                     title: String(localized: "dean.group.noSchedule", defaultValue: "Действующего расписания нет"),
                     symbol: "calendar",

@@ -25,10 +25,16 @@ struct CareerHomeView: View {
 }
 
 private struct CareerSeekerSummary {
-    var applications: [CareerApplication] = []
+    /// `nil` — отклики не загрузились: плитки с прочерком, а не с нулями.
+    var applications: [CareerApplication]?
     var vacancies: [CareerVacancy] = []
-    var events: [CareerEvent] = []
+    /// `nil` — мероприятия не загрузились: не «Мероприятий пока нет».
+    var events: [CareerEvent]?
+    var eventsFailure: String?
     var resume: CareerResumeSettings?
+    /// Сводка соискателя (отклики или резюме) пришла не целиком.
+    var applicantFailure: String?
+    var applicantOffline = false
 }
 
 private struct CareerSeekerHomeView: View {
@@ -40,30 +46,35 @@ private struct CareerSeekerHomeView: View {
             List {
                 if role.careerApplicant {
                     Section {
+                        if let failure = summary.applicantFailure {
+                            StaleDataBanner(message: failure, isOffline: summary.applicantOffline) { token += 1 }
+                        }
                         StatGrid {
                             StatTile(
                                 title: String(localized: "career.home.active", defaultValue: "Активные отклики"),
-                                value: count(summary) { !CareerText.isFinal($0.status) }.formatted(),
+                                value: count(summary) { !CareerText.isFinal($0.status) },
                                 symbol: "paperplane"
                             )
                             StatTile(
                                 title: String(localized: "career.home.interview", defaultValue: "Интервью и офферы"),
-                                value: count(summary) { $0.status == "INTERVIEW" || $0.status == "OFFER" }.formatted(),
+                                value: count(summary) { $0.status == "INTERVIEW" || $0.status == "OFFER" },
                                 symbol: "person.2.wave.2",
                                 tint: Palette.warning
                             )
                             StatTile(
                                 title: String(localized: "career.home.hired", defaultValue: "Приглашений на работу"),
-                                value: count(summary) { $0.status == "HIRED" }.formatted(),
+                                value: count(summary) { $0.status == "HIRED" },
                                 symbol: "checkmark.seal",
                                 tint: Palette.success
                             )
                             NavigationLink(value: AppRoute.career(.resume)) {
                                 StatTile(
                                     title: String(localized: "career.home.resume", defaultValue: "Резюме"),
-                                    value: summary.resume?.published == true
-                                        ? String(localized: "career.home.resumePublic", defaultValue: "По ссылке")
-                                        : String(localized: "career.home.resumePrivate", defaultValue: "Только у вас"),
+                                    value: summary.resume.map { resume in
+                                        resume.published == true
+                                            ? String(localized: "career.home.resumePublic", defaultValue: "По ссылке")
+                                            : String(localized: "career.home.resumePrivate", defaultValue: "Только у вас")
+                                    } ?? "—",
                                     symbol: "doc.text",
                                     tint: Palette.info
                                 )
@@ -96,11 +107,13 @@ private struct CareerSeekerHomeView: View {
                 }
 
                 Section {
-                    if summary.events.isEmpty {
+                    if let failure = summary.eventsFailure {
+                        DashboardFailurePlaceholder(message: failure) { token += 1 }
+                    } else if summary.events?.isEmpty == true {
                         Text(String(localized: "career.home.noEvents", defaultValue: "Мероприятий пока нет"))
                             .foregroundStyle(Palette.mutedForeground)
                     }
-                    ForEach(summary.events) { event in
+                    ForEach(summary.events ?? []) { event in
                         NavigationLink(value: AppRoute.event(id: event.id)) {
                             CareerEventRow(event: event)
                         }
@@ -131,8 +144,9 @@ private struct CareerSeekerHomeView: View {
         .navigationTitle(Text(CareerScreen.home.title))
     }
 
-    private func count(_ summary: CareerSeekerSummary, _ predicate: (CareerApplication) -> Bool) -> Int {
-        summary.applications.filter(predicate).count
+    /// Число откликов для плитки; отклики не загрузились — прочерк, а не «0».
+    private func count(_ summary: CareerSeekerSummary, _ predicate: (CareerApplication) -> Bool) -> String {
+        summary.applications.map { $0.filter(predicate).count.formatted() } ?? "—"
     }
 
     private func load() async throws -> CareerSeekerSummary {
@@ -142,11 +156,25 @@ private struct CareerSeekerHomeView: View {
         async let events = api.events(PageRequest(cursor: nil, page: 1, limit: 3), params: ["past": "false"])
         var summary = CareerSeekerSummary()
         summary.vacancies = try await vacancies.items
-        summary.events = (try? await events.items) ?? []
+        do {
+            summary.events = try await events.items
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            summary.eventsFailure = error.userMessage
+        }
         if applicant {
-            // Сводка — по всем откликам, а не по первой странице.
-            summary.applications = (try? await api.myApplications(PageRequest(cursor: nil, page: 1, limit: 100)).items) ?? []
-            summary.resume = try? await api.resume()
+            // Сводка — по всем откликам, а не по первой странице. Сбой не прячет витрину,
+            // но и не выдаёт себя за нули: над плитками — полоса с «Повторить».
+            do {
+                summary.applications = try await api.myApplications(PageRequest(cursor: nil, page: 1, limit: 100)).items
+                summary.resume = try await api.resume()
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                summary.applicantFailure = error.userMessage
+                summary.applicantOffline = error.isOffline
+            }
         }
         return summary
     }
@@ -337,6 +365,10 @@ struct CareerVacancyRow: View {
 private struct CareerVacancyDetails {
     var vacancy: CareerVacancy
     var application: CareerApplication?
+    /// Не удалось узнать, есть ли свой отклик: кнопку «Откликнуться» не предлагаем —
+    /// повторный отклик сервер отклонит, а человек решит, что первый потерялся.
+    var applicationFailure: String?
+    var applicationOffline = false
     var profile: CareerProfile?
 }
 
@@ -394,6 +426,14 @@ private struct CareerVacancyCard: View {
                             }
                         }
                     }
+                }
+
+                if let failure = details.applicationFailure {
+                    Section {
+                        StaleDataBanner(message: failure, isOffline: details.applicationOffline) { token += 1 }
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
                 }
 
                 if let company = vacancy.company {
@@ -523,7 +563,7 @@ private struct CareerVacancyCard: View {
     /// компании.
     private func heroActions(_ details: CareerVacancyDetails) -> [HeroAction] {
         var actions: [HeroAction] = []
-        if role.careerApplicant, details.application == nil {
+        if role.careerApplicant, details.application == nil, details.applicationFailure == nil {
             actions.append(HeroAction(
                 title: String(localized: "career.vacancy.apply", defaultValue: "Откликнуться"),
                 symbol: "paperplane.fill"
@@ -542,7 +582,14 @@ private struct CareerVacancyCard: View {
         let api = CareerAPI()
         var details = CareerVacancyDetails(vacancy: try await api.vacancy(id: id, universityID: universityID))
         if role.careerApplicant {
-            details.application = try? await api.myApplication(vacancyID: id)
+            do {
+                details.application = try await api.myApplication(vacancyID: id)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                details.applicationFailure = error.userMessage
+                details.applicationOffline = error.isOffline
+            }
             details.profile = try? await api.profile()
         }
         return details
@@ -803,7 +850,7 @@ private struct CareerApplicationSheet: View {
                             CareerHistoryRow(event: event)
                         }
                     } else if let historyFailure {
-                        Text(historyFailure).foregroundStyle(Palette.destructive)
+                        DashboardFailurePlaceholder(message: historyFailure) { await loadHistory() }
                     } else {
                         ProgressView()
                     }
@@ -856,6 +903,9 @@ private struct CareerApplicationSheet: View {
     private func loadHistory() async {
         do {
             history = try await CareerAPI().history(applicationID: application.id)
+            historyFailure = nil
+        } catch is CancellationError {
+            return
         } catch {
             historyFailure = error.userMessage
         }

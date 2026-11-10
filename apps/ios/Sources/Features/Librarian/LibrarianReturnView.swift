@@ -10,6 +10,8 @@ struct LibrarianReturnView: View {
     @State private var isSaving = false
     @State private var returned: [LibrarianReturnResultDTO] = []
     @State private var overdue: [LibrarianLoanDTO]?
+    /// Список просрочек не загрузился — не «просрочек нет»: иначе сбой выглядел бы хорошей новостью.
+    @State private var overdueFailure: String?
     @State private var action: LibrarianLoanAction?
 
     private let api = LibrarianAPI()
@@ -127,6 +129,11 @@ struct LibrarianReturnView: View {
             }
 
             Section {
+                if let overdueFailure, overdue != nil {
+                    StaleDataBanner(message: overdueFailure) { await loadOverdue() }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
                 if let overdue {
                     if overdue.isEmpty {
                         Text(String(localized: "librarian.noOverdue", defaultValue: "Просрочек нет"))
@@ -143,6 +150,8 @@ struct LibrarianReturnView: View {
                             LibrarianLoanDueBadge(loan: loan)
                         }
                     }
+                } else if let overdueFailure {
+                    DashboardFailurePlaceholder(message: overdueFailure) { await loadOverdue() }
                 } else {
                     ProgressView().frame(maxWidth: .infinity)
                 }
@@ -191,6 +200,14 @@ struct LibrarianReturnView: View {
 
     @MainActor
     private func loadOverdue() async {
-        overdue = (try? await api.loans(PageRequest(cursor: nil, page: 1, limit: 6), filter: "overdue").items) ?? overdue ?? []
+        do {
+            overdue = try await api.loans(PageRequest(cursor: nil, page: 1, limit: 6), filter: "overdue").items
+            overdueFailure = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            // Прошлый список не стираем: он лучше пустоты, а полоса скажет, что он несвежий.
+            overdueFailure = error.userMessage
+        }
     }
 }

@@ -13,6 +13,8 @@ struct LibrarianReportsView: View {
     @State private var days = 90
     @State private var popular: [LibrarianPopularDTO]?
     @State private var popularFailure: String?
+    /// За какой период загружен `popular`: при смене периода старый топ не выдаём за новый.
+    @State private var popularDays: Int?
 
     private let api = LibrarianAPI()
     private static let preview = 8
@@ -56,6 +58,11 @@ struct LibrarianReportsView: View {
                     }
                     .pickerStyle(.segmented)
                     if let popular {
+                        if let popularFailure {
+                            StaleDataBanner(message: popularFailure) { await loadPopular() }
+                                .listRowBackground(Color.clear)
+                                .listRowInsets(EdgeInsets())
+                        }
                         if popular.isEmpty {
                             Text(String(localized: "librarian.reports.noPopular", defaultValue: "За этот период выдач не было"))
                                 .font(Typography.meta)
@@ -83,7 +90,7 @@ struct LibrarianReportsView: View {
                             }
                         }
                     } else if let popularFailure {
-                        Text(popularFailure).font(Typography.meta).foregroundStyle(Palette.destructive)
+                        DashboardFailurePlaceholder(message: popularFailure) { await loadPopular() }
                     } else {
                         ProgressView().frame(maxWidth: .infinity)
                     }
@@ -181,8 +188,15 @@ struct LibrarianReportsView: View {
 
     @MainActor
     private func loadPopular() async {
+        let days = self.days
+        // Новый период — пока ответа нет, крутилка, а не топ прошлого периода.
+        if popularDays != days {
+            popular = nil
+            popularFailure = nil
+        }
         do {
             popular = try await api.popular(days: days)
+            popularDays = days
             popularFailure = nil
         } catch is CancellationError {
             return

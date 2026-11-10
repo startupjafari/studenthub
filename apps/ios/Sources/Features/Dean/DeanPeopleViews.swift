@@ -313,6 +313,10 @@ struct DeanStudentView: View {
         var attendance: DeanGroupAttendance.Student?
         var risk: DeanAtRisk.Student?
         var debts: DeanLibraryDebts?
+        /// Сводка не загрузилась: не «отметок нет» и тем более не «причин для
+        /// беспокойства нет» — декан не должен успокоиться из-за сбоя сети.
+        var attendanceFailure: String?
+        var riskFailure: String?
     }
 
     var body: some View {
@@ -331,15 +335,23 @@ struct DeanStudentView: View {
     private func load() async throws -> Snapshot {
         let profile = try await api.user(id: userID)
         async let group: DeanGroup? = profile.groupId.asyncMap { try? await api.group(id: $0) }
-        async let attendance: DeanGroupAttendance? = profile.groupId.asyncMap { try? await api.groupAttendance(groupID: $0) }
-        async let risk = try? api.atRisk()
+        async let attendance: DeanPart<DeanGroupAttendance>? = profile.groupId.asyncMap { id in
+            await DeanPart<DeanGroupAttendance>.load { try await api.groupAttendance(groupID: id) }
+        }
+        async let risk = DeanPart<DeanAtRisk>.load { try await api.atRisk() }
         async let debts = try? api.libraryDebts(userID: userID)
+        let (attendancePart, riskPart) = await (attendance, risk)
+        // Экран ушёл посреди загрузки — снимок с пустыми частями не должен лечь поверх
+        // показанного как «сбой».
+        try Task.checkCancellation()
         return Snapshot(
             profile: profile,
             group: await group,
-            attendance: (await attendance)?.students.first { $0.studentId == userID },
-            risk: (await risk)?.students.first { $0.studentId == userID },
-            debts: await debts
+            attendance: attendancePart?.value?.students.first { $0.studentId == userID },
+            risk: riskPart.value?.students.first { $0.studentId == userID },
+            debts: await debts,
+            attendanceFailure: attendancePart?.failure,
+            riskFailure: riskPart.failure
         )
     }
 
@@ -491,6 +503,8 @@ struct DeanStudentView: View {
                     subtitle: trackedLine(attendance.tracked),
                     rate: attendance.attendanceRate
                 )
+            } else if let failure = data.attendanceFailure {
+                DashboardFailurePlaceholder(message: failure) { reload += 1 }
             } else {
                 IconRow(
                     title: String(localized: "dean.student.noAttendance", defaultValue: "Отметок посещаемости пока нет"),
@@ -501,6 +515,11 @@ struct DeanStudentView: View {
             if let risk = data.risk, !risk.reasons.isEmpty {
                 ForEach(risk.reasons, id: \.kind) { reason in
                     IconRow(title: DeanRiskText.line(reason), symbol: "exclamationmark.triangle.fill", tint: TileTint.red)
+                }
+            } else if let failure = data.riskFailure {
+                // Один «Повторить» на секцию: он перечитывает обе сводки.
+                if data.attendanceFailure == nil {
+                    DashboardFailurePlaceholder(message: failure) { reload += 1 }
                 }
             } else {
                 IconRow(
@@ -622,6 +641,7 @@ struct DeanAcademicForm: View {
     @State private var initial: [String: String]?
     @State private var form: [String: String] = [:]
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var specialties: [String] = []
     @State private var debts: DeanLibraryDebts?
 
@@ -641,7 +661,7 @@ struct DeanAcademicForm: View {
                 }
             } else if let failure {
                 NavigationStack {
-                    ErrorStateView(message: failure) { await load() }
+                    ErrorStateView(message: failure, isOffline: isOffline) { await load() }
                 }
             } else {
                 LoadingStateView()
@@ -751,6 +771,7 @@ struct DeanAcademicForm: View {
             return
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 

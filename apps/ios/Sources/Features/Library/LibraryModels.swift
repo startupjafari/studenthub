@@ -121,6 +121,8 @@ final class LibraryCatalogModel {
     private(set) var sections: [String] = []
     private(set) var isLoading = false
     private(set) var failure: String?
+    /// Последний сбой — нет связи: экран подсказывает проверить сеть, а не ждать.
+    private(set) var isOffline = false
     /// Библиотеку вуза выключили (`409 module`): вместо каталога — объяснение.
     private(set) var isDisabled = false
     /// Для какого запроса загружена первая страница. Возврат с карточки книги не должен
@@ -163,6 +165,7 @@ final class LibraryCatalogModel {
             loadedQuery = query
             isDisabled = false
             failure = nil
+            isOffline = false
         } catch {
             // Отменённый запрос — это человек дописал поиск, а не отказ сети.
             guard current == generation, !Task.isCancelled else { return }
@@ -171,8 +174,17 @@ final class LibraryCatalogModel {
                 books = []
                 total = 0
                 failure = nil
+                isOffline = false
             } else {
+                // Запрос сменился, а ответа на новый нет: книги прошлого поиска под новой
+                // строкой поиска выглядели бы его результатом. Старое оставляем, только
+                // когда обновляли тот же запрос.
+                if loadedQuery != query {
+                    books = []
+                    total = 0
+                }
                 failure = LibraryReaderError.message(for: error)
+                isOffline = error.isOffline
             }
         }
     }
@@ -213,6 +225,8 @@ final class LibraryBookModel {
     private(set) var isLoading = false
     private(set) var isWorking = false
     private(set) var failure: String?
+    /// Последний сбой загрузки — нет связи (для экрана ошибки, пока книги нет).
+    private(set) var isOffline = false
     private(set) var notice: String?
     /// Книгу не открыть: нет такой, архивная или библиотеку выключили.
     private(set) var unavailable: String?
@@ -247,11 +261,13 @@ final class LibraryBookModel {
             self.loans = (try? await loans) ?? self.loans
             unavailable = nil
             failure = nil
+            isOffline = false
         } catch {
             if self.book == nil, LibraryReaderError.isModuleOff(error) || (error as? APIError)?.code == .notFound {
                 unavailable = LibraryReaderError.message(for: error)
             } else {
                 failure = LibraryReaderError.message(for: error)
+                isOffline = error.isOffline
             }
         }
     }
@@ -302,6 +318,10 @@ final class LibraryBookModel {
 final class LibraryCopyModel {
     private(set) var bookID: String?
     private(set) var failure: String?
+    /// Ответ сервера окончательный: кода нет или библиотеку выключили. Иначе сбой
+    /// временный (сеть, сервер) — экран предложит повторить, а не «наклейка не найдена».
+    private(set) var isNotFound = false
+    private(set) var isOffline = false
 
     private let api: LibraryFetching
     private let code: String
@@ -316,17 +336,25 @@ final class LibraryCopyModel {
         do {
             bookID = try await api.copy(code: code).book.id
             failure = nil
+            isNotFound = false
+            isOffline = false
         } catch {
             if LibraryReaderError.isModuleOff(error) {
                 failure = LibraryReaderError.message(for: error)
+                isNotFound = true
+                isOffline = false
             } else if (error as? APIError)?.code == .notFound {
                 // Чужой вуз и неизвестный код сервер не различает — и мы не различаем.
                 failure = String(
                     localized: "library.copyNotFound",
                     defaultValue: "Код неизвестен или наклейку перевыпустили. Найдите книгу в каталоге."
                 )
+                isNotFound = true
+                isOffline = false
             } else {
                 failure = LibraryReaderError.message(for: error)
+                isNotFound = false
+                isOffline = error.isOffline
             }
         }
     }
@@ -338,7 +366,12 @@ final class LibraryCopyModel {
 final class MyBooksModel {
     private(set) var books: MyBooks?
     private(set) var isLoading = false
+    /// Сбой загрузки списка: без данных — экран ошибки, с данными — полоса над ними.
     private(set) var failure: String?
+    private(set) var isOffline = false
+    /// Отказ действия («Это не я», отмена брони) — отдельно от сбоя загрузки: список
+    /// при этом свежий, и повторять нужно действие, а не загрузку.
+    private(set) var actionFailure: String?
     private(set) var notice: String?
     private(set) var isDisabled = false
     /// Над какой выдачей или бронью сейчас идёт запрос — её кнопка показывает загрузку.
@@ -366,6 +399,9 @@ final class MyBooksModel {
             books = MyBooks(loans: self.loans, reservations: self.reservations)
             isDisabled = false
             failure = nil
+            // Свежий список — и прошлая неудача действия к нему уже не относится.
+            actionFailure = nil
+            isOffline = false
         } catch {
             // Данные с прошлого раза не стираем: вчерашний список с пометкой об ошибке
             // лучше пустого экрана.
@@ -373,6 +409,7 @@ final class MyBooksModel {
                 isDisabled = true
             } else {
                 failure = LibraryReaderError.message(for: error)
+                isOffline = error.isOffline
             }
         }
     }
@@ -389,10 +426,10 @@ final class MyBooksModel {
             loans = loans.map { $0.id == updated.id ? updated : $0 }
             books = MyBooks(loans: loans, reservations: reservations)
             notice = String(localized: "library.disputedToast", defaultValue: "Библиотекарь получил отметку")
-            failure = nil
+            actionFailure = nil
         } catch {
             notice = nil
-            failure = LibraryReaderError.message(for: error)
+            actionFailure = LibraryReaderError.message(for: error)
         }
     }
 
@@ -406,10 +443,10 @@ final class MyBooksModel {
             reservations.removeAll { $0.id == reservationID }
             books = MyBooks(loans: loans, reservations: reservations)
             notice = String(localized: "library.cancelled", defaultValue: "Бронь отменена")
-            failure = nil
+            actionFailure = nil
         } catch {
             notice = nil
-            failure = LibraryReaderError.message(for: error)
+            actionFailure = LibraryReaderError.message(for: error)
         }
     }
 }
@@ -446,6 +483,7 @@ final class LibraryClearanceModel {
     private(set) var summary: ClearanceSummary?
     private(set) var isLoading = false
     private(set) var failure: String?
+    private(set) var isOffline = false
 
     private let api: LibraryFetching
 
@@ -463,11 +501,13 @@ final class LibraryClearanceModel {
             let clearance = try await api.clearance()
             summary = ClearanceSummary(clearance)
             failure = nil
+            isOffline = false
         } catch {
             // Прошлую справку не показываем как свежую: дата на ней — момент проверки,
             // и человек унёс бы в деканат устаревшее «задолженностей нет».
             summary = nil
             failure = LibraryReaderError.message(for: error)
+            isOffline = error.isOffline
         }
     }
 }

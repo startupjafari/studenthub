@@ -286,7 +286,10 @@ struct CommunityApplicationForm: View {
     @State private var service: CommunityApplicationDTO.Service?
     @State private var values: [String: JSONValue] = [:]
     @State private var delivery = ""
+    /// Ошибка сохранения — над формой; ошибка загрузки услуги — на месте формы, с повтором.
     @State private var failure: String?
+    @State private var loadFailure: String?
+    @State private var isOffline = false
     @State private var isSaving = false
     @State private var created: String?
 
@@ -363,7 +366,10 @@ struct CommunityApplicationForm: View {
                         Text(String(localized: "applications.fillRequired", defaultValue: "Заполните обязательные поля"))
                     }
                 }
-            } else if failure == nil {
+            } else if let loadFailure {
+                ErrorStateView(message: loadFailure, isOffline: isOffline) { await load() }
+                    .listRowBackground(Color.clear)
+            } else {
                 LoadingStateView().listRowBackground(Color.clear)
             }
         }
@@ -388,9 +394,12 @@ struct CommunityApplicationForm: View {
             let loaded = try await api.service(id: serviceID)
             service = loaded
             delivery = loaded.deliveryModes?.first ?? ""
-            failure = nil
+            loadFailure = nil
+        } catch is CancellationError {
+            return
         } catch {
-            failure = error.userMessage
+            loadFailure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 
@@ -420,7 +429,11 @@ struct CommunityApplicationDetail: View {
 
     @State private var application: CommunityApplicationDTO?
     @State private var failure: String?
-    @State private var documents: [CommunityDocumentDTO] = []
+    @State private var isOffline = false
+    /// `nil` — свои документы ещё не пришли или не загрузились (`documentsFailure`).
+    @State private var documents: [CommunityDocumentDTO]?
+    @State private var documentsFailure: String?
+    @State private var documentsOffline = false
     @State private var choosing: CommunityApplicationDTO.Service.Requirement?
     @State private var uploadType: String?
     @State private var uploading = false
@@ -440,7 +453,7 @@ struct CommunityApplicationDetail: View {
             if let application {
                 content(application)
             } else if let failure {
-                ErrorStateView(message: failure) { await load() }
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
             } else {
                 LoadingStateView()
             }
@@ -456,9 +469,12 @@ struct CommunityApplicationDetail: View {
         .sheet(item: $choosing) { requirement in
             CommunityDocumentChooser(
                 title: requirement.title,
-                documents: documents.filter { document in
+                documents: documents?.filter { document in
                     (requirement.documentType == nil || document.type == requirement.documentType) && (document.fileCount ?? document.files?.count ?? 0) > 0
                 },
+                failure: documentsFailure,
+                isOffline: documentsOffline,
+                retry: { await loadDocuments() },
                 onUpload: {
                     uploadType = requirement.documentType
                     uploading = true
@@ -756,9 +772,27 @@ struct CommunityApplicationDetail: View {
         do {
             application = try await api.application(id: applicationID)
             failure = nil
-            if editable { documents = (try? await api.allDocuments()) ?? [] }
+            if editable { await loadDocuments() }
+        } catch is CancellationError {
+            return
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
+        }
+    }
+
+    /// Свои документы для выбора. Сбой не стирает прежний список и не выдаёт себя
+    /// за «Подходящих документов нет»: в выборе — ошибка с повтором.
+    @MainActor
+    private func loadDocuments() async {
+        do {
+            documents = try await api.allDocuments()
+            documentsFailure = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            documentsFailure = error.userMessage
+            documentsOffline = error.isOffline
         }
     }
 

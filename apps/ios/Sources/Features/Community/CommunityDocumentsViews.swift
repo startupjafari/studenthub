@@ -211,6 +211,8 @@ struct CommunityDocumentDetailView: View {
     @Environment(ViewerProfileModel.self) private var viewer
     @State private var document: CommunityDocumentDTO?
     @State private var access: [CommunityDocumentAccessDTO]?
+    /// Список доступов не загрузился — не «никому не открыт».
+    @State private var accessFailure: String?
     @State private var opener = RemoteFileOpener()
     @State private var editing = false
     @State private var granting = false
@@ -342,7 +344,14 @@ struct CommunityDocumentDetailView: View {
             if !isIssued {
                 Section {
                     if let access {
-                        ForEach(access.filter { $0.active != false && $0.revokedAt == nil }) { grant in
+                        let active = access.filter { $0.active != false && $0.revokedAt == nil }
+                        if active.isEmpty {
+                            DashboardEmptyRow(
+                                text: String(localized: "community.documents.access.empty", defaultValue: "Документ никому не открыт"),
+                                symbol: "lock"
+                            )
+                        }
+                        ForEach(active) { grant in
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(CommunityText.grantee(grant.granteeType)).font(Typography.body)
                                 Text([grant.reason, grant.expiresAt.map { String(localized: "community.documents.until", defaultValue: "до \(DisplayFormat.date($0))") }]
@@ -358,6 +367,8 @@ struct CommunityDocumentDetailView: View {
                                 }
                             }
                         }
+                    } else if let accessFailure {
+                        DashboardFailurePlaceholder(message: accessFailure) { await reloadAccess() }
                     } else {
                         ProgressView()
                     }
@@ -471,7 +482,15 @@ struct CommunityDocumentDetailView: View {
     @MainActor
     private func reloadAccess() async {
         guard !isIssued else { return }
-        access = (try? await api.documentAccess(id: documentID)) ?? []
+        do {
+            access = try await api.documentAccess(id: documentID)
+            accessFailure = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            // Прежний список остаётся; сбой виден, только когда показать нечего.
+            accessFailure = error.userMessage
+        }
     }
 
     @MainActor

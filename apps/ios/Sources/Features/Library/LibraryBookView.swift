@@ -19,7 +19,9 @@ struct LibraryBookView: View {
                     .listRowBackground(Color.clear)
             }
 
-            if let failure = model?.failure {
+            // Отказ действия (бронь, отмена) или неудачное обновление над уже открытой
+            // книгой — плашкой; без книги сбой занимает экран ниже, с повтором.
+            if let failure = model?.failure, model?.book != nil {
                 FormAlert(message: failure)
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
@@ -73,7 +75,10 @@ struct LibraryBookView: View {
                         .disabled(model.isWorking)
                     }
                 }
-            } else if model?.unavailable == nil, model?.failure == nil {
+            } else if let model, model.unavailable == nil, let failure = model.failure, !model.isLoading {
+                ErrorStateView(message: failure, isOffline: model.isOffline) { await model.load() }
+                    .listRowBackground(Color.clear)
+            } else if model?.unavailable == nil {
                 LoadingStateView().listRowBackground(Color.clear)
             }
         }
@@ -233,6 +238,13 @@ struct LibraryCopyView: View {
         Group {
             if let bookID = model?.bookID {
                 LibraryBookView(bookID: bookID)
+            } else if let model, let failure = model.failure, !model.isNotFound {
+                // Сеть или сервер подвели — наклейка тут ни при чём: предлагаем повторить.
+                ErrorStateView(message: failure, isOffline: model.isOffline) { await model.resolve() }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Palette.background)
+                    .navigationTitle(Text(String(localized: "library.book", defaultValue: "Книга")))
+                    .navigationBarTitleDisplayMode(.inline)
             } else if let failure = model?.failure {
                 EmptyStateView(
                     title: String(localized: "library.copyNotFoundTitle", defaultValue: "Наклейка не найдена"),

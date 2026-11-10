@@ -408,6 +408,7 @@ struct AdminSearchPicker: View {
     @State private var query = ""
     @State private var items: [AdminPickItem]?
     @State private var failure: String?
+    @State private var isOffline = false
 
     var body: some View {
         List {
@@ -441,7 +442,7 @@ struct AdminSearchPicker: View {
                     }
                 }
             } else if let failure {
-                ErrorStateView(message: failure) { await run(query) }
+                ErrorStateView(message: failure, isOffline: isOffline) { await run(query) }
                     .listRowBackground(Color.clear)
             } else {
                 LoadingStateView().listRowBackground(Color.clear)
@@ -465,6 +466,7 @@ struct AdminSearchPicker: View {
             return
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 }

@@ -163,6 +163,7 @@ struct UAdminSearchPicker<Item: Identifiable & Hashable>: View {
     @State private var query = ""
     @State private var items: [Item]?
     @State private var failure: String?
+    @State private var isOffline = false
 
     var body: some View {
         NavigationStack {
@@ -197,7 +198,7 @@ struct UAdminSearchPicker<Item: Identifiable & Hashable>: View {
                         }
                     }
                 } else if let failure {
-                    ErrorStateView(message: failure) { await run(query) }
+                    ErrorStateView(message: failure, isOffline: isOffline) { await run(query) }
                         .listRowBackground(Color.clear)
                 } else {
                     LoadingStateView().listRowBackground(Color.clear)
@@ -224,6 +225,7 @@ struct UAdminSearchPicker<Item: Identifiable & Hashable>: View {
             return
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 }

@@ -125,7 +125,7 @@ struct PostCommentsView: View {
                     }
                 }
             } else if let failure = model.failure, model.comments.isEmpty {
-                ErrorStateView(message: failure) { await reload() }
+                ErrorStateView(message: failure, isOffline: model.isOffline) { await reload() }
             } else if model.comments.isEmpty {
                 EmptyStateView(
                     title: String(localized: "feed.noComments", defaultValue: "Комментариев пока нет"),

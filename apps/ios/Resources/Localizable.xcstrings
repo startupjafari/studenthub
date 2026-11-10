@@ -39739,23 +39739,6 @@
         }
       }
     },
-    "community.join.failed": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не получилось вступить в чат"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Чатқа қосылу мүмкін болмады"
-          }
-        }
-      }
-    },
     "community.join.toChats": {
       "extractionState": "manual",
       "localizations": {
@@ -91075,6 +91058,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "Сервистер"
+          }
+        }
+      }
+    },
+    "career.city.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Город не найден"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қала табылмады"
+          }
+        }
+      }
+    },
+    "community.documents.access.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Документ никому не открыт"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Құжат ешкімге ашылмаған"
+          }
+        }
+      }
+    },
+    "staff.dt.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Типов документов нет"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Құжат түрлері жоқ"
+          }
+        }
+      }
+    },
+    "student.partialFailure": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Часть данных не загрузилась"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Деректердің бір бөлігі жүктелмеді"
+          }
+        }
+      }
+    },
+    "teaching.room.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аудитория не найдена"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аудитория табылмады"
           }
         }
       }

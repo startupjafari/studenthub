@@ -436,6 +436,9 @@ struct LibrarianCopyDetail: View {
     @State private var labelsURL: URL?
     @State private var history: [LibrarianLoanDTO]?
     @State private var historyLoading = false
+    /// Сбой истории — в её же секции: общий `failure` подписан под формой правки,
+    /// и сбой истории там читался бы как отказ сохранения.
+    @State private var historyFailure: String?
 
     private let api = LibrarianAPI()
 
@@ -549,17 +552,13 @@ struct LibrarianCopyDetail: View {
                             LibrarianLoanDueBadge(loan: loan)
                         }
                     }
-                } else if historyLoading {
+                } else if !historyLoading, let historyFailure {
+                    DashboardFailurePlaceholder(message: historyFailure) { await loadHistory() }
+                } else {
                     HStack {
                         Spacer()
                         ProgressView()
                         Spacer()
-                    }
-                } else {
-                    Button {
-                        Task { await loadHistory() }
-                    } label: {
-                        Label(String(localized: "common.retry", defaultValue: "Повторить"), systemImage: "arrow.clockwise")
                     }
                 }
             } header: {
@@ -734,8 +733,11 @@ struct LibrarianCopyDetail: View {
         defer { historyLoading = false }
         do {
             history = try await api.loans(PageRequest(cursor: nil, page: 1, limit: 50), filter: "all", copyID: current.id).items
+            historyFailure = nil
+        } catch is CancellationError {
+            return
         } catch {
-            failure = error.userMessage
+            historyFailure = error.userMessage
         }
     }
 }

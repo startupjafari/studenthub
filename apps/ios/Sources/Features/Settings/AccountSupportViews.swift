@@ -84,6 +84,9 @@ struct DeleteAccountView: View {
 
     @Environment(ViewerProfileModel.self) private var viewer
     @State private var check: DeletionCheckDTO?
+    /// Проверка «можно ли удалить» не пришла: без неё формы нет — нужен повтор.
+    @State private var checkFailure: String?
+    @State private var checkOffline = false
     @State private var password = ""
     @State private var code = ""
     @State private var failure: String?
@@ -138,7 +141,10 @@ struct DeleteAccountView: View {
                     }
                     .disabled(!canDelete)
                 }
-            } else if failure == nil {
+            } else if let checkFailure {
+                ErrorStateView(message: checkFailure, isOffline: checkOffline) { await loadCheck() }
+                    .listRowBackground(Color.clear)
+            } else {
                 LoadingStateView().listRowBackground(Color.clear)
             }
         }
@@ -155,12 +161,19 @@ struct DeleteAccountView: View {
         } message: {
             Text(String(localized: "settings.delete.confirmMessage", defaultValue: "Восстановить его будет нельзя."))
         }
-        .task {
-            do {
-                check = try await api.deletionCheck()
-            } catch {
-                failure = error.userMessage
-            }
+        .task { await loadCheck() }
+    }
+
+    @MainActor
+    private func loadCheck() async {
+        do {
+            check = try await api.deletionCheck()
+            checkFailure = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            checkFailure = error.userMessage
+            checkOffline = error.isOffline
         }
     }
 

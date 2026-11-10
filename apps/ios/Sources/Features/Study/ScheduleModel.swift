@@ -15,6 +15,8 @@ final class ScheduleModel {
     private(set) var changes: [String: PairChangeRecord] = [:]
     private(set) var isRefreshing = false
     private(set) var failure: String?
+    /// Сбой обновления — из-за связи: экран говорит «нет связи», а не «сломалось».
+    private(set) var isOffline = false
     /// Когда последний раз удалось обновиться. Нужно на экране: «расписание от
     /// вторника» честнее, чем молча показанное старое.
     private(set) var syncedAt: Date?
@@ -112,9 +114,11 @@ final class ScheduleModel {
             syncedAt = Date()
             UserDefaults.standard.set(syncedAt, forKey: Self.syncedKey)
             failure = nil
+            isOffline = false
         } catch {
             // Сеть недоступна — экран остаётся рабочим: он читает базу.
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 

@@ -162,6 +162,7 @@ enum CommunityLanguageText {
 struct CommunityTelegramLinkView: View {
     @State private var link: CommunityTelegramLinkDTO?
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var code: CommunityTelegramCodeDTO?
     @State private var issuedAt = Date()
     @State private var confirmingRevoke = false
@@ -247,7 +248,7 @@ struct CommunityTelegramLinkView: View {
                     }
                 }
             } else if let failure {
-                ErrorStateView(message: failure) { await load() }.listRowBackground(Color.clear)
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }.listRowBackground(Color.clear)
             } else {
                 LoadingStateView().listRowBackground(Color.clear)
             }
@@ -275,8 +276,11 @@ struct CommunityTelegramLinkView: View {
         do {
             link = try await api.telegramLink()
             failure = nil
+        } catch is CancellationError {
+            return
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 
@@ -378,6 +382,7 @@ struct CommunityJoinChatView: View {
     @Environment(\.viewerRole) private var role
     @Environment(\.viewerID) private var viewerID
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var joined: CommunityJoinedChatDTO?
 
     var body: some View {
@@ -390,13 +395,15 @@ struct CommunityJoinChatView: View {
             } else if let joined {
                 ChatThreadView(chatID: joined.id, viewerID: viewerID)
             } else if let failure {
-                EmptyStateView(
-                    title: String(localized: "community.join.failed", defaultValue: "Не получилось вступить в чат"),
-                    symbol: "person.3",
-                    hint: failure,
-                    actionTitle: String(localized: "community.join.toChats", defaultValue: "К чатам"),
-                    action: { AppServices.router.select(.chats) }
-                )
+                // Сбой — не «пусто»: с повтором (пропала связь) и выходом к чатам
+                // (ссылка недействительна).
+                VStack(spacing: Spacing.lg) {
+                    ErrorStateView(message: failure, isOffline: isOffline) { await join() }
+                    Button(String(localized: "community.join.toChats", defaultValue: "К чатам")) {
+                        AppServices.router.select(.chats)
+                    }
+                    .font(Typography.meta.weight(.semibold))
+                }
             } else {
                 VStack(spacing: Spacing.lg) {
                     ProgressView()
@@ -416,8 +423,12 @@ struct CommunityJoinChatView: View {
         guard joined == nil, role != .employer else { return }
         do {
             joined = try await CommunityAPI().joinChat(id: chatID, code: code)
+            failure = nil
+        } catch is CancellationError {
+            return
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 }

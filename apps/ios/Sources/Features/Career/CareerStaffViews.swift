@@ -1211,7 +1211,9 @@ struct CareerCompanyView: View {
 
     private struct Content {
         var company: CareerCompany
-        var posts: [PostDTO]
+        /// `nil` — публикации не загрузились: не «Публикаций пока нет».
+        var posts: [PostDTO]?
+        var postsFailure: String?
     }
 
     var body: some View {
@@ -1240,11 +1242,13 @@ struct CareerCompanyView: View {
                 CareerCompanyDetailsSection(company: company)
 
                 Section {
-                    if content.posts.isEmpty {
+                    if let failure = content.postsFailure {
+                        DashboardFailurePlaceholder(message: failure) { token += 1 }
+                    } else if content.posts?.isEmpty == true {
                         Text(String(localized: "career.company.noPosts", defaultValue: "Публикаций пока нет"))
                             .foregroundStyle(Palette.mutedForeground)
                     }
-                    ForEach(content.posts) { post in
+                    ForEach(content.posts ?? []) { post in
                         NavigationLink(value: AppRoute.post(id: post.id)) {
                             TelegramStyleRow(
                                 title: post.title ?? String((post.content ?? "").prefix(120)),
@@ -1297,8 +1301,14 @@ struct CareerCompanyView: View {
     private func load() async throws -> Content {
         let api = CareerAPI()
         let company = try await api.company(id: id)
-        let posts = (try? await api.companyPosts(companyID: id)) ?? []
-        return Content(company: company, posts: posts)
+        do {
+            let posts = try await api.companyPosts(companyID: id)
+            return Content(company: company, posts: posts)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return Content(company: company, posts: nil, postsFailure: error.userMessage)
+        }
     }
 }
 

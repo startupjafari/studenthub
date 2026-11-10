@@ -90,6 +90,10 @@ struct CommunityPersonPicker: View {
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     @State private var people: [SearchResultsDTO.Person] = []
+    @State private var isSearching = false
+    /// Поиск не удался — не «Никого не нашли».
+    @State private var failure: String?
+    @State private var isOffline = false
 
     var body: some View {
         NavigationStack {
@@ -109,12 +113,18 @@ struct CommunityPersonPicker: View {
             .listStyle(.insetGrouped)
             .overlay {
                 if people.isEmpty {
-                    ContentUnavailableView(
-                        query.count < 2
-                            ? String(localized: "search.hint", defaultValue: "Введите хотя бы две буквы")
-                            : String(localized: "search.empty", defaultValue: "Никого не нашли"),
-                        systemImage: "person.crop.circle.badge.questionmark"
-                    )
+                    if isSearching {
+                        LoadingStateView()
+                    } else if let failure {
+                        ErrorStateView(message: failure, isOffline: isOffline) { await search(query) }
+                    } else {
+                        ContentUnavailableView(
+                            query.count < 2
+                                ? String(localized: "search.hint", defaultValue: "Введите хотя бы две буквы")
+                                : String(localized: "search.empty", defaultValue: "Никого не нашли"),
+                            systemImage: "person.crop.circle.badge.questionmark"
+                        )
+                    }
                 }
             }
             .searchable(
@@ -130,16 +140,44 @@ struct CommunityPersonPicker: View {
                 }
             }
             .task(id: query) {
-                let trimmed = query.trimmingCharacters(in: .whitespaces)
-                guard trimmed.count >= 2 else {
+                failure = nil
+                guard query.trimmingCharacters(in: .whitespaces).count >= 2 else {
                     people = []
+                    isSearching = false
                     return
                 }
+                isSearching = true
                 try? await Task.sleep(for: .milliseconds(300))
                 guard !Task.isCancelled else { return }
-                people = (try? await FeedAPI().search(trimmed).people) ?? []
+                await search(query)
             }
         }
+    }
+
+    /// Запрос поиска. Ответ на устаревший запрос (человек допечатал) отбрасывается.
+    @MainActor
+    private func search(_ text: String) async {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard trimmed.count >= 2 else { return }
+        isSearching = true
+        do {
+            let found = try await FeedAPI().search(trimmed).people
+            guard !Task.isCancelled else { return }
+            people = found ?? []
+            failure = nil
+        } catch {
+            // Отменил новый ввод — его запрос и решит, что показать. Оборванное соединение
+            // без отмены задачи — не повод крутить поиск вечно.
+            guard !Task.isCancelled else { return }
+            if error is CancellationError {
+                isSearching = false
+                return
+            }
+            people = []
+            failure = error.userMessage
+            isOffline = error.isOffline
+        }
+        isSearching = false
     }
 }
 

@@ -165,6 +165,9 @@ private struct TwoFactorView: View {
     @State private var code = ""
     @State private var backupCodes: [String]?
     @State private var failure: String?
+    /// Ключ для приложения-аутентификатора не пришёл: без него вводить код не из чего.
+    @State private var setupFailure: String?
+    @State private var setupOffline = false
     @State private var isWorking = false
 
     private let api: AccountFetching = AccountAPI()
@@ -192,6 +195,13 @@ private struct TwoFactorView: View {
                             localized: "settings.2fa.codesFooter",
                             defaultValue: "Каждый код срабатывает один раз. Сохраните их: больше они не покажутся."
                         ))
+                    }
+                } else if flow == .enable, setup == nil {
+                    if let setupFailure {
+                        ErrorStateView(message: setupFailure, isOffline: setupOffline) { await loadSetup() }
+                            .listRowBackground(Color.clear)
+                    } else {
+                        LoadingStateView().listRowBackground(Color.clear)
                     }
                 } else {
                     if flow == .enable, let setup {
@@ -259,12 +269,21 @@ private struct TwoFactorView: View {
             }
             .task {
                 guard flow == .enable, setup == nil else { return }
-                do {
-                    setup = try await api.setupTwoFactor()
-                } catch {
-                    failure = error.userMessage
-                }
+                await loadSetup()
             }
+        }
+    }
+
+    @MainActor
+    private func loadSetup() async {
+        do {
+            setup = try await api.setupTwoFactor()
+            setupFailure = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            setupFailure = error.userMessage
+            setupOffline = error.isOffline
         }
     }
 

@@ -138,8 +138,11 @@ struct DeanDashboardView: View {
                         )
                     }
                 }
-            } else if model.recent != nil || model.isLoaded {
+            } else if model.recent != nil {
                 DashboardEmptyRow(text: String(localized: "dean.recent.empty", defaultValue: "Важных изменений нет"), symbol: "bell")
+            } else if let failure = model.recentFailure {
+                // Уведомления не загрузились — не «Важных изменений нет».
+                DashboardFailurePlaceholder(message: failure) { await model.load() }
             } else {
                 DashboardLoadingPlaceholder(height: 60)
             }
@@ -427,6 +430,7 @@ private final class DeanDashboardModel {
     var today: Today?
     var todayFailure: String?
     var recent: [DeanNotification]?
+    var recentFailure: String?
     var isLoaded = false
 
     private let api = DeanAPI()
@@ -444,10 +448,12 @@ private final class DeanDashboardModel {
         apply(await queueTask, to: \.queue, failure: \.queueFailure)
         apply(await todayTask, to: \.today, failure: \.todayFailure)
         // Только важные типы — это не копия страницы уведомлений.
-        if case .success(let items) = await recentTask {
-            let important: Set<String> = ["SCHEDULE_CHANGE", "APP_UPDATE", "EVENT", "POST"]
-            recent = Array(items.filter { important.contains($0.type) }.prefix(5))
-        }
+        let important: Set<String> = ["SCHEDULE_CHANGE", "APP_UPDATE", "EVENT", "POST"]
+        apply(
+            (await recentTask).map { items in Array(items.filter { important.contains($0.type) }.prefix(5)) },
+            to: \.recent,
+            failure: \.recentFailure
+        )
         isLoaded = true
     }
 

@@ -113,7 +113,7 @@ struct NotificationsView: View {
     var body: some View {
         List {
             if let failure = model.failure, !model.items.isEmpty {
-                StaleDataBanner(message: failure) { await model.refresh() }
+                StaleDataBanner(message: failure, isOffline: model.isOffline) { await model.refresh() }
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets())
             }
@@ -121,7 +121,7 @@ struct NotificationsView: View {
             if model.items.isEmpty {
                 Group {
                     if let failure = model.failure {
-                        ErrorStateView(message: failure) { await model.refresh() }
+                        ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
                     } else if !loadedOnce || model.isLoading {
                         LoadingStateView()
                     } else {

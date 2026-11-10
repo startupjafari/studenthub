@@ -22,6 +22,10 @@ struct UAdminScheduleView: View {
     @State private var addingPair = false
     @State private var activating = false
     @State private var prepared = false
+    /// Группа, переданная снаружи, не загрузилась (или ещё грузится): экран не должен
+    /// просить «Выберите группу», когда группа уже выбрана.
+    @State private var groupFailure: String?
+    @State private var isLoadingGroup = false
 
     private var container: UAdminScheduleContainerDTO? { containers?.first { $0.id == containerID } }
 
@@ -136,7 +140,15 @@ struct UAdminScheduleView: View {
 
     @ViewBuilder
     private var content: some View {
-        if group == nil {
+        if group == nil, let groupFailure {
+            ErrorStateView(message: groupFailure, isOffline: isOffline) {
+                prepared = false
+                await prepare()
+            }
+            .listRowBackground(Color.clear)
+        } else if group == nil, isLoadingGroup {
+            LoadingStateView().listRowBackground(Color.clear)
+        } else if group == nil {
             EmptyStateView(
                 title: String(localized: "uadmin.schedule.pickGroup", defaultValue: "Выберите группу"),
                 symbol: "person.3",
@@ -232,9 +244,21 @@ struct UAdminScheduleView: View {
         guard !prepared else { return }
         prepared = true
         guard let initialGroupID else { return }
-        if let loaded = try? await UAdminAPI().group(id: initialGroupID) {
+        isLoadingGroup = true
+        do {
+            let loaded = try await UAdminAPI().group(id: initialGroupID)
+            isLoadingGroup = false
+            groupFailure = nil
             group = UAdminRefDTO(id: loaded.id, name: loaded.name)
             await loadContainers(select: nil)
+        } catch is CancellationError {
+            // Экран ушёл раньше ответа — вернувшись, начнём заново.
+            isLoadingGroup = false
+            prepared = false
+        } catch {
+            isLoadingGroup = false
+            groupFailure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 

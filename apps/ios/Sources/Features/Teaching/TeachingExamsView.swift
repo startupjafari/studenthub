@@ -468,6 +468,8 @@ struct TeachingExamForm: View {
     let saved: () async -> Void
 
     @State private var courses: [CourseDTO] = []
+    @State private var coursesFailure: String?
+    @State private var coursesOffline = false
     @State private var courseID = ""
     @State private var date: Date
     @State private var format: String
@@ -499,6 +501,14 @@ struct TeachingExamForm: View {
             saved: saved
         ) {
             if exam == nil {
+                if let coursesFailure {
+                    // Дисциплины не пришли — пустой выбор без объяснения выглядел бы как «у вас их нет».
+                    Section {
+                        StaleDataBanner(message: coursesFailure, isOffline: coursesOffline) { await loadCourses() }
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets())
+                    }
+                }
                 Section {
                     TeachingCoursePicker(courses: courses, selection: $courseID)
                 }
@@ -517,8 +527,21 @@ struct TeachingExamForm: View {
         }
         .task {
             guard exam == nil, courses.isEmpty else { return }
-            courses = (try? await CoursesAPI().courses(mine: true)) ?? []
+            await loadCourses()
+        }
+    }
+
+    @MainActor
+    private func loadCourses() async {
+        do {
+            courses = try await CoursesAPI().courses(mine: true)
+            coursesFailure = nil
             if courses.count == 1 { courseID = courses[0].id }
+        } catch is CancellationError {
+            return
+        } catch {
+            coursesFailure = error.userMessage
+            coursesOffline = error.isOffline
         }
     }
 

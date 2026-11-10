@@ -9,11 +9,15 @@ struct CommunityUniversityView: View {
     @State private var page: CommunityUniversityPageDTO?
     @State private var counts: ProfileCountsDTO?
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var tab: Tab = .posts
     @State private var posts: FeedModel
     @State private var media: [ProfileMediaDTO]?
     @State private var albums: [CommunityAlbumDTO]?
     @State private var articles: [CommunityArticleDTO]?
+    /// Вкладка (фото, альбомы, статьи) не загрузилась — не «Здесь пока пусто».
+    @State private var tabFailure: String?
+    @State private var tabOffline = false
     @State private var viewing: CommunityMediaTarget?
     @Environment(\.openURL) private var openURL
     @ScaledMetric(relativeTo: .largeTitle) private var logoSize: CGFloat = 96
@@ -43,7 +47,7 @@ struct CommunityUniversityView: View {
             if let page {
                 content(page)
             } else if let failure {
-                ErrorStateView(message: failure) { await load() }
+                ErrorStateView(message: failure, isOffline: isOffline) { await load(refreshTabs: false) }
             } else {
                 LoadingStateView()
             }
@@ -51,7 +55,9 @@ struct CommunityUniversityView: View {
         .background(Palette.background)
         .navigationTitle(Text(page?.shortName ?? page?.name ?? CommunityScreen.university(id: universityID).title))
         .navigationBarTitleDisplayMode(.inline)
-        .task { await load() }
+        // Экран возвращается после каждого «назад» с поста: страницу грузим один раз,
+        // обновление — жестом.
+        .task { if page == nil { await load(refreshTabs: false) } }
         .fullScreenCover(item: $viewing) { target in
             MediaViewer(media: target.media, start: target.start)
         }
@@ -79,7 +85,7 @@ struct CommunityUniversityView: View {
                 }
                 .padding(.bottom, Spacing.xxl)
             }
-            .refreshable { await load() }
+            .refreshable { await load(refreshTabs: true) }
         }
         .task(id: tab) { await loadTab() }
     }
@@ -249,9 +255,15 @@ struct CommunityUniversityView: View {
         case .posts:
             if !posts.hasLoaded {
                 ProgressView().frame(maxWidth: .infinity).padding(Spacing.xxl)
+            } else if posts.posts.isEmpty, let failure = posts.failure {
+                ErrorStateView(message: failure, isOffline: posts.isOffline) { await posts.refresh() }
             } else if posts.posts.isEmpty {
                 EmptyStateView(title: String(localized: "profile.noPosts", defaultValue: "Публикаций пока нет"), symbol: "text.bubble")
             } else {
+                if let failure = posts.failure {
+                    StaleDataBanner(message: failure, isOffline: posts.isOffline) { await posts.refresh() }
+                        .padding(.horizontal, Spacing.xl)
+                }
                 ForEach(posts.posts) { post in
                     PostCardView(post: post, model: posts, viewerID: viewerID, actions: actions)
                         .padding(.horizontal, Spacing.xl)
@@ -270,7 +282,7 @@ struct CommunityUniversityView: View {
                     }
                 }
             } else {
-                ProgressView().frame(maxWidth: .infinity).padding(Spacing.xxl)
+                tabPlaceholder
             }
         case .albums:
             if let albums {
@@ -283,7 +295,7 @@ struct CommunityUniversityView: View {
                     }
                 }
             } else {
-                ProgressView().frame(maxWidth: .infinity).padding(Spacing.xxl)
+                tabPlaceholder
             }
         case .articles:
             if let articles {
@@ -302,30 +314,63 @@ struct CommunityUniversityView: View {
                     }
                 }
             } else {
-                ProgressView().frame(maxWidth: .infinity).padding(Spacing.xxl)
+                tabPlaceholder
             }
         }
     }
 
-    @MainActor
-    private func load() async {
-        do {
-            page = try await api.universityPage(id: universityID)
-            failure = nil
-            counts = try? await api.universityCounts(id: universityID)
-            await posts.refresh()
-        } catch {
-            failure = error.userMessage
+    /// Вкладка ещё без данных: загрузка или ошибка с повтором.
+    @ViewBuilder
+    private var tabPlaceholder: some View {
+        if let tabFailure {
+            ErrorStateView(message: tabFailure, isOffline: tabOffline) { await loadTab() }
+        } else {
+            ProgressView().frame(maxWidth: .infinity).padding(Spacing.xxl)
         }
     }
 
     @MainActor
-    private func loadTab() async {
-        switch tab {
-        case .posts: break
-        case .photos: if media == nil { media = (try? await api.universityMedia(universityID: universityID)) ?? [] }
-        case .albums: if albums == nil { albums = (try? await api.universityAlbums(universityID: universityID)) ?? [] }
-        case .articles: if articles == nil { articles = (try? await api.universityArticles(universityID: universityID)) ?? [] }
+    private func load(refreshTabs: Bool) async {
+        do {
+            page = try await api.universityPage(id: universityID)
+            failure = nil
+            counts = try? await api.universityCounts(id: universityID)
+            // Обновление жестом — и вкладок: прочие перечитаются при открытии, текущая
+            // обновляется на месте (сбой оставит прежнее).
+            if refreshTabs {
+                if tab != .photos { media = nil }
+                if tab != .albums { albums = nil }
+                if tab != .articles { articles = nil }
+                await loadTab(force: true)
+            }
+            await posts.refresh()
+        } catch is CancellationError {
+            return
+        } catch {
+            failure = error.userMessage
+            isOffline = error.isOffline
+        }
+    }
+
+    /// Вкладка грузится один раз за показ страницы; `force` — при обновлении страницы.
+    @MainActor
+    private func loadTab(force: Bool = false) async {
+        let loading = tab
+        tabFailure = nil
+        do {
+            switch loading {
+            case .posts: break
+            case .photos: if force || media == nil { media = try await api.universityMedia(universityID: universityID) }
+            case .albums: if force || albums == nil { albums = try await api.universityAlbums(universityID: universityID) }
+            case .articles: if force || articles == nil { articles = try await api.universityArticles(universityID: universityID) }
+            }
+        } catch {
+            // Переключили вкладку посреди запроса — это не сбой.
+            guard !Task.isCancelled, !(error is CancellationError) else { return }
+            // Сбой ушедшей вкладки на новой не показываем: та грузит своё сама.
+            guard tab == loading else { return }
+            tabFailure = error.userMessage
+            tabOffline = error.isOffline
         }
     }
 }

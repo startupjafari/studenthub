@@ -12,6 +12,7 @@ private struct PortfolioContent: View {
     @State private var editing: PortfolioItemDTO?
     @State private var deleting: PortfolioItemDTO?
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var actionFailure: String?
     @State private var creating = false
 
@@ -44,7 +45,7 @@ private struct PortfolioContent: View {
                     }
                 }
             } else if let failure {
-                ErrorStateView(message: failure) { await load() }
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
                     .listRowBackground(Color.clear)
             } else {
                 LoadingStateView().listRowBackground(Color.clear)
@@ -137,6 +138,7 @@ private struct PortfolioContent: View {
             failure = nil
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 

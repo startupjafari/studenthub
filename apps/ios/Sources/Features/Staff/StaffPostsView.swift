@@ -423,6 +423,7 @@ struct StaffGroupPickerSheet: View {
     @State private var search = ""
     @State private var groups: [StaffGroup]?
     @State private var failure: String?
+    @State private var isOffline = false
 
     private let api = StaffAPI()
 
@@ -430,9 +431,12 @@ struct StaffGroupPickerSheet: View {
         NavigationStack {
             List {
                 if let failure {
-                    FormAlert(message: failure).listRowBackground(Color.clear)
-                }
-                if let groups {
+                    // Сбой поиска — не «никого не нашли»: список групп не пришёл, нужен повтор.
+                    ErrorStateView(message: failure, isOffline: isOffline) {
+                        await find(search.trimmingCharacters(in: .whitespaces))
+                    }
+                    .listRowBackground(Color.clear)
+                } else if let groups {
                     if groups.isEmpty {
                         Text(String(localized: "staff.picker.nothing", defaultValue: "Никого не нашли"))
                             .font(Typography.meta)
@@ -447,7 +451,7 @@ struct StaffGroupPickerSheet: View {
                             Text(group.name).foregroundStyle(Palette.foreground)
                         }
                     }
-                } else if failure == nil {
+                } else {
                     LoadingStateView().listRowBackground(Color.clear)
                 }
             }
@@ -472,8 +476,14 @@ struct StaffGroupPickerSheet: View {
         do {
             groups = try await api.groups(search: value, facultyID: facultyID)
             failure = nil
+            isOffline = false
+        } catch is CancellationError {
+            return
         } catch {
+            // Группы прошлого поиска под новой строкой выглядели бы его результатом.
+            groups = nil
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 }
@@ -488,6 +498,9 @@ struct StaffPersonPickerSheet: View {
     @State private var search = ""
     @State private var people: [StaffUserPick] = []
     @State private var failure: String?
+    @State private var isOffline = false
+    /// Поиск ответил: пустой `people` после него — «никого не нашли», а до него — ещё не искали.
+    @State private var searched = false
 
     private let api = StaffAPI()
 
@@ -495,13 +508,21 @@ struct StaffPersonPickerSheet: View {
         NavigationStack {
             List {
                 if let failure {
-                    FormAlert(message: failure).listRowBackground(Color.clear)
-                }
-                if search.trimmingCharacters(in: .whitespaces).count < 2, adminSearch {
+                    ErrorStateView(message: failure, isOffline: isOffline) {
+                        await find(search.trimmingCharacters(in: .whitespaces))
+                    }
+                    .listRowBackground(Color.clear)
+                } else if search.trimmingCharacters(in: .whitespaces).count < 2, adminSearch {
                     Text(String(localized: "staff.picker.typeMore", defaultValue: "Введите хотя бы две буквы ФИО"))
                         .font(Typography.meta)
                         .foregroundStyle(Palette.mutedForeground)
                         .listRowBackground(Color.clear)
+                } else if searched, people.isEmpty {
+                    EmptyStateView(
+                        title: String(localized: "staff.picker.nothing", defaultValue: "Никого не нашли"),
+                        symbol: "person.crop.circle.badge.questionmark"
+                    )
+                    .listRowBackground(Color.clear)
                 }
                 ForEach(people) { person in
                     Button {
@@ -537,13 +558,23 @@ struct StaffPersonPickerSheet: View {
     private func find(_ value: String) async {
         if adminSearch, value.count < 2 {
             people = []
+            searched = false
+            failure = nil
             return
         }
         do {
             people = adminSearch ? try await api.users(search: value, role: nil) : try await api.directory(search: value)
+            searched = true
             failure = nil
+            isOffline = false
+        } catch is CancellationError {
+            return
         } catch {
+            // Люди прошлого поиска под новой строкой выглядели бы его результатом.
+            people = []
+            searched = false
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 }

@@ -10,6 +10,7 @@ struct StaffLibrarySettingsView: View {
     @State private var settings: StaffLibrarySettings?
     @State private var draft: StaffLibrarySettings?
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var formFailure: String?
     @State private var notice: String?
     @State private var isSaving = false
@@ -54,7 +55,7 @@ struct StaffLibrarySettingsView: View {
             if let settings, let draft {
                 form(settings, draft: draft)
             } else if let failure {
-                ErrorStateView(message: failure) { await load() }
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
             } else {
                 LoadingStateView()
             }
@@ -173,6 +174,7 @@ struct StaffLibrarySettingsView: View {
             failure = nil
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 
@@ -220,8 +222,13 @@ struct StaffLibrarySettingsView: View {
 struct StaffLibraryReportsView: View {
     @State private var summary: StaffLibrarySummary?
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var debts: [StaffLoan]?
+    /// Должники или популярное не загрузились — не «долгов нет» и не «выдач не было»:
+    /// иначе сбой выглядел бы хорошей новостью.
+    @State private var debtsFailure: String?
     @State private var popular: [StaffPopularBook]?
+    @State private var popularFailure: String?
     @State private var days = 90
 
     private let api = StaffAPI()
@@ -233,7 +240,7 @@ struct StaffLibraryReportsView: View {
                 if let summary {
                     StatGrid { tiles(summary) }
                 } else if let failure {
-                    ErrorStateView(message: failure) { await load() }
+                    ErrorStateView(message: failure, isOffline: isOffline) { await load() }
                 } else {
                     LoadingStateView()
                 }
@@ -244,6 +251,11 @@ struct StaffLibraryReportsView: View {
             .listRowInsets(EdgeInsets())
 
             Section {
+                if let debtsFailure, debts != nil {
+                    StaleDataBanner(message: debtsFailure) { await loadDebts() }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
                 if let debts {
                     if debts.isEmpty {
                         Label(String(localized: "staff.lib.noDebtors", defaultValue: "Долгов нет"), systemImage: "checkmark.circle")
@@ -253,6 +265,8 @@ struct StaffLibraryReportsView: View {
                     ForEach(debts) { loan in
                         StaffLoanRow(loan: loan)
                     }
+                } else if let debtsFailure {
+                    DashboardFailurePlaceholder(message: debtsFailure) { await loadDebts() }
                 } else {
                     ProgressView().frame(maxWidth: .infinity)
                 }
@@ -296,6 +310,8 @@ struct StaffLibraryReportsView: View {
                             }
                         }
                     }
+                } else if let popularFailure {
+                    DashboardFailurePlaceholder(message: popularFailure) { await loadPopular() }
                 } else {
                     ProgressView().frame(maxWidth: .infinity)
                 }
@@ -369,25 +385,48 @@ struct StaffLibraryReportsView: View {
     @MainActor
     private func load() async {
         async let summaryTask = api.librarySummary()
-        // Утерянная книга с непогашенным долгом — такой же долг, как просрочка.
-        async let lostTask = api.loans(filter: "lost", limit: 10)
-        async let overdueTask = api.loans(filter: "overdue", limit: 10)
+        await loadDebts()
         do {
             summary = try await summaryTask
             failure = nil
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
-        let lost = (try? await lostTask) ?? []
-        let overdue = (try? await overdueTask) ?? []
-        debts = lost + overdue
         await loadPopular()
+    }
+
+    /// Должники: утерянные и просроченные. Половина списка выдавала бы себя за весь,
+    /// поэтому при сбое любой части прошлый список остаётся, а сверху — полоса.
+    @MainActor
+    private func loadDebts() async {
+        // Утерянная книга с непогашенным долгом — такой же долг, как просрочка.
+        async let lostTask = api.loans(filter: "lost", limit: 10)
+        async let overdueTask = api.loans(filter: "overdue", limit: 10)
+        do {
+            let lost = try await lostTask
+            let overdue = try await overdueTask
+            debts = lost + overdue
+            debtsFailure = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            debtsFailure = error.userMessage
+        }
     }
 
     @MainActor
     private func loadPopular() async {
+        // Новый период — пока ответа нет, крутилка, а не топ прошлого периода.
         popular = nil
-        popular = (try? await api.popularBooks(days: days)) ?? []
+        popularFailure = nil
+        do {
+            popular = try await api.popularBooks(days: days)
+        } catch is CancellationError {
+            return
+        } catch {
+            popularFailure = error.userMessage
+        }
     }
 }
 

@@ -279,6 +279,11 @@ struct UAdminGroupsView: View {
 
     @State private var loader: PagedLoader<UAdminGroupDTO>?
     @State private var faculties: [UAdminFacultyDTO] = []
+    /// Факультеты пришли — только тогда пустой список значит «создайте факультет».
+    /// Сбой — не «факультетов нет»: подсказка и запрет добавления вводили бы в заблуждение.
+    @State private var facultiesLoaded = false
+    @State private var facultiesFailure: String?
+    @State private var facultiesOffline = false
     @State private var filterFaculty: String?
     @State private var query = ""
     @State private var creating = false
@@ -296,11 +301,16 @@ struct UAdminGroupsView: View {
                             ? String(localized: "uadmin.group.empty", defaultValue: "Групп пока нет")
                             : String(localized: "uadmin.picker.nothing", defaultValue: "Ничего не найдено"),
                         symbol: query.isEmpty ? "person.3" : "magnifyingglass",
-                        hint: faculties.isEmpty && query.isEmpty
+                        hint: facultiesLoaded && faculties.isEmpty && query.isEmpty
                             ? String(localized: "uadmin.group.needFaculty", defaultValue: "Сначала создайте факультет — группа привязывается к нему.")
                             : nil
                     )
                 ) {
+                    if let facultiesFailure, loader.failure == nil {
+                        StaleDataBanner(message: facultiesFailure, isOffline: facultiesOffline) { await loadFaculties() }
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets())
+                    }
                     if facultyID == nil, faculties.count > 1 {
                         FilterChipsRow(
                             options: [(value: String?.none, title: String(localized: "uadmin.allFaculties", defaultValue: "Все факультеты"))]
@@ -352,11 +362,23 @@ struct UAdminGroupsView: View {
             await reload()
         }
         .floatingAction(String(localized: "uadmin.group.add", defaultValue: "Добавить группу")) {
-            // Без факультета группу не создать — говорим, что сделать сначала.
-            if faculties.isEmpty {
+            // Без факультета группу не создать — говорим, что сделать сначала. Но только
+            // когда факультетов правда нет: при сбое загрузки — пробуем ещё раз.
+            if !faculties.isEmpty {
+                creating = true
+            } else if facultiesLoaded {
                 actionFailure = String(localized: "uadmin.group.needFaculty", defaultValue: "Сначала создайте факультет — группа привязывается к нему.")
             } else {
-                creating = true
+                Task {
+                    await loadFaculties()
+                    if !faculties.isEmpty {
+                        creating = true
+                    } else if facultiesLoaded {
+                        actionFailure = String(localized: "uadmin.group.needFaculty", defaultValue: "Сначала создайте факультет — группа привязывается к нему.")
+                    } else {
+                        actionFailure = facultiesFailure
+                    }
+                }
             }
         }
         .sheet(isPresented: $creating) {
@@ -385,7 +407,21 @@ struct UAdminGroupsView: View {
         .onChange(of: filterFaculty) { _, _ in Task { await reload() } }
         .task {
             if loader == nil { makeLoader() }
-            if faculties.isEmpty { faculties = (try? await UAdminAPI().faculties()) ?? [] }
+            if !facultiesLoaded { await loadFaculties() }
+        }
+    }
+
+    @MainActor
+    private func loadFaculties() async {
+        do {
+            faculties = try await UAdminAPI().faculties()
+            facultiesLoaded = true
+            facultiesFailure = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            facultiesFailure = error.userMessage
+            facultiesOffline = error.isOffline
         }
     }
 

@@ -16,7 +16,7 @@ struct LibraryClearanceView: View {
                 }
                 detailsSection(summary)
             } else if let failure = model.failure, !model.isLoading {
-                ErrorStateView(message: failure) { await model.refresh() }
+                ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
                     .listRowBackground(Color.clear)
             } else {
                 LoadingStateView().listRowBackground(Color.clear)

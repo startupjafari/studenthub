@@ -201,19 +201,29 @@ struct StudentCalendarView: View {
             async let examsValue = try? api.exams(from: first, to: dueTo)
             async let meValue = Self.substituteID(api: api, role: role)
             let links = StudentCalendarLinks(role: role)
+            let changes = await changesValue
+            let events = await eventsValue
+            let assignments = await assignmentsValue
+            let exams = await examsValue
             let items = StudentCalendarBuilder.build(
                 pairs: schedule.pairs,
-                changes: await changesValue ?? [],
-                events: await eventsValue ?? [],
-                assignments: await assignmentsValue ?? [],
-                exams: await examsValue ?? [],
+                changes: changes ?? [],
+                events: events ?? [],
+                assignments: assignments ?? [],
+                exams: exams ?? [],
                 dates: cells,
                 substituteID: await meValue,
                 links: links
             )
             guard month == anchor else { return }
             data = Loaded(anchor: month, items: items)
-            failure = nil
+            // Остальное — дополнение к парам: без него календарь всё равно полезен, но
+            // пустой день из-за упавших заданий не должен выглядеть свободным.
+            let isComplete = changes != nil && events != nil && assignments != nil && exams != nil
+            failure = isComplete
+                ? nil
+                : String(localized: "student.partialFailure", defaultValue: "Часть данных не загрузилась")
+            isOffline = false
         } catch is CancellationError {
             return
         } catch {

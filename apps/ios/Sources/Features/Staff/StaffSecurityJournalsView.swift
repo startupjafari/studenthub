@@ -52,6 +52,8 @@ private enum StaffSecurityTab: String, CaseIterable, Identifiable {
 struct StaffSecurityJournalsView: View {
     @State private var tab: StaffSecurityTab = .passes
     @State private var summary: StaffSecuritySummary?
+    /// Сводка не загрузилась: без неё плитки пропали бы молча, будто считать нечего.
+    @State private var summaryFailure: String?
     @State private var result: String?
     @State private var search = ""
     @State private var useDate = false
@@ -113,6 +115,9 @@ struct StaffSecurityJournalsView: View {
     @ViewBuilder
     private var header: some View {
         Section {
+            if let summaryFailure, summary != nil {
+                StaleDataBanner(message: summaryFailure) { await fetchSummary() }
+            }
             if let summary {
                 StatGrid {
                     StatTile(
@@ -131,6 +136,8 @@ struct StaffSecurityJournalsView: View {
                         caption: String(localized: "staff.sec.visitorsToday", defaultValue: "за сегодня: \(summary.visitors.today.formatted())")
                     )
                 }
+            } else if let summaryFailure {
+                DashboardFailurePlaceholder(message: summaryFailure) { await fetchSummary() }
             }
         } footer: {
             Text(String(localized: "staff.sec.subtitle", defaultValue: "Журналы ведёт охрана — здесь только чтение."))
@@ -219,9 +226,22 @@ struct StaffSecurityJournalsView: View {
 
     @MainActor
     private func loadSummary() async {
-        summary = try? await api.securitySummary()
+        await fetchSummary()
         if passes.isLoaded { await passes.reload() }
         if visitors.isLoaded { await visitors.reload() }
+    }
+
+    /// Сводка за сегодня. Сбой прошлые цифры не стирает — над ними появляется полоса.
+    @MainActor
+    private func fetchSummary() async {
+        do {
+            summary = try await api.securitySummary()
+            summaryFailure = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            summaryFailure = error.userMessage
+        }
     }
 
     private func apply() async {

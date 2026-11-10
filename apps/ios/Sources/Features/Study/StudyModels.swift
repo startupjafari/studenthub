@@ -11,6 +11,7 @@ final class StudySectionModel<Value> {
     private(set) var value: Value?
     private(set) var isLoading = false
     private(set) var failure: String?
+    private(set) var isOffline = false
 
     private let load: @Sendable () async throws -> Value
 
@@ -28,10 +29,12 @@ final class StudySectionModel<Value> {
         do {
             value = try await load()
             failure = nil
+            isOffline = false
         } catch {
             // Данные с прошлого раза не стираем: пустой экран с ошибкой хуже, чем
             // вчерашние оценки с пометкой об ошибке обновления.
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 }

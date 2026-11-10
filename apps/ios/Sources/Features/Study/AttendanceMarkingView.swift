@@ -60,7 +60,7 @@ struct AttendanceMarkingView: View {
                 }
             } else if let model, let failure = model.failure {
                 // Список не пришёл — не только полоса, но и повтор.
-                ErrorStateView(message: failure) { await model.load(keepEdits: true) }
+                ErrorStateView(message: failure, isOffline: model.isOffline) { await model.load(keepEdits: true) }
                     .listRowBackground(Color.clear)
             } else {
                 LoadingStateView().listRowBackground(Color.clear)

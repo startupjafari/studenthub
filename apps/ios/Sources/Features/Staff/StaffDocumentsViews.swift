@@ -10,6 +10,7 @@ import SwiftUI
 struct StaffDocumentTypesView: View {
     @State private var types: [StaffDocumentType]?
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var actionFailure: String?
     @State private var adding = false
     @State private var removing: StaffDocumentType?
@@ -24,7 +25,16 @@ struct StaffDocumentTypesView: View {
                 Text(String(localized: "staff.dt.subtitle", defaultValue: "Какие документы есть у людей вашего вуза: включайте нужные, задавайте срок хранения, добавляйте свои."))
             }
 
-            if let types {
+            if let types, types.isEmpty {
+                EmptyStateView(
+                    title: String(localized: "staff.dt.empty", defaultValue: "Типов документов нет"),
+                    symbol: "doc.text",
+                    actionTitle: String(localized: "staff.dt.add", defaultValue: "Добавить свой тип")
+                ) {
+                    adding = true
+                }
+                .listRowBackground(Color.clear)
+            } else if let types {
                 ForEach(grouped(types), id: \.0) { category, rows in
                     Section(StaffDocText.category(category)) {
                         ForEach(rows) { row in
@@ -33,7 +43,7 @@ struct StaffDocumentTypesView: View {
                     }
                 }
             } else if let failure {
-                ErrorStateView(message: failure) { await load() }
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
                     .listRowBackground(Color.clear)
             } else {
                 LoadingStateView().listRowBackground(Color.clear)
@@ -191,8 +201,14 @@ struct StaffDocumentTypesView: View {
         do {
             types = try await api.documentTypes()
             failure = nil
+            isOffline = false
         } catch {
-            if types == nil { failure = error.userMessage } else { actionFailure = error.userMessage }
+            if types == nil {
+                failure = error.userMessage
+                isOffline = error.isOffline
+            } else {
+                actionFailure = error.userMessage
+            }
         }
     }
 

@@ -296,6 +296,8 @@ final class PostCommentsModel {
     private(set) var isLoadingOlder = false
     private(set) var isSending = false
     private(set) var failure: String?
+    /// Сбой — из-за связи: пустой экран говорит «нет связи», а не «сломалось».
+    private(set) var isOffline = false
     /// Сколько комментариев добавилось за время на экране (минус удалённые) — на
     /// столько меняется счётчик на карточке поста в ленте.
     private(set) var countChange = 0
@@ -344,11 +346,12 @@ final class PostCommentsModel {
             comments = first.items.reversed()
             cursor = first.meta?.hasNext == true ? first.meta?.cursor : nil
             failure = nil
+            isOffline = false
             // Просмотр засчитывается при открытии поста, как в вебе. Ошибка счётчика
             // человеку ни о чём не говорит.
             try? await api.markViewed(postID: postID)
         } catch {
-            failure = message(for: error)
+            report(error)
         }
     }
 
@@ -363,7 +366,7 @@ final class PostCommentsModel {
             comments = page.items.reversed().filter { !known.contains($0.id) } + comments
             self.cursor = page.meta?.hasNext == true ? page.meta?.cursor : nil
         } catch {
-            failure = message(for: error)
+            report(error)
         }
     }
 
@@ -384,7 +387,7 @@ final class PostCommentsModel {
         } catch {
             // Текст возвращаем в поле: потерять написанное из-за сети нельзя.
             draft = text
-            failure = message(for: error)
+            report(error)
         }
     }
 
@@ -399,7 +402,7 @@ final class PostCommentsModel {
             countChange -= 1
         } catch {
             comments = snapshot
-            failure = message(for: error)
+            report(error)
         }
     }
 
@@ -409,13 +412,15 @@ final class PostCommentsModel {
             try await api.report(.comment, id: comment.id, reason: reason)
             return true
         } catch {
-            failure = message(for: error)
+            report(error)
             return false
         }
     }
 
-    private func message(for error: Error) -> String {
-        error.userMessage
+    @MainActor
+    private func report(_ error: Error) {
+        failure = error.userMessage
+        isOffline = error.isOffline
     }
 }
 
@@ -471,6 +476,7 @@ final class NotificationsModel {
     private(set) var settings: NotificationSettingsDTO?
     private(set) var isLoading = false
     private(set) var failure: String?
+    private(set) var isOffline = false
 
     private let api: FeedFetching
 
@@ -488,8 +494,10 @@ final class NotificationsModel {
             items = try await api.notifications(cursor: nil).items
             settings = try await api.notificationSettings()
             failure = nil
+            isOffline = false
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 

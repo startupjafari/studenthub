@@ -466,6 +466,7 @@ struct StaffTemplateDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var template: StaffTemplate?
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var actionFailure: String?
     @State private var notice: String?
     @State private var editing = false
@@ -484,7 +485,7 @@ struct StaffTemplateDetailView: View {
             if let template {
                 content(template)
             } else if let failure {
-                ErrorStateView(message: failure) { await load() }
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
             } else {
                 LoadingStateView()
             }
@@ -849,8 +850,14 @@ struct StaffTemplateDetailView: View {
         do {
             template = try await api.template(id: templateID)
             failure = nil
+            isOffline = false
         } catch {
-            if template == nil { failure = error.userMessage } else { actionFailure = error.userMessage }
+            if template == nil {
+                failure = error.userMessage
+                isOffline = error.isOffline
+            } else {
+                actionFailure = error.userMessage
+            }
         }
     }
 
@@ -995,6 +1002,10 @@ struct StaffStudentPickerSheet: View {
     @State private var results: [StaffUserPick] = []
     @State private var isSearching = false
     @State private var isWorking = false
+    /// Сбой поиска: вместо результатов — экран ошибки с повтором, а не «никого не нашли».
+    @State private var searchFailure: String?
+    @State private var isOffline = false
+    /// Отказ выбора (сервер не принял студента) — плашкой над найденными.
     @State private var failure: String?
 
     private let api = StaffAPI()
@@ -1018,6 +1029,11 @@ struct StaffStudentPickerSheet: View {
                         .listRowBackground(Color.clear)
                 } else if isSearching {
                     LoadingStateView().listRowBackground(Color.clear)
+                } else if let searchFailure {
+                    ErrorStateView(message: searchFailure, isOffline: isOffline) {
+                        await find(search.trimmingCharacters(in: .whitespaces))
+                    }
+                    .listRowBackground(Color.clear)
                 } else if results.isEmpty {
                     Text(String(localized: "staff.picker.nothing", defaultValue: "Никого не нашли"))
                         .font(Typography.meta)
@@ -1064,6 +1080,7 @@ struct StaffStudentPickerSheet: View {
     private func find(_ value: String) async {
         guard value.count >= 2 else {
             results = []
+            searchFailure = nil
             return
         }
         isSearching = true
@@ -1074,9 +1091,17 @@ struct StaffStudentPickerSheet: View {
             async let starostas = api.users(search: value, role: "STAROSTA")
             let merged = try await students + starostas
             results = merged.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+            searchFailure = nil
+            // Новый поиск — прошлый отказ в выборе к новым результатам не относится.
             failure = nil
+            isOffline = false
+        } catch is CancellationError {
+            return
         } catch {
-            failure = error.userMessage
+            // Найденные по прошлой строке под новой выглядели бы её результатом.
+            results = []
+            searchFailure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 

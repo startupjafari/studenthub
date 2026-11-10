@@ -208,6 +208,7 @@ private struct StaffServiceEditorSheet: View {
     @State private var detail: StaffServiceDetail?
     @State private var loaded = false
     @State private var loadFailure: String?
+    @State private var isOffline = false
     @State private var failure: String?
     @State private var isSaving = false
     @State private var section: StaffServiceSection = .main
@@ -223,7 +224,7 @@ private struct StaffServiceEditorSheet: View {
                 if loaded {
                     form
                 } else if let loadFailure {
-                    ErrorStateView(message: loadFailure) { await load() }
+                    ErrorStateView(message: loadFailure, isOffline: isOffline) { await load() }
                 } else {
                     LoadingStateView()
                 }
@@ -593,8 +594,10 @@ private struct StaffServiceEditorSheet: View {
             documentTypes = ((try? await typeList) ?? []).filter(\.enabled)
             loaded = true
             loadFailure = nil
+            isOffline = false
         } catch {
             loadFailure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 

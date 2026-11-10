@@ -12,6 +12,11 @@ struct TeachingDashboardView: View {
     @State private var marked: Set<String> = []
     @State private var queue: TeachingReviewQueueDTO?
     @State private var consultations: [ConsultationSlotDTO] = []
+    /// Блоки обзора падают по отдельности. Сбой — не «работ нет» и не «всё отмечено»:
+    /// иначе он выглядел бы хорошей новостью.
+    @State private var reviewFailed = false
+    @State private var consultationsFailed = false
+    @State private var markedFailed = false
     @State private var exported: ExportedFile?
     @State private var isExporting = false
     @State private var actionFailure: String?
@@ -128,21 +133,26 @@ struct TeachingDashboardView: View {
         if !started.isEmpty {
             let todo = started.filter { !marked.contains($0.id) }
             Section {
-                if todo.isEmpty {
-                    DashboardEmptyRow(
-                        text: String(localized: "teaching.dashboard.allMarked", defaultValue: "Все занятия сегодня отмечены"),
-                        tint: Palette.success
-                    )
-                }
-                ForEach(todo) { item in
-                    NavigationLink(value: AppRoute.lesson(id: item.pair.id, date: Date())) {
-                        DashboardRow(
-                            title: item.pair.subject,
-                            subtitle: "\(item.start)–\(item.end)",
-                            symbol: "checklist",
-                            tint: TileTint.orange,
-                            badge: (String(localized: "teaching.attendance.notMarked", defaultValue: "Не отмечено"), Palette.warning)
+                if markedFailed {
+                    // Без отметок каждая начавшаяся пара выглядела бы неотмеченной.
+                    DashboardFailurePlaceholder { await loadMarked() }
+                } else {
+                    if todo.isEmpty {
+                        DashboardEmptyRow(
+                            text: String(localized: "teaching.dashboard.allMarked", defaultValue: "Все занятия сегодня отмечены"),
+                            tint: Palette.success
                         )
+                    }
+                    ForEach(todo) { item in
+                        NavigationLink(value: AppRoute.lesson(id: item.pair.id, date: Date())) {
+                            DashboardRow(
+                                title: item.pair.subject,
+                                subtitle: "\(item.start)–\(item.end)",
+                                symbol: "checklist",
+                                tint: TileTint.orange,
+                                badge: (String(localized: "teaching.attendance.notMarked", defaultValue: "Не отмечено"), Palette.warning)
+                            )
+                        }
                     }
                 }
             } header: {
@@ -154,7 +164,9 @@ struct TeachingDashboardView: View {
     @ViewBuilder
     private var reviewSection: some View {
         Section {
-            if let queue {
+            if reviewFailed, queue?.items.isEmpty ?? true {
+                DashboardFailurePlaceholder { await load() }
+            } else if let queue {
                 if queue.items.isEmpty {
                     DashboardEmptyRow(
                         text: String(localized: "teaching.dashboard.reviewEmpty", defaultValue: "Непроверенных работ нет"),
@@ -198,7 +210,9 @@ struct TeachingDashboardView: View {
     @ViewBuilder
     private var consultationsSection: some View {
         Section {
-            if consultations.isEmpty {
+            if consultationsFailed, consultations.isEmpty {
+                DashboardFailurePlaceholder { await load() }
+            } else if consultations.isEmpty {
                 DashboardEmptyRow(
                     text: String(localized: "teaching.dashboard.consultationsEmpty", defaultValue: "Записей пока нет"),
                     symbol: "calendar"
@@ -363,8 +377,17 @@ struct TeachingDashboardView: View {
             async let review = try? api.reviewQueue(limit: 5)
             async let slots = try? UniversityServicesAPI().myConsultations()
             today = try await summary
-            queue = await review ?? TeachingReviewQueueDTO(total: 0, items: [])
-            consultations = Array((await slots ?? []).filter { $0.startsAt >= Date() }.prefix(3))
+            // Не пришедший блок не затирает показанное — только помечается сбоем.
+            let fetchedQueue = await review
+            // Ушли с экрана посреди загрузки — это не сбой.
+            try Task.checkCancellation()
+            reviewFailed = fetchedQueue == nil
+            if let fetchedQueue { queue = fetchedQueue }
+            let fetchedSlots = await slots
+            consultationsFailed = fetchedSlots == nil
+            if let fetchedSlots {
+                consultations = Array(fetchedSlots.filter { $0.startsAt >= Date() }.prefix(3))
+            }
             failure = nil
             await loadMarked()
         } catch is CancellationError {
@@ -381,7 +404,14 @@ struct TeachingDashboardView: View {
         let ids = teachingDayPairs(pairs: today.pairs, changes: today.scheduleChanges, date: Date(), viewerID: viewerID)
             .filter { !$0.isCancelled }
             .map(\.id)
-        if let result = try? await api.markedPairs(date: Date(), pairIDs: ids) { marked = result }
+        do {
+            marked = try await api.markedPairs(date: Date(), pairIDs: ids)
+            markedFailed = false
+        } catch is CancellationError {
+            return
+        } catch {
+            markedFailed = true
+        }
     }
 
     @MainActor

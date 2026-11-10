@@ -62,6 +62,7 @@ struct CommunityAlbumsView: View {
     @Environment(\.viewerID) private var viewerID
     @State private var albums: [CommunityAlbumDTO]?
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var creating = false
     @State private var newTitle = ""
     @State private var renaming: CommunityAlbumDTO?
@@ -128,7 +129,7 @@ struct CommunityAlbumsView: View {
                     }
                 }
             } else if let failure {
-                ErrorStateView(message: failure) { await load() }.listRowBackground(Color.clear)
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }.listRowBackground(Color.clear)
             } else {
                 LoadingStateView().listRowBackground(Color.clear)
             }
@@ -196,8 +197,11 @@ struct CommunityAlbumsView: View {
         do {
             albums = try await api.albums(userID: ownerID)
             failure = nil
+        } catch is CancellationError {
+            return
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 }
@@ -240,6 +244,7 @@ struct CommunityAlbumView: View {
     @State private var all: [ProfileMediaDTO]?
     @State private var album: CommunityAlbumDTO?
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var viewing: CommunityMediaTarget?
     @State private var choosing = false
     @State private var actionFailure: String?
@@ -282,7 +287,7 @@ struct CommunityAlbumView: View {
                     }
                     let _ = all
                 } else if let failure {
-                    ErrorStateView(message: failure) { await load() }
+                    ErrorStateView(message: failure, isOffline: isOffline) { await load() }
                 } else {
                     LoadingStateView()
                 }
@@ -362,8 +367,11 @@ struct CommunityAlbumView: View {
             all = try await media
             album = (try? await albums)?.first { $0.id == albumID }
             failure = nil
+        } catch is CancellationError {
+            return
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 }

@@ -17,6 +17,10 @@ final class CampusMapModel {
     private(set) var isSearching = false
     private(set) var isLoadingFloor = false
     private(set) var failure: String?
+    private(set) var isOffline = false
+    /// Поиск не удался — экран говорит об этом, а не «Ничего не нашлось».
+    private(set) var searchFailure: String?
+    private(set) var searchOffline = false
     private(set) var notice: String?
 
     private let api: CampusFetching
@@ -51,7 +55,7 @@ final class CampusMapModel {
             } catch let error as APIError where error.code == .notFound {
                 notice = String(localized: "campus.roomNotOnMap", defaultValue: "Этой аудитории пока нет на карте")
             } catch {
-                failure = error.userMessage
+                fail(error)
             }
         }
         await loadCampuses()
@@ -74,7 +78,7 @@ final class CampusMapModel {
                 await select(campusID: first.id)
             }
         } catch {
-            failure = error.userMessage
+            fail(error)
         }
     }
 
@@ -89,7 +93,7 @@ final class CampusMapModel {
                 await select(buildingID: building.id)
             }
         } catch {
-            failure = error.userMessage
+            fail(error)
         }
     }
 
@@ -121,7 +125,7 @@ final class CampusMapModel {
             if self.floorID == floorID { geometry = built }
             failure = nil
         } catch {
-            failure = error.userMessage
+            fail(error)
         }
     }
 
@@ -139,13 +143,21 @@ final class CampusMapModel {
                 published = try await api.published(campusID: hit.campusId)
                 cache = [:]
             } catch {
-                failure = error.userMessage
+                fail(error)
                 return
             }
         }
-        if let building = hit.building?.id { buildingID = building }
         if let floor = hit.floor?.id {
+            if let building = hit.building?.id { buildingID = building }
             await select(floorID: floor, highlight: hit.spaceId)
+        } else {
+            // Помещение без этажа на плане: без выбора этажа карта навсегда оставалась
+            // в загрузке. Открываем этаж по умолчанию его корпуса (или первого корпуса)
+            // и говорим, что само помещение на плане не отмечено.
+            notice = String(localized: "campus.roomNotOnMap", defaultValue: "Этой аудитории пока нет на карте")
+            if let building = hit.building?.id ?? published?.manifest.buildings.first?.id {
+                await select(buildingID: building)
+            }
         }
         results = []
     }
@@ -157,6 +169,7 @@ final class CampusMapModel {
         let query = text.trimmingCharacters(in: .whitespaces)
         guard !query.isEmpty else {
             results = []
+            searchFailure = nil
             isSearching = false
             return
         }
@@ -164,11 +177,30 @@ final class CampusMapModel {
         searchTask = Task { [api, campusID = published?.campus.id] in
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
-            let found = (try? await api.search(query, campusID: campusID)) ?? []
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                self.results = found
-                self.isSearching = false
+            do {
+                let found = try await api.search(query, campusID: campusID)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self.results = found
+                    self.searchFailure = nil
+                    self.isSearching = false
+                }
+            } catch {
+                // Отменил новый ввод — его запрос и решит, что показать. Оборванное
+                // соединение без отмены задачи — не повод крутить поиск вечно.
+                guard !Task.isCancelled else { return }
+                if error is CancellationError {
+                    await MainActor.run { self.isSearching = false }
+                    return
+                }
+                let message = error.userMessage
+                let offline = error.isOffline
+                await MainActor.run {
+                    self.results = []
+                    self.searchFailure = message
+                    self.searchOffline = offline
+                    self.isSearching = false
+                }
             }
         }
     }
@@ -176,5 +208,11 @@ final class CampusMapModel {
     @MainActor
     func dismissNotice() {
         notice = nil
+    }
+
+    @MainActor
+    private func fail(_ error: Error) {
+        failure = error.userMessage
+        isOffline = error.isOffline
     }
 }

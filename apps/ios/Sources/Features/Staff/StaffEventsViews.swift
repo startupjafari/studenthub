@@ -186,6 +186,14 @@ struct StaffEventDateTile: View {
 
 // MARK: - Карточка
 
+/// Список участников закрыт этому админу (403 у чужого scope) — не сбой, а граница прав.
+/// Загрузчик знает об ошибке только текст, поэтому отказ в правах приходит в него
+/// отдельным типом с тем же текстом, а экран сверяет текст.
+private struct StaffParticipantsHidden: LocalizedError {
+    static let message = String(localized: "staff.event.participants.unavailable", defaultValue: "Список участников недоступен")
+    var errorDescription: String? { Self.message }
+}
+
 struct StaffEventDetailView: View {
     let eventID: String
 
@@ -195,6 +203,7 @@ struct StaffEventDetailView: View {
     @Environment(\.openURL) private var openURL
     @State private var event: StaffEvent?
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var actionFailure: String?
     @State private var editing = false
     @State private var confirmDelete = false
@@ -211,8 +220,12 @@ struct StaffEventDetailView: View {
     init(eventID: String) {
         self.eventID = eventID
         let api = StaffAPI()
-        _participants = State(initialValue: PagedLoader(limit: 50) { request in
-            try await api.eventParticipants(id: eventID, request)
+        _participants = State(initialValue: PagedLoader<StaffEventParticipant>(limit: 50) { request in
+            do {
+                return try await api.eventParticipants(id: eventID, request)
+            } catch let error as APIError where error.code == .forbidden || error.code == .wrongScope {
+                throw StaffParticipantsHidden()
+            }
         })
         _comments = State(initialValue: PagedLoader(limit: 20) { request in
             try await api.eventComments(id: eventID, request)
@@ -224,7 +237,7 @@ struct StaffEventDetailView: View {
             if let event {
                 content(event)
             } else if let failure {
-                ErrorStateView(message: failure) { await load() }
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
             } else {
                 LoadingStateView()
             }
@@ -440,11 +453,13 @@ struct StaffEventDetailView: View {
                 .task { await participants.loadMore(after: participant) }
             }
             if participants.hasMore { ProgressView().frame(maxWidth: .infinity) }
-        } else if participants.failure != nil {
+        } else if participants.failure == StaffParticipantsHidden.message {
             // 403 у админа чужого scope — не ошибка экрана: блок просто пуст.
-            Text(String(localized: "staff.event.participants.unavailable", defaultValue: "Список участников недоступен"))
+            Text(StaffParticipantsHidden.message)
                 .font(Typography.meta)
                 .foregroundStyle(Palette.mutedForeground)
+        } else if let failure = participants.failure {
+            DashboardFailurePlaceholder(message: failure) { await participants.reload() }
         } else {
             ProgressView().frame(maxWidth: .infinity)
                 .task { await participants.loadIfNeeded() }
@@ -492,13 +507,19 @@ struct StaffEventDetailView: View {
     @ViewBuilder
     private var commentsList: some View {
         if comments.isLoaded {
+            if comments.items.isEmpty {
+                DashboardEmptyRow(
+                    text: String(localized: "feed.noComments", defaultValue: "Комментариев пока нет"),
+                    symbol: "bubble.left.and.bubble.right"
+                )
+            }
             ForEach(comments.items) { comment in
                 commentRow(comment)
                     .task { await comments.loadMore(after: comment) }
             }
             if comments.hasMore { ProgressView().frame(maxWidth: .infinity) }
         } else if let failure = comments.failure {
-            Text(failure).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
+            DashboardFailurePlaceholder(message: failure) { await comments.reload() }
         } else {
             ProgressView().frame(maxWidth: .infinity)
                 .task { await comments.loadIfNeeded() }
@@ -580,10 +601,19 @@ struct StaffEventDetailView: View {
         do {
             event = try await api.event(id: eventID)
             failure = nil
-            if participants.isLoaded { await participants.reload() }
-            if comments.isLoaded { await comments.reload() }
+            isOffline = false
+            // Блок, упавший в прошлый раз, тоже перечитываем: жест обновления — и его повтор.
+            if participants.isLoaded || (participants.failure != nil && participants.failure != StaffParticipantsHidden.message) {
+                await participants.reload()
+            }
+            if comments.isLoaded || comments.failure != nil { await comments.reload() }
         } catch {
-            if event == nil { failure = error.userMessage } else { actionFailure = error.userMessage }
+            if event == nil {
+                failure = error.userMessage
+                isOffline = error.isOffline
+            } else {
+                actionFailure = error.userMessage
+            }
         }
     }
 

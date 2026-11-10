@@ -157,8 +157,10 @@ struct ScheduleView: View {
             let isToday = Calendar.current.isDateInToday(model.selectedDate)
             let clock = ScheduleModel.clock(of: context.date, calendar: .current)
             List {
-                if let failure = model.failure {
-                    StaleDataBanner(message: failure) { await model.refresh() }
+                // Без единой синхронизации и без пар сбой занимает экран целиком (ниже),
+                // полоса над ним была бы повтором.
+                if let failure = model.failure, !(pairs.isEmpty && model.syncedAt == nil) {
+                    StaleDataBanner(message: failure, isOffline: model.isOffline) { await model.refresh() }
                         .listRowInsets(EdgeInsets(top: Spacing.md, leading: Spacing.xl, bottom: Spacing.md, trailing: Spacing.xl))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
@@ -183,16 +185,29 @@ struct ScheduleView: View {
             .scrollContentBackground(.hidden)
             .overlay {
                 if pairs.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "schedule.empty", defaultValue: "В этот день пар нет"),
-                        symbol: "sun.max",
-                        hint: model.syncedAt.map {
-                            String(localized: "schedule.syncedAt", defaultValue: "Обновлено \($0.formatted(date: .abbreviated, time: .shortened))")
-                        }
-                    )
+                    emptyDay
                 }
             }
             .refreshable { await model.refresh() }
+        }
+    }
+
+    /// Пустой день. Пока расписание ни разу не пришло, пустота — не «пар нет»: первая
+    /// синхронизация ещё идёт или не удалась.
+    @ViewBuilder
+    private var emptyDay: some View {
+        if model.syncedAt == nil, let failure = model.failure {
+            ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
+        } else if model.syncedAt == nil, model.isRefreshing {
+            LoadingStateView()
+        } else {
+            EmptyStateView(
+                title: String(localized: "schedule.empty", defaultValue: "В этот день пар нет"),
+                symbol: "sun.max",
+                hint: model.syncedAt.map {
+                    String(localized: "schedule.syncedAt", defaultValue: "Обновлено \($0.formatted(date: .abbreviated, time: .shortened))")
+                }
+            )
         }
     }
 
@@ -201,7 +216,15 @@ struct ScheduleView: View {
     /// Неделя целиком: дни с парами, свободные пропущены — как в бумажном расписании.
     private var weekList: some View {
         let clock = ScheduleModel.clock(of: Date(), calendar: .current)
+        // Расписание ни разу не пришло, а показать нечего.
+        let blankBeforeSync = (week?.isEmpty ?? true) && model.syncedAt == nil
         return List {
+            if let failure = model.failure, !blankBeforeSync {
+                StaleDataBanner(message: failure, isOffline: model.isOffline) { await model.refresh() }
+                    .listRowInsets(EdgeInsets(top: Spacing.md, leading: Spacing.xl, bottom: Spacing.md, trailing: Spacing.xl))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
             if let week {
                 ForEach(week, id: \.day) { entry in
                     let isToday = Calendar.current.isDateInToday(entry.date)
@@ -221,7 +244,12 @@ struct ScheduleView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .overlay {
-            if let week, week.isEmpty {
+            // Как и в дне: до первой синхронизации пустая неделя — загрузка или сбой.
+            if blankBeforeSync, let failure = model.failure {
+                ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
+            } else if blankBeforeSync, model.isRefreshing {
+                LoadingStateView()
+            } else if let week, week.isEmpty {
                 EmptyStateView(
                     title: String(localized: "schedule.weekEmpty", defaultValue: "На этой неделе пар нет"),
                     symbol: "calendar"

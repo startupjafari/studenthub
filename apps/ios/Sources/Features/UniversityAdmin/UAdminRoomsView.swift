@@ -527,7 +527,10 @@ private struct BatchPrintSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var rooms: [UAdminRoomDTO]?
+    /// Сбой выдачи — над формой; сбой загрузки списка — на месте формы, с повтором.
     @State private var failure: String?
+    @State private var loadFailure: String?
+    @State private var isOffline = false
     @State private var building: String = BatchPrintSheet.allBuildings
     @State private var floor: Int?
     @State private var isIssuing = false
@@ -567,6 +570,9 @@ private struct BatchPrintSheet: View {
                             tint: TileTint.blue
                         )
                     }
+                } else if let loadFailure {
+                    ErrorStateView(message: loadFailure, isOffline: isOffline) { await load() }
+                        .listRowBackground(Color.clear)
                 } else {
                     LoadingStateView().listRowBackground(Color.clear)
                 }
@@ -618,8 +624,12 @@ private struct BatchPrintSheet: View {
     private func load() async {
         do {
             rooms = try await UAdminAPI().allRooms()
+            loadFailure = nil
+        } catch is CancellationError {
+            return
         } catch {
-            failure = error.userMessage
+            loadFailure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 

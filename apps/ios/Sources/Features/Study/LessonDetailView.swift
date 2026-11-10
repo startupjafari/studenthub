@@ -15,6 +15,8 @@ struct LessonDetailView: View {
     @State private var isMissing = false
     @State private var course: CourseDTO?
     @State private var assignments: [AssignmentDTO]?
+    /// Дисциплина или задания не пришли — это сбой, а не «заданий нет».
+    @State private var relatedFailed = false
     /// Разовое изменение на этот день с сервера — с новой аудиторией и заменяющим, как
     /// в карточке пары веба. В локальной базе их нет: там только время и примечание.
     @State private var remoteChange: StudentScheduleChangeDTO?
@@ -115,11 +117,15 @@ struct LessonDetailView: View {
                         }
                     }
                 }
-                if assignments.isEmpty && course == nil {
+                if relatedFailed {
+                    DashboardFailurePlaceholder { await load() }
+                } else if assignments.isEmpty && course == nil {
                     Text(String(localized: "lesson.noLinks", defaultValue: "Заданий по этой дисциплине нет"))
                         .font(Typography.meta)
                         .foregroundStyle(Palette.mutedForeground)
                 }
+            } else if relatedFailed {
+                DashboardFailurePlaceholder { await load() }
             } else {
                 ProgressView().frame(maxWidth: .infinity)
             }
@@ -230,8 +236,18 @@ struct LessonDetailView: View {
         async let tasks = try? StudyAPI().assignments().items
         let day = ScheduleAPI.day(date, in: .current)
         async let changes = try? StudentStudyAPI().scheduleChanges(from: day, to: day)
-        course = (await courses ?? []).first { $0.subject.name.lowercased() == subject }
-        assignments = (await tasks ?? []).filter { $0.subject?.lowercased() == subject }
+        let fetchedCourses = await courses
+        let fetchedTasks = await tasks
+        // Ушли с экрана посреди загрузки — это не сбой.
+        guard !Task.isCancelled else { return }
+        // Не пришедшее не затирает показанное: при сбое повтора старое остаётся.
+        relatedFailed = fetchedCourses == nil || fetchedTasks == nil
+        if let fetchedCourses {
+            course = fetchedCourses.first { $0.subject.name.lowercased() == subject }
+        }
+        if let fetchedTasks {
+            assignments = fetchedTasks.filter { $0.subject?.lowercased() == subject }
+        }
         remoteChange = StudentCalendarBuilder.mergedChanges((await changes ?? []).filter { $0.pairId == pairID })["\(pairID)|\(day)"]
     }
 }

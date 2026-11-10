@@ -332,6 +332,10 @@ struct StaffApplicationDetailView: View {
     @State private var addingResult = false
     @State private var isWorking = false
     @State private var assignees: [StaffApplicationAssignee]?
+    /// Список сотрудников не загрузился: без него ответственного не сменить, и строка
+    /// говорит об этом прямо, с повтором, а не молча перестаёт быть меню.
+    @State private var assigneesFailure: String?
+    @State private var isOffline = false
     @State private var opener = RemoteFileOpener()
 
     private let api = StaffAPI()
@@ -341,7 +345,7 @@ struct StaffApplicationDetailView: View {
             if let app {
                 content(app)
             } else if let failure {
-                ErrorStateView(message: failure) { await load() }
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
             } else {
                 LoadingStateView()
             }
@@ -551,7 +555,22 @@ struct StaffApplicationDetailView: View {
             ?? (app.assignedToId == nil
                 ? String(localized: "staff.app.unassigned", defaultValue: "Не назначен")
                 : String(localized: "staff.app.assignedSomeone", defaultValue: "Назначен сотрудник"))
-        if app.isClosed || assignees == nil || assignees?.isEmpty == true {
+        if !app.isClosed, assignees == nil, let assigneesFailure {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                DetailRow(title: title, value: currentName, symbol: "person.badge.clock")
+                HStack(spacing: Spacing.md) {
+                    Text(assigneesFailure)
+                        .font(Typography.meta)
+                        .foregroundStyle(Palette.mutedForeground)
+                    Spacer(minLength: 0)
+                    Button(String(localized: "common.retry", defaultValue: "Повторить")) {
+                        Task { await loadAssignees() }
+                    }
+                    .font(Typography.meta.weight(.semibold))
+                    .buttonStyle(.borderless)
+                }
+            }
+        } else if app.isClosed || assignees == nil || assignees?.isEmpty == true {
             DetailRow(title: title, value: currentName, symbol: "person.badge.clock")
         } else {
             Menu {
@@ -909,11 +928,31 @@ struct StaffApplicationDetailView: View {
             let loaded = try await api.application(id: applicationID)
             app = loaded
             failure = nil
+            isOffline = false
             if !loaded.isClosed, assignees == nil {
-                assignees = (try? await api.assignees(applicationID)) ?? []
+                await loadAssignees()
             }
         } catch {
-            if app == nil { failure = error.userMessage } else { actionFailure = error.userMessage }
+            if app == nil {
+                failure = error.userMessage
+                isOffline = error.isOffline
+            } else {
+                actionFailure = error.userMessage
+            }
+        }
+    }
+
+    /// Кому можно передать заявку. Сбой оставляет `assignees` пустым (`nil`): следующее
+    /// обновление карточки или «Повторить» в строке спросят снова.
+    @MainActor
+    private func loadAssignees() async {
+        do {
+            assignees = try await api.assignees(applicationID)
+            assigneesFailure = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            assigneesFailure = error.userMessage
         }
     }
 
@@ -985,6 +1024,9 @@ private struct StaffResultSheet: View {
     @State private var number = ""
     @State private var note = ""
     @State private var issuedTypes: [StaffDocumentType] = []
+    /// Каталог видов документов не загрузился: без него «Вид документа» пуст, и выбор
+    /// заблокирован — говорим об этом в секции файла и даём повторить.
+    @State private var typesFailure: String?
     @State private var picking = false
     @State private var isUploading = false
     @State private var isSaving = false
@@ -1027,6 +1069,16 @@ private struct StaffResultSheet: View {
 
                 if needsFile {
                     Section {
+                        if let typesFailure {
+                            FormAlert(message: typesFailure)
+                                .listRowBackground(Color.clear)
+                                .listRowInsets(EdgeInsets())
+                            Button {
+                                Task { await loadTypes() }
+                            } label: {
+                                Label(String(localized: "common.retry", defaultValue: "Повторить"), systemImage: "arrow.clockwise")
+                            }
+                        }
                         if let file {
                             HStack {
                                 Label(file.name, systemImage: "paperclip").lineLimit(2)
@@ -1094,13 +1146,23 @@ private struct StaffResultSheet: View {
                 Task { await upload(result) }
             }
             .task {
-                if issuedTypes.isEmpty {
-                    // Выдать можно только то, что каталог вуза относит к «Выданным
-                    // университетом», и только включённые типы.
-                    let all = (try? await api.effectiveDocumentTypes()) ?? []
-                    issuedTypes = all.filter { $0.category == "ISSUED_BY_UNIVERSITY" && $0.enabled }
-                }
+                if issuedTypes.isEmpty { await loadTypes() }
             }
+        }
+    }
+
+    /// Выдать можно только то, что каталог вуза относит к «Выданным университетом»,
+    /// и только включённые типы.
+    @MainActor
+    private func loadTypes() async {
+        do {
+            let all = try await api.effectiveDocumentTypes()
+            issuedTypes = all.filter { $0.category == "ISSUED_BY_UNIVERSITY" && $0.enabled }
+            typesFailure = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            typesFailure = error.userMessage
         }
     }
 

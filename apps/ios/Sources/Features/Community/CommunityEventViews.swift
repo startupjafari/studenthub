@@ -104,12 +104,15 @@ struct CommunityEventView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var event: CommunityEventDTO?
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var isBusy = false
     @State private var actionFailure: String?
     @State private var editing = false
     @State private var confirmingDelete = false
     @State private var meeting: CommunityEventMeetingDTO?
     @State private var participants: [CommunityEventParticipantDTO]?
+    /// Список записавшихся не загрузился: организатор видит сбой, а не пропавшую секцию.
+    @State private var participantsFailure: String?
     @State private var comments = PagedLoader<CommunityEventCommentDTO>(limit: 30) { _ in Page(items: [], meta: nil) }
     @State private var draft = ""
     @State private var replyTo: CommunityEventCommentDTO?
@@ -123,7 +126,7 @@ struct CommunityEventView: View {
             if let event {
                 content(event)
             } else if let failure {
-                ErrorStateView(message: failure) { await load() }
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
             } else {
                 LoadingStateView()
             }
@@ -225,6 +228,13 @@ struct CommunityEventView: View {
                 }
             }
 
+            if event.canManage == true, participants == nil, let participantsFailure {
+                Section {
+                    DashboardFailurePlaceholder(message: participantsFailure) { await loadParticipants() }
+                } header: {
+                    Text(String(localized: "community.event.participantsList", defaultValue: "Кто записался"))
+                }
+            }
             if event.canManage == true, let participants, !participants.isEmpty {
                 Section {
                     ForEach(participants) { participant in
@@ -319,7 +329,10 @@ struct CommunityEventView: View {
                 .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
                 .accessibilityLabel(Text(String(localized: "community.comment.send", defaultValue: "Отправить")))
             }
-            if comments.isLoaded, comments.items.isEmpty {
+            // Комментарии не загрузились — не «Комментариев пока нет».
+            if comments.items.isEmpty, let failure = comments.failure {
+                DashboardFailurePlaceholder(message: failure) { await comments.reload() }
+            } else if comments.isLoaded, comments.items.isEmpty {
                 Text(String(localized: "feed.noComments", defaultValue: "Комментариев пока нет"))
                     .font(Typography.meta)
                     .foregroundStyle(Palette.mutedForeground)
@@ -366,6 +379,9 @@ struct CommunityEventView: View {
                     }
                 }
             }
+            if let pageFailure = comments.pageFailure {
+                PageFailureRow(message: pageFailure) { await comments.retryMore() }
+            }
         } header: {
             Text(String(localized: "community.event.discussion", defaultValue: "Обсуждение"))
         }
@@ -399,10 +415,26 @@ struct CommunityEventView: View {
                 try await api.eventComments(id: eventID, cursor: request.cursor)
             }
             if loaded.canManage == true {
-                participants = try? await api.eventParticipants(id: eventID)
+                await loadParticipants()
             }
+        } catch is CancellationError {
+            return
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
+        }
+    }
+
+    /// Кто записался — только организатору. Сбой не стирает уже показанный список.
+    @MainActor
+    private func loadParticipants() async {
+        do {
+            participants = try await api.eventParticipants(id: eventID)
+            participantsFailure = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            participantsFailure = error.userMessage
         }
     }
 

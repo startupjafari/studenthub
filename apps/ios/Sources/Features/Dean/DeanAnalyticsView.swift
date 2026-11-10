@@ -12,6 +12,7 @@ struct DeanAnalyticsView: View {
     @State private var failure: String?
     @State private var isOffline = false
     @State private var riskFailure: String?
+    @State private var riskOffline = false
     @State private var tab: Tab? = .students
     @State private var riskSort: RiskSort = .risk
     @State private var reasonFilter: String?
@@ -124,7 +125,7 @@ struct DeanAnalyticsView: View {
     @ViewBuilder
     private func students(total: Int) -> some View {
         if let riskFailure, risk == nil {
-            ErrorStateView(message: riskFailure) { await load() }
+            ErrorStateView(message: riskFailure, isOffline: riskOffline) { await load() }
                 .listRowBackground(Color.clear)
         } else if let risk {
             if risk.students.isEmpty {
@@ -240,8 +241,11 @@ struct DeanAnalyticsView: View {
         do {
             risk = try await riskTask
             riskFailure = nil
+        } catch is CancellationError {
+            return
         } catch {
             riskFailure = error.userMessage
+            riskOffline = error.isOffline
         }
     }
 }

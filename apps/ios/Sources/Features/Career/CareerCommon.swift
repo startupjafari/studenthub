@@ -310,6 +310,7 @@ struct CareerUniversityPicker: View {
     @State private var search = ""
     @State private var items: [CareerUniversityRef]?
     @State private var failure: String?
+    @State private var isOffline = false
 
     var body: some View {
         NavigationStack {
@@ -331,7 +332,7 @@ struct CareerUniversityPicker: View {
                         }
                     }
                 } else if let failure {
-                    ErrorStateView(message: failure) { await load(search) }
+                    ErrorStateView(message: failure, isOffline: isOffline) { await load(search) }
                         .listRowBackground(Color.clear)
                 } else {
                     LoadingStateView().listRowBackground(Color.clear)
@@ -360,6 +361,7 @@ struct CareerUniversityPicker: View {
         } catch is CancellationError {
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 }
@@ -450,6 +452,7 @@ private struct CareerCityPicker: View {
     @State private var search = ""
     @State private var items: [CareerKatoUnit]?
     @State private var failure: String?
+    @State private var isOffline = false
 
     var body: some View {
         NavigationStack {
@@ -461,6 +464,13 @@ private struct CareerCityPicker: View {
                     }
                 }
                 if let items {
+                    if items.isEmpty {
+                        EmptyStateView(
+                            title: String(localized: "career.city.notFound", defaultValue: "Город не найден"),
+                            symbol: "magnifyingglass"
+                        )
+                        .listRowBackground(Color.clear)
+                    }
                     Section {
                         ForEach(items) { unit in
                             Button {
@@ -473,7 +483,7 @@ private struct CareerCityPicker: View {
                         }
                     }
                 } else if let failure {
-                    ErrorStateView(message: failure) { await load(search) }
+                    ErrorStateView(message: failure, isOffline: isOffline) { await load(search) }
                         .listRowBackground(Color.clear)
                 } else {
                     LoadingStateView().listRowBackground(Color.clear)
@@ -502,6 +512,7 @@ private struct CareerCityPicker: View {
         } catch is CancellationError {
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 }

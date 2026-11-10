@@ -17,13 +17,20 @@ struct MyBooksView: View {
             } else {
                 if let failure = model.failure {
                     if model.books == nil {
-                        ErrorStateView(message: failure) { await model.refresh() }
+                        ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
                             .listRowBackground(Color.clear)
                     } else {
-                        FormAlert(message: failure)
+                        // Список с прошлого раза остаётся, сверху — что он несвежий и повтор.
+                        StaleDataBanner(message: failure, isOffline: model.isOffline) { await model.refresh() }
                             .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets())
                     }
+                }
+
+                if let actionFailure = model.actionFailure {
+                    FormAlert(message: actionFailure)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                 }
 
                 if let notice = model.notice {

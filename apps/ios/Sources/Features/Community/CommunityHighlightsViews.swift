@@ -100,6 +100,7 @@ struct CommunityHighlightsView: View {
     @Environment(\.viewerID) private var viewerID
     @State private var highlights: [CommunityHighlightDTO]?
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var playing: CommunityHighlightTarget?
     @State private var editingID: CommunityHighlightTarget?
     @State private var deleting: CommunityHighlightDTO?
@@ -174,7 +175,7 @@ struct CommunityHighlightsView: View {
                     }
                 }
             } else if let failure {
-                ErrorStateView(message: failure) { await load() }
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
                     .listRowBackground(Color.clear)
             } else {
                 LoadingStateView().listRowBackground(Color.clear)
@@ -216,8 +217,11 @@ struct CommunityHighlightsView: View {
         do {
             highlights = try await api.highlights(ownerID: userID)
             failure = nil
+        } catch is CancellationError {
+            return
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 
@@ -247,7 +251,10 @@ struct CommunityHighlightEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var detail: CommunityHighlightDetailDTO?
     @State private var title = ""
+    /// Ошибка действия — над формой; ошибка загрузки — на месте формы, с повтором.
     @State private var failure: String?
+    @State private var loadFailure: String?
+    @State private var isOffline = false
 
     private let api = CommunityAPI()
 
@@ -306,6 +313,9 @@ struct CommunityHighlightEditor: View {
                     } footer: {
                         Text(String(localized: "community.highlights.items.hint", defaultValue: "Смахните влево, чтобы убрать историю или сделать её обложкой"))
                     }
+                } else if let loadFailure {
+                    ErrorStateView(message: loadFailure, isOffline: isOffline) { await load() }
+                        .listRowBackground(Color.clear)
                 } else {
                     LoadingStateView().listRowBackground(Color.clear)
                 }
@@ -334,8 +344,12 @@ struct CommunityHighlightEditor: View {
             let loaded = try await api.highlight(id: highlightID)
             detail = loaded
             title = loaded.title
+            loadFailure = nil
+        } catch is CancellationError {
+            return
         } catch {
-            failure = error.userMessage
+            loadFailure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 
@@ -422,8 +436,9 @@ struct CommunityHighlightPlayer: View {
             } else if let failure {
                 VStack(spacing: Spacing.lg) {
                     Text(failure).foregroundStyle(.white).multilineTextAlignment(.center)
+                    RetryButton { await load() }
                     Button(String(localized: "common.close", defaultValue: "Закрыть")) { dismiss() }
-                        .glassProminentButton()
+                        .foregroundStyle(.white)
                 }
                 .padding(Spacing.xxl)
             } else {
@@ -540,7 +555,10 @@ struct CommunityHighlightPlayer: View {
             let loaded = try await CommunityAPI().highlight(id: highlightID)
             if loaded.items.isEmpty { return dismiss() }
             detail = loaded
+            failure = nil
             index = min(index, loaded.items.count - 1)
+        } catch is CancellationError {
+            return
         } catch {
             failure = error.userMessage
         }
@@ -555,6 +573,8 @@ struct CommunityHighlightPicker: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var highlights: [CommunityHighlightDTO]?
+    /// Список актуального не загрузился — секция «существующее» не пропадает молча.
+    @State private var listFailure: String?
     @State private var newTitle = ""
     @State private var failure: String?
     @State private var busy = false
@@ -598,6 +618,12 @@ struct CommunityHighlightPicker: View {
                     } header: {
                         Text(String(localized: "community.highlights.existing", defaultValue: "Добавить в существующее"))
                     }
+                } else if highlights == nil, let listFailure {
+                    Section {
+                        DashboardFailurePlaceholder(message: listFailure) { await loadHighlights() }
+                    } header: {
+                        Text(String(localized: "community.highlights.existing", defaultValue: "Добавить в существующее"))
+                    }
                 } else if highlights == nil {
                     LoadingStateView().listRowBackground(Color.clear)
                 }
@@ -611,11 +637,23 @@ struct CommunityHighlightPicker: View {
                 }
             }
             .sensoryFeedback(.success, trigger: done)
-            .task { highlights = (try? await api.highlights(ownerID: ownerID)) ?? [] }
+            .task { await loadHighlights() }
         }
     }
 
     private var trimmed: String { newTitle.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    @MainActor
+    private func loadHighlights() async {
+        do {
+            highlights = try await api.highlights(ownerID: ownerID)
+            listFailure = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            listFailure = error.userMessage
+        }
+    }
 
     @MainActor
     private func run(_ action: () async throws -> Void) async {

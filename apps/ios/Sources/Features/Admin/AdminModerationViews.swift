@@ -218,7 +218,7 @@ struct AdminDocumentAccessView: View {
                         }
                     }
                 } else if let logFailure {
-                    Text(logFailure).foregroundStyle(Palette.destructive)
+                    DashboardFailurePlaceholder(message: logFailure) { await loadLog() }
                 } else {
                     ProgressView()
                 }

@@ -327,6 +327,7 @@ struct StaffBookDetailView: View {
 
     @State private var book: StaffBook?
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var actionFailure: String?
     @State private var notice: String?
     @State private var editing = false
@@ -348,7 +349,7 @@ struct StaffBookDetailView: View {
             if let book {
                 content(book)
             } else if let failure {
-                ErrorStateView(message: failure) { await load() }
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
             } else {
                 LoadingStateView()
             }
@@ -630,8 +631,14 @@ struct StaffBookDetailView: View {
         do {
             book = try await api.book(id: bookID)
             failure = nil
+            isOffline = false
         } catch {
-            if book == nil { failure = error.userMessage } else { actionFailure = error.userMessage }
+            if book == nil {
+                failure = error.userMessage
+                isOffline = error.isOffline
+            } else {
+                actionFailure = error.userMessage
+            }
         }
     }
 

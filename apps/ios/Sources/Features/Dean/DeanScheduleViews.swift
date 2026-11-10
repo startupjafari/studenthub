@@ -12,6 +12,13 @@ struct DeanScheduleManageView: View {
     @State private var containerID: String?
     @State private var detail: DeanScheduleContainerDetail?
     @State private var failure: String?
+    @State private var isOffline = false
+    /// Пары версии не загрузились: без этого экран навсегда оставался в загрузке.
+    @State private var detailFailure: String?
+    @State private var detailOffline = false
+    /// Группа из карточки не загрузилась: не «Выберите группу», когда группа задана.
+    @State private var groupFailure: String?
+    @State private var groupOffline = false
     @State private var actionFailure: String?
     @State private var isBusy = false
     @State private var creatingVersion = false
@@ -37,7 +44,10 @@ struct DeanScheduleManageView: View {
                 }
             }
 
-            if group == nil {
+            if group == nil, let groupFailure {
+                ErrorStateView(message: groupFailure, isOffline: groupOffline) { await loadInitialGroup() }
+                    .listRowBackground(Color.clear)
+            } else if group == nil {
                 EmptyStateView(
                     title: String(localized: "dean.schedule.pickGroup", defaultValue: "Выберите группу"),
                     symbol: "square.stack.3d.up",
@@ -45,7 +55,7 @@ struct DeanScheduleManageView: View {
                 )
                 .listRowBackground(Color.clear)
             } else if let failure {
-                ErrorStateView(message: failure) { await loadContainers() }
+                ErrorStateView(message: failure, isOffline: isOffline) { await loadContainers() }
                     .listRowBackground(Color.clear)
             } else if containers == nil {
                 LoadingStateView().listRowBackground(Color.clear)
@@ -59,7 +69,15 @@ struct DeanScheduleManageView: View {
                 )
                 .listRowBackground(Color.clear)
             } else if let detail, detail.id == containerID {
+                if let detailFailure {
+                    StaleDataBanner(message: detailFailure, isOffline: detailOffline) { await loadDetail() }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
                 days(detail)
+            } else if let detailFailure {
+                ErrorStateView(message: detailFailure, isOffline: detailOffline) { await loadDetail() }
+                    .listRowBackground(Color.clear)
             } else {
                 LoadingStateView().listRowBackground(Color.clear)
             }
@@ -84,17 +102,19 @@ struct DeanScheduleManageView: View {
         .task {
             guard !bootstrapped else { return }
             bootstrapped = true
-            if let initialGroupID, group == nil, let loaded = try? await api.group(id: initialGroupID) {
-                group = DeanPickOption(id: loaded.id, title: loaded.name)
-            }
+            await loadInitialGroup()
         }
         .onChange(of: group?.id) { _, _ in
             containers = nil
             containerID = nil
             detail = nil
+            detailFailure = nil
             Task { await loadContainers() }
         }
-        .onChange(of: containerID) { _, _ in Task { await loadDetail() } }
+        .onChange(of: containerID) { _, _ in
+            detailFailure = nil
+            Task { await loadDetail() }
+        }
         .sheet(isPresented: $creatingVersion) {
             if let group {
                 DeanVersionForm(groupID: group.id, hasActive: containers?.contains { $0.isActive } ?? false) { created in
@@ -247,8 +267,28 @@ struct DeanScheduleManageView: View {
 
     @MainActor
     private func reloadAll() async {
+        guard group != nil else {
+            await loadInitialGroup()
+            return
+        }
         await loadContainers(select: containerID)
         await loadDetail()
+    }
+
+    /// Группа из карточки группы — сразу выбрана.
+    @MainActor
+    private func loadInitialGroup() async {
+        guard let initialGroupID, group == nil else { return }
+        do {
+            let loaded = try await api.group(id: initialGroupID)
+            group = DeanPickOption(id: loaded.id, title: loaded.name)
+            groupFailure = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            groupFailure = error.userMessage
+            groupOffline = error.isOffline
+        }
     }
 
     /// Выбранную версию не сбрасываем на действующую при обновлении списка: только что
@@ -272,6 +312,7 @@ struct DeanScheduleManageView: View {
             return
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 
@@ -279,16 +320,21 @@ struct DeanScheduleManageView: View {
     private func loadDetail() async {
         guard let id = containerID else {
             detail = nil
+            detailFailure = nil
             return
         }
         do {
             let loaded = try await api.scheduleContainer(id: id)
             guard id == containerID else { return }
             detail = loaded
+            detailFailure = nil
         } catch is CancellationError {
             return
         } catch {
-            actionFailure = error.userMessage
+            guard id == containerID else { return }
+            // Пары на экране остаются (полоса над ними), без пар — ошибка с повтором.
+            detailFailure = error.userMessage
+            detailOffline = error.isOffline
         }
     }
 
@@ -528,6 +574,8 @@ private struct DeanPairSheet: View {
     @State private var room: DeanPickOption?
     @State private var teacher: DeanPickOption?
     @State private var changes: [DeanScheduleChange]?
+    /// Изменения не загрузились — не «Разовых изменений нет».
+    @State private var changesFailure: String?
     @State private var change: DeanScheduleChangeDraft
     @State private var changeDate: Date
     @State private var changeRoom: DeanPickOption?
@@ -685,6 +733,8 @@ private struct DeanPairSheet: View {
                         }
                     }
                 }
+            } else if let changesFailure {
+                DashboardFailurePlaceholder(message: changesFailure) { await loadChanges() }
             } else {
                 ProgressView()
             }
@@ -788,11 +838,12 @@ private struct DeanPairSheet: View {
                 to: DeanTime.day(to, timeZone: zone),
                 groupID: pair.groupId
             )
+            changesFailure = nil
         } catch is CancellationError {
             return
         } catch {
-            changes = []
-            failure = error.userMessage
+            // Прежний список не стираем; без него — сбой с повтором на месте секции.
+            changesFailure = error.userMessage
         }
     }
 

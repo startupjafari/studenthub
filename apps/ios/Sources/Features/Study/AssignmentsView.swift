@@ -188,7 +188,7 @@ struct AssignmentDetailView: View {
                     work(assignment)
                 }
             } else if let failure = model?.failure {
-                ErrorStateView(message: failure) { await model?.refresh() }
+                ErrorStateView(message: failure, isOffline: model?.isOffline ?? false) { await model?.refresh() }
                     .listRowBackground(Color.clear)
             } else {
                 LoadingStateView().listRowBackground(Color.clear)

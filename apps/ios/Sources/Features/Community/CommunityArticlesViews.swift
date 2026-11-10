@@ -129,6 +129,7 @@ struct CommunityArticleView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var article: CommunityArticleDTO?
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var related: [CommunityArticleDTO] = []
     @State private var comments = PagedLoader<CommunityArticleCommentDTO>(limit: 30) { _ in Page(items: [], meta: nil) }
     @State private var draft = ""
@@ -146,7 +147,7 @@ struct CommunityArticleView: View {
             if let article {
                 content(article)
             } else if let failure {
-                ErrorStateView(message: failure) { await load() }
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
             } else {
                 LoadingStateView()
             }
@@ -356,6 +357,16 @@ struct CommunityArticleView: View {
                     .accessibilityLabel(Text(String(localized: "community.comment.send", defaultValue: "Отправить")))
                 }
             }
+            // Комментарии не загрузились — не «Комментариев пока нет».
+            if comments.items.isEmpty {
+                if let failure = comments.failure {
+                    DashboardFailurePlaceholder(message: failure) { await comments.reload() }
+                } else if comments.isLoaded, article.allowComments != false {
+                    DashboardEmptyRow(text: String(localized: "feed.noComments", defaultValue: "Комментариев пока нет"), symbol: "bubble.left")
+                } else if comments.isLoading {
+                    ProgressView().frame(maxWidth: .infinity)
+                }
+            }
             ForEach(comments.items) { comment in
                 CommunityCommentRow(
                     name: comment.author?.name ?? "—",
@@ -374,6 +385,9 @@ struct CommunityArticleView: View {
                         }
                     }
                 }
+            }
+            if let pageFailure = comments.pageFailure {
+                PageFailureRow(message: pageFailure) { await comments.retryMore() }
             }
         } header: {
             Text(String(localized: "feed.comments", defaultValue: "Комментарии"))
@@ -395,8 +409,11 @@ struct CommunityArticleView: View {
             }
             related = (try? await api.relatedArticles(id: articleID)) ?? []
             if !loaded.isDraft { try? await api.markArticleViewed(id: articleID) }
+        } catch is CancellationError {
+            return
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 

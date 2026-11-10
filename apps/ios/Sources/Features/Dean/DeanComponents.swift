@@ -167,6 +167,26 @@ enum DeanErrorText {
     }
 }
 
+/// Необязательная часть экрана (сводка, список рядом с карточкой): значение или текст
+/// сбоя. `try?` превращал сбой в «нет данных», и экран говорил «всё хорошо» там, где
+/// просто не дозагрузился.
+struct DeanPart<Value> {
+    var value: Value?
+    var failure: String?
+
+    /// Отмена — не сбой: часть остаётся пустой, а экран, чья загрузка отменена, своё
+    /// значение и не заменит (`checkCancellation` в загрузке снимка).
+    static func load(_ body: () async throws -> Value) async -> DeanPart<Value> {
+        do {
+            return DeanPart(value: try await body())
+        } catch is CancellationError {
+            return DeanPart()
+        } catch {
+            return DeanPart(failure: error.userMessage)
+        }
+    }
+}
+
 // MARK: - Выбор из справочника
 
 struct DeanPickOption: Identifiable, Hashable {
@@ -218,6 +238,7 @@ private struct DeanPickerList: View {
     @State private var search = ""
     @State private var options: [DeanPickOption]?
     @State private var failure: String?
+    @State private var isOffline = false
 
     var body: some View {
         List {
@@ -234,7 +255,7 @@ private struct DeanPickerList: View {
                 }
                 ForEach(options) { option in row(option) }
             } else if let failure {
-                ErrorStateView(message: failure) { await run(search) }
+                ErrorStateView(message: failure, isOffline: isOffline) { await run(search) }
                     .listRowBackground(Color.clear)
             } else {
                 LoadingStateView().listRowBackground(Color.clear)
@@ -277,6 +298,7 @@ private struct DeanPickerList: View {
             return
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 }

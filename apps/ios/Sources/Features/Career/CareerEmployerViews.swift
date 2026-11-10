@@ -10,7 +10,9 @@ import SwiftUI
 
 private struct CareerEmployerSummary {
     var company: CareerCompany
-    var access: [CareerAccess]
+    /// `nil` — список доступов не загрузился: не «доступа нет» и не плитки с нулями.
+    var access: [CareerAccess]?
+    var accessFailure: String?
     var metrics: JSONValue?
 }
 
@@ -21,8 +23,8 @@ struct CareerEmployerHomeView: View {
     var body: some View {
         RemoteContent(reloadToken: token, load: load) { summary in
             let company = summary.company
-            let active = summary.access.filter(\.isActive).count
-            let pending = summary.access.filter { $0.status == "REQUESTED" }.count
+            let active = summary.access?.filter(\.isActive).count
+            let pending = summary.access?.filter { $0.status == "REQUESTED" }.count
             List {
                 if company.status == "BLOCKED" {
                     Section {
@@ -50,6 +52,12 @@ struct CareerEmployerHomeView: View {
                 }
 
                 DashboardMetricsSection(metrics: metrics(active: active, pending: pending, analytics: summary.metrics))
+
+                if let failure = summary.accessFailure {
+                    Section {
+                        DashboardFailurePlaceholder(message: failure) { token += 1 }
+                    }
+                }
 
                 if let rates = summary.metrics?["rates"] {
                     DashboardCardSection(title: String(localized: "career.staff.rates", defaultValue: "Конверсия воронки")) {
@@ -107,18 +115,18 @@ struct CareerEmployerHomeView: View {
 
     /// Плитки компании. Метрики вакансий есть только у подтверждённой компании — без них
     /// плиток нет вовсе, а не ряд нулей или прочерков.
-    private func metrics(active: Int, pending: Int, analytics: JSONValue?) -> [DashboardMetric] {
+    private func metrics(active: Int?, pending: Int?, analytics: JSONValue?) -> [DashboardMetric] {
         var items = [
             DashboardMetric(
                 title: String(localized: "career.employer.approved", defaultValue: "Университетов открыто"),
-                value: active.formatted(),
+                value: active.map { $0.formatted() },
                 symbol: "graduationcap",
                 tint: Palette.success,
                 route: .career(.access)
             ),
             DashboardMetric(
                 title: String(localized: "career.employer.pending", defaultValue: "Заявок на рассмотрении"),
-                value: pending.formatted(),
+                value: pending.map { $0.formatted() },
                 symbol: "clock",
                 tint: Palette.warning,
                 route: .career(.access)
@@ -169,10 +177,19 @@ struct CareerEmployerHomeView: View {
     private func load() async throws -> CareerEmployerSummary {
         let api = CareerAPI()
         let company = try await api.myCompany()
-        let access = (try? await api.myAccess()) ?? []
+        // Сбой доступов не прячет обзор компании, но и не выдаёт себя за «доступа нет».
+        var access: [CareerAccess]?
+        var accessFailure: String?
+        do {
+            access = try await api.myAccess()
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            accessFailure = error.userMessage
+        }
         // Пока почта не подтверждена или компания заблокирована, считать нечего.
         let metrics = company.status == "ACTIVE" ? try? await api.companyAnalytics() : nil
-        return CareerEmployerSummary(company: company, access: access, metrics: metrics)
+        return CareerEmployerSummary(company: company, access: access, accessFailure: accessFailure, metrics: metrics)
     }
 }
 
@@ -262,7 +279,9 @@ struct CareerEmployerVacancyView: View {
 
     private struct Content {
         var vacancy: CareerVacancy
-        var applications: [CareerApplication]
+        /// `nil` — отклики не загрузились: не «Откликов нет».
+        var applications: [CareerApplication]?
+        var applicationsFailure: String?
     }
 
     var body: some View {
@@ -346,11 +365,13 @@ struct CareerEmployerVacancyView: View {
                 }
 
                 Section {
-                    if content.applications.isEmpty {
+                    if let failure = content.applicationsFailure {
+                        DashboardFailurePlaceholder(message: failure) { token += 1 }
+                    } else if content.applications?.isEmpty == true {
                         Text(String(localized: "career.candidates.empty", defaultValue: "Откликов нет"))
                             .foregroundStyle(Palette.mutedForeground)
                     }
-                    ForEach(content.applications) { application in
+                    ForEach(content.applications ?? []) { application in
                         if let student = application.student {
                             NavigationLink(value: AppRoute.career(.candidate(id: student.id))) {
                                 let status = CareerText.applicationStatus(application.status)
@@ -443,8 +464,14 @@ struct CareerEmployerVacancyView: View {
     private func load() async throws -> Content {
         let api = CareerAPI()
         let vacancy = try await api.myVacancy(id: id)
-        let applications = (try? await api.pipeline(PageRequest(cursor: nil, page: 1, limit: 20), params: ["vacancyId": id]).items) ?? []
-        return Content(vacancy: vacancy, applications: applications)
+        do {
+            let applications = try await api.pipeline(PageRequest(cursor: nil, page: 1, limit: 20), params: ["vacancyId": id]).items
+            return Content(vacancy: vacancy, applications: applications)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return Content(vacancy: vacancy, applications: nil, applicationsFailure: error.userMessage)
+        }
     }
 
     @MainActor
@@ -862,6 +889,7 @@ struct CareerCandidateView: View {
 
     @State private var card: CareerCandidateCard?
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var hidden = false
 
     var body: some View {
@@ -874,7 +902,7 @@ struct CareerCandidateView: View {
                     symbol: "person.crop.circle.badge.xmark"
                 )
             } else if let failure {
-                ErrorStateView(message: failure) { await load() }
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
             } else {
                 LoadingStateView()
             }
@@ -892,6 +920,7 @@ struct CareerCandidateView: View {
             hidden = true
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 

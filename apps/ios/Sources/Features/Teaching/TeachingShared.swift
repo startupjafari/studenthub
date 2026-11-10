@@ -205,8 +205,10 @@ struct TeachingRoomPicker: View {
     @Binding var selection: TeachingNamedRef?
 
     @State private var query = ""
-    @State private var rooms: [TeachingRoomDTO] = []
+    /// `nil` — первый ответ ещё не пришёл: пустой список здесь значит «не нашлось».
+    @State private var rooms: [TeachingRoomDTO]?
     @State private var failure: String?
+    @State private var isOffline = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -223,7 +225,7 @@ struct TeachingRoomPicker: View {
                         if selection == nil { Image(systemName: "checkmark").foregroundStyle(Palette.primary) }
                     }
                 }
-                ForEach(rooms) { room in
+                ForEach(rooms ?? []) { room in
                     Button {
                         selection = TeachingNamedRef(id: room.id, name: room.name)
                         dismiss()
@@ -241,7 +243,21 @@ struct TeachingRoomPicker: View {
                     }
                 }
             } footer: {
-                if let failure { Text(failure) }
+                // Список уже на экране — сбой поиска подписью, без стирания найденного.
+                if let failure, rooms != nil { Text(failure) }
+            }
+
+            if rooms == nil, let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+                    .listRowBackground(Color.clear)
+            } else if rooms == nil {
+                LoadingStateView().listRowBackground(Color.clear)
+            } else if rooms?.isEmpty == true {
+                EmptyStateView(
+                    title: String(localized: "teaching.room.notFound", defaultValue: "Аудитория не найдена"),
+                    symbol: "mappin.slash"
+                )
+                .listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
@@ -251,14 +267,20 @@ struct TeachingRoomPicker: View {
         .task(id: query) {
             if !query.isEmpty { try? await Task.sleep(for: .milliseconds(300)) }
             guard !Task.isCancelled else { return }
-            do {
-                rooms = try await TeachingAPI().rooms(search: query.trimmingCharacters(in: .whitespaces))
-                failure = nil
-            } catch is CancellationError {
-                return
-            } catch {
-                failure = error.userMessage
-            }
+            await load()
+        }
+    }
+
+    @MainActor
+    private func load() async {
+        do {
+            rooms = try await TeachingAPI().rooms(search: query.trimmingCharacters(in: .whitespaces))
+            failure = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 }

@@ -6,7 +6,10 @@ struct CommunitySharePostView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var chats: [CommunityChatDTO]?
+    /// Ошибка отправки — над формой; ошибка загрузки чатов — отдельно, на месте списка.
     @State private var failure: String?
+    @State private var loadFailure: String?
+    @State private var isOffline = false
     @State private var search = ""
     @State private var comment = ""
     @State private var sending: String?
@@ -52,6 +55,9 @@ struct CommunitySharePostView: View {
                             .disabled(sending != nil)
                         }
                     }
+                } else if let loadFailure {
+                    ErrorStateView(message: loadFailure, isOffline: isOffline) { await load() }
+                        .listRowBackground(Color.clear)
                 } else {
                     LoadingStateView().listRowBackground(Color.clear)
                 }
@@ -87,10 +93,13 @@ struct CommunitySharePostView: View {
     private func load() async {
         do {
             chats = try await CommunityAPI().chats()
-            failure = nil
+            loadFailure = nil
+        } catch is CancellationError {
+            return
         } catch {
-            failure = error.userMessage
-            chats = []
+            // Список не стираем: «Подходящих чатов нет» вместо сбоя вводит в заблуждение.
+            loadFailure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 

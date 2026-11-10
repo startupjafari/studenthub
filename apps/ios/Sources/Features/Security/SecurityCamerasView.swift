@@ -19,6 +19,13 @@ struct SecurityCamerasView: View {
     var body: some View {
         List {
             if let cameras {
+                // Полоса — над любым содержимым: неудачное обновление над «камер нет»
+                // иначе выглядело бы как свежий ответ.
+                if let failure {
+                    StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
                 if !moduleEnabled {
                     EmptyStateView(
                         title: String(localized: "security.cameras.disabledTitle", defaultValue: "Камеры выключены"),
@@ -34,11 +41,6 @@ struct SecurityCamerasView: View {
                     )
                     .listRowBackground(Color.clear)
                 } else {
-                    if let failure {
-                        StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
-                            .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets())
-                    }
                     Section {
                         ForEach(cameras) { camera in
                             if selecting {

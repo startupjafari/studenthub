@@ -10,12 +10,14 @@ struct SearchView: View {
     @State private var results: SearchResultsDTO?
     @State private var isSearching = false
     @State private var failure: String?
+    @State private var isOffline = false
 
     private let api: FeedFetching = FeedAPI()
 
     var body: some View {
         List {
-            if let failure {
+            // Над найденным раньше — строкой; без результатов ошибка занимает экран (ниже).
+            if let failure, !isEmpty {
                 FormAlert(message: failure)
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
@@ -52,8 +54,10 @@ struct SearchView: View {
             }
         }
         .overlay {
-            // Ошибка уже показана строкой списка — «Никого не нашли» поверх неё солгало бы.
-            if isEmpty, !isSearching, failure == nil {
+            // Сбой без результатов — не «Никого не нашли»: это солгало бы.
+            if isEmpty, !isSearching, let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await search() }
+            } else if isEmpty, !isSearching {
                 if query.trimmingCharacters(in: .whitespaces).count < 2 {
                     EmptyStateView(
                         title: String(localized: "search.hint", defaultValue: "Введите хотя бы две буквы"),
@@ -110,7 +114,8 @@ struct SearchView: View {
             failure = nil
         } catch {
             guard !Task.isCancelled else { return }
-            failure = (error as? APIError)?.displayMessage
+            failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 }

@@ -8,6 +8,7 @@ import SwiftUI
 struct DeaneryView: View {
     @State private var items: [DeaneryAppointmentDTO]?
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var actionFailure: String?
     @State private var creating = false
     @State private var cancelling: DeaneryAppointmentDTO?
@@ -46,7 +47,7 @@ struct DeaneryView: View {
                     }
                 }
             } else if let failure {
-                ErrorStateView(message: failure) { await load() }
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
                     .listRowBackground(Color.clear)
             } else {
                 LoadingStateView().listRowBackground(Color.clear)
@@ -106,6 +107,7 @@ struct DeaneryView: View {
             failure = nil
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 

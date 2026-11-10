@@ -9,6 +9,10 @@ struct DeanExamsView: View {
     @State private var tab: Tab? = .upcoming
     @State private var exams: [DeanExam]?
     @State private var failure: String?
+    @State private var isOffline = false
+    /// Запрос, ответ на который сейчас на экране: при смене вкладки или периода старый
+    /// список не показывается под новыми фильтрами.
+    @State private var shownKey: QueryKey?
     @State private var periodOn = false
     @State private var periodFrom = Calendar.current.startOfDay(for: Date())
     @State private var periodTo = Calendar.current.date(byAdding: .month, value: 1, to: Calendar.current.startOfDay(for: Date())) ?? Date()
@@ -42,6 +46,11 @@ struct DeanExamsView: View {
             }
 
             if let exams {
+                if let failure {
+                    StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
                 if exams.isEmpty {
                     emptyState
                         .listRowBackground(Color.clear)
@@ -57,7 +66,7 @@ struct DeanExamsView: View {
                     }
                 }
             } else if let failure {
-                ErrorStateView(message: failure) { await load() }
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
                     .listRowBackground(Color.clear)
             } else {
                 LoadingStateView().listRowBackground(Color.clear)
@@ -80,7 +89,17 @@ struct DeanExamsView: View {
         }
         .floatingAction(String(localized: "dean.exams.new", defaultValue: "Назначить экзамен")) { creating = true }
         .refreshable { await load() }
-        .task(id: QueryKey(tab: tab, periodOn: periodOn, from: periodFrom, to: periodTo)) { await load() }
+        .task(id: QueryKey(tab: tab, periodOn: periodOn, from: periodFrom, to: periodTo)) {
+            let key = QueryKey(tab: tab, periodOn: periodOn, from: periodFrom, to: periodTo)
+            // Другая вкладка или период — прежний список уже не ответ: загрузка с нуля.
+            // Возврат на экран с тем же запросом обновляет список на месте.
+            if shownKey != key {
+                exams = nil
+                failure = nil
+                shownKey = key
+            }
+            await load()
+        }
         .sheet(isPresented: $creating) {
             DeanExamForm(exam: nil) { await load() }
         }
@@ -172,13 +191,17 @@ struct DeanExamsView: View {
         }
         do {
             let list = try await api.exams(from: range.0, to: range.1)
+            guard !Task.isCancelled else { return }
             // Предстоящие — ближайший сверху, прошедшие — свежий сверху.
             exams = tab == .past ? list.sorted { $0.date > $1.date } : list.sorted { $0.date < $1.date }
             failure = nil
         } catch is CancellationError {
             return
         } catch {
+            // Сменили вкладку посреди запроса — ответ устарел, это не сбой.
+            guard !Task.isCancelled else { return }
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 
@@ -356,6 +379,7 @@ struct DeanExamRosterView: View {
     @State private var rows: [String: Row] = [:]
     @State private var dirty: Set<String> = []
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var actionFailure: String?
     @State private var isSaving = false
     @State private var savedNotice = false
@@ -396,7 +420,7 @@ struct DeanExamRosterView: View {
                     }
                 }
             } else if let failure {
-                ErrorStateView(message: failure) { await load() }
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
                     .listRowBackground(Color.clear)
             } else {
                 LoadingStateView().listRowBackground(Color.clear)
@@ -604,6 +628,7 @@ struct DeanExamRosterView: View {
             return
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 

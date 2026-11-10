@@ -31,7 +31,7 @@ struct LibraryCatalogView: View {
                 }
 
                 if let failure = model.failure, !model.books.isEmpty {
-                    StaleDataBanner(message: failure) { await model.refresh() }
+                    StaleDataBanner(message: failure, isOffline: model.isOffline) { await model.refresh() }
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets())
                 }
@@ -94,7 +94,7 @@ struct LibraryCatalogView: View {
         if model.books.isEmpty {
             if model.loadedQuery == nil {
                 if let failure = model.failure, !model.isLoading {
-                    ErrorStateView(message: failure) { await model.refresh() }
+                    ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
                         .listRowBackground(Color.clear)
                 } else {
                     LoadingStateView().listRowBackground(Color.clear)
@@ -102,6 +102,10 @@ struct LibraryCatalogView: View {
             } else if model.isLoading {
                 ProgressView()
                     .frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
+            } else if let failure = model.failure {
+                // Сбой — не «ничего не найдено»: пустой список здесь значит, что ответа нет.
+                ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
                     .listRowBackground(Color.clear)
             } else if model.query.isFiltered {
                 EmptyStateView(

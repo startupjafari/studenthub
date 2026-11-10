@@ -19,6 +19,10 @@ struct CommunityFriendsView: View {
     @State private var counts: CommunityFriendCountsDTO?
     @State private var query = ""
     @State private var found: [SearchResultsDTO.Person] = []
+    @State private var isSearching = false
+    /// Поиск не удался — не «Никого не нашли».
+    @State private var searchFailure: String?
+    @State private var searchOffline = false
     @State private var requested: Set<String> = []
     @State private var removing: CommunityFriendDTO?
     @State private var failure: String?
@@ -200,7 +204,12 @@ struct CommunityFriendsView: View {
 
     private var searchResults: some View {
         List {
-            if found.isEmpty {
+            if found.isEmpty, isSearching {
+                LoadingStateView().listRowBackground(Color.clear)
+            } else if found.isEmpty, let searchFailure {
+                ErrorStateView(message: searchFailure, isOffline: searchOffline) { await runSearch() }
+                    .listRowBackground(Color.clear)
+            } else if found.isEmpty {
                 EmptyStateView(
                     title: query.trimmingCharacters(in: .whitespaces).count < 2
                         ? String(localized: "search.hint", defaultValue: "Введите хотя бы две буквы")
@@ -238,14 +247,43 @@ struct CommunityFriendsView: View {
 
     @MainActor
     private func search() async {
-        let trimmed = query.trimmingCharacters(in: .whitespaces)
-        guard trimmed.count >= 2 else {
+        searchFailure = nil
+        guard query.trimmingCharacters(in: .whitespaces).count >= 2 else {
             found = []
+            isSearching = false
             return
         }
+        isSearching = true
         try? await Task.sleep(for: .milliseconds(300))
         guard !Task.isCancelled else { return }
-        found = (try? await FeedAPI().search(trimmed).people) ?? []
+        await runSearch()
+    }
+
+    /// Сам запрос, без паузы — его же зовёт «Повторить». Ответ на устаревший запрос
+    /// (человек допечатал) отбрасывается.
+    @MainActor
+    private func runSearch() async {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard trimmed.count >= 2 else { return }
+        isSearching = true
+        do {
+            let people = try await FeedAPI().search(trimmed).people
+            guard !Task.isCancelled else { return }
+            found = people ?? []
+            searchFailure = nil
+        } catch {
+            // Отменил новый ввод — его запрос и решит, что показать. Оборванное соединение
+            // без отмены задачи — не повод крутить поиск вечно.
+            guard !Task.isCancelled else { return }
+            if error is CancellationError {
+                isSearching = false
+                return
+            }
+            found = []
+            searchFailure = error.userMessage
+            searchOffline = error.isOffline
+        }
+        isSearching = false
     }
 
     @MainActor

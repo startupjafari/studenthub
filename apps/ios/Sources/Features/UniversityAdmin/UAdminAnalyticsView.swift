@@ -9,7 +9,9 @@ struct UAdminAnalyticsView: View {
     @State private var facultyID: String?
     @State private var overview: UAdminFacultyOverviewDTO?
     @State private var risk: UAdminAtRiskStudentsDTO?
-    @State private var riskFailed = false
+    /// Сбой списка «в зоне риска» — со своим текстом и признаком «нет связи».
+    @State private var riskFailure: String?
+    @State private var riskOffline = false
     @State private var failure: String?
     @State private var isOffline = false
     @State private var tab: AnalyticsTab = .students
@@ -146,8 +148,8 @@ struct UAdminAnalyticsView: View {
 
     @ViewBuilder
     private func riskSection(totalStudents: Int) -> some View {
-        if riskFailed {
-            ErrorStateView(message: String(localized: "state.failed", defaultValue: "Не удалось загрузить")) { await loadFaculty() }
+        if let riskFailure {
+            ErrorStateView(message: riskFailure, isOffline: riskOffline) { await loadFaculty() }
                 .listRowBackground(Color.clear)
         } else if let risk {
             let rows = sorted(risk.students)
@@ -306,11 +308,12 @@ struct UAdminAnalyticsView: View {
             let loaded = try await riskTask
             guard facultyID == self.facultyID else { return }
             risk = loaded
-            riskFailed = false
+            riskFailure = nil
         } catch is CancellationError {
             return
         } catch {
-            riskFailed = true
+            riskFailure = error.userMessage
+            riskOffline = error.isOffline
         }
     }
 }

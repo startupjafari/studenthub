@@ -52,6 +52,8 @@ final class ProfileModel {
     private(set) var isOffline = false
     private(set) var actionFailure: String?
     private(set) var tabFailure: [ProfileTab: String] = [:]
+    /// Вкладки, чей сбой — из-за связи.
+    private(set) var offlineTabs: Set<ProfileTab> = []
 
     private let feed: FeedFetching
     private let content: ProfileContentFetching
@@ -118,8 +120,10 @@ final class ProfileModel {
                 polls = try await content.polls(userID: id)
             }
             tabFailure[tab] = nil
+            offlineTabs.remove(tab)
         } catch {
             tabFailure[tab] = error.userMessage
+            if error.isOffline { offlineTabs.insert(tab) } else { offlineTabs.remove(tab) }
         }
     }
 

@@ -135,6 +135,8 @@ struct UAdminCampusDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var tree: UAdminCampusTreeDTO?
     @State private var versions: [UAdminCampusVersionDTO] = []
+    /// Версии не пришли — это не «публикаций не было».
+    @State private var versionsFailed = false
     @State private var failure: String?
     @State private var isOffline = false
     @State private var actionFailure: String?
@@ -353,7 +355,9 @@ struct UAdminCampusDetailView: View {
             }
 
             Section {
-                if versions.isEmpty {
+                if versionsFailed, versions.isEmpty {
+                    DashboardFailurePlaceholder { await load() }
+                } else if versions.isEmpty {
                     Text(String(localized: "uadmin.campus.noVersions", defaultValue: "Публикаций ещё не было"))
                         .foregroundStyle(Palette.mutedForeground)
                 }
@@ -417,7 +421,14 @@ struct UAdminCampusDetailView: View {
             async let treeTask = api.campus(id: campusID)
             async let versionsTask = api.campusVersions(id: campusID)
             tree = try await treeTask
-            versions = (try? await versionsTask) ?? versions
+            if let fetched = try? await versionsTask {
+                versions = fetched
+                versionsFailed = false
+            } else {
+                // Отмена — не сбой: выходим тем же путём, что и при отмене карточки.
+                try Task.checkCancellation()
+                versionsFailed = true
+            }
             failure = nil
         } catch is CancellationError {
             return

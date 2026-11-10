@@ -20,6 +20,11 @@ struct StarostaGroupView: View {
                 )
                 .listRowBackground(Color.clear)
             } else if let members {
+                if let failure {
+                    StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
                 if query.isEmpty {
                     Section {
                         HeroHeader(
@@ -116,11 +121,25 @@ struct StarostaGroupView: View {
 
     @MainActor
     private func load() async {
-        if viewer.profile == nil { await viewer.refresh() }
+        if viewer.profile == nil {
+            // Профиль читаем сами, а не через `viewer.refresh()`: тот глушит ошибку, и без
+            // профиля экран навсегда остался бы на крутилке.
+            do {
+                let profile = try await FeedAPI().me()
+                viewer.adopt(profile)
+            } catch is CancellationError {
+                return
+            } catch {
+                failure = error.userMessage
+                isOffline = error.isOffline
+                return
+            }
+        }
         guard let groupID = viewer.profile?.groupId else { return }
         do {
             members = try await CoursesAPI().members(groupID: groupID)
             failure = nil
+            isOffline = false
         } catch is CancellationError {
             return
         } catch {

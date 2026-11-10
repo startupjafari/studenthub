@@ -97,6 +97,10 @@ struct TeachingAttendanceJournalView: View {
     @State private var pairs: [PairDTO]?
     @State private var changes: [TeachingScheduleChangeDTO] = []
     @State private var marked: Set<String> = []
+    /// Отметки не пришли: без них каждая пара выглядела бы неотмеченной — признаки
+    /// прячем и говорим о сбое полосой.
+    @State private var markedFailure: String?
+    @State private var markedOffline = false
     @State private var failure: String?
     @State private var isOffline = false
 
@@ -125,6 +129,11 @@ struct TeachingAttendanceJournalView: View {
                     )
                     .listRowBackground(Color.clear)
                 } else {
+                    if let markedFailure {
+                        StaleDataBanner(message: markedFailure, isOffline: markedOffline) { await loadMarked() }
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
+                    }
                     Section {
                         ForEach(day) { item in
                             if item.isCancelled {
@@ -143,10 +152,12 @@ struct TeachingAttendanceJournalView: View {
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(Palette.foreground)
                             Spacer(minLength: Spacing.sm)
-                            StatusBadge(
-                                text: String(localized: "teaching.attendance.markedCount", defaultValue: "Отмечено \(done.formatted()) из \(open.count.formatted())"),
-                                tint: done == open.count ? Palette.success : Palette.warning
-                            )
+                            if markedFailure == nil {
+                                StatusBadge(
+                                    text: String(localized: "teaching.attendance.markedCount", defaultValue: "Отмечено \(done.formatted()) из \(open.count.formatted())"),
+                                    tint: done == open.count ? Palette.success : Palette.warning
+                                )
+                            }
                         }
                         .textCase(nil)
                     }
@@ -203,7 +214,7 @@ struct TeachingAttendanceJournalView: View {
                 }
             }
             Spacer(minLength: Spacing.md)
-            if !item.isCancelled {
+            if !item.isCancelled, markedFailure == nil {
                 let done = marked.contains(item.id)
                 Image(systemName: done ? "checkmark.circle.fill" : "circle.dashed")
                     .font(.title3)
@@ -241,7 +252,15 @@ struct TeachingAttendanceJournalView: View {
         let ids = teachingDayPairs(pairs: pairs, changes: changes, date: date, viewerID: viewerID)
             .filter { !$0.isCancelled }
             .map(\.id)
-        if let result = try? await api.markedPairs(date: date, pairIDs: ids) { marked = result }
+        do {
+            marked = try await api.markedPairs(date: date, pairIDs: ids)
+            markedFailure = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            markedFailure = error.userMessage
+            markedOffline = error.isOffline
+        }
     }
 }
 
@@ -257,6 +276,7 @@ final class TeachingAttendanceModel {
     private(set) var isLoaded = false
     private(set) var isSaving = false
     var failure: String?
+    private(set) var isOffline = false
     var savedAt: Date?
     var statuses: [String: String] = [:]
     var notes: [String: String] = [:]
@@ -285,10 +305,12 @@ final class TeachingAttendanceModel {
             }
             isLoaded = true
             failure = nil
+            isOffline = false
         } catch is CancellationError {
             return
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 

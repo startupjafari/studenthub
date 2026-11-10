@@ -64,7 +64,7 @@ struct CampusMapView: View {
                 )
                 .id(model.floorID)
             } else if let failure = model.failure {
-                ErrorStateView(message: failure) {
+                ErrorStateView(message: failure, isOffline: model.isOffline) {
                     if let floor = model.floorID { await model.select(floorID: floor) } else { await model.loadCampuses() }
                 }
             } else if model.campuses?.isEmpty == true {
@@ -134,6 +134,9 @@ struct CampusMapView: View {
         List {
             if model.isSearching, model.results.isEmpty {
                 LoadingStateView().listRowBackground(Color.clear)
+            } else if let failure = model.searchFailure {
+                ErrorStateView(message: failure, isOffline: model.searchOffline) { model.search(query) }
+                    .listRowBackground(Color.clear)
             } else if model.results.isEmpty {
                 EmptyStateView(
                     title: String(localized: "services.notFound", defaultValue: "Ничего не нашлось"),

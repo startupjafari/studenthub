@@ -8,6 +8,10 @@ struct TeachingAssignmentsView: View {
         try await TeachingAPI().assignments(request, status: nil)
     }
     @State private var queue: TeachingReviewQueueDTO?
+    /// Очередь «Ждут проверки» не пришла: без полосы блок просто исчезал бы, и
+    /// преподаватель решил бы, что проверять нечего.
+    @State private var queueFailure: String?
+    @State private var queueOffline = false
     @State private var creating = false
     @State private var editing: TeachingAssignmentDTO?
     @State private var deleting: TeachingAssignmentDTO?
@@ -26,6 +30,12 @@ struct TeachingAssignmentsView: View {
                 action: { creating = true }
             )
         ) {
+            // Сбой самого списка уже занимает экран — вторая ошибка над ним лишняя.
+            if let queueFailure, loader.failure == nil {
+                StaleDataBanner(message: queueFailure, isOffline: queueOffline) { await loadQueue() }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+            }
             if let queue, queue.total > 0 {
                 Section {
                     ForEach(queue.items) { item in
@@ -151,7 +161,16 @@ struct TeachingAssignmentsView: View {
 
     @MainActor
     private func loadQueue() async {
-        queue = try? await api.reviewQueue(limit: 5)
+        do {
+            queue = try await api.reviewQueue(limit: 5)
+            queueFailure = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            // Прошлая очередь остаётся на экране — полоса говорит, что она несвежая.
+            queueFailure = error.userMessage
+            queueOffline = error.isOffline
+        }
     }
 
     /// Конфликт смены статуса значит, что задание уже перевели в другом окне, — список
@@ -205,6 +224,8 @@ struct TeachingAssignmentForm: View {
     let saved: () async -> Void
 
     @State private var courses: [CourseDTO] = []
+    @State private var coursesFailure: String?
+    @State private var coursesOffline = false
     @State private var courseID = ""
     @State private var title = ""
     @State private var description = ""
@@ -243,6 +264,14 @@ struct TeachingAssignmentForm: View {
             saved: saved
         ) {
             if assignment == nil {
+                if let coursesFailure {
+                    // Дисциплины не пришли — пустой выбор без объяснения выглядел бы как «у вас их нет».
+                    Section {
+                        StaleDataBanner(message: coursesFailure, isOffline: coursesOffline) { await loadCourses() }
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets())
+                    }
+                }
                 Section {
                     TeachingCoursePicker(courses: courses, selection: $courseID)
                 }
@@ -276,8 +305,21 @@ struct TeachingAssignmentForm: View {
         }
         .task {
             guard assignment == nil, courses.isEmpty else { return }
-            courses = (try? await CoursesAPI().courses(mine: true)) ?? []
+            await loadCourses()
+        }
+    }
+
+    @MainActor
+    private func loadCourses() async {
+        do {
+            courses = try await CoursesAPI().courses(mine: true)
+            coursesFailure = nil
             if courses.count == 1 { courseID = courses[0].id }
+        } catch is CancellationError {
+            return
+        } catch {
+            coursesFailure = error.userMessage
+            coursesOffline = error.isOffline
         }
     }
 

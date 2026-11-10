@@ -11,6 +11,7 @@ struct ConsultationsView: View {
     @State private var mine: [ConsultationSlotDTO]?
     @State private var teachers: [ConsultationTeacherDTO]?
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var actionFailure: String?
     @State private var creating = false
     @State private var cancelling: ConsultationSlotDTO?
@@ -43,6 +44,13 @@ struct ConsultationsView: View {
                 get: { range },
                 set: { range = $0 ?? .upcoming }
             ))
+
+            // Обновление не удалось, а записи с прошлого раза на экране — говорим об этом.
+            if let failure, mine != nil {
+                StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+            }
 
             if let mine {
                 Section {
@@ -115,7 +123,7 @@ struct ConsultationsView: View {
 
             if mine == nil {
                 if let failure {
-                    ErrorStateView(message: failure) { await load() }
+                    ErrorStateView(message: failure, isOffline: isOffline) { await load() }
                         .listRowBackground(Color.clear)
                 } else {
                     LoadingStateView().listRowBackground(Color.clear)
@@ -155,6 +163,7 @@ struct ConsultationsView: View {
             failure = nil
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 
@@ -259,6 +268,7 @@ private struct TeacherSlotsView: View {
 
     @State private var slots: [ConsultationSlotDTO]?
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var booking: ConsultationSlotDTO?
 
     private let api: UniversityServicesFetching = UniversityServicesAPI()
@@ -307,7 +317,7 @@ private struct TeacherSlotsView: View {
                     }
                 }
             } else if let failure {
-                ErrorStateView(message: failure) { await load() }
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
                     .listRowBackground(Color.clear)
             } else {
                 LoadingStateView().listRowBackground(Color.clear)
@@ -335,6 +345,7 @@ private struct TeacherSlotsView: View {
             failure = nil
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 }

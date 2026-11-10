@@ -58,8 +58,12 @@ struct CommunityDocumentRequestView: View {
     let requestID: String
 
     @State private var detail: CommunityDocumentRequestDetailDTO?
-    @State private var documents: [CommunityDocumentDTO] = []
+    /// `nil` — свои документы ещё не пришли или не загрузились (`documentsFailure`).
+    @State private var documents: [CommunityDocumentDTO]?
+    @State private var documentsFailure: String?
+    @State private var documentsOffline = false
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var actionFailure: String?
     @State private var choosingFor: CommunityDocumentRequestDetailDTO.Item?
     @State private var isBusy = false
@@ -74,7 +78,7 @@ struct CommunityDocumentRequestView: View {
             if let detail {
                 content(detail)
             } else if let failure {
-                ErrorStateView(message: failure) { await load() }
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
             } else {
                 LoadingStateView()
             }
@@ -86,7 +90,10 @@ struct CommunityDocumentRequestView: View {
         .sheet(item: $choosingFor) { item in
             CommunityDocumentChooser(
                 title: item.title,
-                documents: documents.filter { $0.type == item.documentType && ($0.fileCount ?? $0.files?.count ?? 0) > 0 },
+                documents: documents?.filter { $0.type == item.documentType && ($0.fileCount ?? $0.files?.count ?? 0) > 0 },
+                failure: documentsFailure,
+                isOffline: documentsOffline,
+                retry: { await loadDocuments() },
                 onUpload: {
                     uploadType = item.documentType
                     uploading = true
@@ -217,10 +224,35 @@ struct CommunityDocumentRequestView: View {
             async let request = api.documentRequest(id: requestID)
             async let mine = api.allDocuments()
             detail = try await request
-            documents = (try? await mine) ?? []
             failure = nil
+            do {
+                documents = try await mine
+                documentsFailure = nil
+            } catch is CancellationError {
+                return
+            } catch {
+                documentsFailure = error.userMessage
+                documentsOffline = error.isOffline
+            }
+        } catch is CancellationError {
+            return
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
+        }
+    }
+
+    /// «Повторить» в выборе документа: только свои документы, без перезагрузки запроса.
+    @MainActor
+    private func loadDocuments() async {
+        do {
+            documents = try await api.allDocuments()
+            documentsFailure = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            documentsFailure = error.userMessage
+            documentsOffline = error.isOffline
         }
     }
 
@@ -256,7 +288,11 @@ struct CommunityDocumentRequestView: View {
 /// Выбор своего документа — для пункта запроса или требования заявки.
 struct CommunityDocumentChooser: View {
     let title: String
-    let documents: [CommunityDocumentDTO]
+    /// `nil` — свои документы ещё грузятся или не загрузились (тогда `failure`).
+    let documents: [CommunityDocumentDTO]?
+    var failure: String?
+    var isOffline = false
+    var retry: (() async -> Void)?
     var onUpload: (() -> Void)?
     let choose: (CommunityDocumentDTO) -> Void
 
@@ -280,14 +316,20 @@ struct CommunityDocumentChooser: View {
                         .buttonStyle(.plain)
                     }
                 }
-                if documents.isEmpty {
+                if let failure, documents == nil {
+                    // Список не загрузился — не «Подходящих документов нет».
+                    ErrorStateView(message: failure, isOffline: isOffline, retry: retry)
+                        .listRowBackground(Color.clear)
+                } else if documents == nil {
+                    LoadingStateView().listRowBackground(Color.clear)
+                } else if let documents, documents.isEmpty {
                     EmptyStateView(
                         title: String(localized: "community.documents.noneSuitable", defaultValue: "Подходящих документов нет"),
                         symbol: "doc",
                         hint: String(localized: "community.documents.noneSuitable.hint", defaultValue: "Загрузите документ нужного типа с файлом")
                     )
                     .listRowBackground(Color.clear)
-                } else {
+                } else if let documents {
                     Section {
                         ForEach(documents) { document in
                             Button {

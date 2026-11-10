@@ -8,9 +8,26 @@ struct StudentStudyPlanView: View {
 
     private enum Sort: Hashable { case term, subject, credits, result, status }
 
+    /// План и признак полноты: без оценок или экзаменов статусы и «кредитов пройдено»
+    /// занижены, и экран об этом говорит, а не выдаёт неполное за итог.
+    private struct Loaded {
+        let plan: [StudentPlanEntry]
+        let isComplete: Bool
+    }
+
     var body: some View {
-        RemoteContent(reloadToken: reloadToken, load: Self.load) { plan in
+        RemoteContent(reloadToken: reloadToken, load: Self.load) { loaded in
+            let plan = loaded.plan
             List {
+                if !loaded.isComplete {
+                    StaleDataBanner(
+                        message: String(localized: "student.partialFailure", defaultValue: "Часть данных не загрузилась")
+                    ) {
+                        reloadToken += 1
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+                }
                 if plan.isEmpty {
                     EmptyStateView(
                         title: String(localized: "student.plan.empty", defaultValue: "Учебный план пуст"),
@@ -123,14 +140,20 @@ struct StudentStudyPlanView: View {
         return terms.map { (title: $0.title, entries: $0.entries) }
     }
 
-    /// Дисциплины обязательны; оценки и экзамены — уточнение статуса, их отказ план не прячет.
-    private static func load() async throws -> [StudentPlanEntry] {
+    /// Дисциплины обязательны; оценки и экзамены — уточнение статуса, их отказ план не
+    /// прячет, но помечает неполным.
+    private static func load() async throws -> Loaded {
         let api = StudentStudyAPI()
         async let coursesValue = api.courses()
         async let gradesValue = try? StudyAPI().grades()
         async let examsValue = try? api.exams()
         let courses = try await coursesValue
-        return StudentPlan.build(courses: courses, grades: await gradesValue ?? [], exams: await examsValue ?? [])
+        let grades = await gradesValue
+        let exams = await examsValue
+        return Loaded(
+            plan: StudentPlan.build(courses: courses, grades: grades ?? [], exams: exams ?? []),
+            isComplete: grades != nil && exams != nil
+        )
     }
 }
 

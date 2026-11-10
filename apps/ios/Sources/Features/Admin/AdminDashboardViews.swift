@@ -528,9 +528,13 @@ private struct AdminUniversitySizeRow: View {
 struct AdminUniversityModeratorDashboardView: View {
     @State private var pending: Page<AdminComplaintDTO>?
     @State private var high: Int?
-    @State private var recent: [AdminComplaintDTO] = []
+    /// `nil` — ещё не пришло или не загрузилось: график потока не рисует нули вместо сбоя.
+    @State private var recent: [AdminComplaintDTO]?
+    @State private var recentFailed = false
     @State private var blocked: Int?
-    @State private var audit: [AdminAuditEntryDTO] = []
+    /// `nil` — ещё не пришло или не загрузилось: «Записей нет» только для настоящей пустоты.
+    @State private var audit: [AdminAuditEntryDTO]?
+    @State private var auditFailure: String?
     @State private var failure: String?
     @State private var isOffline = false
 
@@ -545,9 +549,11 @@ struct AdminUniversityModeratorDashboardView: View {
                 AdminChartSection(
                     title: String(localized: "admin.mod.flow", defaultValue: "Поток жалоб"),
                     hint: String(localized: "admin.mod.flowHint", defaultValue: "Поступило и разобрано по дням за две недели: успеваете ли за потоком"),
-                    isLoaded: true
+                    isLoaded: recent != nil,
+                    failed: recentFailed,
+                    retry: { await load() }
                 ) {
-                    AdminSeriesChart(series: flowSeries, label: AdminPlatformDashboardView.seriesLabel)
+                    AdminSeriesChart(series: flowSeries(recent ?? []), label: AdminPlatformDashboardView.seriesLabel)
                 }
                 AdminChartSection(
                     title: String(localized: "admin.mod.targets", defaultValue: "На что жалуются"),
@@ -591,11 +597,17 @@ struct AdminUniversityModeratorDashboardView: View {
                 }
 
                 Section {
-                    if audit.isEmpty {
-                        DashboardEmptyRow(text: String(localized: "admin.audit.empty", defaultValue: "Записей нет"), symbol: "list.bullet.rectangle")
-                    }
-                    ForEach(audit.prefix(5)) { entry in
-                        AdminAuditRow(entry: entry)
+                    if let audit {
+                        if audit.isEmpty {
+                            DashboardEmptyRow(text: String(localized: "admin.audit.empty", defaultValue: "Записей нет"), symbol: "list.bullet.rectangle")
+                        }
+                        ForEach(audit.prefix(5)) { entry in
+                            AdminAuditRow(entry: entry)
+                        }
+                    } else if let auditFailure {
+                        DashboardFailurePlaceholder(message: auditFailure) { await load() }
+                    } else {
+                        DashboardLoadingPlaceholder(height: 80)
                     }
                     NavigationLink(value: AppRoute.admin(.audit)) {
                         DashboardMoreLabel(title: String(localized: "admin.mod.openAudit", defaultValue: "Открыть журнал"))
@@ -626,18 +638,19 @@ struct AdminUniversityModeratorDashboardView: View {
         // Вся страница старых просрочена, а очередь длиннее — точнее «не меньше» не сказать.
         let saturated = !pending.items.isEmpty && overdue == pending.items.count && total > pending.items.count
         let weekAgo = Date().addingTimeInterval(-7 * 86_400)
-        let resolvedWeek = audit.filter { $0.action == "complaint_resolved" && $0.createdAt >= weekAgo }.count
+        // Журнал не загрузился — прочерк, а не «0 разобрано».
+        let resolvedWeek = audit?.filter { $0.action == "complaint_resolved" && $0.createdAt >= weekAgo }.count
         return [
             DashboardMetric(title: String(localized: "admin.mod.kpiQueue", defaultValue: "В очереди"), value: total.formatted(), symbol: "tray.full", tint: TileTint.blue, route: .admin(.complaints)),
             DashboardMetric(title: String(localized: "admin.mod.kpiHigh", defaultValue: "Высокий приоритет"), value: high.map { $0.formatted() }, symbol: "flame", tint: TileTint.red),
             DashboardMetric(title: String(localized: "admin.mod.kpiOverdue", defaultValue: "Ждут дольше суток"), value: saturated ? "\(overdue.formatted())+" : overdue.formatted(), symbol: "clock.badge.exclamationmark", tint: TileTint.orange),
-            DashboardMetric(title: String(localized: "admin.mod.kpiResolvedWeek", defaultValue: "Разобрано за 7 дней"), value: resolvedWeek.formatted(), symbol: "checkmark.seal", tint: TileTint.green),
+            DashboardMetric(title: String(localized: "admin.mod.kpiResolvedWeek", defaultValue: "Разобрано за 7 дней"), value: resolvedWeek.map { $0.formatted() }, symbol: "checkmark.seal", tint: TileTint.green),
             DashboardMetric(title: String(localized: "admin.mod.kpiBlocked", defaultValue: "Заблокировано"), value: blocked.map { $0.formatted() }, symbol: "nosign", tint: TileTint.gray),
         ]
     }
 
     /// Поступило (`createdAt`) против разобрано (`resolvedAt`) по дням за две недели.
-    private var flowSeries: AdminSeriesDTO {
+    private func flowSeries(_ recent: [AdminComplaintDTO]) -> AdminSeriesDTO {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
         let days = (0..<Self.flowDays).compactMap { calendar.date(byAdding: .day, value: -(Self.flowDays - 1 - $0), to: today) }
@@ -677,13 +690,36 @@ struct AdminUniversityModeratorDashboardView: View {
             return
         }
         async let highPage = try? api.complaintsSample(params: ["status": "PENDING", "priority": "HIGH", "limit": "1"])
-        async let recentPage = try? api.complaintsSample(params: ["sort": "createdAt", "order": "desc", "limit": limit])
+        async let recentPage = Self.attempt { try await api.complaintsSample(params: ["sort": "createdAt", "order": "desc", "limit": limit]) }
         async let blockedPage = try? api.users(role: nil, search: nil, blocked: true, request: PageRequest(cursor: nil, page: 1, limit: 1))
-        async let auditPage = try? api.auditSample(params: ["sort": "createdAt", "order": "desc", "limit": "100"])
+        async let auditPage = Self.attempt { try await api.auditSample(params: ["sort": "createdAt", "order": "desc", "limit": "100"]) }
         let (h, r, b, a) = await (highPage, recentPage, blockedPage, auditPage)
         high = h?.meta?.total ?? h?.items.count
-        recent = r?.items ?? []
         blocked = b?.meta?.total ?? b?.items.count
-        audit = a?.items ?? []
+        // Сбой обновления не стирает уже показанное: прежние данные остаются на месте.
+        switch r {
+        case .success(let page):
+            recent = page.items
+            recentFailed = false
+        case .failure(let error):
+            if !(error is CancellationError) { recentFailed = recent == nil }
+        }
+        switch a {
+        case .success(let page):
+            audit = page.items
+            auditFailure = nil
+        case .failure(let error):
+            if audit == nil, !(error is CancellationError) { auditFailure = error.userMessage }
+        }
+    }
+
+    /// Запрос, сбой которого нужно отличить от пустого ответа: `try?` превратил бы его
+    /// в «нет данных».
+    private nonisolated static func attempt<T>(_ request: () async throws -> T) async -> Result<T, Error> {
+        do {
+            return .success(try await request())
+        } catch {
+            return .failure(error)
+        }
     }
 }

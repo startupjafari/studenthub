@@ -18,7 +18,8 @@ struct StudentHomeView: View {
     @State private var notifications: [NotificationDTO]?
     @State private var hasLoaded = false
     /// Не ответил ни один сетевой блок: на экране только расписание из базы, и об этом
-    /// стоит сказать, а не делать вид, что всё свежее.
+    /// стоит сказать, а не делать вид, что всё свежее. Не ответила часть — тоже говорим:
+    /// иначе упавшие задания выглядели бы как «сроков нет».
     @State private var failure: String?
 
     var body: some View {
@@ -74,7 +75,14 @@ struct StudentHomeView: View {
         let today = schedule.visiblePairs
         let upcoming = today.filter { $0.endTime > clock }
         Section {
-            if upcoming.isEmpty {
+            if today.isEmpty, schedule.syncedAt == nil, let failure = schedule.failure {
+                // Расписание ни разу не скачивалось, а первая попытка упала: пустая база —
+                // не «пар нет».
+                DashboardFailurePlaceholder(message: failure) { await schedule.refresh() }
+            } else if today.isEmpty, schedule.syncedAt == nil {
+                // Первая синхронизация ещё идёт (или вот-вот начнётся из `.task`).
+                DashboardLoadingPlaceholder(height: 60)
+            } else if upcoming.isEmpty {
                 DashboardEmptyRow(
                     text: today.isEmpty
                         ? String(localized: "teaching.dashboard.noPairsToday", defaultValue: "На сегодня пар нет")
@@ -263,30 +271,38 @@ struct StudentHomeView: View {
         async let gradesValue = try? study.grades()
         async let attendanceValue = try? study.attendance()
         async let tasks = try? study.assignments().items
-        async let attention: Bool = refreshAttention()
+        async let attention: Int = refreshAttention()
         async let summary: Void = home.refreshSummary()
-        grades = await gradesValue ?? grades
-        attendance = await attendanceValue ?? attendance
-        assignments = await tasks ?? assignments
-        let attentionLoaded = await attention
+        let freshGrades = await gradesValue
+        let freshAttendance = await attendanceValue
+        let freshTasks = await tasks
+        grades = freshGrades ?? grades
+        attendance = freshAttendance ?? attendance
+        assignments = freshTasks ?? assignments
+        let attentionAnswered = await attention
         _ = await summary
-        failure = attentionLoaded || grades != nil
-            ? nil
-            : String(localized: "home.offline.schedule", defaultValue: "Нет связи — расписание из сохранённого")
+        let answeredAll = freshGrades != nil && freshAttendance != nil && freshTasks != nil && attentionAnswered == 2
+        if attentionAnswered == 0, grades == nil {
+            failure = String(localized: "home.offline.schedule", defaultValue: "Нет связи — расписание из сохранённого")
+        } else if !answeredAll {
+            failure = String(localized: "student.partialFailure", defaultValue: "Часть данных не загрузилась")
+        } else {
+            failure = nil
+        }
         hasLoaded = true
     }
 
     /// Непрочитанное и заявки — то, что меняется, пока человек ходит по разделам.
-    /// `true` — хотя бы один из двух запросов ответил.
+    /// Возвращает, сколько из двух запросов ответило.
     @MainActor
     @discardableResult
-    private func refreshAttention() async -> Bool {
+    private func refreshAttention() async -> Int {
         async let page = try? FeedAPI().notifications(cursor: nil)
         async let mine = try? ApplicationsAPI().applications()
         let (notificationsPage, applicationsPage) = await (page, mine)
         if let notificationsPage { notifications = notificationsPage.items }
         if let applicationsPage { applications = applicationsPage.items }
-        return notificationsPage != nil || applicationsPage != nil
+        return (notificationsPage != nil ? 1 : 0) + (applicationsPage != nil ? 1 : 0)
     }
 }
 

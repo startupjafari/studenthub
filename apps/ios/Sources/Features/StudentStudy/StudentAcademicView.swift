@@ -25,7 +25,7 @@ struct StudentAcademicView: View {
                     ),
                     DashboardMetric(
                         title: String(localized: "student.academic.credits", defaultValue: "Кредиты"),
-                        value: summary.credits.total > 0 ? "\(summary.credits.done) / \(summary.credits.total)" : String(summary.credits.done),
+                        value: summary.credits.map { $0.total > 0 ? "\($0.done) / \($0.total)" : String($0.done) },
                         symbol: "flag.checkered",
                         tint: Palette.warning,
                         route: .student(.studyPlan)
@@ -76,27 +76,27 @@ struct StudentAcademicView: View {
                     metrics: [
                         DashboardMetric(
                             title: String(localized: "student.academic.examsPassed", defaultValue: "Экзаменов сдано"),
-                            value: summary.examsPassed.formatted(),
+                            value: summary.examsPassed?.formatted(),
                             symbol: "rosette",
                             tint: Palette.success,
                             route: .student(.exams)
                         ),
                         DashboardMetric(
                             title: String(localized: "student.academic.examsUpcoming", defaultValue: "Впереди экзаменов"),
-                            value: summary.examsUpcoming.formatted(),
+                            value: summary.examsUpcoming?.formatted(),
                             symbol: "graduationcap",
                             tint: Palette.info,
                             route: .student(.exams)
                         ),
                         DashboardMetric(
                             title: String(localized: "student.academic.submitted", defaultValue: "Работ на проверке"),
-                            value: summary.submitted.formatted(),
+                            value: summary.submitted?.formatted(),
                             symbol: "paperplane",
                             route: .section(.assignments)
                         ),
                         DashboardMetric(
                             title: String(localized: "student.academic.overdue", defaultValue: "Просрочено работ"),
-                            value: summary.overdue.formatted(),
+                            value: summary.overdue?.formatted(),
                             symbol: "exclamationmark.triangle",
                             tint: Palette.destructive,
                             route: .section(.assignments)
@@ -134,14 +134,17 @@ struct StudentAcademicView: View {
     private struct Summary {
         let gpa: Int?
         let attendance: AttendanceSummaryDTO?
-        let credits: (total: Int, done: Int)
+        /// `nil` — экзамены не загрузились: без их итогов «сдано» по кредитам не посчитать.
+        let credits: (total: Int, done: Int)?
         let academicStatus: String?
         let enrollmentYear: Int?
         let bySubject: [(name: String, percent: Int)]
-        let examsPassed: Int
-        let examsUpcoming: Int
-        let submitted: Int
-        let overdue: Int
+        // Счётчики `nil` — их источник не ответил: плитка скажет «Нет данных», а не
+        // покажет ноль, который выглядел бы как «всё сдано» или «просрочек нет».
+        let examsPassed: Int?
+        let examsUpcoming: Int?
+        let submitted: Int?
+        let overdue: Int?
 
         var statusCaption: String {
             let status = String(localized: "student.academic.status", defaultValue: "Статус")
@@ -152,7 +155,7 @@ struct StudentAcademicView: View {
     }
 
     /// Профиль, оценки, посещаемость и дисциплины обязательны, как в вебе; экзамены и
-    /// задания — только счётчики, их отказ сводку не ломает.
+    /// задания — только счётчики, их отказ сводку не ломает, а гасит свои плитки.
     private static func load() async throws -> Summary {
         let study = StudyAPI()
         let api = StudentStudyAPI()
@@ -166,25 +169,25 @@ struct StudentAcademicView: View {
         let grades = try await gradesValue
         let attendance = try await attendanceValue
         let courses = try await coursesValue
-        let exams = await examsValue ?? []
-        let assignments = await assignmentsValue ?? []
+        let exams = await examsValue
+        let assignments = await assignmentsValue
 
         let now = Date()
-        let statuses = assignments.map { StudentAssignmentStatus.of($0, now: now) }
+        let statuses = assignments?.map { StudentAssignmentStatus.of($0, now: now) }
         let bySubject = grades
             .compactMap { course in StudentGradeMath.percent(course.columns).map { (name: course.subject.name, percent: $0) } }
             .sorted { $0.percent < $1.percent }
         return Summary(
             gpa: StudentGradeMath.overall(grades),
             attendance: attendance,
-            credits: StudentPlan.credits(StudentPlan.build(courses: courses, grades: grades, exams: exams)),
+            credits: exams.map { StudentPlan.credits(StudentPlan.build(courses: courses, grades: grades, exams: $0)) },
             academicStatus: me["academicStatus"]?.string,
             enrollmentYear: me["enrollmentYear"]?.int,
             bySubject: bySubject,
-            examsPassed: exams.filter { $0.myResult?.status == "PASSED" }.count,
-            examsUpcoming: exams.filter { $0.date >= now }.count,
-            submitted: statuses.filter { $0 == .submitted }.count,
-            overdue: statuses.filter { $0 == .overdue }.count
+            examsPassed: exams?.filter { $0.myResult?.status == "PASSED" }.count,
+            examsUpcoming: exams?.filter { $0.date >= now }.count,
+            submitted: statuses?.filter { $0 == .submitted }.count,
+            overdue: statuses?.filter { $0 == .overdue }.count
         )
     }
 }

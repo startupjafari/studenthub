@@ -7,6 +7,7 @@ struct CoursesView: View {
 
     @State private var courses: [CourseDTO]?
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var query = ""
 
     private var isTeacher: Bool { role == .teacher }
@@ -38,7 +39,7 @@ struct CoursesView: View {
                     }
                 }
             } else if let failure {
-                ErrorStateView(message: failure) { await load() }
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
                     .listRowBackground(Color.clear)
             } else {
                 LoadingStateView().listRowBackground(Color.clear)
@@ -90,6 +91,7 @@ struct CoursesView: View {
             failure = nil
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 }
@@ -121,6 +123,9 @@ struct CourseDetailView: View {
 
     @State private var assignments: [AssignmentDTO]?
     @State private var materials: [MaterialDTO]?
+    /// Задания или материалы не пришли — сбой блока, а не «нет».
+    @State private var assignmentsFailed = false
+    @State private var materialsFailed = false
     @State private var showsGroup = false
 
     private var isTeacher: Bool { role == .teacher }
@@ -174,10 +179,14 @@ struct CourseDetailView: View {
             }
 
             Section {
-                if let assignments {
+                if assignmentsFailed {
+                    DashboardFailurePlaceholder { await loadRelated() }
+                } else if let assignments {
                     if assignments.isEmpty {
-                        Text(String(localized: "courses.noAssignments", defaultValue: "Заданий нет"))
-                            .foregroundStyle(Palette.mutedForeground)
+                        DashboardEmptyRow(
+                            text: String(localized: "courses.noAssignments", defaultValue: "Заданий нет"),
+                            symbol: "list.clipboard"
+                        )
                     }
                     ForEach(assignments) { assignment in
                         NavigationLink(value: AppRoute.assignment(id: assignment.id)) {
@@ -199,10 +208,14 @@ struct CourseDetailView: View {
             }
 
             Section {
-                if let materials {
+                if materialsFailed {
+                    DashboardFailurePlaceholder { await loadRelated() }
+                } else if let materials {
                     if materials.isEmpty {
-                        Text(String(localized: "courses.noMaterials", defaultValue: "Материалов нет"))
-                            .foregroundStyle(Palette.mutedForeground)
+                        DashboardEmptyRow(
+                            text: String(localized: "courses.noMaterials", defaultValue: "Материалов нет"),
+                            symbol: "doc"
+                        )
                     }
                     ForEach(materials) { material in
                         TelegramStyleRow(
@@ -234,13 +247,28 @@ struct CourseDetailView: View {
                 GroupMembersView(groupID: group.id, title: group.name)
             }
         }
-        .task {
-            let api = StudyAPI()
-            let name = course.subject.name.lowercased()
-            async let tasks = try? api.assignments().items
-            async let files = try? api.materials().items
-            assignments = (await tasks ?? []).filter { $0.subject?.lowercased() == name }
-            materials = (await files ?? []).filter { $0.subject?.lowercased() == name }
+        .task { await loadRelated() }
+    }
+
+    /// Задания и материалы дисциплины. Каждый блок падает отдельно: сбой одного не
+    /// прячет другой.
+    @MainActor
+    private func loadRelated() async {
+        let api = StudyAPI()
+        let name = course.subject.name.lowercased()
+        async let tasks = try? api.assignments().items
+        async let files = try? api.materials().items
+        let fetchedTasks = await tasks
+        let fetchedFiles = await files
+        // Ушли с экрана посреди загрузки — это не сбой.
+        guard !Task.isCancelled else { return }
+        assignmentsFailed = fetchedTasks == nil
+        materialsFailed = fetchedFiles == nil
+        if let fetchedTasks {
+            assignments = fetchedTasks.filter { $0.subject?.lowercased() == name }
+        }
+        if let fetchedFiles {
+            materials = fetchedFiles.filter { $0.subject?.lowercased() == name }
         }
     }
 
@@ -282,6 +310,7 @@ struct GroupMembersView: View {
 
     @State private var members: [GroupMemberDTO]?
     @State private var failure: String?
+    @State private var isOffline = false
     @State private var query = ""
 
     var body: some View {
@@ -294,22 +323,32 @@ struct GroupMembersView: View {
                 .listRowBackground(Color.clear)
             } else if let members {
                 let visible = filtered(members)
-                Section {
-                    ForEach(visible) { member in
-                        NavigationLink(value: AppRoute.profile(id: member.id)) {
-                            HStack(spacing: Spacing.md) {
-                                PersonRow(name: member.name, avatarURL: member.avatarUrl, size: 40)
-                                if member.role == Role.starosta.rawValue {
-                                    StatusBadge(text: String(localized: "role.starosta", defaultValue: "Староста"), tint: Palette.primary)
+                if visible.isEmpty {
+                    EmptyStateView(
+                        title: query.isEmpty
+                            ? String(localized: "uadmin.group.noMembers", defaultValue: "В группе пока нет участников")
+                            : String(localized: "services.notFound", defaultValue: "Ничего не нашлось"),
+                        symbol: query.isEmpty ? "person.3" : "magnifyingglass"
+                    )
+                    .listRowBackground(Color.clear)
+                } else {
+                    Section {
+                        ForEach(visible) { member in
+                            NavigationLink(value: AppRoute.profile(id: member.id)) {
+                                HStack(spacing: Spacing.md) {
+                                    PersonRow(name: member.name, avatarURL: member.avatarUrl, size: 40)
+                                    if member.role == Role.starosta.rawValue {
+                                        StatusBadge(text: String(localized: "role.starosta", defaultValue: "Староста"), tint: Palette.primary)
+                                    }
                                 }
                             }
                         }
+                    } footer: {
+                        Text(String(localized: "group.count", defaultValue: "Всего: \(members.count)"))
                     }
-                } footer: {
-                    Text(String(localized: "group.count", defaultValue: "Всего: \(members.count)"))
                 }
             } else if let failure {
-                ErrorStateView(message: failure) { await load() }
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
                     .listRowBackground(Color.clear)
             } else {
                 LoadingStateView().listRowBackground(Color.clear)
@@ -339,6 +378,7 @@ struct GroupMembersView: View {
             failure = nil
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 }

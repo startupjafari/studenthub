@@ -278,7 +278,7 @@ struct ProfileView: View {
                 content(items)
             }
         } else if let failure = model.tabFailure[tab] {
-            ErrorStateView(message: failure) { await model.loadTab(tab, force: true) }
+            ErrorStateView(message: failure, isOffline: model.offlineTabs.contains(tab)) { await model.loadTab(tab, force: true) }
         } else {
             ProgressView()
                 .frame(maxWidth: .infinity)

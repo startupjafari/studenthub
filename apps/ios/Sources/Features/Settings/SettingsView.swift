@@ -271,6 +271,7 @@ struct SettingsView: View {
 final class NotificationPreferencesModel {
     private(set) var value: NotificationPreferencesDTO?
     private(set) var failure: String?
+    private(set) var isOffline = false
     private let api: AccountFetching
 
     init(api: AccountFetching = AccountAPI()) {
@@ -284,6 +285,7 @@ final class NotificationPreferencesModel {
             failure = nil
         } catch {
             failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 
@@ -338,7 +340,7 @@ struct NotificationSettingsView: View {
                     Text(String(localized: "settings.notifications.topics", defaultValue: "О чём сообщать"))
                 }
             } else if let failure = model.failure {
-                ErrorStateView(message: failure) { await model.load() }
+                ErrorStateView(message: failure, isOffline: model.isOffline) { await model.load() }
                     .listRowBackground(Color.clear)
             } else {
                 LoadingStateView().listRowBackground(Color.clear)

@@ -250,6 +250,8 @@ private struct TeachingMaterialForm: View {
     let saved: () async -> Void
 
     @State private var courses: [CourseDTO] = []
+    @State private var coursesFailure: String?
+    @State private var coursesOffline = false
     @State private var groupID = ""
     @State private var subject = ""
     @State private var title = ""
@@ -269,6 +271,14 @@ private struct TeachingMaterialForm: View {
             save: save,
             saved: saved
         ) {
+            if let coursesFailure {
+                // Дисциплины не пришли — пустой выбор без объяснения выглядел бы как «у вас их нет».
+                Section {
+                    StaleDataBanner(message: coursesFailure, isOffline: coursesOffline) { await loadCourses() }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
+            }
             Section {
                 Picker(String(localized: "teaching.materials.group", defaultValue: "Группа"), selection: $groupID) {
                     Text(String(localized: "teaching.materials.group.pick", defaultValue: "Выберите группу")).tag("")
@@ -331,8 +341,21 @@ private struct TeachingMaterialForm: View {
         }
         .task {
             guard courses.isEmpty else { return }
-            courses = (try? await CoursesAPI().courses(mine: true)) ?? []
+            await loadCourses()
+        }
+    }
+
+    @MainActor
+    private func loadCourses() async {
+        do {
+            courses = try await CoursesAPI().courses(mine: true)
+            coursesFailure = nil
             if groups.count == 1 { groupID = groups[0].id }
+        } catch is CancellationError {
+            return
+        } catch {
+            coursesFailure = error.userMessage
+            coursesOffline = error.isOffline
         }
     }
 
