@@ -66,6 +66,13 @@ export function translit(value) {
     .join('')
 }
 
+// Отчество от имени отца. Имя на «-й» меняет окончание: Николай → Николаевич, Сергей →
+// Сергеевна; простое «-ович» к нему давало «Николайович» на справках и странице проверки.
+export function patronymic(root, female) {
+  const stem = root.endsWith('й') ? `${root.slice(0, -1)}е` : `${root}о`
+  return `${stem}${female ? 'вна' : 'вич'}`
+}
+
 // Человек: имя, фамилия, отчество, пол. index задаёт пол (чётные — женщины),
 // чтобы соотношение было ровным, а не случайным перекосом.
 export function person(index, random) {
@@ -76,7 +83,7 @@ export function person(index, random) {
   return {
     firstName: first,
     lastName: female ? `${surnameM}а` : surnameM,
-    middleName: female ? `${root}овна` : `${root}ович`,
+    middleName: patronymic(root, female),
     gender: female ? 'FEMALE' : 'MALE',
   }
 }

@@ -10,6 +10,7 @@ export const en: Dictionary = {
 
   nav: {
     product: 'What’s inside',
+    modules: 'Modules',
     security: 'Security',
     rollout: 'Rollout',
     faq: 'Questions',
@@ -112,6 +113,77 @@ export const en: Dictionary = {
         nav: ['Structure', 'Invitations', 'Analytics', 'Moderation', 'Settings'],
         highlight: 'University structure',
       },
+      {
+        id: 'librarian',
+        title: 'Librarian',
+        points: [
+          'Lending by scanning the digital student ID, returns by the QR sticker on the book',
+          'No new loans for readers who are overdue or no longer study at the university',
+          'Holds with a queue, collection reports and shelf inventory by scanning',
+        ],
+        nav: ['Library', 'Checkout', 'Check-in', 'Holds', 'Catalogue'],
+        highlight: 'Overdue loans',
+      },
+      {
+        id: 'securityGuard',
+        title: 'Security',
+        points: [
+          'Student ID check at the entrance: the answer shows at once whether to let them in, and why not',
+          'Visitor log: only the document type and its last four digits are stored',
+          'Live university cameras — no audio, no recording',
+        ],
+        nav: ['Security post', 'Cameras', 'Rooms', 'Campus map'],
+        highlight: 'Student passes',
+      },
+      {
+        id: 'employer',
+        title: 'Employer',
+        points: [
+          'Access to students is requested from each university separately',
+          'A job post reaches students only after their university approves it',
+          'An application pipeline — from viewed to interview and offer',
+        ],
+        nav: ['Overview', 'Jobs', 'Candidates', 'Universities', 'Team'],
+        highlight: 'Company overview',
+      },
+    ],
+  },
+
+  modules: {
+    title: 'What else the platform covers',
+    subtitle:
+      'Beyond studies and requests, there are sections for the whole campus. The library and cameras are switched on by the university itself: both are off by default.',
+    items: [
+      {
+        id: 'campus',
+        title: 'Campus map',
+        text: 'The administration draws the floor plans, and a 3D model of the buildings is generated from them. A room can be found by search or straight from the timetable, and the route to it accounts for stairs and lifts.',
+      },
+      {
+        id: 'library',
+        title: 'Library',
+        text: 'Students browse the catalogue with live availability and place holds. The librarian lends a book by scanning the digital student ID and sees who is overdue, and students get a no-debt certificate with a verification code on their own.',
+      },
+      {
+        id: 'security',
+        title: 'Security post and cameras',
+        text: 'Security checks student IDs at the entrance and keeps the visitor log. Live camera feeds are visible only to security and the university administration — no audio, and the video is never recorded.',
+      },
+      {
+        id: 'communication',
+        title: 'Communication',
+        text: 'Chats with voice messages and files, the university feed, 24-hour stories and articles on profiles. Writing to a stranger starts with a message request: until it is accepted, no more than five messages go through.',
+      },
+      {
+        id: 'career',
+        title: 'Careers',
+        text: 'A company has its own page and job posts, but students see a post only after their university approves it. An application moves through to interview and offer, and a student’s profile is hidden from companies by default.',
+      },
+      {
+        id: 'templates',
+        title: 'Documents on the university’s letterhead',
+        text: 'The university uploads its own Word template and places fields in it: full name, group, faculty. The platform fills them from the student’s record and will not issue the document if a required field is empty.',
+      },
     ],
   },
 
@@ -190,7 +262,7 @@ export const en: Dictionary = {
         id: 'install',
         question: 'Do we need to install an app?',
         answer:
-          'No. The platform runs in the browser and installs on a phone from the home screen — straight from the browser, with no app store involved.',
+          'No. The platform runs in the browser and installs on a phone from the home screen — straight from the browser, with no app store involved. Native apps for iPhone and Android are being prepared for release.',
       },
       {
         id: 'access',
@@ -225,7 +297,7 @@ export const en: Dictionary = {
         id: 'integrations',
         question: 'Are there integrations with university systems?',
         answer:
-          'Not yet. Zoom and Meet video calls are planned; anything else we discuss during the rollout.',
+          'There are no ready-made connectors to university record systems yet — data moves as files. Student lists and the library collection are imported from CSV or Excel, user lists and analytics reports export to Excel and CSV, and documents are produced on the university’s own Word letterhead. For online events the organiser pastes a Zoom, Google Meet or Teams link; creating the meeting from inside the platform is not available yet. Anything else we discuss during the rollout.',
       },
       {
         id: 'price',
@@ -249,5 +321,8 @@ export const en: Dictionary = {
     language: 'Language',
     company: 'For companies',
     links: 'Platform and contact',
+    privacy: 'Privacy Policy',
+    terms: 'Terms of Service',
+    legal: 'Legal',
   },
 }
