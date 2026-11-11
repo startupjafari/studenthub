@@ -26,6 +26,8 @@ final class VoiceRecorder {
     @MainActor
     func start() async -> Bool {
         guard await requestPermission() else { return false }
+        // Микрофон и динамик сразу — играющее голосовое попало бы в запись.
+        VoicePlayer.pauseActive()
 
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("voice-\(UUID().uuidString).m4a")

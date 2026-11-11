@@ -93832,6 +93832,40 @@
           }
         }
       }
+    },
+    "chats.voice.speed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скорость"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жылдамдық"
+          }
+        }
+      }
+    },
+    "chats.voice.position": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Позиция воспроизведения"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ойнату орны"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

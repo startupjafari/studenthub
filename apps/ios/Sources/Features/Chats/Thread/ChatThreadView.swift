@@ -353,6 +353,8 @@ struct ChatThreadView: View {
             // Ушли с экрана — выбор не переживает возвращения, как и в Telegram.
             model?.endSelection()
             showsSearchList = false
+            // Голосовое не играет из-под другого экрана: остановить его потом негде.
+            VoicePlayback.shared.stop()
             Task { [model] in await model?.leave() }
         }
     }
