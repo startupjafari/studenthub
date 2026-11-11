@@ -68,7 +68,8 @@ struct ChatInfoView: View {
                     .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: Spacing.sm, trailing: 0))
                     ChatContentList(chatID: chatID, tab: section)
                 }
-                dangerSection(chat)
+                // Заблокировать, очистить и удалить — в «Ещё» под шапкой, как в Telegram:
+                // второй красной карточкой внизу они повторялись.
             }
         }
         .listStyle(.insetGrouped)
@@ -341,31 +342,6 @@ struct ChatInfoView: View {
             }
         } header: {
             Text(String(localized: "chats.group.members", defaultValue: "Участники"))
-        }
-    }
-
-    @ViewBuilder
-    private func dangerSection(_ chat: ChatRecord) -> some View {
-        Section {
-            if chat.kind == .private, peer != nil {
-                Button(role: chat.blocked ? nil : .destructive) {
-                    confirmingBlock = true
-                } label: {
-                    Label(blockTitle(chat), systemImage: "hand.raised")
-                }
-            }
-            Button(role: .destructive) {
-                confirmingClear = true
-            } label: {
-                Label(String(localized: "chats.clear", defaultValue: "Очистить историю"), systemImage: "eraser")
-            }
-            if chat.kind == .private || chat.kind == .group {
-                Button(role: .destructive) {
-                    confirmingLeave = true
-                } label: {
-                    Label(ChatLeaveTitle.title(for: chat.kind), systemImage: "rectangle.portrait.and.arrow.right")
-                }
-            }
         }
     }
 
@@ -763,15 +739,23 @@ private struct ChatContentList: View {
                         }
                     }
                 }
-            } else if let failure {
-                DashboardFailurePlaceholder(message: failure) { await load() }
-            } else if loaded {
-                Text(String(localized: "chats.info.empty", defaultValue: "Здесь пока пусто"))
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
-                    .frame(maxWidth: .infinity)
             } else {
-                ProgressView().frame(maxWidth: .infinity)
+                // Загрузка, пусто и сбой — без карточки, по центру места под вкладками:
+                // тонкая карточка с одним индикатором смотрелась поломкой.
+                Group {
+                    if let failure {
+                        DashboardFailurePlaceholder(message: failure) { await load() }
+                    } else if loaded {
+                        Text(String(localized: "chats.info.empty", defaultValue: "Здесь пока пусто"))
+                            .font(Typography.meta)
+                            .foregroundStyle(Palette.mutedForeground)
+                    } else {
+                        ProgressView()
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 120)
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             }
         }
         .task(id: tab) { await load() }
