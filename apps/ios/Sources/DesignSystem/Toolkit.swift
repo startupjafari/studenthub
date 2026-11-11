@@ -401,7 +401,6 @@ struct PersonRow: View {
                     .lineLimit(1)
             }
         }
-        .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
     }
 }
