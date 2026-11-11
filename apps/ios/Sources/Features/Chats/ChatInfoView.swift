@@ -20,8 +20,6 @@ struct ChatInfoView: View {
     @State private var section: ChatMediaKindTab = .media
     @State private var editing = false
     @State private var addingMember = false
-    @State private var searching = false
-    @State private var pickedMessage: String?
     @State private var pickingDay = false
     /// Выбранный в календаре день: переписка откроется на нём, когда лист закроется.
     @State private var pickedDay: Date?
@@ -167,7 +165,7 @@ struct ChatInfoView: View {
                     title: String(localized: "chats.info.search", defaultValue: "Поиск"),
                     symbol: "magnifyingglass"
                 ) {
-                    searching = true
+                    openSearch()
                 }
                 if canManageGroup {
                     ChatInfoActionButton(
@@ -480,11 +478,6 @@ struct ChatInfoView: View {
                     }
                 }
             }
-            .sheet(isPresented: $searching, onDismiss: openPickedMessage) {
-                ChatInfoSearchSheet(chatID: chatID) { messageID in
-                    pickedMessage = messageID
-                }
-            }
             .sheet(isPresented: $clearingPeriod) {
                 ChatClearPeriodSheet(chatID: chatID)
             }
@@ -569,11 +562,12 @@ struct ChatInfoView: View {
             }
     }
 
-    /// Найденное сообщение: переписка под этим экраном откроется на нём.
-    private func openPickedMessage() {
-        guard let pickedMessage else { return }
-        self.pickedMessage = nil
-        showInChat(pickedMessage)
+    /// «Поиск» ищет прямо в переписке, как в Telegram: поле встаёт на место её шапки,
+    /// а стрелки ведут по найденному в ленте.
+    private func openSearch() {
+        shared.stopVoice()
+        ChatJumpRequests.shared.searches.insert(chatID)
+        dismiss()
     }
 
     /// День из календаря: переписка под этим экраном откроется на нём.
@@ -585,8 +579,8 @@ struct ChatInfoView: View {
         dismiss()
     }
 
-    /// «Показать в чате» — из поиска или из общих материалов: переписка под этим
-    /// экраном откроется на сообщении.
+    /// «Показать в чате» из общих материалов: переписка под этим экраном откроется на
+    /// сообщении.
     private func showInChat(_ messageID: String) {
         shared.stopVoice()
         ChatJumpRequests.shared.pending[chatID] = messageID
@@ -797,102 +791,6 @@ private struct ChatInfoActionButton: View {
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
-    }
-}
-
-/// Поиск по сообщениям этого чата. Выбранное открывается в переписке.
-private struct ChatInfoSearchSheet: View {
-    let chatID: String
-    let pick: (String) -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var query = ""
-    @State private var results: [ChatMessageDTO] = []
-    @State private var isSearching = false
-    @State private var failure: String?
-    @State private var isOffline = false
-    private let api: ChatActing = ChatsAPI()
-
-    private var trimmed: String { query.trimmingCharacters(in: .whitespaces) }
-
-    var body: some View {
-        NavigationStack {
-            List(results, id: \.id) { message in
-                Button {
-                    pick(message.id)
-                    dismiss()
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(message.sender?.name ?? "")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Palette.foreground)
-                                .lineLimit(1)
-                            Spacer(minLength: Spacing.md)
-                            Text(ChatMoment.short(message.createdAt))
-                                .font(Typography.tabular(.footnote))
-                                .foregroundStyle(Palette.mutedForeground)
-                        }
-                        Text(message.content)
-                            .font(.subheadline)
-                            .foregroundStyle(Palette.mutedForeground)
-                            .lineLimit(2)
-                    }
-                    .accessibilityElement(children: .combine)
-                }
-            }
-            .listStyle(.plain)
-            .overlay {
-                if results.isEmpty {
-                    if isSearching {
-                        ProgressView()
-                    } else if let failure {
-                        ErrorStateView(message: failure, isOffline: isOffline) { await search() }
-                    } else if trimmed.count >= 2 {
-                        ContentUnavailableView.search(text: trimmed)
-                    } else {
-                        ContentUnavailableView(
-                            String(localized: "chats.info.search.hint", defaultValue: "Найдите сообщение в этом чате"),
-                            systemImage: "magnifyingglass"
-                        )
-                    }
-                }
-            }
-            .searchable(
-                text: $query,
-                placement: .navigationBarDrawer(displayMode: .always),
-                prompt: Text(String(localized: "chats.info.search.prompt", defaultValue: "Поиск сообщений"))
-            )
-            .navigationTitle(Text(String(localized: "chats.info.search.title", defaultValue: "Поиск в чате")))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    SheetCloseButton { dismiss() }
-                }
-            }
-            .task(id: trimmed) { await search() }
-        }
-    }
-
-    private func search() async {
-        guard trimmed.count >= 2 else {
-            results = []
-            failure = nil
-            return
-        }
-        try? await Task.sleep(for: .milliseconds(300))
-        guard !Task.isCancelled else { return }
-        isSearching = true
-        defer { isSearching = false }
-        do {
-            results = try await api.searchMessages(String(trimmed.prefix(100)), chatID: chatID)
-            failure = nil
-        } catch {
-            guard !Task.isCancelled else { return }
-            results = []
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
     }
 }
 

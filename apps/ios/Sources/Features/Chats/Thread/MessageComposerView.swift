@@ -473,7 +473,7 @@ struct MessageSelectionBar: View {
     }
 }
 
-private struct ComposerBarBackground: ViewModifier {
+struct ComposerBarBackground: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 26, *) {
             content
@@ -489,7 +489,7 @@ private struct ComposerBarBackground: ViewModifier {
     }
 }
 
-private extension View {
+extension View {
     /// Элемент панели ввода: на iOS 26 — стекло, раньше — серая заливка.
     @ViewBuilder
     func composerGlass<S: Shape>(in shape: S) -> some View {

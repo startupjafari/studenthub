@@ -32,6 +32,10 @@ struct ChatThreadView: View {
     /// Календарь «Перейти к дате» и день, с которого он открывается.
     @State private var showsCalendar = false
     @State private var calendarDay = Date()
+    /// Поиск прямо в переписке; `nil` — режим поиска закрыт.
+    @State private var search: ChatThreadSearch?
+    @State private var showsSearchList = false
+    @State private var pickingSearchSender = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var realtime: RealtimeCoordinator { AppServices.realtime }
     private var jumps: ChatJumpRequests { ChatJumpRequests.shared }
@@ -51,6 +55,8 @@ struct ChatThreadView: View {
         }
         .background { ChatWallpaper().ignoresSafeArea() }
         .navigationBarTitleDisplayMode(.inline)
+        // В режиме поиска место шапки занимает поле, как в Telegram; выход — «Отмена».
+        .toolbar(search == nil ? .automatic : .hidden, for: .navigationBar)
         .toolbar {
             if let model, model.isSelecting {
                 selectionToolbar(model)
@@ -102,13 +108,18 @@ struct ChatThreadView: View {
     @ViewBuilder
     private func thread(_ model: ChatThreadModel) -> some View {
         Group {
+                if let search {
+                    ChatSearchBar(search: search) { closeSearch() }
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
                 if let failure = model.failure {
                     FormAlert(message: failure)
                         .padding(.horizontal, Spacing.xl)
                         .padding(.top, Spacing.md)
                 }
 
-                if !model.pinned.isEmpty {
+                if !model.pinned.isEmpty, search == nil {
                     PinnedBar(
                         message: model.pinned[min(pinnedIndex, model.pinned.count - 1)],
                         index: min(pinnedIndex, model.pinned.count - 1),
@@ -146,6 +157,17 @@ struct ChatThreadView: View {
                     onReachBottom: { Task { await model.loadNewer() } },
                     onAction: { action, message in handle(action, message: message, model: model) }
                 )
+                .overlay {
+                    if let search, showsSearchList {
+                        ChatSearchResultsList(search: search, viewerID: viewerID) { position in
+                            showsSearchList = false
+                            if let found = search.select(position) {
+                                Task { await model.jump(to: found.id) }
+                            }
+                        }
+                        .transition(.opacity)
+                    }
+                }
                 .overlay(alignment: .bottomTrailing) {
                     // В окне истории кнопка видна и у его низа: свежие сообщения — дальше.
                     if !atBottom || model.isDetached {
@@ -162,7 +184,34 @@ struct ChatThreadView: View {
                     }
                 }
 
-                if model.isSelecting {
+                if let search {
+                    // Писать во время поиска некуда: поле ввода уступает место панели
+                    // со счётчиком и стрелками.
+                    ChatSearchPanel(
+                        search: search,
+                        isGroup: bubbleContext(model).isGroup,
+                        showsList: showsSearchList,
+                        onCalendar: {
+                            calendarDay = search.current?.createdAt ?? Date()
+                            showsCalendar = true
+                        },
+                        onSender: { pickingSearchSender = true },
+                        onList: { showsSearchList.toggle() },
+                        onOlder: {
+                            showsSearchList = false
+                            Task {
+                                if let found = await search.older() { await model.jump(to: found.id) }
+                            }
+                        },
+                        onNewer: {
+                            showsSearchList = false
+                            if let found = search.newer() {
+                                Task { await model.jump(to: found.id) }
+                            }
+                        }
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else if model.isSelecting {
                     // Поле ввода на время выбора уступает место панели действий.
                     MessageSelectionBar(
                         canCopy: !model.selectedText.isEmpty,
@@ -258,6 +307,20 @@ struct ChatThreadView: View {
         .onChange(of: jumps.days[chatID]) {
             consumeJump()
         }
+        .onChange(of: jumps.searches.contains(chatID)) {
+            consumeJump()
+        }
+        .task(id: search?.key) {
+            // Пауза — чтобы не спрашивать сервер на каждую букву. Найденное самое свежее
+            // совпадение сразу показывается в ленте, как в вебе.
+            guard let search, let model else { return }
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            showsSearchList = false
+            if let found = await search.run(), !Task.isCancelled {
+                await model.jump(to: found.id)
+            }
+        }
         .onAppear {
             consumeJump()
         }
@@ -280,6 +343,7 @@ struct ChatThreadView: View {
             hasLeft = true
             // Ушли с экрана — выбор не переживает возвращения, как и в Telegram.
             model?.endSelection()
+            showsSearchList = false
             Task { [model] in await model?.leave() }
         }
     }
@@ -296,11 +360,36 @@ struct ChatThreadView: View {
             jumps.days[chatID] = nil
             Task { await model.jump(toDay: day) }
         }
+        if jumps.searches.contains(chatID) {
+            jumps.searches.remove(chatID)
+            openSearch(model)
+        }
+    }
+
+    private func openSearch(_ model: ChatThreadModel) {
+        model.endSelection()
+        withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) {
+            search = ChatThreadSearch(chatID: chatID)
+        }
+    }
+
+    private func closeSearch() {
+        withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) {
+            search = nil
+            showsSearchList = false
+        }
     }
 
     private func withDialogs<V: View>(_ view: V) -> some View {
         view
         .remoteFilePreview(opener)
+        .sheet(isPresented: $pickingSearchSender) {
+            if let search {
+                ChatSearchSenderSheet(chatID: chatID, selectedID: search.sender?.id) { member in
+                    search.sender = member
+                }
+            }
+        }
         .sheet(isPresented: $showsCalendar) {
             ChatCalendarSheet(chatID: chatID, initialDay: calendarDay) { day in
                 Task { await model?.jump(toDay: day) }
@@ -376,7 +465,10 @@ struct ChatThreadView: View {
         case .forward:
             forwarding = ForwardBatch(messages: [message], fromSelection: false)
         case .select:
+            // Выбор — со своей шапкой и панелью: поиск уступает ему место.
             withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) {
+                search = nil
+                showsSearchList = false
                 model.beginSelection(with: message)
             }
         case .toggleSelection:
