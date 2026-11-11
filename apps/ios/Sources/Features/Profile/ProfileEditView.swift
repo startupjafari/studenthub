@@ -20,10 +20,15 @@ struct ProfileEditView: View {
     @State private var avatarItem: PhotosPickerItem?
     @State private var coverItem: PhotosPickerItem?
     @State private var uploading: Upload?
-    /// Меню действий над фото или обложкой: сменить или удалить.
-    @State private var actionsFor: Upload?
+    /// Меню действий над фото или обложкой — у каждой своё, привязанное к снимку.
+    @State private var avatarActions = false
+    @State private var coverActions = false
     @State private var pickingAvatar = false
     @State private var pickingCover = false
+    /// Съёмка камерой: для чего снимаем.
+    @State private var shooting: Upload?
+    /// Полноэкранный просмотр текущего фото или обложки.
+    @State private var viewing: Upload?
     @State private var isSaving = false
     @State private var failure: String?
     @State private var newSkill = ""
@@ -117,29 +122,23 @@ struct ProfileEditView: View {
             }
             Button(String(localized: "form.keepEditing", defaultValue: "Продолжить редактирование"), role: .cancel) {}
         }
-        // Касание фото или обложки — меню «сменить / удалить», как в Telegram. Удаление
-        // в нём красное и отдельной строкой: второе подтверждение поверх было бы лишним.
-        .confirmationDialog(
-            Text(verbatim: ""),
-            isPresented: Binding(get: { actionsFor != nil }, set: { if !$0 { actionsFor = nil } }),
-            titleVisibility: .hidden,
-            presenting: actionsFor
-        ) { kind in
-            Button(kind == .avatar
-                ? String(localized: "profile.changeAvatar", defaultValue: "Сменить фото")
-                : String(localized: "profile.changeCover", defaultValue: "Сменить обложку")) {
-                if kind == .avatar { pickingAvatar = true } else { pickingCover = true }
-            }
-            Button(kind == .avatar
-                ? String(localized: "profile.removeAvatar", defaultValue: "Удалить фото")
-                : String(localized: "profile.removeCover", defaultValue: "Удалить обложку"), role: .destructive) {
-                Task { await remove(kind) }
-            }
-        }
         .photosPicker(isPresented: $pickingAvatar, selection: $avatarItem, matching: .images)
         .photosPicker(isPresented: $pickingCover, selection: $coverItem, matching: .images)
         .onChange(of: avatarItem) { Task { await upload(.avatar) } }
         .onChange(of: coverItem) { Task { await upload(.cover) } }
+        .fullScreenCover(isPresented: Binding(get: { shooting != nil }, set: { if !$0 { shooting = nil } })) {
+            if let kind = shooting {
+                CameraPicker { image in
+                    Task { await upload(kind, image: image) }
+                }
+                .ignoresSafeArea()
+            }
+        }
+        .fullScreenCover(isPresented: Binding(get: { viewing != nil }, set: { if !$0 { viewing = nil } })) {
+            if let kind = viewing, let url = kind == .avatar ? viewer.profile?.avatarUrl : viewer.profile?.coverUrl {
+                MediaViewer(media: [PostDTO.Media(id: "profile-\(kind)", url: url, mime: "image/jpeg", sources: nil, poster: nil, hls: nil)], start: 0)
+            }
+        }
         .sensoryFeedback(.error, trigger: failure) { _, new in new != nil }
         .task {
             if viewer.profile == nil { await viewer.refresh() }
@@ -214,38 +213,64 @@ struct ProfileEditView: View {
     private let coverHeight: CGFloat = 112
 
     /// Обложка и фото — как в шапке профиля: аватар наполовину на обложке, и видно,
-    /// как профиль будет выглядеть. Касание открывает меню «сменить / удалить»; если
-    /// удалять нечего — сразу выбор снимка.
+    /// как профиль будет выглядеть. Касание открывает меню действий прямо у снимка
+    /// (галерея, камера, просмотр, удаление); значок карандаша подсказывает, что на
+    /// снимок можно нажать. Отдельной кнопки «Сменить фото» нет — меню у самого фото.
     private var headerSection: some View {
         Section {
-            VStack(spacing: Spacing.sm) {
-                ZStack(alignment: .bottom) {
-                    Button { act(on: .cover) } label: { coverPreview }
-                        .buttonStyle(.plain)
-                        .padding(.bottom, avatarSide / 2)
-                        .accessibilityLabel(Text(viewer.profile?.coverUrl == nil
-                            ? String(localized: "profile.addCover", defaultValue: "Добавить обложку")
-                            : String(localized: "profile.changeCover", defaultValue: "Сменить обложку")))
-                    Button { act(on: .avatar) } label: { avatarPreview }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(Text(String(localized: "profile.changeAvatar", defaultValue: "Сменить фото")))
-                }
-                .disabled(uploading != nil)
-
-                Button { act(on: .avatar) } label: {
-                    Text(String(localized: "profile.changeAvatar", defaultValue: "Сменить фото"))
-                        .font(Typography.body.weight(.medium))
-                        .foregroundStyle(Palette.primary)
-                        .frame(minHeight: ControlHeight.xl)
-                        .contentShape(Rectangle())
+            ZStack(alignment: .bottom) {
+                Button { coverActions = true } label: {
+                    coverPreview
+                        .overlay(alignment: .topTrailing) { EditBadge().padding(Spacing.md) }
                 }
                 .buttonStyle(.plain)
-                .disabled(uploading != nil)
-                .accessibilityHidden(true)
+                .padding(.bottom, avatarSide / 2)
+                .accessibilityLabel(Text(viewer.profile?.coverUrl == nil
+                    ? String(localized: "profile.addCover", defaultValue: "Добавить обложку")
+                    : String(localized: "profile.changeCover", defaultValue: "Сменить обложку")))
+                .confirmationDialog(Text(verbatim: ""), isPresented: $coverActions, titleVisibility: .hidden) {
+                    photoActions(.cover)
+                }
+                Button { avatarActions = true } label: {
+                    avatarPreview
+                        .overlay(alignment: .bottomTrailing) { EditBadge() }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(String(localized: "profile.changeAvatar", defaultValue: "Сменить фото")))
+                .confirmationDialog(Text(verbatim: ""), isPresented: $avatarActions, titleVisibility: .hidden) {
+                    photoActions(.avatar)
+                }
             }
+            .disabled(uploading != nil)
+            .padding(.bottom, Spacing.sm)
             .frame(maxWidth: .infinity)
             .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets())
+        }
+    }
+
+    /// Действия над фото или обложкой. Удаление красное и отдельной строкой — второе
+    /// подтверждение поверх меню было бы лишним.
+    @ViewBuilder
+    private func photoActions(_ kind: Upload) -> some View {
+        let exists = kind == .avatar ? viewer.profile?.avatarUrl != nil : viewer.profile?.coverUrl != nil
+        Button(String(localized: "profile.photo.library", defaultValue: "Выбрать из галереи")) {
+            if kind == .avatar { pickingAvatar = true } else { pickingCover = true }
+        }
+        if CameraPicker.isAvailable {
+            Button(String(localized: "profile.photo.camera", defaultValue: "Сделать фото")) {
+                shooting = kind
+            }
+        }
+        if exists {
+            Button(String(localized: "profile.photo.view", defaultValue: "Посмотреть")) {
+                viewing = kind
+            }
+            Button(kind == .avatar
+                ? String(localized: "profile.removeAvatar", defaultValue: "Удалить фото")
+                : String(localized: "profile.removeCover", defaultValue: "Удалить обложку"), role: .destructive) {
+                Task { await remove(kind) }
+            }
         }
     }
 
@@ -282,18 +307,6 @@ struct ProfileEditView: View {
         }
         .frame(width: avatarSide, height: avatarSide)
         .overlay(Circle().strokeBorder(Palette.background, lineWidth: 4))
-    }
-
-    /// Есть что удалять — меню действий, нет — сразу выбор снимка.
-    private func act(on kind: Upload) {
-        let exists = kind == .avatar ? viewer.profile?.avatarUrl != nil : viewer.profile?.coverUrl != nil
-        if exists {
-            actionsFor = kind
-        } else if kind == .avatar {
-            pickingAvatar = true
-        } else {
-            pickingCover = true
-        }
     }
 
     // MARK: Поля
@@ -519,25 +532,43 @@ struct ProfileEditView: View {
         defer { uploading = nil }
         do {
             guard let data = try await item.loadTransferable(type: Data.self) else { return }
-            // Сжимаем на устройстве: фото камеры весит больше лимита в 10 МБ, а
-            // сервер всё равно хранит уменьшенную копию.
-            let jpeg = await Task.detached(priority: .userInitiated) {
-                UIImage(data: data).flatMap { Self.downscaled($0, maxSide: kind == .avatar ? 1024 : 2048).jpegData(compressionQuality: 0.85) }
-            }.value
-            guard let jpeg else {
-                failure = String(localized: "profile.imageUnreadable", defaultValue: "Не удалось прочитать изображение")
-                return
-            }
-            if kind == .avatar {
-                try await feed.uploadAvatar(jpeg, mime: "image/jpeg")
-                await viewer.refresh()
-            } else {
-                viewer.adopt(try await api.uploadCover(jpeg, mime: "image/jpeg"))
-            }
-            failure = nil
+            try await send(kind, image: UIImage(data: data))
         } catch {
             failure = error.userMessage
         }
+    }
+
+    /// Снимок с камеры — тем же путём, что выбранный в галерее.
+    @MainActor
+    private func upload(_ kind: Upload, image: UIImage) async {
+        uploading = kind
+        defer { uploading = nil }
+        do {
+            try await send(kind, image: image)
+        } catch {
+            failure = error.userMessage
+        }
+    }
+
+    @MainActor
+    private func send(_ kind: Upload, image: UIImage?) async throws {
+        // Сжимаем на устройстве: фото камеры весит больше лимита в 10 МБ, а сервер всё
+        // равно хранит уменьшенную копию.
+        let maxSide: CGFloat = kind == .avatar ? 1024 : 2048
+        let jpeg = await Task.detached(priority: .userInitiated) {
+            image.flatMap { Self.downscaled($0, maxSide: maxSide).jpegData(compressionQuality: 0.85) }
+        }.value
+        guard let jpeg else {
+            failure = String(localized: "profile.imageUnreadable", defaultValue: "Не удалось прочитать изображение")
+            return
+        }
+        if kind == .avatar {
+            try await feed.uploadAvatar(jpeg, mime: "image/jpeg")
+            await viewer.refresh()
+        } else {
+            viewer.adopt(try await api.uploadCover(jpeg, mime: "image/jpeg"))
+        }
+        failure = nil
     }
 
     @MainActor
@@ -657,5 +688,60 @@ struct ProfileForm: Equatable {
             break
         }
         return update
+    }
+}
+
+/// Значок «можно изменить» поверх фото и обложки в редакторе.
+private struct EditBadge: View {
+    var body: some View {
+        Image(systemName: "pencil")
+            .font(.caption.weight(.bold))
+            .foregroundStyle(.white)
+            .frame(width: 26, height: 26)
+            .background(Palette.primary, in: Circle())
+            .overlay(Circle().strokeBorder(Palette.background, lineWidth: 2))
+            .accessibilityHidden(true)
+    }
+}
+
+/// Съёмка одной фотографии системной камерой — для фото профиля и обложки.
+struct CameraPicker: UIViewControllerRepresentable {
+    let onPick: (UIImage) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    static var isAvailable: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ picker: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onPick: onPick, dismiss: { dismiss() })
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let onPick: (UIImage) -> Void
+        let dismiss: () -> Void
+
+        init(onPick: @escaping (UIImage) -> Void, dismiss: @escaping () -> Void) {
+            self.onPick = onPick
+            self.dismiss = dismiss
+        }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            if let image = info[.originalImage] as? UIImage { onPick(image) }
+            dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            dismiss()
+        }
     }
 }
