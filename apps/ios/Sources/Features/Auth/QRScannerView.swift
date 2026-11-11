@@ -73,7 +73,7 @@ final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputOb
         case .authorized:
             configure()
         case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .video) { granted in
+            AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     if granted {
