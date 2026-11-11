@@ -43,6 +43,11 @@ struct ProfileView: View {
             }
         }
         .background(Palette.background)
+        // Шапка уезжает под панель с плотным краем, а в панели появляется короткое имя —
+        // компактная панель, как в Telegram. Мягкий край оставлял имя из шапки видным
+        // сквозь размытие под заголовком; гасить шапку вручную — давало чёрную пустоту
+        // над вкладками.
+        .hardTopEdge()
         .navigationTitle(Text(navigationName))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -173,7 +178,6 @@ struct ProfileView: View {
                             .padding(.vertical, Spacing.xxl)
                         } else {
                             CommunityHighlightsStrip(userID: profile.id)
-                                .fadesUnderTopBar(scroll.topInset)
                                 .padding(.bottom, Spacing.md)
 
                             // Метка начала вкладок: к ней прокручивается экран при смене
@@ -472,26 +476,19 @@ private struct ProfileHeaderView: View {
     private let actionWidth: CGFloat = 92
 
     var body: some View {
-        // Каждая часть шапки тает, подходя к панели навигации, а аватар ещё и
-        // уменьшается — шапка сворачивается к панели, как профиль в Telegram, и ничего
-        // не просвечивает под заголовком и кнопками.
         VStack(spacing: Spacing.sm) {
             visual
-                .fadesUnderTopBar(scrollTopInset, distance: 96, shrinks: true)
                 .padding(.bottom, Spacing.xs)
 
             identity
 
             stats
-                .fadesUnderTopBar(scrollTopInset)
 
             actionRow
-                .fadesUnderTopBar(scrollTopInset)
                 .padding(.top, Spacing.sm)
 
             if !profile.isLimited {
                 aboutCard
-                    .fadesUnderTopBar(scrollTopInset)
                     .padding(.horizontal, Spacing.xl)
                     .padding(.top, Spacing.md)
             }
@@ -530,7 +527,6 @@ private struct ProfileHeaderView: View {
             }
         } else {
             AvatarView(url: profile.avatarUrl, name: profile.name, size: side)
-                .padding(.top, Spacing.sm)
         }
     }
 
@@ -553,7 +549,6 @@ private struct ProfileHeaderView: View {
                 } action: { hidden in
                     nameScrolledAway = hidden
                 }
-                .fadesUnderTopBar(scrollTopInset)
 
             if let headline = profile.headline, !headline.isEmpty {
                 Text(headline)
@@ -562,7 +557,6 @@ private struct ProfileHeaderView: View {
                     .multilineTextAlignment(.center)
                     .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
-                    .fadesUnderTopBar(scrollTopInset)
             }
             if !subtitle.isEmpty {
                 Text(subtitle)
@@ -571,11 +565,9 @@ private struct ProfileHeaderView: View {
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
-                    .fadesUnderTopBar(scrollTopInset)
             }
             if let status = profile.academicStatus, !status.isEmpty {
                 StatusBadge(text: status, tint: Palette.success)
-                    .fadesUnderTopBar(scrollTopInset)
                     .padding(.top, Spacing.xs)
             }
         }
@@ -784,6 +776,13 @@ private struct ProfileHeaderView: View {
             .frame(maxWidth: .infinity)
             .padding(.horizontal, Spacing.md)
             .padding(.top, Spacing.xs)
+        } else if !profile.isLimited {
+            // Итоги приходят вторым запросом: место под строку занято заранее, иначе
+            // кнопки и карточка под ней прыгали вниз, когда числа доезжали.
+            Color.clear
+                .frame(height: 44)
+                .padding(.top, Spacing.xs)
+                .accessibilityHidden(true)
         }
     }
 
@@ -1042,7 +1041,8 @@ private struct ProfileTabBar: View {
         .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.sm)
         .frame(maxWidth: .infinity)
-        .background(Palette.background)
+        // Без подложки: прилипнув, полоса — одна стеклянная капсула, а не чёрная
+        // полоса поперёк снимков.
         .accessibilityIdentifier("profile.tabs")
     }
 }
@@ -1167,24 +1167,6 @@ private struct ProfilePollCard: View {
             .accessibilityHidden(true)
         }
         .accessibilityElement(children: .combine)
-    }
-}
-
-// MARK: - Сворачивание шапки
-
-private extension View {
-    /// Часть шапки тает, подходя к панели навигации, и исчезает у её края: под стеклом
-    /// панели она просвечивала и спорила с заголовком. `shrinks` — ещё и уменьшается к
-    /// нижнему краю (аватар). Признак считается в `visualEffect` — без перерисовки экрана
-    /// на каждом кадре прокрутки.
-    func fadesUnderTopBar(_ inset: CGFloat, distance: CGFloat = 32, shrinks: Bool = false) -> some View {
-        visualEffect { content, proxy in
-            let top = proxy.frame(in: .scrollView).minY
-            let visible = min(max((top - inset) / distance, 0), 1)
-            return content
-                .opacity(visible)
-                .scaleEffect(shrinks ? 0.6 + 0.4 * visible : 1, anchor: .bottom)
-        }
     }
 }
 

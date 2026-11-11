@@ -83,9 +83,15 @@ struct PagedList<Item: Decodable & Identifiable, Row: View, Header: View>: View 
                 }
             } else if let failure = loader.failure {
                 ErrorStateView(message: failure, isOffline: loader.isOffline) { await loader.reload() }
+                    .centeredInScreen()
                     .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
             } else {
-                LoadingStateView().listRowBackground(Color.clear)
+                // Первая загрузка — по центру экрана под шапкой, а не строкой у её края.
+                LoadingStateView()
+                    .centeredInScreen()
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
             }
         }
         .listStyle(.insetGrouped)
