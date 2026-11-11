@@ -59,14 +59,14 @@ struct LibrarianBookView: View {
                 LibrarianCopyDetail(copy: copy, book: nil) { await load() }
             }
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "librarian.book.archiveTitle", defaultValue: "Убрать книгу в архив?"),
-            isPresented: $confirmArchive,
-            titleVisibility: .visible
+            isPresented: $confirmArchive
         ) {
             Button(String(localized: "librarian.book.archive", defaultValue: "В архив"), role: .destructive) {
                 Task { await setArchived(true) }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: {
             Text(String(localized: "librarian.book.archiveDesc", defaultValue: "Книга исчезнет из каталога читателей. История выдач останется, вернуть из архива можно в любой момент."))
         }
@@ -608,12 +608,11 @@ struct LibrarianCopyDetail: View {
         .task {
             if history == nil { await loadHistory() }
         }
-        .confirmationDialog(
+        .alert(
             withdrawing == "LOST"
                 ? String(localized: "librarian.copy.markLostTitle", defaultValue: "Отметить экземпляр утерянным?")
                 : String(localized: "librarian.copy.writeOffTitle", defaultValue: "Списать экземпляр?"),
             isPresented: Binding(get: { withdrawing != nil }, set: { if !$0 { withdrawing = nil } }),
-            titleVisibility: .visible,
             presenting: withdrawing
         ) { status in
             Button(
@@ -624,20 +623,21 @@ struct LibrarianCopyDetail: View {
             ) {
                 Task { await setStatus(status) }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: { _ in
             Text(String(
                 localized: "librarian.copy.withdrawDesc",
                 defaultValue: "Экземпляр \(current.inventoryNumber) выйдет из оборота. История выдач останется, вернуть на полку можно позже."
             ))
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "librarian.copy.rotateTitle", defaultValue: "Перевыпустить наклейку?"),
-            isPresented: $confirmRotate,
-            titleVisibility: .visible
+            isPresented: $confirmRotate
         ) {
             Button(String(localized: "librarian.copy.rotate", defaultValue: "Перевыпустить наклейку"), role: .destructive) {
                 Task { await rotate() }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: {
             Text(String(
                 localized: "librarian.copy.rotateDesc",

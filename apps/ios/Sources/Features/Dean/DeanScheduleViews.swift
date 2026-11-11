@@ -679,14 +679,14 @@ private struct DeanPairSheet: View {
                 }
             }
             .task { if containerActive, changes == nil { await loadChanges() } }
-            .confirmationDialog(
+            .alert(
                 String(localized: "dean.schedule.deletePairConfirm", defaultValue: "Удалить пару из расписания?"),
-                isPresented: $confirmDelete,
-                titleVisibility: .visible
+                isPresented: $confirmDelete
             ) {
                 Button(String(localized: "dean.schedule.deletePair", defaultValue: "Удалить пару"), role: .destructive) {
                     Task { await deletePair() }
                 }
+                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
             } message: {
                 Text(String(localized: "dean.schedule.deletePairHint", defaultValue: "Пара исчезнет у группы и преподавателя. Если по ней уже отмечали посещаемость, удалить не получится."))
             }

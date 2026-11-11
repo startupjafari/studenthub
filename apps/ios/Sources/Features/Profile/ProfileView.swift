@@ -495,14 +495,14 @@ private struct ProfileHeaderView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.bottom, Spacing.lg)
-        .confirmationDialog(
+        .alert(
             unfriendTitle,
-            isPresented: $confirmsUnfriend,
-            titleVisibility: .visible
+            isPresented: $confirmsUnfriend
         ) {
             Button(unfriendAction, role: .destructive) {
                 Task { await model.friendshipAction() }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
     }
 

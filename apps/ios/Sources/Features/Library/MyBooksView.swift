@@ -57,15 +57,15 @@ struct MyBooksView: View {
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await model.refresh() }
         .task { await model.refresh() }
-        .confirmationDialog(
+        .alert(
             String(localized: "library.disputeTitle", defaultValue: "Вы не брали эту книгу?"),
             isPresented: Binding(get: { confirmsDispute != nil }, set: { if !$0 { confirmsDispute = nil } }),
-            titleVisibility: .visible,
             presenting: confirmsDispute
         ) { loan in
             Button(String(localized: "library.dispute", defaultValue: "Это не я")) {
                 Task { await model.dispute(loan.id) }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: { loan in
             Text(LibraryText.fill(
                 String(
@@ -75,15 +75,15 @@ struct MyBooksView: View {
                 ["title": loan.book.title]
             ))
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "library.cancelTitle", defaultValue: "Отменить бронь?"),
             isPresented: Binding(get: { confirmsCancel != nil }, set: { if !$0 { confirmsCancel = nil } }),
-            titleVisibility: .visible,
             presenting: confirmsCancel
         ) { reservation in
             Button(String(localized: "library.cancel", defaultValue: "Отменить бронь"), role: .destructive) {
                 Task { await model.cancel(reservationID: reservation.id) }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: { reservation in
             Text(LibraryText.fill(
                 String(

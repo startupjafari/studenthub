@@ -78,15 +78,15 @@ struct LibrarianReservationsView: View {
         .debouncedSearch($search, prompt: String(localized: "librarian.res.search", defaultValue: "Книга, читатель, инв. номер")) { _ in
             await reload()
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "librarian.res.cancelTitle", defaultValue: "Снять бронь?"),
             isPresented: Binding(get: { cancelling != nil }, set: { if !$0 { cancelling = nil } }),
-            titleVisibility: .visible,
             presenting: cancelling
         ) { reservation in
             Button(String(localized: "librarian.res.cancel", defaultValue: "Снять бронь"), role: .destructive) {
                 Task { await cancel(reservation) }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: { reservation in
             Text(String(
                 localized: "librarian.res.cancelDesc",

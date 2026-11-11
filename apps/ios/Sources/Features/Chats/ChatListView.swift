@@ -289,24 +289,23 @@ struct ChatListView: View {
                     }
                 }
             }
-            .confirmationDialog(
+            .alert(
                 String(localized: "chats.clear.title", defaultValue: "Очистить историю у себя?"),
                 isPresented: Binding(get: { clearing != nil }, set: { if !$0 { clearing = nil } }),
-                titleVisibility: .visible,
                 presenting: clearing
             ) { row in
                 Button(String(localized: "chats.clear", defaultValue: "Очистить историю"), role: .destructive) {
                     Task { await model.clearHistory(row) }
                 }
+                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
             } message: { _ in
                 Text(String(localized: "chats.clear.message", defaultValue: "У собеседников переписка останется."))
             }
-            .confirmationDialog(
+            .alert(
                 deleting.count > 1
                     ? String(localized: "chats.delete.selected.title", defaultValue: "Удалить выбранные чаты?")
                     : String(localized: "chats.delete.chat.title", defaultValue: "Удалить чат?"),
                 isPresented: Binding(get: { !deleting.isEmpty }, set: { if !$0 { deleting = [] } }),
-                titleVisibility: .visible,
                 presenting: deleting.isEmpty ? nil : deleting
             ) { rows in
                 Button(
@@ -320,6 +319,7 @@ struct ChatListView: View {
                         finishEditing()
                     }
                 }
+                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
             } message: { rows in
                 if rows.count > 1 {
                     Text(String(

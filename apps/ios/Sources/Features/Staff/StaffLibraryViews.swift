@@ -61,14 +61,14 @@ struct StaffLibrarySettingsView: View {
             }
         }
         .navigationTitle(Text(StaffScreen.librarySettings.title))
-        .confirmationDialog(
+        .alert(
             String(localized: "staff.lib.disable.title", defaultValue: "Выключить библиотеку?"),
-            isPresented: $confirmDisable,
-            titleVisibility: .visible
+            isPresented: $confirmDisable
         ) {
             Button(String(localized: "staff.lib.disable", defaultValue: "Выключить библиотеку"), role: .destructive) {
                 Task { await toggle(false) }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: {
             Text(String(
                 localized: "staff.lib.disable.message",

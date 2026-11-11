@@ -418,15 +418,15 @@ struct CareerEmployerVacancyView: View {
         .sheet(item: $editing) { vacancy in
             CareerVacancyForm(vacancy: vacancy) { token += 1 }
         }
-        .confirmationDialog(
+        .alert(
             confirming?.confirmTitle ?? "",
             isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
-            titleVisibility: .visible,
             presenting: confirming
         ) { action in
             Button(action.title, role: .destructive) {
                 Task { await perform(action) }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: { action in
             Text(action.confirmText)
         }
@@ -743,7 +743,7 @@ struct CareerCandidatesView: View {
                 }
             }
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "career.candidates.status", defaultValue: "Статус"),
             isPresented: Binding(get: { changing != nil }, set: { if !$0 { changing = nil } }),
             presenting: changing
@@ -754,20 +754,21 @@ struct CareerCandidatesView: View {
                 }
             }
             Button(String(localized: "career.apps.history", defaultValue: "История")) { history = application }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
-        .confirmationDialog(
+        .alert(
             confirming.map { pair in
                 let status = CareerText.applicationStatus(pair.status).text
                 return String(localized: "career.candidates.confirm", defaultValue: "Перевести в «\(status)»? Студент сразу увидит новый статус. Вернуть прежний нельзя.")
             } ?? "",
-            isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
-            titleVisibility: .visible
+            isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } })
         ) {
             if let pair = confirming {
                 Button(CareerText.applicationStatus(pair.status).text) {
                     Task { await change(pair.application, to: pair.status, comment: nil) }
                 }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
         .reasonPrompt(
             Binding(get: { rejecting != nil }, set: { if !$0 { rejecting = nil } }),

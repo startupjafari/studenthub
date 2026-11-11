@@ -210,10 +210,9 @@ struct ChatThreadView: View {
                 return await model.forward(message, to: targets)
             }
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "chats.report.title", defaultValue: "Что не так с сообщением?"),
             isPresented: Binding(get: { reporting != nil }, set: { if !$0 { reporting = nil } }),
-            titleVisibility: .visible,
             presenting: reporting
         ) { message in
             ForEach(ComplaintReason.allCases) { reason in
@@ -221,16 +220,17 @@ struct ChatThreadView: View {
                     Task { reported = await model?.report(message, reason: reason.title) ?? false }
                 }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "chats.delete.title", defaultValue: "Удалить сообщение у всех?"),
             isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
-            titleVisibility: .visible,
             presenting: deleting
         ) { message in
             Button(String(localized: "feed.delete", defaultValue: "Удалить"), role: .destructive) {
                 Task { await model?.delete(message) }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
         .alert(String(localized: "feed.report.sent", defaultValue: "Жалоба отправлена"), isPresented: $reported) {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}

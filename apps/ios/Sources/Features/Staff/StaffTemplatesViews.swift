@@ -508,23 +508,23 @@ struct StaffTemplateDetailView: View {
         .fileImporter(isPresented: $uploading, allowedContentTypes: [.staffDocx]) { result in
             Task { await upload(result) }
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "staff.tpl.delete.confirm", defaultValue: "Удалить шаблон «\((template?.title).orEmpty)»?"),
-            isPresented: $confirmDelete,
-            titleVisibility: .visible
+            isPresented: $confirmDelete
         ) {
             Button(deleteActionTitle, role: .destructive) { Task { await remove() } }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: {
             Text(deleteHint)
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "staff.tpl.unpublish.confirm", defaultValue: "Снять шаблон с публикации?"),
-            isPresented: $confirmUnpublish,
-            titleVisibility: .visible
+            isPresented: $confirmUnpublish
         ) {
             Button(String(localized: "staff.tpl.unpublish", defaultValue: "Снять с публикации"), role: .destructive) {
                 Task { await run { try await api.unpublishTemplate(id: templateID) } }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: {
             Text(String(localized: "staff.tpl.unpublish.hint", defaultValue: "Формировать документы по нему станет нельзя, пока вы не опубликуете его снова."))
         }

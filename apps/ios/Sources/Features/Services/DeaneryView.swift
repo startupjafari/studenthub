@@ -285,14 +285,14 @@ private struct AppointmentDetailView: View {
         .listSectionSpacing(.compact)
         .navigationTitle(Text(String(localized: "deanery.detail.title", defaultValue: "Запись")))
         .navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog(
+        .alert(
             String(localized: "deanery.cancel.confirm", defaultValue: "Отменить запись в деканат?"),
-            isPresented: $confirming,
-            titleVisibility: .visible
+            isPresented: $confirming
         ) {
             Button(String(localized: "deanery.cancel", defaultValue: "Отменить запись"), role: .destructive) {
                 Task { await cancel() }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
         .actionFailureAlert($actionFailure)
     }

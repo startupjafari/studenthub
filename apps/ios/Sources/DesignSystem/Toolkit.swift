@@ -603,15 +603,18 @@ extension View {
         actionTitle: String,
         perform: @escaping (Item) async -> Void
     ) -> some View {
-        confirmationDialog(
+        // Alert, а не confirmationDialog: на iOS 26 диалог всплывает у вью, к которой
+        // привязан, — у этого модификатора это весь экран, и вопрос про кнопку внизу
+        // появлялся вверху. Alert всегда по центру.
+        alert(
             item.wrappedValue.map(title) ?? "",
             isPresented: Binding(get: { item.wrappedValue != nil }, set: { if !$0 { item.wrappedValue = nil } }),
-            titleVisibility: .visible,
             presenting: item.wrappedValue
         ) { value in
             Button(actionTitle, role: .destructive) {
                 Task { await perform(value) }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
     }
 

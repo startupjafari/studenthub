@@ -199,15 +199,15 @@ struct AdminComplaintView: View {
                 AdminComplaintTranscriptSheet(complaint: complaint)
             }
         }
-        .confirmationDialog(
+        .alert(
             confirming.map(confirmTitle) ?? "",
             isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
-            titleVisibility: .visible,
             presenting: confirming
         ) { action in
             Button(decisionTitle(action), role: action == "WARN_USER" ? nil : .destructive) {
                 Task { await resolve(action) }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
     }
 

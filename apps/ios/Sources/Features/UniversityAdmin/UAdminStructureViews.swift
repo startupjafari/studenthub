@@ -598,24 +598,24 @@ struct UAdminGroupDetailView: View {
                 UAdminGroupForm(group: group, faculties: faculties, facultyID: group.facultyId) { await load() }
             }
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "uadmin.group.deleteConfirm.short", defaultValue: "Удалить группу? Удалить можно только пустую группу, удаление необратимо."),
-            isPresented: $deleting,
-            titleVisibility: .visible
+            isPresented: $deleting
         ) {
             Button(String(localized: "uadmin.delete", defaultValue: "Удалить"), role: .destructive) {
                 Task { await remove() }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
-        .confirmationDialog(
+        .alert(
             starostaChange?.title ?? "",
             isPresented: Binding(get: { starostaChange != nil }, set: { if !$0 { starostaChange = nil } }),
-            titleVisibility: .visible,
             presenting: starostaChange
         ) { change in
             Button(change.actionTitle, role: change.userID == nil ? .destructive : nil) {
                 Task { await assign(change.userID) }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: { change in
             Text(change.message)
         }

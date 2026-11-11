@@ -225,19 +225,18 @@ struct AdminSupportTicketView: View {
         .alert(notice ?? "", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "admin.support.confirmClose", defaultValue: "Закрыть обращение? Переписка сохранится, новый ответ откроет его снова."),
-            isPresented: $confirmClose,
-            titleVisibility: .visible
+            isPresented: $confirmClose
         ) {
             Button(String(localized: "admin.support.close", defaultValue: "Закрыть обращение")) {
                 Task { await run { try await api.supportClose(id: id) } done: { dismiss() } }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "admin.support.confirmEscalate", defaultValue: "Позвать администраторов? Уведомление придёт им сразу, мимо дежурства и тихих часов."),
-            isPresented: $confirmEscalate,
-            titleVisibility: .visible
+            isPresented: $confirmEscalate
         ) {
             Button(String(localized: "admin.support.escalate", defaultValue: "Позвать администратора")) {
                 Task {
@@ -246,28 +245,29 @@ struct AdminSupportTicketView: View {
                     }
                 }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "admin.support.confirmMerge", defaultValue: "Склеить обращения? Переписка этого обращения станет частью выбранного."),
             isPresented: Binding(get: { merging != nil }, set: { if !$0 { merging = nil } }),
-            titleVisibility: .visible,
             presenting: merging
         ) { sibling in
             Button(String(localized: "admin.support.merge", defaultValue: "Склеить")) {
                 Task { await run { try await api.supportMerge(id: id, into: sibling.id) } done: { dismiss() } }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
-        .confirmationDialog(
+        .alert(
             complaintTarget.map {
                 String(localized: "admin.support.confirmComplaint", defaultValue: "Передать жалобу на \($0.title) модерации? Автором жалобы будет автор обращения, текст — его первое сообщение.")
             } ?? "",
             isPresented: Binding(get: { complaintTarget != nil && !pickingComplaintTarget }, set: { if !$0 { complaintTarget = nil } }),
-            titleVisibility: .visible,
             presenting: complaintTarget
         ) { target in
             Button(String(localized: "admin.support.complaintSubmit", defaultValue: "Передать в модерацию")) {
                 Task { await fileComplaint(target) }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
         .sheet(isPresented: $editingTags) {
             if let thread {

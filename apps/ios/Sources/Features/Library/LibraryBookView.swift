@@ -91,15 +91,15 @@ struct LibraryBookView: View {
             if model == nil { model = LibraryBookModel(bookID: bookID) }
             await model?.load()
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "library.cancelTitle", defaultValue: "Отменить бронь?"),
             isPresented: Binding(get: { confirmsCancel != nil }, set: { if !$0 { confirmsCancel = nil } }),
-            titleVisibility: .visible,
             presenting: confirmsCancel
         ) { reservationID in
             Button(String(localized: "library.cancel", defaultValue: "Отменить бронь"), role: .destructive) {
                 Task { await model?.cancel(reservationID: reservationID) }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: { _ in
             Text(LibraryText.fill(
                 String(

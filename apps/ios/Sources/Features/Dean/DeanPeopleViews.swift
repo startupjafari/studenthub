@@ -66,13 +66,13 @@ struct DeanPeopleView: View {
                 .accessibilityLabel(Text(String(localized: "dean.people.export", defaultValue: "Выгрузить список")))
             }
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "dean.people.export", defaultValue: "Выгрузить список"),
-            isPresented: $exportChoice,
-            titleVisibility: .visible
+            isPresented: $exportChoice
         ) {
             Button(String("Excel (XLSX)")) { export(.xlsx) }
             Button(String("CSV")) { export(.csv) }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: {
             Text(String(localized: "dean.people.exportHint", defaultValue: "В файл попадёт вся выборка с текущими фильтрами. Больше 5000 строк — только CSV."))
         }

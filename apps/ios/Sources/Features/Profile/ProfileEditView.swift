@@ -108,10 +108,9 @@ struct ProfileEditView: View {
         // заменяет своя кнопка с вопросом.
         .navigationBarBackButtonHidden(hasChanges || isSaving)
         .toolbar { toolbar }
-        .confirmationDialog(
+        .alert(
             String(localized: "profile.edit.exitTitle", defaultValue: "Сохранить изменения?"),
-            isPresented: $confirmingExit,
-            titleVisibility: .visible
+            isPresented: $confirmingExit
         ) {
             Button(String(localized: "common.save", defaultValue: "Сохранить")) {
                 Task { await save() }

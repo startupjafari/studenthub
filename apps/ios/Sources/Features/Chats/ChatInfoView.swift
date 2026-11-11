@@ -391,10 +391,9 @@ struct ChatInfoView: View {
                     pickedMessage = messageID
                 }
             }
-            .confirmationDialog(
+            .alert(
                 String(localized: "chats.clear.title", defaultValue: "Очистить историю у себя?"),
-                isPresented: $confirmingClear,
-                titleVisibility: .visible
+                isPresented: $confirmingClear
             ) {
                 Button(String(localized: "chats.clear", defaultValue: "Очистить историю"), role: .destructive) {
                     Task {
@@ -405,22 +404,22 @@ struct ChatInfoView: View {
                         }
                     }
                 }
+                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
             }
-            .confirmationDialog(
+            .alert(
                 String(localized: "chats.delete.chat.title", defaultValue: "Удалить чат?"),
-                isPresented: $confirmingLeave,
-                titleVisibility: .visible
+                isPresented: $confirmingLeave
             ) {
                 Button(ChatLeaveTitle.title(for: chat?.kind ?? .private), role: .destructive) {
                     Task { await leave() }
                 }
+                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
             }
-            .confirmationDialog(
+            .alert(
                 chat?.blocked == true
                     ? String(localized: "chats.unblock.title", defaultValue: "Разблокировать?")
                     : String(localized: "chats.block.title", defaultValue: "Заблокировать пользователя?"),
-                isPresented: $confirmingBlock,
-                titleVisibility: .visible
+                isPresented: $confirmingBlock
             ) {
                 Button(
                     chat?.blocked == true
@@ -430,6 +429,7 @@ struct ChatInfoView: View {
                 ) {
                     Task { await toggleBlock() }
                 }
+                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
             } message: {
                 if chat?.blocked != true {
                     Text(String(localized: "chats.block.message", defaultValue: "Он не сможет писать вам, дружба будет удалена."))

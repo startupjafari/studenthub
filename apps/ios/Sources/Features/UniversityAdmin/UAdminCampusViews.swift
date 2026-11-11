@@ -201,26 +201,26 @@ struct UAdminCampusDetailView: View {
         ) { floor in
             await run { try await UAdminAPI().deleteFloor(id: floor.id) }
         }
-        .confirmationDialog(
+        .alert(
             restoring.map { String(localized: "uadmin.campus.restoreConfirm", defaultValue: "Восстановить черновики из версии №\(String($0.number))?") } ?? "",
             isPresented: Binding(get: { restoring != nil }, set: { if !$0 { restoring = nil } }),
-            titleVisibility: .visible,
             presenting: restoring
         ) { version in
             Button(String(localized: "uadmin.campus.restore", defaultValue: "В черновик")) {
                 Task { await restore(version) }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: { _ in
             Text(String(localized: "uadmin.campus.restoreHint", defaultValue: "Текущие черновики этажей уйдут в снимки — их можно вернуть."))
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "uadmin.campus.deleteConfirm", defaultValue: "Удалить кампус? Карта исчезнет у всех, корпуса и этажи удалятся вместе с ней."),
-            isPresented: $deletingCampus,
-            titleVisibility: .visible
+            isPresented: $deletingCampus
         ) {
             Button(String(localized: "uadmin.campus.delete", defaultValue: "Удалить кампус"), role: .destructive) {
                 Task { await deleteCampus() }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
         .actionFailureAlert($actionFailure)
         .alert(

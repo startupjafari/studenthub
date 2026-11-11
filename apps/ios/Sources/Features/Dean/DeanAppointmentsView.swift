@@ -129,15 +129,15 @@ struct DeanAppointmentsView: View {
                 await loader.reload()
             }
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "dean.appointments.completeTitle", defaultValue: "Завершить приём?"),
             isPresented: Binding(get: { completing != nil }, set: { if !$0 { completing = nil } }),
-            titleVisibility: .visible,
             presenting: completing
         ) { item in
             Button(String(localized: "dean.appointments.complete", defaultValue: "Завершить")) {
                 Task { await run(item) { try await api.completeAppointment(id: item.id) } }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: { _ in
             Text(String(localized: "dean.appointments.completeHint", defaultValue: "Запись уйдёт в архив, студент получит уведомление."))
         }

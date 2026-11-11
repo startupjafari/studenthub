@@ -37,10 +37,9 @@ struct PostActionsHost<Content: View>: View {
                 CommunitySharePostView(postID: post.id)
                     .presentationDetents([.medium, .large])
             }
-            .confirmationDialog(
+            .alert(
                 String(localized: "feed.report.title", defaultValue: "Что не так с публикацией?"),
                 isPresented: Binding(get: { reporting != nil }, set: { if !$0 { reporting = nil } }),
-                titleVisibility: .visible,
                 presenting: reporting
             ) { post in
                 ForEach(ComplaintReason.allCases) { reason in
@@ -50,11 +49,11 @@ struct PostActionsHost<Content: View>: View {
                         }
                     }
                 }
+                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
             }
-            .confirmationDialog(
+            .alert(
                 String(localized: "feed.delete.title", defaultValue: "Удалить публикацию?"),
                 isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
-                titleVisibility: .visible,
                 presenting: deleting
             ) { post in
                 Button(String(localized: "feed.delete", defaultValue: "Удалить"), role: .destructive) {
@@ -63,6 +62,7 @@ struct PostActionsHost<Content: View>: View {
                         onDeleted()
                     }
                 }
+                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
             } message: { _ in
                 Text(String(localized: "feed.delete.message", defaultValue: "Публикацию нельзя будет вернуть."))
             }

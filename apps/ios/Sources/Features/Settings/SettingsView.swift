@@ -239,14 +239,14 @@ struct SettingsView: View {
         .sheet(isPresented: $showsQRApprove) {
             QRApproveView()
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "settings.signOut.confirm", defaultValue: "Выйти из аккаунта на этом iPhone?"),
-            isPresented: $confirmsSignOut,
-            titleVisibility: .visible
+            isPresented: $confirmsSignOut
         ) {
             Button(String(localized: "session.signOut", defaultValue: "Выйти"), role: .destructive) {
                 Task { await session.signOut() }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
         .task {
             guard !refreshed else { return }

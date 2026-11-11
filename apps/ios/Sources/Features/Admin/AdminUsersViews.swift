@@ -251,36 +251,36 @@ struct AdminUserView: View {
         ) {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "admin.user.blockTitle", defaultValue: "Заблокировать \(name)?"),
-            isPresented: $blocking,
-            titleVisibility: .visible
+            isPresented: $blocking
         ) {
             ForEach(AdminText.blockTerms, id: \.self) { days in
                 Button(blockButtonTitle(days), role: .destructive) {
                     Task { await block(days: days) }
                 }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: {
             Text(String(localized: "admin.user.blockMessage", defaultValue: "Все сессии пользователя будут закрыты. Временная блокировка снимется сама."))
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "admin.user.unblockTitle", defaultValue: "Разблокировать \(name)?"),
-            isPresented: $confirmUnblock,
-            titleVisibility: .visible
+            isPresented: $confirmUnblock
         ) {
             Button(String(localized: "admin.user.unblock", defaultValue: "Разблокировать")) {
                 Task { await unblock() }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "admin.user.sessionsTitle", defaultValue: "Завершить сессии?"),
-            isPresented: $confirmSessions,
-            titleVisibility: .visible
+            isPresented: $confirmSessions
         ) {
             Button(String(localized: "admin.user.sessionsConfirm", defaultValue: "Завершить"), role: .destructive) {
                 Task { await endSessions() }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: {
             Text(String(localized: "admin.user.sessionsMessage", defaultValue: "\(name) выйдет на всех устройствах. Доступ к аккаунту сохранится — войти можно заново. Помогает, если аккаунт угнали."))
         }

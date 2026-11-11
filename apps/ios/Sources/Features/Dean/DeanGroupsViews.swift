@@ -97,15 +97,15 @@ struct DeanGroupView: View {
         .navigationTitle(Text(DeanScreen.group(id: groupID).title))
         .navigationBarTitleDisplayMode(.inline)
         .actionFailureAlert($actionFailure)
-        .confirmationDialog(
+        .alert(
             pendingStarosta?.title ?? "",
             isPresented: Binding(get: { pendingStarosta != nil }, set: { if !$0 { pendingStarosta = nil } }),
-            titleVisibility: .visible,
             presenting: pendingStarosta
         ) { change in
             Button(change.actionTitle, role: change.studentID == nil ? .destructive : nil) {
                 Task { await apply(change) }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: { change in
             Text(change.message)
         }
