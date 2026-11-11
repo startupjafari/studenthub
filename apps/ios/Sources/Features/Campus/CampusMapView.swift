@@ -132,24 +132,6 @@ struct CampusMapView: View {
 
     private var searchResults: some View {
         List {
-            if model.isSearching, model.results.isEmpty {
-                LoadingStateView()
-                    .centeredInScreen()
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            } else if let failure = model.searchFailure {
-                ErrorStateView(message: failure, isOffline: model.searchOffline) { model.search(query) }
-                    .centeredInScreen()
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            } else if model.results.isEmpty {
-                EmptyStateView(
-                    title: String(localized: "services.notFound", defaultValue: "Ничего не нашлось"),
-                    symbol: "magnifyingglass",
-                    hint: String(localized: "services.notFound.hint", defaultValue: "Попробуйте другое слово")
-                )
-                .listRowBackground(Color.clear)
-            }
             ForEach(model.results) { hit in
                 Button {
                     Task {
@@ -172,7 +154,20 @@ struct CampusMapView: View {
                 .buttonStyle(.plain)
             }
         }
-        .listStyle(.insetGrouped)
+        .compactListStyle()
+        .screenState(model.results.isEmpty) {
+            if let failure = model.searchFailure {
+                ErrorStateView(message: failure, isOffline: model.searchOffline) { model.search(query) }
+            } else if model.isSearching {
+                LoadingStateView()
+            } else {
+                EmptyStateView(
+                    title: String(localized: "services.notFound", defaultValue: "Ничего не нашлось"),
+                    symbol: "magnifyingglass",
+                    hint: String(localized: "services.notFound.hint", defaultValue: "Попробуйте другое слово")
+                )
+            }
+        }
     }
 }
 

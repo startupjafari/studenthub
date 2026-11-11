@@ -47,58 +47,47 @@ struct PagedList<Item: Decodable & Identifiable, Row: View, Header: View>: View 
     var body: some View {
         List {
             header()
-            if loader.isLoaded {
-                if loader.items.isEmpty {
-                    empty
-                        .centeredInScreen()
+            if loader.isLoaded, !loader.items.isEmpty {
+                if let failure = loader.failure {
+                    StaleDataBanner(message: failure, isOffline: loader.isOffline) { await loader.reload() }
                         .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                } else {
-                    if let failure = loader.failure {
-                        StaleDataBanner(message: failure, isOffline: loader.isOffline) { await loader.reload() }
-                            .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets())
-                    }
-                    Section {
-                        ForEach(loader.items) { item in
-                            row(item)
-                                .task { await loader.loadMore(after: item) }
-                        }
-                        if let pageFailure = loader.pageFailure {
-                            PageFailureRow(message: pageFailure) { await loader.retryMore() }
-                        } else if loader.hasMore {
-                            HStack {
-                                Spacer()
-                                ProgressView()
-                                Spacer()
-                            }
-                            .listRowBackground(Color.clear)
-                        }
-                    } footer: {
-                        if let total = loader.total, total > 0 {
-                            Text(String(localized: "common.totalCount", defaultValue: "Всего: \(total.formatted())"))
-                        }
-                    }
-
+                        .listRowInsets(EdgeInsets())
                 }
-            } else if let failure = loader.failure {
-                ErrorStateView(message: failure, isOffline: loader.isOffline) { await loader.reload() }
-                    .centeredInScreen()
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            } else {
-                // Первая загрузка — по центру экрана под шапкой, а не строкой у её края.
-                LoadingStateView()
-                    .centeredInScreen()
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
+                Section {
+                    ForEach(loader.items) { item in
+                        row(item)
+                            .task { await loader.loadMore(after: item) }
+                    }
+                    if let pageFailure = loader.pageFailure {
+                        PageFailureRow(message: pageFailure) { await loader.retryMore() }
+                    } else if loader.hasMore {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                            Spacer()
+                        }
+                        .listRowBackground(Color.clear)
+                    }
+                } footer: {
+                    if let total = loader.total, total > 0 {
+                        Text(String(localized: "common.totalCount", defaultValue: "Всего: \(total.formatted())"))
+                    }
+                }
             }
         }
-        .listStyle(.insetGrouped)
         // Поиск, фильтры и список — плотно, без пустых полос, которые список ставит
         // над первой секцией и между секциями.
-        .listSectionSpacing(.compact)
-        .contentMargins(.top, Spacing.xs, for: .scrollContent)
+        .compactListStyle()
+        // Пусто, первая загрузка и ошибка — по центру экрана, а не строкой у края шапки.
+        .screenState(!loader.isLoaded || loader.items.isEmpty) {
+            if loader.isLoaded {
+                empty
+            } else if let failure = loader.failure {
+                ErrorStateView(message: failure, isOffline: loader.isOffline) { await loader.reload() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .refreshable { await loader.reload() }
         .task { await loader.loadIfNeeded() }
     }

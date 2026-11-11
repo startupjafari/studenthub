@@ -86,7 +86,7 @@ struct RetryButton: View {
 /// ему дали, и центрирует себя в этом. В прокрутке с минимальной высотой (вкладка
 /// профиля) он уезжал за нижний край экрана, а в списках вставал на разной высоте —
 /// где под шапкой, где посередине. Здесь размер по содержимому, а место на экране
-/// задаёт тот, кто ставит (`centeredInScreen`).
+/// задаёт тот, кто ставит (`screenState`).
 struct EmptyStateView: View {
     let title: String
     let symbol: String
@@ -132,11 +132,33 @@ struct EmptyStateView: View {
 }
 
 extension View {
-    /// Пустое состояние экрана-списка: по центру блока в две трети высоты экрана под
-    /// шапкой (фильтрами, поиском). На всех экранах оно стоит на одной высоте, а не
-    /// прижато к шапке.
-    func centeredInScreen() -> some View {
-        containerRelativeFrame(.vertical, alignment: .center) { length, _ in length * 0.66 }
+    /// Плотный сгруппированный список: настройки, каталоги, списки с фильтрами. Первая
+    /// секция — на одном расстоянии от панели навигации на всех таких экранах, а не на
+    /// системных 35 pt, которые список ставит над первой секцией; между секциями —
+    /// компактный зазор.
+    func compactListStyle() -> some View {
+        listStyle(.insetGrouped)
+            .listSectionSpacing(.compact)
+            .contentMargins(.top, Spacing.sm, for: .scrollContent)
+    }
+}
+
+extension View {
+    /// Состояние экрана-списка — пусто, первая загрузка, ошибка — по центру видимой
+    /// области между панелью навигации и панелью вкладок, по обеим осям.
+    ///
+    /// Накладывается поверх списка, а не строкой в нём: строка `List` не знает высоты
+    /// экрана (`containerRelativeFrame` в ней меряет саму строку), и состояние вставало
+    /// вплотную под шапкой, а крупный значок обрезался её краем. Шапка списка (фильтры,
+    /// поиск) остаётся на месте и работает: подложка оверлея касания не ловит.
+    func screenState<StateContent: View>(_ isShown: Bool, @ViewBuilder _ state: () -> StateContent) -> some View {
+        overlay {
+            if isShown {
+                state()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity)
+            }
+        }
     }
 }
 

@@ -39,19 +39,7 @@ struct CommunityArticlesView: View {
                         fillsWidth: true
                     )
                 }
-                if articles.isEmpty {
-                    // Без кнопки «Написать статью»: то же действие — у плавающей кнопки.
-                    EmptyStateView(
-                        title: shelf == .saved
-                            ? String(localized: "community.articles.noSaved", defaultValue: "Сохранённых статей нет")
-                            : String(localized: "community.articles.empty", defaultValue: "Статей пока нет"),
-                        symbol: "doc.richtext",
-                        hint: emptyHint
-                    )
-                    .centeredInScreen()
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                } else {
+                if !articles.isEmpty {
                     Section {
                         ForEach(articles) { article in
                             NavigationLink(value: AppRoute.community(.article(id: article.id))) {
@@ -61,7 +49,17 @@ struct CommunityArticlesView: View {
                     }
                 }
             }
-            .listStyle(.insetGrouped)
+            .compactListStyle()
+            // Без кнопки «Написать статью»: то же действие — у плавающей кнопки.
+            .screenState(articles.isEmpty) {
+                EmptyStateView(
+                    title: shelf == .saved
+                        ? String(localized: "community.articles.noSaved", defaultValue: "Сохранённых статей нет")
+                        : String(localized: "community.articles.empty", defaultValue: "Статей пока нет"),
+                    symbol: "doc.richtext",
+                    hint: emptyHint
+                )
+            }
             .refreshable { reload += 1 }
         }
         .background(Palette.background)

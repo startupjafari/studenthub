@@ -332,20 +332,7 @@ struct CommunityMyPostsView: View {
 
                     if !feed.hasLoaded {
                         ForEach(0..<2, id: \.self) { _ in PostCardSkeleton() }
-                    } else if let failure = feed.failure, feed.posts.isEmpty {
-                        ErrorStateView(message: failure, isOffline: feed.isOffline) { await feed.refresh() }
-                    } else if feed.posts.isEmpty {
-                        EmptyStateView(
-                            title: status == "DRAFT"
-                                ? String(localized: "community.myPosts.noDrafts", defaultValue: "Черновиков нет")
-                                : String(localized: "community.myPosts.noScheduled", defaultValue: "Отложенных публикаций нет"),
-                            symbol: status == "DRAFT" ? "doc" : "clock",
-                            hint: status == "DRAFT"
-                                ? String(localized: "community.myPosts.noDrafts.hint", defaultValue: "Сохраните пост черновиком, чтобы закончить его позже")
-                                : String(localized: "community.myPosts.noScheduled.hint", defaultValue: "Выберите время публикации, когда создаёте пост")
-                        )
-                        .centeredInScreen()
-                    } else {
+                    } else if !feed.posts.isEmpty {
                         ForEach(feed.posts) { post in
                             VStack(alignment: .leading, spacing: Spacing.sm) {
                                 if let at = post.scheduledAt {
@@ -362,7 +349,24 @@ struct CommunityMyPostsView: View {
                         }
                     }
                 }
-                .padding(Spacing.xl)
+                .padding(.horizontal, Spacing.xl)
+                .padding(.bottom, Spacing.xl)
+            }
+            .contentMargins(.top, Spacing.sm, for: .scrollContent)
+            .screenState(feed.hasLoaded && feed.posts.isEmpty) {
+                if let failure = feed.failure {
+                    ErrorStateView(message: failure, isOffline: feed.isOffline) { await feed.refresh() }
+                } else {
+                    EmptyStateView(
+                        title: status == "DRAFT"
+                            ? String(localized: "community.myPosts.noDrafts", defaultValue: "Черновиков нет")
+                            : String(localized: "community.myPosts.noScheduled", defaultValue: "Отложенных публикаций нет"),
+                        symbol: status == "DRAFT" ? "doc" : "clock",
+                        hint: status == "DRAFT"
+                            ? String(localized: "community.myPosts.noDrafts.hint", defaultValue: "Сохраните пост черновиком, чтобы закончить его позже")
+                            : String(localized: "community.myPosts.noScheduled.hint", defaultValue: "Выберите время публикации, когда создаёте пост")
+                    )
+                }
             }
             .background(Palette.background)
             .refreshable { await feed.refresh() }
