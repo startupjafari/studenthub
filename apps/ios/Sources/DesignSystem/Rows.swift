@@ -103,11 +103,15 @@ struct SettingsRow: View {
             if isBusy {
                 ProgressView()
             } else if let value, !value.isEmpty {
+                // Короткое значение («Русский», «2FA включена») не режется: переносится
+                // название слева. Иначе длинное название съедало значение до «Р…».
+                // Длинное (логин, почта) по-прежнему режется посередине.
                 Text(value)
                     .font(Typography.body.monospacedDigit())
                     .foregroundStyle(Palette.mutedForeground)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .fixedSize(horizontal: value.count <= Self.shortValueLength, vertical: false)
             }
             if showsChevron {
                 Image(systemName: "chevron.forward")
@@ -120,6 +124,8 @@ struct SettingsRow: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
+
+    private static let shortValueLength = 16
 }
 
 /// Пара «подпись — значение» для карточек сведений: занятие, профиль, заявка.

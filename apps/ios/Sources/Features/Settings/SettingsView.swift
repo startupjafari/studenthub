@@ -218,7 +218,8 @@ struct SettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             // Обе кнопки — справа, одной группой: слева у вложенного экрана «Назад», и
-            // круглая QR-кнопка рядом с ней читалась как вторая «Назад».
+            // круглая QR-кнопка рядом с ней читалась как вторая «Назад». Обе — значками:
+            // значок и слово в одной стеклянной капсуле стояли с неровным зазором.
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
                     showsQRApprove = true
@@ -229,7 +230,7 @@ struct SettingsView: View {
                 NavigationLink {
                     ProfileEditView()
                 } label: {
-                    Text(String(localized: "settings.editShort", defaultValue: "Править"))
+                    Image(systemName: "square.and.pencil")
                 }
                 .accessibilityLabel(Text(String(localized: "profile.editTitle", defaultValue: "Изменить профиль")))
                 .accessibilityIdentifier("settings.edit")
@@ -280,7 +281,7 @@ struct SettingsView: View {
     }
 
     /// Шапка как в «Настройках» Telegram: аватар по центру, имя, ниже — почта и имя
-    /// пользователя. Правка — кнопкой «Править» в панели.
+    /// пользователя. Правка — кнопкой с карандашом в панели.
     private var header: some View {
         VStack(spacing: Spacing.xs) {
             AvatarView(url: viewer.profile?.avatarUrl, name: viewer.profile?.name, size: min(avatarSize, 112))

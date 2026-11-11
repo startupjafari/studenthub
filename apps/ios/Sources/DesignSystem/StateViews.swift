@@ -81,6 +81,12 @@ struct RetryButton: View {
 }
 
 /// Данных нет, и это не ошибка: свободный день, пустой список заявок.
+///
+/// Своя вёрстка, а не `ContentUnavailableView`: системный растягивается на всё, что
+/// ему дали, и центрирует себя в этом. В прокрутке с минимальной высотой (вкладка
+/// профиля) он уезжал за нижний край экрана, а в списках вставал на разной высоте —
+/// где под шапкой, где посередине. Здесь размер по содержимому, а место на экране
+/// задаёт тот, кто ставит (`centeredInScreen`).
 struct EmptyStateView: View {
     let title: String
     let symbol: String
@@ -88,19 +94,49 @@ struct EmptyStateView: View {
     var actionTitle: String?
     var action: (() -> Void)?
 
+    @ScaledMetric(relativeTo: .largeTitle) private var symbolSize: CGFloat = 44
+
     var body: some View {
-        ContentUnavailableView {
-            Label(title, systemImage: symbol)
-        } description: {
-            if let hint { Text(hint) }
-        } actions: {
+        VStack(spacing: Spacing.md) {
+            Image(systemName: symbol)
+                .font(.system(size: min(symbolSize, 72)))
+                .foregroundStyle(Palette.mutedForeground)
+                .padding(.bottom, Spacing.xs)
+                .accessibilityHidden(true)
+            Text(title)
+                .font(.title3.weight(.bold))
+                .foregroundStyle(Palette.foreground)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
+            if let hint {
+                Text(hint)
+                    .font(Typography.body)
+                    .foregroundStyle(Palette.mutedForeground)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
                     .glassProminentButton()
+                    .padding(.top, Spacing.sm)
             }
         }
+        .frame(maxWidth: 340)
+        .padding(.horizontal, Spacing.xl)
+        .padding(.vertical, Spacing.xxl)
         .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("state.empty")
+    }
+}
+
+extension View {
+    /// Пустое состояние экрана-списка: по центру блока в две трети высоты экрана под
+    /// шапкой (фильтрами, поиском). На всех экранах оно стоит на одной высоте, а не
+    /// прижато к шапке.
+    func centeredInScreen() -> some View {
+        containerRelativeFrame(.vertical, alignment: .center) { length, _ in length * 0.66 }
     }
 }
 

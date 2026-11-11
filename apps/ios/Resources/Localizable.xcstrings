@@ -91368,23 +91368,6 @@
         }
       }
     },
-    "settings.editShort": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Править"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Өңдеу"
-          }
-        }
-      }
-    },
     "settings.2fa.statusOn": {
       "extractionState": "manual",
       "localizations": {
