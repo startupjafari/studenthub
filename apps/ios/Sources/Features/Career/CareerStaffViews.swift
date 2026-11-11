@@ -854,27 +854,29 @@ private struct CareerReportView: View {
     var body: some View {
         RemoteContent(reloadToken: period.hashValue, load: { try await CareerAPI().report(period: period, universityID: universityID) }) { data in
             List {
-                Section {
-                    Picker(String(localized: "career.report.period", defaultValue: "Период"), selection: $period) {
-                        Text(String(localized: "career.report.month", defaultValue: "Месяц")).tag("month")
-                        Text(String(localized: "career.report.quarter", defaultValue: "Квартал")).tag("quarter")
-                        Text(String(localized: "career.report.year", defaultValue: "Учебный год")).tag("year")
-                    }
-                    .pickerStyle(.segmented)
-                    if let from = data["from"]?.date, let to = data["to"]?.date {
-                        Text(verbatim: "\(DisplayFormat.date(from)) — \(DisplayFormat.date(to))")
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.mutedForeground)
-                    }
-                }
-                .listRowBackground(Color.clear)
+                // Общий селектор обзоров, а не свой сегмент в строке списка: свой стоял
+                // в строке с отступами, а даты периода — второй строкой под разделителем.
+                DashboardPeriodPicker(
+                    title: String(localized: "career.report.period", defaultValue: "Период"),
+                    selection: $period,
+                    options: [
+                        ("month", String(localized: "career.report.month", defaultValue: "Месяц")),
+                        ("quarter", String(localized: "career.report.quarter", defaultValue: "Квартал")),
+                        ("year", String(localized: "career.report.year", defaultValue: "Учебный год")),
+                    ]
+                )
 
-                DashboardMetricsSection(metrics: [
-                    totalMetric(data, "applications", String(localized: "career.staff.applications", defaultValue: "Откликов"), "paperplane"),
-                    totalMetric(data, "hired", String(localized: "career.report.hired", defaultValue: "Трудоустроено"), "checkmark.seal"),
-                    totalMetric(data, "vacancies", String(localized: "career.report.newVacancies", defaultValue: "Новых вакансий"), "briefcase"),
-                    totalMetric(data, "companies", String(localized: "career.staff.companiesApproved", defaultValue: "Допущено компаний"), "building.2"),
-                ])
+                // Границы периода — пояснением к итогам, которые за него посчитаны.
+                DashboardMetricsSection(
+                    metrics: [
+                        totalMetric(data, "applications", String(localized: "career.staff.applications", defaultValue: "Откликов"), "paperplane"),
+                        totalMetric(data, "hired", String(localized: "career.report.hired", defaultValue: "Трудоустроено"), "checkmark.seal"),
+                        totalMetric(data, "vacancies", String(localized: "career.report.newVacancies", defaultValue: "Новых вакансий"), "briefcase"),
+                        totalMetric(data, "companies", String(localized: "career.staff.companiesApproved", defaultValue: "Допущено компаний"), "building.2"),
+                    ],
+                    title: String(localized: "career.report.totals", defaultValue: "Итоги периода"),
+                    subtitle: periodRange(data)
+                )
 
                 DashboardPeriodPicker(
                     title: String(localized: "admin.dash.topic", defaultValue: "Тема"),
@@ -922,6 +924,12 @@ private struct CareerReportView: View {
         await export.run(name: name) {
             try await CareerAPI().exportReport(period: period, format: format, universityID: universityID)
         }
+    }
+
+    /// Даты периода отчёта: «01.08.2026 — 31.10.2026». Нет дат — нет пояснения.
+    private func periodRange(_ data: JSONValue) -> String? {
+        guard let from = data["from"]?.date, let to = data["to"]?.date else { return nil }
+        return "\(DisplayFormat.date(from)) — \(DisplayFormat.date(to))"
     }
 
     /// Цифра периода и её изменение к прошлому: рост — зелёным, спад — красным.
@@ -1214,6 +1222,8 @@ struct CareerCompanyView: View {
         /// `nil` — публикации не загрузились: не «Публикаций пока нет».
         var posts: [PostDTO]?
         var postsFailure: String?
+        /// Публикаций этому зрителю не будет по ответу сервера — секции нет вовсе.
+        var postsHidden = false
     }
 
     var body: some View {
@@ -1241,26 +1251,8 @@ struct CareerCompanyView: View {
 
                 CareerCompanyDetailsSection(company: company)
 
-                Section {
-                    if let failure = content.postsFailure {
-                        DashboardFailurePlaceholder(message: failure) { token += 1 }
-                    } else if content.posts?.isEmpty == true {
-                        Text(String(localized: "career.company.noPosts", defaultValue: "Публикаций пока нет"))
-                            .foregroundStyle(Palette.mutedForeground)
-                    }
-                    ForEach(content.posts ?? []) { post in
-                        NavigationLink(value: AppRoute.post(id: post.id)) {
-                            TelegramStyleRow(
-                                title: post.title ?? String((post.content ?? "").prefix(120)),
-                                subtitle: post.title == nil ? nil : post.content.map { String($0.prefix(160)) },
-                                meta: DisplayFormat.date(post.publishedAt ?? post.createdAt)
-                            ) {
-                                AvatarView(url: company.logoUrl, name: company.name, size: 40)
-                            }
-                        }
-                    }
-                } header: {
-                    Text(String(localized: "career.company.posts", defaultValue: "Публикации"))
+                if !content.postsHidden {
+                    postsSection(content)
                 }
             }
             .listStyle(.insetGrouped)
@@ -1282,6 +1274,32 @@ struct CareerCompanyView: View {
     }
 
     @Environment(\.openURL) private var openURL
+
+    /// Публикации страницы: строки постов, «пока нет» или сбой загрузки с повтором.
+    private func postsSection(_ content: Content) -> some View {
+        let company = content.company
+        return Section {
+            if let failure = content.postsFailure {
+                DashboardFailurePlaceholder(message: failure) { token += 1 }
+            } else if content.posts?.isEmpty == true {
+                Text(String(localized: "career.company.noPosts", defaultValue: "Публикаций пока нет"))
+                    .foregroundStyle(Palette.mutedForeground)
+            }
+            ForEach(content.posts ?? []) { post in
+                NavigationLink(value: AppRoute.post(id: post.id)) {
+                    TelegramStyleRow(
+                        title: post.title ?? String((post.content ?? "").prefix(120)),
+                        subtitle: post.title == nil ? nil : post.content.map { String($0.prefix(160)) },
+                        meta: DisplayFormat.date(post.publishedAt ?? post.createdAt)
+                    ) {
+                        AvatarView(url: company.logoUrl, name: company.name, size: 40)
+                    }
+                }
+            }
+        } header: {
+            Text(String(localized: "career.company.posts", defaultValue: "Публикации"))
+        }
+    }
 
     /// Сайт, почта и звонок — кругами под шапкой, если компания их указала.
     private func contactActions(_ company: CareerCompany) -> [HeroAction] {
@@ -1306,8 +1324,25 @@ struct CareerCompanyView: View {
             return Content(company: company, posts: posts)
         } catch is CancellationError {
             throw CancellationError()
+        } catch let error as APIError where Self.hidesPosts(error) {
+            // Сервер отказал по существу, а не по сбою: повтор ничего не изменит, и
+            // предупреждение с «Повторить» на витрине компании только пугает. Секцию
+            // публикаций просто не показываем.
+            return Content(company: company, posts: nil, postsHidden: true)
         } catch {
             return Content(company: company, posts: nil, postsFailure: error.userMessage)
+        }
+    }
+
+    /// Отказ, после которого публикаций этому зрителю не будет: нет прав на ленту
+    /// компании или сервер не принял её id. Последнее — сидовые компании с id не в
+    /// формате uuid (`seed-co-turan-media`): `FeedQuerySchema.companyId` требует uuid,
+    /// и `GET /posts?companyId=…` отвечает VALIDATION_ERROR, хотя саму страницу
+    /// (`/career/companies/:id`) сервер отдаёт.
+    private static func hidesPosts(_ error: APIError) -> Bool {
+        switch error.code {
+        case .forbidden?, .wrongScope?, .notFound?, .validationError?, .badRequest?: return true
+        default: return false
         }
     }
 }
