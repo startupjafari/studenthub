@@ -113,6 +113,18 @@ struct ChatReadDTO: Decodable, Equatable, Identifiable {
     let lastName: String?
     let avatarUrl: String?
     let lastReadAt: Date?
+
+    var name: String {
+        [lastName, firstName].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
+    }
+}
+
+/// Статус «в сети» участника чата (`GET /chats/:id/presence`). Сервер отдаёт весь
+/// состав без забаненных, вместе со смотрящим; чей статус смотрящему не положено
+/// видеть, тот приходит «не в сети».
+struct ChatPresenceDTO: Decodable, Equatable {
+    let userId: String
+    let online: Bool
 }
 
 /// День календаря переписки со снимком: `day` — местная дата `YYYY-MM-DD`, `url` —
@@ -146,6 +158,7 @@ protocol ChatActing: Sendable {
     func around(messageID: String, chatID: String) async throws -> Page<ChatMessageDTO>
     func reads(chatID: String) async throws -> [ChatReadDTO]
     // Чат
+    func presence(chatID: String) async throws -> [ChatPresenceDTO]
     func members(chatID: String) async throws -> [ChatMemberDTO]
     func media(chatID: String, kind: ChatMediaKind, page: PageRequest) async throws -> Page<ChatMediaItemDTO>
     func links(chatID: String, page: PageRequest) async throws -> Page<ChatLinkItemDTO>
@@ -239,6 +252,10 @@ extension ChatsAPI: ChatActing {
 
     func reads(chatID: String) async throws -> [ChatReadDTO] {
         try await client.send(.get("chats/\(chatID)/reads"), as: [ChatReadDTO].self)
+    }
+
+    func presence(chatID: String) async throws -> [ChatPresenceDTO] {
+        try await client.send(.get("chats/\(chatID)/presence"), as: [ChatPresenceDTO].self)
     }
 
     func members(chatID: String) async throws -> [ChatMemberDTO] {

@@ -36,6 +36,16 @@ final class ChatThreadModel {
     var actionFailure: String?
     /// Собеседник личного чата — для статуса в шапке («был(а) недавно»).
     private(set) var peer: ChatMemberDTO?
+    /// Группа: кто из участников в сети на момент запроса — для «N в сети» в шапке.
+    /// Дальше его двигают события присутствия, перезапрос — только при входе в чат и
+    /// после обрыва связи.
+    private(set) var presence: ChatPresenceSnapshot?
+    /// Группа: до какого момента дочитал каждый из других участников. События
+    /// прочтения накладываются поверх (`readTimes`), перезапроса на каждое нет.
+    private(set) var readReceipts: [ChatReadDTO] = []
+    /// Последний запрос списка прочитавших не удался: текст для листа «Прочитали».
+    private(set) var readsFailure: String?
+    private(set) var readsOffline = false
     /// Просьбы прокрутить к последнему сообщению от самой модели: возврат к свежему из
     /// окна истории. Каждое новое значение — одна прокрутка.
     private(set) var bottomRequests = 0
@@ -771,6 +781,81 @@ final class ChatThreadModel {
         peer = list.first { $0.id != viewerID }
     }
 
+    /// Группа: кто в сети и кто до куда дочитал — для шапки и галочек. У личного чата
+    /// хватает собеседника (`loadPeer`) и `othersReadAt`.
+    @MainActor
+    func loadGroupStatus() async {
+        guard await isGroupChat() else { return }
+        let api = actions
+        let id = chatID
+        let started = Date()
+        // Оба запроса разом: шапка и галочки ждут их на входе в чат.
+        async let presenceList = try? api.presence(chatID: id)
+        await loadReads()
+        if let list = await presenceList {
+            presence = ChatPresenceSnapshot(list, takenAt: started)
+        }
+    }
+
+    /// Свежий список прочитавших — при входе и при открытии листа «Прочитали».
+    @MainActor
+    func loadReads() async {
+        do {
+            readReceipts = try await actions.reads(chatID: chatID)
+            readsFailure = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            readsFailure = error.userMessage
+            readsOffline = error.isOffline
+        }
+    }
+
+    @MainActor
+    private func isGroupChat() async -> Bool {
+        let id = chatID
+        var kind = chat?.kind
+        if kind == nil {
+            kind = try? await database.reader.read { db in try ChatRecord.fetchOne(db, key: id)?.kind }
+        }
+        guard let kind else { return false }
+        return kind != .private && kind != .saved
+    }
+
+    /// До какого момента дочитал каждый другой участник группы: снимок с сервера,
+    /// сдвинутый вперёд событиями прочтения.
+    private var readTimes: [String: Date] {
+        var times: [String: Date] = [:]
+        for receipt in readReceipts where receipt.id != viewerID {
+            if let at = receipt.lastReadAt { times[receipt.id] = at }
+        }
+        for (user, at) in realtime.memberReads[chatID] ?? [:] where user != viewerID {
+            if (times[user] ?? .distantPast) < at { times[user] = at }
+        }
+        return times
+    }
+
+    /// Отметки прочтения других участников по возрастанию — для числа у галочек.
+    var readMarks: [Date] {
+        readTimes.values.sorted()
+    }
+
+    /// Кто прочитал сообщение — свежие сверху, как в Telegram. Только известные по
+    /// списку с сервера: у того, о ком пришло лишь событие, нет ни имени, ни аватара.
+    func readers(of message: MessageRecord) -> [MessageReader] {
+        let times = readTimes
+        return readReceipts.compactMap { receipt in
+            guard let at = times[receipt.id], at >= message.createdAt else { return nil }
+            return MessageReader(id: receipt.id, name: receipt.name, avatarURL: receipt.avatarUrl, readAt: at)
+        }
+        .sorted { $0.readAt > $1.readAt }
+    }
+
+    /// «N в сети» в группе: сколько участников, кроме меня, сейчас в сети.
+    var othersOnline: Int? {
+        presence?.othersOnline(excluding: viewerID, live: realtime.presenceMarks)
+    }
+
     /// Дата сообщения, к которому лента открылась (первое непрочитанное).
     var openingAnchorDate: Date? {
         guard let openingAnchor else { return nil }
@@ -834,6 +919,8 @@ final class ChatThreadModel {
         await realtime.open(chatID: chatID)
         await catchUpAfterReconnect()
         await markRead()
+        // Пока экрана не было, комната была отпущена: прочтения и входы мимо прошли.
+        await loadGroupStatus()
     }
 
     @MainActor
@@ -1131,4 +1218,12 @@ enum AsyncValues {
 struct ThreadSnapshot: Equatable {
     let messages: [MessageRecord]
     let attachments: [String: [AttachmentRecord]]
+}
+
+/// Участник группы, прочитавший сообщение, — строка листа «Прочитали».
+struct MessageReader: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let avatarURL: String?
+    let readAt: Date
 }

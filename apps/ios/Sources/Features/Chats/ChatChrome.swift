@@ -85,26 +85,37 @@ struct ChatWallpaper: View {
 // MARK: - Галочки
 
 /// Галочки своего сообщения: одна — доставлено, две — прочитано. Две рисуются
-/// внахлёст, как в Telegram: отдельного символа для них в SF Symbols нет.
+/// внахлёст, как в Telegram: отдельного символа для них в SF Symbols нет. В группе
+/// рядом — сколько участников прочитали, как в вебе.
 struct ChatReadChecks: View {
     let isRead: Bool
+    var readCount = 0
 
     @ScaledMetric(relativeTo: .caption2) private var shift: CGFloat = 4.5
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            Image(systemName: "checkmark")
-            if isRead {
+        HStack(spacing: 2) {
+            ZStack(alignment: .leading) {
                 Image(systemName: "checkmark")
-                    .offset(x: shift)
+                if isRead {
+                    Image(systemName: "checkmark")
+                        .offset(x: shift)
+                }
+            }
+            .padding(.trailing, isRead ? shift : 0)
+            .font(.caption2.weight(.bold))
+            if isRead, readCount > 0 {
+                Text(verbatim: readCount.formatted())
+                    .font(Typography.tabular(.caption2))
             }
         }
-        .padding(.trailing, isRead ? shift : 0)
-        .font(.caption2.weight(.bold))
         .accessibilityElement()
-        .accessibilityLabel(Text(isRead
-            ? String(localized: "chats.read", defaultValue: "Прочитано")
-            : String(localized: "chats.sent", defaultValue: "Отправлено")))
+        .accessibilityLabel(Text(label))
+    }
+
+    private var label: String {
+        guard isRead else { return String(localized: "chats.sent", defaultValue: "Отправлено") }
+        return readCount > 0 ? ChatPlural.readBy(readCount) : String(localized: "chats.read", defaultValue: "Прочитано")
     }
 }
 
@@ -166,6 +177,16 @@ enum ChatPlural {
         }
     }
 
+    /// «Прочитали: 1 участник», «…3 участника», «…5 участников» — как в вебе.
+    static func readBy(_ count: Int) -> String {
+        let number = count.formatted()
+        switch form(count) {
+        case .one: return String(localized: "chats.readBy.one", defaultValue: "Прочитали: \(number) участник")
+        case .few: return String(localized: "chats.readBy.few", defaultValue: "Прочитали: \(number) участника")
+        case .many: return String(localized: "chats.readBy.many", defaultValue: "Прочитали: \(number) участников")
+        }
+    }
+
     private enum Form { case one, few, many }
 
     private static func form(_ count: Int) -> Form {
@@ -191,6 +212,50 @@ enum ChatPresence {
         }
         // Сведения о собеседнике пришли, а времени нет — он его скрыл.
         return known ? String(localized: "chats.lastSeen.recently", defaultValue: "был(а) недавно") : nil
+    }
+
+    /// Подпись группы: «12 участников, 3 в сети», а когда в сети никого — только число
+    /// участников, как в Telegram.
+    static func groupCaption(members: Int, online: Int) -> String? {
+        guard members > 0 else { return nil }
+        let total = ChatPlural.members(members)
+        guard online > 0 else { return total }
+        return String(
+            localized: "chats.members.withOnline",
+            defaultValue: "\(total), \(online.formatted()) в сети"
+        )
+    }
+}
+
+/// Кто из участников чата в сети: снимок с сервера, поверх него — события, пришедшие
+/// позже снимка (`RealtimeCoordinator.presenceMarks`). Событие раньше снимка уже
+/// учтено в нём самом и верх не берёт.
+struct ChatPresenceSnapshot: Equatable {
+    let online: [String: Bool]
+    let takenAt: Date
+
+    init(online: [String: Bool], takenAt: Date) {
+        self.online = online
+        self.takenAt = takenAt
+    }
+
+    init(_ entries: [ChatPresenceDTO], takenAt: Date) {
+        online = Dictionary(entries.map { ($0.userId, $0.online) }, uniquingKeysWith: { $0 || $1 })
+        self.takenAt = takenAt
+    }
+
+    var memberCount: Int { online.count }
+
+    func isOnline(_ userID: String, live: [String: PresenceMark]) -> Bool {
+        if let mark = live[userID], mark.at >= takenAt { return mark.online }
+        return online[userID] ?? false
+    }
+
+    /// Сколько участников, кроме смотрящего, сейчас в сети — как «N в сети» в вебе.
+    func othersOnline(excluding viewerID: String, live: [String: PresenceMark]) -> Int {
+        online.keys.reduce(0) { count, id in
+            count + (id != viewerID && isOnline(id, live: live) ? 1 : 0)
+        }
     }
 }
 

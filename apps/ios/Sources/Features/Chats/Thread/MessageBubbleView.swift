@@ -5,9 +5,26 @@ import UIKit
 /// дочитал, пришло имя группы) перерисовывала ровно те ячейки, которых касается.
 struct BubbleContext: Hashable {
     var isGroup = false
-    /// До какого времени собеседник личного чата прочитал переписку.
+    /// До какого времени дочитал переписку собеседник личного чата, а в группе — тот
+    /// из участников, кто продвинулся дальше всех.
     var othersReadAt: Date?
+    /// Группа: до какого момента дочитал каждый из других участников, по возрастанию.
+    /// По ним — число прочитавших у своего сообщения.
+    var readMarks: [Date] = []
     var viewerID = ""
+
+    /// Сколько других участников группы дочитали до этого момента.
+    func readCount(at date: Date) -> Int {
+        // Первая отметка не раньше `date` — бинарным поиском: ячеек тысячи, а
+        // участников в группе сотни.
+        var low = 0
+        var high = readMarks.count
+        while low < high {
+            let mid = (low + high) / 2
+            if readMarks[mid] < date { low = mid + 1 } else { high = mid }
+        }
+        return readMarks.count - low
+    }
 }
 
 /// Что можно сделать с конкретным сообщением — решает модель экрана.
@@ -21,6 +38,8 @@ struct MessageCapabilities: Hashable {
 /// Действие из пузыря или его меню.
 enum MessageAction {
     case reply, edit, delete, pin, copy, forward, report, retry
+    /// Кто прочитал своё сообщение в группе.
+    case readers
     /// Крестик на загружаемом вложении: отменить отправку.
     case cancelUpload
     /// Войти в режим выбора с этим сообщением и переключить его отметку в режиме.
@@ -355,6 +374,9 @@ struct MessageBubbleView: View {
         text = text + Text(verbatim: time)
         if item.isOwn {
             text = text + Text(verbatim: " ") + Text(Image(systemName: "checkmark")) + Text(Image(systemName: "checkmark"))
+            if readCount > 0 {
+                text = text + Text(verbatim: " \(readCount.formatted())")
+            }
         }
         return text
             .font(Typography.tabular(.caption2))
@@ -383,6 +405,20 @@ struct MessageBubbleView: View {
             } label: {
                 Label(String(localized: "chats.reply", defaultValue: "Ответить"), systemImage: "arrowshape.turn.up.left")
             }
+        }
+        if showsReaders {
+            // Как в Telegram: кто прочитал — прямо в меню своего сообщения в группе.
+            Button {
+                onAction(.readers)
+            } label: {
+                Label(
+                    readCount > 0
+                        ? ChatPlural.readBy(readCount)
+                        : String(localized: "chats.readBy.none", defaultValue: "Пока никто не прочитал"),
+                    systemImage: "checkmark.message"
+                )
+            }
+            .disabled(readCount == 0)
         }
         if !isDeleted, !message.content.isEmpty {
             Button {
@@ -488,14 +524,30 @@ struct MessageBubbleView: View {
         String(localized: "chats.deletedMessage", defaultValue: "Сообщение удалено")
     }
 
-    /// Состояние своей отправки: часы, одна галочка — доставлено, две — прочитано.
-    /// Прочтение известно только в личном чате: для групп сервер не говорит, кто
-    /// именно дочитал.
+    /// Своё отправленное сообщение в группе: в меню — кто его прочитал.
+    private var showsReaders: Bool {
+        context.isGroup && item.isOwn && !isDeleted && message.remoteId != nil && message.sendState == .sent
+    }
+
+    /// Сколько участников группы прочитали своё сообщение; в личном чате — 0.
+    private var readCount: Int {
+        guard context.isGroup, item.isOwn, message.sendState == .sent else { return 0 }
+        return context.readCount(at: message.createdAt)
+    }
+
+    /// Две галочки — дочитал собеседник, а в группе — хоть кто-то из участников, как в
+    /// вебе и Telegram.
+    private var isRead: Bool {
+        (context.othersReadAt.map { $0 >= message.createdAt } ?? false) || readCount > 0
+    }
+
+    /// Состояние своей отправки: часы, одна галочка — доставлено, две — прочитано, в
+    /// группе рядом — число прочитавших.
     @ViewBuilder
     private var stateMark: some View {
         switch message.sendState {
         case .sent:
-            ChatReadChecks(isRead: !context.isGroup && (context.othersReadAt.map { $0 >= message.createdAt } ?? false))
+            ChatReadChecks(isRead: isRead, readCount: readCount)
         case .pending:
             Image(systemName: "clock")
                 .accessibilityLabel(Text(String(localized: "chats.sending", defaultValue: "Отправляется")))

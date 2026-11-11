@@ -758,10 +758,11 @@ struct ChatRowView: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// Галочки — только у своего последнего сообщения в личном чате: для групп сервер
-    /// не говорит, кто именно прочитал. `nil` — галочек нет.
+    /// Галочки — у своего последнего сообщения, как в вебе: в группе две, когда его
+    /// прочитал хоть кто-то (`othersReadAt` — самое дальнее прочтение среди других).
+    /// В «Избранном» читать некому. `nil` — галочек нет.
     private var readState: Bool? {
-        guard row.kind == .private, row.lastSenderId == viewerID, row.draftText?.isEmpty != false,
+        guard row.kind != .saved, row.lastSenderId == viewerID, row.draftText?.isEmpty != false,
               row.lastSystemType == nil, row.lastDeletedAt == nil, let last = row.lastCreatedAt
         else { return nil }
         return (row.othersReadAt ?? .distantPast) >= last

@@ -15,6 +15,9 @@ struct ChatInfoView: View {
     @State private var chat: ChatRecord?
     @State private var members: [ChatMemberDTO] = []
     @State private var membersLoaded = false
+    /// Когда пришёл состав: «в сети» из него старше событий присутствия после этого
+    /// момента (`ChatPresenceSnapshot`).
+    @State private var membersLoadedAt = Date.distantPast
     /// Состав не пришёл — это сбой, а не пустой чат.
     @State private var membersFailure: String?
     @State private var section: ChatMediaKindTab = .media
@@ -252,8 +255,13 @@ struct ChatInfoView: View {
         case .saved:
             return String(localized: "chats.saved.hint", defaultValue: "Заметки и пересланное себе")
         default:
-            let count = max(chat.memberCount, members.count)
-            return count > 0 ? ChatPlural.members(count) : nil
+            // «12 участников, 3 в сети» — по составу, который экран уже загрузил:
+            // отдельный запрос присутствия ради шапки не нужен.
+            let count = max(chat.memberCount, activeMembers.count)
+            return ChatPresence.groupCaption(
+                members: count,
+                online: membersPresence.othersOnline(excluding: viewerID, live: realtime.presenceMarks)
+            )
         }
     }
 
@@ -312,11 +320,20 @@ struct ChatInfoView: View {
     /// Забаненные остаются в составе с отметкой: в общем списке им не место, а снять бан
     /// должно быть с кого — у админов для них своя секция ниже.
     private var activeMembers: [ChatMemberDTO] { members.filter { $0.banned != true } }
+
+    /// «В сети» участников: из ответа на состав, поверх — события после него.
+    private var membersPresence: ChatPresenceSnapshot {
+        ChatPresenceSnapshot(
+            online: Dictionary(activeMembers.map { ($0.id, $0.online == true) }, uniquingKeysWith: { $0 || $1 }),
+            takenAt: membersLoadedAt
+        )
+    }
     private var bannedMembers: [ChatMemberDTO] { members.filter { $0.banned == true } }
 
     @ViewBuilder
     private func membersSection(_ chat: ChatRecord) -> some View {
         let canManage = chat.kind == .group && (chat.isAdmin || chat.isOwner)
+        let presence = membersPresence
         Section {
             if canManage {
                 Button {
@@ -328,7 +345,7 @@ struct ChatInfoView: View {
             }
             ForEach(activeMembers) { member in
                 NavigationLink(value: AppRoute.profile(id: member.id)) {
-                    MemberRow(member: member, isOnline: realtime.onlineUsers.contains(member.id) || member.online == true)
+                    MemberRow(member: member, isOnline: presence.isOnline(member.id, live: realtime.presenceMarks))
                 }
                 .swipeActions(edge: .trailing) {
                     // Без `role: .destructive`: с ним список убирает строку сразу, ещё до
@@ -599,7 +616,9 @@ struct ChatInfoView: View {
             return
         }
         do {
+            let started = Date()
             members = try await api.members(chatID: chatID)
+            membersLoadedAt = started
             membersFailure = nil
         } catch is CancellationError {
             return

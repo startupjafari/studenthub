@@ -15,6 +15,8 @@ struct ChatThreadView: View {
     @State private var hasLeft = false
     @State private var forwarding: ForwardBatch?
     @State private var reporting: MessageRecord?
+    /// Своё сообщение в группе, чьих прочитавших показываем.
+    @State private var readersOf: MessageRecord?
     @State private var deleting: MessageRecord?
     /// Подтверждение удаления выбранного: сколько сообщений уйдёт.
     @State private var deletingSelection: Int?
@@ -282,9 +284,11 @@ struct ChatThreadView: View {
     }
 
     private func bubbleContext(_ model: ChatThreadModel) -> BubbleContext {
-        BubbleContext(
-            isGroup: model.chat.map { $0.kind != .private && $0.kind != .saved } ?? false,
+        let isGroup = model.chat.map { $0.kind != .private && $0.kind != .saved } ?? false
+        return BubbleContext(
+            isGroup: isGroup,
             othersReadAt: model.chat?.othersReadAt,
+            readMarks: isGroup ? model.readMarks : [],
             viewerID: viewerID
         )
     }
@@ -300,6 +304,7 @@ struct ChatThreadView: View {
             await created.markRead()
             await created.loadPinned()
             await created.loadPeer()
+            await created.loadGroupStatus()
         }
         .onChange(of: jumps.pending[chatID]) {
             consumeJump()
@@ -325,7 +330,11 @@ struct ChatThreadView: View {
             consumeJump()
         }
         .onChange(of: realtime.connectionEpoch) {
-            Task { await model?.catchUpAfterReconnect() }
+            Task {
+                await model?.catchUpAfterReconnect()
+                // За время обрыва события присутствия и прочтения мимо прошли.
+                await model?.loadGroupStatus()
+            }
         }
         .onChange(of: realtime.pinnedVersions[chatID] ?? 0) {
             Task { await model?.loadPinned() }
@@ -393,6 +402,11 @@ struct ChatThreadView: View {
         .sheet(isPresented: $showsCalendar) {
             ChatCalendarSheet(chatID: chatID, initialDay: calendarDay) { day in
                 Task { await model?.jump(toDay: day) }
+            }
+        }
+        .sheet(item: $readersOf) { message in
+            if let model {
+                MessageReadersSheet(model: model, message: message)
             }
         }
         .sheet(item: $forwarding) { batch in
@@ -477,6 +491,8 @@ struct ChatThreadView: View {
             }
         case .report:
             reporting = message
+        case .readers:
+            readersOf = message
         case .retry:
             Task { await model.retry(message) }
         case .cancelUpload:
@@ -568,7 +584,10 @@ private struct ChatTitleView: View {
         case .saved:
             return nil
         default:
-            return chat.memberCount > 0 ? ChatPlural.members(chat.memberCount) : nil
+            // «12 участников, 3 в сети». Число в сети — из снимка участников, который
+            // двигают события присутствия; пока снимка нет — просто число участников.
+            let members = chat.memberCount > 0 ? chat.memberCount : (model.presence?.memberCount ?? 0)
+            return ChatPresence.groupCaption(members: members, online: model.othersOnline ?? 0)
         }
     }
 }
