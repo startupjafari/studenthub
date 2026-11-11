@@ -257,12 +257,15 @@ private struct VoiceAttachmentView: View {
     }
 }
 
-/// Проигрыватель одного голосового.
+/// Проигрыватель одного голосового. Список голосовых в информации о чате держит один
+/// такой на всех: следующая запись сначала останавливает прежнюю (`stop`).
 @Observable
 final class VoicePlayer {
     private(set) var isPlaying = false
     private(set) var progress: Double = 0
     private(set) var caption = "0:00"
+    /// Запись доиграла до конца — список переходит к следующей.
+    @ObservationIgnored var onFinish: (@MainActor () -> Void)?
 
     private var player: AVPlayer?
     private var ticker: Task<Void, Never>?
@@ -290,6 +293,15 @@ final class VoicePlayer {
         ticker?.cancel()
     }
 
+    /// Сбросить запись совсем: следующий `play(url:)` начнёт другую с начала.
+    @MainActor
+    func stop() {
+        pause()
+        player = nil
+        progress = 0
+        caption = "0:00"
+    }
+
     @MainActor
     private func startTicking() {
         ticker?.cancel()
@@ -305,6 +317,7 @@ final class VoicePlayer {
                     self?.isPlaying = false
                     self?.progress = 0
                     await player.seek(to: .zero)
+                    self?.onFinish?()
                     return
                 }
                 try? await Task.sleep(for: .milliseconds(200))

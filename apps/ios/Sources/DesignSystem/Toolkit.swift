@@ -654,20 +654,25 @@ final class RemoteFileOpener {
         isLoading = true
         defer { isLoading = false }
         do {
-            let remote = try await resolve()
-            let (temp, response) = try await URLSession.shared.download(from: remote)
-            if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-                throw APIError.malformedResponse(statusCode: http.statusCode)
-            }
-            let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            let safeName = name.replacingOccurrences(of: "/", with: "-")
-            let target = folder.appending(path: safeName.isEmpty ? remote.lastPathComponent : safeName)
-            try FileManager.default.moveItem(at: temp, to: target)
-            previewURL = target
+            previewURL = try await Self.download(name: name, from: try await resolve())
         } catch {
             failure = error.userMessage
         }
+    }
+
+    /// Скачать во временную папку под настоящим именем — его видят просмотр и лист
+    /// «Поделиться» (сохранённый в «Файлы» документ называется так же, как в чате).
+    nonisolated static func download(name: String, from remote: URL) async throws -> URL {
+        let (temp, response) = try await URLSession.shared.download(from: remote)
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw APIError.malformedResponse(statusCode: http.statusCode)
+        }
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let safeName = name.replacingOccurrences(of: "/", with: "-")
+        let target = folder.appending(path: safeName.isEmpty ? remote.lastPathComponent : safeName)
+        try FileManager.default.moveItem(at: temp, to: target)
+        return target
     }
 }
 

@@ -647,8 +647,12 @@ private struct ChatScrollDownButton: View {
 /// камеры имени нет — берём расширение из типа.
 enum AttachmentFileName {
     static func of(_ file: AttachmentRecord) -> String {
-        if let name = file.name, !name.isEmpty { return name }
-        let ext = UTType(mimeType: file.mime)?.preferredFilenameExtension ?? "bin"
-        return "\(file.id).\(ext)"
+        of(id: file.id, name: file.name, mime: file.mime)
+    }
+
+    static func of(id: String, name: String?, mime: String) -> String {
+        if let name, !name.isEmpty { return name }
+        let ext = UTType(mimeType: mime)?.preferredFilenameExtension ?? "bin"
+        return "\(id).\(ext)"
     }
 }

@@ -92557,6 +92557,23 @@
           }
         }
       }
+    },
+    "chats.info.showInChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать в чате"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чатта көрсету"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

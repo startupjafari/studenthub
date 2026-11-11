@@ -57,6 +57,10 @@ struct ChatMediaItemDTO: Decodable, Equatable, Identifiable {
     let placeholder: String?
     let durationMs: Int?
     let createdAt: Date
+    /// Кто прислал — подпись строки голосового.
+    var sender: ChatPersonDTO? = nil
+
+    var isVideo: Bool { mime.hasPrefix("video/") }
 }
 
 /// Ссылка из раздела «Ссылки».
@@ -121,8 +125,8 @@ protocol ChatActing: Sendable {
     func reads(chatID: String) async throws -> [ChatReadDTO]
     // Чат
     func members(chatID: String) async throws -> [ChatMemberDTO]
-    func media(chatID: String, kind: ChatMediaKind, cursor: String?) async throws -> Page<ChatMediaItemDTO>
-    func links(chatID: String, cursor: String?) async throws -> Page<ChatLinkItemDTO>
+    func media(chatID: String, kind: ChatMediaKind, page: PageRequest) async throws -> Page<ChatMediaItemDTO>
+    func links(chatID: String, page: PageRequest) async throws -> Page<ChatLinkItemDTO>
     func mute(chatID: String, minutes: Int?, importantOnly: Bool) async throws
     func clearHistory(chatID: String) async throws
     func deleteChat(chatID: String) async throws
@@ -194,16 +198,13 @@ extension ChatsAPI: ChatActing {
         try await client.send(.get("chats/\(chatID)/members"), as: [ChatMemberDTO].self)
     }
 
-    func media(chatID: String, kind: ChatMediaKind, cursor: String?) async throws -> Page<ChatMediaItemDTO> {
-        var items = [URLQueryItem(name: "type", value: kind.rawValue), URLQueryItem(name: "limit", value: "60")]
-        if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
-        return try await client.page(.get("chats/\(chatID)/media", query: items), of: ChatMediaItemDTO.self)
+    func media(chatID: String, kind: ChatMediaKind, page: PageRequest) async throws -> Page<ChatMediaItemDTO> {
+        let query = [URLQueryItem(name: "type", value: kind.rawValue)] + page.cursorQuery
+        return try await client.page(.get("chats/\(chatID)/media", query: query), of: ChatMediaItemDTO.self)
     }
 
-    func links(chatID: String, cursor: String?) async throws -> Page<ChatLinkItemDTO> {
-        var items = [URLQueryItem(name: "limit", value: "50")]
-        if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
-        return try await client.page(.get("chats/\(chatID)/links", query: items), of: ChatLinkItemDTO.self)
+    func links(chatID: String, page: PageRequest) async throws -> Page<ChatLinkItemDTO> {
+        try await client.page(.get("chats/\(chatID)/links", query: page.cursorQuery), of: ChatLinkItemDTO.self)
     }
 
     /// Без `minutes` — навсегда. «Только важное» оставляет упоминания и ответы мне.

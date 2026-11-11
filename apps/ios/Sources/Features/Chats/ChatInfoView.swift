@@ -27,16 +27,28 @@ struct ChatInfoView: View {
     @State private var confirmingBlock = false
     @State private var copiedInvite = 0
     @State private var failure: String?
+    /// Медиа, файлы, голосовые и ссылки — со своими страницами и проигрывателем.
+    @State private var shared: ChatSharedContent
     @ScaledMetric(relativeTo: .largeTitle) private var avatarSize: CGFloat = 100
     private let api: ChatActing = ChatsAPI()
     private var realtime: RealtimeCoordinator { AppServices.realtime }
 
+    init(chatID: String) {
+        self.chatID = chatID
+        _shared = State(initialValue: ChatSharedContent(chatID: chatID))
+    }
+
     var body: some View {
         withDialogs(list)
+            .chatSharedContentDialogs(shared)
             .task {
                 await reloadChat()
                 await loadMembers()
             }
+            .task(id: section) { await shared.load(section) }
+            // Голосовое не играет из-под другой вкладки и после выхода из информации.
+            .onChange(of: section) { shared.stopVoice() }
+            .onDisappear { shared.stopVoice() }
     }
 
     private var list: some View {
@@ -66,7 +78,7 @@ struct ChatInfoView: View {
                     .pickerStyle(.segmented)
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: Spacing.sm, trailing: 0))
-                    ChatContentList(chatID: chatID, tab: section)
+                    ChatContentList(shared: shared, tab: section, showInChat: showInChat)
                 }
                 // Заблокировать, очистить и удалить — в «Ещё» под шапкой, как в Telegram:
                 // второй красной карточкой внизу они повторялись.
@@ -418,7 +430,14 @@ struct ChatInfoView: View {
     private func openPickedMessage() {
         guard let pickedMessage else { return }
         self.pickedMessage = nil
-        ChatJumpRequests.shared.pending[chatID] = pickedMessage
+        showInChat(pickedMessage)
+    }
+
+    /// «Показать в чате» — из поиска или из общих материалов: переписка под этим
+    /// экраном откроется на сообщении.
+    private func showInChat(_ messageID: String) {
+        shared.stopVoice()
+        ChatJumpRequests.shared.pending[chatID] = messageID
         dismiss()
     }
 
@@ -684,137 +703,6 @@ enum ChatMediaKindTab: String, CaseIterable, Identifiable {
         case .voice: return .voice
         case .links: return nil
         }
-    }
-}
-
-/// Список выбранного раздела: сетка фото и видео, строки файлов и ссылок.
-private struct ChatContentList: View {
-    let chatID: String
-    let tab: ChatMediaKindTab
-
-    @State private var media: [ChatMediaItemDTO] = []
-    @State private var links: [ChatLinkItemDTO] = []
-    @State private var loaded = false
-    /// Раздел не пришёл — это не «здесь пусто».
-    @State private var failure: String?
-    private let api: ChatActing = ChatsAPI()
-
-    var body: some View {
-        Group {
-            if tab == .media, !media.isEmpty {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 2)], spacing: 2) {
-                    ForEach(media) { item in
-                        ChatMediaThumb(item: item)
-                    }
-                }
-            } else if tab == .links, !links.isEmpty {
-                ForEach(links) { link in
-                    if let preview = link.linkPreview, let url = URL(string: preview.url) {
-                        Link(destination: url) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(preview.title ?? url.host() ?? preview.url)
-                                    .font(Typography.body.weight(.medium))
-                                    .foregroundStyle(Palette.foreground)
-                                    .lineLimit(2)
-                                Text(preview.url)
-                                    .font(Typography.meta)
-                                    .foregroundStyle(Palette.primary)
-                                    .lineLimit(1)
-                            }
-                        }
-                    }
-                }
-            } else if (tab == .files || tab == .voice), !media.isEmpty {
-                ForEach(media) { item in
-                    HStack(spacing: Spacing.lg) {
-                        Image(systemName: tab == .voice ? "waveform" : "doc.fill")
-                            .foregroundStyle(Palette.primary)
-                            .frame(width: 32)
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(item.name ?? String(localized: "chats.preview.file", defaultValue: "Файл"))
-                                .lineLimit(1)
-                            Text(detail(for: item))
-                                .font(Typography.meta)
-                                .foregroundStyle(Palette.mutedForeground)
-                        }
-                    }
-                }
-            } else {
-                // Загрузка, пусто и сбой — без карточки, по центру места под вкладками:
-                // тонкая карточка с одним индикатором смотрелась поломкой.
-                Group {
-                    if let failure {
-                        DashboardFailurePlaceholder(message: failure) { await load() }
-                    } else if loaded {
-                        Text(String(localized: "chats.info.empty", defaultValue: "Здесь пока пусто"))
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.mutedForeground)
-                    } else {
-                        ProgressView()
-                    }
-                }
-                .frame(maxWidth: .infinity, minHeight: 120)
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-            }
-        }
-        .task(id: tab) { await load() }
-    }
-
-    private func detail(for item: ChatMediaItemDTO) -> String {
-        var parts = [item.createdAt.formatted(date: .abbreviated, time: .omitted)]
-        if let size = item.size {
-            parts.append(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
-        }
-        if let duration = item.durationMs {
-            parts.append(Duration.milliseconds(duration).formatted(.time(pattern: .minuteSecond)))
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    private func load() async {
-        loaded = false
-        failure = nil
-        media = []
-        links = []
-        do {
-            if let kind = tab.kind {
-                media = try await api.media(chatID: chatID, kind: kind, cursor: nil).items
-            } else {
-                links = try await api.links(chatID: chatID, cursor: nil).items
-            }
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-        }
-        loaded = true
-    }
-}
-
-/// Плитка сетки медиа: ссылка подписывается по требованию, картинка — из кэша по id.
-private struct ChatMediaThumb: View {
-    let item: ChatMediaItemDTO
-
-    @State private var url: URL?
-
-    var body: some View {
-        Color.clear
-            .aspectRatio(1, contentMode: .fit)
-            .overlay {
-                RemoteImage(url: url, cacheKey: "chatmedia:\(item.id)", placeholder: item.placeholder)
-                    .id(url)
-            }
-            .overlay(alignment: .bottomLeading) {
-                if item.mime.hasPrefix("video/") {
-                    Image(systemName: "play.fill")
-                        .font(.caption)
-                        .foregroundStyle(.white)
-                        .padding(Spacing.xs)
-                }
-            }
-            .clipped()
-            .task { url = await AppServices.attachmentURLs.url(for: item.id) }
     }
 }
 
