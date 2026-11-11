@@ -178,7 +178,8 @@ struct MessageStore: Sendable {
                 // переживает обновление самой записи.
                 localPath: paths[item.id] ?? nil,
                 placeholder: item.placeholder,
-                durationMs: item.durationMs
+                durationMs: item.durationMs,
+                spoiler: item.spoiler ?? false
             ).insert(db)
         }
     }

@@ -32,6 +32,8 @@ struct ChatListRow: FetchableRecord, Decodable, Identifiable, Equatable {
     /// Вложений в последнем сообщении — превью «Фото», «Голосовое» вместо пустоты.
     var lastAttachmentMime: String?
     var lastAttachmentName: String?
+    /// Создатель группы: «удалить» для него удаляет группу у всех, а не выводит из неё.
+    var isOwner: Bool
 
     var kind: ChatKind { ChatKind.from(type) }
     var isPinned: Bool { pinnedAt != nil }
@@ -126,7 +128,7 @@ enum ChatListQuery {
             SELECT
                 c.id, c.type, c.title, c.avatarUrl, c.unreadCount, c.muted,
                 c.pinnedAt, c.archivedAt, c.requestIncoming, c.updatedAt,
-                c.subject, c.online, c.mutedImportantOnly, c.othersReadAt,
+                c.subject, c.online, c.mutedImportantOnly, c.othersReadAt, c.isOwner,
                 d.text AS draftText,
                 m.content AS lastContent,
                 m.senderId AS lastSenderId,

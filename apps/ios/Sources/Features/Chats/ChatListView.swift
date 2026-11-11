@@ -304,13 +304,13 @@ struct ChatListView: View {
             .alert(
                 deleting.count > 1
                     ? String(localized: "chats.delete.selected.title", defaultValue: "Удалить выбранные чаты?")
-                    : String(localized: "chats.delete.chat.title", defaultValue: "Удалить чат?"),
+                    : ChatLeaveTitle.question(for: deleting.first?.kind ?? .private, isOwner: deleting.first?.isOwner ?? false),
                 isPresented: Binding(get: { !deleting.isEmpty }, set: { if !$0 { deleting = [] } }),
                 presenting: deleting.isEmpty ? nil : deleting
             ) { rows in
                 Button(
                     rows.count == 1
-                        ? ChatLeaveTitle.title(for: rows[0].kind)
+                        ? ChatLeaveTitle.title(for: rows[0].kind, isOwner: rows[0].isOwner)
                         : String(localized: "chats.delete.selected", defaultValue: "Удалить и покинуть"),
                     role: .destructive
                 ) {
@@ -435,7 +435,7 @@ struct ChatListView: View {
             Button(role: .destructive) {
                 deleting = [row]
             } label: {
-                Label(ChatLeaveTitle.title(for: row.kind), systemImage: "trash")
+                Label(ChatLeaveTitle.title(for: row.kind, isOwner: row.isOwner), systemImage: "trash")
             }
         }
     }
@@ -512,12 +512,28 @@ struct MuteMenu: View {
     }
 }
 
-/// Подпись удаления по виду чата: из группы выходят, личный чат удаляют у себя.
+/// Подпись удаления по виду чата: из группы выходят, личный чат удаляют у себя, а
+/// создатель группы удаляет её целиком — так делает сервер (`DELETE /chats/:id`), и
+/// подпись «Покинуть группу» у него обманывала бы.
 enum ChatLeaveTitle {
-    static func title(for kind: ChatKind) -> String {
-        kind == .group
-            ? String(localized: "chats.leave", defaultValue: "Покинуть группу")
-            : String(localized: "chats.delete.chat", defaultValue: "Удалить чат")
+    static func title(for kind: ChatKind, isOwner: Bool = false) -> String {
+        guard kind == .group else {
+            return String(localized: "chats.delete.chat", defaultValue: "Удалить чат")
+        }
+        return isOwner
+            ? String(localized: "chats.deleteGroup", defaultValue: "Удалить группу")
+            : String(localized: "chats.leave", defaultValue: "Покинуть группу")
+    }
+
+    /// Вопрос перед действием: у создателя группы — что она исчезнет у всех.
+    static func question(for kind: ChatKind, isOwner: Bool) -> String {
+        if kind == .group, isOwner {
+            return String(localized: "chats.deleteGroup.title", defaultValue: "Удалить группу у всех участников?")
+        }
+        if kind == .group {
+            return String(localized: "chats.leave.title", defaultValue: "Покинуть группу?")
+        }
+        return String(localized: "chats.delete.chat.title", defaultValue: "Удалить чат?")
     }
 }
 

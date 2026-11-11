@@ -110,6 +110,18 @@ struct ChatThreadView: View {
 
                 if model.chat?.requestIncoming == true {
                     ChatRequestBar(chatID: chatID)
+                } else if model.chat?.requestOutgoing == true, model.chat?.lastMessageId != nil || !model.days.isEmpty {
+                    // Первое сообщение ушло запросом — дальше писать нельзя, пока его не
+                    // примут (как в вебе): иначе следующие сообщения молча отклонялись бы.
+                    Label(
+                        String(localized: "chats.requestPending", defaultValue: "Запрос на переписку ещё не принят"),
+                        systemImage: "clock"
+                    )
+                    .font(Typography.meta)
+                    .foregroundStyle(Palette.mutedForeground)
+                    .frame(maxWidth: .infinity)
+                    .padding(Spacing.xl)
+                    .background(.bar)
                 } else if model.chat?.blocked == true || model.chat?.blockedBy == true {
                     Text(model.chat?.blocked == true
                         ? String(localized: "chats.blockedByMe", defaultValue: "Вы заблокировали этого пользователя")

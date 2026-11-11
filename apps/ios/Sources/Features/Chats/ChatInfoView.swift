@@ -202,7 +202,7 @@ struct ChatInfoView: View {
             confirmingClear = true
         }
         if chat.kind == .private || chat.kind == .group {
-            HeroMenuItem(ChatLeaveTitle.title(for: chat.kind), symbol: "rectangle.portrait.and.arrow.right", isDestructive: true) {
+            HeroMenuItem(ChatLeaveTitle.title(for: chat.kind, isOwner: chat.isOwner), symbol: "rectangle.portrait.and.arrow.right", isDestructive: true) {
                 confirmingLeave = true
             }
         }
@@ -383,10 +383,10 @@ struct ChatInfoView: View {
                 Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
             }
             .alert(
-                String(localized: "chats.delete.chat.title", defaultValue: "Удалить чат?"),
+                ChatLeaveTitle.question(for: chat?.kind ?? .private, isOwner: chat?.isOwner ?? false),
                 isPresented: $confirmingLeave
             ) {
-                Button(ChatLeaveTitle.title(for: chat?.kind ?? .private), role: .destructive) {
+                Button(ChatLeaveTitle.title(for: chat?.kind ?? .private, isOwner: chat?.isOwner ?? false), role: .destructive) {
                     Task { await leave() }
                 }
                 Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}

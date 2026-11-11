@@ -14,6 +14,7 @@ struct MessageComposerView: View {
     @State private var recorder = VoiceRecorder()
     @State private var photo: PhotosPickerItem?
     @State private var showsFileImporter = false
+    @State private var creatingPoll = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -65,6 +66,15 @@ struct MessageComposerView: View {
                             systemImage: "doc"
                         )
                     }
+                    // Опрос — в группах и официальных чатах, не в личных и не в
+                    // «Избранном» (как в вебе: голосовать там некому).
+                    if let kind = model.chat?.kind, kind != .private, kind != .saved {
+                        Button {
+                            creatingPoll = true
+                        } label: {
+                            Label(String(localized: "chats.poll.new", defaultValue: "Опрос"), systemImage: "chart.bar.xaxis")
+                        }
+                    }
                 } label: {
                     Image(systemName: "paperclip")
                         .font(.title3)
@@ -115,6 +125,11 @@ struct MessageComposerView: View {
         .keepsKeyboardOnTap()
         .onChange(of: photo) {
             Task { await sendPickedPhoto() }
+        }
+        .sheet(isPresented: $creatingPoll) {
+            ChatPollCreatorView { question, options, multiple, anonymous in
+                await model.createPoll(question: question, options: options, multiple: multiple, anonymous: anonymous)
+            }
         }
         .fileImporter(isPresented: $showsFileImporter, allowedContentTypes: [.item]) { result in
             Task { await sendPickedFile(result) }

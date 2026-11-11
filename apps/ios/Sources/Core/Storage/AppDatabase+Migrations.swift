@@ -212,6 +212,14 @@ extension AppDatabase {
             }
         }
 
+        migrator.registerMigration("v7.attachmentSpoiler") { db in
+            // Снимок-спойлер: в пузыре размыт до касания. Старые записи — без размытия
+            // до следующей подгрузки переписки.
+            try db.alter(table: AttachmentRecord.databaseTableName) { table in
+                table.add(column: "spoiler", .boolean).notNull().defaults(to: false)
+            }
+        }
+
         return migrator
     }
 }
