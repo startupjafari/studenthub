@@ -39,7 +39,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     /// Тихий пуш: данных в нём нет, есть повод за ними сходить. Система даёт на это
     /// считаные секунды, поэтому тянем только список чатов — он же обновит бейдж.
-    func application(
+    ///
+    /// `nonisolated`: система вызывает метод не с главного потока, а словарь пуша не
+    /// `Sendable` — переносить его на главный актор незачем, ничего из UI здесь нет.
+    nonisolated func application(
         _ application: UIApplication,
         didReceiveRemoteNotification payload: [AnyHashable: Any]
     ) async -> UIBackgroundFetchResult {
@@ -79,11 +82,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // пуш мог прийти на устройство, где уже вошёл кто-то другой.
         let session = AppServices.session
         if let role = await session.currentToken?.role {
-            await AppServices.router.open(link, for: role)
+            AppServices.router.open(link, for: role)
         } else if await session.hasStoredSession {
             // Холодный старт: сессия ещё поднимается, роли пока нет. Откроем, когда
             // оболочка её узнает, — иначе разделы «Ещё» отказали бы как чужие.
-            await AppServices.router.postpone(link)
+            AppServices.router.postpone(link)
         }
         // Иначе на экране входа: никто не вошёл, и маршрут достался бы следующему.
     }

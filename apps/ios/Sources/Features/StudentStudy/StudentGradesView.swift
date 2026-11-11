@@ -199,7 +199,7 @@ struct StudentPercentRing: View {
         let inset: CGFloat = lineWidth + Spacing.sm
         ZStack {
             Circle().stroke(tint.opacity(0.18), lineWidth: lineWidth)
-            if let percent {
+            if percent != nil {
                 Circle()
                     .trim(from: 0, to: fraction)
                     .stroke(tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
