@@ -3,24 +3,43 @@
 # «Сборка на iPhone без Mac»).
 #
 # ЧТО ДЕЛАЕТ
-#   1. Определяет адрес API, по которому телефон достучится до `pnpm dev` на этом
-#      компьютере. localhost из xcconfig не годится: на телефоне это сам телефон.
+#   1. Выбирает адрес API. По умолчанию — тестовая среда на Railway (деплой с develop),
+#      `pnpm dev` на компьютере не нужен. С --local — `pnpm dev` на этом компьютере по
+#      адресу в локальной сети: localhost из xcconfig не годится, на телефоне это сам
+#      телефон.
 #   2. Готовит .device/ — Info.plist и таблицы строк (scripts/device_bundle.py).
 #   3. Запускает `xtool dev`: сборка, подпись, установка и запуск на телефоне.
 #
-#   ./scripts/device.sh                 из apps/ios
+#   ./scripts/device.sh                 из apps/ios, сервер на Railway
+#   ./scripts/device.sh --local         сервер — `pnpm dev` на этом компьютере
 #   ./scripts/device.sh --prepare-only  только .device/, без xtool (для VS Code)
 #
 # Переменные:
-#   API_BASE_URL  адрес API целиком (например https://api.example.kz/api/v1) — если
-#                 задан, адрес компьютера не ищется
-#   API_PORT      порт `pnpm dev` (по умолчанию 3001)
-#   WEB_BASE_URL  адрес веба для ссылок «Поделиться» (по умолчанию тот же компьютер,
-#                 порт WEB_PORT, 3000)
+#   API_BASE_URL  адрес API целиком (например https://api.example.kz/api/v1) —
+#                 перекрывает и Railway, и --local
+#   WEB_BASE_URL  адрес веба для ссылок «Поделиться»
+#   API_PORT      порт `pnpm dev` для --local (по умолчанию 3001)
+#   WEB_PORT      порт веба для --local (по умолчанию 3000)
 
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+
+# Тестовая среда на Railway: деплоится с develop.
+RAILWAY_API_BASE_URL=https://studenthub-back-production.up.railway.app/api/v1
+RAILWAY_WEB_BASE_URL=https://studenthub-front-production.up.railway.app
+
+# Свои флаги разбираем здесь, остальные уходят в `xtool dev`.
+local_server=false
+prepare_only=false
+xtool_args=()
+for arg in "$@"; do
+  case "$arg" in
+    --local) local_server=true ;;
+    --prepare-only) prepare_only=true ;;
+    *) xtool_args+=("$arg") ;;
+  esac
+done
 
 # Адрес компьютера в сети Wi-Fi. В WSL с сетью NAT у Linux свой внутренний адрес
 # (172.x), телефону он недоступен — нужен адрес Windows, а до WSL запрос доводит
@@ -36,7 +55,9 @@ lan_ip() {
   fi
 }
 
-if [[ -z "${API_BASE_URL:-}" ]]; then
+if [[ -n "${API_BASE_URL:-}" ]]; then
+  health_url="${API_BASE_URL%/}/health"
+elif [[ "$local_server" == true ]]; then
   ip="$(lan_ip)"
   if [[ -z "$ip" ]]; then
     echo "Не удалось определить адрес компьютера в сети. Задайте API_BASE_URL вручную." >&2
@@ -48,12 +69,14 @@ if [[ -z "${API_BASE_URL:-}" ]]; then
   # брандмауэр, даже когда телефон доходит. Поэтому проверяем сам `pnpm dev`.
   health_url="http://localhost:${API_PORT:-3001}/api/v1/health"
 else
-  health_url="${API_BASE_URL%/}/health"
+  API_BASE_URL="$RAILWAY_API_BASE_URL"
+  WEB_BASE_URL="${WEB_BASE_URL:-$RAILWAY_WEB_BASE_URL}"
+  health_url="${API_BASE_URL}/health"
 fi
 
 python3 -I scripts/device_bundle.py "$API_BASE_URL" "${WEB_BASE_URL:-}"
 
-if [[ "${1:-}" == "--prepare-only" ]]; then
+if [[ "$prepare_only" == true ]]; then
   exit 0
 fi
 
@@ -82,8 +105,12 @@ fi
 
 # Если API не запущен, приложение откроется на экран входа с ошибкой связи.
 # Предупреждаем заранее.
-if ! curl -fsS -m 3 -o /dev/null "$health_url" 2>/dev/null; then
-  echo "Внимание: ${health_url} не отвечает — запущен ли pnpm dev?" >&2
+if ! curl -fsS -m 5 -o /dev/null "$health_url" 2>/dev/null; then
+  if [[ "$local_server" == true ]]; then
+    echo "Внимание: ${health_url} не отвечает — запущен ли pnpm dev?" >&2
+  else
+    echo "Внимание: ${health_url} не отвечает — сервер недоступен или ещё выкатывается." >&2
+  fi
 fi
 
-exec xtool dev "$@"
+exec xtool dev "${xtool_args[@]}"

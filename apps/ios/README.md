@@ -85,10 +85,12 @@ CI: `.github/workflows/ios.yml` — сборка и тесты на симуля
      `scripts/device.sh` находит службу сам. Адрес может смениться после перезагрузки
      Windows — тогда пересоздать проброс с новым.
 
-### Один раз: сеть до `pnpm dev`
+### Один раз: сеть до `pnpm dev` (только для `--local`)
 
-Телефон ходит на API компьютера по Wi-Fi, а не на `localhost` из `Debug.xcconfig`.
-`scripts/device.sh` сам подставляет в сборку адрес компьютера в локальной сети. API уже
+По умолчанию `scripts/device.sh` собирает приложение на тестовую среду Railway, и этот
+шаг не нужен. С флагом `--local` телефон ходит на API компьютера по Wi-Fi, а не на
+`localhost` из `Debug.xcconfig`: скрипт сам подставляет в сборку адрес компьютера в
+локальной сети. API уже
 слушает все интерфейсы (`apps/api/src/main.ts`), но в WSL с сетью NAT до Linux снаружи
 не достучаться — нужен проброс портов в Windows. PowerShell от администратора:
 
@@ -152,12 +154,14 @@ WHERE cover_url LIKE 'http://<старый>:9000/%';
 ### Каждый раз
 
 ```sh
-pnpm dev                      # из корня репозитория
 cd apps/ios && ./scripts/device.sh
 ```
 
 Скрипт пересобирает `.device/` (Info.plist с адресом API, таблицы строк из каталога) и
-запускает `xtool dev`. Другой сервер — `API_BASE_URL=https://.../api/v1 ./scripts/device.sh`.
+запускает `xtool dev`. Сервер по умолчанию — тестовая среда на Railway (деплой с
+`develop`): `studenthub-back-production.up.railway.app`. Свой `pnpm dev` —
+`./scripts/device.sh --local` (нужна сеть из шага выше). Любой другой сервер —
+`API_BASE_URL=https://.../api/v1 ./scripts/device.sh`.
 Для подсказок в VS Code (расширение Swift, окно WSL) достаточно один раз выполнить
 `./scripts/device.sh --prepare-only` и открыть `apps/ios`.
 
