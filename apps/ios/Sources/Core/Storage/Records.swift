@@ -138,6 +138,7 @@ struct FolderRecord: Codable, FetchableRecord, PersistableRecord, Equatable {
     var position: Int
 
     enum Columns {
+        static let name = Column(CodingKeys.name)
         static let position = Column(CodingKeys.position)
     }
 }

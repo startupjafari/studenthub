@@ -151,6 +151,10 @@ protocol ChatActing: Sendable {
     func uploadGroupAvatar(chatID: String, jpeg: Data) async throws -> String
     func removeGroupAvatar(chatID: String) async throws
     func join(chatID: String, code: String) async throws
+    // Папки
+    func createFolder(name: String, chatIDs: [String]) async throws -> ChatFolderDTO
+    func updateFolder(id: String, name: String?, chatIDs: [String]?, position: Int?) async throws -> ChatFolderDTO
+    func deleteFolder(id: String) async throws
     // Опросы
     func poll(id: String) async throws -> PollResultsDTO
     func vote(pollID: String, optionIDs: [String]) async throws
@@ -348,6 +352,40 @@ extension ChatsAPI: ChatActing {
 
     func join(chatID: String, code: String) async throws {
         try await client.send(try .post("chats/\(chatID)/join", json: ["code": code]))
+    }
+
+    func createFolder(name: String, chatIDs: [String]) async throws -> ChatFolderDTO {
+        struct Body: Encodable {
+            let name: String
+            let chatIds: [String]
+        }
+        return try await client.send(
+            try .post("chats/folders", json: Body(name: name, chatIds: chatIDs)),
+            as: ChatFolderDTO.self
+        )
+    }
+
+    /// Состав уходит целиком, а не дельтой — так ждёт сервер. Пустые поля в тело не
+    /// попадают: схема строгая, и `null` вместо «не менять» он отклонил бы.
+    func updateFolder(id: String, name: String?, chatIDs: [String]?, position: Int?) async throws -> ChatFolderDTO {
+        struct Body: Encodable {
+            let name: String?
+            let chatIds: [String]?
+            let position: Int?
+        }
+        return try await client.send(
+            Endpoint(
+                method: .patch,
+                path: "chats/folders/\(id)",
+                body: try JSONCoding.encoder.encode(Body(name: name, chatIds: chatIDs, position: position))
+            ),
+            as: ChatFolderDTO.self
+        )
+    }
+
+    /// Сами чаты остаются на месте — уходит только вкладка.
+    func deleteFolder(id: String) async throws {
+        try await client.send(Endpoint(method: .delete, path: "chats/folders/\(id)"))
     }
 
     func poll(id: String) async throws -> PollResultsDTO {
