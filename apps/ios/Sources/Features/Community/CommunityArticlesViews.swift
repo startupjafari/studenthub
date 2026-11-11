@@ -35,20 +35,22 @@ struct CommunityArticlesView: View {
                             (value: Shelf.written, title: String(localized: "community.articles.mine", defaultValue: "Мои")),
                             (value: Shelf.saved, title: String(localized: "community.articles.saved", defaultValue: "Сохранённые")),
                         ],
-                        selection: Binding(get: { shelf }, set: { if let next = $0 { shelf = next } })
+                        selection: Binding(get: { shelf }, set: { if let next = $0 { shelf = next } }),
+                        fillsWidth: true
                     )
                 }
                 if articles.isEmpty {
+                    // Без кнопки «Написать статью»: то же действие — у плавающей кнопки.
                     EmptyStateView(
                         title: shelf == .saved
                             ? String(localized: "community.articles.noSaved", defaultValue: "Сохранённых статей нет")
                             : String(localized: "community.articles.empty", defaultValue: "Статей пока нет"),
                         symbol: "doc.richtext",
-                        actionTitle: isMine && shelf == .written
-                            ? String(localized: "community.articles.new", defaultValue: "Написать статью") : nil,
-                        action: isMine && shelf == .written ? { creating = true } : nil
+                        hint: emptyHint
                     )
+                    .centeredInScreen()
                     .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                 } else {
                     Section {
                         ForEach(articles) { article in
@@ -71,6 +73,13 @@ struct CommunityArticlesView: View {
         .sheet(isPresented: $creating) {
             CommunityArticleEditor(article: nil) { _ in reload += 1 }
         }
+    }
+
+    private var emptyHint: String? {
+        guard isMine else { return nil }
+        return shelf == .saved
+            ? String(localized: "community.articles.noSaved.hint", defaultValue: "Нажмите на закладку в статье, чтобы вернуться к ней позже")
+            : String(localized: "community.articles.empty.hint", defaultValue: "Расскажите о своём опыте — статья появится в профиле")
     }
 }
 
@@ -102,21 +111,40 @@ struct CommunityArticleRow: View {
                         .foregroundStyle(Palette.mutedForeground)
                         .lineLimit(2)
                 }
-                HStack(spacing: Spacing.md) {
-                    Text(DisplayFormat.date(article.publishedAt ?? article.createdAt))
-                    if let minutes = article.readingMinutes, minutes > 0 {
-                        Text(String(localized: "profile.article.minutes", defaultValue: "\(minutes) мин"))
-                    }
-                    if let views = article.views, views > 0 {
-                        Label(views.formatted(), systemImage: "eye")
-                    }
-                }
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
+                ArticleMetaLine(date: article.publishedAt ?? article.createdAt, minutes: article.readingMinutes, views: article.views)
             }
         }
         .padding(.vertical, Spacing.xs)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Строка сведений статьи: «22 авг. 2025 · 1 мин · 👁 8». Части через точку, как
+/// подписи в ленте, а число просмотров — вплотную к своему значку, не в стороне.
+struct ArticleMetaLine: View {
+    let date: Date?
+    let minutes: Int?
+    let views: Int?
+
+    var body: some View {
+        HStack(spacing: Spacing.xs) {
+            Text(DisplayFormat.date(date))
+            if let minutes, minutes > 0 {
+                Text(verbatim: "·")
+                Text(String(localized: "profile.article.minutes", defaultValue: "\(minutes) мин"))
+            }
+            if let views, views > 0 {
+                Text(verbatim: "·")
+                HStack(spacing: 2) {
+                    Image(systemName: "eye")
+                        .imageScale(.small)
+                    Text(views.formatted())
+                }
+            }
+        }
+        .font(Typography.meta)
+        .foregroundStyle(Palette.mutedForeground)
+        .lineLimit(1)
     }
 }
 

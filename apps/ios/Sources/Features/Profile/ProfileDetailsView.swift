@@ -1,6 +1,8 @@
 import SwiftUI
 
-/// Сведения профиля: контакты, учёба или работа, навыки и интересы.
+/// Сведения профиля, которым не место в карточке под шапкой: учёба или работа,
+/// навыки и интересы. Контакты — в самой карточке (`ProfileContact`), как телефон и
+/// имя пользователя в профиле Telegram.
 ///
 /// Показываем только то, что сервер отдал: чужие почту, телефон и оценки он уже
 /// вырезал по правам смотрящего, а пустые поля здесь просто не рисуются.
@@ -10,26 +12,14 @@ struct ProfileDetailsView: View {
 
     @Environment(\.dismiss) private var dismiss
 
+    /// Есть ли что показать — иначе строку «Подробнее» в карточке не рисуют.
+    static func hasDetails(_ profile: UserProfileDTO) -> Bool {
+        !studyRows(profile).isEmpty || !(profile.skills ?? []).isEmpty || !(profile.interests ?? []).isEmpty
+    }
+
     var body: some View {
         List {
-            let contacts = contactRows
-            if !contacts.isEmpty {
-                Section {
-                    ForEach(contacts, id: \.title) { row in
-                        if let url = row.url {
-                            Link(destination: url) {
-                                DetailRow(title: row.title, value: row.value, symbol: row.symbol)
-                            }
-                        } else {
-                            DetailRow(title: row.title, value: row.value, symbol: row.symbol)
-                        }
-                    }
-                } header: {
-                    Text(String(localized: "profile.contacts", defaultValue: "Контакты"))
-                }
-            }
-
-            let study = studyRows
+            let study = Self.studyRows(profile)
             if !study.isEmpty {
                 Section {
                     ForEach(study, id: \.title) { row in
@@ -58,7 +48,7 @@ struct ProfileDetailsView: View {
                 }
             }
 
-            if contacts.isEmpty, study.isEmpty, (profile.skills ?? []).isEmpty, (profile.interests ?? []).isEmpty {
+            if !Self.hasDetails(profile) {
                 EmptyStateView(
                     title: String(localized: "profile.details.empty", defaultValue: "Сведений пока нет"),
                     symbol: "person.text.rectangle",
@@ -83,36 +73,9 @@ struct ProfileDetailsView: View {
         let title: String
         let value: String
         let symbol: String
-        var url: URL?
     }
 
-    private var contactRows: [Row] {
-        var rows: [Row] = []
-        if let email = profile.email, !email.isEmpty {
-            rows.append(Row(title: String(localized: "profile.email", defaultValue: "Почта"), value: email, symbol: "envelope",
-                            url: URL(string: "mailto:\(email)")))
-        }
-        if let phone = profile.phone, !phone.isEmpty {
-            let digits = phone.filter { $0.isNumber || $0 == "+" }
-            rows.append(Row(title: String(localized: "profile.phone", defaultValue: "Телефон"), value: phone, symbol: "phone",
-                            url: URL(string: "tel:\(digits)")))
-        }
-        if let telegram = profile.telegram, !telegram.isEmpty {
-            let handle = telegram.trimmingCharacters(in: CharacterSet(charactersIn: "@"))
-            rows.append(Row(title: "Telegram", value: "@\(handle)", symbol: "paperplane", url: URL(string: "https://t.me/\(handle)")))
-        }
-        if let instagram = profile.instagram, !instagram.isEmpty {
-            let handle = instagram.trimmingCharacters(in: CharacterSet(charactersIn: "@"))
-            rows.append(Row(title: "Instagram", value: "@\(handle)", symbol: "camera", url: URL(string: "https://instagram.com/\(handle)")))
-        }
-        if let website = profile.website, !website.isEmpty {
-            rows.append(Row(title: String(localized: "profile.website", defaultValue: "Сайт"), value: website, symbol: "link",
-                            url: URL(string: website.hasPrefix("http") ? website : "https://\(website)")))
-        }
-        return rows
-    }
-
-    private var studyRows: [Row] {
+    private static func studyRows(_ profile: UserProfileDTO) -> [Row] {
         var rows: [Row] = []
         func add(_ title: String, _ value: String?, _ symbol: String) {
             if let value, !value.isEmpty { rows.append(Row(title: title, value: value, symbol: symbol)) }
@@ -134,6 +97,53 @@ struct ProfileDetailsView: View {
         add(String(localized: "profile.officeHours", defaultValue: "Часы приёма"), profile.officeHours, "clock")
         if let languages = profile.languages, !languages.isEmpty {
             add(String(localized: "profile.languages", defaultValue: "Языки"), languages.joined(separator: ", "), "globe")
+        }
+        return rows
+    }
+}
+
+/// Контакт в карточке профиля: значок, значение и куда ведёт касание (письмо,
+/// звонок, Telegram, сайт).
+struct ProfileContact {
+    let title: String
+    let value: String
+    let symbol: String
+    let url: URL?
+
+    static func rows(for profile: UserProfileDTO) -> [ProfileContact] {
+        var rows: [ProfileContact] = []
+        if let phone = profile.phone, !phone.isEmpty {
+            let digits = phone.filter { $0.isNumber || $0 == "+" }
+            rows.append(ProfileContact(
+                title: String(localized: "profile.phone", defaultValue: "Телефон"),
+                value: DisplayFormat.phone(phone),
+                symbol: "phone",
+                url: URL(string: "tel:\(digits)")
+            ))
+        }
+        if let email = profile.email, !email.isEmpty {
+            rows.append(ProfileContact(
+                title: String(localized: "profile.email", defaultValue: "Почта"),
+                value: email,
+                symbol: "envelope",
+                url: URL(string: "mailto:\(email)")
+            ))
+        }
+        if let telegram = profile.telegram, !telegram.isEmpty {
+            let handle = telegram.trimmingCharacters(in: CharacterSet(charactersIn: "@"))
+            rows.append(ProfileContact(title: "Telegram", value: "@\(handle)", symbol: "paperplane", url: URL(string: "https://t.me/\(handle)")))
+        }
+        if let instagram = profile.instagram, !instagram.isEmpty {
+            let handle = instagram.trimmingCharacters(in: CharacterSet(charactersIn: "@"))
+            rows.append(ProfileContact(title: "Instagram", value: "@\(handle)", symbol: "camera", url: URL(string: "https://instagram.com/\(handle)")))
+        }
+        if let website = profile.website, !website.isEmpty {
+            rows.append(ProfileContact(
+                title: String(localized: "profile.website", defaultValue: "Сайт"),
+                value: website,
+                symbol: "link",
+                url: URL(string: website.hasPrefix("http") ? website : "https://\(website)")
+            ))
         }
         return rows
     }
@@ -219,6 +229,7 @@ struct SavedPostsView: View {
                             symbol: "bookmark",
                             hint: String(localized: "saved.empty.hint", defaultValue: "Нажмите на закладку под публикацией, чтобы вернуться к ней позже")
                         )
+                        .centeredInScreen()
                     } else {
                         ForEach(feed.posts) { post in
                             PostCardView(post: post, model: feed, viewerID: viewerID, actions: actions)

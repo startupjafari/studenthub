@@ -87373,40 +87373,6 @@
         }
       }
     },
-    "profile.removeAvatar.confirm": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удалить фото профиля?"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Профиль фотосын жою керек пе?"
-          }
-        }
-      }
-    },
-    "profile.removeCover.confirm": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удалить обложку?"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Мұқабаны жою керек пе?"
-          }
-        }
-      }
-    },
     "deanery.section.active": {
       "extractionState": "manual",
       "localizations": {
@@ -91368,23 +91334,6 @@
         }
       }
     },
-    "settings.editShort": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Править"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Өңдеу"
-          }
-        }
-      }
-    },
     "settings.2fa.statusOn": {
       "extractionState": "manual",
       "localizations": {
@@ -91551,6 +91500,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "Іздеу ЖОО атауы, байланыс тұлғасының аты және пошта бойынша — екі әріптен бастап"
+          }
+        }
+      }
+    },
+    "community.articles.noSaved.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите на закладку в статье, чтобы вернуться к ней позже"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мақалаға кейін оралу үшін ондағы бетбелгіні басыңыз"
+          }
+        }
+      }
+    },
+    "community.articles.empty.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расскажите о своём опыте — статья появится в профиле"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тәжірибеңізбен бөлісіңіз — мақала профильде пайда болады"
+          }
+        }
+      }
+    },
+    "community.friends.noIncoming.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Здесь появятся люди, которые хотят добавить вас в друзья"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мұнда сізді досқа қосқысы келетін адамдар пайда болады"
+          }
+        }
+      }
+    },
+    "community.friends.noOutgoing.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Найдите человека поиском и отправьте ему заявку"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Адамды іздеу арқылы тауып, оған өтінім жіберіңіз"
+          }
+        }
+      }
+    },
+    "community.myPosts.noDrafts.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохраните пост черновиком, чтобы закончить его позже"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жазбаны кейін аяқтау үшін оны жоба ретінде сақтаңыз"
+          }
+        }
+      }
+    },
+    "community.myPosts.noScheduled.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите время публикации, когда создаёте пост"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жазба жасағанда жариялау уақытын таңдаңыз"
+          }
+        }
+      }
+    },
+    "profile.addCover": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить обложку"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мұқаба қосу"
           }
         }
       }

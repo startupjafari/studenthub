@@ -49,7 +49,10 @@ struct PagedList<Item: Decodable & Identifiable, Row: View, Header: View>: View 
             header()
             if loader.isLoaded {
                 if loader.items.isEmpty {
-                    empty.listRowBackground(Color.clear)
+                    empty
+                        .centeredInScreen()
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                 } else {
                     if let failure = loader.failure {
                         StaleDataBanner(message: failure, isOffline: loader.isOffline) { await loader.reload() }
@@ -440,6 +443,9 @@ struct ListCardRow: View {
 struct FilterChips<Value: Hashable>: View {
     let options: [(value: Value?, title: String)]
     @Binding var selection: Value?
+    /// Пункты делят ширину поровну, как системный сегментный переключатель («Мои /
+    /// Сохранённые», вкладки профиля), — если влезают. Не влезли — обычная дорожка.
+    var fillsWidth = false
 
     @Namespace private var pill
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -465,52 +471,119 @@ struct FilterChips<Value: Hashable>: View {
         }
     }
 
+    @ViewBuilder
     private var chips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 2) {
-                ForEach(Array(options.enumerated()), id: \.offset) { index, option in
-                    let isOn = option.value == selection
-                    Button {
-                        withAnimation(Motion.respecting(.snappy(duration: 0.3), reduceMotion: reduceMotion)) {
-                            selection = option.value
-                        }
-                    } label: {
-                        Text(option.title)
-                            .font(.subheadline.weight(isOn ? .semibold : .medium))
-                            .lineLimit(1)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .foregroundStyle(isOn ? Palette.foreground : Palette.mutedForeground)
-                            .background {
-                                if isOn {
-                                    Capsule()
-                                        .fill(Palette.foreground.opacity(0.12))
-                                        .matchedGeometryEffect(id: "pill", in: pill)
-                                }
-                            }
-                            .contentShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(isOn ? .isSelected : [])
-                    .id(index)
+        Group {
+            if fillsWidth {
+                ViewThatFits(in: .horizontal) {
+                    row(equalWidths: true)
+                    scrolling
                 }
+            } else {
+                scrolling
             }
-            .padding(4)
         }
-        .scrollClipDisabled(false)
         .clipShape(Capsule())
         .glassSurface(interactive: false, in: Capsule())
     }
+
+    /// Дорожка, которая листается. Края, за которыми есть ещё пункты, тают: иначе
+    /// капсула резала подпись посередине буквы («остs», «Опро»), и не было видно, что
+    /// дальше что-то есть.
+    private var scrolling: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            row(equalWidths: false)
+        }
+        .scrollClipDisabled(false)
+        .modifier(ScrollEdgeFade())
+    }
+
+    private func row(equalWidths: Bool) -> some View {
+        HStack(spacing: 2) {
+            ForEach(Array(options.enumerated()), id: \.offset) { index, option in
+                let isOn = option.value == selection
+                Button {
+                    withAnimation(Motion.respecting(.snappy(duration: 0.3), reduceMotion: reduceMotion)) {
+                        selection = option.value
+                    }
+                } label: {
+                    Text(option.title)
+                        .font(.subheadline.weight(isOn ? .semibold : .medium))
+                        .lineLimit(1)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: equalWidths ? .infinity : nil)
+                        .foregroundStyle(isOn ? Palette.foreground : Palette.mutedForeground)
+                        .background {
+                            if isOn {
+                                Capsule()
+                                    .fill(Palette.foreground.opacity(0.12))
+                                    .matchedGeometryEffect(id: "pill", in: pill)
+                            }
+                        }
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(isOn ? .isSelected : [])
+                .id(index)
+            }
+        }
+        .padding(4)
+    }
 }
 
-/// Строка фильтров для `List`: без фона и отступов, чтобы капсулы шли от края.
+/// Тающие края горизонтальной прокрутки — только с той стороны, где есть ещё
+/// содержимое. Положение прокрутки система отдаёт с iOS 18; раньше края не тают.
+private struct ScrollEdgeFade: ViewModifier {
+    private struct Edges: Equatable {
+        var leading = false
+        var trailing = false
+    }
+
+    @State private var edges = Edges()
+    private let width: CGFloat = 24
+
+    init() {}
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 18, *) {
+            content
+                .onScrollGeometryChange(for: Edges.self) { geometry in
+                    let offset = geometry.contentOffset.x
+                    return Edges(
+                        leading: offset > 1,
+                        trailing: offset + geometry.containerSize.width < geometry.contentSize.width - 1
+                    )
+                } action: { _, new in
+                    edges = new
+                }
+                .mask {
+                    HStack(spacing: 0) {
+                        LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
+                            .frame(width: edges.leading ? width : 0)
+                        Color.black
+                        LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                            .frame(width: edges.trailing ? width : 0)
+                    }
+                }
+        } else {
+            content
+        }
+    }
+}
+
+/// Строка фильтров для `List`: без фона, отступов и разделителя под собой, чтобы
+/// капсулы шли от края, а под ними не тянулась линия до первой строки.
 struct FilterChipsRow<Value: Hashable>: View {
     let options: [(value: Value?, title: String)]
     @Binding var selection: Value?
+    var fillsWidth = false
 
     var body: some View {
-        FilterChips(options: options, selection: $selection)
+        FilterChips(options: options, selection: $selection, fillsWidth: fillsWidth)
             .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
             .listRowInsets(EdgeInsets(top: Spacing.xs, leading: 0, bottom: Spacing.xs, trailing: 0))
     }
 }
@@ -664,6 +737,33 @@ enum DisplayFormat {
     static func date(_ date: Date?) -> String {
         guard let date else { return "—" }
         return date.formatted(.dateTime.day().month(.abbreviated).year())
+    }
+
+    /// «+7 771 574 95 26» — из того, как номер набрали: «87715749526», «+7 (771)
+    /// 574-95-26», «7715749526». Номер другого формата остаётся как есть: угадывать
+    /// чужие правила группировки хуже, чем показать набранное.
+    static func phone(_ raw: String) -> String {
+        let allowed = Set("+0123456789 -()")
+        guard raw.allSatisfy({ allowed.contains($0) }) else { return raw }
+        var digits = raw.filter(\.isNumber)
+        if digits.count == 11, digits.hasPrefix("8") || digits.hasPrefix("7") {
+            digits.removeFirst()
+        }
+        guard digits.count == 10 else { return raw }
+        let d = Array(digits)
+        return "+7 \(String(d[0..<3])) \(String(d[3..<6])) \(String(d[6..<8])) \(String(d[8..<10]))"
+    }
+
+    /// Длительность ролика: «0:07», «12:40», «1:02:03».
+    static func duration(milliseconds: Int) -> String {
+        let total = max(0, milliseconds / 1000)
+        let hours = total / 3600
+        let minutes = total % 3600 / 60
+        let seconds = total % 60
+        let tail = String(format: "%02d", seconds)
+        return hours > 0
+            ? "\(hours):\(String(format: "%02d", minutes)):\(tail)"
+            : "\(minutes):\(tail)"
     }
 
     /// «5 мин назад».

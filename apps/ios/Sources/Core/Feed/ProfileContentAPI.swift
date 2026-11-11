@@ -25,6 +25,8 @@ struct ProfileMediaDTO: Decodable, Equatable, Identifiable {
     let createdAt: Date
     /// Альбом, в который снимок разложен; `nil` — вне альбомов.
     var albumId: String? = nil
+    /// Длительность видео; `nil` — сервер её ещё не измерил.
+    var durationMs: Int? = nil
 
     var isVideo: Bool { type == "VIDEO" }
 

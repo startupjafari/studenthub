@@ -51,7 +51,8 @@ struct CommunityFriendsView: View {
                             (value: Tab.incoming, title: incomingTitle),
                             (value: Tab.outgoing, title: String(localized: "community.friends.outgoing", defaultValue: "Отправленные")),
                         ],
-                        selection: Binding(get: { tab }, set: { if let next = $0 { tab = next } })
+                        selection: Binding(get: { tab }, set: { if let next = $0 { tab = next } }),
+                        fillsWidth: true
                     )
                 } row: { item in
                     row(item)
@@ -106,12 +107,14 @@ struct CommunityFriendsView: View {
         case .incoming:
             return EmptyStateView(
                 title: String(localized: "community.friends.noIncoming", defaultValue: "Новых заявок нет"),
-                symbol: "person.crop.circle.badge.plus"
+                symbol: "person.crop.circle.badge.plus",
+                hint: String(localized: "community.friends.noIncoming.hint", defaultValue: "Здесь появятся люди, которые хотят добавить вас в друзья")
             )
         case .outgoing:
             return EmptyStateView(
                 title: String(localized: "community.friends.noOutgoing", defaultValue: "Вы никому не отправляли заявок"),
-                symbol: "paperplane"
+                symbol: "paperplane",
+                hint: String(localized: "community.friends.noOutgoing.hint", defaultValue: "Найдите человека поиском и отправьте ему заявку")
             )
         }
     }

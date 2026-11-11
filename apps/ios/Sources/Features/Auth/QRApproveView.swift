@@ -87,6 +87,15 @@ struct QRApproveView: View {
                 RoundedRectangle(cornerRadius: Radius.xxl)
                     .strokeBorder(Palette.border, lineWidth: 1)
             )
+            // Прицел: куда навести код. Без него видоискатель — просто картинка с
+            // камеры, и непонятно, что и как близко держать.
+            .overlay {
+                ViewfinderCorners()
+                    .stroke(.white, style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
+                    .frame(width: 200, height: 200)
+                    .shadow(color: .black.opacity(0.35), radius: 3)
+                    .accessibilityHidden(true)
+            }
             .accessibilityLabel(Text(String(
                 localized: "auth.qrScannerLabel",
                 defaultValue: "Видоискатель камеры"
@@ -275,3 +284,35 @@ struct QRApproveView: View {
         }
     }
 #endif
+
+/// Четыре скруглённых уголка квадрата — прицел сканера QR, как в системной камере.
+private struct ViewfinderCorners: Shape {
+    var length: CGFloat = 32
+    var radius: CGFloat = 14
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let r = min(radius, length)
+        // Левый верхний.
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY + length))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + r))
+        path.addQuadCurve(to: CGPoint(x: rect.minX + r, y: rect.minY), control: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.minX + length, y: rect.minY))
+        // Правый верхний.
+        path.move(to: CGPoint(x: rect.maxX - length, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - r, y: rect.minY))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY + r), control: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + length))
+        // Правый нижний.
+        path.move(to: CGPoint(x: rect.maxX, y: rect.maxY - length))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - r))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX - r, y: rect.maxY), control: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.maxX - length, y: rect.maxY))
+        // Левый нижний.
+        path.move(to: CGPoint(x: rect.minX + length, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
+        path.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.maxY - r), control: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - length))
+        return path
+    }
+}
