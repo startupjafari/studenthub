@@ -61,6 +61,7 @@ def info_plist(api_base_url: str, web_base_url: str) -> dict:
         ],
         "NSCameraUsageDescription": "Чтобы сфотографироваться для профиля и отсканировать QR-код входа на компьютере.",
         "NSMicrophoneUsageDescription": "Чтобы записать голосовое сообщение.",
+        "NSPhotoLibraryAddUsageDescription": "Чтобы сохранить фото и видео из приложения в «Фото».",
         # Запрос «Разрешить доступ к локальной сети» iOS показывает при первом обращении
         # к серверу на компьютере. Без «Разрешить» запросы к API не дойдут.
         "NSLocalNetworkUsageDescription": "Чтобы подключиться к серверу разработки на компьютере.",
