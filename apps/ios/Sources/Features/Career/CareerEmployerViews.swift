@@ -1537,17 +1537,13 @@ struct CareerCompanyProfileView: View {
                 badges: { roleBadge(company) },
                 moreMenu: {
                     if company.logoUrl != nil {
-                        Button(role: .destructive) {
+                        HeroMenuItem(String(localized: "career.company.removeLogo", defaultValue: "Удалить логотип"), symbol: "trash", isDestructive: true) {
                             Task { await run { try await CareerAPI().removeCompanyImage(kind: "logo") } }
-                        } label: {
-                            Label(String(localized: "career.company.removeLogo", defaultValue: "Удалить логотип"), systemImage: "trash")
                         }
                     }
                     if company.coverUrl != nil {
-                        Button(role: .destructive) {
+                        HeroMenuItem(String(localized: "career.company.removeCover", defaultValue: "Удалить обложку"), symbol: "trash", isDestructive: true) {
                             Task { await run { try await CareerAPI().removeCompanyImage(kind: "cover") } }
-                        } label: {
-                            Label(String(localized: "career.company.removeCover", defaultValue: "Удалить обложку"), systemImage: "trash")
                         }
                     }
                 }

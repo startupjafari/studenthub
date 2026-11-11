@@ -450,23 +450,17 @@ struct StaffBookDetailView: View {
                         }
                     }
                     HeroActionRow(actions: heroActions(book, copies: copies)) {
-                        Button {
+                        HeroMenuItem(String(localized: "staff.cat.cover", defaultValue: "Обложка"), symbol: "photo") {
                             pickingCover = true
-                        } label: {
-                            Label(String(localized: "staff.cat.cover", defaultValue: "Обложка"), systemImage: "photo")
                         }
-                        Divider()
+                        HeroMenuDivider()
                         if book.archived {
-                            Button {
+                            HeroMenuItem(String(localized: "staff.cat.restore", defaultValue: "Вернуть из архива"), symbol: "tray.and.arrow.up") {
                                 Task { await setArchived(false) }
-                            } label: {
-                                Label(String(localized: "staff.cat.restore", defaultValue: "Вернуть из архива"), systemImage: "tray.and.arrow.up")
                             }
                         } else {
-                            Button(role: .destructive) {
+                            HeroMenuItem(String(localized: "staff.cat.archive", defaultValue: "В архив"), symbol: "archivebox", isDestructive: true) {
                                 confirmArchive = true
-                            } label: {
-                                Label(String(localized: "staff.cat.archive", defaultValue: "В архив"), systemImage: "archivebox")
                             }
                         }
                     }

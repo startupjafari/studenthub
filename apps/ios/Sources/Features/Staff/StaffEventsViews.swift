@@ -319,15 +319,11 @@ struct StaffEventDetailView: View {
                         }
                     } moreMenu: {
                         if canManage(event) {
-                            Button {
+                            HeroMenuItem(String(localized: "staff.event.edit", defaultValue: "Изменить"), symbol: "pencil") {
                                 editing = true
-                            } label: {
-                                Label(String(localized: "staff.event.edit", defaultValue: "Изменить"), systemImage: "pencil")
                             }
-                            Button(role: .destructive) {
+                            HeroMenuItem(String(localized: "staff.event.delete", defaultValue: "Удалить"), symbol: "trash", isDestructive: true) {
                                 confirmDelete = true
-                            } label: {
-                                Label(String(localized: "staff.event.delete", defaultValue: "Удалить"), systemImage: "trash")
                             }
                         }
                     }

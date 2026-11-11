@@ -1169,26 +1169,3 @@ private struct ProfilePollCard: View {
         .accessibilityElement(children: .combine)
     }
 }
-
-// MARK: - Меню UIKit
-
-/// Прозрачная кнопка UIKit, которая по касанию открывает меню. Сама ничего не рисует —
-/// под ней своя подпись (`HeroActionLabel`), и системное стекло меню её не обводит.
-private struct MenuOverlay: UIViewRepresentable {
-    let menu: UIMenu
-    let accessibilityLabel: String
-    let accessibilityIdentifier: String
-
-    func makeUIView(context: Context) -> UIButton {
-        let button = UIButton(type: .custom)
-        button.showsMenuAsPrimaryAction = true
-        button.backgroundColor = .clear
-        return button
-    }
-
-    func updateUIView(_ button: UIButton, context: Context) {
-        button.menu = menu
-        button.accessibilityLabel = accessibilityLabel
-        button.accessibilityIdentifier = accessibilityIdentifier
-    }
-}

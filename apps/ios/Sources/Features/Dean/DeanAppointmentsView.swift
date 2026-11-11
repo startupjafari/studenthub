@@ -216,18 +216,14 @@ struct DeanAppointmentsView: View {
         return list
     }
 
-    @ViewBuilder
-    private func cardMenu(_ item: DeanAppointment) -> some View {
-        Button {
+    @HeroMenuBuilder
+    private func cardMenu(_ item: DeanAppointment) -> [HeroMenuElement] {
+        HeroMenuItem(String(localized: "dean.appointments.openStudent", defaultValue: "Карточка студента"), symbol: "person") {
             later { DeanNav.push(.dean(.student(id: item.student.id))) }
-        } label: {
-            Label(String(localized: "dean.appointments.openStudent", defaultValue: "Карточка студента"), systemImage: "person")
         }
         if item.can("CANCELLED") {
-            Button(role: .destructive) {
+            HeroMenuItem(String(localized: "dean.appointments.cancelAction", defaultValue: "Отменить запись"), symbol: "xmark.circle", isDestructive: true) {
                 later { cancelling = item }
-            } label: {
-                Label(String(localized: "dean.appointments.cancelAction", defaultValue: "Отменить запись"), systemImage: "xmark.circle")
             }
         }
     }
@@ -287,10 +283,10 @@ private struct DeanAppointmentRow: View {
 /// Карточка записи: студент по центру, вопрос и время, действия кругами — как профиль
 /// в Telegram. Действия собирает список: формы и подтверждения показывает он, когда
 /// карточка закроется.
-private struct DeanAppointmentCard<More: View>: View {
+private struct DeanAppointmentCard: View {
     let item: DeanAppointment
     let actions: [HeroAction]
-    @ViewBuilder let moreMenu: () -> More
+    @HeroMenuBuilder let moreMenu: () -> [HeroMenuElement]
 
     @Environment(\.dismiss) private var dismiss
 

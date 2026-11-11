@@ -91,24 +91,21 @@ struct LibrarianBookView: View {
     }
 
     /// Редкое и опасное — в «Ещё» под шапкой: выбор наклеек и архив.
-    @ViewBuilder
-    private func moreMenu(_ book: LibrarianBookDetailDTO) -> some View {
-        Button {
+    @HeroMenuBuilder
+    private func moreMenu(_ book: LibrarianBookDetailDTO) -> [HeroMenuElement] {
+        HeroMenuItem(
+            String(localized: "librarian.book.selectForLabels", defaultValue: "Выбрать для наклеек"),
+            symbol: "checkmark.circle",
+            isDisabled: book.copies.isEmpty
+        ) {
             selecting.toggle()
             if !selecting { selected = [] }
-        } label: {
-            Label(String(localized: "librarian.book.selectForLabels", defaultValue: "Выбрать для наклеек"), systemImage: "checkmark.circle")
         }
-        .disabled(book.copies.isEmpty)
-        Divider()
+        HeroMenuDivider()
         if book.isArchived {
-            Button { Task { await setArchived(false) } } label: {
-                Label(String(localized: "librarian.book.restore", defaultValue: "Вернуть из архива"), systemImage: "arrow.uturn.backward")
-            }
+            HeroMenuItem(String(localized: "librarian.book.restore", defaultValue: "Вернуть из архива"), symbol: "arrow.uturn.backward") { Task { await setArchived(false) } }
         } else {
-            Button(role: .destructive) { confirmArchive = true } label: {
-                Label(String(localized: "librarian.book.archive", defaultValue: "В архив"), systemImage: "archivebox")
-            }
+            HeroMenuItem(String(localized: "librarian.book.archive", defaultValue: "В архив"), symbol: "archivebox", isDestructive: true) { confirmArchive = true }
         }
     }
 

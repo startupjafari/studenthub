@@ -484,7 +484,7 @@ struct MuteMenu: View {
         }
     }
 
-    /// Варианты срока — общие для меню строки и кнопки «Звук» в информации о чате.
+    /// Варианты срока — для меню строки списка чатов.
     @ViewBuilder
     static func options(_ mute: @escaping (Int?, Bool) -> Void) -> some View {
         Button(String(localized: "chats.mute.1h", defaultValue: "На час")) { mute(60, false) }
@@ -495,6 +495,20 @@ struct MuteMenu: View {
         Button(String(localized: "chats.mute.forever", defaultValue: "Навсегда")) { mute(nil, false) }
         Divider()
         Button(String(localized: "chats.mute.important", defaultValue: "Только важное")) { mute(nil, true) }
+    }
+
+    /// Те же варианты для кнопки «Звук» в информации о чате — её меню строит UIKit
+    /// (`HeroMoreButton`).
+    @HeroMenuBuilder
+    static func heroOptions(_ mute: @escaping (Int?, Bool) -> Void) -> [HeroMenuElement] {
+        HeroMenuItem(String(localized: "chats.mute.1h", defaultValue: "На час")) { mute(60, false) }
+        HeroMenuItem(String(localized: "chats.mute.4h", defaultValue: "На 4 часа")) { mute(240, false) }
+        HeroMenuItem(String(localized: "chats.mute.8h", defaultValue: "На 8 часов")) { mute(480, false) }
+        HeroMenuItem(String(localized: "chats.mute.1d", defaultValue: "На сутки")) { mute(1440, false) }
+        HeroMenuItem(String(localized: "chats.mute.3d", defaultValue: "На 3 дня")) { mute(4320, false) }
+        HeroMenuItem(String(localized: "chats.mute.forever", defaultValue: "Навсегда")) { mute(nil, false) }
+        HeroMenuDivider()
+        HeroMenuItem(String(localized: "chats.mute.important", defaultValue: "Только важное")) { mute(nil, true) }
     }
 }
 

@@ -205,31 +205,23 @@ struct AdminUniversityView: View {
                     } moreMenu: {
                         if canEdit {
                             if university.status != "ACTIVE" {
-                                Button {
+                                HeroMenuItem(AdminText.universityStatus("ACTIVE").text, symbol: "checkmark.circle") {
                                     Task { await setStatus("ACTIVE") }
-                                } label: {
-                                    Label(AdminText.universityStatus("ACTIVE").text, systemImage: "checkmark.circle")
                                 }
                             }
                             if university.status != "PENDING" {
-                                Button {
+                                HeroMenuItem(AdminText.universityStatus("PENDING").text, symbol: "hourglass") {
                                     Task { await setStatus("PENDING") }
-                                } label: {
-                                    Label(AdminText.universityStatus("PENDING").text, systemImage: "hourglass")
                                 }
                             }
                             if university.status != "BLOCKED" {
-                                Button(role: .destructive) {
+                                HeroMenuItem(String(localized: "admin.university.block", defaultValue: "Заблокировать"), symbol: "hand.raised", isDestructive: true) {
                                     confirmBlock = true
-                                } label: {
-                                    Label(String(localized: "admin.university.block", defaultValue: "Заблокировать"), systemImage: "hand.raised")
                                 }
                             }
-                            Divider()
-                            Button(role: .destructive) {
+                            HeroMenuDivider()
+                            HeroMenuItem(String(localized: "admin.university.delete", defaultValue: "Удалить вуз"), symbol: "trash", isDestructive: true) {
                                 confirmDelete = true
-                            } label: {
-                                Label(String(localized: "admin.university.delete", defaultValue: "Удалить вуз"), systemImage: "trash")
                             }
                         }
                     }

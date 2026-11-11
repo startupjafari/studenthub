@@ -432,18 +432,14 @@ struct DeanStudentView: View {
         return list
     }
 
-    @ViewBuilder
-    private func moreMenu(_ data: Snapshot) -> some View {
-        Button {
+    @HeroMenuBuilder
+    private func moreMenu(_ data: Snapshot) -> [HeroMenuElement] {
+        HeroMenuItem(String(localized: "dean.contact.profile", defaultValue: "Открыть профиль"), symbol: "person.crop.circle") {
             DeanNav.push(.profile(id: data.profile.id))
-        } label: {
-            Label(String(localized: "dean.contact.profile", defaultValue: "Открыть профиль"), systemImage: "person.crop.circle")
         }
         if let group = data.group {
-            Button {
+            HeroMenuItem(String(localized: "dean.student.openGroup", defaultValue: "Карточка группы"), symbol: "person.3") {
                 DeanNav.push(.dean(.group(id: group.id)))
-            } label: {
-                Label(String(localized: "dean.student.openGroup", defaultValue: "Карточка группы"), systemImage: "person.3")
             }
         }
     }

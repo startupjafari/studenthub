@@ -588,28 +588,20 @@ struct StaffTemplateDetailView: View {
                         }
                     } moreMenu: {
                         if canManage, !archived {
-                            Button {
+                            HeroMenuItem(String(localized: "staff.tpl.edit", defaultValue: "Изменить"), symbol: "pencil") {
                                 editing = true
-                            } label: {
-                                Label(String(localized: "staff.tpl.edit", defaultValue: "Изменить"), systemImage: "pencil")
                             }
                             if let current {
-                                Button {
+                                HeroMenuItem(String(localized: "staff.tpl.downloadSource", defaultValue: "Скачать исходный DOCX"), symbol: "arrow.down.doc") {
                                     downloadSource(current)
-                                } label: {
-                                    Label(String(localized: "staff.tpl.downloadSource", defaultValue: "Скачать исходный DOCX"), systemImage: "arrow.down.doc")
                                 }
                             }
-                            Button {
+                            HeroMenuItem(String(localized: "staff.tpl.replaceFile", defaultValue: "Заменить файл"), symbol: "arrow.up.doc") {
                                 uploading = true
-                            } label: {
-                                Label(String(localized: "staff.tpl.replaceFile", defaultValue: "Заменить файл"), systemImage: "arrow.up.doc")
                             }
-                            Divider()
-                            Button(role: .destructive) {
+                            HeroMenuDivider()
+                            HeroMenuItem(deleteActionTitle, symbol: (template.generationCount ?? 0) > 0 ? "archivebox" : "trash", isDestructive: true) {
                                 confirmDelete = true
-                            } label: {
-                                Label(deleteActionTitle, systemImage: (template.generationCount ?? 0) > 0 ? "archivebox" : "trash")
                             }
                         }
                     }
