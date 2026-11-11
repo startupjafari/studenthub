@@ -96,6 +96,10 @@ final class ChatListModel {
             failure = nil
             loadFailure = nil
             isOffline = false
+        } catch is CancellationError {
+            // Запрос отменили (ушли с вкладки, обновление перезапустилось) — это не сбой.
+            // Раньше отмена показывалась общим «Что-то пошло не так» над списком.
+            return
         } catch {
             failure = error.userMessage
             loadFailure = failure

@@ -529,6 +529,9 @@ final class ChatThreadModel {
             olderCursor = page.meta?.cursor
             reachedBeginning = page.meta?.hasNext != true
             failure = nil
+        } catch is CancellationError {
+            // Экран ушёл, и запрос отменили — это не сбой: не пугаем красной строкой.
+            return
         } catch {
             failure = message(for: error)
         }
@@ -544,6 +547,9 @@ final class ChatThreadModel {
             olderCursor = page.meta?.cursor
             reachedBeginning = page.meta?.hasNext != true
             failure = nil
+        } catch is CancellationError {
+            // Экран ушёл, и запрос отменили — это не сбой: не пугаем красной строкой.
+            return
         } catch {
             failure = message(for: error)
         }
@@ -568,6 +574,9 @@ final class ChatThreadModel {
             }
             try await store.apply(updates, chatID: chatID)
             failure = nil
+        } catch is CancellationError {
+            // Экран ушёл, и запрос отменили — это не сбой: не пугаем красной строкой.
+            return
         } catch {
             failure = message(for: error)
         }

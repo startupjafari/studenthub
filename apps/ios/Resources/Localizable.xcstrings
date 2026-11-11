@@ -91792,6 +91792,40 @@
           }
         }
       }
+    },
+    "chats.group.addMembers": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить участников"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қатысушыларды қосу"
+          }
+        }
+      }
+    },
+    "chats.group.next": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Далее"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Әрі қарай"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

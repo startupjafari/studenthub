@@ -180,6 +180,10 @@ enum NewChatKind: String, Identifiable {
 
 /// Новый чат: выбрать человека — личный чат, выбрать нескольких и назвать — группа.
 /// Люди — из справочника вуза: писать можно своему вузу и друзьям.
+///
+/// Группа — в два шага, как в Telegram: сначала участники (поиск сверху), «Далее» —
+/// название. На одном экране системный поиск вставал над полем названия, и порядок
+/// читался задом наперёд.
 struct NewChatView: View {
     let kind: NewChatKind
     let created: (String) -> Void
@@ -191,6 +195,8 @@ struct NewChatView: View {
     @State private var title = ""
     @State private var isCreating = false
     @State private var failure: String?
+    /// Второй шаг группы — название.
+    @State private var naming = false
     /// Поиск людей: сбой отдельно от ошибки создания — у него свой повтор.
     @State private var isSearching = false
     @State private var searchFailure: String?
@@ -206,9 +212,6 @@ struct NewChatView: View {
                         .listRowSeparator(.hidden)
                 }
                 if kind == .group {
-                    Section {
-                        TextField(String(localized: "chats.group.title", defaultValue: "Название группы"), text: $title)
-                    }
                     if !selected.isEmpty {
                         Section(String(localized: "chats.group.members", defaultValue: "Участники")) {
                             ScrollView(.horizontal, showsIndicators: false) {
@@ -284,7 +287,7 @@ struct NewChatView: View {
                 prompt: Text(String(localized: "search.people", defaultValue: "Имя или логин"))
             )
             .navigationTitle(Text(kind == .group
-                ? String(localized: "chats.newGroup", defaultValue: "Новая группа")
+                ? String(localized: "chats.group.addMembers", defaultValue: "Добавить участников")
                 : String(localized: "chats.new", defaultValue: "Новый чат")))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -293,14 +296,51 @@ struct NewChatView: View {
                 }
                 if kind == .group {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button(String(localized: "chats.group.create", defaultValue: "Создать")) {
-                            Task { await createGroup() }
+                        Button(String(localized: "chats.group.next", defaultValue: "Далее")) {
+                            naming = true
                         }
-                        .disabled(isCreating || selected.isEmpty || title.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .disabled(selected.isEmpty)
                     }
                 }
             }
+            .navigationDestination(isPresented: $naming) { groupDetails }
             .task(id: query) { await search() }
+        }
+    }
+
+    /// Второй шаг группы: название сверху, ниже — кого добавили.
+    private var groupDetails: some View {
+        List {
+            if let failure {
+                FormAlert(message: failure)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
+            Section {
+                TextField(String(localized: "chats.group.title", defaultValue: "Название группы"), text: $title)
+                    .submitLabel(.done)
+            }
+            Section(String(localized: "chats.group.members", defaultValue: "Участники")) {
+                ForEach(selected) { person in
+                    PersonRow(name: person.name, subtitle: person.groupTitle, avatarURL: person.avatarUrl)
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
+        .navigationTitle(Text(String(localized: "chats.newGroup", defaultValue: "Новая группа")))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                if isCreating {
+                    ProgressView()
+                } else {
+                    Button(String(localized: "chats.group.create", defaultValue: "Создать")) {
+                        Task { await createGroup() }
+                    }
+                    .disabled(selected.isEmpty || title.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
         }
     }
 
