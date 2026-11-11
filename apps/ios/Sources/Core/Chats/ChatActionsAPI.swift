@@ -145,6 +145,11 @@ protocol ChatActing: Sendable {
     func removeMember(chatID: String, userID: String) async throws
     func setAdmin(_ admin: Bool, chatID: String, userID: String) async throws
     func inviteCode(chatID: String) async throws -> String
+    func resetInviteCode(chatID: String) async throws -> String
+    func setBanned(_ banned: Bool, chatID: String, userID: String) async throws
+    func transferOwnership(chatID: String, to userID: String) async throws
+    func uploadGroupAvatar(chatID: String, jpeg: Data) async throws -> String
+    func removeGroupAvatar(chatID: String) async throws
     func join(chatID: String, code: String) async throws
     // Опросы
     func poll(id: String) async throws -> PollResultsDTO
@@ -307,6 +312,38 @@ extension ChatsAPI: ChatActing {
     func inviteCode(chatID: String) async throws -> String {
         struct Invite: Decodable { let code: String }
         return try await client.send(.get("chats/\(chatID)/invite"), as: Invite.self).code
+    }
+
+    /// Новый код ссылки: прежняя перестаёт работать (сервер меняет его и сам — при
+    /// исключении и бане, чтобы человек не вернулся по старой).
+    func resetInviteCode(chatID: String) async throws -> String {
+        struct Invite: Decodable { let code: String }
+        return try await client.send(.post("chats/\(chatID)/invite/reset"), as: Invite.self).code
+    }
+
+    /// Бан в группе — только у создателя. Забаненный остаётся в составе с отметкой
+    /// `banned`: так его видно в «Заблокированных», и снять бан есть с кого.
+    func setBanned(_ banned: Bool, chatID: String, userID: String) async throws {
+        let path = "chats/\(chatID)/members/\(userID)/ban"
+        try await client.send(banned ? .post(path) : Endpoint(method: .delete, path: path))
+    }
+
+    /// Прежний владелец остаётся админом группы.
+    func transferOwnership(chatID: String, to userID: String) async throws {
+        try await client.send(.post("chats/\(chatID)/transfer/\(userID)"))
+    }
+
+    /// Аватар группы — multipart с полем `file`, как аватар профиля; только создатель.
+    /// Возвращает новый адрес картинки.
+    func uploadGroupAvatar(chatID: String, jpeg: Data) async throws -> String {
+        struct Answer: Decodable { let avatarUrl: String }
+        var form = MultipartForm()
+        form.append(jpeg, name: "file", filename: "avatar.jpg", mime: "image/jpeg")
+        return try await client.send(.multipart("chats/\(chatID)/avatar", form: form), as: Answer.self).avatarUrl
+    }
+
+    func removeGroupAvatar(chatID: String) async throws {
+        try await client.send(Endpoint(method: .delete, path: "chats/\(chatID)/avatar"))
     }
 
     func join(chatID: String, code: String) async throws {

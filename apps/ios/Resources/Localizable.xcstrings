@@ -92574,6 +92574,295 @@
           }
         }
       }
+    },
+    "chats.group.photo": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фото группы"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Топ фотосы"
+          }
+        }
+      }
+    },
+    "chats.invite.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сбросить ссылку"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сілтемені жаңарту"
+          }
+        }
+      }
+    },
+    "chats.invite.reset.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сбросить ссылку-приглашение?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шақыру сілтемесін жаңарту керек пе?"
+          }
+        }
+      }
+    },
+    "chats.invite.reset.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Старая ссылка перестанет работать. Новая будет скопирована."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ескі сілтеме жұмыс істемей қалады. Жаңасы көшіріледі."
+          }
+        }
+      }
+    },
+    "chats.invite.copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ссылка скопирована"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сілтеме көшірілді"
+          }
+        }
+      }
+    },
+    "chats.invite.resetDone": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новая ссылка скопирована"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жаңа сілтеме көшірілді"
+          }
+        }
+      }
+    },
+    "chats.member.remove.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Исключить %@ из группы?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ топтан шығарылсын ба?"
+          }
+        }
+      }
+    },
+    "chats.member.ban": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заблокировать в группе"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Топта бұғаттау"
+          }
+        }
+      }
+    },
+    "chats.member.ban.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заблокировать %@ в группе?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ топта бұғатталсын ба?"
+          }
+        }
+      }
+    },
+    "chats.member.ban.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Участник покинет группу и не сможет вернуться даже по ссылке-приглашению, пока вы его не разблокируете."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қатысушы топтан шығады және сіз бұғаттан шығармайынша, шақыру сілтемесі арқылы да орала алмайды."
+          }
+        }
+      }
+    },
+    "chats.member.unban": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разблокировать"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бұғаттан шығару"
+          }
+        }
+      }
+    },
+    "chats.member.bannedList": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заблокированные"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бұғатталғандар"
+          }
+        }
+      }
+    },
+    "chats.member.bannedHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не видят группу и не могут вернуться даже по ссылке-приглашению."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Топты көрмейді және шақыру сілтемесі арқылы да орала алмайды."
+          }
+        }
+      }
+    },
+    "chats.member.transfer": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передать владение"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Иелікті беру"
+          }
+        }
+      }
+    },
+    "chats.member.transfer.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передать группу %@?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Топ %@ пайдаланушысына берілсін бе?"
+          }
+        }
+      }
+    },
+    "chats.member.transfer.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новый владелец сможет менять фото, назначать админов, блокировать участников и удалить группу. Вы останетесь админом, а вернуть владение сможет только он."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жаңа иесі фотоны өзгерте, админдер тағайындай, қатысушыларды бұғаттай және топты жоя алады. Сіз админ болып қаласыз, ал иелікті тек ол ғана қайтара алады."
+          }
+        }
+      }
+    },
+    "chats.member.transfer.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передать"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Беру"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

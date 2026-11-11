@@ -551,12 +551,7 @@ struct ProfileEditView: View {
 
     @MainActor
     private func send(_ kind: Upload, image: UIImage?) async throws {
-        // Сжимаем на устройстве: фото камеры весит больше лимита в 10 МБ, а сервер всё
-        // равно хранит уменьшенную копию.
-        let maxSide: CGFloat = kind == .avatar ? 1024 : 2048
-        let jpeg = await Task.detached(priority: .userInitiated) {
-            image.flatMap { Self.downscaled($0, maxSide: maxSide).jpegData(compressionQuality: 0.85) }
-        }.value
+        let jpeg = await PhotoJPEG.encode(image, maxSide: kind == .avatar ? PhotoJPEG.avatarSide : 2048)
         guard let jpeg else {
             failure = String(localized: "profile.imageUnreadable", defaultValue: "Не удалось прочитать изображение")
             return
@@ -577,18 +572,6 @@ struct ProfileEditView: View {
             failure = nil
         } catch {
             failure = error.userMessage
-        }
-    }
-
-    nonisolated private static func downscaled(_ image: UIImage, maxSide: CGFloat) -> UIImage {
-        let side = max(image.size.width, image.size.height)
-        guard side > maxSide else { return image }
-        let scale = maxSide / side
-        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            image.draw(in: CGRect(origin: .zero, size: size))
         }
     }
 }
@@ -687,18 +670,5 @@ struct ProfileForm: Equatable {
             break
         }
         return update
-    }
-}
-
-/// Значок «можно изменить» поверх фото и обложки в редакторе.
-private struct EditBadge: View {
-    var body: some View {
-        Image(systemName: "pencil")
-            .font(.caption.weight(.bold))
-            .foregroundStyle(.white)
-            .frame(width: 26, height: 26)
-            .background(Palette.primary, in: Circle())
-            .overlay(Circle().strokeBorder(Palette.background, lineWidth: 2))
-            .accessibilityHidden(true)
     }
 }

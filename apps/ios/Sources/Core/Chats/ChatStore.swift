@@ -59,6 +59,17 @@ struct ChatStore: Sendable {
         try await update(chatID) { chat in chat.muted = muted }
     }
 
+    /// Фото группы после загрузки или удаления: сокет об удалении молчит (`nil` в
+    /// `chat:updated` не отличить от «не менялось»), а список и шапка читают базу.
+    func setAvatar(_ url: String?, chatID: String) async throws {
+        try await update(chatID) { chat in chat.avatarUrl = url }
+    }
+
+    /// Владение передано: права в шапке и меню — сразу, не дожидаясь списка.
+    func setOwner(_ isOwner: Bool, chatID: String) async throws {
+        try await update(chatID) { chat in chat.isOwner = isOwner }
+    }
+
     // MARK: - Внутреннее
 
     private func update(

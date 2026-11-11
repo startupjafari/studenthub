@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Результаты поиска в списке чатов: чаты по названию — сразу из базы, люди из
 /// справочника вуза и сообщения — запросом после паузы в наборе.
@@ -151,11 +152,20 @@ struct ChatSearchResults: View {
         isOffline = lastError?.isOffline ?? false
     }
 
-    /// Личный чат не дублируется: сервер вернёт уже существующий.
     private func openPrivate(with userID: String) async {
         opening = userID
         defer { opening = nil }
-        guard let id = try? await api.createPrivate(with: userID) else { return }
+        try? await PrivateChatOpener.open(with: userID, api: api)
+    }
+}
+
+/// «Написать» человеку — из поиска и из меню участника группы.
+enum PrivateChatOpener {
+    /// Личный чат не дублируется: сервер вернёт уже существующий. Первая страница списка —
+    /// в базу до перехода, чтобы переписка открылась с шапкой, а не пустой.
+    @MainActor
+    static func open(with userID: String, api: ChatActing) async throws {
+        let id = try await api.createPrivate(with: userID)
         if let page = try? await ChatsAPI().chats(cursor: nil, limit: 50) {
             try? await ChatStore().save(chats: page.items)
         }
@@ -197,6 +207,8 @@ struct NewChatView: View {
     @State private var failure: String?
     /// Второй шаг группы — название.
     @State private var naming = false
+    /// Фото будущей группы: загружается после создания — до него чата нет.
+    @State private var groupPhoto: UIImage?
     /// Поиск людей: сбой отдельно от ошибки создания — у него свой повтор.
     @State private var isSearching = false
     @State private var searchFailure: String?
@@ -308,13 +320,34 @@ struct NewChatView: View {
         }
     }
 
-    /// Второй шаг группы: название сверху, ниже — кого добавили.
+    /// Второй шаг группы: фото и название сверху, ниже — кого добавили.
     private var groupDetails: some View {
         List {
             if let failure {
                 FormAlert(message: failure)
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
+            }
+            Section {
+                // Без названия: до выбора снимка в круге камера, а не буквы набранного.
+                GroupAvatarButton(
+                    title: "",
+                    avatarURL: nil,
+                    image: groupPhoto,
+                    removable: groupPhoto != nil,
+                    pick: { image in
+                        if let image {
+                            groupPhoto = image
+                        } else {
+                            failure = String(localized: "profile.imageUnreadable", defaultValue: "Не удалось прочитать изображение")
+                        }
+                    },
+                    remove: { groupPhoto = nil }
+                )
+                .disabled(isCreating)
+                .frame(maxWidth: .infinity)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
             }
             Section {
                 TextField(String(localized: "chats.group.title", defaultValue: "Название группы"), text: $title)
@@ -395,7 +428,13 @@ struct NewChatView: View {
         defer { isCreating = false }
         do {
             let name = String(title.trimmingCharacters(in: .whitespaces).prefix(150))
-            created(try await api.createGroup(title: name, memberIDs: selected.map(\.id)))
+            let id = try await api.createGroup(title: name, memberIDs: selected.map(\.id))
+            // Группа уже есть: сбой фото не повод оставаться на экране — повторное
+            // «Создать» завело бы вторую. Фото можно поставить потом в правке группы.
+            if let jpeg = await PhotoJPEG.encode(groupPhoto, maxSide: PhotoJPEG.avatarSide) {
+                _ = try? await api.uploadGroupAvatar(chatID: id, jpeg: jpeg)
+            }
+            created(id)
         } catch {
             failure = error.userMessage
         }
