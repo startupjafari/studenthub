@@ -93322,6 +93322,108 @@
           }
         }
       }
+    },
+    "chats.blocked.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заблокированные"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бұғатталғандар"
+          }
+        }
+      }
+    },
+    "chats.blocked.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы никого не блокировали"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сіз ешкімді бұғаттамадыңыз"
+          }
+        }
+      }
+    },
+    "chats.blocked.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заблокировать пользователя"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пайдаланушыны бұғаттау"
+          }
+        }
+      }
+    },
+    "chats.blocked.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заблокированные не могут писать вам в личные сообщения. Дружба с ними удаляется."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бұғатталған адамдар сізге жеке хабарлама жаза алмайды. Олармен достық жойылады."
+          }
+        }
+      }
+    },
+    "chats.blocked.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заблокировать %@?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ бұғаттау керек пе?"
+          }
+        }
+      }
+    },
+    "chats.blocked.since": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В списке с %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ бастап тізімде"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -24,6 +24,7 @@ struct ChatListView: View {
     @State private var didStart = false
     @State private var folders = ChatFoldersModel()
     @State private var showsFolders = false
+    @State private var showsBlocked = false
     @State private var editingFolder: ChatFolderEditTarget?
     @State private var deletingFolder: ChatFolderDTO?
     @Environment(\.viewerID) private var viewerID
@@ -107,6 +108,9 @@ struct ChatListView: View {
         }
         .navigationDestination(isPresented: $showsFolders) {
             ChatFoldersView(model: folders)
+        }
+        .navigationDestination(isPresented: $showsBlocked) {
+            BlockedUsersView()
         }
         .onChange(of: chip) {
             model.select(chip ?? .all)
@@ -258,6 +262,12 @@ struct ChatListView: View {
                 showsFolders = true
             } label: {
                 Label(String(localized: "chats.folders.title", defaultValue: "Папки с чатами"), systemImage: "folder.badge.gearshape")
+            }
+            // Как в меню шапки чатов веба: чёрный список рядом с папками.
+            Button {
+                showsBlocked = true
+            } label: {
+                Label(String(localized: "chats.blocked.title", defaultValue: "Заблокированные"), systemImage: "hand.raised")
             }
         } label: {
             Image(systemName: "square.and.pencil")

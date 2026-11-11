@@ -78,6 +78,18 @@ struct ChatStore: Sendable {
         try await update(chatID) { chat in chat.isOwner = isOwner }
     }
 
+    /// Флаг «я заблокировал собеседника» у личного чата с человеком — для плашки над полем
+    /// ввода. Собеседника запись чата не хранит, поэтому чат находим по его сообщениям;
+    /// переписку без единого его сообщения поправит следующая страница списка.
+    func setBlocked(_ blocked: Bool, peerID: String) async throws {
+        _ = try await database.writer.write { db in
+            try ChatRecord
+                .filter(Column("type") == ChatKind.private.rawValue)
+                .filter(sql: "id IN (SELECT chatId FROM message WHERE senderId = ?)", arguments: [peerID])
+                .updateAll(db, Column("blocked").set(to: blocked))
+        }
+    }
+
     // MARK: - Внутреннее
 
     /// Папка с составом. Состав заменяется целиком — так его хранит и сервер.

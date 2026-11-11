@@ -22,6 +22,20 @@ struct ChatMemberDTO: Decodable, Equatable, Identifiable {
     }
 }
 
+/// Заблокированный мной человек (`GET /chats/blocks`). Имя пустое у удалённого аккаунта:
+/// блокировка переживает удаление, а строка в списке всё равно нужна, чтобы её снять.
+struct BlockedUserDTO: Decodable, Equatable, Identifiable {
+    let id: String
+    let firstName: String?
+    let lastName: String?
+    let avatarUrl: String?
+    let blockedAt: Date?
+
+    var name: String {
+        [lastName, firstName].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
+    }
+}
+
 /// Человек из справочника вуза — для нового чата и добавления в группу.
 struct DirectoryUserDTO: Decodable, Equatable, Identifiable {
     struct Named: Decodable, Equatable {
@@ -133,6 +147,7 @@ protocol ChatActing: Sendable {
     func acceptRequest(chatID: String) async throws
     func declineRequest(chatID: String) async throws
     func setBlocked(_ blocked: Bool, userID: String) async throws
+    func blockedUsers() async throws -> [BlockedUserDTO]
     func saveDraft(chatID: String, text: String) async throws
     // Создание и поиск людей
     func directory(_ query: String) async throws -> [DirectoryUserDTO]
@@ -249,6 +264,11 @@ extension ChatsAPI: ChatActing {
     func setBlocked(_ blocked: Bool, userID: String) async throws {
         let path = "chats/blocks/\(userID)"
         try await client.send(blocked ? .post(path) : Endpoint(method: .delete, path: path))
+    }
+
+    /// Сервер отдаёт до 200 последних блокировок одним массивом, без курсора.
+    func blockedUsers() async throws -> [BlockedUserDTO] {
+        try await client.send(.get("chats/blocks"), as: [BlockedUserDTO].self)
     }
 
     func saveDraft(chatID: String, text: String) async throws {
