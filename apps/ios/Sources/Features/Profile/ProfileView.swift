@@ -194,15 +194,14 @@ struct ProfileView: View {
 
                             Section {
                                 tabContent(actions: actions)
-                                    .padding(.top, Spacing.lg)
+                                    // Пустая (или ещё не загруженная, или со сбоем) вкладка —
+                                    // с отступом под полосой вкладок, а не по центру высоты
+                                    // экрана: полоса не закреплена и стоит под шапкой, и
+                                    // середина такого блока уходила за нижний край.
+                                    .padding(.top, showsTabState ? Spacing.xxl * 2 : Spacing.lg)
                                     // Короткая вкладка не короче экрана под полосой: при
                                     // переключении с длинной ленты экран не прыгает вверх.
-                                    // Пустая (или ещё не загруженная, или со сбоем) — по
-                                    // центру этой высоты, а не прижата к полосе вкладок.
-                                    .frame(
-                                        minHeight: scroll.tabContentMinHeight,
-                                        alignment: showsTabState ? .center : .top
-                                    )
+                                    .frame(minHeight: scroll.tabContentMinHeight, alignment: .top)
                             } header: {
                                 ProfileTabBar(
                                     selection: Binding(get: { tab }, set: { select($0, revealing: false, with: scroller) })
@@ -226,8 +225,7 @@ struct ProfileView: View {
         }
     }
 
-    /// На вкладке нечего листать: пусто, сбой или первая загрузка — индикатор, как и
-    /// пустое состояние, стоит по центру вкладки.
+    /// На вкладке нечего листать: пусто, сбой или первая загрузка.
     private var showsTabState: Bool {
         switch tab {
         case .posts:
