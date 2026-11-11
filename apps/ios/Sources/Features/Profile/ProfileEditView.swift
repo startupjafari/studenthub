@@ -45,7 +45,7 @@ struct ProfileEditView: View {
 
     private enum Upload { case avatar, cover }
 
-    /// Метка верха формы: к ней прокручивается экран, когда сервер вернул ошибку.
+    /// Метка ошибки над формой: к ней прокручивается экран, когда сервер вернул ошибку.
     private static let topAnchor = "profile.edit.top"
 
     private var role: Role { viewer.profile?.role.flatMap(Role.init(rawValue:)) ?? .unknown }
@@ -76,15 +76,14 @@ struct ProfileEditView: View {
     var body: some View {
         ScrollViewReader { scroller in
             Form {
-                Color.clear
-                    .frame(height: 0)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
-                    .id(Self.topAnchor)
+                // Якорь прокрутки — сама ошибка, а не пустая строка над формой: строка
+                // нулевой высоты в сгруппированной форме всё равно занимает минимальную
+                // высоту строки и давала лишнюю полосу под панелью.
                 if let failure {
                     FormAlert(message: failure)
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets())
+                        .id(Self.topAnchor)
                 }
                 headerSection
                 personalSection
@@ -95,7 +94,10 @@ struct ProfileEditView: View {
             }
             .onChange(of: failure) { _, message in
                 guard message != nil else { return }
-                withAnimation(Motion.calm) { scroller.scrollTo(Self.topAnchor, anchor: .top) }
+                // Строка ошибки появляется в этом же проходе — прокрутка к ней после него.
+                Task { @MainActor in
+                    withAnimation(Motion.calm) { scroller.scrollTo(Self.topAnchor, anchor: .top) }
+                }
             }
         }
         .listSectionSpacing(.compact)

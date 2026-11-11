@@ -166,7 +166,13 @@ struct ProfileView: View {
                             nameScrolledAway: $scroll.nameScrolledAway,
                             edit: { editing = true },
                             details: { showsDetails = true },
-                            open: { select($0, revealing: true, with: scroller) }
+                            open: { select($0, revealing: true, with: scroller) },
+                            viewPhoto: { url in
+                                viewing = MediaTarget(
+                                    media: [PostDTO.Media(id: "profile-photo", url: url, mime: "image/jpeg", sources: nil, poster: nil, hls: nil)],
+                                    start: 0
+                                )
+                            }
                         )
 
                         if profile.isLimited {
@@ -191,7 +197,12 @@ struct ProfileView: View {
                                     .padding(.top, Spacing.lg)
                                     // Короткая вкладка не короче экрана под полосой: при
                                     // переключении с длинной ленты экран не прыгает вверх.
-                                    .frame(minHeight: scroll.tabContentMinHeight, alignment: .top)
+                                    // Пустая (или ещё не загруженная, или со сбоем) — по
+                                    // центру этой высоты, а не прижата к полосе вкладок.
+                                    .frame(
+                                        minHeight: scroll.tabContentMinHeight,
+                                        alignment: showsTabState ? .center : .top
+                                    )
                             } header: {
                                 ProfileTabBar(
                                     selection: Binding(get: { tab }, set: { select($0, revealing: false, with: scroller) })
@@ -212,6 +223,23 @@ struct ProfileView: View {
                 .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { scroll.insets = $0 }
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { scroll.height = $0 }
             }
+        }
+    }
+
+    /// На вкладке нечего листать: пусто, сбой или первая загрузка списка. Скелет ленты
+    /// постов — не состояние: он стоит на месте будущих карточек, сверху.
+    private var showsTabState: Bool {
+        switch tab {
+        case .posts:
+            return posts.hasLoaded && posts.posts.isEmpty
+        case .photos:
+            return model.photos?.isEmpty != false
+        case .videos:
+            return model.videos?.isEmpty != false
+        case .articles:
+            return model.articles?.isEmpty != false
+        case .polls:
+            return model.polls?.isEmpty != false
         }
     }
 
@@ -466,6 +494,8 @@ private struct ProfileHeaderView: View {
     let details: () -> Void
     /// Открыть вкладку по касанию итога («12 фото» → «Фото»).
     let open: (ProfileTab) -> Void
+    /// Открыть фото или обложку целиком.
+    let viewPhoto: (String) -> Void
 
     @Environment(\.viewerID) private var viewerID
     @ScaledMetric(relativeTo: .title) private var avatarSize: CGFloat = 84
@@ -519,15 +549,22 @@ private struct ProfileHeaderView: View {
                     .frame(height: coverHeight)
                     .frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                    .contentShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                    .photoViewing(profile.coverUrl, label: String(localized: "profile.viewCover", defaultValue: "Обложка"), open: viewPhoto)
                     .padding(.horizontal, Spacing.xl)
                     .padding(.bottom, side / 2)
-                    .accessibilityHidden(true)
-                AvatarView(url: profile.avatarUrl, name: profile.name, size: side)
+                avatar(side: side)
                     .overlay(Circle().strokeBorder(Palette.background, lineWidth: 4))
             }
         } else {
-            AvatarView(url: profile.avatarUrl, name: profile.name, size: side)
+            avatar(side: side)
         }
+    }
+
+    private func avatar(side: CGFloat) -> some View {
+        AvatarView(url: profile.avatarUrl, name: profile.name, size: side)
+            .contentShape(Circle())
+            .photoViewing(profile.avatarUrl, label: String(localized: "profile.viewAvatar", defaultValue: "Фото профиля"), open: viewPhoto)
     }
 
     // MARK: Кто это
@@ -885,17 +922,21 @@ private struct ProfileHeaderView: View {
                 symbol: "at",
                 text: "@\(username)",
                 tint: Palette.primary,
-                title: String(localized: "profile.usernameTitle", defaultValue: "Имя пользователя"),
-                selectable: true
+                title: String(localized: "profile.usernameTitle", defaultValue: "Имя пользователя")
             )
+            .copyingOnLongPress("@\(username)")
         case .contact(let contact):
+            // Касание — позвонить, написать, открыть; долгое нажатие — скопировать, как
+            // номер и почта в профиле Telegram.
             if let url = contact.url {
                 Link(destination: url) {
                     aboutRow(symbol: contact.symbol, text: contact.value, tint: Palette.primary, title: contact.title)
                 }
                 .buttonStyle(.plain)
+                .copyingOnLongPress(contact.value)
             } else {
-                aboutRow(symbol: contact.symbol, text: contact.value, tint: Palette.foreground, title: contact.title, selectable: true)
+                aboutRow(symbol: contact.symbol, text: contact.value, tint: Palette.foreground, title: contact.title)
+                    .copyingOnLongPress(contact.value)
             }
         case .university(let id, let name):
             NavigationLink(value: AppRoute.community(.university(id: id))) {
@@ -938,8 +979,7 @@ private struct ProfileHeaderView: View {
         text: String,
         tint: Color,
         title: String? = nil,
-        chevron: Bool = false,
-        selectable: Bool = false
+        chevron: Bool = false
     ) -> some View {
         let row = HStack(spacing: Spacing.lg) {
             Image(systemName: symbol)
@@ -947,17 +987,11 @@ private struct ProfileHeaderView: View {
                 .foregroundStyle(Palette.mutedForeground)
                 .frame(width: Self.rowIconWidth)
                 .accessibilityHidden(true)
-            Group {
-                if selectable {
-                    Text(verbatim: text).textSelection(.enabled)
-                } else {
-                    Text(verbatim: text)
-                }
-            }
-            .font(Typography.body)
-            .foregroundStyle(tint)
-            .lineLimit(2)
-            .multilineTextAlignment(.leading)
+            Text(verbatim: text)
+                .font(Typography.body)
+                .foregroundStyle(tint)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
             Spacer(minLength: 0)
             if chevron {
                 Image(systemName: "chevron.right")
@@ -1167,5 +1201,39 @@ private struct ProfilePollCard: View {
             .accessibilityHidden(true)
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: - Долгое нажатие
+
+private extension View {
+    /// Долгое нажатие на строку — меню «Скопировать». Меню, а не мгновенное копирование:
+    /// человек видит, что произошло, а случайное удержание при прокрутке ничего не меняет.
+    func copyingOnLongPress(_ value: String) -> some View {
+        contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+            .contextMenu {
+                Button {
+                    UIPasteboard.general.string = value
+                } label: {
+                    Label(String(localized: "common.copy", defaultValue: "Скопировать"), systemImage: "doc.on.doc")
+                }
+            }
+    }
+
+    /// Фото или обложка открываются целиком — касанием и долгим нажатием. Без снимка
+    /// (инициалы, пустая обложка) открывать нечего, и жесты не вешаются.
+    @ViewBuilder
+    func photoViewing(_ url: String?, label: String, open: @escaping (String) -> Void) -> some View {
+        if let url, !url.isEmpty {
+            self
+                .onTapGesture { open(url) }
+                .onLongPressGesture(minimumDuration: 0.35) { open(url) }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(label))
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { open(url) }
+        } else {
+            self.accessibilityHidden(true)
+        }
     }
 }
