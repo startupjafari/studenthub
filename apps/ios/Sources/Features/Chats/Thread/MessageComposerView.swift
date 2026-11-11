@@ -22,39 +22,53 @@ struct MessageComposerView: View {
     /// Снимок камеры ждёт, пока она закроется: лист поверх уходящей камеры не откроется.
     @State private var captured: UIImage?
     @State private var creatingPoll = false
+    /// Каждая отправка — лёгкий отклик под пальцем, как в Telegram.
+    @State private var sentTick = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
-            if let editing = model.editing {
-                ReplyBar(
-                    title: String(localized: "chats.editing", defaultValue: "Редактирование"),
-                    text: editing.content,
-                    symbol: "pencil"
-                ) { model.cancelEdit() }
-            } else if let replyTo = model.replyTo {
-                ReplyBar(
-                    title: replyTo.senderName.map {
-                        String(localized: "chats.replyingToName", defaultValue: "Ответ \($0)")
-                    } ?? String(localized: "chats.replyingTo", defaultValue: "Ответ"),
-                    text: replyTo.content.isEmpty
-                        ? String(localized: "chats.attachmentPreview", defaultValue: "Вложение")
-                        : replyTo.content,
-                    symbol: "arrowshape.turn.up.left"
-                ) { model.cancelReply() }
-            }
+            // Полосы над полем выезжают снизу, из-под поля, и туда же уходят. Анимация
+            // привязана к этому контейнеру: поле ввода под ним не перестраивается рывком
+            // вслед за ними.
+            VStack(spacing: 0) {
+                if let editing = model.editing {
+                    ReplyBar(
+                        title: String(localized: "chats.editing", defaultValue: "Редактирование"),
+                        text: editing.content,
+                        symbol: "pencil"
+                    ) { model.cancelEdit() }
+                    .transition(barTransition)
+                } else if let replyTo = model.replyTo {
+                    ReplyBar(
+                        title: replyTo.senderName.map {
+                            String(localized: "chats.replyingToName", defaultValue: "Ответ \($0)")
+                        } ?? String(localized: "chats.replyingTo", defaultValue: "Ответ"),
+                        text: replyTo.content.isEmpty
+                            ? String(localized: "chats.attachmentPreview", defaultValue: "Вложение")
+                            : replyTo.content,
+                        symbol: "arrowshape.turn.up.left"
+                    ) { model.cancelReply() }
+                    // Ответ на другое сообщение — новая полоса, а не правка текста старой.
+                    .id(replyTo.id)
+                    .transition(barTransition)
+                }
 
-            if recorder.isRecording {
-                RecordingBar(
-                    levels: recorder.levels,
-                    duration: recorder.duration,
-                    onCancel: { recorder.cancel() },
-                    onSend: {
-                        guard let voice = recorder.stop() else { return }
-                        Task { await model.attach(voice) }
-                    }
-                )
+                if recorder.isRecording {
+                    RecordingBar(
+                        levels: recorder.levels,
+                        duration: recorder.duration,
+                        onCancel: { recorder.cancel() },
+                        onSend: {
+                            guard let voice = recorder.stop() else { return }
+                            sentTick += 1
+                            Task { await model.attach(voice) }
+                        }
+                    )
+                    .transition(barTransition)
+                }
             }
+            .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: barKey)
 
             GlassGroup(spacing: Spacing.md) {
             HStack(alignment: .bottom, spacing: Spacing.md) {
@@ -128,7 +142,10 @@ struct MessageComposerView: View {
                     model.draftChanged()
                 }
 
-                Group {
+                // Микрофон и «отправить» занимают одно место и перетекают друг в друга:
+                // одна кнопка сжимается и гаснет, другая вырастает поверх. В стопке, а
+                // не в ряду — иначе на время перехода ряд раздвигался бы под обе.
+                ZStack {
                     if canSend {
                         sendButton
                     } else {
@@ -145,6 +162,7 @@ struct MessageComposerView: View {
         .modifier(ComposerBarBackground())
         // «Отправить», вложение, микрофон — клавиатура остаётся, как в мессенджерах.
         .keepsKeyboardOnTap()
+        .sensoryFeedback(.impact(weight: .light), trigger: sentTick)
         .onChange(of: photos) {
             let picked = photos
             guard !picked.isEmpty else { return }
@@ -184,6 +202,7 @@ struct MessageComposerView: View {
 
     private var sendButton: some View {
         Button {
+            sentTick += 1
             Task { await model.send() }
         } label: {
             Image(systemName: model.editing == nil ? "arrow.up" : "checkmark")
@@ -193,7 +212,7 @@ struct MessageComposerView: View {
                 .glassSurface(tint: Palette.primary, in: Circle())
         }
         .buttonStyle(.plain)
-        .transition(.scale(scale: 0.6).combined(with: .opacity))
+        .transition(buttonTransition)
         .accessibilityLabel(Text(model.editing == nil
             ? String(localized: "chats.send", defaultValue: "Отправить")
             : String(localized: "common.save", defaultValue: "Сохранить")))
@@ -206,6 +225,7 @@ struct MessageComposerView: View {
             Task {
                 if recorder.isRecording {
                     guard let voice = recorder.stop() else { return }
+                    sentTick += 1
                     await model.attach(voice)
                 } else {
                     _ = await recorder.start()
@@ -219,7 +239,7 @@ struct MessageComposerView: View {
                 .glassSurface(tint: recorder.isRecording ? Palette.destructive : nil, in: Circle())
         }
         .buttonStyle(.plain)
-        .transition(.scale(scale: 0.6).combined(with: .opacity))
+        .transition(buttonTransition)
         .accessibilityLabel(Text(recorder.isRecording
             ? String(localized: "chats.voice.stop", defaultValue: "Остановить запись")
             : String(localized: "chats.voice.record", defaultValue: "Записать голосовое")))
@@ -242,6 +262,7 @@ struct MessageComposerView: View {
         // Копии файлов теперь у загрузчика — закрытие листа их не трогает.
         draft.isSent = true
         sending = nil
+        sentTick += 1
         Task { await model.send(attachments: files, caption: caption, asFiles: asFiles) }
     }
 
@@ -257,6 +278,22 @@ struct MessageComposerView: View {
 
     private var canSend: Bool {
         !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Что сейчас над полем: правка, ответ (на какое сообщение), запись. Смена — повод
+    /// анимировать полосы.
+    private var barKey: String {
+        "\(model.editing?.id ?? "")|\(model.replyTo?.id ?? "")|\(recorder.isRecording)"
+    }
+
+    /// Полоса над полем выезжает снизу; без движения — только проявляется.
+    private var barTransition: AnyTransition {
+        reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity)
+    }
+
+    /// Смена микрофона на «отправить»: сжатие с угасанием; без движения — угасание.
+    private var buttonTransition: AnyTransition {
+        reduceMotion ? .opacity : .scale(scale: 0.5).combined(with: .opacity)
     }
 }
 
@@ -462,13 +499,17 @@ struct MessageSelectionBar: View {
         Button(action: perform) {
             Image(systemName: symbol)
                 .font(.title3)
-                .foregroundStyle(tint)
+                // Недоступное — серым, а не бледным цветом действия: полупрозрачная
+                // красная корзина на стекле читалась как активная, хотя чужие сообщения
+                // сервер удалить не даст (только свои, WRONG_SCOPE).
+                .foregroundStyle(enabled ? tint : Palette.mutedForeground)
                 .frame(width: ControlHeight.lg, height: ControlHeight.lg)
                 .composerGlass(in: Circle())
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
-        .opacity(enabled ? 1 : 0.4)
+        .opacity(enabled ? 1 : 0.5)
+        .animation(.easeOut(duration: Motion.Duration.feedback), value: enabled)
         .accessibilityLabel(Text(title))
     }
 }
