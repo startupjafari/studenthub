@@ -64,6 +64,11 @@ describe('Career (e2e) — сквозной поток работодателя 
     await app.register(cookie)
     await app.init()
     await app.getHttpAdapter().getInstance().ready()
+    // supertest 7.3.1 сам открывает неслушающий сервер на время запроса и закрывает его,
+    // когда запросов не осталось; в этом наборе следующий запрос натыкался на уже
+    // закрытый (`server.address()` → null). Порт слушаем сами — такой сервер supertest
+    // не закрывает.
+    await app.listen(0, '127.0.0.1')
 
     prisma = app.get(PrismaService)
     passwords = app.get(PasswordService)

@@ -24,6 +24,18 @@ final class ChatThreadModel {
     var draft = ""
     /// На какое сообщение отвечаем.
     private(set) var replyTo: MessageRecord?
+    /// Какое своё сообщение правим: поле ввода держит его текст, «отправить» — сохранить.
+    private(set) var editing: MessageRecord?
+    /// Строка чата — для шапки (тип, участники, онлайн) и галочек прочтения.
+    private(set) var chat: ChatRecord?
+    /// Закреплённые, от свежего к старому. Плашка показывает первое.
+    private(set) var pinned: [ChatMessageDTO] = []
+    /// Куда прокрутить ленту по просьбе человека: закреплённое, найденное, ответ.
+    private(set) var focus: MessageFocus?
+    /// Неудавшееся действие над сообщением — показывается и закрывается.
+    var actionFailure: String?
+    /// Собеседник личного чата — для статуса в шапке («был(а) недавно»).
+    private(set) var peer: ChatMemberDTO?
 
     private let viewerID: String
     private let database: AppDatabase
@@ -32,6 +44,7 @@ final class ChatThreadModel {
     private let outbox: MessageOutbox
     private let uploader: AttachmentUploader
     private let realtime: RealtimeCoordinator
+    private let actions: ChatActing
 
     private var messagesTask: Task<Void, Never>?
     private var chatTask: Task<Void, Never>?
@@ -39,6 +52,7 @@ final class ChatThreadModel {
     private var reachedBeginning = false
     private var didPickAnchor = false
     private var draftTask: Task<Void, Never>?
+    private var markReadRetry: Task<Void, Never>?
     private var lastReadSent: String?
     private var lastReadAt: Date?
     private var lastActionAt: Date?
@@ -52,7 +66,8 @@ final class ChatThreadModel {
         store: MessageStore? = nil,
         outbox: MessageOutbox? = nil,
         uploader: AttachmentUploader? = nil,
-        realtime: RealtimeCoordinator = AppServices.realtime
+        realtime: RealtimeCoordinator = AppServices.realtime,
+        actions: ChatActing = ChatsAPI()
     ) {
         self.chatID = chatID
         self.viewerID = viewerID
@@ -62,12 +77,14 @@ final class ChatThreadModel {
         self.outbox = outbox ?? MessageOutbox(database: database)
         self.uploader = uploader ?? AttachmentUploader(database: database)
         self.realtime = realtime
+        self.actions = actions
     }
 
     deinit {
         messagesTask?.cancel()
         chatTask?.cancel()
         draftTask?.cancel()
+        markReadRetry?.cancel()
     }
 
     @MainActor
@@ -106,12 +123,17 @@ final class ChatThreadModel {
         realtime.actions[chatID]?.values.first
     }
 
-    /// Открытие чата: догнать разницу, а если истории нет вовсе — скачать последнюю
+    /// Открытие чата: догнать разницу, а если истории толком нет — скачать последнюю
     /// страницу.
+    ///
+    /// «Толком нет» — меньше страницы на руках при первом открытии: список чатов кладёт
+    /// в базу последнее сообщение каждого чата, и `lastSeq` у ни разу не открытого чата
+    /// уже есть. Догонялка от него ничего не скачает, и лента показала бы одно сообщение.
     @MainActor
     func open() async {
         let known = (try? await store.lastSeq(chatID: chatID)) ?? 0
-        if known == 0 || messages.isEmpty {
+        let firstOpen = olderCursor == nil && !reachedBeginning
+        if known == 0 || messages.isEmpty || (firstOpen && messages.count < ChatsAPI.messagePageLimit) {
             await loadLatest()
         } else {
             await catchUp(since: known)
@@ -127,6 +149,10 @@ final class ChatThreadModel {
     func send() async {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        if let editing {
+            await saveEdit(of: editing, text: text)
+            return
+        }
 
         let answering = replyTo?.remoteId
         draft = ""
@@ -180,7 +206,12 @@ final class ChatThreadModel {
 
     @MainActor
     func retry(_ message: MessageRecord) async {
-        await outbox.retry(message)
+        // Сообщение с файлом повторяет загрузчик: текстовая отправка унесла бы одну подпись.
+        if days.lazy.flatMap(\.items).first(where: { $0.message.id == message.id })?.attachments.isEmpty == false {
+            await uploader.retry(messageID: message.id)
+        } else {
+            await outbox.retry(message)
+        }
     }
 
     @MainActor
@@ -196,6 +227,195 @@ final class ChatThreadModel {
         replyTo = nil
     }
 
+    // MARK: - Действия над сообщением
+
+    /// Окно правки на сервере — десять минут, пересланное не правится вовсе.
+    static let editWindow: TimeInterval = 10 * 60
+
+    func canEdit(_ message: MessageRecord, now: Date = Date()) -> Bool {
+        message.senderId == viewerID
+            && message.remoteId != nil
+            && message.deletedAt == nil
+            && message.systemType == nil
+            && message.extras?.isForwarded != true
+            && now.timeIntervalSince(message.createdAt) < Self.editWindow
+    }
+
+    func canDelete(_ message: MessageRecord) -> Bool {
+        message.senderId == viewerID && message.deletedAt == nil && message.systemType == nil
+    }
+
+    @MainActor
+    func beginEdit(_ message: MessageRecord) {
+        guard canEdit(message) else { return }
+        replyTo = nil
+        editing = message
+        draft = message.content
+    }
+
+    @MainActor
+    func cancelEdit() {
+        editing = nil
+        draft = ""
+    }
+
+    /// Правка уходит сокетом; текст в базе меняется сразу, а подтверждение придёт
+    /// событием `message:updated` и перепишет строку серверной версией.
+    @MainActor
+    private func saveEdit(of message: MessageRecord, text: String) async {
+        editing = nil
+        draft = ""
+        guard text != message.content, let remoteID = message.remoteId else { return }
+        let id = message.id
+        try? await database.writer.write { db in
+            guard var row = try MessageRecord.fetchOne(db, key: id) else { return }
+            row.content = text
+            row.editedAt = Date()
+            try row.update(db)
+        }
+        await realtime.edit(messageID: remoteID, content: text)
+    }
+
+    /// Удаление — для всех: «удалить у себя» одно сообщение сервер не умеет.
+    /// Неотправленное удаляется только локально — серверу о нём нечего сказать.
+    @MainActor
+    func delete(_ message: MessageRecord) async {
+        guard canDelete(message) else { return }
+        let id = message.id
+        if message.remoteId == nil {
+            _ = try? await database.writer.write { db in try MessageRecord.deleteOne(db, key: id) }
+            return
+        }
+        try? await database.writer.write { db in
+            guard var row = try MessageRecord.fetchOne(db, key: id) else { return }
+            row.deletedAt = Date()
+            try row.update(db)
+        }
+        if let remoteID = message.remoteId {
+            await realtime.delete(messageID: remoteID)
+        }
+    }
+
+    /// Реакция одна на человека: та же снимает, другая заменяет. Ответ сервера —
+    /// сообщение целиком, оно и ложится в базу.
+    @MainActor
+    func react(_ message: MessageRecord, emoji: String) async {
+        guard let remoteID = message.remoteId, message.deletedAt == nil else { return }
+        do {
+            let updated = try await actions.react(messageID: remoteID, emoji: emoji)
+            try await database.writer.write { db in try MessageStore.upsert(updated, in: db) }
+        } catch {
+            actionFailure = self.message(for: error)
+        }
+    }
+
+    func myReaction(on message: MessageRecord) -> String? {
+        message.extras?.reactions.first { $0.userIds.contains(viewerID) }?.emoji
+    }
+
+    @MainActor
+    func togglePin(_ message: MessageRecord) async {
+        guard let remoteID = message.remoteId else { return }
+        do {
+            try await actions.setPinned(message.pinnedAt == nil, messageID: remoteID)
+            await loadPinned()
+        } catch {
+            actionFailure = self.message(for: error)
+        }
+    }
+
+    @MainActor
+    func loadPinned() async {
+        if let list = try? await actions.pinned(chatID: chatID) {
+            pinned = list
+        }
+    }
+
+    /// Перейти к сообщению: если оно уже в базе — прокрутить, иначе скачать окно
+    /// истории вокруг него.
+    @MainActor
+    func jump(to remoteID: String) async {
+        if let local = messages.first(where: { $0.remoteId == remoteID }) {
+            focus = MessageFocus(id: local.id)
+            return
+        }
+        do {
+            let page = try await actions.around(messageID: remoteID, chatID: chatID)
+            try await store.save(messages: page.items, chatID: chatID)
+            focus = MessageFocus(id: remoteID)
+        } catch {
+            actionFailure = self.message(for: error)
+        }
+    }
+
+    @MainActor
+    func forward(_ message: MessageRecord, to chatIDs: [String]) async -> Bool {
+        guard let remoteID = message.remoteId else { return false }
+        do {
+            for target in chatIDs {
+                try await actions.forward(messageID: remoteID, to: target)
+            }
+            return true
+        } catch {
+            actionFailure = self.message(for: error)
+            return false
+        }
+    }
+
+    @MainActor
+    func report(_ message: MessageRecord, reason: String) async -> Bool {
+        guard let remoteID = message.remoteId else { return false }
+        do {
+            try await FeedAPI().report(.message, id: remoteID, reason: reason)
+            return true
+        } catch {
+            actionFailure = self.message(for: error)
+            return false
+        }
+    }
+
+    /// Собеседник личного чата: из списка участников, а пока его нет — автор любого
+    /// чужого сообщения. Идентификатора собеседника в строке списка нет, а для онлайна
+    /// нужен именно он.
+    var peerID: String? {
+        guard chat?.kind == .private else { return nil }
+        if let peer { return peer.id }
+        return messages.first { $0.senderId != viewerID && $0.systemType == nil }?.senderId
+    }
+
+    /// Участники личного чата — ради собеседника: время «был(а)» приходит только так.
+    /// У групп список не берём: он может быть на сотни человек, а шапке хватает числа.
+    @MainActor
+    func loadPeer() async {
+        let id = chatID
+        var kind = chat?.kind
+        if kind == nil {
+            kind = try? await database.reader.read { db in try ChatRecord.fetchOne(db, key: id)?.kind }
+        }
+        guard kind == .private, let list = try? await actions.members(chatID: chatID) else { return }
+        peer = list.first { $0.id != viewerID }
+    }
+
+    /// Дата сообщения, к которому лента открылась (первое непрочитанное).
+    var openingAnchorDate: Date? {
+        guard let openingAnchor else { return nil }
+        return messages.first { $0.id == openingAnchor }?.createdAt
+    }
+
+    /// Сколько чужих сообщений пришло позже отметки — счётчик на кнопке «вниз».
+    func unseenCount(after cutoff: Date) -> Int {
+        messages.reduce(0) { count, message in
+            let counts = message.senderId != viewerID && message.systemType == nil
+                && message.deletedAt == nil && message.createdAt > cutoff
+            return count + (counts ? 1 : 0)
+        }
+    }
+
+    var isPeerOnline: Bool {
+        if let peerID { return realtime.onlineUsers.contains(peerID) || chat?.online == true }
+        return chat?.online == true
+    }
+
     // MARK: - Черновик
 
     /// Отметить прочитанным до последнего чужого сообщения.
@@ -209,10 +429,36 @@ final class ChatThreadModel {
             let id = last.remoteId,
             id != lastReadSent
         else { return }
-        if let sentAt = lastReadAt, Date().timeIntervalSince(sentAt) < 0.8 { return }
+        if let sentAt = lastReadAt, Date().timeIntervalSince(sentAt) < 0.8 {
+            // Слишком часто — не теряем отметку, а досылаем её после паузы: иначе
+            // последнее из пачки сообщений осталось бы непрочитанным.
+            guard markReadRetry == nil else { return }
+            markReadRetry = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(900))
+                guard let self, !Task.isCancelled else { return }
+                self.markReadRetry = nil
+                await self.markRead()
+            }
+            return
+        }
         lastReadSent = id
         lastReadAt = Date()
         await realtime.markRead(chatID: chatID, messageID: id)
+    }
+
+    /// Последнее чужое сообщение, уже получившее id на сервере: новое пришло — пока
+    /// чат открыт, оно прочитано.
+    var newestIncomingID: String? {
+        messages.last { $0.senderId != viewerID && $0.remoteId != nil }?.remoteId
+    }
+
+    /// Возврат в чат из вложенного экрана («Информация», профиль): уход вперёд по стеку
+    /// отпустил комнату, а без неё не придут ни «печатает…», ни счётчик прочтения.
+    @MainActor
+    func rejoin() async {
+        await realtime.open(chatID: chatID)
+        await catchUpAfterReconnect()
+        await markRead()
     }
 
     @MainActor
@@ -352,9 +598,11 @@ final class ChatThreadModel {
                 attachments: Dictionary(grouping: attachments, by: \.messageId)
             )
         }
+        // Сильная ссылка живёт только на шаг цикла: держи её задача весь бесконечный
+        // поток, модель (и её наблюдения) не освободились бы и после ухода из чата.
         messagesTask = Task { @MainActor [weak self, database] in
-            guard let self else { return }
             for await snapshot in AsyncValues.stream(of: observation, in: database.reader) {
+                guard let self else { return }
                 self.messages = snapshot.messages
                 self.days = MessageTimeline.build(
                     from: snapshot.messages,
@@ -372,8 +620,9 @@ final class ChatThreadModel {
         let id = chatID
         let observation = ValueObservation.tracking { db in try ChatRecord.fetchOne(db, key: id) }
         chatTask = Task { @MainActor [weak self, database] in
-            guard let self else { return }
             for await chat in AsyncValues.stream(of: observation, in: database.reader) {
+                guard let self else { return }
+                self.chat = chat
                 self.title = chat?.title
                 self.unreadCount = chat?.unreadCount ?? 0
                 self.pickAnchorIfNeeded()
@@ -387,7 +636,9 @@ final class ChatThreadModel {
     /// сообщение значило бы дёргать ленту под пальцем.
     @MainActor
     private func pickAnchorIfNeeded() {
-        guard !didPickAnchor, !messages.isEmpty else { return }
+        // Без строки чата неизвестно, сколько непрочитанного: якорь «ничего нового»
+        // зафиксировался бы навсегда.
+        guard !didPickAnchor, !messages.isEmpty, chat != nil else { return }
         didPickAnchor = true
         openingAnchor = MessageTimeline.firstUnreadID(
             in: messages,
@@ -397,9 +648,15 @@ final class ChatThreadModel {
     }
 
     private func message(for error: Error) -> String {
-        (error as? APIError)?.displayMessage
-            ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+        error.userMessage
     }
+}
+
+/// Просьба прокрутить ленту к сообщению. Токен отличает повторную просьбу к тому же
+/// сообщению — иначе второй переход к закреплённому ничего бы не делал.
+struct MessageFocus: Equatable {
+    let id: String
+    let token = UUID()
 }
 
 /// Поток значений наблюдения GRDB.

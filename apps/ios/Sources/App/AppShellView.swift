@@ -1,10 +1,17 @@
 import SwiftUI
 
-/// Оболочка приложения: пять вкладок, у каждой свой стек.
+/// Оболочка приложения: до пяти вкладок, у каждой свой стек.
 ///
-/// Наполнение вкладок приходит из ролей, а структура — нет: ни одна роль MVP не
-/// теряет и не добавляет вкладку. Экраны разделов появятся в Ф1–Ф4; пока за
-/// вкладками стоят заглушки, и это видно по названию.
+/// Структура одна на всех — «Главная», «Чаты», «Разделы», «Лента», «Поиск»; роль решает,
+/// какие из них у неё есть и что лежит на «Главной» (`AppTab.tabs(for:)`).
+///
+/// Панель вкладок одна на всё приложение и видна всегда — на корнях вкладок и на всех
+/// вложенных экранах: профиле, настройках, правке профиля. При прокрутке она не
+/// сворачивается: свёрнутая панель iOS 26 превращалась в одинокий стеклянный круг с
+/// иконкой вкладки в углу, который читался как отдельная кнопка «Домой». Прячут панель
+/// только полноэкранные сценарии со своей нижней панелью: открытая переписка и выбор
+/// чатов в списке. Содержимое панель не перекрывает: прокрутка получает её высоту
+/// безопасной областью.
 struct AppShellView: View {
     let session: AppSessionModel
     /// Разобранный токен: из него берутся роль для состава разделов и свой
@@ -13,34 +20,32 @@ struct AppShellView: View {
 
     /// Общий маршрутизатор: по нему же ходит переход из уведомления.
     @Bindable private var router = AppServices.router
+    @Environment(\.scenePhase) private var scenePhase
 
     /// Действует ли согласие на обработку ПДн: без него приложение закрыто экраном
     /// согласия, как окном `ConsentGate` в вебе.
     @State private var consent = ConsentGateModel()
+    @State private var chatBadge = ChatBadgeModel()
+    @State private var viewerProfile = ViewerProfileModel()
 
     private var role: Role { viewer.role }
 
     var body: some View {
-        TabView(selection: $router.selectedTab) {
-            ForEach(AppTab.allCases) { tab in
-                NavigationStack(path: $router.stacks.stack(for: tab)) {
-                    root(for: tab)
-                        .navigationDestination(for: AppRoute.self) { route in
-                            destination(for: route)
-                        }
-                }
-                .tabItem {
-                    Label(tab.title, systemImage: tab.symbol)
-                }
-                .tag(tab)
-            }
-        }
+        tabs
         .tint(Palette.primary)
+        .environment(\.viewerID, viewer.subject)
+        .environment(\.viewerRole, role)
+        .environment(viewerProfile)
         .fullScreenCover(isPresented: Binding(get: { consent.isRequired }, set: { _ in })) {
             ConsentGateView(model: consent, session: session)
         }
         .task {
-            await consent.load()
+            router.adopt(role: role)
+            // Чатов у охраны и библиотеки нет (`hasChats` в вебе): и счётчик им не нужен.
+            if !role.isRestricted { chatBadge.start() }
+            async let profile: Void = viewerProfile.refresh()
+            async let consentState: Void = consent.load()
+            _ = await (profile, consentState)
         }
         .task {
             // Соединение живёт, пока человек внутри приложения: вход в него делает
@@ -58,23 +63,78 @@ struct AppShellView: View {
         .onOpenURL { url in
             router.open(url, for: role)
         }
+        // Вернулись в приложение: сокет, порванный в фоне, поднимаем сразу, а
+        // пропущенное за это время догоняем — пуши могли прийти не все.
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task {
+                await AppServices.realtime.resume()
+                await AppServices.pushSync.catchUp()
+            }
+        }
+    }
+
+    /// Панель вкладок. С iOS 18 — API вкладок (`Tab`): поиск становится отдельной кнопкой
+    /// у края панели, на iOS 26 — стеклянной, как в приложениях Apple. На iOS 17 —
+    /// прежние `tabItem`.
+    @ViewBuilder
+    private var tabs: some View {
+        if #available(iOS 18, *) {
+            TabView(selection: $router.selectedTab) {
+                ForEach(AppTab.tabs(for: role)) { tab in
+                    Tab(value: tab, role: tab == .search ? .search : nil) {
+                        stack(for: tab)
+                    } label: {
+                        Label(tab.title, systemImage: tab.symbol)
+                    }
+                    // Ноль бейдж прячет: у остальных вкладок счётчика нет.
+                    .badge(tab == .chats ? chatBadge.unread : 0)
+                }
+            }
+        } else {
+            TabView(selection: $router.selectedTab) {
+                ForEach(AppTab.tabs(for: role)) { tab in
+                    stack(for: tab)
+                        .tabItem {
+                            Label(tab.title, systemImage: tab.symbol)
+                        }
+                        .badge(tab == .chats ? chatBadge.unread : 0)
+                        .tag(tab)
+                }
+            }
+        }
+    }
+
+    /// Стек вкладки: у каждой свой путь, профиль в верхней панели корня.
+    private func stack(for tab: AppTab) -> some View {
+        NavigationStack(path: $router.stacks.stack(for: tab)) {
+            root(for: tab)
+                // В чатах левый край занят «Изм.», как в Telegram: профиль — с других вкладок.
+                .profileToolbarItem(isHidden: tab == .chats)
+                // Как в Telegram: компактный заголовок по центру панели, кнопки по краям
+                // в стекле. Вложенные экраны наследуют режим (`.automatic`).
+                .navigationBarTitleDisplayMode(.inline)
+                .softTopEdge()
+                .navigationDestination(for: AppRoute.self) { route in
+                    destination(for: route)
+                        .softTopEdge()
+                }
+        }
     }
 
     @ViewBuilder
     private func root(for tab: AppTab) -> some View {
         switch tab {
+        case .home:
+            RoleHomeView(role: role)
         case .chats:
             ChatListView()
-        case .schedule:
-            ScheduleView()
-        case .study:
-            StudyView(role: role)
-        case .home:
-            HomeView(role: role)
-        case .more:
-            MoreView(session: session, role: role)
-        default:
-            PlaceholderScreen(title: tab.title)
+        case .workspace:
+            WorkspaceView(role: role)
+        case .feed:
+            FeedView(role: role)
+        case .search:
+            SearchView()
         }
     }
 
@@ -82,9 +142,9 @@ struct AppShellView: View {
     private func destination(for route: AppRoute) -> some View {
         switch route {
         case .section(.grades):
-            GradesView()
+            StudentGradesView()
         case .section(.attendance):
-            AttendanceView()
+            StudentAttendanceView()
         case .section(.assignments):
             AssignmentsView(isStudent: role != .teacher)
         case .section(.materials):
@@ -103,27 +163,53 @@ struct AppShellView: View {
             DocumentsView()
         case .section(.library):
             LibraryCatalogView()
-        case .section(let section):
-            PlaceholderScreen(title: section.title)
+        case .section(.settings):
+            SettingsView(session: session)
+        case .section(.schedule):
+            // У декана расписание — весь факультет: без выбора группы общий дневной вид
+            // смешал бы сотни пар. Его раздел — расписание факультета, как `/dean/schedule`.
+            if role == .dean {
+                DeanScreen.schedule.destination
+            } else {
+                ScheduleView()
+            }
+        case .section(.consultations):
+            ConsultationsView(role: role)
+        case .section(.deanery):
+            DeaneryView()
+        case .section(.portfolio):
+            PortfolioView()
+        case .section(.subjects):
+            CoursesView(role: role)
+        case .section(.groups):
+            TeacherGroupsView()
+        case .section(.classmates):
+            // «Одногруппники» — у старосты это его «Моя группа»: тот же состав группы
+            // плюс его действия. Старые ссылки ведут туда же, второго экрана нет.
+            StarostaScreen.myGroup.destination
+        case .section(.campusMap):
+            CampusMapView()
         case .chat(let id):
             ChatThreadView(chatID: id, viewerID: viewer.subject)
         case .post(let id):
             PostDetailView(postID: id)
         case .profile(let id):
-            ProfileView(userID: id)
+            // Своё имя в шапке поста или в комментарии ведёт в свой профиль — с «Изменить»
+            // и настройками, а не в чужой с «Написать» самому себе.
+            ProfileView(userID: id == viewer.subject ? nil : id)
         case .application(let id):
             ApplicationDetailView(applicationID: id)
         case .service(let id):
             ApplicationFormView(serviceID: id)
-        case .event:
-            EventsView()
+        case .event(let id):
+            CommunityScreen.event(id: id).destination
         case .lesson(let id, let date):
             // Преподаватель с занятия идёт отмечать посещаемость — это главное,
             // зачем он вообще открывает пару на телефоне.
             if role == .teacher {
                 AttendanceMarkingView(pairID: id, date: date ?? Date())
             } else {
-                PlaceholderScreen(title: String(localized: "shell.lesson", defaultValue: "Пара"), reference: id)
+                LessonDetailView(pairID: id, date: date ?? Date())
             }
         case .assignment(let id):
             AssignmentDetailView(assignmentID: id, isStudent: role != .teacher)
@@ -135,6 +221,36 @@ struct AppShellView: View {
             LibraryBookView(bookID: id)
         case .bookCopy(let code):
             LibraryCopyView(code: code)
+        case .search:
+            SearchView()
+        case .chatInfo(let id):
+            ChatInfoView(chatID: id)
+        case .campusRoom(let roomID):
+            CampusMapView(focusRoomID: roomID)
+        case .legal(let document):
+            LegalDocumentView(inApp: document)
+        case .student(let screen):
+            screen.destination
+        case .community(let screen):
+            screen.destination
+        case .teacher(let screen):
+            screen.destination
+        case .starosta(let screen):
+            screen.destination
+        case .career(let screen):
+            screen.destination
+        case .dean(let screen):
+            screen.destination
+        case .uniAdmin(let screen):
+            screen.destination
+        case .staff(let screen):
+            screen.destination
+        case .admin(let screen):
+            screen.destination
+        case .security(let screen):
+            screen.destination
+        case .librarian(let screen):
+            screen.destination
         }
     }
 }
@@ -150,38 +266,15 @@ extension Binding where Value == [AppTab: [AppRoute]] {
     }
 }
 
-/// Заглушка раздела. Нужна до Ф1–Ф4 и исчезнет вместе с ними: пустой экран без
-/// объяснения человек читает как поломку.
-struct PlaceholderScreen: View {
-    let title: String
-    var reference: String?
+/// Кто смотрит: своё от чужого отличают лента, комментарии и истории. Ключ окружения,
+/// а не параметр — иначе id протаскивался бы через каждый промежуточный экран.
+private struct ViewerIDKey: EnvironmentKey {
+    static let defaultValue = ""
+}
 
-    var body: some View {
-        VStack(spacing: Spacing.md) {
-            Text(title)
-                .font(Typography.pageTitle)
-                .foregroundStyle(Palette.foreground)
-            Text(String(
-                localized: "shell.placeholder",
-                defaultValue: "Этот раздел появится в следующем обновлении"
-            ))
-            .font(Typography.meta)
-            .foregroundStyle(Palette.mutedForeground)
-            .multilineTextAlignment(.center)
-            #if DEBUG
-                // Идентификатор из ссылки — единственный способ убедиться, что
-                // диплинк довёл до нужной записи, пока экрана записи нет.
-                if let reference {
-                    Text(verbatim: reference)
-                        .font(Typography.tabular(Typography.meta))
-                        .foregroundStyle(Palette.mutedForeground)
-                }
-            #endif
-        }
-        .padding(Spacing.xl)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Palette.background)
-        .navigationTitle(Text(title))
-        .navigationBarTitleDisplayMode(.inline)
+extension EnvironmentValues {
+    var viewerID: String {
+        get { self[ViewerIDKey.self] }
+        set { self[ViewerIDKey.self] = newValue }
     }
 }

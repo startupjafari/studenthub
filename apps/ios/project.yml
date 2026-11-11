@@ -95,12 +95,17 @@ targets:
         NSCameraUsageDescription: Чтобы отсканировать QR-код входа на компьютере.
         # Микрофон — только для голосовых сообщений в чате.
         NSMicrophoneUsageDescription: Чтобы записать голосовое сообщение.
+        # Системный экран запуска — только цвет (чисто белый / чисто чёрный), без знака:
+        # знак прорисовывает уже SwiftUI (`LaunchLoadingView`), и её первый кадр
+        # совпадает с этим экраном. Цвет менять вместе с `LaunchPalette.background`.
         UILaunchScreen:
           UIColorName: LaunchBackground
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         # Адрес API приходит из xcconfig, а не из кода: у Debug и Release он разный.
         SHAPIBaseURL: $(API_BASE_URL)
+        # Адрес веба — для «Поделиться» и «Копировать ссылку» на пост.
+        SHWebBaseURL: $(WEB_BASE_URL)
         # Пусто — трекер не инициализируется вовсе, как и на бэкенде без DSN.
         SHSentryDSN: $(SENTRY_DSN)
     settings:

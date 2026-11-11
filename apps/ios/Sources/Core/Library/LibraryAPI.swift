@@ -322,8 +322,7 @@ enum LibraryReaderError {
         if (error as? APIError)?.code == .notFound {
             return String(localized: "library.error.notFound", defaultValue: "Книга не найдена")
         }
-        return (error as? APIError)?.displayMessage
-            ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+        return error.userMessage
     }
 
     private static func byField(_ field: String) -> String? {

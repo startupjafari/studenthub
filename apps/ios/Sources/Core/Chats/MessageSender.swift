@@ -66,11 +66,18 @@ struct MessageOutbox: Sendable {
         return await deliver(local)
     }
 
-    /// Повторить одну неудачу — по кнопке у сообщения.
+    /// Повторить одну неудачу — по кнопке у сообщения. Переход «неудача → в пути»
+    /// одной транзакцией: второе нажатие, пока первое едет, дубля не отправит.
     @discardableResult
     func retry(_ message: MessageRecord) async -> Bool {
         guard message.remoteId == nil else { return true }
-        await mark(message.id, as: .pending)
+        let claimed = (try? await database.writer.write { db -> Bool in
+            guard var row = try MessageRecord.fetchOne(db, key: message.id), row.sendState == .failed else { return false }
+            row.sendState = .pending
+            try row.update(db)
+            return true
+        }) ?? false
+        guard claimed else { return false }
         var pending = message
         pending.sendState = .pending
         return await deliver(pending)
@@ -78,12 +85,21 @@ struct MessageOutbox: Sendable {
 
     /// Дослать всё, что осталось висеть: после перезапуска, возвращения связи или
     /// открытия чата. Порядок — по времени написания, иначе переписка перемешается.
+    ///
+    /// Только тексты: вложение повторяет `AttachmentUploader`, этой отправкой ушла бы
+    /// одна подпись без файла. И только то, что не едет прямо сейчас: свежее «в пути»
+    /// ещё ждёт ответа, повтор дал бы дубль. Зависшее дольше минуты (приложение
+    /// закрыли посреди отправки) — уже не в пути.
     func flush(chatID: String? = nil) async {
         let stuck: [MessageRecord]
+        let stale = Date().addingTimeInterval(-60)
         do {
             stuck = try await database.reader.read { db in
                 var request = MessageRecord
                     .filter(MessageRecord.Columns.remoteId == nil)
+                    .filter(MessageRecord.Columns.sendState == MessageSendState.failed.rawValue
+                        || MessageRecord.Columns.createdAt < stale)
+                    .filter(sql: "NOT EXISTS (SELECT 1 FROM attachment WHERE attachment.messageId = message.id)")
                     .order(MessageRecord.Columns.createdAt.asc)
                 if let chatID {
                     request = request.filter(MessageRecord.Columns.chatId == chatID)

@@ -55,10 +55,46 @@ final class LocalizationTests: XCTestCase {
 
     /// `\(…)` в коде и `%lld`/`%@` в каталоге — одна и та же подстановка: сравниваем
     /// текст вокруг них.
+    ///
+    /// Подстановка Swift вырезается проходом со счётчиком скобок, а не регулярным
+    /// выражением: в `\(date.formatted(.dateTime.day().month(.wide)))` три уровня
+    /// вложенности, и регулярка на два уровня считала такие строки разошедшимися.
     private static func placeholdersErased(_ text: String) -> String {
-        text
-            .replacingOccurrences(of: #"\\\((?:[^()]|\([^()]*\))*\)"#, with: "%", options: .regularExpression)
+        swiftInterpolationsErased(text)
             .replacingOccurrences(of: #"%(?:\d+\$)?(?:lld|ld|d|lf|f|@)"#, with: "%", options: .regularExpression)
+    }
+
+    /// `\(…)` любой глубины → `%`. Скобки внутри строковых литералов подстановки не
+    /// встречаются в каталоге, поэтому считаем их все.
+    private static func swiftInterpolationsErased(_ text: String) -> String {
+        var result = ""
+        var index = text.startIndex
+        while index < text.endIndex {
+            let next = text.index(after: index)
+            guard text[index] == "\\", next < text.endIndex, text[next] == "(" else {
+                result.append(text[index])
+                index = next
+                continue
+            }
+            var depth = 0
+            var cursor = next
+            while cursor < text.endIndex {
+                if text[cursor] == "(" { depth += 1 }
+                if text[cursor] == ")" {
+                    depth -= 1
+                    if depth == 0 { break }
+                }
+                cursor = text.index(after: cursor)
+            }
+            // Незакрытая скобка — не подстановка: оставляем текст как есть.
+            guard cursor < text.endIndex else {
+                result.append(contentsOf: text[index...])
+                break
+            }
+            result.append("%")
+            index = text.index(after: cursor)
+        }
+        return result
     }
 
     /// Каталог не должен копить мусор: ключ, которого в коде нет, никто не увидит,

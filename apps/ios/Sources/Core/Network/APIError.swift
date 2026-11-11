@@ -90,12 +90,46 @@ enum APIError: Error {
         case .transport:
             return String(localized: "error.network", defaultValue: "Нет связи с сервером")
         case .decoding, .malformedResponse:
-            return String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            return String(
+                localized: "error.unexpected",
+                defaultValue: "Не получилось обработать ответ сервера. Попробуйте ещё раз чуть позже"
+            )
         }
     }
 
     var code: APIErrorCode? {
         if case .server(let code, _, _, _) = self { return code }
         return nil
+    }
+}
+
+extension Error {
+    /// Текст ошибки для человека — одна точка вместо развилки на каждом экране.
+    ///
+    /// Техническая подробность (тип ошибки, статус) уходит в диагностику, а не на
+    /// экран: «неожиданный ответ сервера» человеку ничего не объясняет, а разработчику
+    /// без статуса и типа нечего чинить.
+    var userMessage: String {
+        if let api = self as? APIError {
+            switch api {
+            case .decoding(let underlying, let statusCode):
+                Observability.unexpectedResponse(statusCode: statusCode, kind: String(describing: type(of: underlying)))
+            case .malformedResponse(let statusCode):
+                Observability.unexpectedResponse(statusCode: statusCode, kind: "malformed")
+            default:
+                break
+            }
+            return api.displayMessage
+        }
+        if let url = self as? URLError {
+            return APIError.transport(url).displayMessage
+        }
+        // Свой текст экрана (конфликт расписания, проверка формы до отправки) приходит
+        // через `LocalizedError` — его и показываем, без обёрток в `APIError`.
+        if let localized = self as? LocalizedError, let text = localized.errorDescription, !text.isEmpty {
+            return text
+        }
+        Observability.unexpectedResponse(statusCode: 0, kind: String(describing: type(of: self)))
+        return String(localized: "error.generic", defaultValue: "Что-то пошло не так. Попробуйте ещё раз")
     }
 }

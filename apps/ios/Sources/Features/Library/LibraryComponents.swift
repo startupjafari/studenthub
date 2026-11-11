@@ -176,24 +176,14 @@ struct ReservationBadge: View {
 /// Библиотека вуза выключена: объяснение вместо пустого экрана.
 struct LibraryDisabledView: View {
     var body: some View {
-        VStack(spacing: Spacing.md) {
-            Image(systemName: "books.vertical")
-                .font(.system(size: 40))
-                .foregroundStyle(Palette.mutedForeground)
-                .accessibilityHidden(true)
-            Text(String(localized: "library.disabledTitle", defaultValue: "Библиотека выключена"))
-                .font(Typography.sectionTitle)
-                .foregroundStyle(Palette.foreground)
-            Text(String(
+        EmptyStateView(
+            title: String(localized: "library.disabledTitle", defaultValue: "Библиотека выключена"),
+            symbol: "books.vertical",
+            hint: String(
                 localized: "library.disabledDescription",
                 defaultValue: "Каталог появится, когда администратор вуза включит библиотеку."
-            ))
-            .font(Typography.meta)
-            .foregroundStyle(Palette.mutedForeground)
-            .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, Spacing.xxl)
+            )
+        )
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
     }

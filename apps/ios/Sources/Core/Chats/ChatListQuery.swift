@@ -17,21 +17,59 @@ struct ChatListRow: FetchableRecord, Decodable, Identifiable, Equatable {
     var archivedAt: Date?
     var requestIncoming: Bool
     var updatedAt: Date
+    var subject: String?
+    var online: Bool
+    var mutedImportantOnly: Bool
+    var othersReadAt: Date?
     /// Черновик показывается вместо превью: он важнее чужого последнего сообщения.
     var draftText: String?
     var lastContent: String?
     var lastSenderId: String?
     var lastCreatedAt: Date?
     var lastDeletedAt: Date?
+    var lastSenderName: String?
+    var lastSystemType: String?
+    /// Вложений в последнем сообщении — превью «Фото», «Голосовое» вместо пустоты.
+    var lastAttachmentMime: String?
+    var lastAttachmentName: String?
 
     var kind: ChatKind { ChatKind.from(type) }
     var isPinned: Bool { pinnedAt != nil }
 
+    /// Название для строки: у личного — имя собеседника, у официальных без названия —
+    /// тема или подпись по типу, у «Избранного» — своё слово.
+    var displayTitle: String {
+        if kind == .saved { return String(localized: "chats.saved", defaultValue: "Избранное") }
+        if let title, !title.isEmpty { return title }
+        if let subject, !subject.isEmpty { return subject }
+        switch kind {
+        case .groupOfficial: return String(localized: "chats.kind.group", defaultValue: "Чат группы")
+        case .faculty: return String(localized: "chats.kind.faculty", defaultValue: "Факультет")
+        case .dean: return String(localized: "chats.kind.dean", defaultValue: "Деканат")
+        case .support, .supportPlatform: return String(localized: "chats.kind.support", defaultValue: "Поддержка")
+        default: return String(localized: "chats.untitled", defaultValue: "Без названия")
+        }
+    }
+
+    /// Текст превью, когда в последнем сообщении нет текста: что именно пришло.
+    var attachmentPreview: String? {
+        guard let mime = lastAttachmentMime else { return nil }
+        if mime.hasPrefix("audio/") || lastAttachmentName?.hasPrefix("voice-") == true {
+            return String(localized: "chats.preview.voice", defaultValue: "Голосовое сообщение")
+        }
+        if mime.hasPrefix("image/") { return String(localized: "chats.preview.photo", defaultValue: "Фото") }
+        if mime.hasPrefix("video/") { return String(localized: "chats.preview.video", defaultValue: "Видео") }
+        return lastAttachmentName ?? String(localized: "chats.preview.file", defaultValue: "Файл")
+    }
+
     /// Что показать второй строкой.
     var preview: String? {
         if let draftText, !draftText.isEmpty { return draftText }
-        if lastDeletedAt != nil { return nil }
-        return lastContent
+        if lastDeletedAt != nil {
+            return String(localized: "chats.deletedMessage", defaultValue: "Сообщение удалено")
+        }
+        if let lastContent, !lastContent.isEmpty { return lastContent }
+        return attachmentPreview
     }
 }
 
@@ -41,6 +79,12 @@ enum ChatListTab: Equatable, Hashable {
     case folder(id: String, name: String)
     case requests
     case archive
+    /// Встроенные вкладки веба по типу и непрочитанному.
+    case unread
+    case personal
+    case groups
+    case subjects
+    case university
 }
 
 enum ChatListQuery {
@@ -63,17 +107,35 @@ enum ChatListQuery {
             condition = "c.requestIncoming = 1"
         case .archive:
             condition = "c.archivedAt IS NOT NULL AND c.requestIncoming = 0"
+        case .unread:
+            condition = "c.archivedAt IS NULL AND c.requestIncoming = 0 AND c.unreadCount > 0"
+        case .personal:
+            condition = "c.archivedAt IS NULL AND c.requestIncoming = 0 AND c.type IN ('PRIVATE', 'SAVED')"
+        case .groups:
+            condition = "c.archivedAt IS NULL AND c.requestIncoming = 0 AND c.type IN ('GROUP', 'GROUP_OFFICIAL')"
+        case .subjects:
+            condition = "c.archivedAt IS NULL AND c.requestIncoming = 0 AND c.type = 'SUBJECT'"
+        case .university:
+            condition = """
+                c.archivedAt IS NULL AND c.requestIncoming = 0
+                AND c.type IN ('FACULTY', 'DEAN', 'SUPPORT', 'SUPPORT_PLATFORM', 'EVENT')
+                """
         }
 
         return """
             SELECT
                 c.id, c.type, c.title, c.avatarUrl, c.unreadCount, c.muted,
                 c.pinnedAt, c.archivedAt, c.requestIncoming, c.updatedAt,
+                c.subject, c.online, c.mutedImportantOnly, c.othersReadAt,
                 d.text AS draftText,
                 m.content AS lastContent,
                 m.senderId AS lastSenderId,
                 m.createdAt AS lastCreatedAt,
-                m.deletedAt AS lastDeletedAt
+                m.deletedAt AS lastDeletedAt,
+                m.senderName AS lastSenderName,
+                m.systemType AS lastSystemType,
+                (SELECT a.mime FROM attachment a WHERE a.messageId = m.id LIMIT 1) AS lastAttachmentMime,
+                (SELECT a.name FROM attachment a WHERE a.messageId = m.id LIMIT 1) AS lastAttachmentName
             FROM chat c
             LEFT JOIN draft d ON d.chatId = c.id
             LEFT JOIN message m ON m.id = c.lastMessageId
@@ -87,6 +149,18 @@ enum ChatListQuery {
     /// не сообщает.
     static func tabs(in db: Database) throws -> [ChatListTab] {
         var tabs: [ChatListTab] = [.all]
+        // Вкладки по типу — только непустые: пустая вкладка занимает место и ничего не
+        // сообщает (так же решает веб). Свои папки — после встроенных.
+        let active = "archivedAt IS NULL AND requestIncoming = 0"
+        func has(_ condition: String) throws -> Bool {
+            try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM chat WHERE \(active) AND \(condition))") ?? false
+        }
+        if try has("unreadCount > 0") { tabs.append(.unread) }
+        if try has("type = 'PRIVATE'") { tabs.append(.personal) }
+        if try has("type IN ('GROUP', 'GROUP_OFFICIAL')") { tabs.append(.groups) }
+        if try has("type = 'SUBJECT'") { tabs.append(.subjects) }
+        if try has("type IN ('FACULTY', 'DEAN', 'SUPPORT', 'SUPPORT_PLATFORM', 'EVENT')") { tabs.append(.university) }
+
         let folders = try FolderRecord
             .order(FolderRecord.Columns.position)
             .fetchAll(db)

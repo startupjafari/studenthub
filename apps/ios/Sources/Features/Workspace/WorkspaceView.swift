@@ -1,0 +1,139 @@
+import SwiftUI
+
+/// Вкладка «Разделы»: всё меню роли из веба, по тем же группам, с поиском. Подача — как
+/// «Настройки» Telegram и iOS: сверху карточка «я», ниже группы однострочных пунктов с
+/// цветными квадратами. Последняя группа — «Аккаунт»: уведомления, настройки.
+///
+/// Пункт меню — `SettingsRow`, та же строка, что в настройках: одна плитка, высота и
+/// шеврон на всё приложение.
+struct WorkspaceView: View {
+    let role: Role
+
+    @State private var query = ""
+    /// Включённые вузом модули: пункт выключенного не показываем вовсе.
+    @State private var enabledModules: Set<MoreSection> = []
+
+    var body: some View {
+        List {
+            if isSearching {
+                if visibleGroups.isEmpty {
+                    EmptyStateView(
+                        title: String(localized: "services.notFound", defaultValue: "Ничего не нашлось"),
+                        symbol: "magnifyingglass",
+                        hint: String(localized: "services.notFound.hint", defaultValue: "Попробуйте другое слово")
+                    )
+                    .listRowBackground(Color.clear)
+                }
+            } else {
+                Section {
+                    WorkspaceProfileRow(role: role)
+                }
+            }
+            ForEach(visibleGroups) { group in
+                Section {
+                    ForEach(group.items) { item in
+                        NavigationLink(value: item.route) {
+                            // Подсказка видна только в поиске: объясняет, почему пункт нашёлся.
+                            SettingsRow(title: item.title, symbol: item.symbol, tint: item.tint, subtitle: isSearching ? item.hint : nil)
+                        }
+                    }
+                } header: {
+                    Text(group.title)
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        // Поиск, карточка «я» и группы — плотно, без полос пустоты между ними.
+        .listSectionSpacing(.compact)
+        .contentMargins(.top, Spacing.xs, for: .scrollContent)
+        .navigationTitle(Text(AppTab.workspace.title))
+        .searchable(text: $query, prompt: Text(String(localized: "workspace.search", defaultValue: "Поиск раздела")))
+        .task { await loadModules() }
+    }
+
+    private var needle: String {
+        query.trimmingCharacters(in: .whitespaces)
+    }
+
+    private var isSearching: Bool { !needle.isEmpty }
+
+    private var visibleGroups: [WorkspaceGroup] {
+        let groups = Workspace.groups(for: role, modules: enabledModules) + [Workspace.accountGroup(for: role)]
+        guard isSearching else {
+            // Профиль уже открыт карточкой сверху — второй строкой в «Аккаунте» он не нужен.
+            return groups.compactMap { group in
+                let items = group.items.filter { $0.route != .section(.profile) }
+                return items.isEmpty ? nil : WorkspaceGroup(title: group.title, items: items)
+            }
+        }
+        return groups.compactMap { group in
+            // Без учёта регистра и диакритики, по правилам языка: «е» находит «ё»,
+            // казахские буквы сравниваются как казахские.
+            let items = group.items.filter {
+                $0.title.localizedStandardContains(needle) || ($0.hint?.localizedStandardContains(needle) ?? false)
+            }
+            return items.isEmpty ? nil : WorkspaceGroup(title: group.title, items: items)
+        }
+    }
+
+    /// Спрашиваем при каждом показе вкладки: админ вуза включает модуль, когда
+    /// захочет, и пункт должен появиться без перезапуска приложения. Отказ сети пункт
+    /// не прячет — прошлое знание лучше мигания.
+    private func loadModules() async {
+        guard MoreSection.modules(for: role).contains(.library) else { return }
+        guard let settings = try? await LibraryAPI().settings() else { return }
+        if settings.enabled {
+            enabledModules.insert(.library)
+        } else {
+            enabledModules.remove(.library)
+        }
+    }
+}
+
+/// Карточка «я» над списком разделов — как верхняя строка «Настроек»: аватар, имя, кто
+/// я и где. Ведёт в профиль.
+struct WorkspaceProfileRow: View {
+    let role: Role
+
+    @Environment(ViewerProfileModel.self) private var viewer
+    /// Карточка ниже прежней: аватар 48 вместо 60 и одна строка подписи — это вход в
+    /// профиль, а не его шапка.
+    @ScaledMetric(relativeTo: .headline) private var avatarSize: CGFloat = 48
+
+    var body: some View {
+        NavigationLink(value: AppRoute.section(.profile)) {
+            HStack(spacing: Spacing.lg) {
+                AvatarView(url: viewer.profile?.avatarUrl, name: viewer.profile?.name, size: min(avatarSize, 64))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(name)
+                        .font(.headline)
+                        .foregroundStyle(Palette.foreground)
+                        .lineLimit(2)
+                    if !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.subheadline)
+                            .foregroundStyle(Palette.mutedForeground)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .accessibilityElement(children: .combine)
+        }
+        .accessibilityIdentifier("workspace.profile")
+    }
+
+    private var name: String {
+        let value = viewer.profile?.name.trimmingCharacters(in: .whitespaces) ?? ""
+        return value.isEmpty ? String(localized: "more.profile", defaultValue: "Профиль") : value
+    }
+
+    /// «Студент · ИС-21» или «Преподаватель · Кафедра ИТ»: роль и то, что ближе всего к
+    /// человеку, — группа, должность или вуз.
+    private var subtitle: String {
+        let profile = viewer.profile
+        let place = [profile?.groupName, profile?.position, profile?.facultyName, profile?.universityName]
+            .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty }
+        return [role.profileTitle, place].compactMap { $0 }.joined(separator: " · ")
+    }
+}

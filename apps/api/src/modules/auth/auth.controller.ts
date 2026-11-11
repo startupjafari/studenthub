@@ -32,6 +32,7 @@ import { CompanyMembersService } from '../career/company-members.service'
 import { TwoFactorVerifyDto } from './dto/two-factor-verify.dto'
 import { QrApproveDto } from './dto/qr-approve.dto'
 import { QrClaimDto } from './dto/qr-claim.dto'
+import { LogoutDto } from './dto/logout.dto'
 import { QrLoginService } from './qr-login.service'
 import { PasswordResetService } from './password-reset.service'
 import { ForgotPasswordDto } from './dto/forgot-password.dto'
@@ -284,12 +285,22 @@ export class AuthController {
 
   @Public()
   @Post('logout')
-  @ApiOperation({ summary: 'Выход: инвалидация сессии и очистка cookie' })
+  @ApiOperation({
+    summary: 'Выход: инвалидация сессии и очистка cookie',
+    description:
+      'Тело необязательно. `deviceToken` — токен пушей устройства (нативный клиент): ' +
+      'отвязывается вместе с сессией, если принадлежит её владельцу.',
+  })
+  @ApiResponse({ status: 201, description: 'Сессия погашена (или её не было), cookie очищены' })
+  @ApiResponse({ status: 422, description: 'VALIDATION_ERROR — неверный deviceToken' })
   async logout(
     @Req() req: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
+    // Тип — сам DTO, без `| undefined`: иначе ZodValidationPipe пропустил бы тело без
+    // проверки. Запрос без тела схема превращает в {}.
+    @Body() dto: LogoutDto,
   ): Promise<null> {
-    await this.authService.logout(req.cookies?.[REFRESH_COOKIE], this.ctx(req))
+    await this.authService.logout(req.cookies?.[REFRESH_COOKIE], this.ctx(req), dto.deviceToken)
     this.clearAuthCookies(reply)
     return null
   }

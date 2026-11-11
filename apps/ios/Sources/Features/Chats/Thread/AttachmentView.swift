@@ -10,81 +10,89 @@ import SwiftUI
 struct AttachmentView: View {
     let attachment: AttachmentRecord
     let isOwn: Bool
+    /// Открыть во весь экран: фото, документ, видео — системным просмотром.
+    var open: () -> Void = {}
 
     var body: some View {
         if attachment.isVoice {
             VoiceAttachmentView(attachment: attachment, isOwn: isOwn)
         } else if attachment.isImage {
-            ImageAttachmentView(attachment: attachment)
+            ImageAttachmentView(attachment: attachment, open: open)
         } else {
-            FileAttachmentView(attachment: attachment, isOwn: isOwn)
+            FileAttachmentView(attachment: attachment, isOwn: isOwn, open: open)
         }
     }
 }
 
+/// Фото в пузыре. Свой файл на диске и чужой по ссылке идут одной дорогой — через кэш
+/// картинок с уменьшением под размер пузыря: полный кадр камеры (12 Мп) ради рамки
+/// 240 pt занимал бы 50 МБ памяти, и не на главном потоке.
 private struct ImageAttachmentView: View {
     let attachment: AttachmentRecord
+    let open: () -> Void
 
     @State private var remoteURL: URL?
+    @Environment(\.displayScale) private var displayScale
 
-    var body: some View {
-        Group {
-            if let local = attachment.localPath, let image = UIImage(contentsOfFile: local) {
-                Image(uiImage: image).resizable().scaledToFill()
-            } else if let remoteURL {
-                AsyncImage(url: remoteURL) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable().scaledToFill()
-                    case .failure:
-                        placeholder(systemImage: "photo")
-                    default:
-                        placeholder(systemImage: "photo")
-                    }
-                }
-            } else {
-                placeholder(systemImage: "photo")
-            }
-        }
-        .frame(maxWidth: 240)
-        .frame(height: 180)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
-        .task {
-            guard attachment.localPath == nil, remoteURL == nil else { return }
-            remoteURL = await AppServices.attachmentURLs.url(for: attachment.id)
-        }
-        .accessibilityLabel(Text(String(localized: "chats.photo", defaultValue: "Фотография")))
+    private static let width: CGFloat = 240
+
+    private var localURL: URL? {
+        guard let path = attachment.localPath, FileManager.default.fileExists(atPath: path) else { return nil }
+        return URL(filePath: path)
     }
 
-    private func placeholder(systemImage: String) -> some View {
-        ZStack {
-            Rectangle().fill(Palette.muted)
-            Image(systemName: systemImage).foregroundStyle(Palette.mutedForeground)
+    var body: some View {
+        let url = localURL ?? remoteURL
+        RemoteImage(
+            url: url,
+            cacheKey: "att:\(attachment.id)",
+            placeholder: attachment.placeholder,
+            maxPixelSize: Self.width * displayScale
+        )
+        // Ссылка приезжает позже первого показа — картинка должна её заметить.
+        .id(url)
+        .frame(maxWidth: Self.width)
+        .frame(height: 180)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
+        .contentShape(RoundedRectangle(cornerRadius: Radius.lg))
+        .onTapGesture(perform: open)
+        .task {
+            guard localURL == nil, remoteURL == nil else { return }
+            remoteURL = await AppServices.attachmentURLs.url(for: attachment.id)
         }
+        .accessibilityElement()
+        .accessibilityLabel(Text(String(localized: "chats.photo", defaultValue: "Фотография")))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(.default, open)
     }
 }
 
 private struct FileAttachmentView: View {
     let attachment: AttachmentRecord
     let isOwn: Bool
+    let open: () -> Void
 
     var body: some View {
-        HStack(spacing: Spacing.md) {
-            Image(systemName: "doc.fill")
-                .foregroundStyle(isOwn ? Palette.primaryForeground : Palette.primary)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(attachment.name ?? String(localized: "chats.file", defaultValue: "Файл"))
-                    .font(Typography.body)
-                    .lineLimit(1)
-                    .foregroundStyle(isOwn ? Palette.primaryForeground : Palette.foreground)
-                if let size = attachment.size {
-                    Text(verbatim: ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
-                        .font(Typography.meta)
-                        .foregroundStyle(isOwn ? Palette.primaryForeground.opacity(0.8) : Palette.mutedForeground)
+        Button(action: open) {
+            HStack(spacing: Spacing.md) {
+                Image(systemName: attachment.mime.hasPrefix("video/") ? "play.rectangle.fill" : "doc.fill")
+                    .foregroundStyle(isOwn ? Palette.primaryForeground : Palette.primary)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(attachment.name ?? String(localized: "chats.file", defaultValue: "Файл"))
+                        .font(Typography.body)
+                        .lineLimit(1)
+                        .foregroundStyle(isOwn ? Palette.primaryForeground : Palette.foreground)
+                    if let size = attachment.size {
+                        Text(verbatim: ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
+                            .font(Typography.meta)
+                            .foregroundStyle(isOwn ? Palette.primaryForeground.opacity(0.8) : Palette.mutedForeground)
+                    }
                 }
             }
+            .padding(.vertical, Spacing.xs)
+            .contentShape(Rectangle())
         }
-        .padding(.vertical, Spacing.xs)
+        .buttonStyle(.plain)
     }
 }
 

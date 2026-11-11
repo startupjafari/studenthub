@@ -96,6 +96,7 @@ struct MessageStore: Sendable {
         local.seq = sent.seq
         local.createdAt = sent.createdAt
         local.sendState = .sent
+        local.absorb(sent)
         try local.update(db)
     }
 
@@ -112,6 +113,7 @@ struct MessageStore: Sendable {
             local.deletedAt = message.deletedAt
             local.pinnedAt = message.pinnedAt
             local.sendState = .sent
+            local.absorb(message)
             try local.update(db)
             try saveAttachments(of: message, messageID: local.id, in: db)
             return
@@ -136,27 +138,13 @@ struct MessageStore: Sendable {
             pending.seq = message.seq
             pending.createdAt = message.createdAt
             pending.sendState = .sent
+            pending.absorb(message)
             try pending.update(db)
             try saveAttachments(of: message, messageID: pending.id, in: db)
             return
         }
 
-        try MessageRecord(
-            id: message.id,
-            remoteId: message.id,
-            chatId: message.chatId,
-            seq: message.seq,
-            senderId: message.senderId,
-            content: message.content,
-            replyToId: message.replyToId,
-            replyQuote: message.replyQuote,
-            systemType: message.systemType,
-            editedAt: message.editedAt,
-            deletedAt: message.deletedAt,
-            pinnedAt: message.pinnedAt,
-            createdAt: message.createdAt,
-            sendState: .sent
-        ).upsert(db)
+        try MessageRecord(server: message).upsert(db)
         try saveAttachments(of: message, messageID: message.id, in: db)
     }
 
@@ -188,7 +176,9 @@ struct MessageStore: Sendable {
                 height: item.height,
                 // Уже скачанный файл не теряем: ключ кэша — id, и ссылка на диск
                 // переживает обновление самой записи.
-                localPath: paths[item.id] ?? nil
+                localPath: paths[item.id] ?? nil,
+                placeholder: item.placeholder,
+                durationMs: item.durationMs
             ).insert(db)
         }
     }
@@ -197,5 +187,38 @@ struct MessageStore: Sendable {
         guard let seq, var chat = try ChatRecord.fetchOne(db, key: chatID), seq > chat.lastSeq else { return }
         chat.lastSeq = seq
         try chat.update(db)
+    }
+}
+
+extension MessageRecord {
+    /// Строка из ответа сервера.
+    init(server message: ChatMessageDTO) {
+        self.init(
+            id: message.id,
+            remoteId: message.id,
+            chatId: message.chatId,
+            seq: message.seq,
+            senderId: message.senderId,
+            content: message.content,
+            replyToId: message.replyToId,
+            replyQuote: message.replyQuote,
+            systemType: message.systemType,
+            editedAt: message.editedAt,
+            deletedAt: message.deletedAt,
+            pinnedAt: message.pinnedAt,
+            createdAt: message.createdAt,
+            sendState: .sent
+        )
+        absorb(message)
+    }
+
+    /// Автор и подробности из ответа сервера. Реакции, превью ссылки и опрос меняются
+    /// у уже сохранённого сообщения — поэтому переписываются при каждом приходе.
+    mutating func absorb(_ message: ChatMessageDTO) {
+        if let sender = message.sender {
+            senderName = sender.name
+            senderAvatar = sender.avatarUrl
+        }
+        extras = message.extras
     }
 }

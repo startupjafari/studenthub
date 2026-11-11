@@ -1,0 +1,363 @@
+import SwiftUI
+
+/// Результаты поиска в списке чатов: чаты по названию — сразу из базы, люди из
+/// справочника вуза и сообщения — запросом после паузы в наборе.
+struct ChatSearchResults: View {
+    let query: String
+    let rows: [ChatListRow]
+
+    @State private var people: [DirectoryUserDTO] = []
+    @State private var messages: [ChatMessageDTO] = []
+    @State private var isSearching = false
+    /// Люди или сообщения не пришли: без этого сбой выглядел бы как «нет результатов».
+    @State private var failure: String?
+    @State private var isOffline = false
+    @State private var opening: String?
+    private let api: ChatActing = ChatsAPI()
+
+    private var trimmed: String { query.trimmingCharacters(in: .whitespaces) }
+
+    private var chats: [ChatListRow] {
+        rows.filter { $0.displayTitle.localizedCaseInsensitiveContains(trimmed) }
+    }
+
+    var body: some View {
+        Group {
+            // Что-то нашлось (хотя бы чаты из базы) — сбой сети полосой над найденным.
+            if let failure, !chats.isEmpty || !people.isEmpty || !messages.isEmpty {
+                StaleDataBanner(message: failure, isOffline: isOffline) { await search() }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+            }
+            if !chats.isEmpty {
+                Section(String(localized: "chats.search.chats", defaultValue: "Чаты")) {
+                    ForEach(chats) { row in
+                        ChatRowView(row: row, isGroup: row.kind != .private && row.kind != .saved)
+                            .background {
+                                NavigationLink(value: AppRoute.chat(id: row.id)) { EmptyView() }
+                                    .opacity(0)
+                            }
+                            .listRowInsets(ChatListView.rowInsets)
+                    }
+                }
+            }
+            if !people.isEmpty {
+                Section(String(localized: "search.section.people", defaultValue: "Люди")) {
+                    ForEach(people) { person in
+                        Button {
+                            Task { await openPrivate(with: person.id) }
+                        } label: {
+                            HStack(spacing: Spacing.lg) {
+                                AvatarView(url: person.avatarUrl, name: person.name, size: 40)
+                                VStack(alignment: .leading, spacing: 0) {
+                                    Text(person.name).foregroundStyle(Palette.foreground)
+                                    if let detail = person.groupTitle ?? person.role.flatMap(Role.init(rawValue:))?.feedTitle {
+                                        Text(detail)
+                                            .font(Typography.meta)
+                                            .foregroundStyle(Palette.mutedForeground)
+                                    }
+                                }
+                                Spacer()
+                                if opening == person.id { ProgressView() }
+                            }
+                        }
+                        .disabled(opening != nil)
+                    }
+                }
+            }
+            if !messages.isEmpty {
+                Section(String(localized: "chats.search.messages", defaultValue: "Сообщения")) {
+                    ForEach(messages, id: \.id) { message in
+                        // Чат открывается на найденном сообщении, а не внизу: просьба
+                        // прокрутить ставится до перехода, переписка заберёт её при показе.
+                        Button {
+                            ChatJumpRequests.shared.pending[message.chatId] = message.id
+                            AppServices.router.stacks[.chats, default: []].append(.chat(id: message.chatId))
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack {
+                                    Text(rows.first { $0.id == message.chatId }?.displayTitle ?? message.sender?.name ?? "")
+                                        .font(Typography.meta.weight(.semibold))
+                                        .foregroundStyle(Palette.foreground)
+                                        .lineLimit(1)
+                                    Spacer()
+                                    Text(ChatMoment.short(message.createdAt))
+                                        .font(.caption)
+                                        .foregroundStyle(Palette.mutedForeground)
+                                }
+                                Text(message.content)
+                                    .font(Typography.meta)
+                                    .foregroundStyle(Palette.mutedForeground)
+                                    .lineLimit(2)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            if chats.isEmpty, people.isEmpty, messages.isEmpty {
+                Group {
+                    if isSearching {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else if let failure {
+                        ErrorStateView(message: failure, isOffline: isOffline) { await search() }
+                    } else {
+                        ContentUnavailableView.search(text: trimmed)
+                    }
+                }
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            }
+        }
+        .task(id: trimmed) { await search() }
+    }
+
+    private func search() async {
+        guard trimmed.count >= 2 else {
+            people = []
+            messages = []
+            failure = nil
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(300))
+        guard !Task.isCancelled else { return }
+        isSearching = true
+        defer { isSearching = false }
+        let text = String(trimmed.prefix(100))
+        async let foundPeople = chatSearchOutcome { try await api.directory(text) }
+        async let foundMessages = chatSearchOutcome { try await api.searchMessages(text, chatID: nil) }
+        let peopleOutcome = await foundPeople
+        let messagesOutcome = await foundMessages
+        guard !Task.isCancelled else { return }
+        // Результаты прошлого запроса к новому не относятся: при сбое — пусто и ошибка.
+        var lastError: Error?
+        switch peopleOutcome {
+        case .success(let list):
+            people = Array(list.prefix(20))
+        case .failure(let error):
+            people = []
+            lastError = error
+        }
+        switch messagesOutcome {
+        case .success(let list):
+            messages = list
+        case .failure(let error):
+            messages = []
+            lastError = error
+        }
+        failure = lastError?.userMessage
+        isOffline = lastError?.isOffline ?? false
+    }
+
+    /// Личный чат не дублируется: сервер вернёт уже существующий.
+    private func openPrivate(with userID: String) async {
+        opening = userID
+        defer { opening = nil }
+        guard let id = try? await api.createPrivate(with: userID) else { return }
+        if let page = try? await ChatsAPI().chats(cursor: nil, limit: 50) {
+            try? await ChatStore().save(chats: page.items)
+        }
+        AppServices.router.stacks[.chats, default: []].append(.chat(id: id))
+    }
+}
+
+/// Ответ вместе с ошибкой: два поиска идут параллельно, и сбой одного не теряется.
+private func chatSearchOutcome<T>(_ body: () async throws -> T) async -> Result<T, Error> {
+    do {
+        return .success(try await body())
+    } catch {
+        return .failure(error)
+    }
+}
+
+/// Что создаём из меню «Новый».
+enum NewChatKind: String, Identifiable {
+    case direct, group
+    var id: String { rawValue }
+}
+
+/// Новый чат: выбрать человека — личный чат, выбрать нескольких и назвать — группа.
+/// Люди — из справочника вуза: писать можно своему вузу и друзьям.
+struct NewChatView: View {
+    let kind: NewChatKind
+    let created: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+    @State private var people: [DirectoryUserDTO] = []
+    @State private var selected: [DirectoryUserDTO] = []
+    @State private var title = ""
+    @State private var isCreating = false
+    @State private var failure: String?
+    /// Поиск людей: сбой отдельно от ошибки создания — у него свой повтор.
+    @State private var isSearching = false
+    @State private var searchFailure: String?
+    @State private var searchOffline = false
+    private let api: ChatActing = ChatsAPI()
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if let failure {
+                    FormAlert(message: failure)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
+                if kind == .group {
+                    Section {
+                        TextField(String(localized: "chats.group.title", defaultValue: "Название группы"), text: $title)
+                    }
+                    if !selected.isEmpty {
+                        Section(String(localized: "chats.group.members", defaultValue: "Участники")) {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: Spacing.lg) {
+                                    ForEach(selected) { person in
+                                        VStack(spacing: Spacing.xs) {
+                                            AvatarView(url: person.avatarUrl, name: person.name, size: 44)
+                                                .overlay(alignment: .topTrailing) {
+                                                    Image(systemName: "xmark.circle.fill")
+                                                        .foregroundStyle(Palette.mutedForeground)
+                                                        .background(Palette.background, in: Circle())
+                                                }
+                                            Text(person.firstName ?? person.name)
+                                                .font(.caption2)
+                                                .lineLimit(1)
+                                                .frame(width: 56)
+                                        }
+                                        .onTapGesture { selected.removeAll { $0.id == person.id } }
+                                        .accessibilityAddTraits(.isButton)
+                                        .accessibilityLabel(Text(person.name))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Section {
+                    ForEach(people) { person in
+                        Button {
+                            pick(person)
+                        } label: {
+                            HStack(spacing: Spacing.lg) {
+                                AvatarView(url: person.avatarUrl, name: person.name, size: 40)
+                                VStack(alignment: .leading, spacing: 0) {
+                                    Text(person.name).foregroundStyle(Palette.foreground)
+                                    if let group = person.groupTitle {
+                                        Text(group).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
+                                    }
+                                }
+                                Spacer()
+                                if kind == .group {
+                                    Image(systemName: isSelected(person) ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(isSelected(person) ? Palette.primary : Palette.mutedForeground)
+                                }
+                            }
+                        }
+                        .disabled(isCreating)
+                    }
+                }
+            }
+            .overlay {
+                if people.isEmpty {
+                    if query.trimmingCharacters(in: .whitespaces).count < 2 {
+                        ContentUnavailableView(
+                            String(localized: "search.hint", defaultValue: "Введите хотя бы две буквы"),
+                            systemImage: "person.crop.circle.badge.plus"
+                        )
+                    } else if isSearching {
+                        LoadingStateView()
+                    } else if let searchFailure {
+                        ErrorStateView(message: searchFailure, isOffline: searchOffline) { await search() }
+                    } else {
+                        EmptyStateView(
+                            title: String(localized: "search.empty", defaultValue: "Никого не нашли"),
+                            symbol: "person.crop.circle.badge.questionmark"
+                        )
+                    }
+                }
+            }
+            .searchable(
+                text: $query,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: Text(String(localized: "search.people", defaultValue: "Имя или логин"))
+            )
+            .navigationTitle(Text(kind == .group
+                ? String(localized: "chats.newGroup", defaultValue: "Новая группа")
+                : String(localized: "chats.new", defaultValue: "Новый чат")))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    SheetCloseButton { dismiss() }
+                }
+                if kind == .group {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(String(localized: "chats.group.create", defaultValue: "Создать")) {
+                            Task { await createGroup() }
+                        }
+                        .disabled(isCreating || selected.isEmpty || title.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                }
+            }
+            .task(id: query) { await search() }
+        }
+    }
+
+    private func isSelected(_ person: DirectoryUserDTO) -> Bool {
+        selected.contains { $0.id == person.id }
+    }
+
+    private func pick(_ person: DirectoryUserDTO) {
+        if kind == .direct {
+            Task { await createPrivate(with: person.id) }
+        } else if isSelected(person) {
+            selected.removeAll { $0.id == person.id }
+        } else if selected.count < 100 {
+            selected.append(person)
+        }
+    }
+
+    private func search() async {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard trimmed.count >= 2 else {
+            people = []
+            searchFailure = nil
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(300))
+        guard !Task.isCancelled else { return }
+        isSearching = true
+        defer { isSearching = false }
+        do {
+            people = try await api.directory(String(trimmed.prefix(100)))
+            searchFailure = nil
+        } catch {
+            guard !Task.isCancelled else { return }
+            people = []
+            searchFailure = error.userMessage
+            searchOffline = error.isOffline
+        }
+    }
+
+    private func createPrivate(with userID: String) async {
+        isCreating = true
+        defer { isCreating = false }
+        do {
+            created(try await api.createPrivate(with: userID))
+        } catch {
+            failure = error.userMessage
+        }
+    }
+
+    private func createGroup() async {
+        isCreating = true
+        defer { isCreating = false }
+        do {
+            let name = String(title.trimmingCharacters(in: .whitespaces).prefix(150))
+            created(try await api.createGroup(title: name, memberIDs: selected.map(\.id)))
+        } catch {
+            failure = error.userMessage
+        }
+    }
+}

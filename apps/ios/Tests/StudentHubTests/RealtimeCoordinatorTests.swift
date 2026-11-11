@@ -182,11 +182,13 @@ private actor StubTransport: RealtimeTransport {
     func leave(chatID: String) async { leaves.append(chatID) }
     func markRead(chatID: String, messageID: String) async { reads.append(messageID) }
     func send(action: String?, chatID: String) async { actions.append(action) }
+    func edit(messageID: String, content: String) async {}
+    func delete(messageID: String) async {}
 }
 
 private struct SilentAuth: SessionRefreshing {
     func refresh() async throws -> AuthSession { throw APIError.malformedResponse(statusCode: 0) }
-    func endSession() async throws {}
+    func endSession(deviceToken: String?, refreshToken: String?) async throws {}
 }
 
 private final class MemoryKeys: SecretStore, @unchecked Sendable {

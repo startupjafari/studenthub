@@ -25,7 +25,9 @@ enum LoginOutcome: Equatable {
 /// клиент спрашивает у хранилища токен, хранилище просит у этого протокола новый.
 protocol SessionRefreshing: Sendable {
     func refresh() async throws -> AuthSession
-    func endSession() async throws
+    /// Выход. `deviceToken` — токен пушей: сервер отвязывает его вместе с сессией.
+    /// `refreshToken` — чья сессия гасится, если не текущая (выход, отложенный без сети).
+    func endSession(deviceToken: String?, refreshToken: String?) async throws
 }
 
 /// Выдача сессии: оба шага входа. Отдельно от `SessionRefreshing`, потому что это
@@ -85,14 +87,18 @@ struct AuthAPI: SessionRefreshing, SessionIssuing {
         try await client.send(publicEndpoint("auth/refresh"), as: AuthSession.self)
     }
 
-    func endSession() async throws {
-        try await client.send(publicEndpoint("auth/logout"))
+    func endSession(deviceToken: String?, refreshToken: String?) async throws {
+        var endpoint = deviceToken.map { token in
+            (try? publicEndpoint("auth/logout", json: LogoutRequest(deviceToken: token))) ?? publicEndpoint("auth/logout")
+        } ?? publicEndpoint("auth/logout")
+        endpoint.refreshCookie = refreshToken
+        try await client.send(endpoint)
     }
 
     // MARK: - Внутреннее
 
-    /// Запрос уходит пустым: сессию опознаёт refresh-cookie, которую `URLSession`
-    /// подставляет сама. Класть токен ещё и в тело нельзя — он попал бы в логи
+    /// Запрос уходит пустым: сессию опознаёт refresh-cookie, которую подставляет
+    /// `APIClient`. Класть токен ещё и в тело нельзя — он попал бы в логи
     /// запросов на обеих сторонах.
     private func publicEndpoint(_ path: String) -> Endpoint {
         var endpoint = Endpoint.post(path)
@@ -104,6 +110,10 @@ struct AuthAPI: SessionRefreshing, SessionIssuing {
         var endpoint = try Endpoint.post(path, json: body)
         endpoint.requiresAuthorization = false
         return endpoint
+    }
+
+    private struct LogoutRequest: Encodable {
+        let deviceToken: String
     }
 
     private struct LoginRequest: Encodable {
