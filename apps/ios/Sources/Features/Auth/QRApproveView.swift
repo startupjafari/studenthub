@@ -6,31 +6,48 @@ import UIKit
 /// Экран живёт за входом: подтвердить чужой вход может только тот, кто сам вошёл.
 /// Порядок шагов повторяет страницу `/qr` в вебе — сканирование, предупреждение,
 /// подтверждение, — потому что это одна и та же операция с одними последствиями.
+///
+/// Открывается на весь экран: пока идёт сканирование, камера занимает его целиком, от
+/// края до края, а поверх — только уголки рамки, куда навести код, и подсказка.
 struct QRApproveView: View {
     @State private var model = QRApproveModel()
     @Environment(\.dismiss) private var dismiss
 
+    private var isScanning: Bool {
+        if case .scanning = model.state { return true }
+        return false
+    }
+
     var body: some View {
         NavigationStack {
-            content
-                .padding(Spacing.xl)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Palette.background)
-                .navigationTitle(Text(String(
-                    localized: "auth.qrApproveTitle",
-                    defaultValue: "Вход на другом устройстве"
-                )))
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            dismiss()
-                        } label: {
-                            Text(String(localized: "common.close", defaultValue: "Закрыть"))
-                        }
+            Group {
+                if isScanning {
+                    scanning
+                } else {
+                    content
+                        .padding(Spacing.xl)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Palette.background)
+                }
+            }
+            // Над камерой панель светлая: заголовок и «Закрыть» читаются на тёмной
+            // картинке.
+            .toolbarColorScheme(isScanning ? .dark : nil, for: .navigationBar)
+            .navigationTitle(Text(String(
+                localized: "auth.qrApproveTitle",
+                defaultValue: "Вход на другом устройстве"
+            )))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Text(String(localized: "common.close", defaultValue: "Закрыть"))
                     }
                 }
-                .animation(Motion.calm, value: model.state)
+            }
+            .animation(Motion.calm, value: model.state)
         }
     }
 
@@ -74,40 +91,37 @@ struct QRApproveView: View {
         }
     }
 
+    /// Камера на весь экран, поверх — только уголки рамки по центру и подсказка под
+    /// ними. Рамка — подсказка, куда держать код; распознаётся он в любом месте кадра.
     private var scanning: some View {
-        VStack(spacing: Spacing.xl) {
-            QRScannerView(
-                onScan: { payload in Task { await model.scanned(payload) } },
-                onUnavailable: { model.cameraUnavailable() }
-            )
-            .frame(maxWidth: .infinity)
-            .frame(height: 320)
-            .clipShape(RoundedRectangle(cornerRadius: Radius.xxl))
-            .overlay(
-                RoundedRectangle(cornerRadius: Radius.xxl)
-                    .strokeBorder(Palette.border, lineWidth: 1)
-            )
-            // Прицел: куда навести код. Без него видоискатель — просто картинка с
-            // камеры, и непонятно, что и как близко держать.
-            .overlay {
+        QRScannerView(
+            onScan: { payload in Task { await model.scanned(payload) } },
+            onUnavailable: { model.cameraUnavailable() }
+        )
+        .ignoresSafeArea()
+        .accessibilityLabel(Text(String(
+            localized: "auth.qrScannerLabel",
+            defaultValue: "Видоискатель камеры"
+        )))
+        .overlay {
+            VStack(spacing: Spacing.xxl) {
                 ViewfinderCorners()
-                    .stroke(.white, style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
-                    .frame(width: 200, height: 200)
-                    .shadow(color: .black.opacity(0.35), radius: 3)
+                    .stroke(.white, style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
+                    .frame(width: 250, height: 250)
+                    .shadow(color: .black.opacity(0.4), radius: 4)
                     .accessibilityHidden(true)
+                Text(String(
+                    localized: "auth.qrScanHint",
+                    defaultValue: "Наведите камеру на QR-код на экране компьютера"
+                ))
+                .font(Typography.body.weight(.medium))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .shadow(color: .black.opacity(0.5), radius: 4)
+                .padding(.horizontal, Spacing.xxl)
             }
-            .accessibilityLabel(Text(String(
-                localized: "auth.qrScannerLabel",
-                defaultValue: "Видоискатель камеры"
-            )))
-
-            Text(String(
-                localized: "auth.qrScanHint",
-                defaultValue: "Наведите камеру на QR-код на экране компьютера"
-            ))
-            .font(Typography.meta)
-            .foregroundStyle(Palette.mutedForeground)
-            .multilineTextAlignment(.center)
+            // Рамка — по центру экрана; подсказка под ней не сдвигает её вверх.
+            .padding(.top, Spacing.xxl * 2)
         }
     }
 

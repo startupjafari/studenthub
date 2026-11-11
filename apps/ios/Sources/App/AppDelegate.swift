@@ -40,15 +40,22 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     /// Тихий пуш: данных в нём нет, есть повод за ними сходить. Система даёт на это
     /// считаные секунды, поэтому тянем только список чатов — он же обновит бейдж.
     ///
-    /// `nonisolated`: система вызывает метод не с главного потока, а словарь пуша не
-    /// `Sendable` — переносить его на главный актор незачем, ничего из UI здесь нет.
-    nonisolated func application(
+    /// Вариант с `completionHandler`, а не `async`: словарь пуша не `Sendable`, и в
+    /// асинхронную реализацию система передавала бы его через границу акторов. Здесь он
+    /// разбирается сразу, синхронно, а дальше идёт только признак.
+    func application(
         _ application: UIApplication,
-        didReceiveRemoteNotification payload: [AnyHashable: Any]
-    ) async -> UIBackgroundFetchResult {
+        didReceiveRemoteNotification payload: [AnyHashable: Any],
+        fetchCompletionHandler completion: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
         Observability.pushDelivered(silent: true)
-        guard PushRouting.isSilent(payload) else { return .noData }
-        return await AppServices.pushSync.catchUp() ? .newData : .failed
+        guard PushRouting.isSilent(payload) else {
+            completion(.noData)
+            return
+        }
+        Task {
+            completion(await AppServices.pushSync.catchUp() ? .newData : .failed)
+        }
     }
 
     // MARK: - UNUserNotificationCenterDelegate

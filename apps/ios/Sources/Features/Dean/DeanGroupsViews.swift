@@ -97,15 +97,15 @@ struct DeanGroupView: View {
         .navigationTitle(Text(DeanScreen.group(id: groupID).title))
         .navigationBarTitleDisplayMode(.inline)
         .actionFailureAlert($actionFailure)
-        .confirmationDialog(
+        .alert(
             pendingStarosta?.title ?? "",
             isPresented: Binding(get: { pendingStarosta != nil }, set: { if !$0 { pendingStarosta = nil } }),
-            titleVisibility: .visible,
             presenting: pendingStarosta
         ) { change in
             Button(change.actionTitle, role: change.studentID == nil ? .destructive : nil) {
                 Task { await apply(change) }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: { change in
             Text(change.message)
         }
@@ -250,41 +250,29 @@ struct DeanGroupView: View {
     }
 
     /// Староста — в «Ещё»: меняют его редко, а список студентов длинный.
-    @ViewBuilder
-    private func starostaMenu(_ data: Snapshot) -> some View {
+    @HeroMenuBuilder
+    private func starostaMenu(_ data: Snapshot) -> [HeroMenuElement] {
         if !data.students.isEmpty {
-            Menu {
-                ForEach(data.students) { member in
-                    Button {
+            HeroSubmenu(
+                data.group.starostaId == nil
+                    ? String(localized: "dean.starosta.assign", defaultValue: "Назначить старосту")
+                    : String(localized: "dean.starosta.change", defaultValue: "Сменить старосту"),
+                symbol: "star"
+            ) {
+                for member in data.students {
+                    HeroMenuItem(member.name, isChecked: member.id == data.group.starostaId) {
                         requestStarosta(member.id, data: data)
-                    } label: {
-                        if member.id == data.group.starostaId {
-                            Label(member.name, systemImage: "checkmark")
-                        } else {
-                            Text(member.name)
-                        }
                     }
                 }
-            } label: {
-                Label(
-                    data.group.starostaId == nil
-                        ? String(localized: "dean.starosta.assign", defaultValue: "Назначить старосту")
-                        : String(localized: "dean.starosta.change", defaultValue: "Сменить старосту"),
-                    systemImage: "star"
-                )
             }
         }
         if data.group.starostaId != nil {
-            Button(role: .destructive) {
+            HeroMenuItem(String(localized: "dean.starosta.clear", defaultValue: "Снять старосту"), symbol: "person.badge.minus", isDestructive: true) {
                 requestStarosta(nil, data: data)
-            } label: {
-                Label(String(localized: "dean.starosta.clear", defaultValue: "Снять старосту"), systemImage: "person.badge.minus")
             }
         }
-        Button {
+        HeroMenuItem(String(localized: "dean.refresh", defaultValue: "Обновить"), symbol: "arrow.clockwise") {
             reload += 1
-        } label: {
-            Label(String(localized: "dean.refresh", defaultValue: "Обновить"), systemImage: "arrow.clockwise")
         }
     }
 
@@ -304,21 +292,25 @@ struct DeanGroupView: View {
                 )
             }
             if !data.students.isEmpty {
-                Menu {
-                    starostaMenu(data)
-                } label: {
+                let title = data.group.starostaId == nil
+                    ? String(localized: "dean.starosta.assign", defaultValue: "Назначить старосту")
+                    : String(localized: "dean.starosta.change", defaultValue: "Сменить старосту")
+                // Меню UIKit, как «Ещё» в шапке: то же меню старосты из одного места.
+                Group {
                     if isSaving {
                         ProgressView()
                     } else {
-                        Label(
-                            data.group.starostaId == nil
-                                ? String(localized: "dean.starosta.assign", defaultValue: "Назначить старосту")
-                                : String(localized: "dean.starosta.change", defaultValue: "Сменить старосту"),
-                            systemImage: "star"
-                        )
+                        Label(title, systemImage: "star")
+                            .foregroundStyle(Palette.primary)
                     }
                 }
-                .disabled(isSaving)
+                .frame(maxWidth: .infinity, minHeight: ControlHeight.xl, alignment: .leading)
+                .accessibilityHidden(true)
+                .overlay {
+                    if !isSaving {
+                        MenuOverlay(menu: starostaMenu(data).uiMenu, accessibilityLabel: title)
+                    }
+                }
             }
         } header: {
             Text(Role.starosta.title)

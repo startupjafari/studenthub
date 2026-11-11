@@ -513,14 +513,14 @@ private struct PairForm: View {
                     ChangeForm(pair: pair) { await loadChanges() }
                 }
             }
-            .confirmationDialog(
+            .alert(
                 String(localized: "uadmin.schedule.deletePairConfirm", defaultValue: "Удалить пару? Она исчезнет из расписания на все недели."),
-                isPresented: $confirmDelete,
-                titleVisibility: .visible
+                isPresented: $confirmDelete
             ) {
                 Button(String(localized: "uadmin.schedule.deletePair", defaultValue: "Удалить пару"), role: .destructive) {
                     Task { await remove() }
                 }
+                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
             }
             .confirmDestructive(
                 $removingChange,

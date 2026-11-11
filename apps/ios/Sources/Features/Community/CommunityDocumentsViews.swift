@@ -459,10 +459,9 @@ struct CommunityDocumentDetailView: View {
                 actionFailure = error.userMessage
             }
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "community.documents.delete.title", defaultValue: "Удалить документ?"),
-            isPresented: $confirmingDelete,
-            titleVisibility: .visible
+            isPresented: $confirmingDelete
         ) {
             Button(String(localized: "feed.delete", defaultValue: "Удалить"), role: .destructive) {
                 Task {
@@ -475,6 +474,7 @@ struct CommunityDocumentDetailView: View {
                     }
                 }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
         .actionFailureAlert($actionFailure)
     }

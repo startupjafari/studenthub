@@ -150,14 +150,14 @@ struct DeleteAccountView: View {
         }
         .navigationTitle(Text(String(localized: "settings.deleteAccount", defaultValue: "Удалить аккаунт")))
         .navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog(
+        .alert(
             String(localized: "settings.delete.confirm", defaultValue: "Удалить аккаунт навсегда?"),
-            isPresented: $confirms,
-            titleVisibility: .visible
+            isPresented: $confirms
         ) {
             Button(String(localized: "settings.deleteAccount", defaultValue: "Удалить аккаунт"), role: .destructive) {
                 Task { await delete() }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.delete.confirmMessage", defaultValue: "Восстановить его будет нельзя."))
         }

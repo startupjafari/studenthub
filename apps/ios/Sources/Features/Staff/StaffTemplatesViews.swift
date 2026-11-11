@@ -508,23 +508,23 @@ struct StaffTemplateDetailView: View {
         .fileImporter(isPresented: $uploading, allowedContentTypes: [.staffDocx]) { result in
             Task { await upload(result) }
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "staff.tpl.delete.confirm", defaultValue: "Удалить шаблон «\((template?.title).orEmpty)»?"),
-            isPresented: $confirmDelete,
-            titleVisibility: .visible
+            isPresented: $confirmDelete
         ) {
             Button(deleteActionTitle, role: .destructive) { Task { await remove() } }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: {
             Text(deleteHint)
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "staff.tpl.unpublish.confirm", defaultValue: "Снять шаблон с публикации?"),
-            isPresented: $confirmUnpublish,
-            titleVisibility: .visible
+            isPresented: $confirmUnpublish
         ) {
             Button(String(localized: "staff.tpl.unpublish", defaultValue: "Снять с публикации"), role: .destructive) {
                 Task { await run { try await api.unpublishTemplate(id: templateID) } }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: {
             Text(String(localized: "staff.tpl.unpublish.hint", defaultValue: "Формировать документы по нему станет нельзя, пока вы не опубликуете его снова."))
         }
@@ -588,28 +588,20 @@ struct StaffTemplateDetailView: View {
                         }
                     } moreMenu: {
                         if canManage, !archived {
-                            Button {
+                            HeroMenuItem(String(localized: "staff.tpl.edit", defaultValue: "Изменить"), symbol: "pencil") {
                                 editing = true
-                            } label: {
-                                Label(String(localized: "staff.tpl.edit", defaultValue: "Изменить"), systemImage: "pencil")
                             }
                             if let current {
-                                Button {
+                                HeroMenuItem(String(localized: "staff.tpl.downloadSource", defaultValue: "Скачать исходный DOCX"), symbol: "arrow.down.doc") {
                                     downloadSource(current)
-                                } label: {
-                                    Label(String(localized: "staff.tpl.downloadSource", defaultValue: "Скачать исходный DOCX"), systemImage: "arrow.down.doc")
                                 }
                             }
-                            Button {
+                            HeroMenuItem(String(localized: "staff.tpl.replaceFile", defaultValue: "Заменить файл"), symbol: "arrow.up.doc") {
                                 uploading = true
-                            } label: {
-                                Label(String(localized: "staff.tpl.replaceFile", defaultValue: "Заменить файл"), systemImage: "arrow.up.doc")
                             }
-                            Divider()
-                            Button(role: .destructive) {
+                            HeroMenuDivider()
+                            HeroMenuItem(deleteActionTitle, symbol: (template.generationCount ?? 0) > 0 ? "archivebox" : "trash", isDestructive: true) {
                                 confirmDelete = true
-                            } label: {
-                                Label(deleteActionTitle, systemImage: (template.generationCount ?? 0) > 0 ? "archivebox" : "trash")
                             }
                         }
                     }

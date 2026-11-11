@@ -250,14 +250,14 @@ struct StaffEventDetailView: View {
         .sheet(item: Binding(get: { meeting.map { StaffMeetingSheetItem(meeting: $0) } }, set: { if $0 == nil { meeting = nil } })) { item in
             StaffMeetingSheet(meeting: item.meeting) { url in openURL(url) }
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "staff.event.delete.confirm", defaultValue: "Удалить событие?"),
-            isPresented: $confirmDelete,
-            titleVisibility: .visible
+            isPresented: $confirmDelete
         ) {
             Button(String(localized: "staff.event.delete", defaultValue: "Удалить"), role: .destructive) {
                 Task { await remove() }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
         .confirmDestructive(
             $deletingComment,
@@ -319,15 +319,11 @@ struct StaffEventDetailView: View {
                         }
                     } moreMenu: {
                         if canManage(event) {
-                            Button {
+                            HeroMenuItem(String(localized: "staff.event.edit", defaultValue: "Изменить"), symbol: "pencil") {
                                 editing = true
-                            } label: {
-                                Label(String(localized: "staff.event.edit", defaultValue: "Изменить"), systemImage: "pencil")
                             }
-                            Button(role: .destructive) {
+                            HeroMenuItem(String(localized: "staff.event.delete", defaultValue: "Удалить"), symbol: "trash", isDestructive: true) {
                                 confirmDelete = true
-                            } label: {
-                                Label(String(localized: "staff.event.delete", defaultValue: "Удалить"), systemImage: "trash")
                             }
                         }
                     }

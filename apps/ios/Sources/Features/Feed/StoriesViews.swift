@@ -254,10 +254,9 @@ struct StoryViewer: View {
                     .presentationDetents([.medium, .large])
             }
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "stories.report.title", defaultValue: "Что не так с историей?"),
-            isPresented: $reporting,
-            titleVisibility: .visible
+            isPresented: $reporting
         ) {
             ForEach(ComplaintReason.allCases) { reason in
                 Button(reason.title) {
@@ -265,16 +264,17 @@ struct StoryViewer: View {
                     Task { _ = await model.report(story, reason: reason.title) }
                 }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "stories.delete.title", defaultValue: "Удалить историю?"),
-            isPresented: $confirmingDelete,
-            titleVisibility: .visible
+            isPresented: $confirmingDelete
         ) {
             Button(String(localized: "feed.delete", defaultValue: "Удалить"), role: .destructive) {
                 guard let story else { return }
                 Task { await model.delete(story) }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
         .alert(
             String(localized: "feed.actionFailed", defaultValue: "Не получилось"),

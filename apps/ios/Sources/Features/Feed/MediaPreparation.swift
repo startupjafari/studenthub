@@ -57,6 +57,11 @@ enum MediaPreparation {
 
     static func prepareImage(_ data: Data) throws -> PreparedMedia {
         guard let image = UIImage(data: data) else { throw Failure.unreadable }
+        return try prepareImage(image)
+    }
+
+    /// Снимок камеры приходит готовой картинкой — тот же путь без чтения из байтов.
+    static func prepareImage(_ image: UIImage) throws -> PreparedMedia {
         let scaled = image.scaledDown(toLongestSide: maxImageSide)
         guard let jpeg = scaled.jpegData(compressionQuality: 0.85) else { throw Failure.unreadable }
         return PreparedMedia(
@@ -68,10 +73,27 @@ enum MediaPreparation {
     }
 
     static func prepareVideo(at source: URL) async throws -> PreparedMedia {
-        let asset = AVURLAsset(url: source)
         let output = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("mp4")
+        try await exportMP4(from: source, to: output)
+        defer { try? FileManager.default.removeItem(at: output) }
+        guard let data = try? Data(contentsOf: output) else { throw Failure.unreadable }
+        guard data.count <= maxUploadBytes else { throw Failure.tooLarge }
+        return PreparedMedia(data: data, mime: "video/mp4", filename: "video.mp4", preview: thumbnail(of: AVURLAsset(url: source)))
+    }
+
+    /// Ролик из галереи — копией во временном каталоге, а не в памяти. `nil` — выбрано
+    /// не видео. Нужен там, где крупное уходит частями (вложения чата).
+    static func movieFile(from item: PhotosPickerItem) async throws -> URL? {
+        guard item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) else { return nil }
+        guard let movie = try await item.loadTransferable(type: PickedMovie.self) else { throw Failure.unreadable }
+        return movie.url
+    }
+
+    /// Перевести ролик в MP4 файлом на диске: сервер MOV камеры iPhone не берёт.
+    static func exportMP4(from source: URL, to output: URL) async throws {
+        let asset = AVURLAsset(url: source)
         guard let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPreset1280x720) else {
             throw Failure.unreadable
         }
@@ -79,12 +101,11 @@ enum MediaPreparation {
         export.outputFileType = .mp4
         export.shouldOptimizeForNetworkUse = true
         await export.export()
-        defer { try? FileManager.default.removeItem(at: output) }
-        guard export.status == .completed, let data = try? Data(contentsOf: output) else {
-            throw Failure.unreadable
-        }
-        guard data.count <= maxUploadBytes else { throw Failure.tooLarge }
-        return PreparedMedia(data: data, mime: "video/mp4", filename: "video.mp4", preview: thumbnail(of: asset))
+        guard export.status == .completed else { throw Failure.unreadable }
+    }
+
+    static func thumbnail(ofVideoAt url: URL) -> UIImage? {
+        thumbnail(of: AVURLAsset(url: url))
     }
 
     private static func thumbnail(of asset: AVAsset) -> UIImage? {

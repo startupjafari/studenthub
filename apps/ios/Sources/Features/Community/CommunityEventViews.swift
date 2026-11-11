@@ -153,14 +153,14 @@ struct CommunityEventView: View {
         } message: { meeting in
             Text(verbatim: meeting.passcode ?? "")
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "community.event.delete.title", defaultValue: "Удалить событие?"),
-            isPresented: $confirmingDelete,
-            titleVisibility: .visible
+            isPresented: $confirmingDelete
         ) {
             Button(String(localized: "feed.delete", defaultValue: "Удалить"), role: .destructive) {
                 Task { await deleteEvent() }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: {
             Text(String(localized: "community.event.delete.message", defaultValue: "Участники больше не увидят событие."))
         }

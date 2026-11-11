@@ -129,15 +129,15 @@ struct DeanAppointmentsView: View {
                 await loader.reload()
             }
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "dean.appointments.completeTitle", defaultValue: "Завершить приём?"),
             isPresented: Binding(get: { completing != nil }, set: { if !$0 { completing = nil } }),
-            titleVisibility: .visible,
             presenting: completing
         ) { item in
             Button(String(localized: "dean.appointments.complete", defaultValue: "Завершить")) {
                 Task { await run(item) { try await api.completeAppointment(id: item.id) } }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: { _ in
             Text(String(localized: "dean.appointments.completeHint", defaultValue: "Запись уйдёт в архив, студент получит уведомление."))
         }
@@ -216,18 +216,14 @@ struct DeanAppointmentsView: View {
         return list
     }
 
-    @ViewBuilder
-    private func cardMenu(_ item: DeanAppointment) -> some View {
-        Button {
+    @HeroMenuBuilder
+    private func cardMenu(_ item: DeanAppointment) -> [HeroMenuElement] {
+        HeroMenuItem(String(localized: "dean.appointments.openStudent", defaultValue: "Карточка студента"), symbol: "person") {
             later { DeanNav.push(.dean(.student(id: item.student.id))) }
-        } label: {
-            Label(String(localized: "dean.appointments.openStudent", defaultValue: "Карточка студента"), systemImage: "person")
         }
         if item.can("CANCELLED") {
-            Button(role: .destructive) {
+            HeroMenuItem(String(localized: "dean.appointments.cancelAction", defaultValue: "Отменить запись"), symbol: "xmark.circle", isDestructive: true) {
                 later { cancelling = item }
-            } label: {
-                Label(String(localized: "dean.appointments.cancelAction", defaultValue: "Отменить запись"), systemImage: "xmark.circle")
             }
         }
     }
@@ -287,10 +283,10 @@ private struct DeanAppointmentRow: View {
 /// Карточка записи: студент по центру, вопрос и время, действия кругами — как профиль
 /// в Telegram. Действия собирает список: формы и подтверждения показывает он, когда
 /// карточка закроется.
-private struct DeanAppointmentCard<More: View>: View {
+private struct DeanAppointmentCard: View {
     let item: DeanAppointment
     let actions: [HeroAction]
-    @ViewBuilder let moreMenu: () -> More
+    @HeroMenuBuilder let moreMenu: () -> [HeroMenuElement]
 
     @Environment(\.dismiss) private var dismiss
 

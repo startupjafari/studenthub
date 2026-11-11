@@ -208,10 +208,15 @@ struct CommunityFriendsView: View {
     private var searchResults: some View {
         List {
             if found.isEmpty, isSearching {
-                LoadingStateView().listRowBackground(Color.clear)
+                LoadingStateView()
+                    .centeredInScreen()
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
             } else if found.isEmpty, let searchFailure {
                 ErrorStateView(message: searchFailure, isOffline: searchOffline) { await runSearch() }
+                    .centeredInScreen()
                     .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
             } else if found.isEmpty {
                 EmptyStateView(
                     title: query.trimmingCharacters(in: .whitespaces).count < 2

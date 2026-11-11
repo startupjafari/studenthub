@@ -14,40 +14,57 @@ struct MessageListView: UIViewControllerRepresentable {
     /// Просьба прокрутить к сообщению (закреплённое, ответ, найденное).
     var focus: MessageFocus?
     var capabilities: (MessageRecord) -> MessageCapabilities = { _ in MessageCapabilities() }
+    /// Выбранные сообщения; `nil` — режим выбора выключен.
+    var selection: Set<String>?
     /// Просьба прокрутить к последнему сообщению: каждое новое значение — одна прокрутка
     /// (кнопка «вниз»).
     var scrollToBottomToken = 0
     /// Лента дошла до низа или ушла от него — для кнопки «вниз».
     var onBottomChange: (Bool) -> Void = { _ in }
+    /// Новое сообщение у нижнего края подматывает ленту за собой. В окне истории — нет:
+    /// снизу доезжают страницы догрузки, и лента уезжала бы сама через всю историю.
+    var followsBottom = true
+    /// Нажатие на дату дня — календарь «Перейти к дате».
+    var onDayTap: (Date) -> Void = { _ in }
     let onReachTop: () -> Void
+    /// Лента подъехала к низу загруженного — догрузка из окна истории.
+    var onReachBottom: () -> Void = {}
     let onAction: (MessageAction, MessageRecord) -> Void
 
     func makeUIViewController(context: Context) -> MessageListViewController {
         let controller = MessageListViewController()
-        controller.onReachTop = onReachTop
-        controller.onAction = onAction
-        controller.capabilities = capabilities
-        controller.onBottomChange = onBottomChange
+        bind(controller)
         return controller
     }
 
     func updateUIViewController(_ controller: MessageListViewController, context: Context) {
+        bind(controller)
+        controller.apply(days: days, anchor: anchor, context: bubbleContext, selection: selection)
+        controller.focus(focus)
+        controller.scrollToBottom(token: scrollToBottomToken)
+    }
+
+    private func bind(_ controller: MessageListViewController) {
         controller.onReachTop = onReachTop
+        controller.onReachBottom = onReachBottom
         controller.onAction = onAction
         controller.capabilities = capabilities
         controller.onBottomChange = onBottomChange
-        controller.apply(days: days, anchor: anchor, context: bubbleContext)
-        controller.focus(focus)
-        controller.scrollToBottom(token: scrollToBottomToken)
+        controller.onDayTap = onDayTap
+        controller.followsBottom = followsBottom
     }
 }
 
 final class MessageListViewController: UIViewController {
     var onReachTop: (() -> Void)?
+    var onReachBottom: (() -> Void)?
+    var onDayTap: ((Date) -> Void)?
+    var followsBottom = true
     var onAction: ((MessageAction, MessageRecord) -> Void)?
     var capabilities: ((MessageRecord) -> MessageCapabilities)?
     var onBottomChange: ((Bool) -> Void)?
     private var bubbleContext = BubbleContext()
+    private var selection: Set<String>?
     private var appliedBottomToken = 0
     private var reportedAtBottom = true
     private var appliedFocus: MessageFocus?
@@ -81,11 +98,18 @@ final class MessageListViewController: UIViewController {
     /// Два правила, ради которых всё и написано руками. Первое: если человек стоит у
     /// нижнего края, новое сообщение подматывает ленту за ним. Второе: если сверху
     /// доехала страница старых сообщений, позиция не должна шевельнуться — поэтому
-    /// после применения смещаем `contentOffset` ровно на выросшую высоту.
-    func apply(days: [MessageTimeline.Day], anchor: String?, context: BubbleContext) {
+    /// верхнее видимое сообщение после применения возвращается на то же место экрана.
+    /// По нему, а не по выросшей высоте: в окне истории страницы доезжают и снизу, и
+    /// сдвиг на их высоту унёс бы ленту прочь от того, что человек читает.
+    func apply(days: [MessageTimeline.Day], anchor: String?, context: BubbleContext, selection: Set<String>? = nil) {
         let previous = itemsByID
         let contextChanged = context != bubbleContext
         bubbleContext = context
+        // Вход в режим выбора и выход перерисовывают все ячейки (кружки слева), а
+        // касание в режиме — только те, чья отметка сменилась.
+        let selectionModeChanged = (selection == nil) != (self.selection == nil)
+        let toggled = (selection ?? []).symmetricDifference(self.selection ?? [])
+        self.selection = selection
         itemsByID = Dictionary(
             uniqueKeysWithValues: days.flatMap(\.items).map { ($0.id, $0) }
         )
@@ -99,13 +123,14 @@ final class MessageListViewController: UIViewController {
         // прочтение без этого не перерисовали бы уже показанную ячейку.
         let changed = snapshot.itemIdentifiers.filter { id in
             guard let old = previous[id] else { return false }
-            return contextChanged || old != itemsByID[id]
+            return contextChanged || selectionModeChanged || toggled.contains(id) || old != itemsByID[id]
         }
         if !changed.isEmpty { snapshot.reconfigureItems(changed) }
 
         let wasAtBottom = isNearBottom
         let oldHeight = collectionView.contentSize.height
         let oldOffset = collectionView.contentOffset.y
+        let pinned = topVisibleItem()
         let isFirstFill = !hasContent && !days.isEmpty
         hasContent = hasContent || !days.isEmpty
 
@@ -118,10 +143,11 @@ final class MessageListViewController: UIViewController {
                 self.scroll(to: anchor)
                 return
             }
-            if isFirstFill || wasAtBottom {
+            if isFirstFill || (wasAtBottom && self.followsBottom) {
                 self.scrollToBottom(animated: !isFirstFill)
                 return
             }
+            if let pinned, self.restore(pinned) { return }
             let grown = self.collectionView.contentSize.height - oldHeight
             if grown > 0, oldOffset < grown {
                 // Выросло сверху — компенсируем, иначе лента прыгнет под пальцем.
@@ -131,10 +157,37 @@ final class MessageListViewController: UIViewController {
     }
 
     /// Короткая история помещается на экран целиком — прокрутки нет, и подгрузка
-    /// вверх по прокрутке не случится никогда. Просим следующую страницу сами.
+    /// по прокрутке не случится никогда. Просим соседние страницы сами.
     private func requestOlderIfScreenNotFilled() {
         guard hasContent, collectionView.contentSize.height < collectionView.bounds.height else { return }
-        DispatchQueue.main.async { [weak self] in self?.onReachTop?() }
+        DispatchQueue.main.async { [weak self] in
+            self?.onReachTop?()
+            self?.onReachBottom?()
+        }
+    }
+
+    /// Верхнее видимое сообщение и его расстояние от верха видимой области.
+    private func topVisibleItem() -> (id: String, distance: CGFloat)? {
+        guard let indexPath = collectionView.indexPathsForVisibleItems.min(),
+            let id = dataSource.itemIdentifier(for: indexPath),
+            let frame = collectionView.layoutAttributesForItem(at: indexPath)?.frame
+        else { return nil }
+        return (id, frame.minY - collectionView.contentOffset.y)
+    }
+
+    /// Вернуть сообщение на прежнее место экрана. `false` — его больше нет в ленте.
+    private func restore(_ pinned: (id: String, distance: CGFloat)) -> Bool {
+        guard let indexPath = dataSource.indexPath(for: pinned.id) else { return false }
+        collectionView.layoutIfNeeded()
+        guard let frame = collectionView.layoutAttributesForItem(at: indexPath)?.frame else { return false }
+        let inset = collectionView.adjustedContentInset
+        let lowest = -inset.top
+        let highest = max(lowest, collectionView.contentSize.height - collectionView.bounds.height + inset.bottom)
+        let target = min(max(frame.minY - pinned.distance, lowest), highest)
+        if abs(target - collectionView.contentOffset.y) > 0.5 {
+            collectionView.contentOffset.y = target
+        }
+        return true
     }
 
     // MARK: - Сборка
@@ -181,7 +234,9 @@ final class MessageListViewController: UIViewController {
                 MessageBubbleView(
                     item: item,
                     context: self?.bubbleContext ?? BubbleContext(),
-                    capabilities: self?.capabilities?(item.message) ?? MessageCapabilities()
+                    capabilities: self?.capabilities?(item.message) ?? MessageCapabilities(),
+                    selecting: self?.selection != nil,
+                    isSelected: self?.selection?.contains(id) ?? false
                 ) { [weak self] action in
                     self?.onAction?(action, item.message)
                 }
@@ -197,7 +252,7 @@ final class MessageListViewController: UIViewController {
         ) { [weak self] view, _, indexPath in
             guard let day = self?.dataSource.snapshot().sectionIdentifiers[indexPath.section] else { return }
             view.contentConfiguration = UIHostingConfiguration {
-                DaySeparatorView(day: day)
+                DaySeparatorView(day: day) { [weak self] in self?.onDayTap?(day) }
             }
             view.backgroundConfiguration = .clear()
         }
@@ -219,7 +274,7 @@ final class MessageListViewController: UIViewController {
         guard let request, request != appliedFocus else { return }
         guard let indexPath = dataSource.indexPath(for: request.id) else { return }
         appliedFocus = request
-        collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: true)
+        collectionView.scrollToItem(at: indexPath, at: request.atTop ? .top : .centeredVertically, animated: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
             guard let cell = self?.collectionView.cellForItem(at: indexPath) else { return }
             UIView.animate(withDuration: 0.25, animations: {
@@ -281,25 +336,37 @@ extension MessageListViewController: UICollectionViewDelegate {
         guard hasContent else { return }
         reportBottom()
         // Подгружаем заранее: к моменту, когда человек долистает, страница уже тут.
-        guard scrollView.contentOffset.y < scrollView.bounds.height else { return }
-        onReachTop?()
+        if scrollView.contentOffset.y < scrollView.bounds.height {
+            onReachTop?()
+        }
+        let distance = scrollView.contentSize.height - scrollView.contentOffset.y - scrollView.bounds.height
+        if distance < scrollView.bounds.height {
+            onReachBottom?()
+        }
     }
 }
 
 /// Разделитель дня — капсула по центру, на iOS 26 в стекле. Прилипает к верху ленты.
+/// Нажатие открывает календарь, как в Telegram.
 private struct DaySeparatorView: View {
     let day: Date
+    let onTap: () -> Void
 
     var body: some View {
-        Text(title)
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(Palette.foreground)
-            .padding(.horizontal, Spacing.lg)
-            .padding(.vertical, Spacing.xs)
-            .chatCapsuleSurface()
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, Spacing.sm)
-            .accessibilityAddTraits(.isHeader)
+        Button(action: onTap) {
+            Text(title)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Palette.foreground)
+                .padding(.horizontal, Spacing.lg)
+                .padding(.vertical, Spacing.xs)
+                .chatCapsuleSurface()
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Spacing.sm)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityHint(Text(String(localized: "chats.calendar.title", defaultValue: "Перейти к дате")))
     }
 
     private var title: String {

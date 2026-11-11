@@ -83,9 +83,15 @@ struct PagedList<Item: Decodable & Identifiable, Row: View, Header: View>: View 
                 }
             } else if let failure = loader.failure {
                 ErrorStateView(message: failure, isOffline: loader.isOffline) { await loader.reload() }
+                    .centeredInScreen()
                     .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
             } else {
-                LoadingStateView().listRowBackground(Color.clear)
+                // Первая загрузка — по центру экрана под шапкой, а не строкой у её края.
+                LoadingStateView()
+                    .centeredInScreen()
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
             }
         }
         .listStyle(.insetGrouped)
@@ -395,7 +401,6 @@ struct PersonRow: View {
                     .lineLimit(1)
             }
         }
-        .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
     }
 }
@@ -446,6 +451,9 @@ struct FilterChips<Value: Hashable>: View {
     /// Пункты делят ширину поровну, как системный сегментный переключатель («Мои /
     /// Сохранённые», вкладки профиля), — если влезают. Не влезли — обычная дорожка.
     var fillsWidth = false
+    /// Действия по долгому нажатию на пункт — как меню вкладки-папки в Telegram. Пустой
+    /// список — меню у пункта нет.
+    var menu: (Value?) -> [FilterChipAction] = { _ in [] }
 
     @Namespace private var pill
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -524,11 +532,43 @@ struct FilterChips<Value: Hashable>: View {
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .modifier(FilterChipMenu(actions: menu(option.value)))
                 .accessibilityAddTraits(isOn ? .isSelected : [])
                 .id(index)
             }
         }
         .padding(4)
+    }
+}
+
+/// Пункт меню капсулы фильтра.
+struct FilterChipAction {
+    let title: String
+    let symbol: String
+    var isDestructive = false
+    let action: () -> Void
+}
+
+/// Меню капсулы. Без действий модификатор не вешает `contextMenu` вовсе: пустое меню
+/// всё равно приподнимало бы капсулу под пальцем и ничего не показывало.
+private struct FilterChipMenu: ViewModifier {
+    let actions: [FilterChipAction]
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if actions.isEmpty {
+            content
+        } else {
+            content
+                .contentShape(.contextMenuPreview, Capsule())
+                .contextMenu {
+                    ForEach(Array(actions.enumerated()), id: \.offset) { _, item in
+                        Button(role: item.isDestructive ? .destructive : nil, action: item.action) {
+                            Label(item.title, systemImage: item.symbol)
+                        }
+                    }
+                }
+        }
     }
 }
 
@@ -598,15 +638,18 @@ extension View {
         actionTitle: String,
         perform: @escaping (Item) async -> Void
     ) -> some View {
-        confirmationDialog(
+        // Alert, а не confirmationDialog: на iOS 26 диалог всплывает у вью, к которой
+        // привязан, — у этого модификатора это весь экран, и вопрос про кнопку внизу
+        // появлялся вверху. Alert всегда по центру.
+        alert(
             item.wrappedValue.map(title) ?? "",
             isPresented: Binding(get: { item.wrappedValue != nil }, set: { if !$0 { item.wrappedValue = nil } }),
-            titleVisibility: .visible,
             presenting: item.wrappedValue
         ) { value in
             Button(actionTitle, role: .destructive) {
                 Task { await perform(value) }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
     }
 
@@ -646,20 +689,25 @@ final class RemoteFileOpener {
         isLoading = true
         defer { isLoading = false }
         do {
-            let remote = try await resolve()
-            let (temp, response) = try await URLSession.shared.download(from: remote)
-            if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-                throw APIError.malformedResponse(statusCode: http.statusCode)
-            }
-            let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            let safeName = name.replacingOccurrences(of: "/", with: "-")
-            let target = folder.appending(path: safeName.isEmpty ? remote.lastPathComponent : safeName)
-            try FileManager.default.moveItem(at: temp, to: target)
-            previewURL = target
+            previewURL = try await Self.download(name: name, from: try await resolve())
         } catch {
             failure = error.userMessage
         }
+    }
+
+    /// Скачать во временную папку под настоящим именем — его видят просмотр и лист
+    /// «Поделиться» (сохранённый в «Файлы» документ называется так же, как в чате).
+    nonisolated static func download(name: String, from remote: URL) async throws -> URL {
+        let (temp, response) = try await URLSession.shared.download(from: remote)
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw APIError.malformedResponse(statusCode: http.statusCode)
+        }
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let safeName = name.replacingOccurrences(of: "/", with: "-")
+        let target = folder.appending(path: safeName.isEmpty ? remote.lastPathComponent : safeName)
+        try FileManager.default.moveItem(at: temp, to: target)
+        return target
     }
 }
 

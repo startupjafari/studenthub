@@ -236,17 +236,17 @@ struct SettingsView: View {
                 .accessibilityIdentifier("settings.edit")
             }
         }
-        .sheet(isPresented: $showsQRApprove) {
+        .fullScreenCover(isPresented: $showsQRApprove) {
             QRApproveView()
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "settings.signOut.confirm", defaultValue: "Выйти из аккаунта на этом iPhone?"),
-            isPresented: $confirmsSignOut,
-            titleVisibility: .visible
+            isPresented: $confirmsSignOut
         ) {
             Button(String(localized: "session.signOut", defaultValue: "Выйти"), role: .destructive) {
                 Task { await session.signOut() }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
         .task {
             guard !refreshed else { return }
@@ -425,6 +425,8 @@ struct PrivacySettingsView: View {
     @State private var failure: String?
     @State private var isExporting = false
     @State private var exported: ExportedFile?
+    /// Чёрный список: одна модель на строку и экран — число в строке меняется сразу.
+    @State private var blocked = BlockedUsersModel()
 
     private let api: AccountFetching = AccountAPI()
 
@@ -434,6 +436,19 @@ struct PrivacySettingsView: View {
         Form {
             if let failure {
                 FormAlert(message: failure).listRowBackground(Color.clear)
+            }
+            // Первым разделом, как в Telegram: «Заблокированные» ищут здесь чаще всего.
+            Section {
+                NavigationLink {
+                    BlockedUsersView(model: blocked)
+                } label: {
+                    SettingsRow(
+                        title: String(localized: "chats.blocked.title", defaultValue: "Заблокированные"),
+                        symbol: "hand.raised.fill",
+                        tint: TileTint.red,
+                        value: blocked.users.flatMap { $0.isEmpty ? nil : String($0.count) }
+                    )
+                }
             }
             Section {
                 Picker(
@@ -491,6 +506,8 @@ struct PrivacySettingsView: View {
         }
         .navigationTitle(Text(String(localized: "settings.privacy", defaultValue: "Конфиденциальность")))
         .navigationBarTitleDisplayMode(.inline)
+        // При каждом возврате: блокируют и из информации о чате, число не должно отставать.
+        .task { await blocked.load() }
         .sheet(item: $exported) { file in
             ShareSheet(items: [file.url])
         }

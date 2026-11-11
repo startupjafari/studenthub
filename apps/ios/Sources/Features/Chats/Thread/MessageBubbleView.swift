@@ -5,9 +5,26 @@ import UIKit
 /// дочитал, пришло имя группы) перерисовывала ровно те ячейки, которых касается.
 struct BubbleContext: Hashable {
     var isGroup = false
-    /// До какого времени собеседник личного чата прочитал переписку.
+    /// До какого времени дочитал переписку собеседник личного чата, а в группе — тот
+    /// из участников, кто продвинулся дальше всех.
     var othersReadAt: Date?
+    /// Группа: до какого момента дочитал каждый из других участников, по возрастанию.
+    /// По ним — число прочитавших у своего сообщения.
+    var readMarks: [Date] = []
     var viewerID = ""
+
+    /// Сколько других участников группы дочитали до этого момента.
+    func readCount(at date: Date) -> Int {
+        // Первая отметка не раньше `date` — бинарным поиском: ячеек тысячи, а
+        // участников в группе сотни.
+        var low = 0
+        var high = readMarks.count
+        while low < high {
+            let mid = (low + high) / 2
+            if readMarks[mid] < date { low = mid + 1 } else { high = mid }
+        }
+        return readMarks.count - low
+    }
 }
 
 /// Что можно сделать с конкретным сообщением — решает модель экрана.
@@ -21,6 +38,12 @@ struct MessageCapabilities: Hashable {
 /// Действие из пузыря или его меню.
 enum MessageAction {
     case reply, edit, delete, pin, copy, forward, report, retry
+    /// Кто прочитал своё сообщение в группе.
+    case readers
+    /// Крестик на загружаемом вложении: отменить отправку.
+    case cancelUpload
+    /// Войти в режим выбора с этим сообщением и переключить его отметку в режиме.
+    case select, toggleSelection
     case react(String)
     case jump(String)
     case openPost(String)
@@ -39,10 +62,14 @@ struct MessageBubbleView: View {
     let item: MessageTimeline.Item
     var context = BubbleContext()
     var capabilities = MessageCapabilities()
+    /// Режим выбора нескольких: слева кружок-отметка, касание переключает её.
+    var selecting = false
+    var isSelected = false
     var onAction: (MessageAction) -> Void = { _ in }
 
     @State private var reactionTick = 0
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .body) private var avatarSize: CGFloat = 32
 
     private var message: MessageRecord { item.message }
@@ -54,31 +81,76 @@ struct MessageBubbleView: View {
         if message.systemType != nil {
             SystemMessageView(text: SystemMessageText.text(for: message))
         } else {
-            HStack(alignment: .bottom, spacing: Spacing.xs) {
-                if item.isOwn { Spacer(minLength: Spacing.xxl * 2) }
-                if showsAvatarColumn {
-                    Group {
-                        if item.isLastInGroup {
-                            AvatarView(url: message.senderAvatar, name: message.senderName, size: min(avatarSize, 44))
-                        } else {
-                            Color.clear
-                        }
-                    }
-                    .frame(width: min(avatarSize, 44), height: min(avatarSize, 44))
-                    .accessibilityHidden(true)
+            HStack(spacing: Spacing.md) {
+                if selecting {
+                    SelectionMark(isSelected: isSelected)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
                 }
-                bubble
-                    .contentShape(.contextMenuPreview, shape)
-                    .contextMenu { menu }
-                    .onTapGesture(count: 2) {
-                        guard !isDeleted, message.remoteId != nil else { return }
-                        reactionTick += 1
-                        onAction(.react(ChatReactions.doubleTap))
-                    }
-                    .sensoryFeedback(.impact(weight: .light), trigger: reactionTick)
-                if !item.isOwn { Spacer(minLength: Spacing.xxl * 2) }
+                row
             }
+            // В режиме выбора пузырь целиком — одна большая кнопка: вложения, цитата
+            // и меню под ней не срабатывают, касание только переключает отметку.
+            .overlay {
+                if selecting {
+                    Button {
+                        onAction(.toggleSelection)
+                    } label: {
+                        Color.clear.contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text(accessibilitySummary))
+                    .accessibilityValue(Text(isSelected
+                        ? String(localized: "chats.selection.selected", defaultValue: "Выбрано")
+                        : String(localized: "chats.selection.notSelected", defaultValue: "Не выбрано")))
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
+                }
+            }
+            .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: selecting)
         }
+    }
+
+    private var row: some View {
+        HStack(alignment: .bottom, spacing: Spacing.xs) {
+            if item.isOwn { Spacer(minLength: Spacing.xxl * 2) }
+            if showsAvatarColumn {
+                Group {
+                    if item.isLastInGroup {
+                        AvatarView(url: message.senderAvatar, name: message.senderName, size: min(avatarSize, 44))
+                    } else {
+                        Color.clear
+                    }
+                }
+                .frame(width: min(avatarSize, 44), height: min(avatarSize, 44))
+                .accessibilityHidden(true)
+            }
+            bubble
+                .contentShape(.contextMenuPreview, shape)
+                .contextMenu { menu }
+                .onTapGesture(count: 2) {
+                    guard !isDeleted, message.remoteId != nil else { return }
+                    reactionTick += 1
+                    onAction(.react(ChatReactions.doubleTap))
+                }
+                .sensoryFeedback(.impact(weight: .light), trigger: reactionTick)
+            if !item.isOwn { Spacer(minLength: Spacing.xxl * 2) }
+        }
+        .accessibilityHidden(selecting)
+    }
+
+    /// Что прочитает VoiceOver у пузыря в режиме выбора: сам пузырь скрыт под кнопкой.
+    private var accessibilitySummary: String {
+        let body: String
+        if isDeleted {
+            body = deletedText
+        } else if !message.content.isEmpty {
+            body = message.content
+        } else if let poll = extras.poll {
+            body = poll.question
+        } else {
+            body = String(localized: "chats.attachmentPreview", defaultValue: "Вложение")
+        }
+        guard !item.isOwn, let name = message.senderName, !name.isEmpty else { return body }
+        return "\(name): \(body)"
     }
 
     // MARK: Пузырь
@@ -130,7 +202,7 @@ struct MessageBubbleView: View {
 
             if !isDeleted {
                 ForEach(item.attachments, id: \.id) { attachment in
-                    AttachmentView(attachment: attachment, isOwn: item.isOwn) {
+                    AttachmentView(attachment: attachment, isOwn: item.isOwn, upload: upload) {
                         onAction(.openAttachment(attachment))
                     }
                 }
@@ -209,6 +281,16 @@ struct MessageBubbleView: View {
         .accessibilityElement(children: .combine)
     }
 
+    /// Своё сообщение с файлами в пути: доля отправленного — из общего реестра загрузок.
+    private var upload: AttachmentUploadState? {
+        guard item.isOwn, message.remoteId == nil, message.sendState == .pending, !item.attachments.isEmpty else {
+            return nil
+        }
+        return AttachmentUploadState(fraction: AttachmentUploads.shared.progress[message.id] ?? 0) {
+            onAction(.cancelUpload)
+        }
+    }
+
     /// Отступ содержимого: со стороны хвостика — плюс его ширина. Хвостик рисуется
     /// внутри рамки пузыря у всех сообщений группы, поэтому края пузырей совпадают.
     private func padding(leading: Bool) -> CGFloat {
@@ -236,7 +318,7 @@ struct MessageBubbleView: View {
     /// Только фото без подписи — время поверх снимка, в тёмной капсуле.
     private var isMediaOnly: Bool {
         !isDeleted && !hasText && !showsReactions && !item.attachments.isEmpty
-            && item.attachments.allSatisfy(\.isImage)
+            && item.attachments.allSatisfy(\.showsAsPhoto)
             && extras.poll == nil && extras.sharedPost == nil && extras.sharedStory == nil
             && extras.linkPreview == nil && message.replyToId == nil && !extras.isForwarded
             && !(context.isGroup && !item.isOwn && item.isFirstInGroup)
@@ -292,6 +374,9 @@ struct MessageBubbleView: View {
         text = text + Text(verbatim: time)
         if item.isOwn {
             text = text + Text(verbatim: " ") + Text(Image(systemName: "checkmark")) + Text(Image(systemName: "checkmark"))
+            if readCount > 0 {
+                text = text + Text(verbatim: " \(readCount.formatted())")
+            }
         }
         return text
             .font(Typography.tabular(.caption2))
@@ -320,6 +405,20 @@ struct MessageBubbleView: View {
             } label: {
                 Label(String(localized: "chats.reply", defaultValue: "Ответить"), systemImage: "arrowshape.turn.up.left")
             }
+        }
+        if showsReaders {
+            // Как в Telegram: кто прочитал — прямо в меню своего сообщения в группе.
+            Button {
+                onAction(.readers)
+            } label: {
+                Label(
+                    readCount > 0
+                        ? ChatPlural.readBy(readCount)
+                        : String(localized: "chats.readBy.none", defaultValue: "Пока никто не прочитал"),
+                    systemImage: "checkmark.message"
+                )
+            }
+            .disabled(readCount == 0)
         }
         if !isDeleted, !message.content.isEmpty {
             Button {
@@ -358,6 +457,11 @@ struct MessageBubbleView: View {
             } label: {
                 Label(String(localized: "feed.report", defaultValue: "Пожаловаться"), systemImage: "exclamationmark.bubble")
             }
+        }
+        Button {
+            onAction(.select)
+        } label: {
+            Label(String(localized: "chats.selection.select", defaultValue: "Выбрать"), systemImage: "checkmark.circle")
         }
         if capabilities.canDelete {
             Button(role: .destructive) {
@@ -420,14 +524,30 @@ struct MessageBubbleView: View {
         String(localized: "chats.deletedMessage", defaultValue: "Сообщение удалено")
     }
 
-    /// Состояние своей отправки: часы, одна галочка — доставлено, две — прочитано.
-    /// Прочтение известно только в личном чате: для групп сервер не говорит, кто
-    /// именно дочитал.
+    /// Своё отправленное сообщение в группе: в меню — кто его прочитал.
+    private var showsReaders: Bool {
+        context.isGroup && item.isOwn && !isDeleted && message.remoteId != nil && message.sendState == .sent
+    }
+
+    /// Сколько участников группы прочитали своё сообщение; в личном чате — 0.
+    private var readCount: Int {
+        guard context.isGroup, item.isOwn, message.sendState == .sent else { return 0 }
+        return context.readCount(at: message.createdAt)
+    }
+
+    /// Две галочки — дочитал собеседник, а в группе — хоть кто-то из участников, как в
+    /// вебе и Telegram.
+    private var isRead: Bool {
+        (context.othersReadAt.map { $0 >= message.createdAt } ?? false) || readCount > 0
+    }
+
+    /// Состояние своей отправки: часы, одна галочка — доставлено, две — прочитано, в
+    /// группе рядом — число прочитавших.
     @ViewBuilder
     private var stateMark: some View {
         switch message.sendState {
         case .sent:
-            ChatReadChecks(isRead: !context.isGroup && (context.othersReadAt.map { $0 >= message.createdAt } ?? false))
+            ChatReadChecks(isRead: isRead, readCount: readCount)
         case .pending:
             Image(systemName: "clock")
                 .accessibilityLabel(Text(String(localized: "chats.sending", defaultValue: "Отправляется")))
@@ -758,5 +878,26 @@ private struct SystemMessageView: View {
             .chatCapsuleSurface()
             .frame(maxWidth: .infinity)
             .padding(.vertical, Spacing.sm)
+    }
+}
+
+/// Кружок-отметка слева от сообщения в режиме выбора, как в Telegram: пустой контур
+/// или залитый синим с белой галочкой.
+private struct SelectionMark: View {
+    let isSelected: Bool
+
+    @ScaledMetric(relativeTo: .body) private var size: CGFloat = 24
+
+    var body: some View {
+        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+            .resizable()
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(
+                isSelected ? Palette.primaryForeground : Palette.mutedForeground,
+                isSelected ? Palette.primary : Palette.mutedForeground
+            )
+            .frame(width: min(size, 32), height: min(size, 32))
+            .contentTransition(.symbolEffect(.replace))
+            .accessibilityHidden(true)
     }
 }

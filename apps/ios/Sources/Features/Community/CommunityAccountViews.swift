@@ -257,14 +257,14 @@ struct CommunityTelegramLinkView: View {
         .navigationTitle(Text(CommunityScreen.telegramLink.title))
         .refreshable { await load() }
         .task { await load() }
-        .confirmationDialog(
+        .alert(
             String(localized: "community.telegram.revoke.title", defaultValue: "Отвязать Telegram?"),
-            isPresented: $confirmingRevoke,
-            titleVisibility: .visible
+            isPresented: $confirmingRevoke
         ) {
             Button(String(localized: "community.telegram.revoke", defaultValue: "Отвязать"), role: .destructive) {
                 Task { await revoke() }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: {
             Text(String(localized: "community.telegram.revoke.message", defaultValue: "Mini-app перестанет открываться без новой привязки."))
         }

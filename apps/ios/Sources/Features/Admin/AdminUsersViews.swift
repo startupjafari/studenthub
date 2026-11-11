@@ -251,36 +251,36 @@ struct AdminUserView: View {
         ) {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "admin.user.blockTitle", defaultValue: "Заблокировать \(name)?"),
-            isPresented: $blocking,
-            titleVisibility: .visible
+            isPresented: $blocking
         ) {
             ForEach(AdminText.blockTerms, id: \.self) { days in
                 Button(blockButtonTitle(days), role: .destructive) {
                     Task { await block(days: days) }
                 }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: {
             Text(String(localized: "admin.user.blockMessage", defaultValue: "Все сессии пользователя будут закрыты. Временная блокировка снимется сама."))
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "admin.user.unblockTitle", defaultValue: "Разблокировать \(name)?"),
-            isPresented: $confirmUnblock,
-            titleVisibility: .visible
+            isPresented: $confirmUnblock
         ) {
             Button(String(localized: "admin.user.unblock", defaultValue: "Разблокировать")) {
                 Task { await unblock() }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "admin.user.sessionsTitle", defaultValue: "Завершить сессии?"),
-            isPresented: $confirmSessions,
-            titleVisibility: .visible
+            isPresented: $confirmSessions
         ) {
             Button(String(localized: "admin.user.sessionsConfirm", defaultValue: "Завершить"), role: .destructive) {
                 Task { await endSessions() }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: {
             Text(String(localized: "admin.user.sessionsMessage", defaultValue: "\(name) выйдет на всех устройствах. Доступ к аккаунту сохранится — войти можно заново. Помогает, если аккаунт угнали."))
         }
@@ -437,44 +437,32 @@ struct AdminUserView: View {
         return actions
     }
 
-    @ViewBuilder
-    private var moreMenu: some View {
-        Button {
+    @HeroMenuBuilder
+    private var moreMenu: [HeroMenuElement] {
+        HeroMenuItem(String(localized: "admin.user.openProfile", defaultValue: "Открыть профиль"), symbol: "person.crop.circle") {
             AdminNav.push(.profile(id: id))
-        } label: {
-            Label(String(localized: "admin.user.openProfile", defaultValue: "Открыть профиль"), systemImage: "person.crop.circle")
         }
         if canEditAcademic && isStudent && profile != nil {
-            Button {
+            HeroMenuItem(String(localized: "admin.user.academic", defaultValue: "Учебные данные"), symbol: "graduationcap") {
                 editingAcademic = true
-            } label: {
-                Label(String(localized: "admin.user.academic", defaultValue: "Учебные данные"), systemImage: "graduationcap")
             }
         }
         if let email = profile?["email"]?.string, !email.isEmpty {
-            Button {
+            HeroMenuItem(String(localized: "admin.user.copyEmail", defaultValue: "Скопировать email"), symbol: "doc.on.doc") {
                 UIPasteboard.general.string = email
-            } label: {
-                Label(String(localized: "admin.user.copyEmail", defaultValue: "Скопировать email"), systemImage: "doc.on.doc")
             }
         }
-        Button {
+        HeroMenuItem(String(localized: "admin.user.copyId", defaultValue: "Скопировать ID"), symbol: "number") {
             UIPasteboard.general.string = id
-        } label: {
-            Label(String(localized: "admin.user.copyId", defaultValue: "Скопировать ID"), systemImage: "number")
         }
         if canAct {
-            Divider()
-            Button(role: .destructive) {
+            HeroMenuDivider()
+            HeroMenuItem(String(localized: "admin.user.endSessions", defaultValue: "Завершить сессии"), symbol: "rectangle.portrait.and.arrow.right", isDestructive: true) {
                 confirmSessions = true
-            } label: {
-                Label(String(localized: "admin.user.endSessions", defaultValue: "Завершить сессии"), systemImage: "rectangle.portrait.and.arrow.right")
             }
-            Button(role: .destructive) {
+            HeroMenuItem(String(localized: "admin.user.resetTwoFactor", defaultValue: "Сбросить 2FA"), symbol: "key", isDestructive: true) {
                 twoFactorCode = ""
                 resettingTwoFactor = true
-            } label: {
-                Label(String(localized: "admin.user.resetTwoFactor", defaultValue: "Сбросить 2FA"), systemImage: "key")
             }
         }
     }

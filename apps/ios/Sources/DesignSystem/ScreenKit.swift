@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // Общие части экранов в стиле чатов (Telegram на iOS 26): шапка карточки по центру с рядом
 // круглых стеклянных кнопок, плавающая кнопка создания. Эталон — `ChatInfoView` и
@@ -25,7 +26,7 @@ struct HeroAction: Identifiable {
 /// Шапка карточки по центру: крупный аватар или значок, заголовок, подзаголовок/статус,
 /// плашки и ряд круглых стеклянных кнопок — как профиль в Telegram. Ставится первой
 /// секцией `List` без фона (`HeroHeader` сам убирает фон строки и отступы).
-struct HeroHeader<Badges: View, Trailing: View>: View {
+struct HeroHeader<Badges: View>: View {
     let visual: HeroVisual
     let title: String
     var subtitle: String?
@@ -33,7 +34,7 @@ struct HeroHeader<Badges: View, Trailing: View>: View {
     var actions: [HeroAction] = []
     @ViewBuilder var badges: () -> Badges
     /// Меню «Ещё» последней кнопкой ряда — если у карточки есть редкие действия.
-    @ViewBuilder var moreMenu: () -> Trailing
+    @HeroMenuBuilder var moreMenu: () -> [HeroMenuElement]
 
     @ScaledMetric(relativeTo: .largeTitle) private var visualSize: CGFloat = 96
 
@@ -55,8 +56,9 @@ struct HeroHeader<Badges: View, Trailing: View>: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             badges()
-            if !actions.isEmpty || Trailing.self != EmptyView.self {
-                HeroActionRow(actions: actions, moreMenu: moreMenu)
+            let menu = moreMenu()
+            if !actions.isEmpty || !menu.isEmpty {
+                HeroActionRow(actions: actions, moreMenu: { menu })
                     .padding(.top, Spacing.md)
             }
         }
@@ -83,13 +85,24 @@ struct HeroHeader<Badges: View, Trailing: View>: View {
     }
 }
 
-extension HeroHeader where Badges == EmptyView, Trailing == EmptyView {
+extension HeroHeader where Badges == EmptyView {
     init(visual: HeroVisual, title: String, subtitle: String? = nil, subtitleTint: Color = Palette.mutedForeground, actions: [HeroAction] = []) {
-        self.init(visual: visual, title: title, subtitle: subtitle, subtitleTint: subtitleTint, actions: actions, badges: { EmptyView() }, moreMenu: { EmptyView() })
+        self.init(visual: visual, title: title, subtitle: subtitle, subtitleTint: subtitleTint, actions: actions, badges: { EmptyView() }, moreMenu: { [] })
+    }
+
+    init(
+        visual: HeroVisual,
+        title: String,
+        subtitle: String? = nil,
+        subtitleTint: Color = Palette.mutedForeground,
+        actions: [HeroAction] = [],
+        @HeroMenuBuilder moreMenu: @escaping () -> [HeroMenuElement]
+    ) {
+        self.init(visual: visual, title: title, subtitle: subtitle, subtitleTint: subtitleTint, actions: actions, badges: { EmptyView() }, moreMenu: moreMenu)
     }
 }
 
-extension HeroHeader where Trailing == EmptyView {
+extension HeroHeader {
     init(
         visual: HeroVisual,
         title: String,
@@ -98,16 +111,22 @@ extension HeroHeader where Trailing == EmptyView {
         actions: [HeroAction] = [],
         @ViewBuilder badges: @escaping () -> Badges
     ) {
-        self.init(visual: visual, title: title, subtitle: subtitle, subtitleTint: subtitleTint, actions: actions, badges: badges, moreMenu: { EmptyView() })
+        self.init(visual: visual, title: title, subtitle: subtitle, subtitleTint: subtitleTint, actions: actions, badges: badges, moreMenu: { [] })
     }
 }
 
 /// Ряд круглых стеклянных кнопок с подписями. Последней — «Ещё», если передано меню.
-struct HeroActionRow<More: View>: View {
+struct HeroActionRow: View {
     let actions: [HeroAction]
-    @ViewBuilder var moreMenu: () -> More
+    @HeroMenuBuilder var moreMenu: () -> [HeroMenuElement]
+
+    init(actions: [HeroAction], @HeroMenuBuilder moreMenu: @escaping () -> [HeroMenuElement] = { [] }) {
+        self.actions = actions
+        self.moreMenu = moreMenu
+    }
 
     var body: some View {
+        let menu = moreMenu()
         GlassGroup(spacing: Spacing.lg) {
             HStack(alignment: .top, spacing: Spacing.md) {
                 ForEach(actions) { item in
@@ -117,16 +136,9 @@ struct HeroActionRow<More: View>: View {
                     .buttonStyle(.plain)
                     .frame(maxWidth: .infinity)
                 }
-                if More.self != EmptyView.self {
-                    Menu(content: moreMenu) {
-                        HeroActionLabel(
-                            title: String(localized: "chats.info.more", defaultValue: "Ещё"),
-                            symbol: "ellipsis",
-                            isDestructive: false
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .frame(maxWidth: .infinity)
+                if !menu.isEmpty {
+                    HeroMoreButton(menu: menu)
+                        .frame(maxWidth: .infinity)
                 }
             }
         }
@@ -134,9 +146,145 @@ struct HeroActionRow<More: View>: View {
     }
 }
 
-extension HeroActionRow where More == EmptyView {
-    init(actions: [HeroAction]) {
-        self.init(actions: actions, moreMenu: { EmptyView() })
+/// «Ещё» в ряду кнопок: та же `HeroActionLabel`, что у соседей, а меню открывает
+/// прозрачная кнопка UIKit поверх неё (`MenuOverlay`).
+///
+/// SwiftUI-`Menu` на iOS 26 обводит свою подпись системным стеклом — один круг вокруг
+/// значка и подписи разом, и «Ещё» выходило заметно крупнее соседних кнопок;
+/// `.menuStyle(.button)` и `.buttonStyle(.plain)` этого не снимают. Меню UIKit ничего
+/// вокруг подписи не рисует и открывается от самой кнопки.
+struct HeroMoreButton: View {
+    let menu: [HeroMenuElement]
+    var title = String(localized: "chats.info.more", defaultValue: "Ещё")
+    var symbol = "ellipsis"
+
+    var body: some View {
+        HeroActionLabel(title: title, symbol: symbol)
+            .accessibilityHidden(true)
+            .overlay {
+                MenuOverlay(menu: menu.uiMenu, accessibilityLabel: title)
+            }
+    }
+}
+
+// MARK: - Меню действий
+
+/// Пункт меню «Ещё». Меню строит UIKit, поэтому пункт — данные: название, значок и
+/// действие, а не вью.
+struct HeroMenuItem {
+    let title: String
+    let symbol: String?
+    var isDestructive = false
+    var isDisabled = false
+    /// Галочка у выбранного варианта (текущий староста, выбранный срок).
+    var isChecked = false
+    let action: () -> Void
+
+    init(
+        _ title: String,
+        symbol: String? = nil,
+        isDestructive: Bool = false,
+        isDisabled: Bool = false,
+        isChecked: Bool = false,
+        action: @escaping () -> Void
+    ) {
+        self.title = title
+        self.symbol = symbol
+        self.isDestructive = isDestructive
+        self.isDisabled = isDisabled
+        self.isChecked = isChecked
+        self.action = action
+    }
+}
+
+/// Черта между группами пунктов — как `Divider()` в `Menu`.
+struct HeroMenuDivider {}
+
+/// Вложенное меню — как `Menu` внутри `Menu`.
+struct HeroSubmenu {
+    let title: String
+    let symbol: String?
+    let elements: [HeroMenuElement]
+
+    init(_ title: String, symbol: String? = nil, @HeroMenuBuilder elements: () -> [HeroMenuElement]) {
+        self.title = title
+        self.symbol = symbol
+        self.elements = elements()
+    }
+}
+
+enum HeroMenuElement {
+    case item(HeroMenuItem)
+    case submenu(HeroSubmenu)
+    case divider
+}
+
+/// Пункты меню тем же синтаксисом, что `Menu { … }`: условия, циклы, разделители.
+@resultBuilder
+enum HeroMenuBuilder {
+    static func buildExpression(_ item: HeroMenuItem) -> [HeroMenuElement] { [.item(item)] }
+    static func buildExpression(_ divider: HeroMenuDivider) -> [HeroMenuElement] { [.divider] }
+    static func buildExpression(_ submenu: HeroSubmenu) -> [HeroMenuElement] { [.submenu(submenu)] }
+    static func buildExpression(_ elements: [HeroMenuElement]) -> [HeroMenuElement] { elements }
+    static func buildBlock(_ parts: [HeroMenuElement]...) -> [HeroMenuElement] { parts.flatMap { $0 } }
+    static func buildOptional(_ part: [HeroMenuElement]?) -> [HeroMenuElement] { part ?? [] }
+    static func buildEither(first: [HeroMenuElement]) -> [HeroMenuElement] { first }
+    static func buildEither(second: [HeroMenuElement]) -> [HeroMenuElement] { second }
+    static func buildArray(_ parts: [[HeroMenuElement]]) -> [HeroMenuElement] { parts.flatMap { $0 } }
+}
+
+extension Array where Element == HeroMenuElement {
+    /// Меню UIKit: разделители режут пункты на встроенные группы, пустые группы
+    /// (два разделителя подряд, разделитель в конце) не рисуются.
+    var uiMenu: UIMenu {
+        UIMenu(children: uiElements)
+    }
+
+    private var uiElements: [UIMenuElement] {
+        var groups: [[UIMenuElement]] = [[]]
+        for element in self {
+            switch element {
+            case .divider:
+                groups.append([])
+            case .item(let item):
+                let action = UIAction(title: item.title, image: item.symbol.flatMap { UIImage(systemName: $0) }) { _ in item.action() }
+                if item.isDestructive { action.attributes.insert(.destructive) }
+                if item.isDisabled { action.attributes.insert(.disabled) }
+                if item.isChecked { action.state = .on }
+                groups[groups.count - 1].append(action)
+            case .submenu(let submenu):
+                groups[groups.count - 1].append(UIMenu(
+                    title: submenu.title,
+                    image: submenu.symbol.flatMap { UIImage(systemName: $0) },
+                    children: submenu.elements.uiElements
+                ))
+            }
+        }
+        let filled = groups.filter { !$0.isEmpty }
+        // Одна группа — пункты прямо в меню, без лишней обёртки.
+        if filled.count == 1 { return filled[0] }
+        return filled.map { UIMenu(options: .displayInline, children: $0) }
+    }
+}
+
+/// Прозрачная кнопка UIKit, которая по касанию открывает меню. Сама ничего не рисует —
+/// под ней своя подпись, и системное стекло меню её не обводит.
+struct MenuOverlay: UIViewRepresentable {
+    let menu: UIMenu
+    let accessibilityLabel: String
+    var accessibilityIdentifier: String?
+
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .custom)
+        button.showsMenuAsPrimaryAction = true
+        button.backgroundColor = .clear
+        return button
+    }
+
+    func updateUIView(_ button: UIButton, context: Context) {
+        button.menu = menu
+        button.accessibilityLabel = accessibilityLabel
+        button.accessibilityIdentifier = accessibilityIdentifier
     }
 }
 

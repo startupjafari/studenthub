@@ -17,11 +17,17 @@ struct ChatListView: View {
     @State private var chip: ChatListTab? = .all
     @State private var composing: NewChatKind?
     @State private var clearing: ChatListRow?
+    @State private var clearingPeriod: ChatListRow?
     @State private var deleting: [ChatListRow] = []
     @State private var editMode: EditMode = .inactive
     @State private var selection: Set<String> = []
     @State private var showsArchive = false
     @State private var didStart = false
+    @State private var folders = ChatFoldersModel()
+    @State private var showsFolders = false
+    @State private var showsBlocked = false
+    @State private var editingFolder: ChatFolderEditTarget?
+    @State private var deletingFolder: ChatFolderDTO?
     @Environment(\.viewerID) private var viewerID
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var realtime: RealtimeCoordinator { AppServices.realtime }
@@ -38,6 +44,7 @@ struct ChatListView: View {
                 guard !didStart else { return }
                 didStart = true
                 model.start(archive: isArchive)
+                if !isArchive { folders.start() }
                 await model.refresh()
             }
     }
@@ -49,6 +56,12 @@ struct ChatListView: View {
             // Пустой список со сбоем загрузки — ошибка на весь экран (`emptyState`), строка
             // не нужна. Отказ действия показывается строкой всегда.
             if let failure = model.failure, !(showsEmptyState && model.loadFailure == failure) {
+                FormAlert(message: failure)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
+            if let failure = folders.failure {
                 FormAlert(message: failure)
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
@@ -94,6 +107,12 @@ struct ChatListView: View {
         .navigationDestination(isPresented: $showsArchive) {
             ChatListView(isArchive: true)
         }
+        .navigationDestination(isPresented: $showsFolders) {
+            ChatFoldersView(model: folders)
+        }
+        .navigationDestination(isPresented: $showsBlocked) {
+            BlockedUsersView()
+        }
         .onChange(of: chip) {
             model.select(chip ?? .all)
         }
@@ -125,6 +144,16 @@ struct ChatListView: View {
             } else if let failure = model.loadFailure {
                 // В базе пусто и сервер не ответил — это не «чатов нет».
                 ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
+            } else if case .folder(let id, _) = model.tab {
+                EmptyStateView(
+                    title: String(localized: "chats.folders.emptyFolder", defaultValue: "В папке пока нет чатов"),
+                    symbol: "folder",
+                    hint: String(localized: "chats.folders.emptyFolder.hint", defaultValue: "Добавьте чаты в папку"),
+                    actionTitle: String(localized: "chats.folders.addChats", defaultValue: "Добавить чаты"),
+                    action: {
+                        if let folder = folders.folder(id: id) { editingFolder = .edit(folder) }
+                    }
+                )
             } else if isArchive {
                 ContentUnavailableView(
                     String(localized: "chats.archive.empty", defaultValue: "В архиве пусто"),
@@ -153,12 +182,35 @@ struct ChatListView: View {
         if !isArchive, tabs.count > 1, !isSearching {
             FilterChips(
                 options: tabs.map { (value: Optional($0), title: ChatTabTitle.title(of: $0)) },
-                selection: $chip
+                selection: $chip,
+                menu: tabActions
             )
             .padding(.horizontal, Spacing.xl)
             .padding(.vertical, Spacing.xs)
             .background { ChatTabsBackdrop() }
         }
+    }
+
+    /// Долгое нажатие на вкладку, как в Telegram: у своей папки — правка и удаление, у
+    /// любой — путь к настройке папок.
+    private func tabActions(_ tab: ChatListTab?) -> [FilterChipAction] {
+        var actions: [FilterChipAction] = []
+        if case .folder(let id, _) = tab, let folder = folders.folder(id: id) {
+            actions.append(FilterChipAction(
+                title: String(localized: "chats.folders.edit", defaultValue: "Изменить папку"),
+                symbol: "pencil"
+            ) { editingFolder = .edit(folder) })
+            actions.append(FilterChipAction(
+                title: String(localized: "chats.folders.delete", defaultValue: "Удалить папку"),
+                symbol: "trash",
+                isDestructive: true
+            ) { deletingFolder = folder })
+        }
+        actions.append(FilterChipAction(
+            title: String(localized: "chats.folders.manage", defaultValue: "Настроить папки"),
+            symbol: "folder.badge.gearshape"
+        ) { showsFolders = true })
+        return actions
     }
 
     // MARK: Панель
@@ -205,6 +257,18 @@ struct ChatListView: View {
                 Task { await openSaved() }
             } label: {
                 Label(String(localized: "chats.saved", defaultValue: "Избранное"), systemImage: "bookmark")
+            }
+            Divider()
+            Button {
+                showsFolders = true
+            } label: {
+                Label(String(localized: "chats.folders.title", defaultValue: "Папки с чатами"), systemImage: "folder.badge.gearshape")
+            }
+            // Как в меню шапки чатов веба: чёрный список рядом с папками.
+            Button {
+                showsBlocked = true
+            } label: {
+                Label(String(localized: "chats.blocked.title", defaultValue: "Заблокированные"), systemImage: "hand.raised")
             }
         } label: {
             Image(systemName: "square.and.pencil")
@@ -280,6 +344,14 @@ struct ChatListView: View {
 
     private func withDialogs<V: View>(_ view: V) -> some View {
         view
+            .sheet(item: $editingFolder) { target in
+                ChatFolderEditorView(model: folders, target: target)
+            }
+            .chatFolderDeleteAlert($deletingFolder, model: folders)
+            .sheet(item: $clearingPeriod) { row in
+                // Последнее сообщение могло попасть в период — превью в списке берём заново.
+                ChatClearPeriodSheet(chatID: row.id) { await model.refresh() }
+            }
             .sheet(item: $composing) { kind in
                 NewChatView(kind: kind) { chatID in
                     composing = nil
@@ -289,29 +361,28 @@ struct ChatListView: View {
                     }
                 }
             }
-            .confirmationDialog(
+            .alert(
                 String(localized: "chats.clear.title", defaultValue: "Очистить историю у себя?"),
                 isPresented: Binding(get: { clearing != nil }, set: { if !$0 { clearing = nil } }),
-                titleVisibility: .visible,
                 presenting: clearing
             ) { row in
                 Button(String(localized: "chats.clear", defaultValue: "Очистить историю"), role: .destructive) {
                     Task { await model.clearHistory(row) }
                 }
+                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
             } message: { _ in
                 Text(String(localized: "chats.clear.message", defaultValue: "У собеседников переписка останется."))
             }
-            .confirmationDialog(
+            .alert(
                 deleting.count > 1
                     ? String(localized: "chats.delete.selected.title", defaultValue: "Удалить выбранные чаты?")
-                    : String(localized: "chats.delete.chat.title", defaultValue: "Удалить чат?"),
+                    : ChatLeaveTitle.question(for: deleting.first?.kind ?? .private, isOwner: deleting.first?.isOwner ?? false),
                 isPresented: Binding(get: { !deleting.isEmpty }, set: { if !$0 { deleting = [] } }),
-                titleVisibility: .visible,
                 presenting: deleting.isEmpty ? nil : deleting
             ) { rows in
                 Button(
                     rows.count == 1
-                        ? ChatLeaveTitle.title(for: rows[0].kind)
+                        ? ChatLeaveTitle.title(for: rows[0].kind, isOwner: rows[0].isOwner)
                         : String(localized: "chats.delete.selected", defaultValue: "Удалить и покинуть"),
                     role: .destructive
                 ) {
@@ -320,6 +391,7 @@ struct ChatListView: View {
                         finishEditing()
                     }
                 }
+                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
             } message: { rows in
                 if rows.count > 1 {
                     Text(String(
@@ -420,14 +492,26 @@ struct ChatListView: View {
         } unmute: {
             Task { await model.toggleMuted(row) }
         }
+        if !isArchive, !row.requestIncoming {
+            folderMenu(row)
+        }
         Button {
             Task { await model.toggleArchived(row) }
         } label: {
             Label(archiveTitle(row), systemImage: "archivebox")
         }
         Divider()
-        Button(role: .destructive) {
-            clearing = row
+        Menu {
+            Button(role: .destructive) {
+                clearing = row
+            } label: {
+                Label(String(localized: "chats.clear.all", defaultValue: "Всю историю"), systemImage: "trash")
+            }
+            Button {
+                clearingPeriod = row
+            } label: {
+                Label(String(localized: "chats.clear.period", defaultValue: "За период…"), systemImage: "calendar")
+            }
         } label: {
             Label(String(localized: "chats.clear", defaultValue: "Очистить историю"), systemImage: "eraser")
         }
@@ -435,8 +519,41 @@ struct ChatListView: View {
             Button(role: .destructive) {
                 deleting = [row]
             } label: {
-                Label(ChatLeaveTitle.title(for: row.kind), systemImage: "trash")
+                Label(ChatLeaveTitle.title(for: row.kind, isOwner: row.isOwner), systemImage: "trash")
             }
+        }
+    }
+
+    /// «Добавить в папку» — подменю с галочками, как в Telegram: отметка кладёт чат в папку,
+    /// повторная вынимает. На открытой вкладке своей папки — ещё и «Удалить из папки».
+    @ViewBuilder
+    private func folderMenu(_ row: ChatListRow) -> some View {
+        if case .folder(let id, _) = model.tab, folders.folder(id: id)?.chatIds.contains(row.id) == true {
+            Button {
+                Task { await folders.toggle(chatID: row.id, folderID: id) }
+            } label: {
+                Label(String(localized: "chats.folders.removeFrom", defaultValue: "Удалить из папки"), systemImage: "folder.badge.minus")
+            }
+        }
+        Menu {
+            ForEach(folders.folders) { folder in
+                Toggle(isOn: Binding(
+                    get: { folder.chatIds.contains(row.id) },
+                    set: { _ in Task { await folders.toggle(chatID: row.id, folderID: folder.id) } }
+                )) {
+                    Label(folder.name, systemImage: "folder")
+                }
+            }
+            if folders.canCreate {
+                if !folders.folders.isEmpty { Divider() }
+                Button {
+                    editingFolder = ChatFolderEditTarget(chatIDs: [row.id])
+                } label: {
+                    Label(String(localized: "chats.folders.new", defaultValue: "Новая папка"), systemImage: "folder.badge.plus")
+                }
+            }
+        } label: {
+            Label(String(localized: "chats.folders.addTo", defaultValue: "Добавить в папку"), systemImage: "folder.badge.plus")
         }
     }
 
@@ -484,7 +601,7 @@ struct MuteMenu: View {
         }
     }
 
-    /// Варианты срока — общие для меню строки и кнопки «Звук» в информации о чате.
+    /// Варианты срока — для меню строки списка чатов.
     @ViewBuilder
     static func options(_ mute: @escaping (Int?, Bool) -> Void) -> some View {
         Button(String(localized: "chats.mute.1h", defaultValue: "На час")) { mute(60, false) }
@@ -496,14 +613,44 @@ struct MuteMenu: View {
         Divider()
         Button(String(localized: "chats.mute.important", defaultValue: "Только важное")) { mute(nil, true) }
     }
+
+    /// Те же варианты для кнопки «Звук» в информации о чате — её меню строит UIKit
+    /// (`HeroMoreButton`).
+    @HeroMenuBuilder
+    static func heroOptions(_ mute: @escaping (Int?, Bool) -> Void) -> [HeroMenuElement] {
+        HeroMenuItem(String(localized: "chats.mute.1h", defaultValue: "На час")) { mute(60, false) }
+        HeroMenuItem(String(localized: "chats.mute.4h", defaultValue: "На 4 часа")) { mute(240, false) }
+        HeroMenuItem(String(localized: "chats.mute.8h", defaultValue: "На 8 часов")) { mute(480, false) }
+        HeroMenuItem(String(localized: "chats.mute.1d", defaultValue: "На сутки")) { mute(1440, false) }
+        HeroMenuItem(String(localized: "chats.mute.3d", defaultValue: "На 3 дня")) { mute(4320, false) }
+        HeroMenuItem(String(localized: "chats.mute.forever", defaultValue: "Навсегда")) { mute(nil, false) }
+        HeroMenuDivider()
+        HeroMenuItem(String(localized: "chats.mute.important", defaultValue: "Только важное")) { mute(nil, true) }
+    }
 }
 
-/// Подпись удаления по виду чата: из группы выходят, личный чат удаляют у себя.
+/// Подпись удаления по виду чата: из группы выходят, личный чат удаляют у себя, а
+/// создатель группы удаляет её целиком — так делает сервер (`DELETE /chats/:id`), и
+/// подпись «Покинуть группу» у него обманывала бы.
 enum ChatLeaveTitle {
-    static func title(for kind: ChatKind) -> String {
-        kind == .group
-            ? String(localized: "chats.leave", defaultValue: "Покинуть группу")
-            : String(localized: "chats.delete.chat", defaultValue: "Удалить чат")
+    static func title(for kind: ChatKind, isOwner: Bool = false) -> String {
+        guard kind == .group else {
+            return String(localized: "chats.delete.chat", defaultValue: "Удалить чат")
+        }
+        return isOwner
+            ? String(localized: "chats.deleteGroup", defaultValue: "Удалить группу")
+            : String(localized: "chats.leave", defaultValue: "Покинуть группу")
+    }
+
+    /// Вопрос перед действием: у создателя группы — что она исчезнет у всех.
+    static func question(for kind: ChatKind, isOwner: Bool) -> String {
+        if kind == .group, isOwner {
+            return String(localized: "chats.deleteGroup.title", defaultValue: "Удалить группу у всех участников?")
+        }
+        if kind == .group {
+            return String(localized: "chats.leave.title", defaultValue: "Покинуть группу?")
+        }
+        return String(localized: "chats.delete.chat.title", defaultValue: "Удалить чат?")
     }
 }
 
@@ -611,10 +758,11 @@ struct ChatRowView: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// Галочки — только у своего последнего сообщения в личном чате: для групп сервер
-    /// не говорит, кто именно прочитал. `nil` — галочек нет.
+    /// Галочки — у своего последнего сообщения, как в вебе: в группе две, когда его
+    /// прочитал хоть кто-то (`othersReadAt` — самое дальнее прочтение среди других).
+    /// В «Избранном» читать некому. `nil` — галочек нет.
     private var readState: Bool? {
-        guard row.kind == .private, row.lastSenderId == viewerID, row.draftText?.isEmpty != false,
+        guard row.kind != .saved, row.lastSenderId == viewerID, row.draftText?.isEmpty != false,
               row.lastSystemType == nil, row.lastDeletedAt == nil, let last = row.lastCreatedAt
         else { return nil }
         return (row.othersReadAt ?? .distantPast) >= last

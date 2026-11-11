@@ -22,6 +22,20 @@ struct ChatMemberDTO: Decodable, Equatable, Identifiable {
     }
 }
 
+/// Заблокированный мной человек (`GET /chats/blocks`). Имя пустое у удалённого аккаунта:
+/// блокировка переживает удаление, а строка в списке всё равно нужна, чтобы её снять.
+struct BlockedUserDTO: Decodable, Equatable, Identifiable {
+    let id: String
+    let firstName: String?
+    let lastName: String?
+    let avatarUrl: String?
+    let blockedAt: Date?
+
+    var name: String {
+        [lastName, firstName].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
+    }
+}
+
 /// Человек из справочника вуза — для нового чата и добавления в группу.
 struct DirectoryUserDTO: Decodable, Equatable, Identifiable {
     struct Named: Decodable, Equatable {
@@ -57,6 +71,10 @@ struct ChatMediaItemDTO: Decodable, Equatable, Identifiable {
     let placeholder: String?
     let durationMs: Int?
     let createdAt: Date
+    /// Кто прислал — подпись строки голосового.
+    var sender: ChatPersonDTO? = nil
+
+    var isVideo: Bool { mime.hasPrefix("video/") }
 }
 
 /// Ссылка из раздела «Ссылки».
@@ -95,6 +113,25 @@ struct ChatReadDTO: Decodable, Equatable, Identifiable {
     let lastName: String?
     let avatarUrl: String?
     let lastReadAt: Date?
+
+    var name: String {
+        [lastName, firstName].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
+    }
+}
+
+/// Статус «в сети» участника чата (`GET /chats/:id/presence`). Сервер отдаёт весь
+/// состав без забаненных, вместе со смотрящим; чей статус смотрящему не положено
+/// видеть, тот приходит «не в сети».
+struct ChatPresenceDTO: Decodable, Equatable {
+    let userId: String
+    let online: Bool
+}
+
+/// День календаря переписки со снимком: `day` — местная дата `YYYY-MM-DD`, `url` —
+/// миниатюра самого свежего снимка дня.
+struct ChatCalendarDayDTO: Decodable, Equatable {
+    let day: String
+    let url: String
 }
 
 /// Вид раздела вложений в информации о чате.
@@ -117,18 +154,23 @@ protocol ChatActing: Sendable {
     func pinned(chatID: String) async throws -> [ChatMessageDTO]
     func forward(messageID: String, to chatID: String) async throws
     func searchMessages(_ query: String, chatID: String?) async throws -> [ChatMessageDTO]
+    func searchInChat(_ query: String, chatID: String, senderID: String?, cursor: String?) async throws -> Page<ChatMessageDTO>
     func around(messageID: String, chatID: String) async throws -> Page<ChatMessageDTO>
     func reads(chatID: String) async throws -> [ChatReadDTO]
     // Чат
+    func presence(chatID: String) async throws -> [ChatPresenceDTO]
     func members(chatID: String) async throws -> [ChatMemberDTO]
-    func media(chatID: String, kind: ChatMediaKind, cursor: String?) async throws -> Page<ChatMediaItemDTO>
-    func links(chatID: String, cursor: String?) async throws -> Page<ChatLinkItemDTO>
+    func media(chatID: String, kind: ChatMediaKind, page: PageRequest) async throws -> Page<ChatMediaItemDTO>
+    func links(chatID: String, page: PageRequest) async throws -> Page<ChatLinkItemDTO>
     func mute(chatID: String, minutes: Int?, importantOnly: Bool) async throws
     func clearHistory(chatID: String) async throws
+    func clearHistory(chatID: String, from: Date, to: Date) async throws
+    func mediaCalendar(chatID: String, from: Date, to: Date) async throws -> [ChatCalendarDayDTO]
     func deleteChat(chatID: String) async throws
     func acceptRequest(chatID: String) async throws
     func declineRequest(chatID: String) async throws
     func setBlocked(_ blocked: Bool, userID: String) async throws
+    func blockedUsers() async throws -> [BlockedUserDTO]
     func saveDraft(chatID: String, text: String) async throws
     // Создание и поиск людей
     func directory(_ query: String) async throws -> [DirectoryUserDTO]
@@ -141,7 +183,16 @@ protocol ChatActing: Sendable {
     func removeMember(chatID: String, userID: String) async throws
     func setAdmin(_ admin: Bool, chatID: String, userID: String) async throws
     func inviteCode(chatID: String) async throws -> String
+    func resetInviteCode(chatID: String) async throws -> String
+    func setBanned(_ banned: Bool, chatID: String, userID: String) async throws
+    func transferOwnership(chatID: String, to userID: String) async throws
+    func uploadGroupAvatar(chatID: String, jpeg: Data) async throws -> String
+    func removeGroupAvatar(chatID: String) async throws
     func join(chatID: String, code: String) async throws
+    // Папки
+    func createFolder(name: String, chatIDs: [String]) async throws -> ChatFolderDTO
+    func updateFolder(id: String, name: String?, chatIDs: [String]?, position: Int?) async throws -> ChatFolderDTO
+    func deleteFolder(id: String) async throws
     // Опросы
     func poll(id: String) async throws -> PollResultsDTO
     func vote(pollID: String, optionIDs: [String]) async throws
@@ -175,6 +226,19 @@ extension ChatsAPI: ChatActing {
         return try await client.page(.get("chats/search", query: items), of: ChatMessageDTO.self).items
     }
 
+    /// Поиск внутри одного чата — для поиска прямо в переписке. Свежие первыми, страницы
+    /// по курсору: стрелка «вверх» дочитывает следующую, когда дошла до конца загруженного.
+    func searchInChat(_ query: String, chatID: String, senderID: String?, cursor: String?) async throws -> Page<ChatMessageDTO> {
+        var items = [
+            URLQueryItem(name: "q", value: query),
+            URLQueryItem(name: "chatId", value: chatID),
+            URLQueryItem(name: "limit", value: String(ChatsAPI.searchPageLimit)),
+        ]
+        if let senderID { items.append(URLQueryItem(name: "senderId", value: senderID)) }
+        if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
+        return try await client.page(.get("chats/search", query: items), of: ChatMessageDTO.self)
+    }
+
     /// Окно истории вокруг сообщения — переход к закреплённому, к найденному, по ссылке.
     func around(messageID: String, chatID: String) async throws -> Page<ChatMessageDTO> {
         try await client.page(
@@ -190,20 +254,21 @@ extension ChatsAPI: ChatActing {
         try await client.send(.get("chats/\(chatID)/reads"), as: [ChatReadDTO].self)
     }
 
+    func presence(chatID: String) async throws -> [ChatPresenceDTO] {
+        try await client.send(.get("chats/\(chatID)/presence"), as: [ChatPresenceDTO].self)
+    }
+
     func members(chatID: String) async throws -> [ChatMemberDTO] {
         try await client.send(.get("chats/\(chatID)/members"), as: [ChatMemberDTO].self)
     }
 
-    func media(chatID: String, kind: ChatMediaKind, cursor: String?) async throws -> Page<ChatMediaItemDTO> {
-        var items = [URLQueryItem(name: "type", value: kind.rawValue), URLQueryItem(name: "limit", value: "60")]
-        if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
-        return try await client.page(.get("chats/\(chatID)/media", query: items), of: ChatMediaItemDTO.self)
+    func media(chatID: String, kind: ChatMediaKind, page: PageRequest) async throws -> Page<ChatMediaItemDTO> {
+        let query = [URLQueryItem(name: "type", value: kind.rawValue)] + page.cursorQuery
+        return try await client.page(.get("chats/\(chatID)/media", query: query), of: ChatMediaItemDTO.self)
     }
 
-    func links(chatID: String, cursor: String?) async throws -> Page<ChatLinkItemDTO> {
-        var items = [URLQueryItem(name: "limit", value: "50")]
-        if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
-        return try await client.page(.get("chats/\(chatID)/links", query: items), of: ChatLinkItemDTO.self)
+    func links(chatID: String, page: PageRequest) async throws -> Page<ChatLinkItemDTO> {
+        try await client.page(.get("chats/\(chatID)/links", query: page.cursorQuery), of: ChatLinkItemDTO.self)
     }
 
     /// Без `minutes` — навсегда. «Только важное» оставляет упоминания и ответы мне.
@@ -220,6 +285,33 @@ extension ChatsAPI: ChatActing {
     /// Очистка у себя: у собеседников история остаётся.
     func clearHistory(chatID: String) async throws {
         try await client.send(try .post("chats/\(chatID)/clear", json: [String: String]()))
+    }
+
+    /// Очистка у себя за период: границы включительно, сервер сравнивает время сообщения.
+    func clearHistory(chatID: String, from: Date, to: Date) async throws {
+        let format = ISO8601DateFormatter.contract
+        try await client.send(
+            try .post(
+                "chats/\(chatID)/clear",
+                json: ["from": format.string(from: from), "to": format.string(from: to)]
+            )
+        )
+    }
+
+    /// Миниатюры снимков по дням — кружки календаря «Перейти к дате». `tzOffset` — как
+    /// `getTimezoneOffset()` в браузере: день считает сервер, а рисуем местные даты.
+    func mediaCalendar(chatID: String, from: Date, to: Date) async throws -> [ChatCalendarDayDTO] {
+        struct Response: Decodable {
+            let items: [ChatCalendarDayDTO]
+        }
+        let format = ISO8601DateFormatter.contract
+        let offset = -TimeZone.current.secondsFromGMT(for: from) / 60
+        let query = [
+            URLQueryItem(name: "from", value: format.string(from: from)),
+            URLQueryItem(name: "to", value: format.string(from: to)),
+            URLQueryItem(name: "tzOffset", value: String(offset)),
+        ]
+        return try await client.send(.get("chats/\(chatID)/media/calendar", query: query), as: Response.self).items
     }
 
     /// Владелец группы удаляет её целиком, участник выходит, личный чат скрывается у
@@ -239,6 +331,11 @@ extension ChatsAPI: ChatActing {
     func setBlocked(_ blocked: Bool, userID: String) async throws {
         let path = "chats/blocks/\(userID)"
         try await client.send(blocked ? .post(path) : Endpoint(method: .delete, path: path))
+    }
+
+    /// Сервер отдаёт до 200 последних блокировок одним массивом, без курсора.
+    func blockedUsers() async throws -> [BlockedUserDTO] {
+        try await client.send(.get("chats/blocks"), as: [BlockedUserDTO].self)
     }
 
     func saveDraft(chatID: String, text: String) async throws {
@@ -308,8 +405,74 @@ extension ChatsAPI: ChatActing {
         return try await client.send(.get("chats/\(chatID)/invite"), as: Invite.self).code
     }
 
+    /// Новый код ссылки: прежняя перестаёт работать (сервер меняет его и сам — при
+    /// исключении и бане, чтобы человек не вернулся по старой).
+    func resetInviteCode(chatID: String) async throws -> String {
+        struct Invite: Decodable { let code: String }
+        return try await client.send(.post("chats/\(chatID)/invite/reset"), as: Invite.self).code
+    }
+
+    /// Бан в группе — только у создателя. Забаненный остаётся в составе с отметкой
+    /// `banned`: так его видно в «Заблокированных», и снять бан есть с кого.
+    func setBanned(_ banned: Bool, chatID: String, userID: String) async throws {
+        let path = "chats/\(chatID)/members/\(userID)/ban"
+        try await client.send(banned ? .post(path) : Endpoint(method: .delete, path: path))
+    }
+
+    /// Прежний владелец остаётся админом группы.
+    func transferOwnership(chatID: String, to userID: String) async throws {
+        try await client.send(.post("chats/\(chatID)/transfer/\(userID)"))
+    }
+
+    /// Аватар группы — multipart с полем `file`, как аватар профиля; только создатель.
+    /// Возвращает новый адрес картинки.
+    func uploadGroupAvatar(chatID: String, jpeg: Data) async throws -> String {
+        struct Answer: Decodable { let avatarUrl: String }
+        var form = MultipartForm()
+        form.append(jpeg, name: "file", filename: "avatar.jpg", mime: "image/jpeg")
+        return try await client.send(.multipart("chats/\(chatID)/avatar", form: form), as: Answer.self).avatarUrl
+    }
+
+    func removeGroupAvatar(chatID: String) async throws {
+        try await client.send(Endpoint(method: .delete, path: "chats/\(chatID)/avatar"))
+    }
+
     func join(chatID: String, code: String) async throws {
         try await client.send(try .post("chats/\(chatID)/join", json: ["code": code]))
+    }
+
+    func createFolder(name: String, chatIDs: [String]) async throws -> ChatFolderDTO {
+        struct Body: Encodable {
+            let name: String
+            let chatIds: [String]
+        }
+        return try await client.send(
+            try .post("chats/folders", json: Body(name: name, chatIds: chatIDs)),
+            as: ChatFolderDTO.self
+        )
+    }
+
+    /// Состав уходит целиком, а не дельтой — так ждёт сервер. Пустые поля в тело не
+    /// попадают: схема строгая, и `null` вместо «не менять» он отклонил бы.
+    func updateFolder(id: String, name: String?, chatIDs: [String]?, position: Int?) async throws -> ChatFolderDTO {
+        struct Body: Encodable {
+            let name: String?
+            let chatIds: [String]?
+            let position: Int?
+        }
+        return try await client.send(
+            Endpoint(
+                method: .patch,
+                path: "chats/folders/\(id)",
+                body: try JSONCoding.encoder.encode(Body(name: name, chatIds: chatIDs, position: position))
+            ),
+            as: ChatFolderDTO.self
+        )
+    }
+
+    /// Сами чаты остаются на месте — уходит только вкладка.
+    func deleteFolder(id: String) async throws {
+        try await client.send(Endpoint(method: .delete, path: "chats/folders/\(id)"))
     }
 
     func poll(id: String) async throws -> PollResultsDTO {

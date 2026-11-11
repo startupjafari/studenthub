@@ -48,14 +48,14 @@ struct UAdminCamerasView: View {
         .sheet(item: $cameraForm) { target in
             CameraForm(camera: target.camera, agents: agents ?? []) { await load() }
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "uadmin.cameras.disableConfirm", defaultValue: "Выключить камеры? Все просмотры прервутся сразу, новые станут недоступны."),
-            isPresented: $confirmDisable,
-            titleVisibility: .visible
+            isPresented: $confirmDisable
         ) {
             Button(String(localized: "uadmin.cameras.disable", defaultValue: "Выключить камеры"), role: .destructive) {
                 Task { await setModule(false) }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
         .confirmDestructive(
             $rotating,
