@@ -298,7 +298,11 @@ jobs:
           MINIO_USE_SSL: ${{ secrets.MINIO_USE_SSL }}
           MINIO_ACCESS_KEY: ${{ secrets.MINIO_ACCESS_KEY }}
           MINIO_SECRET_KEY: ${{ secrets.MINIO_SECRET_KEY }}
-        run: pnpm db:seed
+          # Ветка chore/seed-admin-chats: вместо генератора вузов — чаты платформенного
+          # администратора (prisma/seed-admin-chats.mjs). Режим и метка — из формы.
+          SEED_ADMIN_CHATS: '100'
+          SEED_ADMIN_CHAT_MESSAGES: '200-400'
+        run: node prisma/seed-admin-chats.mjs
 
       # Что в итоге в базе — цифрами, а не «прогон зелёный». Считается по факту, из той же
       # базы: расхождение с ожиданием видно сразу, не дожидаясь входа в интерфейс.
