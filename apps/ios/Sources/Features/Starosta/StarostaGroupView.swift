@@ -13,13 +13,7 @@ struct StarostaGroupView: View {
 
     var body: some View {
         List {
-            if viewer.profile != nil, viewer.profile?.groupId == nil {
-                EmptyStateView(
-                    title: String(localized: "starosta.group.none", defaultValue: "Вы не привязаны к группе"),
-                    symbol: "person.3"
-                )
-                .listRowBackground(Color.clear)
-            } else if let members {
+            if !hasNoGroup, let members {
                 if let failure {
                     StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
                         .listRowBackground(Color.clear)
@@ -44,11 +38,12 @@ struct StarostaGroupView: View {
                 )
                 let visible = filtered(members)
                 if visible.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "starosta.group.empty", defaultValue: "Участников нет"),
-                        symbol: "person.3"
-                    )
-                    .listRowBackground(Color.clear)
+                    // Пусто под шапкой группы — строкой; при поиске шапки нет, и пустой
+                    // результат встаёт по центру экрана (`screenState` ниже).
+                    if query.isEmpty {
+                        emptyMembers
+                            .listRowBackground(Color.clear)
+                    }
                 } else {
                     Section {
                         ForEach(visible) { member in
@@ -70,14 +65,23 @@ struct StarostaGroupView: View {
                         Text(String(localized: "starosta.group.count", defaultValue: "Всего: \(visible.count.formatted())"))
                     }
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(hasNoGroup || members.map { !query.isEmpty && filtered($0).isEmpty } ?? true) {
+            if hasNoGroup {
+                EmptyStateView(
+                    title: String(localized: "starosta.group.none", defaultValue: "Вы не привязаны к группе"),
+                    symbol: "person.3"
+                )
+            } else if members != nil {
+                emptyMembers
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(StarostaScreen.myGroup.title))
         .searchable(
             text: $query,
@@ -86,6 +90,17 @@ struct StarostaGroupView: View {
         )
         .refreshable { await load() }
         .task(id: viewer.profile?.groupId) { await load() }
+    }
+
+    private var hasNoGroup: Bool {
+        viewer.profile != nil && viewer.profile?.groupId == nil
+    }
+
+    private var emptyMembers: EmptyStateView {
+        EmptyStateView(
+            title: String(localized: "starosta.group.empty", defaultValue: "Участников нет"),
+            symbol: "person.3"
+        )
     }
 
     private static func membersText(_ count: Int) -> String {

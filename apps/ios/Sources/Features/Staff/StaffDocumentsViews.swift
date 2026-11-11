@@ -25,16 +25,7 @@ struct StaffDocumentTypesView: View {
                 Text(String(localized: "staff.dt.subtitle", defaultValue: "Какие документы есть у людей вашего вуза: включайте нужные, задавайте срок хранения, добавляйте свои."))
             }
 
-            if let types, types.isEmpty {
-                EmptyStateView(
-                    title: String(localized: "staff.dt.empty", defaultValue: "Типов документов нет"),
-                    symbol: "doc.text",
-                    actionTitle: String(localized: "staff.dt.add", defaultValue: "Добавить свой тип")
-                ) {
-                    adding = true
-                }
-                .listRowBackground(Color.clear)
-            } else if let types {
+            if let types {
                 ForEach(grouped(types), id: \.0) { category, rows in
                     Section(StaffDocText.category(category)) {
                         ForEach(rows) { row in
@@ -42,14 +33,24 @@ struct StaffDocumentTypesView: View {
                         }
                     }
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(types?.isEmpty != false) {
+            if types != nil {
+                EmptyStateView(
+                    title: String(localized: "staff.dt.empty", defaultValue: "Типов документов нет"),
+                    symbol: "doc.text",
+                    actionTitle: String(localized: "staff.dt.add", defaultValue: "Добавить свой тип")
+                ) {
+                    adding = true
+                }
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(StaffScreen.documentTypes.title))
         .floatingAction(String(localized: "staff.dt.add", defaultValue: "Добавить свой тип")) {
             adding = true

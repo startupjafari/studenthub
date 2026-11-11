@@ -20,28 +20,11 @@ struct AssignmentsView: View {
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets())
                 }
-                if loader.items.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "study.noAssignments", defaultValue: "Заданий пока нет"),
-                        symbol: "list.clipboard",
-                        hint: isStudent ? String(localized: "student.assignments.emptyHint", defaultValue: "Все актуальные задания появятся здесь.") : nil
-                    )
-                    .listRowBackground(Color.clear)
-                } else {
+                if !loader.items.isEmpty {
                     if isStudent {
                         FilterChipsRow(options: tabOptions, selection: tabSelection)
                     }
-                    let visible = isStudent
-                        ? loader.items.filter { tab.includes(StudentAssignmentStatus.of($0)) }
-                        : loader.items
                     Section {
-                        if visible.isEmpty {
-                            EmptyStateView(
-                                title: String(localized: "student.assignments.tabEmpty", defaultValue: "Здесь пока пусто"),
-                                symbol: "tray"
-                            )
-                            .listRowBackground(Color.clear)
-                        }
                         ForEach(visible) { assignment in
                             NavigationLink(value: AppRoute.assignment(id: assignment.id)) {
                                 AssignmentRow(assignment: assignment, isStudent: isStudent)
@@ -62,17 +45,35 @@ struct AssignmentsView: View {
                         }
                     }
                 }
-            } else if let failure = loader.failure {
-                ErrorStateView(message: failure, isOffline: loader.isOffline) { await loader.reload() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(!loader.isLoaded || visible.isEmpty) {
+            if loader.isLoaded, loader.items.isEmpty {
+                EmptyStateView(
+                    title: String(localized: "study.noAssignments", defaultValue: "Заданий пока нет"),
+                    symbol: "list.clipboard",
+                    hint: isStudent ? String(localized: "student.assignments.emptyHint", defaultValue: "Все актуальные задания появятся здесь.") : nil
+                )
+            } else if loader.isLoaded {
+                EmptyStateView(
+                    title: String(localized: "student.assignments.tabEmpty", defaultValue: "Здесь пока пусто"),
+                    symbol: "tray"
+                )
+            } else if let failure = loader.failure {
+                ErrorStateView(message: failure, isOffline: loader.isOffline) { await loader.reload() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .refreshable { await loader.reload() }
         .task { await loader.loadIfNeeded() }
         .navigationTitle(Text(String(localized: "study.assignments", defaultValue: "Задания")))
+    }
+
+    /// Задания выбранной вкладки (у преподавателя вкладок нет — все).
+    private var visible: [AssignmentDTO] {
+        isStudent ? loader.items.filter { tab.includes(StudentAssignmentStatus.of($0)) } : loader.items
     }
 
     private var tabOptions: [(value: AssignmentsTab?, title: String)] {
@@ -187,11 +188,13 @@ struct AssignmentDetailView: View {
                     result(assignment)
                     work(assignment)
                 }
-            } else if let failure = model?.failure {
+            }
+        }
+        .screenState(assignment == nil) {
+            if let failure = model?.failure {
                 ErrorStateView(message: failure, isOffline: model?.isOffline ?? false) { await model?.refresh() }
-                    .listRowBackground(Color.clear)
             } else {
-                LoadingStateView().listRowBackground(Color.clear)
+                LoadingStateView()
             }
         }
         .navigationTitle(Text(String(localized: "study.assignment", defaultValue: "Задание")))

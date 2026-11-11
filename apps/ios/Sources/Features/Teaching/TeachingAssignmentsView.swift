@@ -458,14 +458,20 @@ struct TeachingSubmissionsView: View {
                         }
                     }
                 }
-            } else if let failure {
+            } else if assignment != nil, let failure {
+                // Задание открылось, а сдачи нет — сбой строкой под его шапкой.
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
                     .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(assignment == nil && submissions == nil) {
+            if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(TeacherScreen.assignmentSubmissions(assignmentID: assignmentID).title))
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $editing) {

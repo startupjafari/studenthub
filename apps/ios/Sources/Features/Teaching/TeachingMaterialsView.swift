@@ -201,12 +201,12 @@ private struct TeachingMaterialDetailView: View {
                 } header: {
                     Text(String(localized: "teaching.materials.files", defaultValue: "Файлы"))
                 }
-            } else {
-                EmptyStateView(title: String(localized: "teaching.materials.gone", defaultValue: "Материал удалён"), symbol: "folder")
-                    .listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(material == nil) {
+            EmptyStateView(title: String(localized: "teaching.materials.gone", defaultValue: "Материал удалён"), symbol: "folder")
+        }
         .navigationTitle(Text(material?.title ?? TeacherScreen.materials.title))
         .navigationBarTitleDisplayMode(.inline)
         .fileImporter(isPresented: $importing, allowedContentTypes: [.item]) { result in

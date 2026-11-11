@@ -246,21 +246,20 @@ struct TeachingRoomPicker: View {
                 // Список уже на экране — сбой поиска подписью, без стирания найденного.
                 if let failure, rooms != nil { Text(failure) }
             }
-
+        }
+        .listStyle(.insetGrouped)
+        .screenState(rooms?.isEmpty != false) {
             if rooms == nil, let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
             } else if rooms == nil {
-                LoadingStateView().listRowBackground(Color.clear)
-            } else if rooms?.isEmpty == true {
+                LoadingStateView()
+            } else {
                 EmptyStateView(
                     title: String(localized: "teaching.room.notFound", defaultValue: "Аудитория не найдена"),
                     symbol: "mappin.slash"
                 )
-                .listRowBackground(Color.clear)
             }
         }
-        .listStyle(.insetGrouped)
         .navigationTitle(Text(String(localized: "teaching.room", defaultValue: "Аудитория")))
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: Text(String(localized: "teaching.room.search", defaultValue: "Номер аудитории")))

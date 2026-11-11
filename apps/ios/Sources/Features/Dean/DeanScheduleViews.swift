@@ -44,21 +44,29 @@ struct DeanScheduleManageView: View {
                 }
             }
 
+            if showsDays, let detail {
+                if let detailFailure {
+                    StaleDataBanner(message: detailFailure, isOffline: detailOffline) { await loadDetail() }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
+                days(detail)
+            }
+        }
+        .listStyle(.insetGrouped)
+        .screenState(!showsDays) {
             if group == nil, let groupFailure {
                 ErrorStateView(message: groupFailure, isOffline: groupOffline) { await loadInitialGroup() }
-                    .listRowBackground(Color.clear)
             } else if group == nil {
                 EmptyStateView(
                     title: String(localized: "dean.schedule.pickGroup", defaultValue: "Выберите группу"),
                     symbol: "square.stack.3d.up",
                     hint: String(localized: "dean.schedule.pickGroupHint", defaultValue: "Расписание ведётся по группам: у каждой — версии, действует одна")
                 )
-                .listRowBackground(Color.clear)
             } else if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await loadContainers() }
-                    .listRowBackground(Color.clear)
             } else if containers == nil {
-                LoadingStateView().listRowBackground(Color.clear)
+                LoadingStateView()
             } else if containerID == nil {
                 EmptyStateView(
                     title: String(localized: "dean.schedule.noVersions", defaultValue: "Расписания у группы нет"),
@@ -67,22 +75,12 @@ struct DeanScheduleManageView: View {
                     actionTitle: String(localized: "dean.schedule.newVersion", defaultValue: "Новая версия"),
                     action: { creatingVersion = true }
                 )
-                .listRowBackground(Color.clear)
-            } else if let detail, detail.id == containerID {
-                if let detailFailure {
-                    StaleDataBanner(message: detailFailure, isOffline: detailOffline) { await loadDetail() }
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets())
-                }
-                days(detail)
             } else if let detailFailure {
                 ErrorStateView(message: detailFailure, isOffline: detailOffline) { await loadDetail() }
-                    .listRowBackground(Color.clear)
             } else {
-                LoadingStateView().listRowBackground(Color.clear)
+                LoadingStateView()
             }
         }
-        .listStyle(.insetGrouped)
         .navigationTitle(Text(initialGroupID == nil ? DeanScreen.schedule.title : DeanScreen.groupSchedule(id: "").title))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -138,6 +136,11 @@ struct DeanScheduleManageView: View {
             }
         }
         .actionFailureAlert($actionFailure)
+    }
+
+    /// Пары версии на экране: группа выбрана, версии загружены, выбранная — прочитана.
+    private var showsDays: Bool {
+        group != nil && failure == nil && containers != nil && containerID != nil && detail != nil && detail?.id == containerID
     }
 
     // MARK: Версии

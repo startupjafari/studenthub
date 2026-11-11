@@ -177,13 +177,6 @@ struct UAdminSearchPicker<Item: Identifiable & Hashable>: View {
                     }
                 }
                 if let items {
-                    if items.isEmpty {
-                        EmptyStateView(
-                            title: String(localized: "uadmin.picker.nothing", defaultValue: "Ничего не найдено"),
-                            symbol: "magnifyingglass"
-                        )
-                        .listRowBackground(Color.clear)
-                    }
                     ForEach(items) { item in
                         Button {
                             pick(item)
@@ -197,14 +190,21 @@ struct UAdminSearchPicker<Item: Identifiable & Hashable>: View {
                             }
                         }
                     }
-                } else if let failure {
-                    ErrorStateView(message: failure, isOffline: isOffline) { await run(query) }
-                        .listRowBackground(Color.clear)
-                } else {
-                    LoadingStateView().listRowBackground(Color.clear)
                 }
             }
             .listStyle(.insetGrouped)
+            .screenState(items?.isEmpty != false) {
+                if items != nil {
+                    EmptyStateView(
+                        title: String(localized: "uadmin.picker.nothing", defaultValue: "Ничего не найдено"),
+                        symbol: "magnifyingglass"
+                    )
+                } else if let failure {
+                    ErrorStateView(message: failure, isOffline: isOffline) { await run(query) }
+                } else {
+                    LoadingStateView()
+                }
+            }
             .navigationTitle(Text(title))
             .navigationBarTitleDisplayMode(.inline)
             .debouncedSearch($query, prompt: prompt) { await run($0) }

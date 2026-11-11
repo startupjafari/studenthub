@@ -246,22 +246,22 @@ private struct DeanPickerList: View {
                 row(nil)
             }
             if let options {
-                if options.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "dean.picker.empty", defaultValue: "Ничего не найдено"),
-                        symbol: "magnifyingglass"
-                    )
-                    .listRowBackground(Color.clear)
-                }
                 ForEach(options) { option in row(option) }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await run(search) }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(options?.isEmpty != false) {
+            if options != nil {
+                EmptyStateView(
+                    title: String(localized: "dean.picker.empty", defaultValue: "Ничего не найдено"),
+                    symbol: "magnifyingglass"
+                )
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await run(search) }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(title))
         .navigationBarTitleDisplayMode(.inline)
         .modifier(SearchIfNeeded(enabled: searchable, text: $search) { await run($0) })

@@ -14,7 +14,7 @@ struct LibraryBookView: View {
 
     var body: some View {
         List {
-            if let unavailable = model?.unavailable {
+            if let unavailable = model?.unavailable, hasBook {
                 EmptyStateView(title: unavailable, symbol: "book.closed")
                     .listRowBackground(Color.clear)
             }
@@ -75,15 +75,19 @@ struct LibraryBookView: View {
                         .disabled(model.isWorking)
                     }
                 }
-            } else if let model, model.unavailable == nil, let failure = model.failure, !model.isLoading {
-                ErrorStateView(message: failure, isOffline: model.isOffline) { await model.load() }
-                    .listRowBackground(Color.clear)
-            } else if model?.unavailable == nil {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(.compact)
+        .screenState(!hasBook) {
+            if let unavailable = model?.unavailable {
+                EmptyStateView(title: unavailable, symbol: "book.closed")
+            } else if let model, let failure = model.failure, !model.isLoading {
+                ErrorStateView(message: failure, isOffline: model.isOffline) { await model.load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(String(localized: "library.book", defaultValue: "Книга")))
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await model?.load() }
@@ -109,6 +113,10 @@ struct LibraryBookView: View {
                 ["title": model?.book?.title ?? ""]
             ))
         }
+    }
+
+    private var hasBook: Bool {
+        model?.book != nil && model?.state != nil
     }
 
     /// Главное действие в шапке: забронировать или встать в очередь. Отмена брони —

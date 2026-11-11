@@ -16,17 +16,7 @@ struct TeachingPostsView: View {
                         LazyVStack(spacing: Spacing.lg) {
                             if !feed.hasLoaded, feed.posts.isEmpty {
                                 ForEach(0..<2, id: \.self) { _ in PostCardSkeleton() }
-                            } else if let failure = feed.failure, feed.posts.isEmpty {
-                                ErrorStateView(message: failure, isOffline: feed.isOffline) { await feed.refresh() }
-                            } else if feed.posts.isEmpty {
-                                EmptyStateView(
-                                    title: String(localized: "teaching.posts.empty", defaultValue: "Вы ещё ничего не публиковали"),
-                                    symbol: "square.and.pencil",
-                                    hint: String(localized: "teaching.posts.empty.hint", defaultValue: "Объявление для групп или новость — студенты увидят его в ленте."),
-                                    actionTitle: String(localized: "teaching.posts.new", defaultValue: "Новая публикация"),
-                                    action: { composing = true }
-                                )
-                            } else {
+                            } else if !feed.posts.isEmpty {
                                 ForEach(feed.posts) { post in
                                     PostCardView(post: post, model: feed, viewerID: viewerID, actions: actions)
                                         .onAppear {
@@ -36,6 +26,19 @@ struct TeachingPostsView: View {
                             }
                         }
                         .padding(Spacing.xl)
+                    }
+                    .screenState(feed.hasLoaded && feed.posts.isEmpty) {
+                        if let failure = feed.failure {
+                            ErrorStateView(message: failure, isOffline: feed.isOffline) { await feed.refresh() }
+                        } else {
+                            EmptyStateView(
+                                title: String(localized: "teaching.posts.empty", defaultValue: "Вы ещё ничего не публиковали"),
+                                symbol: "square.and.pencil",
+                                hint: String(localized: "teaching.posts.empty.hint", defaultValue: "Объявление для групп или новость — студенты увидят его в ленте."),
+                                actionTitle: String(localized: "teaching.posts.new", defaultValue: "Новая публикация"),
+                                action: { composing = true }
+                            )
+                        }
                     }
                 }
                 .refreshable { await feed.refresh() }

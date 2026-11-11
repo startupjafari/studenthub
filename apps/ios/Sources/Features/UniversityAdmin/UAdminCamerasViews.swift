@@ -29,14 +29,16 @@ struct UAdminCamerasView: View {
                 moduleSection(enabled)
                 agentsSection(agents)
                 camerasSection(cameras, agents: agents, enabled: enabled)
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(enabled == nil || agents == nil || cameras == nil) {
+            if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(UniAdminScreen.cameras.title))
         .sheet(isPresented: $creatingAgent) {
             AgentNameForm { token in issued = token } saved: { await load() }
@@ -569,77 +571,75 @@ struct UAdminCameraWatchView: View {
 
     var body: some View {
         List {
-            if let enabled, let cameras {
-                if !enabled {
-                    EmptyStateView(
-                        title: String(localized: "uadmin.watch.disabled", defaultValue: "Камеры выключены"),
-                        symbol: "video.slash",
-                        hint: String(localized: "uadmin.watch.disabledHint", defaultValue: "Включите модуль камер в управлении камерами.")
-                    )
-                    .listRowBackground(Color.clear)
-                } else if cameras.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "uadmin.watch.empty", defaultValue: "Камер пока нет"),
-                        symbol: "video",
-                        hint: String(localized: "uadmin.watch.emptyHint", defaultValue: "Добавьте камеру в управлении камерами.")
-                    )
-                    .listRowBackground(Color.clear)
-                } else {
-                    if watched.isEmpty {
-                        Text(String(localized: "uadmin.watch.pick", defaultValue: "Выберите камеру в списке. Одновременно — до четырёх."))
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.mutedForeground)
-                            .listRowBackground(Color.clear)
-                    }
-                    ForEach(watched, id: \.self) { id in
-                        if let camera = cameras.first(where: { $0.id == id }) {
-                            Section {
-                                CameraPlayer(cameraID: camera.id)
-                                    .listRowInsets(EdgeInsets())
-                            } header: {
-                                HStack {
-                                    Text(verbatim: [camera.name, camera.room?.name].compactMap { $0 }.joined(separator: " · "))
-                                    Spacer()
-                                    Button {
-                                        watched.removeAll { $0 == id }
-                                    } label: {
-                                        Image(systemName: "xmark.circle.fill")
-                                    }
-                                    .accessibilityLabel(Text(String(localized: "uadmin.watch.close", defaultValue: "Закрыть")))
+            if enabled == true, let cameras, !cameras.isEmpty {
+                if watched.isEmpty {
+                    Text(String(localized: "uadmin.watch.pick", defaultValue: "Выберите камеру в списке. Одновременно — до четырёх."))
+                        .font(Typography.meta)
+                        .foregroundStyle(Palette.mutedForeground)
+                        .listRowBackground(Color.clear)
+                }
+                ForEach(watched, id: \.self) { id in
+                    if let camera = cameras.first(where: { $0.id == id }) {
+                        Section {
+                            CameraPlayer(cameraID: camera.id)
+                                .listRowInsets(EdgeInsets())
+                        } header: {
+                            HStack {
+                                Text(verbatim: [camera.name, camera.room?.name].compactMap { $0 }.joined(separator: " · "))
+                                Spacer()
+                                Button {
+                                    watched.removeAll { $0 == id }
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
                                 }
+                                .accessibilityLabel(Text(String(localized: "uadmin.watch.close", defaultValue: "Закрыть")))
                             }
                         }
-                    }
-                    Section {
-                        ForEach(cameras) { camera in
-                            Button {
-                                toggle(camera.id)
-                            } label: {
-                                let isOn = watched.contains(camera.id)
-                                let status = UAdminCameraStatus.badge(camera.status)
-                                TelegramStyleRow(title: camera.name, subtitle: camera.room?.name) {
-                                    RowSymbol(symbol: isOn ? "play.fill" : "video.fill", tint: isOn ? TileTint.blue : TileTint.gray, size: 40)
-                                } accessory: {
-                                    StatusBadge(text: status.0, tint: status.1)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityAddTraits(watched.contains(camera.id) ? .isSelected : [])
-                        }
-                    } header: {
-                        Text(String(localized: "uadmin.watch.list", defaultValue: "Камеры вуза"))
-                    } footer: {
-                        Text(String(localized: "uadmin.watch.footer", defaultValue: "Видео в реальном времени, без звука. Каждый просмотр записывается в журнал."))
                     }
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
+                Section {
+                    ForEach(cameras) { camera in
+                        Button {
+                            toggle(camera.id)
+                        } label: {
+                            let isOn = watched.contains(camera.id)
+                            let status = UAdminCameraStatus.badge(camera.status)
+                            TelegramStyleRow(title: camera.name, subtitle: camera.room?.name) {
+                                RowSymbol(symbol: isOn ? "play.fill" : "video.fill", tint: isOn ? TileTint.blue : TileTint.gray, size: 40)
+                            } accessory: {
+                                StatusBadge(text: status.0, tint: status.1)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(watched.contains(camera.id) ? .isSelected : [])
+                    }
+                } header: {
+                    Text(String(localized: "uadmin.watch.list", defaultValue: "Камеры вуза"))
+                } footer: {
+                    Text(String(localized: "uadmin.watch.footer", defaultValue: "Видео в реальном времени, без звука. Каждый просмотр записывается в журнал."))
+                }
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(enabled != true || cameras?.isEmpty != false) {
+            if enabled == false, cameras != nil {
+                EmptyStateView(
+                    title: String(localized: "uadmin.watch.disabled", defaultValue: "Камеры выключены"),
+                    symbol: "video.slash",
+                    hint: String(localized: "uadmin.watch.disabledHint", defaultValue: "Включите модуль камер в управлении камерами.")
+                )
+            } else if enabled != nil, cameras != nil {
+                EmptyStateView(
+                    title: String(localized: "uadmin.watch.empty", defaultValue: "Камер пока нет"),
+                    symbol: "video",
+                    hint: String(localized: "uadmin.watch.emptyHint", defaultValue: "Добавьте камеру в управлении камерами.")
+                )
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(UniAdminScreen.cameraWatch.title))
         .navigationBarTitleDisplayMode(.inline)
         .alert(

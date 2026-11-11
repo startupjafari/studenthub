@@ -21,16 +21,6 @@ private struct PortfolioContent: View {
     var body: some View {
         List {
             if let items {
-                if items.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "portfolio.empty", defaultValue: "Портфолио пока пустое"),
-                        symbol: "briefcase",
-                        hint: String(localized: "portfolio.empty.hint", defaultValue: "Добавьте проекты, опыт и сертификаты — их увидят преподаватели и работодатели"),
-                        actionTitle: String(localized: "portfolio.add", defaultValue: "Добавить запись"),
-                        action: { creating = true }
-                    )
-                    .listRowBackground(Color.clear)
-                }
                 ForEach(PortfolioText.kinds, id: \.self) { kind in
                     let group = items.filter { $0.kind == kind }
                     if !group.isEmpty {
@@ -44,14 +34,24 @@ private struct PortfolioContent: View {
                         }
                     }
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(items?.isEmpty != false) {
+            if items != nil {
+                EmptyStateView(
+                    title: String(localized: "portfolio.empty", defaultValue: "Портфолио пока пустое"),
+                    symbol: "briefcase",
+                    hint: String(localized: "portfolio.empty.hint", defaultValue: "Добавьте проекты, опыт и сертификаты — их увидят преподаватели и работодатели"),
+                    actionTitle: String(localized: "portfolio.add", defaultValue: "Добавить запись"),
+                    action: { creating = true }
+                )
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(MoreSection.portfolio.title))
         .toolbar {
             // Порядок записей виден работодателю — переставляют его здесь.

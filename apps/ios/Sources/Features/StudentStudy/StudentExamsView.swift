@@ -26,25 +26,9 @@ struct StudentExamsView: View {
             let past = exams.filter { $0.date < now }.sorted { $0.date > $1.date }
             let current = tab == .upcoming ? upcoming : past
             List {
-                if exams.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "student.exams.empty", defaultValue: "Экзаменов пока нет"),
-                        symbol: "graduationcap",
-                        hint: String(localized: "student.exams.emptyHint", defaultValue: "Расписание сессии появится здесь.")
-                    )
-                    .listRowBackground(Color.clear)
-                } else {
+                if !exams.isEmpty {
                     FilterChipsRow(options: Self.tabOptions(upcoming: upcoming.count, past: past.count), selection: tabSelection)
 
-                    if current.isEmpty {
-                        EmptyStateView(
-                            title: tab == .upcoming
-                                ? String(localized: "student.exams.upcomingEmpty", defaultValue: "Предстоящих экзаменов нет")
-                                : String(localized: "student.exams.pastEmpty", defaultValue: "Прошедших экзаменов нет"),
-                            symbol: "calendar"
-                        )
-                        .listRowBackground(Color.clear)
-                    }
                     ForEach(current) { exam in
                         Section {
                             StudentExamCard(exam: exam)
@@ -53,6 +37,22 @@ struct StudentExamsView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .screenState(current.isEmpty) {
+                if exams.isEmpty {
+                    EmptyStateView(
+                        title: String(localized: "student.exams.empty", defaultValue: "Экзаменов пока нет"),
+                        symbol: "graduationcap",
+                        hint: String(localized: "student.exams.emptyHint", defaultValue: "Расписание сессии появится здесь.")
+                    )
+                } else {
+                    EmptyStateView(
+                        title: tab == .upcoming
+                            ? String(localized: "student.exams.upcomingEmpty", defaultValue: "Предстоящих экзаменов нет")
+                            : String(localized: "student.exams.pastEmpty", defaultValue: "Прошедших экзаменов нет"),
+                        symbol: "calendar"
+                    )
+                }
+            }
             .refreshable { reloadToken += 1 }
         }
         .background(Palette.background)

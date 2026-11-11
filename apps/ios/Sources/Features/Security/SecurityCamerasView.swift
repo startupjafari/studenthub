@@ -26,21 +26,7 @@ struct SecurityCamerasView: View {
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets())
                 }
-                if !moduleEnabled {
-                    EmptyStateView(
-                        title: String(localized: "security.cameras.disabledTitle", defaultValue: "Камеры выключены"),
-                        symbol: "video.slash",
-                        hint: String(localized: "security.cameras.disabledHint", defaultValue: "Администратор вуза выключил камеры или ещё не включил их.")
-                    )
-                    .listRowBackground(Color.clear)
-                } else if cameras.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "security.cameras.emptyTitle", defaultValue: "Камер пока нет"),
-                        symbol: "video",
-                        hint: String(localized: "security.cameras.emptyHint", defaultValue: "Администратор вуза ещё не добавил камеры.")
-                    )
-                    .listRowBackground(Color.clear)
-                } else {
+                if moduleEnabled, !cameras.isEmpty {
                     Section {
                         ForEach(cameras) { camera in
                             if selecting {
@@ -70,14 +56,28 @@ struct SecurityCamerasView: View {
                             : String(localized: "security.cameras.subtitle", defaultValue: "Видео в реальном времени, без звука. Каждый просмотр записывается в журнал."))
                     }
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(!moduleEnabled || cameras?.isEmpty != false) {
+            if cameras != nil, !moduleEnabled {
+                EmptyStateView(
+                    title: String(localized: "security.cameras.disabledTitle", defaultValue: "Камеры выключены"),
+                    symbol: "video.slash",
+                    hint: String(localized: "security.cameras.disabledHint", defaultValue: "Администратор вуза выключил камеры или ещё не включил их.")
+                )
+            } else if cameras != nil {
+                EmptyStateView(
+                    title: String(localized: "security.cameras.emptyTitle", defaultValue: "Камер пока нет"),
+                    symbol: "video",
+                    hint: String(localized: "security.cameras.emptyHint", defaultValue: "Администратор вуза ещё не добавил камеры.")
+                )
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(SecurityScreen.cameras.title))
         .toolbar {
             if moduleEnabled, let cameras, cameras.count > 1 {

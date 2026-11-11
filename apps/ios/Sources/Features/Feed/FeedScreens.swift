@@ -118,26 +118,7 @@ struct NotificationsView: View {
                     .listRowInsets(EdgeInsets())
             }
 
-            if model.items.isEmpty {
-                Group {
-                    if let failure = model.failure {
-                        ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
-                    } else if !loadedOnce || model.isLoading {
-                        LoadingStateView()
-                    } else {
-                        EmptyStateView(
-                            title: String(localized: "notifications.empty", defaultValue: "Уведомлений пока нет"),
-                            symbol: "bell.slash",
-                            hint: String(
-                                localized: "notifications.empty.hint",
-                                defaultValue: "Здесь появятся сообщения, изменения расписания и новости вуза"
-                            )
-                        )
-                    }
-                }
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-            } else {
+            if !model.items.isEmpty {
                 Section {
                     ForEach(model.items) { item in
                         Button {
@@ -170,6 +151,22 @@ struct NotificationsView: View {
             }
         }
         .listStyle(.plain)
+        .screenState(model.items.isEmpty) {
+            if let failure = model.failure {
+                ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
+            } else if !loadedOnce || model.isLoading {
+                LoadingStateView()
+            } else {
+                EmptyStateView(
+                    title: String(localized: "notifications.empty", defaultValue: "Уведомлений пока нет"),
+                    symbol: "bell.slash",
+                    hint: String(
+                        localized: "notifications.empty.hint",
+                        defaultValue: "Здесь появятся сообщения, изменения расписания и новости вуза"
+                    )
+                )
+            }
+        }
         .navigationTitle(Text(String(localized: "home.notifications", defaultValue: "Уведомления")))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

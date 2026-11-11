@@ -570,11 +570,13 @@ private struct BatchPrintSheet: View {
                             tint: TileTint.blue
                         )
                     }
-                } else if let loadFailure {
+                }
+            }
+            .screenState(rooms == nil) {
+                if let loadFailure {
                     ErrorStateView(message: loadFailure, isOffline: isOffline) { await load() }
-                        .listRowBackground(Color.clear)
                 } else {
-                    LoadingStateView().listRowBackground(Color.clear)
+                    LoadingStateView()
                 }
             }
             .navigationTitle(Text(String(localized: "uadmin.room.printBatch", defaultValue: "Наклейки на корпус или этаж")))

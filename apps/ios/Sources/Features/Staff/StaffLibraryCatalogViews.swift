@@ -843,13 +843,6 @@ private struct StaffCopyHistorySheet: View {
         NavigationStack {
             RemoteContent(load: { try await api.loans(filter: "all", copyID: copy.id, limit: 100) }) { loans in
                 List {
-                    if loans.isEmpty {
-                        EmptyStateView(
-                            title: String(localized: "staff.cat.history.empty", defaultValue: "Экземпляр ещё не выдавали"),
-                            symbol: "clock"
-                        )
-                        .listRowBackground(Color.clear)
-                    }
                     ForEach(loans) { loan in
                         VStack(alignment: .leading, spacing: 2) {
                             StaffLoanRow(loan: loan)
@@ -864,6 +857,12 @@ private struct StaffCopyHistorySheet: View {
                     }
                 }
                 .listStyle(.insetGrouped)
+                .screenState(loans.isEmpty) {
+                    EmptyStateView(
+                        title: String(localized: "staff.cat.history.empty", defaultValue: "Экземпляр ещё не выдавали"),
+                        symbol: "clock"
+                    )
+                }
             }
             .navigationTitle(Text(String(localized: "staff.cat.history.title", defaultValue: "История экземпляра \(copy.inventoryNumber)")))
             .navigationBarTitleDisplayMode(.inline)

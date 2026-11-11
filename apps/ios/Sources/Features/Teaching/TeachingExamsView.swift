@@ -39,55 +39,54 @@ struct TeachingExamsView: View {
                 }
             }
 
-            if let exams {
-                if exams.isEmpty {
-                    EmptyStateView(
-                        title: tab == nil
-                            ? String(localized: "teaching.exams.empty", defaultValue: "Экзамены не назначены")
-                            : String(localized: "teaching.exams.pastEmpty", defaultValue: "Прошедших экзаменов нет"),
-                        symbol: "rosette",
-                        hint: tab == nil ? String(localized: "teaching.exams.empty.hint", defaultValue: "Назначьте экзамен по дисциплине.") : nil,
-                        actionTitle: tab == nil ? String(localized: "teaching.exams.new", defaultValue: "Назначить экзамен") : nil,
-                        action: tab == nil ? { creating = true } : nil
-                    )
-                    .listRowBackground(Color.clear)
-                } else {
-                    Section {
-                        ForEach(exams) { exam in
-                            NavigationLink(value: AppRoute.teacher(.exam(id: exam.id))) {
-                                TeachingExamRow(exam: exam)
-                            }
-                            .contextMenu { menu(for: exam) }
-                            .swipeActions {
-                                if canManage(exam) {
-                                    Button(role: .destructive) {
-                                        deleting = exam
-                                    } label: {
-                                        Label(String(localized: "teaching.delete", defaultValue: "Удалить"), systemImage: "trash")
-                                    }
-                                    Button {
-                                        editing = exam
-                                    } label: {
-                                        Label(String(localized: "teaching.edit", defaultValue: "Изменить"), systemImage: "pencil")
-                                    }
-                                    .tint(Palette.info)
-                                }
-                            }
+            if let exams, !exams.isEmpty {
+                Section {
+                    ForEach(exams) { exam in
+                        NavigationLink(value: AppRoute.teacher(.exam(id: exam.id))) {
+                            TeachingExamRow(exam: exam)
                         }
-                    } footer: {
-                        if exams.count >= Self.listLimit {
-                            Text(String(localized: "teaching.exams.capped", defaultValue: "Показаны только ближайшие \(Self.listLimit.formatted()). Чтобы найти остальные, выберите период."))
+                        .contextMenu { menu(for: exam) }
+                        .swipeActions {
+                            if canManage(exam) {
+                                Button(role: .destructive) {
+                                    deleting = exam
+                                } label: {
+                                    Label(String(localized: "teaching.delete", defaultValue: "Удалить"), systemImage: "trash")
+                                }
+                                Button {
+                                    editing = exam
+                                } label: {
+                                    Label(String(localized: "teaching.edit", defaultValue: "Изменить"), systemImage: "pencil")
+                                }
+                                .tint(Palette.info)
+                            }
                         }
                     }
+                } footer: {
+                    if exams.count >= Self.listLimit {
+                        Text(String(localized: "teaching.exams.capped", defaultValue: "Показаны только ближайшие \(Self.listLimit.formatted()). Чтобы найти остальные, выберите период."))
+                    }
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(exams?.isEmpty != false) {
+            if exams != nil {
+                EmptyStateView(
+                    title: tab == nil
+                        ? String(localized: "teaching.exams.empty", defaultValue: "Экзамены не назначены")
+                        : String(localized: "teaching.exams.pastEmpty", defaultValue: "Прошедших экзаменов нет"),
+                    symbol: "rosette",
+                    hint: tab == nil ? String(localized: "teaching.exams.empty.hint", defaultValue: "Назначьте экзамен по дисциплине.") : nil,
+                    actionTitle: tab == nil ? String(localized: "teaching.exams.new", defaultValue: "Назначить экзамен") : nil,
+                    action: tab == nil ? { creating = true } : nil
+                )
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(TeacherScreen.exams.title))
         .floatingAction(String(localized: "teaching.exams.new", defaultValue: "Назначить экзамен")) {
             creating = true
@@ -266,14 +265,16 @@ struct TeachingExamDetailView: View {
                 } footer: {
                     Text(String(localized: "teaching.exams.roster.footer", defaultValue: "Недопущенному нельзя поставить «Сдан» или «Не сдан». Сохраняются только изменённые строки."))
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(exam == nil) {
+            if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(exam?.course.subject.name ?? TeacherScreen.exam(id: examID).title))
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: Text(String(localized: "teaching.searchStudent", defaultValue: "Найти студента")))

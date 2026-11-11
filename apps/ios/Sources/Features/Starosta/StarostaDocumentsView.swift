@@ -8,14 +8,7 @@ struct StarostaGroupDocumentsView: View {
     var body: some View {
         RemoteContent(reloadToken: reloadToken, load: { try await StarostaAPI().groupProgress() }) { requests in
             List {
-                if requests.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "starosta.documents.empty", defaultValue: "Открытых запросов для группы нет"),
-                        symbol: "tray",
-                        hint: String(localized: "starosta.documents.empty.hint", defaultValue: "Когда университет запросит документы у группы, факультета или всего вуза, здесь появится прогресс сдачи")
-                    )
-                    .listRowBackground(Color.clear)
-                } else {
+                if !requests.isEmpty {
                     Section {
                         ForEach(requests) { request in
                             NavigationLink(value: AppRoute.starosta(.groupDocumentRequest(id: request.id))) {
@@ -28,6 +21,13 @@ struct StarostaGroupDocumentsView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .screenState(requests.isEmpty) {
+                EmptyStateView(
+                    title: String(localized: "starosta.documents.empty", defaultValue: "Открытых запросов для группы нет"),
+                    symbol: "tray",
+                    hint: String(localized: "starosta.documents.empty.hint", defaultValue: "Когда университет запросит документы у группы, факультета или всего вуза, здесь появится прогресс сдачи")
+                )
+            }
             .refreshable { reloadToken += 1 }
         }
         .background(Palette.background)

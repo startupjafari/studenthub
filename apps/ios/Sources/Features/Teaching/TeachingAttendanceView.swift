@@ -121,14 +121,7 @@ struct TeachingAttendanceJournalView: View {
 
             if let pairs {
                 let day = teachingDayPairs(pairs: pairs, changes: changes, date: date, viewerID: viewerID)
-                if day.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "teaching.attendance.noPairs", defaultValue: "На эту дату занятий нет"),
-                        symbol: "calendar",
-                        hint: String(localized: "teaching.attendance.noPairs.hint", defaultValue: "Выберите другую дату.")
-                    )
-                    .listRowBackground(Color.clear)
-                } else {
+                if !day.isEmpty {
                     if let markedFailure {
                         StaleDataBanner(message: markedFailure, isOffline: markedOffline) { await loadMarked() }
                             .listRowInsets(EdgeInsets())
@@ -162,14 +155,22 @@ struct TeachingAttendanceJournalView: View {
                         .textCase(nil)
                     }
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(pairs.map { teachingDayPairs(pairs: $0, changes: changes, date: date, viewerID: viewerID).isEmpty } ?? true) {
+            if pairs != nil {
+                EmptyStateView(
+                    title: String(localized: "teaching.attendance.noPairs", defaultValue: "На эту дату занятий нет"),
+                    symbol: "calendar",
+                    hint: String(localized: "teaching.attendance.noPairs.hint", defaultValue: "Выберите другую дату.")
+                )
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(TeacherScreen.attendanceJournal.title))
         .refreshable { await load() }
         .task(id: TeachingAPI.day(date)) { await load() }

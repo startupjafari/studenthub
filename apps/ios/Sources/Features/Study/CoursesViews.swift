@@ -15,17 +15,7 @@ struct CoursesView: View {
     var body: some View {
         List {
             if let courses {
-                let terms = Self.grouped(filtered(courses))
-                if terms.isEmpty {
-                    EmptyStateView(
-                        title: query.isEmpty
-                            ? String(localized: "courses.empty", defaultValue: "Дисциплин пока нет")
-                            : String(localized: "services.notFound", defaultValue: "Ничего не нашлось"),
-                        symbol: "book.closed"
-                    )
-                    .listRowBackground(Color.clear)
-                }
-                ForEach(terms, id: \.title) { term in
+                ForEach(Self.grouped(filtered(courses)), id: \.title) { term in
                     Section {
                         ForEach(term.courses) { course in
                             NavigationLink {
@@ -38,14 +28,23 @@ struct CoursesView: View {
                         Text(term.title)
                     }
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(courses.map { Self.grouped(filtered($0)).isEmpty } ?? true) {
+            if courses != nil {
+                EmptyStateView(
+                    title: query.isEmpty
+                        ? String(localized: "courses.empty", defaultValue: "Дисциплин пока нет")
+                        : String(localized: "services.notFound", defaultValue: "Ничего не нашлось"),
+                    symbol: "book.closed"
+                )
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(MoreSection.subjects.title))
         .searchable(
             text: $query,
@@ -315,23 +314,9 @@ struct GroupMembersView: View {
 
     var body: some View {
         List {
-            if groupID == nil {
-                EmptyStateView(
-                    title: String(localized: "group.none", defaultValue: "Вы не состоите в группе"),
-                    symbol: "person.3"
-                )
-                .listRowBackground(Color.clear)
-            } else if let members {
+            if groupID != nil, let members {
                 let visible = filtered(members)
-                if visible.isEmpty {
-                    EmptyStateView(
-                        title: query.isEmpty
-                            ? String(localized: "uadmin.group.noMembers", defaultValue: "В группе пока нет участников")
-                            : String(localized: "services.notFound", defaultValue: "Ничего не нашлось"),
-                        symbol: query.isEmpty ? "person.3" : "magnifyingglass"
-                    )
-                    .listRowBackground(Color.clear)
-                } else {
+                if !visible.isEmpty {
                     Section {
                         ForEach(visible) { member in
                             NavigationLink(value: AppRoute.profile(id: member.id)) {
@@ -347,14 +332,28 @@ struct GroupMembersView: View {
                         Text(String(localized: "group.count", defaultValue: "Всего: \(members.count)"))
                     }
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(groupID == nil || members.map { filtered($0).isEmpty } ?? true) {
+            if groupID == nil {
+                EmptyStateView(
+                    title: String(localized: "group.none", defaultValue: "Вы не состоите в группе"),
+                    symbol: "person.3"
+                )
+            } else if members != nil {
+                EmptyStateView(
+                    title: query.isEmpty
+                        ? String(localized: "uadmin.group.noMembers", defaultValue: "В группе пока нет участников")
+                        : String(localized: "services.notFound", defaultValue: "Ничего не нашлось"),
+                    symbol: query.isEmpty ? "person.3" : "magnifyingglass"
+                )
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(title))
         .searchable(
             text: $query,

@@ -37,14 +37,16 @@ struct DeanAnalyticsView: View {
                 } else {
                     students(total: overview.totals.students)
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .dashboardListStyle()
+        .screenState(overview == nil) {
+            if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(DeanScreen.analytics.title))
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
