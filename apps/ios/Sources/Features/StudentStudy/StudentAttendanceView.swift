@@ -17,14 +17,7 @@ struct StudentAttendanceView: View {
     var body: some View {
         RemoteContent(reloadToken: reloadToken, load: { try await StudyAPI().attendance() }) { summary in
             List {
-                if summary.total == 0 {
-                    EmptyStateView(
-                        title: String(localized: "student.attendance.empty", defaultValue: "Данных о посещаемости нет"),
-                        symbol: "calendar.badge.checkmark",
-                        hint: String(localized: "student.attendance.emptyHint", defaultValue: "Отметки появятся после занятий.")
-                    )
-                    .listRowBackground(Color.clear)
-                } else {
+                if summary.total != 0 {
                     Section {
                         StudentAttendanceRing(summary: summary)
                     }
@@ -61,6 +54,13 @@ struct StudentAttendanceView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .screenState(summary.total == 0) {
+                EmptyStateView(
+                    title: String(localized: "student.attendance.empty", defaultValue: "Данных о посещаемости нет"),
+                    symbol: "calendar.badge.checkmark",
+                    hint: String(localized: "student.attendance.emptyHint", defaultValue: "Отметки появятся после занятий.")
+                )
+            }
             .refreshable { reloadToken += 1 }
         }
         .background(Palette.background)

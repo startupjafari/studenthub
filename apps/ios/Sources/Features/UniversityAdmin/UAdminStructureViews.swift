@@ -105,64 +105,62 @@ private struct NameCatalogView: View {
 
     var body: some View {
         List {
-            if let items {
-                if items.isEmpty {
-                    EmptyStateView(
-                        title: kind.emptyTitle,
-                        symbol: kind.symbol,
-                        hint: kind.emptyHint,
-                        actionTitle: kind.addTitle,
-                        action: { creating = true }
-                    )
-                    .listRowBackground(Color.clear)
-                } else if visible.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "uadmin.picker.nothing", defaultValue: "Ничего не найдено"),
-                        symbol: "magnifyingglass"
-                    )
-                    .listRowBackground(Color.clear)
-                } else {
-                    Section {
-                        ForEach(visible) { item in
-                            row(item)
-                                .swipeActions {
-                                    Button(role: .destructive) {
-                                        deleting = item
-                                    } label: {
-                                        Label(String(localized: "uadmin.delete", defaultValue: "Удалить"), systemImage: "trash")
-                                    }
-                                    Button {
-                                        renaming = item
-                                    } label: {
-                                        Label(String(localized: "uadmin.rename", defaultValue: "Переименовать"), systemImage: "pencil")
-                                    }
-                                    .tint(Palette.primary)
+            if let items, !visible.isEmpty {
+                Section {
+                    ForEach(visible) { item in
+                        row(item)
+                            .swipeActions {
+                                Button(role: .destructive) {
+                                    deleting = item
+                                } label: {
+                                    Label(String(localized: "uadmin.delete", defaultValue: "Удалить"), systemImage: "trash")
                                 }
-                                .contextMenu {
-                                    Button {
-                                        renaming = item
-                                    } label: {
-                                        Label(String(localized: "uadmin.rename", defaultValue: "Переименовать"), systemImage: "pencil")
-                                    }
-                                    Button(role: .destructive) {
-                                        deleting = item
-                                    } label: {
-                                        Label(String(localized: "uadmin.delete", defaultValue: "Удалить"), systemImage: "trash")
-                                    }
+                                Button {
+                                    renaming = item
+                                } label: {
+                                    Label(String(localized: "uadmin.rename", defaultValue: "Переименовать"), systemImage: "pencil")
                                 }
-                        }
-                    } footer: {
-                        Text(String(localized: "common.totalCount", defaultValue: "Всего: \(items.count.formatted())"))
+                                .tint(Palette.primary)
+                            }
+                            .contextMenu {
+                                Button {
+                                    renaming = item
+                                } label: {
+                                    Label(String(localized: "uadmin.rename", defaultValue: "Переименовать"), systemImage: "pencil")
+                                }
+                                Button(role: .destructive) {
+                                    deleting = item
+                                } label: {
+                                    Label(String(localized: "uadmin.delete", defaultValue: "Удалить"), systemImage: "trash")
+                                }
+                            }
                     }
+                } footer: {
+                    Text(String(localized: "common.totalCount", defaultValue: "Всего: \(items.count.formatted())"))
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(items == nil || visible.isEmpty) {
+            if let items, items.isEmpty {
+                EmptyStateView(
+                    title: kind.emptyTitle,
+                    symbol: kind.symbol,
+                    hint: kind.emptyHint,
+                    actionTitle: kind.addTitle,
+                    action: { creating = true }
+                )
+            } else if items != nil {
+                EmptyStateView(
+                    title: String(localized: "uadmin.picker.nothing", defaultValue: "Ничего не найдено"),
+                    symbol: "magnifyingglass"
+                )
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(kind.title))
         .uadminSearchable($query, prompt: String(localized: "uadmin.searchByName", defaultValue: "Поиск по названию"))
         .floatingAction(kind.addTitle) { creating = true }

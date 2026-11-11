@@ -10,6 +10,7 @@ struct SupportView: View {
     @State private var failure: String?
     @State private var isSending = false
     @State private var sent = false
+    @FocusState private var editing: Bool
 
     private var canSend: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).count >= 10 && !isSending }
 
@@ -24,7 +25,10 @@ struct SupportView: View {
                     text: $text,
                     axis: .vertical
                 )
+                // Пять строк сразу — видно, что писать можно подробно; дальше поле растёт
+                // до двенадцати и прокручивается внутри, кнопка не уезжает за клавиатуру.
                 .lineLimit(5...12)
+                .focused($editing)
             } footer: {
                 Text(String(
                     localized: "settings.support.footer",
@@ -44,8 +48,19 @@ struct SupportView: View {
                 .listRowBackground(Color.clear)
             }
         }
+        .settingsFormLayout()
+        .hardTopEdge()
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle(Text(String(localized: "settings.support", defaultValue: "Поддержка")))
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // В многострочном поле «Ввод» переносит строку, а не закрывает клавиатуру:
+            // без «Готово» над ней до «Отправить» было не добраться, не смахивая список.
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button(String(localized: "common.done", defaultValue: "Готово")) { editing = false }
+            }
+        }
         .alert(
             String(localized: "settings.support.sent", defaultValue: "Обращение отправлено"),
             isPresented: $sent
@@ -118,9 +133,12 @@ struct DeleteAccountView: View {
                     SecureField(String(localized: "settings.password.current", defaultValue: "Текущий пароль"), text: $password)
                         .textContentType(.password)
                     if needsCode {
+                        // Код из приложения или резервный (8 знаков 0–9 и A–F): нужны буквы.
                         TextField(String(localized: "settings.2fa.code", defaultValue: "Код"), text: $code)
                             .textContentType(.oneTimeCode)
                             .keyboardType(.asciiCapable)
+                            .textInputAutocapitalization(.characters)
+                            .autocorrectionDisabled()
                     }
                 } footer: {
                     Text(String(
@@ -141,11 +159,17 @@ struct DeleteAccountView: View {
                     }
                     .disabled(!canDelete)
                 }
-            } else if let checkFailure {
+            }
+        }
+        .settingsFormLayout()
+        .hardTopEdge()
+        // Проверка ещё идёт или не пришла — состояние по центру экрана, как на других
+        // разделах, а не строкой формы под панелью.
+        .screenState(check == nil) {
+            if let checkFailure {
                 ErrorStateView(message: checkFailure, isOffline: checkOffline) { await loadCheck() }
-                    .listRowBackground(Color.clear)
             } else {
-                LoadingStateView().listRowBackground(Color.clear)
+                LoadingStateView()
             }
         }
         .navigationTitle(Text(String(localized: "settings.deleteAccount", defaultValue: "Удалить аккаунт")))

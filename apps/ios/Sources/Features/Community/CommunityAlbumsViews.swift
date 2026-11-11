@@ -93,68 +93,63 @@ struct CommunityAlbumsView: View {
     private var isMine: Bool { userID == nil || userID == viewerID }
 
     var body: some View {
+        // Загрузка фото — «+» на вкладке «Фото» профиля; здесь только альбомы, без
+        // полосы загрузки над списком.
         List {
-            if isMine {
+            if let albums, !albums.isEmpty {
                 Section {
-                    CommunityMediaUploadButton { _ in await load() }
-                }
-            }
-            if let albums {
-                if albums.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "community.albums.empty", defaultValue: "Альбомов пока нет"),
-                        symbol: "photo.stack",
-                        hint: isMine ? String(localized: "community.albums.empty.hint", defaultValue: "Соберите фото по темам: поездки, проекты, мероприятия") : nil
-                    )
-                    .centeredInScreen()
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                } else {
-                    Section {
-                        ForEach(albums) { album in
-                            NavigationLink(value: AppRoute.community(.album(id: album.id, userID: ownerID))) {
-                                CommunityAlbumLine(album: album)
-                            }
-                            .swipeActions {
-                                if isMine {
-                                    Button(role: .destructive) {
-                                        deleting = album
-                                    } label: {
-                                        Label(String(localized: "feed.delete", defaultValue: "Удалить"), systemImage: "trash")
-                                    }
-                                    Button {
-                                        renameTitle = album.title
-                                        renaming = album
-                                    } label: {
-                                        Label(String(localized: "community.albums.rename", defaultValue: "Переименовать"), systemImage: "pencil")
-                                    }
+                    ForEach(albums) { album in
+                        NavigationLink(value: AppRoute.community(.album(id: album.id, userID: ownerID))) {
+                            CommunityAlbumLine(album: album)
+                        }
+                        .swipeActions {
+                            if isMine {
+                                Button(role: .destructive) {
+                                    deleting = album
+                                } label: {
+                                    Label(String(localized: "feed.delete", defaultValue: "Удалить"), systemImage: "trash")
+                                }
+                                Button {
+                                    renameTitle = album.title
+                                    renaming = album
+                                } label: {
+                                    Label(String(localized: "community.albums.rename", defaultValue: "Переименовать"), systemImage: "pencil")
                                 }
                             }
-                            .contextMenu {
-                                if isMine {
-                                    Button {
-                                        renameTitle = album.title
-                                        renaming = album
-                                    } label: {
-                                        Label(String(localized: "community.albums.rename", defaultValue: "Переименовать"), systemImage: "pencil")
-                                    }
-                                    Button(role: .destructive) {
-                                        deleting = album
-                                    } label: {
-                                        Label(String(localized: "feed.delete", defaultValue: "Удалить"), systemImage: "trash")
-                                    }
+                        }
+                        .contextMenu {
+                            if isMine {
+                                Button {
+                                    renameTitle = album.title
+                                    renaming = album
+                                } label: {
+                                    Label(String(localized: "community.albums.rename", defaultValue: "Переименовать"), systemImage: "pencil")
+                                }
+                                Button(role: .destructive) {
+                                    deleting = album
+                                } label: {
+                                    Label(String(localized: "feed.delete", defaultValue: "Удалить"), systemImage: "trash")
                                 }
                             }
                         }
                     }
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }.listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
-        .listStyle(.insetGrouped)
+        .compactListStyle()
+        .screenState(albums?.isEmpty != false) {
+            if albums != nil {
+                EmptyStateView(
+                    title: String(localized: "community.albums.empty", defaultValue: "Альбомов пока нет"),
+                    symbol: "photo.stack",
+                    hint: isMine ? String(localized: "community.albums.empty.hint", defaultValue: "Соберите фото по темам: поездки, проекты, мероприятия") : nil
+                )
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(CommunityScreen.albums(userID: nil).title))
         .navigationBarTitleDisplayMode(.inline)
         .communityFloatingAction(isMine, String(localized: "community.albums.new", defaultValue: "Новый альбом"), symbol: "plus.rectangle.on.folder") {

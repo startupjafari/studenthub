@@ -51,10 +51,7 @@ struct DeanExamsView: View {
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets())
                 }
-                if exams.isEmpty {
-                    emptyState
-                        .listRowBackground(Color.clear)
-                } else {
+                if !exams.isEmpty {
                     Section {
                         ForEach(exams) { exam in
                             examRow(exam)
@@ -65,14 +62,18 @@ struct DeanExamsView: View {
                         }
                     }
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
-        .listStyle(.insetGrouped)
+        .compactListStyle()
+        .screenState(exams?.isEmpty != false) {
+            if exams != nil {
+                emptyState
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(DeanScreen.exams.title))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -419,15 +420,17 @@ struct DeanExamRosterView: View {
                         Text(String(localized: "dean.roster.hint", defaultValue: "«Сдал» и «Не сдал» — только у допущенных. Балл — от 0 до максимума."))
                     }
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(.compact)
+        .screenState(roster == nil) {
+            if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .scrollDismissesKeyboard(.interactively)
         .navigationTitle(Text(DeanScreen.examRoster(id: examID).title))
         .navigationBarTitleDisplayMode(.inline)

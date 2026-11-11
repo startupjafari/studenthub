@@ -55,25 +55,11 @@ private struct TeachingScheduleChangesList: View {
             }
 
             if let changes {
-                if changes.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "teaching.schedule.noChanges", defaultValue: "Изменений нет"),
-                        symbol: "calendar.badge.checkmark",
-                        hint: String(localized: "teaching.schedule.noChanges.hint", defaultValue: "Переносы, отмены и замены ваших пар появятся здесь.")
-                    )
-                    .listRowBackground(Color.clear)
-                } else {
-                    ForEach(groupedByDay(changes), id: \.day) { group in
-                        Section(group.title) {
-                            ForEach(group.items) { change in changeRow(change) }
-                        }
+                ForEach(groupedByDay(changes), id: \.day) { group in
+                    Section(group.title) {
+                        ForEach(group.items) { change in changeRow(change) }
                     }
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
 
             Section {
@@ -84,6 +70,19 @@ private struct TeachingScheduleChangesList: View {
             .listRowBackground(Color.clear)
         }
         .listStyle(.insetGrouped)
+        .screenState(changes?.isEmpty != false) {
+            if changes != nil {
+                EmptyStateView(
+                    title: String(localized: "teaching.schedule.noChanges", defaultValue: "Изменений нет"),
+                    symbol: "calendar.badge.checkmark",
+                    hint: String(localized: "teaching.schedule.noChanges.hint", defaultValue: "Переносы, отмены и замены ваших пар появятся здесь.")
+                )
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .refreshable { await load() }
         .task(id: weeks) { await load() }
     }
@@ -204,33 +203,43 @@ private struct TeachingPairsEditor: View {
                     }
                 }
 
-                if groups.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "teaching.schedule.noGroups", defaultValue: "Групп пока нет"),
-                        symbol: "person.3",
-                        hint: String(localized: "teaching.schedule.noGroups.hint", defaultValue: "Пары можно править в группах, где вы ведёте дисциплины.")
-                    )
-                    .listRowBackground(Color.clear)
-                } else if !groupID.isEmpty, containers.isEmpty, failure == nil {
-                    EmptyStateView(
-                        title: String(localized: "teaching.schedule.noContainers", defaultValue: "Расписания нет"),
-                        symbol: "calendar.badge.plus",
-                        hint: String(localized: "teaching.schedule.noContainers.hint", defaultValue: "Расписание группы составляет деканат. Когда оно появится, вы сможете править свои пары.")
-                    )
-                    .listRowBackground(Color.clear)
-                }
                 if let detail {
                     pairsSections(detail)
                 }
             }
-            if let failure {
+            // Сбой над уже показанными парами — строкой под ними; без пар он по центру.
+            if let failure, groups != nil, detail != nil {
                 ErrorStateView(message: failure, isOffline: isOffline) { await loadAll() }
                     .listRowBackground(Color.clear)
-            } else if groups == nil {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(showsState) {
+            if let groups, groups.isEmpty {
+                EmptyStateView(
+                    title: String(localized: "teaching.schedule.noGroups", defaultValue: "Групп пока нет"),
+                    symbol: "person.3",
+                    hint: String(localized: "teaching.schedule.noGroups.hint", defaultValue: "Пары можно править в группах, где вы ведёте дисциплины.")
+                )
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await loadAll() }
+            } else if groups == nil {
+                LoadingStateView()
+            } else if containers.isEmpty {
+                EmptyStateView(
+                    title: String(localized: "teaching.schedule.noContainers", defaultValue: "Расписания нет"),
+                    symbol: "calendar.badge.plus",
+                    hint: String(localized: "teaching.schedule.noContainers.hint", defaultValue: "Расписание группы составляет деканат. Когда оно появится, вы сможете править свои пары.")
+                )
+            } else {
+                EmptyStateView(
+                    title: String(localized: "teaching.schedule.noPairs", defaultValue: "Пар нет"),
+                    symbol: "calendar",
+                    actionTitle: String(localized: "teaching.schedule.addPair", defaultValue: "Добавить пару"),
+                    action: { adding = true }
+                )
+            }
+        }
         // Добавить пару можно только в выбранную версию расписания.
         .modifier(TeachingAddPairButton(isShown: !containerID.isEmpty) { adding = true })
         .sheet(isPresented: $adding) {
@@ -245,18 +254,24 @@ private struct TeachingPairsEditor: View {
         .onChange(of: containerID) { Task { await loadDetail() } }
     }
 
+    /// Состояние вместо сетки: группы грузятся или их нет, у группы нет расписания,
+    /// в версии нет пар (с учётом «Только мои»), сбой без показанных пар.
+    private var showsState: Bool {
+        guard let groups else { return true }
+        if groups.isEmpty { return true }
+        if failure != nil { return detail == nil }
+        if !groupID.isEmpty, containers.isEmpty { return true }
+        if let detail { return visiblePairs(detail).isEmpty }
+        return false
+    }
+
+    private func visiblePairs(_ detail: TeachingScheduleDetailDTO) -> [PairDTO] {
+        detail.pairs.filter { !onlyMine || $0.teacher?.id == viewerID }
+    }
+
     @ViewBuilder
     private func pairsSections(_ detail: TeachingScheduleDetailDTO) -> some View {
-        let visible = detail.pairs.filter { !onlyMine || $0.teacher?.id == viewerID }
-        if visible.isEmpty {
-            EmptyStateView(
-                title: String(localized: "teaching.schedule.noPairs", defaultValue: "Пар нет"),
-                symbol: "calendar",
-                actionTitle: String(localized: "teaching.schedule.addPair", defaultValue: "Добавить пару"),
-                action: { adding = true }
-            )
-            .listRowBackground(Color.clear)
-        }
+        let visible = visiblePairs(detail)
         ForEach(1...7, id: \.self) { day in
             let pairs = visible.filter { $0.dayOfWeek == day }.sorted { $0.startTime < $1.startTime }
             if !pairs.isEmpty {

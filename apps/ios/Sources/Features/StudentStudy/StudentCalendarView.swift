@@ -38,7 +38,7 @@ struct StudentCalendarView: View {
 
             FilterChipsRow(options: Self.filterOptions, selection: $filter)
 
-            if let data, Self.calendar.isDate(data.anchor, equalTo: anchor, toGranularity: .month) {
+            if let data = shownData {
                 if let failure {
                     StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
                         .listRowBackground(Color.clear)
@@ -59,28 +59,27 @@ struct StudentCalendarView: View {
                         dayDetails(day, items: byDay[day] ?? [], showEmpty: true)
                     }
                 } else {
-                    let days = Self.cells(for: anchor).map(Self.dayKey).filter { (byDay[$0]?.isEmpty == false) || StudentHoliday.on($0) != nil }
-                    if days.isEmpty {
-                        EmptyStateView(
-                            title: String(localized: "student.calendar.empty", defaultValue: "Событий нет"),
-                            symbol: "tray",
-                            hint: String(localized: "student.calendar.emptyHint", defaultValue: "В этом месяце пока ничего не запланировано.")
-                        )
-                        .listRowBackground(Color.clear)
-                    }
-                    ForEach(days, id: \.self) { day in
+                    ForEach(agendaDays(byDay), id: \.self) { day in
                         dayDetails(day, items: byDay[day] ?? [], showEmpty: false)
                     }
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(.compact)
+        .screenState(isStateShown) {
+            if shownData != nil {
+                EmptyStateView(
+                    title: String(localized: "student.calendar.empty", defaultValue: "Событий нет"),
+                    symbol: "tray",
+                    hint: String(localized: "student.calendar.emptyHint", defaultValue: "В этом месяце пока ничего не запланировано.")
+                )
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(StudentScreen.calendar.title))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -273,6 +272,24 @@ struct StudentCalendarView: View {
         let parts = key.split(separator: "-").compactMap { Int($0) }
         guard parts.count == 3 else { return nil }
         return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
+    }
+
+    /// Загруженный месяц, если это тот, что на экране.
+    private var shownData: Loaded? {
+        guard let data, Self.calendar.isDate(data.anchor, equalTo: anchor, toGranularity: .month) else { return nil }
+        return data
+    }
+
+    /// Месяц ещё не пришёл (загрузка, сбой) или в повестке пусто.
+    private var isStateShown: Bool {
+        guard let data = shownData else { return true }
+        guard mode == .agenda else { return false }
+        return agendaDays(Self.group(data.items.filter { filter == nil || $0.kind == filter })).isEmpty
+    }
+
+    /// Дни повестки: в которых что-то есть или праздник.
+    private func agendaDays(_ byDay: [String: [StudentCalendarItem]]) -> [String] {
+        Self.cells(for: anchor).map(Self.dayKey).filter { (byDay[$0]?.isEmpty == false) || StudentHoliday.on($0) != nil }
     }
 
     private static func group(_ items: [StudentCalendarItem]) -> [String: [StudentCalendarItem]] {

@@ -11,9 +11,7 @@ struct LibraryCatalogView: View {
 
     var body: some View {
         List {
-            if model.isDisabled {
-                LibraryDisabledView()
-            } else {
+            if !model.isDisabled {
                 if !model.sections.isEmpty {
                     FilterChipsRow(options: sectionOptions, selection: $model.query.section)
                 }
@@ -40,6 +38,13 @@ struct LibraryCatalogView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(model.isDisabled || model.books.isEmpty) {
+            if model.isDisabled {
+                LibraryDisabledView()
+            } else {
+                booksState
+            }
+        }
         .navigationTitle(Text(String(localized: "library.title", defaultValue: "Библиотека")))
         .searchable(
             text: $model.query.text,
@@ -89,39 +94,37 @@ struct LibraryCatalogView: View {
         return options
     }
 
+    /// Книг на экране нет: первая загрузка, сбой, пустой поиск или пустой каталог.
+    @ViewBuilder
+    private var booksState: some View {
+        if model.loadedQuery == nil {
+            if let failure = model.failure, !model.isLoading {
+                ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
+            } else {
+                LoadingStateView()
+            }
+        } else if model.isLoading {
+            ProgressView()
+        } else if let failure = model.failure {
+            // Сбой — не «ничего не найдено»: пустой список здесь значит, что ответа нет.
+            ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
+        } else if model.query.isFiltered {
+            EmptyStateView(
+                title: String(localized: "library.nothingFound", defaultValue: "Ничего не найдено"),
+                symbol: "magnifyingglass",
+                hint: String(localized: "services.notFound.hint", defaultValue: "Попробуйте другое слово")
+            )
+        } else {
+            EmptyStateView(
+                title: String(localized: "library.emptyCatalog", defaultValue: "Библиотека ещё заполняет каталог — загляните позже."),
+                symbol: "books.vertical"
+            )
+        }
+    }
+
     @ViewBuilder
     private var books: some View {
-        if model.books.isEmpty {
-            if model.loadedQuery == nil {
-                if let failure = model.failure, !model.isLoading {
-                    ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
-                        .listRowBackground(Color.clear)
-                } else {
-                    LoadingStateView().listRowBackground(Color.clear)
-                }
-            } else if model.isLoading {
-                ProgressView()
-                    .frame(maxWidth: .infinity)
-                    .listRowBackground(Color.clear)
-            } else if let failure = model.failure {
-                // Сбой — не «ничего не найдено»: пустой список здесь значит, что ответа нет.
-                ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
-                    .listRowBackground(Color.clear)
-            } else if model.query.isFiltered {
-                EmptyStateView(
-                    title: String(localized: "library.nothingFound", defaultValue: "Ничего не найдено"),
-                    symbol: "magnifyingglass",
-                    hint: String(localized: "services.notFound.hint", defaultValue: "Попробуйте другое слово")
-                )
-                .listRowBackground(Color.clear)
-            } else {
-                EmptyStateView(
-                    title: String(localized: "library.emptyCatalog", defaultValue: "Библиотека ещё заполняет каталог — загляните позже."),
-                    symbol: "books.vertical"
-                )
-                .listRowBackground(Color.clear)
-            }
-        } else {
+        if !model.books.isEmpty {
             Section {
                 ForEach(model.books) { book in
                     NavigationLink(value: AppRoute.book(id: book.id)) {

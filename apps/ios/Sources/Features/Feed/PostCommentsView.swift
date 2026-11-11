@@ -45,6 +45,9 @@ struct PostCommentsView: View {
                     .padding(Spacing.xl)
                 }
                 .scrollDismissesKeyboard(.interactively)
+                .screenState(!showsPost && model.map { !$0.isLoading && $0.comments.isEmpty } == true) {
+                    if let model { commentsState(model) }
+                }
                 .background(Palette.background)
                 .refreshable { await reload() }
                 .onChange(of: model?.comments.last?.id) { _, last in
@@ -96,6 +99,20 @@ struct PostCommentsView: View {
         if let post = model?.post { feed.insert(post) }
     }
 
+    /// Комментариев нет: сбой загрузки или пусто.
+    @ViewBuilder
+    private func commentsState(_ model: PostCommentsModel) -> some View {
+        if let failure = model.failure {
+            ErrorStateView(message: failure, isOffline: model.isOffline) { await reload() }
+        } else {
+            EmptyStateView(
+                title: String(localized: "feed.noComments", defaultValue: "Комментариев пока нет"),
+                symbol: "bubble.left.and.bubble.right",
+                hint: String(localized: "feed.noComments.hint", defaultValue: "Напишите первым")
+            )
+        }
+    }
+
     @ViewBuilder
     private var commentsSection: some View {
         if let model {
@@ -124,14 +141,9 @@ struct PostCommentsView: View {
                         }
                     }
                 }
-            } else if let failure = model.failure, model.comments.isEmpty {
-                ErrorStateView(message: failure, isOffline: model.isOffline) { await reload() }
-            } else if model.comments.isEmpty {
-                EmptyStateView(
-                    title: String(localized: "feed.noComments", defaultValue: "Комментариев пока нет"),
-                    symbol: "bubble.left.and.bubble.right",
-                    hint: String(localized: "feed.noComments.hint", defaultValue: "Напишите первым")
-                )
+            } else if showsPost, model.comments.isEmpty {
+                // Под постом — строкой; без поста состояние встаёт по центру (`commentsState`).
+                commentsState(model)
             }
 
             ForEach(model.roots) { root in

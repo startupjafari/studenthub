@@ -13,9 +13,15 @@ import SwiftUI
 extension View {
     /// Стиль списка обзора: сгруппированный, с плотными промежутками между секциями —
     /// на обзоре много коротких блоков, и стандартный зазор растягивает экран вдвое.
+    ///
+    /// Зазор между секциями — тот же шаг, что между плитками внутри сетки: переключатель,
+    /// плитки и карточки графиков стоят ровной колонкой, без полос разной ширины. Сверху —
+    /// тот же отступ от панели, что у остальных плотных списков (`compactListStyle`), а
+    /// не системные 35 pt над первой секцией.
     func dashboardListStyle() -> some View {
         listStyle(.insetGrouped)
-            .listSectionSpacing(.compact)
+            .listSectionSpacing(DashboardMetrics.gap)
+            .contentMargins(.top, Spacing.sm, for: .scrollContent)
     }
 }
 
@@ -93,10 +99,7 @@ struct DashboardMetricTile: View {
                 DashboardIconBadge(symbol: metric.symbol, tint: metric.tint)
                 Spacer(minLength: Spacing.md)
                 if metric.route != nil {
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Palette.input)
-                        .accessibilityHidden(true)
+                    DashboardOpenBadge()
                 }
             }
             valueText
@@ -152,6 +155,21 @@ struct DashboardMetricTile: View {
     }
 }
 
+/// Знак «открывается» в углу плитки: стрелка в круге. Бледный шеврон у края плитки
+/// читался как случайная чёрточка у соседнего столбца, а не как переход.
+struct DashboardOpenBadge: View {
+    @ScaledMetric(relativeTo: .footnote) private var size: CGFloat = 24
+
+    var body: some View {
+        Image(systemName: "arrow.up.right")
+            .font(.caption.weight(.bold))
+            .foregroundStyle(Palette.mutedForeground)
+            .frame(width: size, height: size)
+            .background(Palette.foreground.opacity(0.08), in: Circle())
+            .accessibilityHidden(true)
+    }
+}
+
 /// Сетка плиток: два столбца, ряды выровнены по самой высокой плитке. На крупных
 /// размерах шрифта — один столбец: в половине ширины подписи рвались бы по слогам.
 /// Непарная последняя плитка занимает ряд целиком.
@@ -166,9 +184,9 @@ struct DashboardTileGrid<Item: Identifiable, Tile: View>: View {
         let rows = stride(from: 0, to: items.count, by: columns).map { start in
             Array(items[start..<min(start + columns, items.count)])
         }
-        VStack(spacing: Spacing.md) {
+        VStack(spacing: DashboardMetrics.gap) {
             ForEach(rows.indices, id: \.self) { index in
-                HStack(alignment: .top, spacing: Spacing.md) {
+                HStack(alignment: .top, spacing: DashboardMetrics.gap) {
                     ForEach(rows[index]) { item in
                         tile(item)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -187,15 +205,32 @@ struct DashboardMetricGrid: View {
     var body: some View {
         DashboardTileGrid(items: metrics) { metric in
             if let route = metric.route {
-                NavigationLink(value: route) {
+                DashboardRouteButton(route: route) {
                     DashboardMetricTile(metric: metric)
                 }
-                // В строке списка без своего стиля нажатие уходило бы всей строке, а не плитке.
-                .buttonStyle(.plain)
             } else {
                 DashboardMetricTile(metric: metric)
             }
         }
+    }
+}
+
+/// Переход с плитки в строке списка. Кнопка, а не `NavigationLink`: ссылку в строке
+/// `List` система помечает своим шевроном — он вставал снаружи каждой плитки, справа
+/// от столбца, вторым знаком рядом со стрелкой в углу.
+struct DashboardRouteButton<Content: View>: View {
+    let route: AppRoute
+    @ViewBuilder let label: () -> Content
+
+    var body: some View {
+        Button {
+            let router = AppServices.router
+            router.stacks[router.selectedTab, default: []].append(route)
+        } label: {
+            label()
+        }
+        // В строке списка без своего стиля нажатие уходило бы всей строке, а не плитке.
+        .buttonStyle(.plain)
     }
 }
 
@@ -252,7 +287,7 @@ struct DashboardShortcutsSection: View {
 
     private var grid: some View {
         DashboardTileGrid(items: shortcuts) { shortcut in
-            NavigationLink(value: shortcut.route) {
+            DashboardRouteButton(route: shortcut.route) {
                 HStack(spacing: Spacing.md) {
                     DashboardIconBadge(symbol: shortcut.symbol, tint: shortcut.tint)
                     Text(shortcut.title)
@@ -538,7 +573,9 @@ struct DashboardEmptyRow: View {
 
 // MARK: - Период
 
-/// Селектор периода над содержимым: сегменты (на iOS 26 — стеклянные сами по себе).
+/// Селектор периода или темы над содержимым — та же капсула-дорожка, что вкладки
+/// профиля, друзей и статей (`FilterChips`). Системный сегментный переключатель был
+/// ниже и площе их, и один экран приложения выглядел чужим среди остальных.
 struct DashboardPeriodPicker<Value: Hashable>: View {
     let title: String
     @Binding var selection: Value
@@ -546,14 +583,13 @@ struct DashboardPeriodPicker<Value: Hashable>: View {
 
     var body: some View {
         Section {
-            Picker(title, selection: $selection) {
-                ForEach(options.indices, id: \.self) { index in
-                    Text(options[index].label).tag(options[index].value)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            FilterChips(
+                options: options.map { (value: Optional($0.value), title: $0.label) },
+                selection: Binding(get: { selection }, set: { if let next = $0 { selection = next } }),
+                fillsWidth: true
+            )
             .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
             .listRowInsets(EdgeInsets())
         }
     }
@@ -565,6 +601,8 @@ enum DashboardMetrics {
     /// Плитка мельче секции списка — и скругление на ступень меньше `Radius.card`,
     /// иначе маленькие карточки выглядят «надутыми».
     static let tileRadius: CGFloat = Radius.xxxl
+    /// Шаг между плитками и между секциями обзора — один на весь экран.
+    static let gap: CGFloat = Spacing.lg
     static let chartHeight: CGFloat = 180
     static let valueFont = Font.system(.title2, design: .rounded, weight: .semibold).monospacedDigit()
 }

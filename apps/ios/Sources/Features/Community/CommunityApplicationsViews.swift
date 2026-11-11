@@ -144,20 +144,11 @@ struct CommunityServiceCatalog: View {
         RemoteContent {
             try await CommunityAPI().serviceCategories()
         } content: { categories in
+            let needle = search.trimmingCharacters(in: .whitespaces).lowercased()
+            let visible = categories.map { category in
+                (category, category.services.filter { needle.isEmpty || $0.name.lowercased().contains(needle) })
+            }.filter { !$0.1.isEmpty }
             List {
-                let needle = search.trimmingCharacters(in: .whitespaces).lowercased()
-                let visible = categories.map { category in
-                    (category, category.services.filter { needle.isEmpty || $0.name.lowercased().contains(needle) })
-                }.filter { !$0.1.isEmpty }
-                if visible.isEmpty {
-                    EmptyStateView(
-                        title: needle.isEmpty
-                            ? String(localized: "applications.noServices", defaultValue: "Вуз пока не завёл услуги")
-                            : String(localized: "community.applications.noServiceFound", defaultValue: "Такой услуги нет"),
-                        symbol: "square.grid.2x2"
-                    )
-                    .listRowBackground(Color.clear)
-                }
                 ForEach(visible, id: \.0.id) { category, services in
                     Section {
                         ForEach(services) { service in
@@ -177,6 +168,14 @@ struct CommunityServiceCatalog: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .screenState(visible.isEmpty) {
+                EmptyStateView(
+                    title: needle.isEmpty
+                        ? String(localized: "applications.noServices", defaultValue: "Вуз пока не завёл услуги")
+                        : String(localized: "community.applications.noServiceFound", defaultValue: "Такой услуги нет"),
+                    symbol: "square.grid.2x2"
+                )
+            }
         }
         .background(Palette.background)
         .searchable(
@@ -366,11 +365,13 @@ struct CommunityApplicationForm: View {
                         Text(String(localized: "applications.fillRequired", defaultValue: "Заполните обязательные поля"))
                     }
                 }
-            } else if let loadFailure {
+            }
+        }
+        .screenState(service == nil) {
+            if let loadFailure {
                 ErrorStateView(message: loadFailure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
             } else {
-                LoadingStateView().listRowBackground(Color.clear)
+                LoadingStateView()
             }
         }
         .scrollDismissesKeyboard(.interactively)

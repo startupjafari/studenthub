@@ -67,18 +67,20 @@ struct LessonDetailView: View {
                 }
 
                 relatedSection
-            } else if isMissing {
+            }
+        }
+        .listStyle(.insetGrouped)
+        .screenState(item == nil) {
+            if isMissing {
                 EmptyStateView(
                     title: String(localized: "lesson.missing", defaultValue: "Занятие не найдено"),
                     symbol: "calendar.badge.exclamationmark",
                     hint: String(localized: "lesson.missing.hint", defaultValue: "Расписание могли изменить — обновите его")
                 )
-                .listRowBackground(Color.clear)
             } else {
-                LoadingStateView().listRowBackground(Color.clear)
+                LoadingStateView()
             }
         }
-        .listStyle(.insetGrouped)
         .navigationTitle(Text(String(localized: "shell.lesson", defaultValue: "Пара")))
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(isPresented: $showsCourse) {

@@ -27,14 +27,16 @@ struct TeachingDashboardView: View {
         List {
             if let today {
                 content(today)
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .dashboardListStyle()
+        .screenState(today == nil) {
+            if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(TeacherScreen.dashboard.title))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

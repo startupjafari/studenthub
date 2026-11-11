@@ -278,6 +278,8 @@ struct CareerScopeGate<Content: View>: View {
                     actionTitle: String(localized: "career.scope.choose", defaultValue: "Выбрать"),
                     action: { picking = true }
                 )
+                // На весь экран: иначе фон закрашивал только саму карточку состояния.
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Palette.background)
             } else {
                 content(scope.parameter(for: role))
@@ -315,30 +317,29 @@ struct CareerUniversityPicker: View {
     var body: some View {
         NavigationStack {
             List {
-                if let items {
-                    if items.isEmpty {
-                        EmptyStateView(
-                            title: String(localized: "career.scope.empty", defaultValue: "Университеты не найдены"),
-                            symbol: "magnifyingglass"
-                        )
-                        .listRowBackground(Color.clear)
+                ForEach(items ?? []) { item in
+                    Button {
+                        picked(item)
+                        dismiss()
+                    } label: {
+                        ListCardRow(title: item.name, subtitle: item.shortName)
                     }
-                    ForEach(items) { item in
-                        Button {
-                            picked(item)
-                            dismiss()
-                        } label: {
-                            ListCardRow(title: item.name, subtitle: item.shortName)
-                        }
-                    }
-                } else if let failure {
-                    ErrorStateView(message: failure, isOffline: isOffline) { await load(search) }
-                        .listRowBackground(Color.clear)
-                } else {
-                    LoadingStateView().listRowBackground(Color.clear)
                 }
             }
-            .listStyle(.insetGrouped)
+            .compactListStyle()
+            // Пусто, загрузка и ошибка — по центру листа, а не строкой под поиском.
+            .screenState(items?.isEmpty ?? true) {
+                if items != nil {
+                    EmptyStateView(
+                        title: String(localized: "career.scope.empty", defaultValue: "Университеты не найдены"),
+                        symbol: "magnifyingglass"
+                    )
+                } else if let failure {
+                    ErrorStateView(message: failure, isOffline: isOffline) { await load(search) }
+                } else {
+                    LoadingStateView()
+                }
+            }
             .navigationTitle(Text(String(localized: "career.scope.pick", defaultValue: "Выберите университет")))
             .navigationBarTitleDisplayMode(.inline)
             .debouncedSearch($search, prompt: String(localized: "career.scope.search", defaultValue: "Поиск университета")) {
@@ -463,14 +464,7 @@ private struct CareerCityPicker: View {
                         dismiss()
                     }
                 }
-                if let items {
-                    if items.isEmpty {
-                        EmptyStateView(
-                            title: String(localized: "career.city.notFound", defaultValue: "Город не найден"),
-                            symbol: "magnifyingglass"
-                        )
-                        .listRowBackground(Color.clear)
-                    }
+                if let items, !items.isEmpty {
                     Section {
                         ForEach(items) { unit in
                             Button {
@@ -482,14 +476,22 @@ private struct CareerCityPicker: View {
                             }
                         }
                     }
-                } else if let failure {
-                    ErrorStateView(message: failure, isOffline: isOffline) { await load(search) }
-                        .listRowBackground(Color.clear)
-                } else {
-                    LoadingStateView().listRowBackground(Color.clear)
                 }
             }
-            .listStyle(.insetGrouped)
+            .compactListStyle()
+            // Пусто, загрузка и ошибка — по центру листа; «Без города» остаётся наверху.
+            .screenState(items?.isEmpty ?? true) {
+                if items != nil {
+                    EmptyStateView(
+                        title: String(localized: "career.city.notFound", defaultValue: "Город не найден"),
+                        symbol: "magnifyingglass"
+                    )
+                } else if let failure {
+                    ErrorStateView(message: failure, isOffline: isOffline) { await load(search) }
+                } else {
+                    LoadingStateView()
+                }
+            }
             .navigationTitle(Text(String(localized: "career.city.title", defaultValue: "Город")))
             .navigationBarTitleDisplayMode(.inline)
             .debouncedSearch($search, prompt: String(localized: "career.city.search", defaultValue: "Название города")) {

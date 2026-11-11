@@ -286,16 +286,20 @@ private struct StaffServiceEditorSheet: View {
                 }
             }
             Section {
-                Picker(String(localized: "staff.svc.sections", defaultValue: "Раздел"), selection: $section) {
-                    ForEach(StaffServiceSection.allCases) { item in
-                        Text(sectionTitle(item)).tag(item)
-                    }
-                }
-                .pickerStyle(.segmented)
-                Picker(String(localized: "staff.svc.language", defaultValue: "Язык"), selection: $lang) {
-                    ForEach(StaffLang.allCases) { Text(verbatim: $0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
+                // Те же капсулы-вкладки, что на остальных экранах, а не системный сегмент.
+                FilterChips(
+                    options: StaffServiceSection.allCases.map { (value: Optional($0), title: sectionTitle($0)) },
+                    selection: Binding(get: { section }, set: { if let next = $0 { section = next } }),
+                    fillsWidth: true
+                )
+                .padding(.bottom, Spacing.sm)
+                .listRowSeparator(.hidden)
+                FilterChips(
+                    options: StaffLang.allCases.map { (value: Optional($0), title: $0.rawValue) },
+                    selection: Binding(get: { lang }, set: { if let next = $0 { lang = next } }),
+                    fillsWidth: true
+                )
+                .listRowSeparator(.hidden)
             }
             .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets())

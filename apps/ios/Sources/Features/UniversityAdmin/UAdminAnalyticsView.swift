@@ -47,14 +47,19 @@ struct UAdminAnalyticsView: View {
                     }
                     content
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await loadFaculties() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .dashboardListStyle()
+        .screenState(faculties == nil || (faculties?.isEmpty == false && !hasOverview)) {
+            if faculties == nil, let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await loadFaculties() }
+            } else if let failure {
+                // Факультеты пришли, сводка факультета — нет: ошибка с повтором, а не пустота.
+                ErrorStateView(message: failure, isOffline: isOffline) { await loadFaculty() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(String(localized: "uadmin.analytics.title", defaultValue: "Аналитика факультета")))
         .toolbar {
             if tab == .students, risk != nil {
@@ -86,6 +91,12 @@ struct UAdminAnalyticsView: View {
         .onChange(of: facultyID) { _, _ in Task { await loadFaculty() } }
         .refreshable { await loadFaculty() }
         .task { if faculties == nil { await loadFaculties() } }
+    }
+
+    /// Сводка пришла и она — по выбранному факультету.
+    private var hasOverview: Bool {
+        guard let overview else { return false }
+        return overview.facultyId == facultyID
     }
 
     @ViewBuilder
@@ -136,13 +147,6 @@ struct UAdminAnalyticsView: View {
             case .students: riskSection(totalStudents: overview.totals.students)
             case .groups: groupsSection(overview.groups)
             }
-        } else if let failure {
-            // Факультеты пришли, сводка факультета — нет: под чипами должна быть ошибка
-            // с повтором, а не пустота.
-            ErrorStateView(message: failure, isOffline: isOffline) { await loadFaculty() }
-                .listRowBackground(Color.clear)
-        } else {
-            LoadingStateView().listRowBackground(Color.clear)
         }
     }
 

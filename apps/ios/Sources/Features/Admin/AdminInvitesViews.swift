@@ -413,13 +413,6 @@ struct AdminSearchPicker: View {
     var body: some View {
         List {
             if let items {
-                if items.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "admin.picker.nothing", defaultValue: "Ничего не нашлось"),
-                        symbol: "magnifyingglass"
-                    )
-                    .listRowBackground(Color.clear)
-                }
                 ForEach(items) { item in
                     Button {
                         selection = item
@@ -441,14 +434,21 @@ struct AdminSearchPicker: View {
                         }
                     }
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await run(query) }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(items?.isEmpty != false) {
+            if items != nil {
+                EmptyStateView(
+                    title: String(localized: "admin.picker.nothing", defaultValue: "Ничего не нашлось"),
+                    symbol: "magnifyingglass"
+                )
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await run(query) }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(title))
         .navigationBarTitleDisplayMode(.inline)
         .debouncedSearch($query, prompt: String(localized: "admin.picker.search", defaultValue: "Поиск")) { needle in

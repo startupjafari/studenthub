@@ -83,6 +83,17 @@ struct StaffPostsView: View {
                 }
                 .padding(.vertical, Spacing.md)
             }
+            .screenState(model.hasLoaded && model.posts.isEmpty) {
+                if let failure = model.failure {
+                    ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
+                } else {
+                    EmptyStateView(
+                        title: String(localized: "staff.post.empty", defaultValue: "Лента пуста"),
+                        symbol: "newspaper",
+                        hint: String(localized: "staff.post.empty.hint", defaultValue: "Здесь появятся посты")
+                    )
+                }
+            }
             .background(Palette.background)
             .refreshable { await model.refresh() }
         }
@@ -114,15 +125,7 @@ struct StaffPostsView: View {
         if !model.hasLoaded {
             ForEach(0..<2, id: \.self) { _ in PostCardSkeleton() }
                 .padding(.horizontal, Spacing.xl)
-        } else if let failure = model.failure, model.posts.isEmpty {
-            ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
-        } else if model.posts.isEmpty {
-            EmptyStateView(
-                title: String(localized: "staff.post.empty", defaultValue: "Лента пуста"),
-                symbol: "newspaper",
-                hint: String(localized: "staff.post.empty.hint", defaultValue: "Здесь появятся посты")
-            )
-        } else {
+        } else if !model.posts.isEmpty {
             ForEach(model.posts) { post in
                 PostCardView(post: post, model: model, viewerID: viewerID, actions: actions)
                     .padding(.horizontal, Spacing.xl)
@@ -430,19 +433,7 @@ struct StaffGroupPickerSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                if let failure {
-                    // Сбой поиска — не «никого не нашли»: список групп не пришёл, нужен повтор.
-                    ErrorStateView(message: failure, isOffline: isOffline) {
-                        await find(search.trimmingCharacters(in: .whitespaces))
-                    }
-                    .listRowBackground(Color.clear)
-                } else if let groups {
-                    if groups.isEmpty {
-                        Text(String(localized: "staff.picker.nothing", defaultValue: "Никого не нашли"))
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.mutedForeground)
-                            .listRowBackground(Color.clear)
-                    }
+                if failure == nil, let groups {
                     ForEach(groups) { group in
                         Button {
                             pick(group)
@@ -451,11 +442,23 @@ struct StaffGroupPickerSheet: View {
                             Text(group.name).foregroundStyle(Palette.foreground)
                         }
                     }
-                } else {
-                    LoadingStateView().listRowBackground(Color.clear)
                 }
             }
             .listStyle(.insetGrouped)
+            .screenState(failure != nil || groups?.isEmpty != false) {
+                if let failure {
+                    // Сбой поиска — не «никого не нашли»: список групп не пришёл, нужен повтор.
+                    ErrorStateView(message: failure, isOffline: isOffline) {
+                        await find(search.trimmingCharacters(in: .whitespaces))
+                    }
+                } else if groups != nil {
+                    Text(String(localized: "staff.picker.nothing", defaultValue: "Никого не нашли"))
+                        .font(Typography.meta)
+                        .foregroundStyle(Palette.mutedForeground)
+                } else {
+                    LoadingStateView()
+                }
+            }
             .debouncedSearch($search, prompt: String(localized: "staff.picker.group.search", defaultValue: "Название группы")) { value in
                 await find(value)
             }
@@ -507,23 +510,6 @@ struct StaffPersonPickerSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                if let failure {
-                    ErrorStateView(message: failure, isOffline: isOffline) {
-                        await find(search.trimmingCharacters(in: .whitespaces))
-                    }
-                    .listRowBackground(Color.clear)
-                } else if search.trimmingCharacters(in: .whitespaces).count < 2, adminSearch {
-                    Text(String(localized: "staff.picker.typeMore", defaultValue: "Введите хотя бы две буквы ФИО"))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
-                        .listRowBackground(Color.clear)
-                } else if searched, people.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "staff.picker.nothing", defaultValue: "Никого не нашли"),
-                        symbol: "person.crop.circle.badge.questionmark"
-                    )
-                    .listRowBackground(Color.clear)
-                }
                 ForEach(people) { person in
                     Button {
                         pick(person)
@@ -539,6 +525,22 @@ struct StaffPersonPickerSheet: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .screenState(people.isEmpty && (failure != nil || needsMoreLetters || searched)) {
+                if let failure {
+                    ErrorStateView(message: failure, isOffline: isOffline) {
+                        await find(search.trimmingCharacters(in: .whitespaces))
+                    }
+                } else if needsMoreLetters {
+                    Text(String(localized: "staff.picker.typeMore", defaultValue: "Введите хотя бы две буквы ФИО"))
+                        .font(Typography.meta)
+                        .foregroundStyle(Palette.mutedForeground)
+                } else {
+                    EmptyStateView(
+                        title: String(localized: "staff.picker.nothing", defaultValue: "Никого не нашли"),
+                        symbol: "person.crop.circle.badge.questionmark"
+                    )
+                }
+            }
             .debouncedSearch($search, prompt: String(localized: "staff.picker.person.search", defaultValue: "ФИО")) { value in
                 await find(value)
             }
@@ -552,6 +554,10 @@ struct StaffPersonPickerSheet: View {
             }
             .task { if !adminSearch, people.isEmpty { await find("") } }
         }
+    }
+
+    private var needsMoreLetters: Bool {
+        adminSearch && search.trimmingCharacters(in: .whitespaces).count < 2
     }
 
     @MainActor

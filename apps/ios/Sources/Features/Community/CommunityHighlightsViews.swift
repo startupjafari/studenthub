@@ -117,79 +117,76 @@ struct CommunityHighlightsView: View {
 
     var body: some View {
         List {
-            if let highlights {
-                if highlights.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "community.highlights.empty", defaultValue: "Актуального пока нет"),
-                        symbol: "sparkles",
-                        hint: isMine
-                            ? String(localized: "community.highlights.empty.hint", defaultValue: "Откройте свою историю и выберите «В актуальное» — она останется в профиле")
-                            : nil
-                    )
-                    .centeredInScreen()
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                } else {
-                    Section {
-                        ForEach(highlights) { highlight in
-                            Button {
-                                playing = CommunityHighlightTarget(id: highlight.id)
-                            } label: {
-                                HStack(spacing: Spacing.lg) {
-                                    CommunityHighlightBubble(highlight: highlight)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(highlight.title).font(.body.weight(.semibold)).foregroundStyle(Palette.foreground)
-                                        Text(String(localized: "community.highlights.count", defaultValue: "Историй: \((highlight.itemsCount ?? 0).formatted())"))
-                                            .font(Typography.meta)
-                                            .foregroundStyle(Palette.mutedForeground)
-                                    }
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .swipeActions {
-                                if isMine {
-                                    Button(role: .destructive) {
-                                        deleting = highlight
-                                    } label: {
-                                        Label(String(localized: "feed.delete", defaultValue: "Удалить"), systemImage: "trash")
-                                    }
-                                    Button {
-                                        editingID = CommunityHighlightTarget(id: highlight.id)
-                                    } label: {
-                                        Label(String(localized: "feed.edit", defaultValue: "Редактировать"), systemImage: "pencil")
-                                    }
-                                }
-                            }
-                            .contextMenu {
-                                if isMine {
-                                    Button {
-                                        editingID = CommunityHighlightTarget(id: highlight.id)
-                                    } label: {
-                                        Label(String(localized: "feed.edit", defaultValue: "Редактировать"), systemImage: "pencil")
-                                    }
-                                    Button(role: .destructive) {
-                                        deleting = highlight
-                                    } label: {
-                                        Label(String(localized: "feed.delete", defaultValue: "Удалить"), systemImage: "trash")
-                                    }
+            if let highlights, !highlights.isEmpty {
+                Section {
+                    ForEach(highlights) { highlight in
+                        Button {
+                            playing = CommunityHighlightTarget(id: highlight.id)
+                        } label: {
+                            HStack(spacing: Spacing.lg) {
+                                CommunityHighlightBubble(highlight: highlight)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(highlight.title).font(.body.weight(.semibold)).foregroundStyle(Palette.foreground)
+                                    Text(String(localized: "community.highlights.count", defaultValue: "Историй: \((highlight.itemsCount ?? 0).formatted())"))
+                                        .font(Typography.meta)
+                                        .foregroundStyle(Palette.mutedForeground)
                                 }
                             }
                         }
-                        .onMove(perform: isMine ? move : nil)
-                    } footer: {
-                        if isMine, highlights.count > 1 {
-                            Text(String(localized: "community.highlights.reorder", defaultValue: "Порядок меняется кнопкой «Править»"))
+                        .buttonStyle(.plain)
+                        .swipeActions {
+                            if isMine {
+                                Button(role: .destructive) {
+                                    deleting = highlight
+                                } label: {
+                                    Label(String(localized: "feed.delete", defaultValue: "Удалить"), systemImage: "trash")
+                                }
+                                Button {
+                                    editingID = CommunityHighlightTarget(id: highlight.id)
+                                } label: {
+                                    Label(String(localized: "feed.edit", defaultValue: "Редактировать"), systemImage: "pencil")
+                                }
+                            }
+                        }
+                        .contextMenu {
+                            if isMine {
+                                Button {
+                                    editingID = CommunityHighlightTarget(id: highlight.id)
+                                } label: {
+                                    Label(String(localized: "feed.edit", defaultValue: "Редактировать"), systemImage: "pencil")
+                                }
+                                Button(role: .destructive) {
+                                    deleting = highlight
+                                } label: {
+                                    Label(String(localized: "feed.delete", defaultValue: "Удалить"), systemImage: "trash")
+                                }
+                            }
                         }
                     }
+                    .onMove(perform: isMine ? move : nil)
+                } footer: {
+                    if isMine, highlights.count > 1 {
+                        Text(String(localized: "community.highlights.reorder", defaultValue: "Порядок меняется кнопкой «Править»"))
+                    }
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
-        .listStyle(.insetGrouped)
+        .compactListStyle()
+        .screenState(highlights?.isEmpty != false) {
+            if highlights != nil {
+                EmptyStateView(
+                    title: String(localized: "community.highlights.empty", defaultValue: "Актуального пока нет"),
+                    symbol: "sparkles",
+                    hint: isMine
+                        ? String(localized: "community.highlights.empty.hint", defaultValue: "Откройте свою историю и выберите «В актуальное» — она останется в профиле")
+                        : nil
+                )
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(CommunityScreen.highlights(userID: userID).title))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

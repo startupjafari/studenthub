@@ -15,15 +15,17 @@ struct LibraryClearanceView: View {
                     debtsSection(summary)
                 }
                 detailsSection(summary)
-            } else if let failure = model.failure, !model.isLoading {
-                ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(.compact)
+        .screenState(model.summary == nil) {
+            if let failure = model.failure, !model.isLoading {
+                ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(String(localized: "library.clearance", defaultValue: "Справка из библиотеки")))
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await model.refresh() }

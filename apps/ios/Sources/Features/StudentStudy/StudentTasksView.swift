@@ -9,14 +9,6 @@ struct StudentTasksView: View {
     var body: some View {
         RemoteContent(reloadToken: reloadToken, load: Self.load) { tasks in
             List {
-                if tasks.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "student.tasks.empty", defaultValue: "Задач нет"),
-                        symbol: "checkmark.circle",
-                        hint: String(localized: "student.tasks.emptyHint", defaultValue: "Всё выполнено. Новые задачи появятся здесь автоматически.")
-                    )
-                    .listRowBackground(Color.clear)
-                }
                 ForEach(StudentTask.Bucket.allCases, id: \.self) { bucket in
                     let items = tasks.filter { $0.bucket == bucket }
                     if !items.isEmpty {
@@ -39,6 +31,13 @@ struct StudentTasksView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .screenState(tasks.isEmpty) {
+                EmptyStateView(
+                    title: String(localized: "student.tasks.empty", defaultValue: "Задач нет"),
+                    symbol: "checkmark.circle",
+                    hint: String(localized: "student.tasks.emptyHint", defaultValue: "Всё выполнено. Новые задачи появятся здесь автоматически.")
+                )
+            }
             .refreshable { reloadToken += 1 }
         }
         .background(Palette.background)

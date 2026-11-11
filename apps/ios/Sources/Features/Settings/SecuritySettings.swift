@@ -66,6 +66,8 @@ struct SecuritySettingsView: View {
                 ))
             }
         }
+        .settingsFormLayout()
+        .hardTopEdge()
         .navigationTitle(Text(String(localized: "settings.security", defaultValue: "Безопасность")))
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $changingPassword) {
@@ -115,17 +117,25 @@ private struct ChangePasswordView: View {
                     }
                 }
             }
+            .settingsFormLayout()
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle(Text(String(localized: "settings.password", defaultValue: "Сменить пароль")))
             .navigationBarTitleDisplayMode(.inline)
+            .interactiveDismissDisabled(isSaving)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     SheetCloseButton { dismiss() }
+                        .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(String(localized: "common.save", defaultValue: "Сохранить")) {
-                        Task { await save() }
+                    if isSaving {
+                        ProgressView()
+                    } else {
+                        Button(String(localized: "common.save", defaultValue: "Сохранить")) {
+                            Task { await save() }
+                        }
+                        .disabled(!canSave)
                     }
-                    .disabled(!canSave)
                 }
             }
         }
@@ -133,6 +143,7 @@ private struct ChangePasswordView: View {
 
     @MainActor
     private func save() async {
+        guard !isSaving else { return }
         isSaving = true
         defer { isSaving = false }
         do {
@@ -169,8 +180,22 @@ private struct TwoFactorView: View {
     @State private var setupFailure: String?
     @State private var setupOffline = false
     @State private var isWorking = false
+    /// Высота листа. Для одного поля кода хватает половины экрана — на весь экран лист
+    /// был пустой тёмной простынёй. Включению нужен QR, а выданным кодам — список из
+    /// десяти строк: там лист раскрывается целиком.
+    @State private var detent: PresentationDetent
+    @FocusState private var codeFocused: Bool
 
     private let api: AccountFetching = AccountAPI()
+
+    init(flow: TwoFactorFlow) {
+        self.flow = flow
+        _detent = State(initialValue: flow == .enable ? .large : .medium)
+    }
+
+    private var canConfirm: Bool {
+        code.trimmingCharacters(in: .whitespaces).count >= 6 && !isWorking
+    }
 
     var body: some View {
         NavigationStack {
@@ -196,14 +221,7 @@ private struct TwoFactorView: View {
                             defaultValue: "Каждый код срабатывает один раз. Сохраните их: больше они не покажутся."
                         ))
                     }
-                } else if flow == .enable, setup == nil {
-                    if let setupFailure {
-                        ErrorStateView(message: setupFailure, isOffline: setupOffline) { await loadSetup() }
-                            .listRowBackground(Color.clear)
-                    } else {
-                        LoadingStateView().listRowBackground(Color.clear)
-                    }
-                } else {
+                } else if flow != .enable || setup != nil {
                     if flow == .enable, let setup {
                         Section {
                             if let image = Self.image(fromDataURL: setup.qr) {
@@ -236,9 +254,21 @@ private struct TwoFactorView: View {
                         }
                     }
                     Section {
+                        // При включении годится только код из приложения — цифровая
+                        // клавиатура. Дальше подходит и резервный: 8 знаков 0–9 и A–F,
+                        // поэтому нужны буквы; сервер сам приводит регистр и убирает
+                        // пробелы, заглавные — чтобы набранное совпадало с бумажкой.
                         TextField(String(localized: "settings.2fa.code", defaultValue: "Код"), text: $code)
                             .keyboardType(flow == .enable ? .numberPad : .asciiCapable)
                             .textContentType(.oneTimeCode)
+                            .textInputAutocapitalization(.characters)
+                            .autocorrectionDisabled()
+                            .submitLabel(.done)
+                            .focused($codeFocused)
+                            .onSubmit {
+                                guard canConfirm else { return }
+                                Task { await confirm() }
+                            }
                             .font(.system(.body, design: .monospaced))
                     } footer: {
                         if flow != .enable {
@@ -250,20 +280,47 @@ private struct TwoFactorView: View {
                     }
                 }
             }
+            .settingsFormLayout()
+            .scrollDismissesKeyboard(.interactively)
+            // Ключ для включения ещё грузится или не пришёл — состояние по центру листа.
+            .screenState(flow == .enable && setup == nil && backupCodes == nil) {
+                if let setupFailure {
+                    ErrorStateView(message: setupFailure, isOffline: setupOffline) { await loadSetup() }
+                } else {
+                    LoadingStateView()
+                }
+            }
             .navigationTitle(Text(title))
             .navigationBarTitleDisplayMode(.inline)
+            // Выданные коды больше не покажутся: случайный жест вниз не должен их стереть.
+            // Лист закрывает только «Готово».
+            .interactiveDismissDisabled(isWorking || backupCodes != nil)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(backupCodes == nil
-                        ? String(localized: "common.cancel", defaultValue: "Отмена")
-                        : String(localized: "common.done", defaultValue: "Готово")) { dismiss() }
-                }
+                // Отмена — крестиком, подтверждение — галочкой: два слова в стеклянных
+                // капсулах съедали панель, и заголовок обрезался до «Новые ре…».
                 if backupCodes == nil {
+                    ToolbarItem(placement: .cancellationAction) {
+                        SheetCloseButton { dismiss() }
+                            .disabled(isWorking)
+                    }
                     ToolbarItem(placement: .confirmationAction) {
-                        Button(String(localized: "common.confirm", defaultValue: "Подтвердить")) {
-                            Task { await confirm() }
+                        if isWorking {
+                            ProgressView()
+                        } else {
+                            TwoFactorConfirmButton(
+                                title: String(localized: "common.confirm", defaultValue: "Подтвердить")
+                            ) {
+                                Task { await confirm() }
+                            }
+                            .disabled(!canConfirm)
                         }
-                        .disabled(code.trimmingCharacters(in: .whitespaces).count < 6 || isWorking)
+                    }
+                }
+                if backupCodes != nil {
+                    ToolbarItem(placement: .confirmationAction) {
+                        TwoFactorConfirmButton(title: String(localized: "common.done", defaultValue: "Готово")) {
+                            dismiss()
+                        }
                     }
                 }
             }
@@ -271,7 +328,19 @@ private struct TwoFactorView: View {
                 guard flow == .enable, setup == nil else { return }
                 await loadSetup()
             }
+            .onAppear {
+                // Отключение и новые коды — одно поле, его и ждут: клавиатура сразу.
+                // При включении сначала QR — клавиатура закрыла бы его.
+                if flow != .enable { codeFocused = true }
+            }
+            .onChange(of: backupCodes) { _, codes in
+                guard codes != nil else { return }
+                codeFocused = false
+                detent = .large
+            }
         }
+        .presentationDetents(flow == .enable ? [.large] : [.medium, .large], selection: $detent)
+        .presentationDragIndicator(.visible)
     }
 
     @MainActor
@@ -289,14 +358,17 @@ private struct TwoFactorView: View {
 
     private var title: String {
         switch flow {
-        case .enable: return String(localized: "settings.2fa.enable", defaultValue: "Включить двухфакторную защиту")
-        case .disable: return String(localized: "settings.2fa.disable", defaultValue: "Отключить")
+        // Короткие заголовки: «Включить двухфакторную защиту» и голое «Отключить» в
+        // панели листа то обрезались, то не говорили, что именно отключаем.
+        case .enable: return String(localized: "settings.2fa", defaultValue: "Двухфакторная защита")
+        case .disable: return String(localized: "settings.2fa.disableTitle", defaultValue: "Отключить 2FA")
         case .backupCodes: return String(localized: "settings.2fa.backupCodes", defaultValue: "Новые резервные коды")
         }
     }
 
     @MainActor
     private func confirm() async {
+        guard !isWorking else { return }
         isWorking = true
         defer { isWorking = false }
         let code = code.trimmingCharacters(in: .whitespaces)
@@ -321,5 +393,34 @@ private struct TwoFactorView: View {
         guard let string, let comma = string.firstIndex(of: ",") else { return nil }
         guard let data = Data(base64Encoded: String(string[string.index(after: comma)...])) else { return nil }
         return UIImage(data: data)
+    }
+}
+
+/// Подтверждение в панели листа 2FA: на iOS 26 — системная галочка в синем стекле
+/// (`role: .confirm`), раньше — та же галочка значком. Слово в капсуле не помещалось
+/// рядом с заголовком листа.
+private struct TwoFactorConfirmButton: View {
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        #if compiler(>=6.2)
+            if #available(iOS 26, *) {
+                Button(role: .confirm, action: action)
+                    .accessibilityLabel(Text(title))
+            } else {
+                legacy
+            }
+        #else
+            legacy
+        #endif
+    }
+
+    private var legacy: some View {
+        Button(action: action) {
+            Image(systemName: "checkmark")
+                .fontWeight(.semibold)
+        }
+        .accessibilityLabel(Text(title))
     }
 }

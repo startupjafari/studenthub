@@ -80,12 +80,12 @@ struct ChatInfoView: View {
                     membersSection(chat)
                 }
                 Section {
-                    Picker(String(localized: "chats.info.content", defaultValue: "Содержимое"), selection: $section) {
-                        ForEach(ChatMediaKindTab.allCases) { tab in
-                            Text(tab.title).tag(tab)
-                        }
-                    }
-                    .pickerStyle(.segmented)
+                    FilterChips(
+                        options: ChatMediaKindTab.allCases.map { (value: Optional($0), title: $0.title) },
+                        selection: Binding(get: { section }, set: { if let next = $0 { section = next } }),
+                        fillsWidth: true
+                    )
+                    .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: Spacing.sm, trailing: 0))
                     ChatContentList(shared: shared, tab: section, showInChat: showInChat)

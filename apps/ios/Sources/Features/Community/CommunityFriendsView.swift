@@ -63,9 +63,10 @@ struct CommunityFriendsView: View {
         .background(Palette.background)
         .navigationTitle(Text(CommunityScreen.friends(userID: nil).title))
         .navigationBarTitleDisplayMode(.inline)
+        // Поле поиска не висит над списком всегда, а выезжает жестом вниз — как на
+        // «Разделах»: главное на экране — сами друзья и заявки.
         .searchable(
             text: $query,
-            placement: .navigationBarDrawer(displayMode: .always),
             prompt: Text(String(localized: "community.friends.search", defaultValue: "Найти людей"))
         )
         .task(id: query) { await search() }
@@ -207,25 +208,6 @@ struct CommunityFriendsView: View {
 
     private var searchResults: some View {
         List {
-            if found.isEmpty, isSearching {
-                LoadingStateView()
-                    .centeredInScreen()
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            } else if found.isEmpty, let searchFailure {
-                ErrorStateView(message: searchFailure, isOffline: searchOffline) { await runSearch() }
-                    .centeredInScreen()
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            } else if found.isEmpty {
-                EmptyStateView(
-                    title: query.trimmingCharacters(in: .whitespaces).count < 2
-                        ? String(localized: "search.hint", defaultValue: "Введите хотя бы две буквы")
-                        : String(localized: "search.empty", defaultValue: "Никого не нашли"),
-                    symbol: "magnifyingglass"
-                )
-                .listRowBackground(Color.clear)
-            }
             ForEach(found.filter { $0.id != viewerID }) { person in
                 HStack(spacing: Spacing.md) {
                     NavigationLink(value: AppRoute.profile(id: person.id)) {
@@ -250,7 +232,21 @@ struct CommunityFriendsView: View {
                 }
             }
         }
-        .listStyle(.insetGrouped)
+        .compactListStyle()
+        .screenState(found.isEmpty) {
+            if isSearching {
+                LoadingStateView()
+            } else if let searchFailure {
+                ErrorStateView(message: searchFailure, isOffline: searchOffline) { await runSearch() }
+            } else {
+                EmptyStateView(
+                    title: query.trimmingCharacters(in: .whitespaces).count < 2
+                        ? String(localized: "search.hint", defaultValue: "Введите хотя бы две буквы")
+                        : String(localized: "search.empty", defaultValue: "Никого не нашли"),
+                    symbol: "magnifyingglass"
+                )
+            }
+        }
     }
 
     @MainActor

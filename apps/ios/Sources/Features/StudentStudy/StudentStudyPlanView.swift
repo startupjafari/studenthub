@@ -28,14 +28,7 @@ struct StudentStudyPlanView: View {
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets())
                 }
-                if plan.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "student.plan.empty", defaultValue: "Учебный план пуст"),
-                        symbol: "list.bullet.rectangle",
-                        hint: String(localized: "student.plan.emptyHint", defaultValue: "Дисциплины появятся после назначения деканатом.")
-                    )
-                    .listRowBackground(Color.clear)
-                } else {
+                if !plan.isEmpty {
                     let credits = StudentPlan.credits(plan)
                     let progress = credits.total == 0 ? 0 : Int((Double(credits.done) / Double(credits.total) * 100).rounded())
                     Section {
@@ -58,6 +51,13 @@ struct StudentStudyPlanView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .screenState(plan.isEmpty) {
+                EmptyStateView(
+                    title: String(localized: "student.plan.empty", defaultValue: "Учебный план пуст"),
+                    symbol: "list.bullet.rectangle",
+                    hint: String(localized: "student.plan.emptyHint", defaultValue: "Дисциплины появятся после назначения деканатом.")
+                )
+            }
             .refreshable { reloadToken += 1 }
         }
         .background(Palette.background)

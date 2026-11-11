@@ -40,11 +40,7 @@ struct QRApproveView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Text(String(localized: "common.close", defaultValue: "Закрыть"))
-                    }
+                    closeButton
                 }
             }
             .animation(Motion.calm, value: model.state)
@@ -91,8 +87,35 @@ struct QRApproveView: View {
         }
     }
 
-    /// Камера на весь экран, поверх — только уголки рамки по центру и подсказка под
-    /// ними. Рамка — подсказка, куда держать код; распознаётся он в любом месте кадра.
+    /// «Закрыть»: на iOS 26 — системный крестик в стекле, как у листов приложения
+    /// (`SheetCloseButton`); раньше — слово. Не `SheetCloseButton` сам: его запасной
+    /// вариант — «Отмена», а после подтверждения входа отменять уже нечего.
+    @ViewBuilder
+    private var closeButton: some View {
+        #if compiler(>=6.2)
+            if #available(iOS 26, *) {
+                Button(role: .close, action: { dismiss() })
+                    .accessibilityLabel(Text(String(localized: "common.close", defaultValue: "Закрыть")))
+            } else {
+                legacyCloseButton
+            }
+        #else
+            legacyCloseButton
+        #endif
+    }
+
+    private var legacyCloseButton: some View {
+        Button {
+            dismiss()
+        } label: {
+            Text(String(localized: "common.close", defaultValue: "Закрыть"))
+        }
+    }
+
+    /// Камера на весь экран, поверх — уголки рамки в верхней части и подсказка под ними,
+    /// внизу — карточка «когда это нужно». Рамка поднята: держать телефон, глядя в
+    /// верхнюю треть экрана, естественнее, а низ занимает объяснение. Рамка — подсказка,
+    /// куда держать код; распознаётся он в любом месте кадра.
     private var scanning: some View {
         QRScannerView(
             onScan: { payload in Task { await model.scanned(payload) } },
@@ -104,11 +127,16 @@ struct QRApproveView: View {
             defaultValue: "Видоискатель камеры"
         )))
         .overlay {
-            VStack(spacing: Spacing.xxl) {
+            VStack(spacing: Spacing.xl) {
                 ViewfinderCorners()
                     .stroke(.white, style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
-                    .frame(width: 250, height: 250)
+                    // До 240 pt, а на низком экране — меньше: карточка внизу не должна
+                    // наезжать на рамку. Приоритет — чтобы распорка ниже не отъедала у
+                    // рамки место, пока его хватает обеим.
+                    .aspectRatio(1, contentMode: .fit)
+                    .frame(maxWidth: 240, maxHeight: 240)
                     .shadow(color: .black.opacity(0.4), radius: 4)
+                    .layoutPriority(1)
                     .accessibilityHidden(true)
                 Text(String(
                     localized: "auth.qrScanHint",
@@ -117,11 +145,82 @@ struct QRApproveView: View {
                 .font(Typography.body.weight(.medium))
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
                 .shadow(color: .black.opacity(0.5), radius: 4)
                 .padding(.horizontal, Spacing.xxl)
+                Spacer(minLength: Spacing.xl)
+                scanTips
             }
-            // Рамка — по центру экрана; подсказка под ней не сдвигает её вверх.
-            .padding(.top, Spacing.xxl * 2)
+            .padding(.top, Spacing.xxl)
+            .padding(.horizontal, Spacing.xl)
+            .padding(.bottom, Spacing.xl)
+        }
+    }
+
+    /// Когда этим пользоваться и чего остерегаться — коротко, поверх камеры. Без этого
+    /// экран выглядел как сканер «чего угодно», а главный риск — отсканировать чужой
+    /// код, присланный в сообщении, — оставался неназванным до шага подтверждения.
+    private var scanTips: some View {
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            scanTip(
+                symbol: "desktopcomputer",
+                text: String(
+                    localized: "auth.qrTipOpen",
+                    defaultValue: "Откройте StudentHub на компьютере и выберите вход по QR-коду"
+                )
+            )
+            scanTip(
+                symbol: "key",
+                text: String(
+                    localized: "auth.qrTipNoPassword",
+                    defaultValue: "Удобно на новом или чужом компьютере — пароль вводить не нужно"
+                )
+            )
+            scanTip(
+                symbol: "exclamationmark.shield",
+                text: String(
+                    localized: "auth.qrTipSafety",
+                    defaultValue: "Сканируйте только код со своего экрана — не из сообщений и писем"
+                )
+            )
+        }
+        .frame(maxWidth: 480, alignment: .leading)
+        .padding(Spacing.lg)
+        .background { scanTipsBackground }
+        // Карточка над тёмной картинкой камеры: текст и стекло — в тёмном варианте при
+        // любой теме приложения.
+        .environment(\.colorScheme, .dark)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// Стекло на iOS 26, раньше — материал. Стекло притемнено: за карточкой бывает
+    /// белый экран компьютера, и светлый текст на прозрачном стекле над ним терялся бы.
+    @ViewBuilder
+    private var scanTipsBackground: some View {
+        let shape = RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+        #if compiler(>=6.2)
+            if #available(iOS 26, *) {
+                Color.clear.glassEffect(.regular.tint(.black.opacity(0.35)), in: shape)
+            } else {
+                shape.fill(.regularMaterial)
+            }
+        #else
+            shape.fill(.regularMaterial)
+        #endif
+    }
+
+    private func scanTip(symbol: String, text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: Spacing.md) {
+            Image(systemName: symbol)
+                .font(Typography.meta.weight(.semibold))
+                .foregroundStyle(Palette.mutedForeground)
+                .frame(width: 20)
+                .accessibilityHidden(true)
+            Text(text)
+                .font(Typography.meta)
+                .foregroundStyle(Palette.foreground)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
         }
     }
 

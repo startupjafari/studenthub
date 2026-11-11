@@ -17,14 +17,7 @@ struct LibrarianHomeView: View {
     var body: some View {
         RemoteContent(reloadToken: token, load: load) { snapshot in
             List {
-                if !snapshot.enabled {
-                    EmptyStateView(
-                        title: String(localized: "librarian.disabledTitle", defaultValue: "Библиотека выключена"),
-                        symbol: "books.vertical",
-                        hint: String(localized: "librarian.disabledHint", defaultValue: "Её включает администратор вуза в разделе «Библиотека». Пока модуль выключен, выдача и брони недоступны.")
-                    )
-                    .listRowBackground(Color.clear)
-                } else {
+                if snapshot.enabled {
                     if let s = snapshot.summary {
                         DashboardMetricsSection(metrics: [
                             DashboardMetric(
@@ -126,6 +119,13 @@ struct LibrarianHomeView: View {
                 }
             }
             .dashboardListStyle()
+            .screenState(!snapshot.enabled) {
+                EmptyStateView(
+                    title: String(localized: "librarian.disabledTitle", defaultValue: "Библиотека выключена"),
+                    symbol: "books.vertical",
+                    hint: String(localized: "librarian.disabledHint", defaultValue: "Её включает администратор вуза в разделе «Библиотека». Пока модуль выключен, выдача и брони недоступны.")
+                )
+            }
             .refreshable { token += 1 }
         }
         .background(Palette.background)

@@ -113,40 +113,32 @@ struct BlockedUsersView: View {
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             }
-            if let users = model.users {
-                if users.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "chats.blocked.empty", defaultValue: "Вы никого не блокировали"),
-                        symbol: "hand.raised",
-                        hint: Self.footer,
-                        actionTitle: String(localized: "chats.blocked.add", defaultValue: "Заблокировать пользователя"),
-                        action: { picking = true }
-                    )
-                    .centeredInScreen()
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                } else {
-                    Section {
-                        ForEach(users) { user in
-                            row(user)
-                        }
-                    } footer: {
-                        Text(Self.footer)
+            if let users = model.users, !users.isEmpty {
+                Section {
+                    ForEach(users) { user in
+                        row(user)
                     }
+                } footer: {
+                    Text(Self.footer)
                 }
-            } else if let failure = model.loadFailure {
-                ErrorStateView(message: failure, isOffline: model.isOffline) { await model.load() }
-                    .centeredInScreen()
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            } else {
-                LoadingStateView()
-                    .centeredInScreen()
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
             }
         }
-        .listStyle(.insetGrouped)
+        .compactListStyle()
+        .screenState(model.users?.isEmpty != false) {
+            if model.users != nil {
+                EmptyStateView(
+                    title: String(localized: "chats.blocked.empty", defaultValue: "Вы никого не блокировали"),
+                    symbol: "hand.raised",
+                    hint: Self.footer,
+                    actionTitle: String(localized: "chats.blocked.add", defaultValue: "Заблокировать пользователя"),
+                    action: { picking = true }
+                )
+            } else if let failure = model.loadFailure {
+                ErrorStateView(message: failure, isOffline: model.isOffline) { await model.load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(String(localized: "chats.blocked.title", defaultValue: "Заблокированные")))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

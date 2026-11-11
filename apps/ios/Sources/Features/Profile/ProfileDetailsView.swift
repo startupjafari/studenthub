@@ -221,16 +221,7 @@ struct SavedPostsView: View {
                 LazyVStack(spacing: Spacing.lg) {
                     if !feed.hasLoaded, feed.posts.isEmpty {
                         ForEach(0..<2, id: \.self) { _ in PostCardSkeleton() }
-                    } else if let failure = feed.failure, feed.posts.isEmpty {
-                        ErrorStateView(message: failure, isOffline: feed.isOffline) { await feed.refresh() }
-                    } else if feed.posts.isEmpty {
-                        EmptyStateView(
-                            title: String(localized: "saved.empty", defaultValue: "Сохранённого пока нет"),
-                            symbol: "bookmark",
-                            hint: String(localized: "saved.empty.hint", defaultValue: "Нажмите на закладку под публикацией, чтобы вернуться к ней позже")
-                        )
-                        .centeredInScreen()
-                    } else {
+                    } else if !feed.posts.isEmpty {
                         ForEach(feed.posts) { post in
                             PostCardView(post: post, model: feed, viewerID: viewerID, actions: actions)
                                 .onAppear {
@@ -240,6 +231,17 @@ struct SavedPostsView: View {
                     }
                 }
                 .padding(Spacing.xl)
+            }
+            .screenState(feed.hasLoaded && feed.posts.isEmpty) {
+                if let failure = feed.failure {
+                    ErrorStateView(message: failure, isOffline: feed.isOffline) { await feed.refresh() }
+                } else {
+                    EmptyStateView(
+                        title: String(localized: "saved.empty", defaultValue: "Сохранённого пока нет"),
+                        symbol: "bookmark",
+                        hint: String(localized: "saved.empty.hint", defaultValue: "Нажмите на закладку под публикацией, чтобы вернуться к ней позже")
+                    )
+                }
             }
         }
         .background(Palette.background)

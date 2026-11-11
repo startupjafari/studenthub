@@ -52,14 +52,14 @@ struct ConsultationsView: View {
                     .listRowInsets(EdgeInsets())
             }
 
-            if let mine {
+            // У преподавателя секция одна: пустая — состоянием по центру экрана, у студента
+            // ниже ещё запись к преподавателям, и пусто показывается строкой секции.
+            if let mine, !(isTeacher && mine.isEmpty) {
                 Section {
                     if mine.isEmpty {
                         EmptyStateView(
-                            title: isTeacher
-                                ? String(localized: "consultations.noSlots", defaultValue: "Открытых окон нет")
-                                : String(localized: "consultations.noBookings", defaultValue: "Вы пока ни к кому не записаны"),
-                            symbol: isTeacher ? "calendar.badge.plus" : "person.2.wave.2"
+                            title: String(localized: "consultations.noBookings", defaultValue: "Вы пока ни к кому не записаны"),
+                            symbol: "person.2.wave.2"
                         )
                         .listRowBackground(Color.clear)
                     }
@@ -120,17 +120,20 @@ struct ConsultationsView: View {
                     Text(String(localized: "consultations.teachers", defaultValue: "Записаться к преподавателю"))
                 }
             }
-
-            if mine == nil {
-                if let failure {
-                    ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                        .listRowBackground(Color.clear)
-                } else {
-                    LoadingStateView().listRowBackground(Color.clear)
-                }
-            }
         }
         .listStyle(.insetGrouped)
+        .screenState(mine == nil || (isTeacher && mine?.isEmpty == true)) {
+            if mine != nil {
+                EmptyStateView(
+                    title: String(localized: "consultations.noSlots", defaultValue: "Открытых окон нет"),
+                    symbol: "calendar.badge.plus"
+                )
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(MoreSection.consultations.title))
         .sheet(isPresented: $creating) {
             NewSlotView { await load() }

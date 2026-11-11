@@ -186,52 +186,53 @@ private struct StaffTemplateVariablesView: View {
                 selection: $group
             )
             let rows = filtered
-            if rows.isEmpty {
-                EmptyStateView(
-                    title: String(localized: "staff.tpl.catalog.empty", defaultValue: "Ничего не найдено"),
-                    symbol: "magnifyingglass",
-                    hint: String(localized: "staff.tpl.catalog.empty.hint", defaultValue: "Попробуйте другое слово или выберите группу «Все»")
-                )
-                .listRowBackground(Color.clear)
-            }
-            Section {
-                ForEach(rows) { variable in
-                    Button {
-                        UIPasteboard.general.string = variable.tag
-                        copied = variable.tag
-                    } label: {
-                        VStack(alignment: .leading, spacing: Spacing.xs) {
-                            HStack {
-                                Text(variable.label).font(Typography.body).foregroundStyle(Palette.foreground)
-                                Spacer()
-                                Image(systemName: copied == variable.tag ? "checkmark" : "doc.on.doc")
+            if !rows.isEmpty {
+                Section {
+                    ForEach(rows) { variable in
+                        Button {
+                            UIPasteboard.general.string = variable.tag
+                            copied = variable.tag
+                        } label: {
+                            VStack(alignment: .leading, spacing: Spacing.xs) {
+                                HStack {
+                                    Text(variable.label).font(Typography.body).foregroundStyle(Palette.foreground)
+                                    Spacer()
+                                    Image(systemName: copied == variable.tag ? "checkmark" : "doc.on.doc")
+                                        .foregroundStyle(Palette.primary)
+                                }
+                                Text(variable.tag)
+                                    .font(Typography.meta.monospaced())
                                     .foregroundStyle(Palette.primary)
-                            }
-                            Text(variable.tag)
-                                .font(Typography.meta.monospaced())
-                                .foregroundStyle(Palette.primary)
-                            Text(String(localized: "staff.tpl.example", defaultValue: "Пример: \(variable.example)"))
-                                .font(Typography.meta)
-                                .foregroundStyle(Palette.mutedForeground)
-                            HStack(spacing: Spacing.sm) {
-                                if variable.personal {
-                                    StatusBadge(text: String(localized: "staff.tpl.personal", defaultValue: "Персональные данные"), tint: Palette.warning)
-                                }
-                                if variable.optional {
-                                    StatusBadge(text: String(localized: "staff.tpl.optional", defaultValue: "Может быть пустым"), tint: Palette.info)
+                                Text(String(localized: "staff.tpl.example", defaultValue: "Пример: \(variable.example)"))
+                                    .font(Typography.meta)
+                                    .foregroundStyle(Palette.mutedForeground)
+                                HStack(spacing: Spacing.sm) {
+                                    if variable.personal {
+                                        StatusBadge(text: String(localized: "staff.tpl.personal", defaultValue: "Персональные данные"), tint: Palette.warning)
+                                    }
+                                    if variable.optional {
+                                        StatusBadge(text: String(localized: "staff.tpl.optional", defaultValue: "Может быть пустым"), tint: Palette.info)
+                                    }
                                 }
                             }
+                            .padding(.vertical, Spacing.xs)
                         }
-                        .padding(.vertical, Spacing.xs)
+                        .buttonStyle(.plain)
+                        .accessibilityHint(Text(String(localized: "staff.tpl.copy", defaultValue: "Скопировать")))
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityHint(Text(String(localized: "staff.tpl.copy", defaultValue: "Скопировать")))
+                } footer: {
+                    Text(String(localized: "staff.tpl.catalog.hint", defaultValue: "Нажмите на переменную, чтобы скопировать её, и вставьте в документ Word."))
                 }
-            } footer: {
-                Text(String(localized: "staff.tpl.catalog.hint", defaultValue: "Нажмите на переменную, чтобы скопировать её, и вставьте в документ Word."))
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(filtered.isEmpty) {
+            EmptyStateView(
+                title: String(localized: "staff.tpl.catalog.empty", defaultValue: "Ничего не найдено"),
+                symbol: "magnifyingglass",
+                hint: String(localized: "staff.tpl.catalog.empty.hint", defaultValue: "Попробуйте другое слово или выберите группу «Все»")
+            )
+        }
         .searchable(text: $search, prompt: Text(String(localized: "staff.tpl.catalog.search", defaultValue: "Поиск переменной")))
         .navigationTitle(Text(String(localized: "staff.tpl.variables", defaultValue: "Переменные")))
         .toolbar {
@@ -1014,23 +1015,9 @@ struct StaffStudentPickerSheet: View {
                     Text(hint).font(Typography.meta).foregroundStyle(Palette.mutedForeground)
                         .listRowBackground(Color.clear)
                 }
-                if search.trimmingCharacters(in: .whitespaces).count < 2 {
-                    Text(String(localized: "staff.picker.typeMore", defaultValue: "Введите хотя бы две буквы ФИО"))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
-                        .listRowBackground(Color.clear)
-                } else if isSearching {
+                // Новый поиск поверх найденных по прошлой строке — загрузка строкой над ними.
+                if isSearching, !results.isEmpty, search.trimmingCharacters(in: .whitespaces).count >= 2 {
                     LoadingStateView().listRowBackground(Color.clear)
-                } else if let searchFailure {
-                    ErrorStateView(message: searchFailure, isOffline: isOffline) {
-                        await find(search.trimmingCharacters(in: .whitespaces))
-                    }
-                    .listRowBackground(Color.clear)
-                } else if results.isEmpty {
-                    Text(String(localized: "staff.picker.nothing", defaultValue: "Никого не нашли"))
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.mutedForeground)
-                        .listRowBackground(Color.clear)
                 }
                 ForEach(results) { person in
                     Button {
@@ -1047,6 +1034,23 @@ struct StaffStudentPickerSheet: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .screenState(results.isEmpty) {
+                if search.trimmingCharacters(in: .whitespaces).count < 2 {
+                    Text(String(localized: "staff.picker.typeMore", defaultValue: "Введите хотя бы две буквы ФИО"))
+                        .font(Typography.meta)
+                        .foregroundStyle(Palette.mutedForeground)
+                } else if isSearching {
+                    LoadingStateView()
+                } else if let searchFailure {
+                    ErrorStateView(message: searchFailure, isOffline: isOffline) {
+                        await find(search.trimmingCharacters(in: .whitespaces))
+                    }
+                } else {
+                    Text(String(localized: "staff.picker.nothing", defaultValue: "Никого не нашли"))
+                        .font(Typography.meta)
+                        .foregroundStyle(Palette.mutedForeground)
+                }
+            }
             .debouncedSearch($search, prompt: String(localized: "staff.picker.search", defaultValue: "ФИО студента")) { value in
                 await find(value)
             }

@@ -12,19 +12,12 @@ struct MyBooksView: View {
 
     var body: some View {
         List {
-            if model.isDisabled {
-                LibraryDisabledView()
-            } else {
-                if let failure = model.failure {
-                    if model.books == nil {
-                        ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
-                            .listRowBackground(Color.clear)
-                    } else {
-                        // Список с прошлого раза остаётся, сверху — что он несвежий и повтор.
-                        StaleDataBanner(message: failure, isOffline: model.isOffline) { await model.refresh() }
-                            .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets())
-                    }
+            if !model.isDisabled {
+                if let failure = model.failure, model.books != nil {
+                    // Список с прошлого раза остаётся, сверху — что он несвежий и повтор.
+                    StaleDataBanner(message: failure, isOffline: model.isOffline) { await model.refresh() }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
                 }
 
                 if let actionFailure = model.actionFailure {
@@ -47,12 +40,19 @@ struct MyBooksView: View {
                         historySection(books)
                     }
                     clearanceLink
-                } else if model.failure == nil {
-                    LoadingStateView().listRowBackground(Color.clear)
                 }
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(model.isDisabled || model.books == nil) {
+            if model.isDisabled {
+                LibraryDisabledView()
+            } else if let failure = model.failure {
+                ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(String(localized: "library.tabMine", defaultValue: "Мои книги")))
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await model.refresh() }

@@ -184,8 +184,6 @@ struct LibraryDisabledView: View {
                 defaultValue: "Каталог появится, когда администратор вуза включит библиотеку."
             )
         )
-        .listRowBackground(Color.clear)
-        .listRowSeparator(.hidden)
     }
 }
 

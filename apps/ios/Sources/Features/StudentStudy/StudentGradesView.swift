@@ -11,14 +11,7 @@ struct StudentGradesView: View {
     var body: some View {
         RemoteContent(reloadToken: reloadToken, load: { try await StudyAPI().grades() }) { courses in
             List {
-                if courses.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "student.grades.empty", defaultValue: "Оценок пока нет"),
-                        symbol: "graduationcap",
-                        hint: String(localized: "student.grades.emptyHint", defaultValue: "Опубликованные оценки появятся здесь.")
-                    )
-                    .listRowBackground(Color.clear)
-                } else {
+                if !courses.isEmpty {
                     if let overall = StudentGradeMath.overall(courses) {
                         let credits = courses.reduce(0) { $0 + (StudentGradeMath.percent($1.columns) != nil ? ($1.credits ?? 0) : 0) }
                         DashboardMetricsSection(metrics: [
@@ -49,6 +42,13 @@ struct StudentGradesView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .screenState(courses.isEmpty) {
+                EmptyStateView(
+                    title: String(localized: "student.grades.empty", defaultValue: "Оценок пока нет"),
+                    symbol: "graduationcap",
+                    hint: String(localized: "student.grades.emptyHint", defaultValue: "Опубликованные оценки появятся здесь.")
+                )
+            }
             .refreshable { reloadToken += 1 }
         }
         .background(Palette.background)

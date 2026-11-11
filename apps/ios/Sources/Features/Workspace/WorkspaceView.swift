@@ -16,16 +16,6 @@ struct WorkspaceView: View {
 
     var body: some View {
         List {
-            if isSearching {
-                if visibleGroups.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "services.notFound", defaultValue: "Ничего не нашлось"),
-                        symbol: "magnifyingglass",
-                        hint: String(localized: "services.notFound.hint", defaultValue: "Попробуйте другое слово")
-                    )
-                    .listRowBackground(Color.clear)
-                }
-            }
             ForEach(visibleGroups) { group in
                 Section {
                     ForEach(group.items) { item in
@@ -43,6 +33,13 @@ struct WorkspaceView: View {
         // Поиск и группы — плотно, без полос пустоты между ними.
         .listSectionSpacing(.compact)
         .contentMargins(.top, Spacing.xs, for: .scrollContent)
+        .screenState(isSearching && visibleGroups.isEmpty) {
+            EmptyStateView(
+                title: String(localized: "services.notFound", defaultValue: "Ничего не нашлось"),
+                symbol: "magnifyingglass",
+                hint: String(localized: "services.notFound.hint", defaultValue: "Попробуйте другое слово")
+            )
+        }
         .navigationTitle(Text(AppTab.workspace.title))
         .searchable(text: $query, prompt: Text(String(localized: "workspace.search", defaultValue: "Поиск раздела")))
         .task { await loadModules() }

@@ -2058,23 +2058,6 @@
         }
       }
     },
-    "chats.info.content": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Содержимое"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Мазмұны"
-          }
-        }
-      }
-    },
     "chats.info.empty": {
       "extractionState": "manual",
       "localizations": {
@@ -45247,23 +45230,6 @@
         }
       }
     },
-    "staff.sec.journal": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Журнал"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Журнал"
-          }
-        }
-      }
-    },
     "staff.sec.result.all": {
       "extractionState": "manual",
       "localizations": {
@@ -55154,40 +55120,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Бұл платформа үлгісі — оны тек платформа өңдейді. Өз көшірмеңізді алу үшін «Баптау» түймесін басыңыз."
-          }
-        }
-      }
-    },
-    "staff.svc.sections": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Раздел"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Бөлім"
-          }
-        }
-      }
-    },
-    "staff.svc.language": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Язык"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Тіл"
           }
         }
       }
@@ -93863,6 +93795,278 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ойнату орны"
+          }
+        }
+      }
+    },
+    "auth.qrTipNoPassword": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удобно на новом или чужом компьютере — пароль вводить не нужно"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жаңа немесе бөтен компьютерде ыңғайлы — құпиясөз енгізудің қажеті жоқ"
+          }
+        }
+      }
+    },
+    "auth.qrTipOpen": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Откройте StudentHub на компьютере и выберите вход по QR-коду"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Компьютерде StudentHub-ты ашып, QR-код арқылы кіруді таңдаңыз"
+          }
+        }
+      }
+    },
+    "auth.qrTipSafety": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сканируйте только код со своего экрана — не из сообщений и писем"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тек өз экраныңыздағы кодты сканерлеңіз — хабарламалар мен хаттардағыны емес"
+          }
+        }
+      }
+    },
+    "career.report.totals": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Итоги периода"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кезең қорытындысы"
+          }
+        }
+      }
+    },
+    "common.copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Көшіру"
+          }
+        }
+      }
+    },
+    "community.article.content.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Начните писать…"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жаза бастаңыз…"
+          }
+        }
+      }
+    },
+    "community.article.cover.replace": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заменить"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ауыстыру"
+          }
+        }
+      }
+    },
+    "community.article.coverUploading": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Загружаем обложку"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мұқаба жүктелуде"
+          }
+        }
+      }
+    },
+    "community.article.draftHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Черновик видите только вы — опубликовать его можно позже"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жобаны тек сіз көресіз — оны кейін жариялауға болады"
+          }
+        }
+      }
+    },
+    "community.article.openCover": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обложка статьи, открыть на весь экран"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мақала мұқабасы, толық экранда ашу"
+          }
+        }
+      }
+    },
+    "community.article.preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предпросмотр"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Алдын ала қарау"
+          }
+        }
+      }
+    },
+    "community.article.previewEmpty": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Здесь появится статья в том виде, в каком её увидят читатели"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мұнда мақала оқырмандар көретін түрде пайда болады"
+          }
+        }
+      }
+    },
+    "community.article.settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Публикация"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жариялау"
+          }
+        }
+      }
+    },
+    "profile.viewAvatar": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фото профиля"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Профиль суреті"
+          }
+        }
+      }
+    },
+    "profile.viewCover": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обложка"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мұқаба"
+          }
+        }
+      }
+    },
+    "settings.2fa.disableTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отключить 2FA"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2FA өшіру"
           }
         }
       }

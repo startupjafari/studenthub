@@ -18,16 +18,6 @@ struct DeaneryView: View {
     var body: some View {
         List {
             if let items {
-                if items.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "deanery.empty", defaultValue: "Записей пока нет"),
-                        symbol: "building.columns",
-                        hint: String(localized: "deanery.empty.hint", defaultValue: "Запишитесь на приём — деканат подтвердит время"),
-                        actionTitle: String(localized: "deanery.new", defaultValue: "Записаться"),
-                        action: { creating = true }
-                    )
-                    .listRowBackground(Color.clear)
-                }
                 let active = items.filter(\.isCancellable)
                 let archive = items.filter { !$0.isCancellable }
                 if !active.isEmpty {
@@ -46,14 +36,24 @@ struct DeaneryView: View {
                         Text(String(localized: "deanery.section.archive", defaultValue: "Архив"))
                     }
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(items?.isEmpty != false) {
+            if items != nil {
+                EmptyStateView(
+                    title: String(localized: "deanery.empty", defaultValue: "Записей пока нет"),
+                    symbol: "building.columns",
+                    hint: String(localized: "deanery.empty.hint", defaultValue: "Запишитесь на приём — деканат подтвердит время"),
+                    actionTitle: String(localized: "deanery.new", defaultValue: "Записаться"),
+                    action: { creating = true }
+                )
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(MoreSection.deanery.title))
         .floatingAction(String(localized: "deanery.new", defaultValue: "Записаться"), symbol: "calendar.badge.plus") {
             creating = true

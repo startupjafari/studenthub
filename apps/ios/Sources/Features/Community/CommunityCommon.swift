@@ -330,22 +330,32 @@ struct CommunityPickedFile: Equatable {
 
 /// Markdown статьи по абзацам: заголовки `#`, списки, цитаты и обычный текст с
 /// разметкой внутри строки. Полного движка Markdown в SwiftUI нет, а статье хватает этого.
+///
+/// Вёрстка — для чтения длинного текста: межстрочный воздух, заметные промежутки между
+/// блоками, заголовки отбиты сверху сильнее, чем снизу, — так видно, к чему они относятся.
 struct CommunityMarkdownView: View {
     let source: String
 
+    /// Межстрочный интервал текста: системный для `body` плотный, рассчитан на строки
+    /// списков, а не на абзацы статьи.
+    private static let leading: CGFloat = 4
+
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.md) {
+        VStack(alignment: .leading, spacing: Spacing.lg) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                 blockView(block)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .textSelection(.enabled)
     }
 
     private enum Block {
         case heading(String, level: Int)
-        case bullet(String)
-        case quote(String)
+        /// Подряд идущие пункты — один блок: между ними зазор меньше, чем между абзацами.
+        case bullets([String])
+        /// Подряд идущие строки `>` — одна цитата, а не стопка отдельных плашек.
+        case quote([String])
         case paragraph(String)
         case code(String)
     }
@@ -384,10 +394,20 @@ struct CommunityMarkdownView: View {
                 result.append(.heading(line.drop { $0 == "#" }.trimmingCharacters(in: .whitespaces), level: level))
             } else if line.hasPrefix("- ") || line.hasPrefix("* ") {
                 flush()
-                result.append(.bullet(String(line.dropFirst(2))))
+                let item = String(line.dropFirst(2))
+                if case .bullets(let items) = result.last {
+                    result[result.count - 1] = .bullets(items + [item])
+                } else {
+                    result.append(.bullets([item]))
+                }
             } else if line.hasPrefix(">") {
                 flush()
-                result.append(.quote(line.drop { $0 == ">" }.trimmingCharacters(in: .whitespaces)))
+                let text = line.drop { $0 == ">" }.trimmingCharacters(in: .whitespaces)
+                if case .quote(let lines) = result.last {
+                    result[result.count - 1] = .quote(lines + [text])
+                } else {
+                    result.append(.quote([text]))
+                }
             } else {
                 paragraph.append(line)
             }
@@ -404,25 +424,50 @@ struct CommunityMarkdownView: View {
             Text(RichText.attributed(text))
                 .font(level <= 1 ? .title2.weight(.bold) : level == 2 ? .title3.weight(.semibold) : .headline)
                 .foregroundStyle(Palette.foreground)
-                .padding(.top, Spacing.sm)
-        case .bullet(let text):
-            HStack(alignment: .firstTextBaseline, spacing: Spacing.md) {
-                Text(verbatim: "•").foregroundStyle(Palette.mutedForeground)
-                Text(RichText.attributed(text))
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, level <= 2 ? Spacing.md : Spacing.xs)
+                .accessibilityAddTraits(.isHeader)
+        case .bullets(let items):
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    HStack(alignment: .firstTextBaseline, spacing: Spacing.md) {
+                        Text(verbatim: "•")
+                            .foregroundStyle(Palette.primary)
+                            .accessibilityHidden(true)
+                        Text(RichText.attributed(item))
+                            .lineSpacing(Self.leading)
+                            .tint(Palette.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
             .font(Typography.body)
             .foregroundStyle(Palette.foreground)
-        case .quote(let text):
-            HStack(spacing: Spacing.md) {
-                RoundedRectangle(cornerRadius: 1).fill(Palette.primary.opacity(0.5)).frame(width: 3)
-                Text(RichText.attributed(text))
-                    .font(Typography.body.italic())
-                    .foregroundStyle(Palette.mutedForeground)
-            }
+            .padding(.leading, Spacing.xs)
+        case .quote(let lines):
+            // Полоса — наложением по высоте текста: в стеке рядом с ним гибкая фигура
+            // не знала бы своей высоты внутри прокрутки.
+            Text(RichText.attributed(lines.joined(separator: "\n")))
+                .font(Typography.body.italic())
+                .foregroundStyle(Palette.foreground.opacity(0.8))
+                .lineSpacing(Self.leading)
+                .tint(Palette.primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.vertical, Spacing.md)
+                .padding(.leading, Spacing.xl)
+                .padding(.trailing, Spacing.lg)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Palette.primary.opacity(0.08))
+                .overlay(alignment: .leading) {
+                    Palette.primary
+                        .frame(width: 3)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
         case .paragraph(let text):
             Text(RichText.attributed(text))
                 .font(Typography.body)
                 .foregroundStyle(Palette.foreground)
+                .lineSpacing(Self.leading)
                 .tint(Palette.primary)
                 .fixedSize(horizontal: false, vertical: true)
         case .code(let text):

@@ -11,14 +11,7 @@ struct CommunityDocumentRequestsView: View {
             try await CommunityAPI().documentRequests()
         } content: { requests in
             List {
-                if requests.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "community.requests.empty", defaultValue: "Запросов нет"),
-                        symbol: "tray",
-                        hint: String(localized: "community.requests.empty.hint", defaultValue: "Когда деканат или преподаватель попросит документы, запрос появится здесь")
-                    )
-                    .listRowBackground(Color.clear)
-                } else {
+                if !requests.isEmpty {
                     Section {
                         ForEach(requests) { request in
                             NavigationLink(value: AppRoute.community(.documentRequest(id: request.id))) {
@@ -40,6 +33,13 @@ struct CommunityDocumentRequestsView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .screenState(requests.isEmpty) {
+                EmptyStateView(
+                    title: String(localized: "community.requests.empty", defaultValue: "Запросов нет"),
+                    symbol: "tray",
+                    hint: String(localized: "community.requests.empty.hint", defaultValue: "Когда деканат или преподаватель попросит документы, запрос появится здесь")
+                )
+            }
             .refreshable { reload += 1 }
         }
         .background(Palette.background)

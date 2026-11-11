@@ -7,14 +7,7 @@ struct TeachingGradebookListView: View {
     var body: some View {
         RemoteContent(load: { try await CoursesAPI().courses(mine: true) }) { courses in
             List {
-                if courses.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "teaching.gradebook.noCourses", defaultValue: "У вас нет дисциплин"),
-                        symbol: "tablecells",
-                        hint: String(localized: "teaching.gradebook.noCourses.hint", defaultValue: "Дисциплины назначает деканат.")
-                    )
-                    .listRowBackground(Color.clear)
-                } else {
+                if !courses.isEmpty {
                     ForEach(grouped(courses), id: \.title) { section in
                         Section(section.title) {
                             ForEach(section.courses) { course in
@@ -33,6 +26,13 @@ struct TeachingGradebookListView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .screenState(courses.isEmpty) {
+                EmptyStateView(
+                    title: String(localized: "teaching.gradebook.noCourses", defaultValue: "У вас нет дисциплин"),
+                    symbol: "tablecells",
+                    hint: String(localized: "teaching.gradebook.noCourses.hint", defaultValue: "Дисциплины назначает деканат.")
+                )
+            }
         }
         .background(Palette.background)
         .navigationTitle(Text(TeacherScreen.gradebook.title))
@@ -81,14 +81,16 @@ struct TeachingGradebookCourseView: View {
             if let book {
                 columnsSection(book)
                 totalsSection(book)
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(book == nil) {
+            if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(courseTitle ?? TeacherScreen.gradebookCourse(id: courseID).title))
         .navigationBarTitleDisplayMode(.inline)
         .floatingAction(String(localized: "teaching.gradebook.addColumn", defaultValue: "Добавить контрольную точку")) {

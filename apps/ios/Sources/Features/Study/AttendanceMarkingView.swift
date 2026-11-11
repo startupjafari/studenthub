@@ -58,15 +58,17 @@ struct AttendanceMarkingView: View {
                         }
                     }
                 }
-            } else if let model, let failure = model.failure {
-                // Список не пришёл — не только полоса, но и повтор.
-                ErrorStateView(message: failure, isOffline: model.isOffline) { await model.load(keepEdits: true) }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(model?.isLoaded != true) {
+            if let model, let failure = model.failure {
+                // Список не пришёл — не только полоса, но и повтор.
+                ErrorStateView(message: failure, isOffline: model.isOffline) { await model.load(keepEdits: true) }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(model?.subject ?? String(localized: "study.attendance", defaultValue: "Посещаемость")))
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: Text(String(localized: "group.search", defaultValue: "Найти по имени")))

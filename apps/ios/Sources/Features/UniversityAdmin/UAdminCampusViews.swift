@@ -14,52 +14,51 @@ struct UAdminCampusListView: View {
 
     var body: some View {
         List {
-            if let items {
-                if items.isEmpty {
-                    EmptyStateView(
-                        title: String(localized: "uadmin.campus.empty", defaultValue: "Кампусов пока нет"),
-                        symbol: "map",
-                        hint: String(localized: "uadmin.campus.emptyHint", defaultValue: "Создайте кампус, добавьте корпус и этажи — после публикации карту увидят все в вузе."),
-                        actionTitle: String(localized: "uadmin.campus.create", defaultValue: "Создать кампус"),
-                        action: { creating = true }
-                    )
-                    .listRowBackground(Color.clear)
-                } else {
-                    Section {
-                        ForEach(items) { campus in
-                            NavigationLink(value: AppRoute.uniAdmin(.campus(id: campus.id))) {
-                                TelegramStyleRow(
-                                    title: campus.name,
-                                    subtitle: campus.description,
-                                    meta: String(localized: "uadmin.campus.buildingsCount", defaultValue: "Корпусов: \(campus.buildingsCount.formatted())")
-                                ) {
-                                    RowSymbol(symbol: "map", tint: TileTint.green)
-                                } accessory: {
-                                    if campus.publishedVersionId == nil {
-                                        StatusBadge(text: String(localized: "uadmin.campus.draft", defaultValue: "Черновик"), tint: Palette.mutedForeground)
-                                    } else {
-                                        StatusBadge(text: String(localized: "uadmin.campus.published", defaultValue: "Опубликован"), tint: Palette.success)
-                                    }
+            if let items, !items.isEmpty {
+                Section {
+                    ForEach(items) { campus in
+                        NavigationLink(value: AppRoute.uniAdmin(.campus(id: campus.id))) {
+                            TelegramStyleRow(
+                                title: campus.name,
+                                subtitle: campus.description,
+                                meta: String(localized: "uadmin.campus.buildingsCount", defaultValue: "Корпусов: \(campus.buildingsCount.formatted())")
+                            ) {
+                                RowSymbol(symbol: "map", tint: TileTint.green)
+                            } accessory: {
+                                if campus.publishedVersionId == nil {
+                                    StatusBadge(text: String(localized: "uadmin.campus.draft", defaultValue: "Черновик"), tint: Palette.mutedForeground)
+                                } else {
+                                    StatusBadge(text: String(localized: "uadmin.campus.published", defaultValue: "Опубликован"), tint: Palette.success)
                                 }
                             }
                         }
-                    } footer: {
-                        Text(String(localized: "uadmin.campus.editorHint", defaultValue: "Планы этажей рисуются в редакторе веб-версии. Здесь — корпуса, этажи, публикация и версии."))
                     }
-                    Section {
-                        NavigationLink(value: AppRoute.section(.campusMap)) {
-                            IconRow(title: String(localized: "uadmin.campus.openMap", defaultValue: "Открыть карту"), symbol: "map", tint: TileTint.green)
-                        }
+                } footer: {
+                    Text(String(localized: "uadmin.campus.editorHint", defaultValue: "Планы этажей рисуются в редакторе веб-версии. Здесь — корпуса, этажи, публикация и версии."))
+                }
+                Section {
+                    NavigationLink(value: AppRoute.section(.campusMap)) {
+                        IconRow(title: String(localized: "uadmin.campus.openMap", defaultValue: "Открыть карту"), symbol: "map", tint: TileTint.green)
                     }
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
         }
         .listStyle(.insetGrouped)
+        .screenState(items?.isEmpty != false) {
+            if items != nil {
+                EmptyStateView(
+                    title: String(localized: "uadmin.campus.empty", defaultValue: "Кампусов пока нет"),
+                    symbol: "map",
+                    hint: String(localized: "uadmin.campus.emptyHint", defaultValue: "Создайте кампус, добавьте корпус и этажи — после публикации карту увидят все в вузе."),
+                    actionTitle: String(localized: "uadmin.campus.create", defaultValue: "Создать кампус"),
+                    action: { creating = true }
+                )
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else {
+                LoadingStateView()
+            }
+        }
         .navigationTitle(Text(UniAdminScreen.campuses.title))
         .floatingAction(String(localized: "uadmin.campus.create", defaultValue: "Создать кампус")) { creating = true }
         .sheet(isPresented: $creating) {

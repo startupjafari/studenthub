@@ -67,6 +67,7 @@ struct UAdminScheduleView: View {
             content
         }
         .listStyle(.insetGrouped)
+        .screenState(!showsPairs) { stateView }
         .navigationTitle(Text(String(localized: "uadmin.schedule.title", defaultValue: "Управление расписанием")))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -138,47 +139,15 @@ struct UAdminScheduleView: View {
         .task { await prepare() }
     }
 
+    /// Пары на экране: группа выбрана, версии пришли без сбоя, в выбранной есть пары.
+    private var showsPairs: Bool {
+        guard group != nil, failure == nil, containers?.isEmpty != true, let detail else { return false }
+        return !detail.pairs.isEmpty
+    }
+
     @ViewBuilder
     private var content: some View {
-        if group == nil, let groupFailure {
-            ErrorStateView(message: groupFailure, isOffline: isOffline) {
-                prepared = false
-                await prepare()
-            }
-            .listRowBackground(Color.clear)
-        } else if group == nil, isLoadingGroup {
-            LoadingStateView().listRowBackground(Color.clear)
-        } else if group == nil {
-            EmptyStateView(
-                title: String(localized: "uadmin.schedule.pickGroup", defaultValue: "Выберите группу"),
-                symbol: "person.3",
-                hint: String(localized: "uadmin.schedule.pickGroupHint", defaultValue: "Чтобы управлять расписанием, выберите группу"),
-                actionTitle: String(localized: "uadmin.schedule.choose", defaultValue: "Выбрать группу"),
-                action: { pickingGroup = true }
-            )
-            .listRowBackground(Color.clear)
-        } else if let failure {
-            ErrorStateView(message: failure, isOffline: isOffline) { await loadContainers(select: containerID) }
-                .listRowBackground(Color.clear)
-        } else if let containers, containers.isEmpty {
-            EmptyStateView(
-                title: String(localized: "uadmin.schedule.noVersions", defaultValue: "Пока нет версий расписания"),
-                symbol: "calendar.badge.plus",
-                hint: String(localized: "uadmin.schedule.noVersionsHint", defaultValue: "Создайте версию расписания, чтобы добавлять пары"),
-                actionTitle: String(localized: "uadmin.schedule.newVersion", defaultValue: "Новая версия расписания"),
-                action: { creatingVersion = true }
-            )
-            .listRowBackground(Color.clear)
-        } else if let detail {
-            if detail.pairs.isEmpty {
-                EmptyStateView(
-                    title: String(localized: "uadmin.schedule.noPairs", defaultValue: "В этой версии ещё нет пар"),
-                    symbol: "calendar",
-                    actionTitle: String(localized: "uadmin.schedule.addPair", defaultValue: "Добавить пару"),
-                    action: { addingPair = true }
-                )
-                .listRowBackground(Color.clear)
-            }
+        if showsPairs, let detail {
             ForEach(1...7, id: \.self) { day in
                 let pairs = detail.pairs.filter { $0.dayOfWeek == day }.sorted { $0.startTime < $1.startTime }
                 if !pairs.isEmpty {
@@ -201,8 +170,46 @@ struct UAdminScheduleView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// Вместо пар — по центру экрана: выбор группы, загрузка, сбой, пустая версия.
+    @ViewBuilder
+    private var stateView: some View {
+        if group == nil, let groupFailure {
+            ErrorStateView(message: groupFailure, isOffline: isOffline) {
+                prepared = false
+                await prepare()
+            }
+        } else if group == nil, isLoadingGroup {
+            LoadingStateView()
+        } else if group == nil {
+            EmptyStateView(
+                title: String(localized: "uadmin.schedule.pickGroup", defaultValue: "Выберите группу"),
+                symbol: "person.3",
+                hint: String(localized: "uadmin.schedule.pickGroupHint", defaultValue: "Чтобы управлять расписанием, выберите группу"),
+                actionTitle: String(localized: "uadmin.schedule.choose", defaultValue: "Выбрать группу"),
+                action: { pickingGroup = true }
+            )
+        } else if let failure {
+            ErrorStateView(message: failure, isOffline: isOffline) { await loadContainers(select: containerID) }
+        } else if let containers, containers.isEmpty {
+            EmptyStateView(
+                title: String(localized: "uadmin.schedule.noVersions", defaultValue: "Пока нет версий расписания"),
+                symbol: "calendar.badge.plus",
+                hint: String(localized: "uadmin.schedule.noVersionsHint", defaultValue: "Создайте версию расписания, чтобы добавлять пары"),
+                actionTitle: String(localized: "uadmin.schedule.newVersion", defaultValue: "Новая версия расписания"),
+                action: { creatingVersion = true }
+            )
+        } else if detail != nil {
+            EmptyStateView(
+                title: String(localized: "uadmin.schedule.noPairs", defaultValue: "В этой версии ещё нет пар"),
+                symbol: "calendar",
+                actionTitle: String(localized: "uadmin.schedule.addPair", defaultValue: "Добавить пару"),
+                action: { addingPair = true }
+            )
         } else {
-            LoadingStateView().listRowBackground(Color.clear)
+            LoadingStateView()
         }
     }
 

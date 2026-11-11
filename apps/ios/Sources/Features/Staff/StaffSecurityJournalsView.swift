@@ -146,10 +146,12 @@ struct StaffSecurityJournalsView: View {
         .listRowInsets(EdgeInsets())
 
         Section {
-            Picker(String(localized: "staff.sec.journal", defaultValue: "Журнал"), selection: $tab) {
-                ForEach(StaffSecurityTab.allCases) { Text($0.title).tag($0) }
-            }
-            .pickerStyle(.segmented)
+            FilterChips(
+                options: StaffSecurityTab.allCases.map { (value: Optional($0), title: $0.title) },
+                selection: Binding(get: { tab }, set: { if let next = $0 { tab = next } }),
+                fillsWidth: true
+            )
+            .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets())
         }
