@@ -226,12 +226,12 @@ struct ProfileView: View {
         }
     }
 
-    /// На вкладке нечего листать: пусто, сбой или первая загрузка списка. Скелет ленты
-    /// постов — не состояние: он стоит на месте будущих карточек, сверху.
+    /// На вкладке нечего листать: пусто, сбой или первая загрузка — индикатор, как и
+    /// пустое состояние, стоит по центру вкладки.
     private var showsTabState: Bool {
         switch tab {
         case .posts:
-            return posts.hasLoaded && posts.posts.isEmpty
+            return posts.posts.isEmpty
         case .photos:
             return model.photos?.isEmpty != false
         case .videos:
@@ -300,10 +300,9 @@ struct ProfileView: View {
     @ViewBuilder
     private func postsTab(actions: PostCardActions) -> some View {
         if !posts.hasLoaded, posts.posts.isEmpty {
-            VStack(spacing: Spacing.lg) {
-                ForEach(0..<2, id: \.self) { _ in PostCardSkeleton() }
-            }
-            .padding(.horizontal, Spacing.xl)
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .padding(Spacing.xxl)
         } else if let failure = posts.failure, posts.posts.isEmpty {
             ErrorStateView(message: failure, isOffline: posts.isOffline) { await posts.refresh() }
         } else if posts.posts.isEmpty {

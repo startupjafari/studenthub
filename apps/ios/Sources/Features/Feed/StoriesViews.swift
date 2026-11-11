@@ -130,23 +130,6 @@ struct StoryAvatar: View {
     }
 }
 
-/// Скелет полосы на время первой загрузки.
-struct StoriesRailSkeleton: View {
-    var body: some View {
-        HStack(spacing: Spacing.lg) {
-            ForEach(0..<5, id: \.self) { _ in
-                VStack(spacing: Spacing.sm) {
-                    Circle().fill(Palette.muted).frame(width: 64, height: 64)
-                    SkeletonBlock(height: 8, width: 48)
-                }
-            }
-        }
-        .padding(.horizontal, Spacing.xl)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityHidden(true)
-    }
-}
-
 // MARK: - Просмотр
 
 /// Полноэкранный просмотр: истории автора по очереди с полосами прогресса.

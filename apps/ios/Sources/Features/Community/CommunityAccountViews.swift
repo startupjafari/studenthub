@@ -334,9 +334,7 @@ struct CommunityMyPostsView: View {
                         fillsWidth: true
                     )
 
-                    if !feed.hasLoaded {
-                        ForEach(0..<2, id: \.self) { _ in PostCardSkeleton() }
-                    } else if !feed.posts.isEmpty {
+                    if !feed.posts.isEmpty {
                         ForEach(feed.posts) { post in
                             VStack(alignment: .leading, spacing: Spacing.sm) {
                                 if let at = post.scheduledAt {
@@ -357,8 +355,10 @@ struct CommunityMyPostsView: View {
                 .padding(.bottom, Spacing.xl)
             }
             .contentMargins(.top, Spacing.sm, for: .scrollContent)
-            .screenState(feed.hasLoaded && feed.posts.isEmpty) {
-                if let failure = feed.failure {
+            .screenState(feed.posts.isEmpty) {
+                if !feed.hasLoaded {
+                    LoadingStateView()
+                } else if let failure = feed.failure {
                     ErrorStateView(message: failure, isOffline: feed.isOffline) { await feed.refresh() }
                 } else {
                     EmptyStateView(
