@@ -180,7 +180,6 @@ struct CommunityServiceCatalog: View {
         .background(Palette.background)
         .searchable(
             text: $search,
-            placement: .navigationBarDrawer(displayMode: .always),
             prompt: Text(String(localized: "community.applications.searchService", defaultValue: "Найти услугу"))
         )
         .navigationTitle(Text(String(localized: "applications.catalog", defaultValue: "Каталог услуг")))

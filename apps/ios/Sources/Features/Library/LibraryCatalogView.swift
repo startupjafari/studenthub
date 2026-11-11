@@ -48,7 +48,6 @@ struct LibraryCatalogView: View {
         .navigationTitle(Text(String(localized: "library.title", defaultValue: "Библиотека")))
         .searchable(
             text: $model.query.text,
-            placement: .navigationBarDrawer(displayMode: .always),
             prompt: Text(String(localized: "library.searchPlaceholder", defaultValue: "Название, автор или ISBN"))
         )
         .autocorrectionDisabled()

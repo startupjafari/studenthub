@@ -53,6 +53,9 @@ struct ChatListView: View {
 
     private var list: some View {
         List(selection: $selection) {
+            // Папки — первой строкой списка, а не закреплённой полосой: уезжают вместе со
+            // списком при прокрутке, как вкладки на остальных экранах.
+            tabsBar
             // Пустой список со сбоем загрузки — ошибка на весь экран (`emptyState`), строка
             // не нужна. Отказ действия показывается строкой всегда.
             if let failure = model.failure, !(showsEmptyState && model.loadFailure == failure) {
@@ -90,10 +93,8 @@ struct ChatListView: View {
         .listStyle(.plain)
         .environment(\.editMode, $editMode)
         .overlay { emptyState }
-        .safeAreaInset(edge: .top, spacing: 0) { tabsBar }
         .searchable(
             text: $query,
-            placement: .navigationBarDrawer(displayMode: .always),
             prompt: Text(String(localized: "chats.search.prompt.short", defaultValue: "Поиск"))
         )
         .refreshable {
@@ -174,8 +175,8 @@ struct ChatListView: View {
 
     // MARK: Папки
 
-    /// Папки и вкладки по типу — стеклянной дорожкой под поиском, как папки Telegram.
-    /// «Архив» здесь не вкладка, а строка над списком.
+    /// Папки и вкладки по типу — стеклянной дорожкой первой строкой списка, как папки
+    /// Telegram. «Архив» здесь не вкладка, а строка под ними.
     @ViewBuilder
     private var tabsBar: some View {
         let tabs = model.tabs.filter { $0 != .archive }
@@ -185,9 +186,10 @@ struct ChatListView: View {
                 selection: $chip,
                 menu: tabActions
             )
-            .padding(.horizontal, Spacing.xl)
-            .padding(.vertical, Spacing.xs)
-            .background { ChatTabsBackdrop() }
+            .listRowInsets(EdgeInsets(top: Spacing.xs, leading: Spacing.xl, bottom: Spacing.xs, trailing: Spacing.xl))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+            .selectionDisabled()
         }
     }
 
@@ -667,18 +669,6 @@ enum ChatTabTitle {
         case .groups: return String(localized: "chats.tab.groups", defaultValue: "Группы")
         case .subjects: return String(localized: "chats.tab.subjects", defaultValue: "Предметы")
         case .university: return String(localized: "chats.tab.university", defaultValue: "Вуз")
-        }
-    }
-}
-
-/// Подложка дорожки папок. На iOS 26 её нет: стеклянная капсула парит над списком.
-/// Раньше — фон экрана, иначе строки просвечивали бы сквозь полупрозрачную заливку.
-private struct ChatTabsBackdrop: View {
-    var body: some View {
-        if #available(iOS 26, *) {
-            Color.clear
-        } else {
-            Palette.plainBackground
         }
     }
 }

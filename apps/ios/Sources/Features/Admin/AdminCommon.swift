@@ -370,8 +370,8 @@ struct AdminDayCapsule: View {
 // MARK: - Поиск в больших списках
 
 extension View {
-    /// Поиск с задержкой, поле всегда видно под заголовком — как в списке чатов. Для
-    /// больших списков (пользователи, вузы, обращения): искать — главный способ найти.
+    /// Поиск с задержкой для больших списков (пользователи, вузы, обращения). Поле, как на
+    /// всех экранах-списках, прячется при прокрутке вниз и выезжает жестом вниз.
     func adminPinnedSearch(_ text: Binding<String>, prompt: String, onChange: @escaping (String) async -> Void) -> some View {
         modifier(AdminPinnedSearch(text: text, prompt: prompt, onChange: onChange))
     }
@@ -386,7 +386,7 @@ private struct AdminPinnedSearch: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .searchable(text: $text, placement: .navigationBarDrawer(displayMode: .always), prompt: Text(prompt))
+            .searchable(text: $text, prompt: Text(prompt))
             .task(id: text) {
                 let needle = text.trimmingCharacters(in: .whitespaces)
                 guard needle != lastSent else { return }
