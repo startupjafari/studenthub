@@ -328,18 +328,139 @@ struct HeroActionLabel: View {
 
 extension View {
     /// Плавающая кнопка главного действия списка («Новая заявка», «Добавить книгу») —
-    /// синий стеклянный круг в правом нижнем углу над панелью вкладок, как «новый чат».
-    /// Кнопку «+» в верхней панели на таком экране не дублируют.
+    /// синий стеклянный круг. Кнопку «+» в верхней панели на таком экране не дублируют.
     ///
-    /// Под кнопкой список получает запас прокрутки её высоты: иначе последняя строка
-    /// (шеврон, статус, «Всего: N») навсегда оставалась под синим кругом.
+    /// На iOS 26 кнопка стоит в одну линию с островом нижней навигации, справа от него,
+    /// как отдельная кнопка поиска в приложениях Apple: над панелью она закрывала
+    /// последние строки списка и висела «в воздухе». Если справа от острова места нет
+    /// (у роли много вкладок) или система старше — кнопка над панелью, как раньше, и
+    /// список получает запас прокрутки её высоты, чтобы последняя строка не уходила
+    /// под синий круг.
     func floatingAction(_ title: String, symbol: String = "plus", action: @escaping () -> Void) -> some View {
-        contentMargins(.bottom, FloatingActionButton.clearance, for: .scrollContent)
+        modifier(FloatingActionPlacement(title: title, symbol: symbol, action: action))
+    }
+}
+
+private struct FloatingActionPlacement: ViewModifier {
+    let title: String
+    let symbol: String
+    let action: () -> Void
+
+    /// Остров вкладок в координатах окна; `nil` — его нет или рядом не помещается кнопка.
+    @State private var dock: CGRect?
+
+    func body(content: Content) -> some View {
+        content
+            .contentMargins(.bottom, dock == nil ? FloatingActionButton.clearance : 0, for: .scrollContent)
             .overlay(alignment: .bottomTrailing) {
-                FloatingActionButton(title: title, symbol: symbol, action: action)
-                    .padding(.trailing, Spacing.xl)
-                    .padding(.bottom, Spacing.xl)
+                if dock == nil {
+                    FloatingActionButton(title: title, symbol: symbol, action: action)
+                        .padding(.trailing, Spacing.xl)
+                        .padding(.bottom, Spacing.xl)
+                }
             }
+            .overlay {
+                GeometryReader { proxy in
+                    let origin = proxy.frame(in: .global).origin
+                    ZStack {
+                        TabBarDockReader(clearance: FloatingActionButton.size + Spacing.xl + Spacing.md) { dock = $0 }
+                            .frame(width: 0, height: 0)
+                        if let dock {
+                            FloatingActionButton(title: title, symbol: symbol, action: action)
+                                .position(
+                                    x: proxy.size.width - Spacing.xl - FloatingActionButton.size / 2,
+                                    y: dock.midY - origin.y
+                                )
+                        }
+                    }
+                }
+                .ignoresSafeArea()
+            }
+    }
+}
+
+/// Находит остров нижней навигации (iOS 26) и сообщает его рамку в координатах окна —
+/// если справа от него помещается кнопка шириной `clearance`. Ищет по цепочке
+/// ответчиков: экран лежит в стеке вкладки, стек — в контроллере вкладок `TabView`.
+private struct TabBarDockReader: UIViewRepresentable {
+    let clearance: CGFloat
+    let report: (CGRect?) -> Void
+
+    func makeUIView(context: Context) -> DockProbeView {
+        let view = DockProbeView()
+        view.isUserInteractionEnabled = false
+        return view
+    }
+
+    func updateUIView(_ view: DockProbeView, context: Context) {
+        view.clearance = clearance
+        view.report = report
+        view.scheduleMeasure()
+    }
+
+    final class DockProbeView: UIView {
+        var clearance: CGFloat = 0
+        var report: ((CGRect?) -> Void)?
+        private var last: CGRect?
+        private var isScheduled = false
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            scheduleMeasure()
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            scheduleMeasure()
+        }
+
+        /// Замер — после текущего прохода раскладки: панель вкладок к этому моменту уже
+        /// на месте. Второй замер чуть позже ловит конец анимации перехода между экранами.
+        func scheduleMeasure() {
+            guard !isScheduled else { return }
+            isScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                self?.isScheduled = false
+                self?.measure()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+                self?.measure()
+            }
+        }
+
+        private func measure() {
+            let dock = Self.dock(from: self, clearance: clearance)
+            guard dock != last else { return }
+            last = dock
+            report?(dock)
+        }
+
+        static func dock(from view: UIView, clearance: CGFloat) -> CGRect? {
+            guard #available(iOS 26, *), let window = view.window else { return nil }
+            var responder: UIResponder? = view
+            while let current = responder, !(current is UITabBarController) {
+                responder = current.next
+            }
+            guard let tabs = responder as? UITabBarController else { return nil }
+            let bar = tabs.tabBar
+            guard !bar.isHidden, bar.alpha > 0.01, bar.window != nil else { return nil }
+            // Остров — объединение видимых кнопок вкладок: сама панель на iOS 26 шире
+            // острова и прозрачна по краям.
+            var island = CGRect.null
+            var stack: [UIView] = [bar]
+            while let next = stack.popLast() {
+                for child in next.subviews where !child.isHidden && child.alpha > 0.01 {
+                    if child is UIControl, child.bounds.width > 1, child.bounds.height > 1 {
+                        island = island.union(child.convert(child.bounds, to: window))
+                    } else {
+                        stack.append(child)
+                    }
+                }
+            }
+            guard !island.isNull, island.height > 20 else { return nil }
+            guard window.bounds.maxX - island.maxX >= clearance else { return nil }
+            return island
+        }
     }
 }
 
@@ -348,17 +469,16 @@ private struct FloatingActionButton: View {
     let symbol: String
     let action: () -> Void
 
+    static let size: CGFloat = 56
     /// Высота кнопки с её отступом снизу и зазором над последней строкой.
-    static let clearance: CGFloat = 56 + Spacing.xl * 2
-
-    @ScaledMetric(relativeTo: .title2) private var size: CGFloat = 56
+    static let clearance: CGFloat = size + Spacing.xl * 2
 
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.title2.weight(.semibold))
                 .foregroundStyle(.white)
-                .frame(width: min(size, 72), height: min(size, 72))
+                .frame(width: Self.size, height: Self.size)
                 .glassSurface(tint: Palette.primary, in: Circle())
                 .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
         }
