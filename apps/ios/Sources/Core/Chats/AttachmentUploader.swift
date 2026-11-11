@@ -295,6 +295,7 @@ struct AttachmentUploader: Sendable {
         } catch {
             return nil
         }
+        await AttachmentUploads.shared.enqueue(message.id)
         return message.id
     }
 

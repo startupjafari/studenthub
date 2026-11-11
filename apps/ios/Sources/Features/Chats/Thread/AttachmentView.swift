@@ -11,6 +11,8 @@ import SwiftUI
 struct AttachmentView: View {
     let attachment: AttachmentRecord
     let isOwn: Bool
+    /// Своё вложение ещё грузится: кольцо прогресса с крестиком отмены.
+    var upload: AttachmentUploadState?
     /// Открыть во весь экран: фото, документ, видео — системным просмотром.
     var open: () -> Void = {}
 
@@ -18,10 +20,55 @@ struct AttachmentView: View {
         if attachment.isVoice {
             VoiceAttachmentView(attachment: attachment, isOwn: isOwn)
         } else if attachment.showsAsPhoto {
-            ImageAttachmentView(attachment: attachment, open: open)
+            ImageAttachmentView(attachment: attachment, upload: upload, open: open)
         } else {
-            FileAttachmentView(attachment: attachment, isOwn: isOwn, open: open)
+            FileAttachmentView(attachment: attachment, isOwn: isOwn, upload: upload, open: open)
         }
+    }
+}
+
+/// Загрузка своего вложения: доля отправленного по всему сообщению и отмена.
+struct AttachmentUploadState {
+    let fraction: Double
+    let cancel: () -> Void
+}
+
+/// Кольцо загрузки с крестиком, как в Telegram: касание отменяет отправку.
+struct UploadRing: View {
+    let fraction: Double
+    var tint: Color = .white
+    /// Тёмная подложка — поверх снимка; на строке файла её нет.
+    var backdrop: Color? = Palette.overlay.opacity(0.45)
+    var diameter: CGFloat = ControlHeight.xl
+    let cancel: () -> Void
+
+    var body: some View {
+        Button(action: cancel) {
+            ZStack {
+                if let backdrop {
+                    Circle().fill(backdrop)
+                }
+                Circle()
+                    .stroke(tint.opacity(0.3), lineWidth: 2.5)
+                    .padding(Spacing.xs)
+                // Совсем пустое кольцо читается как «ничего не происходит» — хвостик видно
+                // с первой секунды.
+                Circle()
+                    .trim(from: 0, to: max(0.03, fraction))
+                    .stroke(tint, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .padding(Spacing.xs)
+                    .animation(.linear(duration: 0.2), value: fraction)
+                Image(systemName: "xmark")
+                    .font(.system(size: diameter * 0.3, weight: .bold))
+                    .foregroundStyle(tint)
+            }
+            .frame(width: diameter, height: diameter)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(String(localized: "chats.upload.cancel", defaultValue: "Отменить загрузку")))
+        .accessibilityValue(Text(fraction.formatted(.percent.precision(.fractionLength(0)))))
     }
 }
 
@@ -30,6 +77,7 @@ struct AttachmentView: View {
 /// 240 pt занимал бы 50 МБ памяти, и не на главном потоке.
 private struct ImageAttachmentView: View {
     let attachment: AttachmentRecord
+    let upload: AttachmentUploadState?
     let open: () -> Void
 
     @State private var remoteURL: URL?
@@ -73,6 +121,11 @@ private struct ImageAttachmentView: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
         .contentShape(RoundedRectangle(cornerRadius: Radius.lg))
+        .overlay {
+            if let upload {
+                UploadRing(fraction: upload.fraction, cancel: upload.cancel)
+            }
+        }
         .onTapGesture {
             if isHidden {
                 withAnimation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion)) { revealed = true }
@@ -94,29 +147,50 @@ private struct ImageAttachmentView: View {
 private struct FileAttachmentView: View {
     let attachment: AttachmentRecord
     let isOwn: Bool
+    let upload: AttachmentUploadState?
     let open: () -> Void
 
     var body: some View {
-        Button(action: open) {
+        // Пока файл грузится, вместо значка — кольцо с крестиком (как в Telegram), а
+        // строка не открывается: отдельной кнопкой внутри кнопки касания путались бы.
+        if let upload {
             HStack(spacing: Spacing.md) {
-                Image(systemName: symbol)
-                    .foregroundStyle(isOwn ? Palette.primaryForeground : Palette.primary)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(attachment.name ?? String(localized: "chats.file", defaultValue: "Файл"))
-                        .font(Typography.body)
-                        .lineLimit(1)
-                        .foregroundStyle(isOwn ? Palette.primaryForeground : Palette.foreground)
-                    if let size = attachment.size {
-                        Text(verbatim: ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
-                            .font(Typography.meta)
-                            .foregroundStyle(isOwn ? Palette.primaryForeground.opacity(0.8) : Palette.mutedForeground)
-                    }
-                }
+                UploadRing(
+                    fraction: upload.fraction,
+                    tint: isOwn ? Palette.primaryForeground : Palette.primary,
+                    backdrop: nil,
+                    diameter: ControlHeight.md,
+                    cancel: upload.cancel
+                )
+                caption
             }
             .padding(.vertical, Spacing.xs)
-            .contentShape(Rectangle())
+        } else {
+            Button(action: open) {
+                HStack(spacing: Spacing.md) {
+                    Image(systemName: symbol)
+                        .foregroundStyle(isOwn ? Palette.primaryForeground : Palette.primary)
+                    caption
+                }
+                .padding(.vertical, Spacing.xs)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
+    }
+
+    private var caption: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(attachment.name ?? String(localized: "chats.file", defaultValue: "Файл"))
+                .font(Typography.body)
+                .lineLimit(1)
+                .foregroundStyle(isOwn ? Palette.primaryForeground : Palette.foreground)
+            if let size = attachment.size {
+                Text(verbatim: ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
+                    .font(Typography.meta)
+                    .foregroundStyle(isOwn ? Palette.primaryForeground.opacity(0.8) : Palette.mutedForeground)
+            }
+        }
     }
 
     private var symbol: String {

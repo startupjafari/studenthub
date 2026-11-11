@@ -92183,6 +92183,380 @@
           }
         }
       }
+    },
+    "chats.attachCamera": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Камера"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Камера"
+          }
+        }
+      }
+    },
+    "chats.attach.tooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файл «%@» больше %@ — такой не отправить"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» файлының өлшемі %@ шегінен асады — оны жіберу мүмкін емес"
+          }
+        }
+      }
+    },
+    "chats.attach.preparing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подготовка файлов…"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файлдар дайындалуда…"
+          }
+        }
+      }
+    },
+    "chats.attach.addMore": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить фото или видео"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фото немесе бейне қосу"
+          }
+        }
+      }
+    },
+    "chats.attach.spoiler": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрыть под спойлер"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спойлермен жасыру"
+          }
+        }
+      }
+    },
+    "chats.attach.asFiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить как файл"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файл ретінде жіберу"
+          }
+        }
+      }
+    },
+    "chats.attach.asFilesHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Без сжатия: собеседник увидит файлы, а не превью."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сығусыз: әңгімелесуші алдын ала көріністі емес, файлдарды көреді."
+          }
+        }
+      }
+    },
+    "chats.attach.spoilerHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спойлер можно поставить и на отдельный снимок — значком глаза на миниатюре."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спойлерді жеке суретке де қоюға болады — шағын суреттегі көз белгішесімен."
+          }
+        }
+      }
+    },
+    "chats.attach.sendVideos": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить %@ видео"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ бейне жіберу"
+          }
+        }
+      }
+    },
+    "chats.attach.sendPhotos": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить %@ фото"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ фото жіберу"
+          }
+        }
+      }
+    },
+    "chats.attach.caption": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подпись"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Түсініктеме"
+          }
+        }
+      }
+    },
+    "chats.attach.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убрать"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Алып тастау"
+          }
+        }
+      }
+    },
+    "chats.attach.spoilerOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать без спойлера"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спойлерсіз көрсету"
+          }
+        }
+      }
+    },
+    "chats.attach.spoilerOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрыть под спойлер"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спойлермен жасыру"
+          }
+        }
+      }
+    },
+    "chats.attach.video": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Видео"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бейне"
+          }
+        }
+      }
+    },
+    "chats.attach.sendFiles.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить %@ файл"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ файл жіберу"
+          }
+        }
+      }
+    },
+    "chats.attach.sendFiles.few": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить %@ файла"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ файл жіберу"
+          }
+        }
+      }
+    },
+    "chats.attach.sendFiles.many": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить %@ файлов"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ файл жіберу"
+          }
+        }
+      }
+    },
+    "chats.attach.messages.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уйдёт %@ сообщение"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ хабарлама жіберіледі"
+          }
+        }
+      }
+    },
+    "chats.attach.messages.few": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уйдут %@ сообщения"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ хабарлама жіберіледі"
+          }
+        }
+      }
+    },
+    "chats.attach.messages.many": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уйдут %@ сообщений"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ хабарлама жіберіледі"
+          }
+        }
+      }
+    },
+    "chats.upload.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отменить загрузку"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жүктеуді болдырмау"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

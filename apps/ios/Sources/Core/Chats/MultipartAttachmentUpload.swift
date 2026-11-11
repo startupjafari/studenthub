@@ -257,14 +257,18 @@ final class AttachmentUploads {
     /// Доля отправленного по локальному id сообщения.
     private(set) var progress: [String: Double] = [:]
     @ObservationIgnored private var tasks: [String: Task<Bool, Never>] = [:]
+    /// Поставлены в ленту и ждут своей очереди: альбомы одной отправки уезжают по одному.
+    @ObservationIgnored private var queued: Set<String> = []
 
-    var runningIDs: Set<String> { Set(tasks.keys) }
+    /// Идущие и ждущие очереди — их нельзя считать оборванными.
+    var runningIDs: Set<String> { queued.union(tasks.keys) }
 
-    func isRunning(_ messageID: String) -> Bool {
-        tasks[messageID] != nil
+    func enqueue(_ messageID: String) {
+        queued.insert(messageID)
     }
 
     func begin(_ messageID: String, task: Task<Bool, Never>) {
+        queued.remove(messageID)
         tasks[messageID] = task
         progress[messageID] = 0
     }
@@ -276,13 +280,16 @@ final class AttachmentUploads {
     }
 
     func end(_ messageID: String) {
+        queued.remove(messageID)
         tasks[messageID] = nil
         progress[messageID] = nil
     }
 
-    /// Отменить загрузку. `false` — её нет (оборвана перезапуском или уже закончилась).
+    /// Отменить загрузку. `false` — она не идёт (ждёт очереди, оборвана перезапуском или
+    /// уже закончилась): тогда сообщение убирает сам вызывающий.
     @discardableResult
     func cancel(_ messageID: String) -> Bool {
+        queued.remove(messageID)
         guard let task = tasks[messageID] else { return false }
         task.cancel()
         return true

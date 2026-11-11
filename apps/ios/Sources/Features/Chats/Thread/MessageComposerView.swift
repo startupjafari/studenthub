@@ -12,8 +12,15 @@ struct MessageComposerView: View {
 
     @FocusState private var isFocused: Bool
     @State private var recorder = VoiceRecorder()
-    @State private var photo: PhotosPickerItem?
+    @State private var photos: [PhotosPickerItem] = []
     @State private var showsFileImporter = false
+    @State private var showsCamera = false
+    /// Выбранное к отправке — открыт лист вложений.
+    @State private var sending: AttachmentDraft?
+    /// Тот же черновик для `onDismiss`: к моменту закрытия `sending` уже обнулён.
+    @State private var openedDraft: AttachmentDraft?
+    /// Снимок камеры ждёт, пока она закроется: лист поверх уходящей камеры не откроется.
+    @State private var captured: UIImage?
     @State private var creatingPoll = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -52,11 +59,26 @@ struct MessageComposerView: View {
             GlassGroup(spacing: Spacing.md) {
             HStack(alignment: .bottom, spacing: Spacing.md) {
                 Menu {
-                    PhotosPicker(selection: $photo, matching: .any(of: [.images, .videos])) {
+                    // До десяти за раз — столько несёт одно сообщение-альбом, как в вебе.
+                    PhotosPicker(
+                        selection: $photos,
+                        maxSelectionCount: AttachmentUploader.albumLimit,
+                        matching: .any(of: [.images, .videos])
+                    ) {
                         Label(
                             String(localized: "chats.attachMedia", defaultValue: "Фото или видео"),
                             systemImage: "photo"
                         )
+                    }
+                    if CameraPicker.isAvailable {
+                        Button {
+                            showsCamera = true
+                        } label: {
+                            Label(
+                                String(localized: "chats.attachCamera", defaultValue: "Камера"),
+                                systemImage: "camera"
+                            )
+                        }
                     }
                     Button {
                         showsFileImporter = true
@@ -123,16 +145,40 @@ struct MessageComposerView: View {
         .modifier(ComposerBarBackground())
         // «Отправить», вложение, микрофон — клавиатура остаётся, как в мессенджерах.
         .keepsKeyboardOnTap()
-        .onChange(of: photo) {
-            Task { await sendPickedPhoto() }
+        .onChange(of: photos) {
+            let picked = photos
+            guard !picked.isEmpty else { return }
+            photos = []
+            let draft = openDraft()
+            Task { await draft.add(photos: picked) }
+        }
+        .fullScreenCover(isPresented: $showsCamera, onDismiss: {
+            guard let image = captured else { return }
+            captured = nil
+            let draft = openDraft()
+            Task { await draft.add(image: image) }
+        }) {
+            CameraPicker { image in captured = image }
+                .ignoresSafeArea()
+        }
+        .sheet(item: $sending, onDismiss: closeDraft) { draft in
+            AttachmentSendSheet(draft: draft) {
+                send(draft)
+            }
         }
         .sheet(isPresented: $creatingPoll) {
             ChatPollCreatorView { question, options, multiple, anonymous in
                 await model.createPoll(question: question, options: options, multiple: multiple, anonymous: anonymous)
             }
         }
-        .fileImporter(isPresented: $showsFileImporter, allowedContentTypes: [.item]) { result in
-            Task { await sendPickedFile(result) }
+        .fileImporter(
+            isPresented: $showsFileImporter,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: true
+        ) { result in
+            guard case .success(let urls) = result, !urls.isEmpty else { return }
+            let draft = openDraft()
+            Task { await draft.add(files: urls) }
         }
     }
 
@@ -179,43 +225,34 @@ struct MessageComposerView: View {
             : String(localized: "chats.voice.record", defaultValue: "Записать голосовое")))
     }
 
-    /// Снимок камеры iPhone — HEIC, ролик — MOV. Сервер проверяет тип по содержимому
-    /// и такие не берёт, поэтому файл сначала переводится в JPEG или MP4 — так же, как
-    /// в ленте.
-    private func sendPickedPhoto() async {
-        guard let photo else { return }
-        self.photo = nil
-        guard let prepared = try? await MediaPreparation.prepare(photo) else { return }
-        let size = prepared.preview?.size
-        await model.attach(
-            OutgoingAttachment(
-                data: prepared.data,
-                mime: prepared.mime,
-                name: prepared.filename,
-                width: size.map { Int($0.width) },
-                height: size.map { Int($0.height) }
-            )
-        )
+    /// Лист вложений: уже открытый (выбранное добавляется к нему) или новый. Начатый в
+    /// поле ввода текст становится подписью — как в Telegram.
+    private func openDraft() -> AttachmentDraft {
+        if let sending { return sending }
+        let draft = AttachmentDraft(caption: model.editing == nil ? model.draft : "")
+        sending = draft
+        openedDraft = draft
+        return draft
     }
 
-    private func sendPickedFile(_ result: Result<URL, Error>) async {
-        guard case .success(let url) = result else { return }
-        // Файл из чужого каталога открывается только так: без этого чтение
-        // запрещено песочницей.
-        guard url.startAccessingSecurityScopedResource() else { return }
-        defer { url.stopAccessingSecurityScopedResource() }
-        guard let data = try? Data(contentsOf: url) else { return }
-        let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
-            ?? "application/octet-stream"
-        await model.attach(
-            OutgoingAttachment(
-                data: data,
-                mime: mime,
-                name: url.lastPathComponent,
-                width: nil,
-                height: nil
-            )
-        )
+    private func send(_ draft: AttachmentDraft) {
+        let files = draft.outgoing
+        let caption = draft.caption
+        let asFiles = draft.showsAsFiles
+        // Копии файлов теперь у загрузчика — закрытие листа их не трогает.
+        draft.isSent = true
+        sending = nil
+        Task { await model.send(attachments: files, caption: caption, asFiles: asFiles) }
+    }
+
+    /// Лист закрыли без отправки — копии выбранного больше не нужны. Отправленный
+    /// помечен `isSent`, его файлы уже у загрузчика.
+    private func closeDraft() {
+        guard let draft = openedDraft else { return }
+        openedDraft = nil
+        guard !draft.isSent else { return }
+        draft.isClosed = true
+        draft.discardAll()
     }
 
     private var canSend: Bool {

@@ -135,6 +135,27 @@ enum ChatPlural {
         }
     }
 
+    /// Заголовок листа вложений: «Отправить 1 файл», «…2 файла», «…5 файлов».
+    static func sendFiles(_ count: Int) -> String {
+        let number = count.formatted()
+        switch form(count) {
+        case .one: return String(localized: "chats.attach.sendFiles.one", defaultValue: "Отправить \(number) файл")
+        case .few: return String(localized: "chats.attach.sendFiles.few", defaultValue: "Отправить \(number) файла")
+        case .many: return String(localized: "chats.attach.sendFiles.many", defaultValue: "Отправить \(number) файлов")
+        }
+    }
+
+    /// Сколько сообщений уйдёт из листа вложений — видно до отправки: одиннадцать
+    /// снимков это два альбома, и узнавать об этом постфактум поздно.
+    static func messagesToSend(_ count: Int) -> String {
+        let number = count.formatted()
+        switch form(count) {
+        case .one: return String(localized: "chats.attach.messages.one", defaultValue: "Уйдёт \(number) сообщение")
+        case .few: return String(localized: "chats.attach.messages.few", defaultValue: "Уйдут \(number) сообщения")
+        case .many: return String(localized: "chats.attach.messages.many", defaultValue: "Уйдут \(number) сообщений")
+        }
+    }
+
     private enum Form { case one, few, many }
 
     private static func form(_ count: Int) -> Form {

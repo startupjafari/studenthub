@@ -358,6 +358,8 @@ struct ChatThreadView: View {
             reporting = message
         case .retry:
             Task { await model.retry(message) }
+        case .cancelUpload:
+            Task { await model.cancelUpload(message) }
         case .react(let emoji):
             Task { await model.react(message, emoji: emoji) }
         case .jump(let id):

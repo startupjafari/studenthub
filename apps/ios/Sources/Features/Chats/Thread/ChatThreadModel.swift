@@ -199,6 +199,75 @@ final class ChatThreadModel {
         await realtime.send(action: nil, chatID: chatID)
     }
 
+    /// Отправить выбранное в листе вложений. Подпись — из листа: начатый в поле ввода
+    /// текст переезжает туда при открытии, поэтому поле после отправки пустеет.
+    ///
+    /// Сообщения встают в ленту сразу все, а уезжают по очереди: альбомы по десять
+    /// вложений, документы, выбранные заодно со снимками, — своей пачкой (как в вебе).
+    /// Подпись и ответ достаются только первому сообщению: повторённая у каждого альбома
+    /// подпись превратилась бы в одинаковые строки подряд.
+    @MainActor
+    func send(attachments: [OutgoingAttachment], caption: String, asFiles: Bool) async {
+        guard !attachments.isEmpty else { return }
+        let text = caption.trimmingCharacters(in: .whitespacesAndNewlines)
+        let answering = replyTo?.remoteId
+        replyTo = nil
+        if editing == nil {
+            draft = ""
+            draftTask?.cancel()
+            await persistDraft("")
+        }
+
+        var queued: [String] = []
+        for (index, batch) in Self.batches(of: attachments, asFiles: asFiles).enumerated() {
+            let id = await uploader.enqueue(
+                batch,
+                chatID: chatID,
+                senderID: viewerID,
+                caption: index == 0 && !text.isEmpty ? text : nil,
+                replyToID: index == 0 ? answering : nil,
+                asFiles: asFiles
+            )
+            if let id { queued.append(id) }
+        }
+
+        let first = attachments[0]
+        let action = asFiles ? "UPLOADING_FILE" : Self.action(for: first.mime, name: first.name)
+        let notifier = Task { [realtime, chatID] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            await realtime.send(action: action, chatID: chatID)
+        }
+        for id in queued {
+            await uploader.deliver(messageID: id)
+        }
+        notifier.cancel()
+        await realtime.send(action: nil, chatID: chatID)
+    }
+
+    /// Разложить вложения по сообщениям: не больше десяти в одном. «Как файл» уходит всё
+    /// вместе списком; иначе снимки и ролики — альбомами, документы — отдельно.
+    static func batches(of files: [OutgoingAttachment], asFiles: Bool) -> [[OutgoingAttachment]] {
+        func chunks(_ list: [OutgoingAttachment]) -> [[OutgoingAttachment]] {
+            stride(from: 0, to: list.count, by: AttachmentUploader.albumLimit).map {
+                Array(list[$0..<min($0 + AttachmentUploader.albumLimit, list.count)])
+            }
+        }
+        if asFiles { return chunks(files) }
+        let isMedia = { (file: OutgoingAttachment) in file.mime.hasPrefix("image/") || file.mime.hasPrefix("video/") }
+        return chunks(files.filter(isMedia)) + chunks(files.filter { !isMedia($0) })
+    }
+
+    /// Крестик на загружаемом сообщении: загрузка прерывается, сообщение уходит из ленты.
+    /// Если загрузки уже нет (оборвана перезапуском), сообщение просто убирается.
+    @MainActor
+    func cancelUpload(_ message: MessageRecord) async {
+        guard message.remoteId == nil else { return }
+        if !AttachmentUploads.shared.cancel(message.id) {
+            await uploader.discard(messageID: message.id)
+        }
+    }
+
     private static func action(for mime: String, name: String?) -> String {
         if mime.hasPrefix("audio/") { return "RECORDING_VOICE" }
         if mime.hasPrefix("image/") { return "UPLOADING_PHOTO" }

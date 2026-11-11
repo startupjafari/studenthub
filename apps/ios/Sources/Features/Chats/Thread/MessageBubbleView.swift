@@ -21,6 +21,8 @@ struct MessageCapabilities: Hashable {
 /// Действие из пузыря или его меню.
 enum MessageAction {
     case reply, edit, delete, pin, copy, forward, report, retry
+    /// Крестик на загружаемом вложении: отменить отправку.
+    case cancelUpload
     /// Войти в режим выбора с этим сообщением и переключить его отметку в режиме.
     case select, toggleSelection
     case react(String)
@@ -181,7 +183,7 @@ struct MessageBubbleView: View {
 
             if !isDeleted {
                 ForEach(item.attachments, id: \.id) { attachment in
-                    AttachmentView(attachment: attachment, isOwn: item.isOwn) {
+                    AttachmentView(attachment: attachment, isOwn: item.isOwn, upload: upload) {
                         onAction(.openAttachment(attachment))
                     }
                 }
@@ -258,6 +260,16 @@ struct MessageBubbleView: View {
             }
         }
         .accessibilityElement(children: .combine)
+    }
+
+    /// Своё сообщение с файлами в пути: доля отправленного — из общего реестра загрузок.
+    private var upload: AttachmentUploadState? {
+        guard item.isOwn, message.remoteId == nil, message.sendState == .pending, !item.attachments.isEmpty else {
+            return nil
+        }
+        return AttachmentUploadState(fraction: AttachmentUploads.shared.progress[message.id] ?? 0) {
+            onAction(.cancelUpload)
+        }
     }
 
     /// Отступ содержимого: со стороны хвостика — плюс его ширина. Хвостик рисуется
