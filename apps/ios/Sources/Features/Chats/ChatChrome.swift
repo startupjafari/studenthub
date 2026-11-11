@@ -121,6 +121,16 @@ enum ChatPlural {
         }
     }
 
+    /// «1 чат», «3 чата», «12 чатов» — число чатов в папке.
+    static func chats(_ count: Int) -> String {
+        let number = count.formatted()
+        switch form(count) {
+        case .one: return String(localized: "chats.count.one", defaultValue: "\(number) чат")
+        case .few: return String(localized: "chats.count.few", defaultValue: "\(number) чата")
+        case .many: return String(localized: "chats.count.many", defaultValue: "\(number) чатов")
+        }
+    }
+
     /// «Удалить 1 сообщение у всех?», «…2 сообщения…», «…5 сообщений…» — подтверждение
     /// удаления выбранного.
     static func deleteMessagesQuestion(_ count: Int) -> String {

@@ -274,10 +274,15 @@ final class ChatListModel {
         tabsTask = Task { @MainActor [weak self, database] in
             for await tabs in AsyncValues.stream(of: observation, in: database.reader) {
                 self?.tabs = tabs
-                // Папку удалили на другом устройстве — возвращаемся к «Все», иначе
-                // экран остался бы на вкладке, которой больше нет.
+                // Папку удалили (здесь или на другом устройстве) — возвращаемся к «Все»,
+                // иначе экран остался бы на вкладке, которой больше нет. Переименованная
+                // папка — та же вкладка с новой подписью: остаёмся на ней.
                 if let current = self?.tab, !tabs.contains(current) {
-                    self?.select(.all)
+                    if case .folder(let id, _) = current, let renamed = tabs.first(where: { $0.folderID == id }) {
+                        self?.tab = renamed
+                    } else {
+                        self?.select(.all)
+                    }
                 }
             }
         }

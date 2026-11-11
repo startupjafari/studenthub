@@ -451,6 +451,9 @@ struct FilterChips<Value: Hashable>: View {
     /// Пункты делят ширину поровну, как системный сегментный переключатель («Мои /
     /// Сохранённые», вкладки профиля), — если влезают. Не влезли — обычная дорожка.
     var fillsWidth = false
+    /// Действия по долгому нажатию на пункт — как меню вкладки-папки в Telegram. Пустой
+    /// список — меню у пункта нет.
+    var menu: (Value?) -> [FilterChipAction] = { _ in [] }
 
     @Namespace private var pill
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -529,11 +532,43 @@ struct FilterChips<Value: Hashable>: View {
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .modifier(FilterChipMenu(actions: menu(option.value)))
                 .accessibilityAddTraits(isOn ? .isSelected : [])
                 .id(index)
             }
         }
         .padding(4)
+    }
+}
+
+/// Пункт меню капсулы фильтра.
+struct FilterChipAction {
+    let title: String
+    let symbol: String
+    var isDestructive = false
+    let action: () -> Void
+}
+
+/// Меню капсулы. Без действий модификатор не вешает `contextMenu` вовсе: пустое меню
+/// всё равно приподнимало бы капсулу под пальцем и ничего не показывало.
+private struct FilterChipMenu: ViewModifier {
+    let actions: [FilterChipAction]
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if actions.isEmpty {
+            content
+        } else {
+            content
+                .contentShape(.contextMenuPreview, Capsule())
+                .contextMenu {
+                    ForEach(Array(actions.enumerated()), id: \.offset) { _, item in
+                        Button(role: item.isDestructive ? .destructive : nil, action: item.action) {
+                            Label(item.title, systemImage: item.symbol)
+                        }
+                    }
+                }
+        }
     }
 }
 
