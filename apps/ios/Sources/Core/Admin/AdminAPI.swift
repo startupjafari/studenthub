@@ -544,7 +544,7 @@ struct AdminAPI {
         await AdminChanges.bump()
     }
 
-    private func write<Response: Decodable>(_ endpoint: Endpoint, as type: Response.Type) async throws -> Response {
+    private func write<Response: Decodable & Sendable>(_ endpoint: Endpoint, as type: Response.Type) async throws -> Response {
         let response = try await client.send(endpoint, as: type)
         await AdminChanges.bump()
         return response
