@@ -93441,6 +93441,142 @@
           }
         }
       }
+    },
+    "chats.clear.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всю историю"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бүкіл тарихты"
+          }
+        }
+      }
+    },
+    "chats.clear.period": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За период…"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кезең бойынша…"
+          }
+        }
+      }
+    },
+    "chats.clearPeriod.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистить за период"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кезең бойынша тазалау"
+          }
+        }
+      }
+    },
+    "chats.clearPeriod.from": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "С"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бастап"
+          }
+        }
+      }
+    },
+    "chats.clearPeriod.to": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дейін"
+          }
+        }
+      }
+    },
+    "chats.clearPeriod.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сообщения за эти дни пропадут только у вас. У собеседников переписка останется."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Осы күндердегі хабарламалар тек сізде жойылады. Әңгімелесушілерде хат алмасу сақталады."
+          }
+        }
+      }
+    },
+    "chats.clearPeriod.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистить историю за период?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кезеңдегі тарихты тазалау керек пе?"
+          }
+        }
+      }
+    },
+    "chats.clearPeriod.confirm.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "С %@ по %@. У собеседников переписка останется."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ бастап %@ дейін. Әңгімелесушілерде хат алмасу сақталады."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

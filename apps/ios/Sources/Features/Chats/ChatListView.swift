@@ -17,6 +17,7 @@ struct ChatListView: View {
     @State private var chip: ChatListTab? = .all
     @State private var composing: NewChatKind?
     @State private var clearing: ChatListRow?
+    @State private var clearingPeriod: ChatListRow?
     @State private var deleting: [ChatListRow] = []
     @State private var editMode: EditMode = .inactive
     @State private var selection: Set<String> = []
@@ -347,6 +348,10 @@ struct ChatListView: View {
                 ChatFolderEditorView(model: folders, target: target)
             }
             .chatFolderDeleteAlert($deletingFolder, model: folders)
+            .sheet(item: $clearingPeriod) { row in
+                // Последнее сообщение могло попасть в период — превью в списке берём заново.
+                ChatClearPeriodSheet(chatID: row.id) { await model.refresh() }
+            }
             .sheet(item: $composing) { kind in
                 NewChatView(kind: kind) { chatID in
                     composing = nil
@@ -496,8 +501,17 @@ struct ChatListView: View {
             Label(archiveTitle(row), systemImage: "archivebox")
         }
         Divider()
-        Button(role: .destructive) {
-            clearing = row
+        Menu {
+            Button(role: .destructive) {
+                clearing = row
+            } label: {
+                Label(String(localized: "chats.clear.all", defaultValue: "Всю историю"), systemImage: "trash")
+            }
+            Button {
+                clearingPeriod = row
+            } label: {
+                Label(String(localized: "chats.clear.period", defaultValue: "За период…"), systemImage: "calendar")
+            }
         } label: {
             Label(String(localized: "chats.clear", defaultValue: "Очистить историю"), systemImage: "eraser")
         }

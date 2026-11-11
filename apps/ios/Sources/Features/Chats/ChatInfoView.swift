@@ -27,6 +27,7 @@ struct ChatInfoView: View {
     @State private var pickedDay: Date?
     @State private var confirmingLeave = false
     @State private var confirmingClear = false
+    @State private var clearingPeriod = false
     @State private var confirmingBlock = false
     @State private var copiedInvite = 0
     /// «Ссылка скопирована» на месте строки приглашения — пара секунд после копирования.
@@ -221,8 +222,13 @@ struct ChatInfoView: View {
                 confirmingBlock = true
             }
         }
-        HeroMenuItem(String(localized: "chats.clear", defaultValue: "Очистить историю"), symbol: "eraser", isDestructive: true) {
-            confirmingClear = true
+        HeroSubmenu(String(localized: "chats.clear", defaultValue: "Очистить историю"), symbol: "eraser") {
+            HeroMenuItem(String(localized: "chats.clear.all", defaultValue: "Всю историю"), symbol: "trash", isDestructive: true) {
+                confirmingClear = true
+            }
+            HeroMenuItem(String(localized: "chats.clear.period", defaultValue: "За период…"), symbol: "calendar") {
+                clearingPeriod = true
+            }
         }
         if chat.kind == .private || chat.kind == .group {
             HeroMenuItem(ChatLeaveTitle.title(for: chat.kind, isOwner: chat.isOwner), symbol: "rectangle.portrait.and.arrow.right", isDestructive: true) {
@@ -478,6 +484,9 @@ struct ChatInfoView: View {
                 ChatInfoSearchSheet(chatID: chatID) { messageID in
                     pickedMessage = messageID
                 }
+            }
+            .sheet(isPresented: $clearingPeriod) {
+                ChatClearPeriodSheet(chatID: chatID)
             }
             .sheet(isPresented: $pickingDay, onDismiss: openPickedDay) {
                 ChatCalendarSheet(chatID: chatID) { day in pickedDay = day }
