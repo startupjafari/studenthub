@@ -346,8 +346,8 @@ private struct FloatingActionPlacement: ViewModifier {
     let symbol: String
     let action: () -> Void
 
-    /// Остров вкладок в координатах окна; `nil` — его нет или рядом не помещается кнопка.
-    @State private var dock: CGRect?
+    /// Место кнопки у острова вкладок; `nil` — острова нет или рядом не помещается кнопка.
+    @State private var dock: TabBarDock?
 
     func body(content: Content) -> some View {
         content
@@ -363,14 +363,11 @@ private struct FloatingActionPlacement: ViewModifier {
                 GeometryReader { proxy in
                     let origin = proxy.frame(in: .global).origin
                     ZStack {
-                        TabBarDockReader(clearance: FloatingActionButton.size + Spacing.xl + Spacing.md) { dock = $0 }
+                        TabBarDockReader { dock = $0 }
                             .frame(width: 0, height: 0)
                         if let dock {
-                            FloatingActionButton(title: title, symbol: symbol, action: action)
-                                .position(
-                                    x: proxy.size.width - Spacing.xl - FloatingActionButton.size / 2,
-                                    y: dock.midY - origin.y
-                                )
+                            FloatingActionButton(title: title, symbol: symbol, side: dock.side, action: action)
+                                .position(x: dock.center.x - origin.x, y: dock.center.y - origin.y)
                         }
                     }
                 }
@@ -379,12 +376,23 @@ private struct FloatingActionPlacement: ViewModifier {
     }
 }
 
-/// Находит остров нижней навигации (iOS 26) и сообщает его рамку в координатах окна —
-/// если справа от него помещается кнопка шириной `clearance`. Ищет по цепочке
-/// ответчиков: экран лежит в стеке вкладки, стек — в контроллере вкладок `TabView`.
+/// Кнопка в линию с островом вкладок: центр в координатах окна и сторона круга — та же
+/// высота, что у острова, как у отдельной кнопки поиска в приложениях Apple.
+private struct TabBarDock: Equatable {
+    let center: CGPoint
+    let side: CGFloat
+}
+
+/// Находит остров нижней навигации (iOS 26) и место справа от него. Панель вкладок —
+/// по цепочке ответчиков (экран лежит в стеке вкладки, стек — в контроллере вкладок
+/// `TabView`), а если цепочка до неё не дошла — обходом окна.
+///
+/// Внутренности панели — частные классы UIKit, поэтому остров ищется по нескольким
+/// признакам сразу: подложка-«платтер», кнопки вкладок, сама панель, если она уже
+/// экрана. Не нашли или справа тесно (у роли пять вкладок и кнопка поиска) — `nil`, и
+/// кнопка остаётся над панелью.
 private struct TabBarDockReader: UIViewRepresentable {
-    let clearance: CGFloat
-    let report: (CGRect?) -> Void
+    let report: (TabBarDock?) -> Void
 
     func makeUIView(context: Context) -> DockProbeView {
         let view = DockProbeView()
@@ -393,15 +401,13 @@ private struct TabBarDockReader: UIViewRepresentable {
     }
 
     func updateUIView(_ view: DockProbeView, context: Context) {
-        view.clearance = clearance
         view.report = report
         view.scheduleMeasure()
     }
 
     final class DockProbeView: UIView {
-        var clearance: CGFloat = 0
-        var report: ((CGRect?) -> Void)?
-        private var last: CGRect?
+        var report: ((TabBarDock?) -> Void)?
+        private var last: TabBarDock?
         private var isScheduled = false
 
         override func didMoveToWindow() {
@@ -415,7 +421,7 @@ private struct TabBarDockReader: UIViewRepresentable {
         }
 
         /// Замер — после текущего прохода раскладки: панель вкладок к этому моменту уже
-        /// на месте. Второй замер чуть позже ловит конец анимации перехода между экранами.
+        /// на месте. Повторные замеры позже ловят конец анимации перехода между экранами.
         func scheduleMeasure() {
             guard !isScheduled else { return }
             isScheduled = true
@@ -423,43 +429,80 @@ private struct TabBarDockReader: UIViewRepresentable {
                 self?.isScheduled = false
                 self?.measure()
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
-                self?.measure()
+            for delay in [0.3, 0.8] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    self?.measure()
+                }
             }
         }
 
         private func measure() {
-            let dock = Self.dock(from: self, clearance: clearance)
+            guard window != nil else { return }
+            let dock = Self.dock(from: self)
             guard dock != last else { return }
             last = dock
             report?(dock)
         }
 
-        static func dock(from view: UIView, clearance: CGFloat) -> CGRect? {
+        static func dock(from view: UIView) -> TabBarDock? {
             guard #available(iOS 26, *), let window = view.window else { return nil }
+            guard let bar = tabBar(near: view, in: window), !bar.isHidden, bar.alpha > 0.01 else { return nil }
+            guard let found = islandFrame(of: bar, in: window) else { return nil }
+            let island = found.island
+            let occupiedMaxX = found.occupiedMaxX
+            let side = min(max(island.height, 48), 64)
+            let gap = window.bounds.maxX - occupiedMaxX
+            guard gap >= side + Spacing.md * 2 else { return nil }
+            // По центру свободного места справа — как кнопка поиска у острова в системе.
+            let x = min(occupiedMaxX + gap / 2, window.bounds.maxX - Spacing.md - side / 2)
+            return TabBarDock(center: CGPoint(x: x, y: island.midY), side: side)
+        }
+
+        private static func tabBar(near view: UIView, in window: UIWindow) -> UITabBar? {
             var responder: UIResponder? = view
-            while let current = responder, !(current is UITabBarController) {
+            while let current = responder {
+                if let tabs = current as? UITabBarController { return tabs.tabBar }
                 responder = current.next
             }
-            guard let tabs = responder as? UITabBarController else { return nil }
-            let bar = tabs.tabBar
-            guard !bar.isHidden, bar.alpha > 0.01, bar.window != nil else { return nil }
-            // Остров — объединение видимых кнопок вкладок: сама панель на iOS 26 шире
-            // острова и прозрачна по краям.
-            var island = CGRect.null
-            var stack: [UIView] = [bar]
+            var queue: [UIView] = [window]
+            var index = 0
+            while index < queue.count {
+                let next = queue[index]
+                index += 1
+                if let bar = next as? UITabBar, !bar.isHidden { return bar }
+                queue.append(contentsOf: next.subviews)
+            }
+            return nil
+        }
+
+        /// Рамка острова и правый край всего, что занято на панели (остров и отдельная
+        /// кнопка поиска), — в координатах окна.
+        private static func islandFrame(of bar: UITabBar, in window: UIWindow) -> (island: CGRect, occupiedMaxX: CGFloat)? {
+            let barFrame = bar.convert(bar.bounds, to: window)
+            var platter: CGRect?
+            var buttons = CGRect.null
+            var occupied = CGRect.null
+            var stack: [UIView] = bar.subviews
             while let next = stack.popLast() {
-                for child in next.subviews where !child.isHidden && child.alpha > 0.01 {
-                    if child is UIControl, child.bounds.width > 1, child.bounds.height > 1 {
-                        island = island.union(child.convert(child.bounds, to: window))
-                    } else {
-                        stack.append(child)
-                    }
+                guard !next.isHidden, next.alpha > 0.01, next.bounds.width > 1, next.bounds.height > 1 else { continue }
+                let frame = next.convert(next.bounds, to: window)
+                let name = String(describing: type(of: next))
+                let isPlatter = name.contains("Platter") && frame.width < barFrame.width - 1
+                if isPlatter {
+                    occupied = occupied.union(frame)
+                    if frame.width > (platter?.width ?? 0) { platter = frame }
+                }
+                if next is UIControl || name.contains("TabButton") {
+                    buttons = buttons.union(frame)
+                    occupied = occupied.union(frame)
+                } else {
+                    stack.append(contentsOf: next.subviews)
                 }
             }
-            guard !island.isNull, island.height > 20 else { return nil }
-            guard window.bounds.maxX - island.maxX >= clearance else { return nil }
-            return island
+            if let platter, platter.height > 20 { return (platter, occupied.maxX) }
+            if !buttons.isNull, buttons.height > 20 { return (buttons, buttons.maxX) }
+            if barFrame.width < window.bounds.width - 1, barFrame.height > 20 { return (barFrame, barFrame.maxX) }
+            return nil
         }
     }
 }
@@ -467,6 +510,7 @@ private struct TabBarDockReader: UIViewRepresentable {
 private struct FloatingActionButton: View {
     let title: String
     let symbol: String
+    var side: CGFloat = Self.size
     let action: () -> Void
 
     static let size: CGFloat = 56
@@ -478,7 +522,7 @@ private struct FloatingActionButton: View {
             Image(systemName: symbol)
                 .font(.title2.weight(.semibold))
                 .foregroundStyle(.white)
-                .frame(width: Self.size, height: Self.size)
+                .frame(width: side, height: side)
                 .glassSurface(tint: Palette.primary, in: Circle())
                 .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
         }
