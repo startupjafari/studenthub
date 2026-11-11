@@ -287,7 +287,7 @@ struct MessageBubbleView: View {
     /// Только фото без подписи — время поверх снимка, в тёмной капсуле.
     private var isMediaOnly: Bool {
         !isDeleted && !hasText && !showsReactions && !item.attachments.isEmpty
-            && item.attachments.allSatisfy(\.isImage)
+            && item.attachments.allSatisfy(\.showsAsPhoto)
             && extras.poll == nil && extras.sharedPost == nil && extras.sharedStory == nil
             && extras.linkPreview == nil && message.replyToId == nil && !extras.isForwarded
             && !(context.isGroup && !item.isOwn && item.isFirstInGroup)

@@ -180,14 +180,32 @@ private final class StubAttachments: AttachmentSending, @unchecked Sendable {
         )
     }
 
-    func upload(_ data: Data, to url: URL, mime: String) async throws {
+    func upload(
+        fileAt file: URL,
+        to url: URL,
+        mime: String,
+        progress: @escaping @Sendable (Int64) -> Void
+    ) async throws {
         if let failure = lock.withLock({ uploads += 1; return failure }) { throw failure }
+    }
+
+    func startMultipart(chatID: String, mime: String, size: Int) async throws -> MultipartUploadTarget {
+        throw APIError.malformedResponse(statusCode: 0)
+    }
+
+    func partURLs(chatID: String, key: String, uploadID: String, from: Int, to: Int) async throws -> [MultipartPartURL] {
+        throw APIError.malformedResponse(statusCode: 0)
+    }
+
+    func uploadPart(_ data: Data, to url: URL, progress: @escaping @Sendable (Int64) -> Void) async throws -> String {
+        throw APIError.malformedResponse(statusCode: 0)
     }
 
     func sendUploaded(
         chatID: String,
         content: String?,
         replyToID: String?,
+        asFiles: Bool,
         attachments: [AttachmentUpload]
     ) async throws -> ChatMessageDTO {
         if let failure = lock.withLock({ failure }) { throw failure }

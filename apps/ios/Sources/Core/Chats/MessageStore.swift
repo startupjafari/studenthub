@@ -179,7 +179,8 @@ struct MessageStore: Sendable {
                 localPath: paths[item.id] ?? nil,
                 placeholder: item.placeholder,
                 durationMs: item.durationMs,
-                spoiler: item.spoiler ?? false
+                spoiler: item.spoiler ?? false,
+                asDocument: item.asDocument ?? false
             ).insert(db)
         }
     }

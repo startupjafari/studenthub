@@ -4,9 +4,10 @@ import SwiftUI
 
 /// Вложения в пузыре.
 ///
-/// Вид выводится из mime и имени, как на сервере: отдельного типа сообщения в
-/// модели нет. Картинка берётся с диска, если файл уже здесь, и только иначе —
-/// по подписанной ссылке.
+/// Вид выводится из mime, имени и флага «как файл», как в вебе: отдельного типа
+/// сообщения в модели нет. Картинка, отправленная «как файл», — строка файла, а не
+/// превью. Картинка берётся с диска, если файл уже здесь, и только иначе — по
+/// подписанной ссылке.
 struct AttachmentView: View {
     let attachment: AttachmentRecord
     let isOwn: Bool
@@ -16,7 +17,7 @@ struct AttachmentView: View {
     var body: some View {
         if attachment.isVoice {
             VoiceAttachmentView(attachment: attachment, isOwn: isOwn)
-        } else if attachment.isImage {
+        } else if attachment.showsAsPhoto {
             ImageAttachmentView(attachment: attachment, open: open)
         } else {
             FileAttachmentView(attachment: attachment, isOwn: isOwn, open: open)
@@ -98,7 +99,7 @@ private struct FileAttachmentView: View {
     var body: some View {
         Button(action: open) {
             HStack(spacing: Spacing.md) {
-                Image(systemName: attachment.mime.hasPrefix("video/") ? "play.rectangle.fill" : "doc.fill")
+                Image(systemName: symbol)
                     .foregroundStyle(isOwn ? Palette.primaryForeground : Palette.primary)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(attachment.name ?? String(localized: "chats.file", defaultValue: "Файл"))
@@ -116,6 +117,12 @@ private struct FileAttachmentView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    private var symbol: String {
+        if attachment.mime.hasPrefix("video/") { return "play.rectangle.fill" }
+        if attachment.isImage { return "photo.fill" }
+        return "doc.fill"
     }
 }
 
