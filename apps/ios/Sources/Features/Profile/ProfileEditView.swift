@@ -20,7 +20,10 @@ struct ProfileEditView: View {
     @State private var avatarItem: PhotosPickerItem?
     @State private var coverItem: PhotosPickerItem?
     @State private var uploading: Upload?
-    @State private var removing: Upload?
+    /// Меню действий над фото или обложкой: сменить или удалить.
+    @State private var actionsFor: Upload?
+    @State private var pickingAvatar = false
+    @State private var pickingCover = false
     @State private var isSaving = false
     @State private var failure: String?
     @State private var newSkill = ""
@@ -78,8 +81,7 @@ struct ProfileEditView: View {
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets())
                 }
-                avatarSection
-                mediaSection
+                headerSection
                 personalSection
                 aboutSection
                 contactsSection
@@ -115,17 +117,27 @@ struct ProfileEditView: View {
             }
             Button(String(localized: "form.keepEditing", defaultValue: "Продолжить редактирование"), role: .cancel) {}
         }
-        .confirmDestructive(
-            $removing,
-            title: { kind in
-                kind == .avatar
-                    ? String(localized: "profile.removeAvatar.confirm", defaultValue: "Удалить фото профиля?")
-                    : String(localized: "profile.removeCover.confirm", defaultValue: "Удалить обложку?")
-            },
-            actionTitle: String(localized: "feed.delete", defaultValue: "Удалить")
+        // Касание фото или обложки — меню «сменить / удалить», как в Telegram. Удаление
+        // в нём красное и отдельной строкой: второе подтверждение поверх было бы лишним.
+        .confirmationDialog(
+            Text(verbatim: ""),
+            isPresented: Binding(get: { actionsFor != nil }, set: { if !$0 { actionsFor = nil } }),
+            titleVisibility: .hidden,
+            presenting: actionsFor
         ) { kind in
-            await remove(kind)
+            Button(kind == .avatar
+                ? String(localized: "profile.changeAvatar", defaultValue: "Сменить фото")
+                : String(localized: "profile.changeCover", defaultValue: "Сменить обложку")) {
+                if kind == .avatar { pickingAvatar = true } else { pickingCover = true }
+            }
+            Button(kind == .avatar
+                ? String(localized: "profile.removeAvatar", defaultValue: "Удалить фото")
+                : String(localized: "profile.removeCover", defaultValue: "Удалить обложку"), role: .destructive) {
+                Task { await remove(kind) }
+            }
         }
+        .photosPicker(isPresented: $pickingAvatar, selection: $avatarItem, matching: .images)
+        .photosPicker(isPresented: $pickingCover, selection: $coverItem, matching: .images)
         .onChange(of: avatarItem) { Task { await upload(.avatar) } }
         .onChange(of: coverItem) { Task { await upload(.cover) } }
         .sensoryFeedback(.error, trigger: failure) { _, new in new != nil }
@@ -198,23 +210,29 @@ struct ProfileEditView: View {
 
     /// Фото по центру и под ним «Сменить фото», как правка профиля в Telegram, — но
     /// компактно: экран про поля, а не про аватар.
-    private var avatarSection: some View {
+    private var avatarSide: CGFloat { min(avatarSize, 112) }
+    private let coverHeight: CGFloat = 112
+
+    /// Обложка и фото — как в шапке профиля: аватар наполовину на обложке, и видно,
+    /// как профиль будет выглядеть. Касание открывает меню «сменить / удалить»; если
+    /// удалять нечего — сразу выбор снимка.
+    private var headerSection: some View {
         Section {
             VStack(spacing: Spacing.sm) {
-                PhotosPicker(selection: $avatarItem, matching: .images) {
-                    ZStack {
-                        AvatarView(url: viewer.profile?.avatarUrl, name: viewer.profile?.name, size: min(avatarSize, 112))
-                        if uploading == .avatar {
-                            Circle().fill(.black.opacity(0.35))
-                            ProgressView().tint(.white)
-                        }
-                    }
-                    .frame(width: min(avatarSize, 112), height: min(avatarSize, 112))
+                ZStack(alignment: .bottom) {
+                    Button { act(on: .cover) } label: { coverPreview }
+                        .buttonStyle(.plain)
+                        .padding(.bottom, avatarSide / 2)
+                        .accessibilityLabel(Text(viewer.profile?.coverUrl == nil
+                            ? String(localized: "profile.addCover", defaultValue: "Добавить обложку")
+                            : String(localized: "profile.changeCover", defaultValue: "Сменить обложку")))
+                    Button { act(on: .avatar) } label: { avatarPreview }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(Text(String(localized: "profile.changeAvatar", defaultValue: "Сменить фото")))
                 }
-                .buttonStyle(.plain)
                 .disabled(uploading != nil)
-                .accessibilityLabel(Text(String(localized: "profile.changeAvatar", defaultValue: "Сменить фото")))
-                PhotosPicker(selection: $avatarItem, matching: .images) {
+
+                Button { act(on: .avatar) } label: {
                     Text(String(localized: "profile.changeAvatar", defaultValue: "Сменить фото"))
                         .font(Typography.body.weight(.medium))
                         .foregroundStyle(Palette.primary)
@@ -231,48 +249,50 @@ struct ProfileEditView: View {
         }
     }
 
-    /// Обложка — всегда; удаление фото и обложки — только когда есть что удалять, и
-    /// только через подтверждение (`confirmDestructive`).
-    private var mediaSection: some View {
-        Section {
-            PhotosPicker(selection: $coverItem, matching: .images) {
-                SettingsRow(
-                    title: String(localized: "profile.changeCover", defaultValue: "Сменить обложку"),
-                    symbol: "photo.fill",
-                    tint: TileTint.teal,
-                    isBusy: uploading == .cover
-                )
+    private var coverPreview: some View {
+        ZStack {
+            if let url = viewer.profile?.coverUrl.flatMap(URL.init(string:)) {
+                RemoteImage(url: url, cacheKey: "cover:\(viewer.profile?.coverUrl?.split(separator: "?").first ?? "")")
+            } else {
+                Palette.card
+                Label(String(localized: "profile.addCover", defaultValue: "Добавить обложку"), systemImage: "photo")
+                    .font(Typography.meta.weight(.medium))
+                    .foregroundStyle(Palette.mutedForeground)
+                    // Подпись — в верхней половине: нижнюю закрывает аватар.
+                    .padding(.bottom, avatarSide / 2)
             }
-            .buttonStyle(.plain)
-            .disabled(uploading != nil)
-            if viewer.profile?.avatarUrl != nil {
-                Button {
-                    removing = .avatar
-                } label: {
-                    SettingsRow(
-                        title: String(localized: "profile.removeAvatar", defaultValue: "Удалить фото"),
-                        symbol: "person.crop.circle.badge.minus",
-                        tint: TileTint.red,
-                        isDestructive: true
-                    )
-                }
-                .buttonStyle(.plain)
-                .disabled(uploading != nil)
+            if uploading == .cover {
+                Color.black.opacity(0.35)
+                ProgressView().tint(.white)
             }
-            if viewer.profile?.coverUrl != nil {
-                Button {
-                    removing = .cover
-                } label: {
-                    SettingsRow(
-                        title: String(localized: "profile.removeCover", defaultValue: "Удалить обложку"),
-                        symbol: "rectangle.badge.minus",
-                        tint: TileTint.red,
-                        isDestructive: true
-                    )
-                }
-                .buttonStyle(.plain)
-                .disabled(uploading != nil)
+        }
+        .frame(height: coverHeight)
+        .frame(maxWidth: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+    }
+
+    private var avatarPreview: some View {
+        ZStack {
+            AvatarView(url: viewer.profile?.avatarUrl, name: viewer.profile?.name, size: avatarSide)
+            if uploading == .avatar {
+                Circle().fill(.black.opacity(0.35))
+                ProgressView().tint(.white)
             }
+        }
+        .frame(width: avatarSide, height: avatarSide)
+        .overlay(Circle().strokeBorder(Palette.background, lineWidth: 4))
+    }
+
+    /// Есть что удалять — меню действий, нет — сразу выбор снимка.
+    private func act(on kind: Upload) {
+        let exists = kind == .avatar ? viewer.profile?.avatarUrl != nil : viewer.profile?.coverUrl != nil
+        if exists {
+            actionsFor = kind
+        } else if kind == .avatar {
+            pickingAvatar = true
+        } else {
+            pickingCover = true
         }
     }
 

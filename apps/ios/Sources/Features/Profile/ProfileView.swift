@@ -59,6 +59,19 @@ struct ProfileView: View {
                     .animation(.easeInOut(duration: Motion.Duration.feedback), value: shows)
                     .accessibilityHidden(!shows)
             }
+            // Загрузка в профиль — «+» в панели на вкладках фото и видео, а не капсулы
+            // над сеткой: они отнимали целую строку у самих снимков.
+            if model.isMine, tab == .photos || tab == .videos {
+                ToolbarItem(placement: .topBarTrailing) {
+                    CommunityMediaUploadButton(layout: .icon) { _ in
+                        async let photos: Void = model.loadTab(.photos, force: true)
+                        async let videos: Void = model.loadTab(.videos, force: true)
+                        async let card: Void = model.load()
+                        _ = await (photos, videos, card)
+                    }
+                    .accessibilityIdentifier("profile.upload")
+                }
+            }
             if model.isMine {
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink(value: AppRoute.section(.settings)) {
@@ -279,40 +292,14 @@ struct ProfileView: View {
         }
     }
 
+    /// Сетка фото или видео — сразу под вкладками, как медиа в профиле Telegram.
+    /// Загрузка — «+» в панели, альбомы — в меню «Ещё».
     private func mediaGrid(_ items: [ProfileMediaDTO]?, tab: ProfileTab) -> some View {
-        VStack(spacing: Spacing.lg) {
-            mediaActions(tab: tab)
-            tabState(items, tab: tab) { items in
-                ProfileMediaGrid(items: items) { index in
-                    viewing = MediaTarget(media: items.map(\.asPostMedia), start: index)
-                }
+        tabState(items, tab: tab) { items in
+            ProfileMediaGrid(items: items) { index in
+                viewing = MediaTarget(media: items.map(\.asPostMedia), start: index)
             }
         }
-    }
-
-    /// Загрузка в профиль и альбомы — над сеткой фото и видео. Две капсулы одного
-    /// стиля и одной ширины; у чужого профиля — одни «Альбомы» на всю ширину.
-    private func mediaActions(tab: ProfileTab) -> some View {
-        HStack(spacing: Spacing.md) {
-            if model.isMine {
-                CommunityMediaUploadButton(
-                    title: String(localized: "community.albums.uploadHere", defaultValue: "Загрузить"),
-                    layout: .capsule
-                ) { _ in
-                    await model.loadTab(tab, force: true)
-                }
-            }
-            if let owner = model.userID ?? (viewerID.isEmpty ? nil : viewerID) {
-                NavigationLink(value: AppRoute.community(.albums(userID: model.isMine ? nil : owner))) {
-                    MediaActionLabel(title: CommunityScreen.albums(userID: nil).title, symbol: "photo.stack")
-                }
-            }
-        }
-        .font(.subheadline.weight(.medium))
-        .glassButton()
-        .buttonBorderShape(.capsule)
-        .controlSize(.large)
-        .padding(.horizontal, Spacing.xl)
     }
 
     /// Загрузка → ошибка → пусто → содержимое для ленивой вкладки.
@@ -434,14 +421,25 @@ private struct ProfileMediaTile: View {
                     maxPixelSize: pixels
                 )
             }
-            .overlay(alignment: .topTrailing) {
+            // Видео — длительность в углу, как в медиа Telegram; пока сервер её не
+            // измерил — значок воспроизведения.
+            .overlay(alignment: .bottomLeading) {
                 if item.isVideo {
-                    Image(systemName: "play.fill")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(.white)
-                        .padding(Spacing.sm)
-                        .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
-                        .accessibilityHidden(true)
+                    Group {
+                        if let duration = item.durationMs, duration > 0 {
+                            Text(verbatim: DisplayFormat.duration(milliseconds: duration))
+                                .font(Typography.tabular(.caption2.weight(.semibold)))
+                        } else {
+                            Image(systemName: "play.fill")
+                                .font(.caption2.weight(.bold))
+                        }
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, Spacing.sm)
+                    .padding(.vertical, 2)
+                    .background(.black.opacity(0.45), in: Capsule())
+                    .padding(Spacing.sm)
+                    .accessibilityHidden(true)
                 }
             }
             .clipped()
@@ -820,47 +818,98 @@ private struct ProfileHeaderView: View {
 
     // MARK: О себе
 
-    /// Карточка сведений под кнопками, как «о себе» и имя пользователя в Telegram:
-    /// главное видно сразу, остальное — по строке «Подробнее». Строки — однострочные, со
-    /// значком вместо подписи сверху: подпись читает VoiceOver.
+    /// Строка карточки «о себе».
+    private enum AboutItem: Identifiable {
+        case bio(String)
+        case username(String)
+        case contact(ProfileContact)
+        case university(id: String, name: String)
+        case details
+
+        var id: String {
+            switch self {
+            case .bio: return "bio"
+            case .username: return "username"
+            case .contact(let contact): return "contact:\(contact.title)"
+            case .university: return "university"
+            case .details: return "details"
+            }
+        }
+    }
+
+    private var aboutItems: [AboutItem] {
+        var items: [AboutItem] = []
+        if let bio = profile.bio, !bio.isEmpty { items.append(.bio(bio)) }
+        if let username = profile.username, !username.isEmpty { items.append(.username(username)) }
+        items += ProfileContact.rows(for: profile).map(AboutItem.contact)
+        if let id = profile.universityId, let name = profile.universityName, !name.isEmpty {
+            items.append(.university(id: id, name: name))
+        }
+        if ProfileDetailsView.hasDetails(profile) { items.append(.details) }
+        return items
+    }
+
+    /// Карточка сведений под кнопками, как в профиле Telegram: о себе, имя
+    /// пользователя, контакты и вуз видны сразу, учёба и навыки — по строке
+    /// «Подробнее», если они есть. Строки — однострочные, со значком вместо подписи
+    /// сверху: подпись читает VoiceOver. Разделители — только между строками.
+    @ViewBuilder
     private var aboutCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let bio = profile.bio, !bio.isEmpty {
-                Text(bio)
-                    .font(Typography.body)
-                    .foregroundStyle(Palette.foreground)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, Spacing.xl)
-                    .padding(.vertical, Spacing.lg)
-                    .accessibilityLabel(Text(String(localized: "profile.about", defaultValue: "О себе")))
-                    .accessibilityValue(Text(bio))
-                rowDivider
+        let items = aboutItems
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    aboutItem(item)
+                    if index < items.count - 1 { rowDivider }
+                }
             }
-            if let username = profile.username, !username.isEmpty {
-                aboutRow(
-                    symbol: "at",
-                    text: "@\(username)",
-                    tint: Palette.primary,
-                    title: String(localized: "profile.usernameTitle", defaultValue: "Имя пользователя"),
-                    selectable: true
-                )
-                rowDivider
-            }
-            if let universityID = profile.universityId, let university = profile.universityName, !university.isEmpty {
-                NavigationLink(value: AppRoute.community(.university(id: universityID))) {
-                    aboutRow(
-                        symbol: "building.columns",
-                        text: university,
-                        tint: Palette.foreground,
-                        title: String(localized: "profile.university", defaultValue: "Вуз"),
-                        chevron: true
-                    )
+            .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        }
+    }
+
+    @ViewBuilder
+    private func aboutItem(_ item: AboutItem) -> some View {
+        switch item {
+        case .bio(let bio):
+            Text(bio)
+                .font(Typography.body)
+                .foregroundStyle(Palette.foreground)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, Spacing.xl)
+                .padding(.vertical, Spacing.lg)
+                .accessibilityLabel(Text(String(localized: "profile.about", defaultValue: "О себе")))
+                .accessibilityValue(Text(bio))
+        case .username(let username):
+            aboutRow(
+                symbol: "at",
+                text: "@\(username)",
+                tint: Palette.primary,
+                title: String(localized: "profile.usernameTitle", defaultValue: "Имя пользователя"),
+                selectable: true
+            )
+        case .contact(let contact):
+            if let url = contact.url {
+                Link(destination: url) {
+                    aboutRow(symbol: contact.symbol, text: contact.value, tint: Palette.primary, title: contact.title)
                 }
                 .buttonStyle(.plain)
-                rowDivider
+            } else {
+                aboutRow(symbol: contact.symbol, text: contact.value, tint: Palette.foreground, title: contact.title, selectable: true)
             }
+        case .university(let id, let name):
+            NavigationLink(value: AppRoute.community(.university(id: id))) {
+                aboutRow(
+                    symbol: "building.columns",
+                    text: name,
+                    tint: Palette.foreground,
+                    title: String(localized: "profile.university", defaultValue: "Вуз"),
+                    chevron: true
+                )
+            }
+            .buttonStyle(.plain)
+        case .details:
             Button(action: details) {
                 aboutRow(
                     symbol: "info.circle",
@@ -872,7 +921,6 @@ private struct ProfileHeaderView: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("profile.details")
         }
-        .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
     }
 
     /// Разделитель — от начала текста строки, как в сгруппированном списке iOS.

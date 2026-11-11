@@ -87373,40 +87373,6 @@
         }
       }
     },
-    "profile.removeAvatar.confirm": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удалить фото профиля?"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Профиль фотосын жою керек пе?"
-          }
-        }
-      }
-    },
-    "profile.removeCover.confirm": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удалить обложку?"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Мұқабаны жою керек пе?"
-          }
-        }
-      }
-    },
     "deanery.section.active": {
       "extractionState": "manual",
       "localizations": {
@@ -91636,6 +91602,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Жазба жасағанда жариялау уақытын таңдаңыз"
+          }
+        }
+      }
+    },
+    "profile.addCover": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить обложку"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мұқаба қосу"
           }
         }
       }

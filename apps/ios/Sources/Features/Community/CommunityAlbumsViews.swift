@@ -11,9 +11,8 @@ struct CommunityMediaUploadButton: View {
     enum Layout {
         /// Строка списка: индикатор у правого края.
         case row
-        /// Кнопка-капсула в паре с соседней (профиль): ширина не меняется, пока идёт
-        /// загрузка — индикатор встаёт на место значка.
-        case capsule
+        /// «+» в панели навигации (профиль): пока идёт загрузка — индикатор.
+        case icon
     }
 
     var title = String(localized: "community.media.upload", defaultValue: "Загрузить фото или видео")
@@ -35,8 +34,13 @@ struct CommunityMediaUploadButton: View {
                         ProgressView()
                     }
                 }
-            case .capsule:
-                MediaActionLabel(title: title, symbol: "square.and.arrow.up", isBusy: isUploading)
+            case .icon:
+                if isUploading {
+                    ProgressView()
+                } else {
+                    Image(systemName: "plus")
+                        .accessibilityLabel(Text(title))
+                }
             }
         }
         .disabled(isUploading)
@@ -64,29 +68,6 @@ struct CommunityMediaUploadButton: View {
             }
         }
         if !done.isEmpty { await uploaded(done) }
-    }
-}
-
-/// Подпись кнопки-капсулы медиа: значок и текст по центру, на всю ширину кнопки.
-/// Одна на «Загрузить» и «Альбомы» — пара выглядит одной парой.
-struct MediaActionLabel: View {
-    let title: String
-    let symbol: String
-    var isBusy = false
-
-    var body: some View {
-        HStack(spacing: Spacing.sm) {
-            ZStack {
-                Image(systemName: symbol)
-                    .opacity(isBusy ? 0 : 1)
-                if isBusy {
-                    ProgressView().controlSize(.small)
-                }
-            }
-            Text(title)
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity)
     }
 }
 
