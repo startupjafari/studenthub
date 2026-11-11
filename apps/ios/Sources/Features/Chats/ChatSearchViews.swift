@@ -1,14 +1,22 @@
+import GRDB
 import SwiftUI
 import UIKit
 
 /// Результаты поиска в списке чатов: чаты по названию — сразу из базы, люди из
 /// справочника вуза и сообщения — запросом после паузы в наборе.
+///
+/// Заголовки разделов — обычные строки, а не `Section(header:)`: в простом списке
+/// заголовок секции прилипает к верху, а на iOS 26 он без подложки — при прокрутке
+/// «Сообщения» висели прозрачной надписью поверх строк.
 struct ChatSearchResults: View {
     let query: String
     let rows: [ChatListRow]
 
     @State private var people: [DirectoryUserDTO] = []
     @State private var messages: [ChatMessageDTO] = []
+    /// Чаты найденных сообщений — из базы: сервер отдаёт только `chatId`, а строке
+    /// нужны название, вид и аватар чата.
+    @State private var messageChats: [String: ChatRecord] = [:]
     @State private var isSearching = false
     /// Люди или сообщения не пришли: без этого сбой выглядел бы как «нет результатов».
     @State private var failure: String?
@@ -32,70 +40,52 @@ struct ChatSearchResults: View {
                     .listRowSeparator(.hidden)
             }
             if !chats.isEmpty {
-                Section(String(localized: "chats.search.chats", defaultValue: "Чаты")) {
-                    ForEach(chats) { row in
-                        ChatRowView(row: row, isGroup: row.kind != .private && row.kind != .saved)
-                            .background {
-                                NavigationLink(value: AppRoute.chat(id: row.id)) { EmptyView() }
-                                    .opacity(0)
-                            }
-                            .listRowInsets(ChatListView.rowInsets)
-                    }
+                ChatSearchSectionTitle(title: String(localized: "chats.search.chats", defaultValue: "Чаты"))
+                ForEach(chats) { row in
+                    ChatRowView(row: row, isGroup: row.kind != .private && row.kind != .saved)
+                        .background {
+                            NavigationLink(value: AppRoute.chat(id: row.id)) { EmptyView() }
+                                .opacity(0)
+                        }
+                        .listRowInsets(ChatListView.rowInsets)
                 }
             }
             if !people.isEmpty {
-                Section(String(localized: "search.section.people", defaultValue: "Люди")) {
-                    ForEach(people) { person in
-                        Button {
-                            Task { await openPrivate(with: person.id) }
-                        } label: {
-                            HStack(spacing: Spacing.lg) {
-                                AvatarView(url: person.avatarUrl, name: person.name, size: 40)
-                                VStack(alignment: .leading, spacing: 0) {
-                                    Text(person.name).foregroundStyle(Palette.foreground)
-                                    if let detail = person.groupTitle ?? person.role.flatMap(Role.init(rawValue:))?.feedTitle {
-                                        Text(detail)
-                                            .font(Typography.meta)
-                                            .foregroundStyle(Palette.mutedForeground)
-                                    }
+                ChatSearchSectionTitle(title: String(localized: "search.section.people", defaultValue: "Люди"))
+                ForEach(people) { person in
+                    Button {
+                        Task { await openPrivate(with: person.id) }
+                    } label: {
+                        HStack(spacing: Spacing.lg) {
+                            AvatarView(url: person.avatarUrl, name: person.name, size: 40)
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(person.name).foregroundStyle(Palette.foreground)
+                                if let detail = person.groupTitle ?? person.role.flatMap(Role.init(rawValue:))?.feedTitle {
+                                    Text(detail)
+                                        .font(Typography.meta)
+                                        .foregroundStyle(Palette.mutedForeground)
                                 }
-                                Spacer()
-                                if opening == person.id { ProgressView() }
                             }
+                            Spacer()
+                            if opening == person.id { ProgressView() }
                         }
-                        .disabled(opening != nil)
                     }
+                    .disabled(opening != nil)
                 }
             }
             if !messages.isEmpty {
-                Section(String(localized: "chats.search.messages", defaultValue: "Сообщения")) {
-                    ForEach(messages, id: \.id) { message in
-                        // Чат открывается на найденном сообщении, а не внизу: просьба
-                        // прокрутить ставится до перехода, переписка заберёт её при показе.
-                        Button {
-                            ChatJumpRequests.shared.pending[message.chatId] = message.id
-                            AppServices.router.stacks[.chats, default: []].append(.chat(id: message.chatId))
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack {
-                                    Text(rows.first { $0.id == message.chatId }?.displayTitle ?? message.sender?.name ?? "")
-                                        .font(Typography.meta.weight(.semibold))
-                                        .foregroundStyle(Palette.foreground)
-                                        .lineLimit(1)
-                                    Spacer()
-                                    Text(ChatMoment.short(message.createdAt))
-                                        .font(.caption)
-                                        .foregroundStyle(Palette.mutedForeground)
-                                }
-                                Text(message.content)
-                                    .font(Typography.meta)
-                                    .foregroundStyle(Palette.mutedForeground)
-                                    .lineLimit(2)
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
+                ChatSearchSectionTitle(title: String(localized: "chats.search.messages", defaultValue: "Сообщения"))
+                ForEach(messages, id: \.id) { message in
+                    // Чат открывается на найденном сообщении, а не внизу: просьба
+                    // прокрутить ставится до перехода, переписка заберёт её при показе.
+                    Button {
+                        ChatJumpRequests.shared.pending[message.chatId] = message.id
+                        AppServices.router.stacks[.chats, default: []].append(.chat(id: message.chatId))
+                    } label: {
+                        ChatSearchMessageRow(message: message, chat: messageChats[message.chatId], query: trimmed)
                     }
+                    .buttonStyle(.plain)
+                    .listRowInsets(ChatListView.rowInsets)
                 }
             }
             if chats.isEmpty, people.isEmpty, messages.isEmpty {
@@ -143,6 +133,10 @@ struct ChatSearchResults: View {
         }
         switch messagesOutcome {
         case .success(let list):
+            // Чаты — до показа строк: иначе строка мелькнула бы без названия и аватара.
+            let found = await Self.chats(of: list)
+            guard !Task.isCancelled else { return }
+            messageChats = found
             messages = list
         case .failure(let error):
             messages = []
@@ -156,6 +150,154 @@ struct ChatSearchResults: View {
         opening = userID
         defer { opening = nil }
         try? await PrivateChatOpener.open(with: userID, api: api)
+    }
+
+    /// Чаты найденных сообщений из базы — и архивные, и не из открытой вкладки.
+    private static func chats(of messages: [ChatMessageDTO]) async -> [String: ChatRecord] {
+        let ids = Array(Set(messages.map(\.chatId)))
+        guard !ids.isEmpty else { return [:] }
+        let records = (try? await AppServices.database.reader.read { db in
+            try ChatRecord.fetchAll(db, keys: ids)
+        }) ?? []
+        return Dictionary(records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+}
+
+/// Заголовок раздела результатов: строкой списка, на полосе цвета фона, — уезжает
+/// вместе со строками и не ложится поверх них.
+private struct ChatSearchSectionTitle: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(Typography.meta.weight(.semibold))
+            .foregroundStyle(Palette.mutedForeground)
+            .textCase(.uppercase)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .listRowInsets(EdgeInsets(top: Spacing.sm, leading: Spacing.lg, bottom: Spacing.sm, trailing: Spacing.lg))
+            .listRowBackground(Palette.background)
+            .listRowSeparator(.hidden)
+            .selectionDisabled()
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// Найденное сообщение как в Telegram: аватар и название чата (в группе — ещё и кто
+/// написал), справа дата, ниже — текст с подсвеченным запросом. Без этого строки из
+/// разных чатов было не различить: виден был только автор.
+private struct ChatSearchMessageRow: View {
+    let message: ChatMessageDTO
+    /// Чата нет в базе (ещё не догрузился список) — подписываем автором.
+    let chat: ChatRecord?
+    let query: String
+
+    @Environment(\.viewerID) private var viewerID
+    @ScaledMetric(relativeTo: .body) private var avatarSize: CGFloat = 58
+
+    private var isGroup: Bool {
+        guard let chat else { return false }
+        return chat.kind != .private && chat.kind != .saved
+    }
+
+    private var chatTitle: String {
+        guard let chat else {
+            let name = message.sender?.name ?? ""
+            return name.isEmpty ? String(localized: "shell.chat", defaultValue: "Чат") : name
+        }
+        if chat.kind == .saved { return String(localized: "chats.saved", defaultValue: "Избранное") }
+        if let title = chat.title, !title.isEmpty { return title }
+        return ChatTitle.fallback(for: chat)
+    }
+
+    /// Автор в группе — «Вы» или имя без фамилии, как в превью списка.
+    private var senderName: String? {
+        guard isGroup else { return nil }
+        if message.senderId == viewerID { return String(localized: "chats.you", defaultValue: "Вы") }
+        guard let sender = message.sender else { return nil }
+        let first = sender.firstName?.trimmingCharacters(in: .whitespaces) ?? ""
+        if !first.isEmpty { return first }
+        return sender.name.isEmpty ? nil : sender.name
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: Spacing.lg) {
+            ChatAvatarView(
+                title: chatTitle,
+                kind: chat?.kind ?? .private,
+                avatarURL: chat == nil ? message.sender?.avatarUrl : chat?.avatarUrl,
+                size: min(avatarSize, 84)
+            )
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
+                    title
+                        .lineLimit(1)
+                    Spacer(minLength: Spacing.md)
+                    Text(ChatMoment.short(message.createdAt))
+                        .font(Typography.tabular(.subheadline))
+                        .foregroundStyle(Palette.mutedForeground)
+                }
+                Text(ChatSearchHighlight.snippet(message.content, query: query))
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.mutedForeground)
+                    .lineLimit(2, reservesSpace: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
+        }
+        .padding(.vertical, Spacing.sm)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+
+    /// «Чат · Отправитель»: название чата важнее — автор сокращается первым.
+    private var title: Text {
+        let name = Text(chatTitle)
+            .font(.body.weight(.semibold))
+            .foregroundStyle(Palette.foreground)
+        guard let senderName else { return name }
+        return name + Text(verbatim: " · \(senderName)")
+            .font(.body)
+            .foregroundStyle(Palette.mutedForeground)
+    }
+}
+
+/// Текст найденного сообщения с подсвеченным запросом. Совпадение далеко от начала —
+/// текст начинается чуть раньше него с «…», иначе в две строки оно бы не попало.
+enum ChatSearchHighlight {
+    /// Сколько знаков оставить перед первым совпадением.
+    private static let lead = 24
+
+    static func snippet(_ text: String, query: String) -> AttributedString {
+        let flat = text.replacingOccurrences(of: "\n", with: " ")
+        let needle = query.trimmingCharacters(in: .whitespaces)
+        let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+        guard !needle.isEmpty, let first = flat.range(of: needle, options: options) else {
+            return AttributedString(flat)
+        }
+        var start = flat.startIndex
+        var result = AttributedString()
+        if flat.distance(from: flat.startIndex, to: first.lowerBound) > lead {
+            start = flat.index(first.lowerBound, offsetBy: -lead)
+            // Слово не рвём: начинаем со следующего за пробелом.
+            if let space = flat[start..<first.lowerBound].firstIndex(of: " ") {
+                start = flat.index(after: space)
+            }
+            result += AttributedString("…")
+        }
+        var cursor = start
+        while cursor < flat.endIndex,
+              let hit = flat.range(of: needle, options: options, range: cursor..<flat.endIndex),
+              !hit.isEmpty {
+            result += AttributedString(String(flat[cursor..<hit.lowerBound]))
+            var match = AttributedString(String(flat[hit]))
+            match.foregroundColor = Palette.foreground
+            match.font = Font.subheadline.weight(.semibold)
+            result += match
+            cursor = hit.upperBound
+        }
+        result += AttributedString(String(flat[cursor...]))
+        return result
     }
 }
 

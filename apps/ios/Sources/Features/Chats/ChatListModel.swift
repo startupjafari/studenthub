@@ -15,6 +15,10 @@ final class ChatListModel {
     private(set) var isRefreshing = false
     /// Архивные чаты — для строки «Архив» над списком, как в Telegram.
     private(set) var archived: [ChatListRow] = []
+    /// Растёт на каждом живом изменении списка — новом срезе базы после первого.
+    /// Экран анимирует по нему перестановку строк и счётчики; первый срез (открытие
+    /// экрана, смена вкладки) ревизию не трогает и встаёт сразу, без пролёта строк.
+    private(set) var liveRevision = 0
     /// Сообщение о последней неудаче. Список при этом продолжает работать: он читает
     /// базу, и отсутствие сети ему не мешает.
     private(set) var failure: String?
@@ -249,8 +253,14 @@ final class ChatListModel {
         let request = ChatListQuery.rows(for: tab)
         let observation = ValueObservation.tracking { db in try request.fetchAll(db) }
         rowsTask = Task { @MainActor [weak self, database] in
+            var isFirst = true
             for await rows in AsyncValues.stream(of: observation, in: database.reader) {
                 self?.rows = rows
+                if isFirst {
+                    isFirst = false
+                } else {
+                    self?.liveRevision &+= 1
+                }
             }
         }
     }
@@ -261,8 +271,15 @@ final class ChatListModel {
         let request = ChatListQuery.rows(for: .archive)
         let observation = ValueObservation.tracking { db in try request.fetchAll(db) }
         archiveTask = Task { @MainActor [weak self, database] in
+            var isFirst = true
             for await rows in AsyncValues.stream(of: observation, in: database.reader) {
                 self?.archived = rows
+                // Строка «Архив» появляется и уходит той же анимацией, что и строки.
+                if isFirst {
+                    isFirst = false
+                } else {
+                    self?.liveRevision &+= 1
+                }
             }
         }
     }

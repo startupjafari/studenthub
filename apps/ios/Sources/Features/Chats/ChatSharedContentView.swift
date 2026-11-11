@@ -1,3 +1,5 @@
+import AVFoundation
+import SafariServices
 import SwiftUI
 import UIKit
 
@@ -444,41 +446,36 @@ private struct MediaGridRow: Identifiable {
 }
 
 /// Плитка сетки медиа: уменьшенная копия снимка или постер видео — не оригинал,
-/// вкладка показывает десятки плиток разом. Ссылки подписываются по требованию,
-/// картинка кэшируется по id файла.
+/// вкладка показывает десятки плиток разом. Картинку плитке готовит
+/// `ChatMediaThumbnails`: уже загруженная показывается сразу, с первого кадра, новая —
+/// проявляется. До неё — размытое превью из ответа, у видео — тёмная плитка с ▶.
 private struct ChatMediaThumb: View {
     let item: ChatMediaItemDTO
 
-    @State private var signed: AttachmentMedia?
+    @State private var image: UIImage?
+    @State private var failed = false
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Ширина плитки — треть экрана телефона.
-    private static let points: CGFloat = 140
-
-    private var thumbnail: URL? {
-        guard let signed else { return nil }
-        if item.isVideo {
-            return (signed.poster.best(forPoints: Self.points)?.url).flatMap(URL.init(string:))
-        }
-        return signed.sources.best(forPoints: Self.points).flatMap { URL(string: $0.url) } ?? signed.url
+    init(item: ChatMediaItemDTO) {
+        self.item = item
+        // Плитка, вернувшаяся на экран, рисуется сразу готовой — без мигания подложкой.
+        _image = State(initialValue: ChatMediaThumbnails.cached(item.id))
     }
 
     var body: some View {
         Color.clear
             .aspectRatio(1, contentMode: .fit)
             .overlay {
-                if item.isVideo, let signed, signed.poster.isEmpty {
-                    // Видео без постера: сам ролик картинкой не загрузить — заглушка.
-                    Rectangle().fill(Palette.muted)
-                } else {
-                    RemoteImage(
-                        url: thumbnail,
-                        cacheKey: "chatmedia:\(item.id)",
-                        placeholder: item.placeholder,
-                        maxPixelSize: Self.points * displayScale
-                    )
-                    // Ссылка приезжает позже первого показа — картинка должна её заметить.
-                    .id(thumbnail)
+                ZStack {
+                    if let image {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .transition(.opacity)
+                    } else {
+                        placeholder
+                    }
                 }
             }
             .overlay(alignment: .bottomLeading) {
@@ -500,23 +497,196 @@ private struct ChatMediaThumb: View {
             }
             .clipped()
             .contentShape(Rectangle())
-            .task { signed = try? await AppServices.attachmentURLs.media(for: item.id) }
+            .task(id: item.id) { [pixels = ChatMediaThumbnails.points * displayScale] in
+                guard image == nil else { return }
+                let loaded = await ChatMediaThumbnails.shared.image(for: item, pixels: pixels)
+                guard !Task.isCancelled else { return }
+                withAnimation(Motion.respecting(.easeOut(duration: Motion.Duration.feedback), reduceMotion: reduceMotion)) {
+                    image = loaded
+                    failed = loaded == nil
+                }
+            }
             .accessibilityElement()
             .accessibilityLabel(Text(item.isVideo
                 ? String(localized: "chats.preview.video", defaultValue: "Видео")
                 : String(localized: "chats.preview.photo", defaultValue: "Фото")))
             .accessibilityAddTraits(.isButton)
     }
+
+    /// Пока картинки нет: размытое превью (LQIP) из ответа, иначе ровная подложка.
+    /// Видео без кадра — тёмная плитка с ▶ по центру, а не серый квадрат: видно, что
+    /// это ролик, ещё до обложки.
+    @ViewBuilder
+    private var placeholder: some View {
+        if let preview = LQIP.image(from: item.placeholder) {
+            Image(uiImage: preview)
+                .resizable()
+                .scaledToFill()
+                .blur(radius: 12)
+        } else if item.isVideo {
+            ZStack {
+                LinearGradient(
+                    colors: [Color(white: 0.22), Color(white: 0.1)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                Image(systemName: "play.fill")
+                    .font(.title3)
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+        } else {
+            ZStack {
+                Rectangle().fill(Palette.muted)
+                if failed {
+                    Image(systemName: "photo")
+                        .foregroundStyle(Palette.mutedForeground)
+                }
+            }
+        }
+    }
 }
 
-/// Строка ссылки: касание открывает её в браузере, как в Telegram. Сервер отдаёт
-/// только сообщения с превью; адрес, который не разобрать, — просто текстом.
+/// Миниатюры сетки «Медиа».
+///
+/// Раньше каждая плитка сама подписывала ссылку при каждом показе: страница в 30
+/// плиток — 30 запросов разом, повторный показ — ещё раз, пока первый не вернулся.
+/// Сервер ограничивает частоту запросов, ответы 429 шли на повтор с паузами — плитки
+/// секундами стояли пустыми, а после `try?` и навсегда. Здесь на файл одна загрузка
+/// (вернувшаяся плитка ждёт ту же), разом — не больше четырёх, свежие плитки первыми,
+/// а готовая картинка — в общем кэше по id файла. Загрузка не отменяется, когда плитка
+/// ушла с экрана: вернувшись, она застанет картинку готовой.
+///
+/// Видео без постера (медиа-система ещё не нарезала или старый ролик) — первый кадр
+/// самого ролика (`AVAssetImageGenerator` по подписанной ссылке): читается только
+/// начало файла, не весь ролик.
+@MainActor
+final class ChatMediaThumbnails {
+    static let shared = ChatMediaThumbnails()
+
+    /// Ширина плитки — треть экрана телефона.
+    nonisolated static let points: CGFloat = 140
+    private nonisolated static let maxConcurrent = 4
+
+    private var running: [String: Task<UIImage?, Never>] = [:]
+    private var freeSlots = ChatMediaThumbnails.maxConcurrent
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+    private let urls = AppServices.attachmentURLs
+
+    nonisolated static func cacheKey(_ id: String) -> String { "chatmedia:\(id)" }
+
+    /// Готовая миниатюра из памяти — без ожидания.
+    nonisolated static func cached(_ id: String) -> UIImage? {
+        ImageMemoryCache.shared.image(for: cacheKey(id))
+    }
+
+    func image(for item: ChatMediaItemDTO, pixels: CGFloat) async -> UIImage? {
+        if let cached = Self.cached(item.id) { return cached }
+        if let task = running[item.id] { return await task.value }
+        let task = Task { () -> UIImage? in
+            await acquire()
+            defer { release() }
+            return await load(item, pixels: pixels)
+        }
+        running[item.id] = task
+        let image = await task.value
+        running[item.id] = nil
+        return image
+    }
+
+    private func load(_ item: ChatMediaItemDTO, pixels: CGFloat) async -> UIImage? {
+        let key = Self.cacheKey(item.id)
+        guard let signed = try? await urls.media(for: item.id) else { return nil }
+        if item.isVideo {
+            if let poster = signed.poster.best(forPoints: Self.points).flatMap({ URL(string: $0.url) }),
+               let image = await ImageMemoryCache.shared.load(poster, key: key, maxPixelSize: pixels) {
+                return image
+            }
+            guard let frame = await Self.firstFrame(of: signed.url, pixels: pixels) else { return nil }
+            ImageMemoryCache.shared.store(frame, for: key)
+            return frame
+        }
+        let url = signed.sources.best(forPoints: Self.points).flatMap { URL(string: $0.url) } ?? signed.url
+        return await ImageMemoryCache.shared.load(url, key: key, maxPixelSize: pixels)
+    }
+
+    /// Первый кадр ролика по ссылке. Допуск по времени оставлен системным: ближайший
+    /// опорный кадр декодируется без чтения середины файла.
+    private nonisolated static func firstFrame(of url: URL, pixels: CGFloat) async -> UIImage? {
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: pixels, height: pixels)
+        guard let frame = try? await generator.image(at: .zero) else { return nil }
+        return UIImage(cgImage: frame.image)
+    }
+
+    /// Свободное место среди одновременных загрузок; нет — ждём в очереди.
+    private func acquire() async {
+        if freeSlots > 0 {
+            freeSlots -= 1
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiting.append(continuation)
+        }
+    }
+
+    /// Место освободилось — его получает последняя вставшая в очередь плитка: она на
+    /// экране сейчас, а ранние могли уже уехать при быстрой прокрутке.
+    private func release() {
+        if let next = waiting.popLast() {
+            next.resume()
+        } else {
+            freeSlots += 1
+        }
+    }
+}
+
+/// Ссылки из материалов чата — во встроенном Safari (`SFSafariViewController`) поверх
+/// приложения, как в Telegram: «Готово» возвращает в информацию о чате. Показывается
+/// самым верхним контроллером окна — так он встаёт поверх и листа, и стека. Адрес не
+/// http(s) Safari-вид не откроет — такой отдаём системе.
+@MainActor
+enum ChatInAppBrowser {
+    static func open(_ url: URL) {
+        let scheme = url.scheme?.lowercased()
+        guard scheme == "http" || scheme == "https", let presenter = topController() else {
+            UIApplication.shared.open(url)
+            return
+        }
+        let safari = SFSafariViewController(url: url)
+        safari.preferredControlTintColor = UIColor(Palette.primary)
+        safari.dismissButtonStyle = .close
+        presenter.present(safari, animated: true)
+    }
+
+    private static func topController() -> UIViewController? {
+        let window = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)
+        var top = window?.rootViewController
+        while let presented = top?.presentedViewController, !presented.isBeingDismissed {
+            top = presented
+        }
+        return top
+    }
+}
+
+/// Строка ссылки: касание открывает её во встроенном Safari поверх приложения, как в
+/// Telegram, — человек не уходит из чата. Сервер отдаёт только сообщения с превью;
+/// адрес, который не разобрать, — просто текстом.
 private struct ChatLinkRow: View {
     let link: ChatLinkItemDTO
 
     var body: some View {
         if let url = link.url {
-            Link(destination: url) { label(url: url) }
+            Button {
+                ChatInAppBrowser.open(url)
+            } label: {
+                label(url: url)
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(.isLink)
         } else {
             label(url: nil)
         }

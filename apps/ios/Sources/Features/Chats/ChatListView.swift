@@ -91,6 +91,14 @@ struct ChatListView: View {
             }
         }
         .listStyle(.plain)
+        // Живые изменения — пружиной, как в Telegram: чат с новым сообщением уезжает
+        // наверх, закреплённый встаёт к закреплённым, архивный уходит из списка, счётчик
+        // перещёлкивает цифры. Ревизия растёт только на изменениях после первого среза
+        // (`ChatListModel.liveRevision`): открытие экрана и смена вкладки не анимируются.
+        .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: model.liveRevision)
+        // Результаты поиска уезжают под поле поиска с плотным краем: на мягком строки
+        // просвечивали сквозь поле и спорили с ним.
+        .chatListTopEdge(hard: isSearching)
         .environment(\.editMode, $editMode)
         .overlay { emptyState }
         .searchable(
@@ -419,7 +427,7 @@ struct ChatListView: View {
                 .opacity(0)
         }
         .listRowInsets(Self.rowInsets)
-        .listRowBackground(row.isPinned ? AnyView(ChatPinnedRowBackground()) : AnyView(Palette.plainBackground))
+        .listRowBackground(ChatRowBackground(isPinned: row.isPinned))
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             if row.unreadCount > 0 {
                 Button {
@@ -673,13 +681,35 @@ enum ChatTabTitle {
     }
 }
 
-/// Фон закреплённой строки: чуть темнее списка, как в Telegram.
-private struct ChatPinnedRowBackground: View {
+/// Фон строки: у закреплённой чуть темнее списка, как в Telegram. Один вид на оба
+/// случая — при закреплении подложка проявляется плавно, а не подменяется другим видом.
+private struct ChatRowBackground: View {
+    let isPinned: Bool
+
     var body: some View {
         ZStack {
             Palette.plainBackground
-            Palette.muted.opacity(0.55)
+            Palette.muted.opacity(isPinned ? 0.55 : 0)
         }
+    }
+}
+
+private extension View {
+    /// Верхний край списка чатов: в поиске плотный (`hardTopEdge`), иначе мягкий. Стиль
+    /// меняется значением, а не ветвлением: `if` пересоздал бы список вместе с полем
+    /// поиска на первой же набранной букве.
+    @ViewBuilder
+    func chatListTopEdge(hard: Bool) -> some View {
+        #if compiler(>=6.2)
+            if #available(iOS 26, *) {
+                let style: ScrollEdgeEffectStyle = hard ? .hard : .soft
+                scrollEdgeEffectStyle(style, for: .top)
+            } else {
+                self
+            }
+        #else
+            self
+        #endif
     }
 }
 
@@ -758,15 +788,19 @@ struct ChatRowView: View {
         return (row.othersReadAt ?? .distantPast) >= last
     }
 
+    /// Счётчик и булавка появляются и уходят «пузырём» — в анимации списка
+    /// (`ChatListView`, `liveRevision`); без неё — сразу.
     @ViewBuilder
     private var trailingBadge: some View {
         if row.unreadCount > 0 {
             ChatUnreadBadge(count: row.unreadCount, muted: row.muted)
+                .transition(.scale(scale: 0.5).combined(with: .opacity))
         } else if row.isPinned {
             Image(systemName: "pin.fill")
                 .font(.caption)
                 .rotationEffect(.degrees(45))
                 .foregroundStyle(Palette.mutedForeground)
+                .transition(.scale(scale: 0.5).combined(with: .opacity))
                 .accessibilityLabel(Text(String(localized: "chats.pinnedBadge", defaultValue: "Закреплён")))
         }
     }
@@ -823,7 +857,8 @@ struct ChatRowView: View {
     }
 }
 
-/// Счётчик непрочитанного: синяя капсула, у заглушённых — серая.
+/// Счётчик непрочитанного: синяя капсула, у заглушённых — серая. Число меняется
+/// перещёлкиванием цифр (`numericText`), когда список анимирует изменение.
 private struct ChatUnreadBadge: View {
     let count: Int
     let muted: Bool
@@ -833,6 +868,7 @@ private struct ChatUnreadBadge: View {
     var body: some View {
         Text(verbatim: count > 999 ? "999+" : count.formatted())
             .font(Typography.tabular(.footnote).weight(.semibold))
+            .contentTransition(.numericText(value: Double(min(count, 1000))))
             .foregroundStyle(Palette.primaryForeground)
             .padding(.horizontal, Spacing.sm)
             .frame(minWidth: height, minHeight: height)
