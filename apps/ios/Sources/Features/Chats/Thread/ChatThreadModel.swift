@@ -360,17 +360,112 @@ final class ChatThreadModel {
         }
     }
 
+    /// Пересылка одного или нескольких сообщений. В каждый чат — по очереди в порядке
+    /// ленты: сервер ставит пересланному своё время, и порядок отправки станет порядком
+    /// в чате получателя.
     @MainActor
-    func forward(_ message: MessageRecord, to chatIDs: [String]) async -> Bool {
-        guard let remoteID = message.remoteId else { return false }
+    func forward(_ messages: [MessageRecord], to chatIDs: [String]) async -> Bool {
+        let remoteIDs = messages.filter(Self.canForward).compactMap(\.remoteId)
+        guard !remoteIDs.isEmpty else { return false }
         do {
             for target in chatIDs {
-                try await actions.forward(messageID: remoteID, to: target)
+                for remoteID in remoteIDs {
+                    try await actions.forward(messageID: remoteID, to: target)
+                }
             }
             return true
         } catch {
             actionFailure = self.message(for: error)
             return false
+        }
+    }
+
+    /// Переслать можно только дошедшее до сервера и не удалённое.
+    static func canForward(_ message: MessageRecord) -> Bool {
+        message.remoteId != nil && message.deletedAt == nil && message.systemType == nil
+    }
+
+    // MARK: - Выбор нескольких
+
+    /// Выбранные сообщения (локальные идентификаторы); `nil` — режим выбора выключен.
+    private(set) var selection: Set<String>?
+
+    var isSelecting: Bool { selection != nil }
+
+    /// Системные события — не реплики: как и в вебе, их не выбирают.
+    static func isSelectable(_ message: MessageRecord) -> Bool {
+        message.systemType == nil
+    }
+
+    /// Вход в режим выбора из меню сообщения: оно сразу отмечено.
+    @MainActor
+    func beginSelection(with message: MessageRecord) {
+        guard Self.isSelectable(message) else { return }
+        selection = [message.id]
+    }
+
+    /// Касание пузыря в режиме выбора. Сняли последнюю отметку — режим закрывается,
+    /// как в вебе: пустой выбор ни к чему не ведёт.
+    @MainActor
+    func toggleSelection(of message: MessageRecord) {
+        guard var current = selection, Self.isSelectable(message) else { return }
+        if current.contains(message.id) {
+            current.remove(message.id)
+        } else {
+            current.insert(message.id)
+        }
+        selection = current.isEmpty ? nil : current
+    }
+
+    /// Выбранное исчезло из базы (удалено, неотправленное стёрто) — снимаем отметку,
+    /// иначе счётчик и «Удалить» считали бы то, чего на экране нет.
+    @MainActor
+    private func pruneSelection() {
+        guard let selection else { return }
+        let alive = selection.intersection(messages.map(\.id))
+        guard alive != selection else { return }
+        self.selection = alive.isEmpty ? nil : alive
+    }
+
+    @MainActor
+    func endSelection() {
+        selection = nil
+    }
+
+    /// Выбранные в порядке ленты, а не в порядке касаний.
+    var selectedMessages: [MessageRecord] {
+        guard let selection else { return [] }
+        return messages.filter { selection.contains($0.id) }
+    }
+
+    /// Тексты выбранных по времени, через пустую строку. Без текста (фото, удалённое)
+    /// не дают пустых абзацев.
+    var selectedText: String {
+        selectedMessages
+            .filter { $0.deletedAt == nil && !$0.content.isEmpty }
+            .map(\.content)
+            .joined(separator: "\n\n")
+    }
+
+    var canForwardSelection: Bool {
+        selectedMessages.contains(where: Self.canForward)
+    }
+
+    /// Удалить выбранное можно, только если всё оно своё и ещё не удалено: чужое
+    /// сервер отклонит, и часть выбора молча осталась бы на месте.
+    var canDeleteSelection: Bool {
+        let chosen = selectedMessages
+        return !chosen.isEmpty && chosen.allSatisfy(canDelete)
+    }
+
+    /// Удаление выбранного — тем же путём, что и одиночное, по одному сообщению.
+    @MainActor
+    func deleteSelected() async {
+        let chosen = selectedMessages
+        guard !chosen.isEmpty, chosen.allSatisfy(canDelete) else { return }
+        selection = nil
+        for message in chosen {
+            await delete(message)
         }
     }
 
@@ -634,6 +729,7 @@ final class ChatThreadModel {
             for await snapshot in AsyncValues.stream(of: observation, in: database.reader) {
                 guard let self else { return }
                 self.messages = snapshot.messages
+                self.pruneSelection()
                 self.days = MessageTimeline.build(
                     from: snapshot.messages,
                     attachments: snapshot.attachments,

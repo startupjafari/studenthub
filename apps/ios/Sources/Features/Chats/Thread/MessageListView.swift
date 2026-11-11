@@ -14,6 +14,8 @@ struct MessageListView: UIViewControllerRepresentable {
     /// Просьба прокрутить к сообщению (закреплённое, ответ, найденное).
     var focus: MessageFocus?
     var capabilities: (MessageRecord) -> MessageCapabilities = { _ in MessageCapabilities() }
+    /// Выбранные сообщения; `nil` — режим выбора выключен.
+    var selection: Set<String>?
     /// Просьба прокрутить к последнему сообщению: каждое новое значение — одна прокрутка
     /// (кнопка «вниз»).
     var scrollToBottomToken = 0
@@ -36,7 +38,7 @@ struct MessageListView: UIViewControllerRepresentable {
         controller.onAction = onAction
         controller.capabilities = capabilities
         controller.onBottomChange = onBottomChange
-        controller.apply(days: days, anchor: anchor, context: bubbleContext)
+        controller.apply(days: days, anchor: anchor, context: bubbleContext, selection: selection)
         controller.focus(focus)
         controller.scrollToBottom(token: scrollToBottomToken)
     }
@@ -48,6 +50,7 @@ final class MessageListViewController: UIViewController {
     var capabilities: ((MessageRecord) -> MessageCapabilities)?
     var onBottomChange: ((Bool) -> Void)?
     private var bubbleContext = BubbleContext()
+    private var selection: Set<String>?
     private var appliedBottomToken = 0
     private var reportedAtBottom = true
     private var appliedFocus: MessageFocus?
@@ -82,10 +85,15 @@ final class MessageListViewController: UIViewController {
     /// нижнего края, новое сообщение подматывает ленту за ним. Второе: если сверху
     /// доехала страница старых сообщений, позиция не должна шевельнуться — поэтому
     /// после применения смещаем `contentOffset` ровно на выросшую высоту.
-    func apply(days: [MessageTimeline.Day], anchor: String?, context: BubbleContext) {
+    func apply(days: [MessageTimeline.Day], anchor: String?, context: BubbleContext, selection: Set<String>? = nil) {
         let previous = itemsByID
         let contextChanged = context != bubbleContext
         bubbleContext = context
+        // Вход в режим выбора и выход перерисовывают все ячейки (кружки слева), а
+        // касание в режиме — только те, чья отметка сменилась.
+        let selectionModeChanged = (selection == nil) != (self.selection == nil)
+        let toggled = (selection ?? []).symmetricDifference(self.selection ?? [])
+        self.selection = selection
         itemsByID = Dictionary(
             uniqueKeysWithValues: days.flatMap(\.items).map { ($0.id, $0) }
         )
@@ -99,7 +107,7 @@ final class MessageListViewController: UIViewController {
         // прочтение без этого не перерисовали бы уже показанную ячейку.
         let changed = snapshot.itemIdentifiers.filter { id in
             guard let old = previous[id] else { return false }
-            return contextChanged || old != itemsByID[id]
+            return contextChanged || selectionModeChanged || toggled.contains(id) || old != itemsByID[id]
         }
         if !changed.isEmpty { snapshot.reconfigureItems(changed) }
 
@@ -181,7 +189,9 @@ final class MessageListViewController: UIViewController {
                 MessageBubbleView(
                     item: item,
                     context: self?.bubbleContext ?? BubbleContext(),
-                    capabilities: self?.capabilities?(item.message) ?? MessageCapabilities()
+                    capabilities: self?.capabilities?(item.message) ?? MessageCapabilities(),
+                    selecting: self?.selection != nil,
+                    isSelected: self?.selection?.contains(id) ?? false
                 ) { [weak self] action in
                     self?.onAction?(action, item.message)
                 }

@@ -13,9 +13,12 @@ struct ChatThreadView: View {
     @State private var opener = RemoteFileOpener()
     /// Экран уходил (вперёд по стеку или назад): комната сокета отпущена.
     @State private var hasLeft = false
-    @State private var forwarding: MessageRecord?
+    @State private var forwarding: ForwardBatch?
     @State private var reporting: MessageRecord?
     @State private var deleting: MessageRecord?
+    /// Подтверждение удаления выбранного: сколько сообщений уйдёт.
+    @State private var deletingSelection: Int?
+    @State private var copiedTick = 0
     @State private var reported = false
     @State private var pinnedIndex = 0
     /// Лента у нижнего края — кнопка «вниз» не нужна.
@@ -46,15 +49,51 @@ struct ChatThreadView: View {
         .background { ChatWallpaper().ignoresSafeArea() }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                NavigationLink(value: AppRoute.chatInfo(id: chatID)) {
-                    ChatTitleView(model: model, realtime: realtime)
+            if let model, model.isSelecting {
+                selectionToolbar(model)
+            } else {
+                ToolbarItem(placement: .principal) {
+                    NavigationLink(value: AppRoute.chatInfo(id: chatID)) {
+                        ChatTitleView(model: model, realtime: realtime)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+                ChatAvatarToolbarItem(chatID: chatID, chat: model?.chat, title: model?.title)
             }
-            ChatAvatarToolbarItem(chatID: chatID, chat: model?.chat, title: model?.title)
         }
+        // В режиме выбора место «назад» занимает «Отмена»: выход из режима, а не из
+        // чата. Вместе с кнопкой система отключает и свайп назад — случайно закрыть
+        // переписку с половиной выбора не выйдет.
+        .navigationBarBackButtonHidden(model?.isSelecting == true)
         .toolbar(.hidden, for: .tabBar)
+        .sensoryFeedback(.selection, trigger: model?.selection?.count ?? 0)
+        .sensoryFeedback(.success, trigger: copiedTick)
+    }
+
+    /// Шапка режима выбора: «Отмена» слева и счётчик по центру, как в Telegram.
+    @ToolbarContentBuilder
+    private func selectionToolbar(_ model: ChatThreadModel) -> some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button(String(localized: "common.cancel", defaultValue: "Отмена")) {
+                endSelection(model)
+            }
+        }
+        ToolbarItem(placement: .principal) {
+            Text(String(
+                localized: "chats.selection.count",
+                defaultValue: "Выбрано: \(model.selection?.count ?? 0)"
+            ))
+            .font(.headline)
+            .foregroundStyle(Palette.foreground)
+            .contentTransition(.numericText())
+            .accessibilityAddTraits(.isHeader)
+        }
+    }
+
+    private func endSelection(_ model: ChatThreadModel) {
+        withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) {
+            model.endSelection()
+        }
     }
 
     @ViewBuilder
@@ -92,6 +131,7 @@ struct ChatThreadView: View {
                             myReaction: model.myReaction(on: message)
                         )
                     },
+                    selection: model.selection,
                     scrollToBottomToken: bottomToken,
                     onBottomChange: { bottomChanged($0) },
                     onReachTop: { Task { await model.loadOlder() } },
@@ -108,7 +148,26 @@ struct ChatThreadView: View {
                     }
                 }
 
-                if model.chat?.requestIncoming == true {
+                if model.isSelecting {
+                    // Поле ввода на время выбора уступает место панели действий.
+                    MessageSelectionBar(
+                        canCopy: !model.selectedText.isEmpty,
+                        canForward: model.canForwardSelection,
+                        canDelete: model.canDeleteSelection,
+                        onCopy: {
+                            UIPasteboard.general.string = model.selectedText
+                            copiedTick += 1
+                            endSelection(model)
+                        },
+                        onForward: {
+                            forwarding = ForwardBatch(messages: model.selectedMessages, fromSelection: true)
+                        },
+                        onDelete: {
+                            deletingSelection = model.selectedMessages.count
+                        }
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else if model.chat?.requestIncoming == true {
                     ChatRequestBar(chatID: chatID)
                 } else if model.chat?.requestOutgoing == true, model.chat?.lastMessageId != nil || !model.days.isEmpty {
                     // Первое сообщение ушло запросом — дальше писать нельзя, пока его не
@@ -202,6 +261,8 @@ struct ChatThreadView: View {
         }
         .onDisappear {
             hasLeft = true
+            // Ушли с экрана — выбор не переживает возвращения, как и в Telegram.
+            model?.endSelection()
             Task { [model] in await model?.leave() }
         }
     }
@@ -216,10 +277,12 @@ struct ChatThreadView: View {
     private func withDialogs<V: View>(_ view: V) -> some View {
         view
         .remoteFilePreview(opener)
-        .sheet(item: $forwarding) { message in
+        .sheet(item: $forwarding) { batch in
             ForwardPickerView(excludedChatID: chatID) { targets in
                 guard let model else { return false }
-                return await model.forward(message, to: targets)
+                let sent = await model.forward(batch.messages, to: targets)
+                if sent, batch.fromSelection { endSelection(model) }
+                return sent
             }
         }
         .alert(
@@ -241,6 +304,15 @@ struct ChatThreadView: View {
         ) { message in
             Button(String(localized: "feed.delete", defaultValue: "Удалить"), role: .destructive) {
                 Task { await model?.delete(message) }
+            }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
+        }
+        .alert(
+            ChatPlural.deleteMessagesQuestion(deletingSelection ?? 0),
+            isPresented: Binding(get: { deletingSelection != nil }, set: { if !$0 { deletingSelection = nil } })
+        ) {
+            Button(String(localized: "feed.delete", defaultValue: "Удалить"), role: .destructive) {
+                Task { await model?.deleteSelected() }
             }
             Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
@@ -273,7 +345,15 @@ struct ChatThreadView: View {
         case .copy:
             UIPasteboard.general.string = message.content
         case .forward:
-            forwarding = message
+            forwarding = ForwardBatch(messages: [message], fromSelection: false)
+        case .select:
+            withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) {
+                model.beginSelection(with: message)
+            }
+        case .toggleSelection:
+            withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) {
+                model.toggleSelection(of: message)
+            }
         case .report:
             reporting = message
         case .retry:
@@ -305,6 +385,14 @@ struct ChatThreadView: View {
             }
         }
     }
+}
+
+/// Что пересылаем: одно сообщение из меню или выбранные разом. После пересылки
+/// выбранного режим выбора закрывается.
+private struct ForwardBatch: Identifiable {
+    let id = UUID()
+    let messages: [MessageRecord]
+    let fromSelection: Bool
 }
 
 /// Шапка: название и под ним — что происходит. Приоритет: действие собеседника,

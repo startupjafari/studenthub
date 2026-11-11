@@ -121,6 +121,20 @@ enum ChatPlural {
         }
     }
 
+    /// «Удалить 1 сообщение у всех?», «…2 сообщения…», «…5 сообщений…» — подтверждение
+    /// удаления выбранного.
+    static func deleteMessagesQuestion(_ count: Int) -> String {
+        let number = count.formatted()
+        switch form(count) {
+        case .one:
+            return String(localized: "chats.selection.delete.one", defaultValue: "Удалить \(number) сообщение у всех?")
+        case .few:
+            return String(localized: "chats.selection.delete.few", defaultValue: "Удалить \(number) сообщения у всех?")
+        case .many:
+            return String(localized: "chats.selection.delete.many", defaultValue: "Удалить \(number) сообщений у всех?")
+        }
+    }
+
     private enum Form { case one, few, many }
 
     private static func form(_ count: Int) -> Form {

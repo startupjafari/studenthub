@@ -371,6 +371,71 @@ struct WaveformView: View {
 
 /// Подложка панели ввода. На iOS 26 её нет: поле и кнопки — стекло над перепиской, как
 /// в «Сообщениях», и лента видна под ними. Раньше — непрозрачная полоса с линией сверху.
+/// Панель действий режима выбора вместо поля ввода, как в Telegram: слева «Удалить»,
+/// справа «Копировать» и «Переслать». Недоступное действие видно, но приглушено —
+/// так понятно, что оно есть, просто не для этого выбора.
+struct MessageSelectionBar: View {
+    let canCopy: Bool
+    let canForward: Bool
+    let canDelete: Bool
+    let onCopy: () -> Void
+    let onForward: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        GlassGroup(spacing: Spacing.md) {
+            HStack(spacing: Spacing.md) {
+                action(
+                    String(localized: "feed.delete", defaultValue: "Удалить"),
+                    symbol: "trash",
+                    tint: Palette.destructive,
+                    enabled: canDelete,
+                    perform: onDelete
+                )
+                Spacer(minLength: 0)
+                action(
+                    String(localized: "chats.selection.copy", defaultValue: "Копировать"),
+                    symbol: "doc.on.doc",
+                    tint: Palette.primary,
+                    enabled: canCopy,
+                    perform: onCopy
+                )
+                action(
+                    String(localized: "chats.forward", defaultValue: "Переслать"),
+                    symbol: "arrowshape.turn.up.right",
+                    tint: Palette.primary,
+                    enabled: canForward,
+                    perform: onForward
+                )
+            }
+            .padding(.horizontal, Spacing.xl)
+            .padding(.vertical, Spacing.md)
+            .frame(minHeight: ControlHeight.chatInput)
+        }
+        .modifier(ComposerBarBackground())
+    }
+
+    private func action(
+        _ title: String,
+        symbol: String,
+        tint: Color,
+        enabled: Bool,
+        perform: @escaping () -> Void
+    ) -> some View {
+        Button(action: perform) {
+            Image(systemName: symbol)
+                .font(.title3)
+                .foregroundStyle(tint)
+                .frame(width: ControlHeight.lg, height: ControlHeight.lg)
+                .composerGlass(in: Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.4)
+        .accessibilityLabel(Text(title))
+    }
+}
+
 private struct ComposerBarBackground: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 26, *) {
