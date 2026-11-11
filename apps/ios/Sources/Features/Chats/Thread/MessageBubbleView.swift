@@ -77,17 +77,26 @@ struct MessageBubbleView: View {
     private var isDeleted: Bool { message.deletedAt != nil }
     private var showsAvatarColumn: Bool { context.isGroup && !item.isOwn }
 
+    /// Сдвиг чужого пузыря в режиме выбора: ширина кружка и зазор до пузыря.
+    @ScaledMetric(relativeTo: .body) private var selectionMarkSize: CGFloat = 24
+    private var selectionInset: CGFloat { min(selectionMarkSize, 32) + Spacing.md }
+
     var body: some View {
         if message.systemType != nil {
             SystemMessageView(text: SystemMessageText.text(for: message))
         } else {
-            HStack(spacing: Spacing.md) {
-                if selecting {
-                    SelectionMark(isSelected: isSelected)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
+            // Кружок выбора — поверх ряда, а чужой пузырь отъезжает смещением. Вставка
+            // кружка в HStack сужала ряд: переносы текста менялись мгновенно, а рамка
+            // ехала анимацией, и на кадр текст вылезал за пузырь. Смещение раскладку не
+            // трогает. Свой пузырь не двигается — кружку хватает левого отступа.
+            row
+                .offset(x: selecting && !item.isOwn ? selectionInset : 0)
+                .overlay(alignment: .leading) {
+                    if selecting {
+                        SelectionMark(isSelected: isSelected)
+                            .transition(.move(edge: .leading).combined(with: .opacity))
+                    }
                 }
-                row
-            }
             // В режиме выбора пузырь целиком — одна большая кнопка: вложения, цитата
             // и меню под ней не срабатывают, касание только переключает отметку.
             .overlay {
