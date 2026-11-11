@@ -317,6 +317,20 @@ struct SettingsView: View {
     }
 }
 
+// MARK: - Вёрстка разделов
+
+extension View {
+    /// Раздел настроек на `Form` — с тем же верхним зазором, что у корня настроек и у
+    /// `compactListStyle()`: первая секция на `Spacing.sm` под панелью, а не на системных
+    /// 35 pt, и компактные зазоры между секциями. Без этого из плотного корня человек
+    /// попадал в раздел с пустой полосой сверху, и экраны одного уровня выглядели
+    /// по-разному. Стиль списка не трогаем: у формы он свой.
+    func settingsFormLayout() -> some View {
+        listSectionSpacing(.compact)
+            .contentMargins(.top, Spacing.sm, for: .scrollContent)
+    }
+}
+
 // MARK: - Уведомления
 
 @Observable
@@ -391,11 +405,17 @@ struct NotificationSettingsView: View {
                 } header: {
                     Text(String(localized: "settings.notifications.topics", defaultValue: "О чём сообщать"))
                 }
-            } else if let failure = model.failure {
+            }
+        }
+        .settingsFormLayout()
+        .hardTopEdge()
+        // Загрузка и ошибка — по центру экрана, как на остальных экранах-списках, а не
+        // строкой формы вплотную под панелью.
+        .screenState(model.value == nil) {
+            if let failure = model.failure {
                 ErrorStateView(message: failure, isOffline: model.isOffline) { await model.load() }
-                    .listRowBackground(Color.clear)
             } else {
-                LoadingStateView().listRowBackground(Color.clear)
+                LoadingStateView()
             }
         }
         .navigationTitle(Text(String(localized: "settings.notifications", defaultValue: "Уведомления")))
@@ -504,6 +524,8 @@ struct PrivacySettingsView: View {
                 ))
             }
         }
+        .settingsFormLayout()
+        .hardTopEdge()
         .navigationTitle(Text(String(localized: "settings.privacy", defaultValue: "Конфиденциальность")))
         .navigationBarTitleDisplayMode(.inline)
         // При каждом возврате: блокируют и из информации о чате, число не должно отставать.

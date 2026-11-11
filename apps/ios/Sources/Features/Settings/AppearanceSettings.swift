@@ -97,6 +97,8 @@ struct AppearanceSettingsView: View {
                 ))
             }
         }
+        .settingsFormLayout()
+        .hardTopEdge()
         .navigationTitle(Text(String(localized: "settings.appearance", defaultValue: "Внешний вид")))
         .navigationBarTitleDisplayMode(.inline)
     }
