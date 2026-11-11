@@ -22,6 +22,9 @@ struct ChatInfoView: View {
     @State private var addingMember = false
     @State private var searching = false
     @State private var pickedMessage: String?
+    @State private var pickingDay = false
+    /// Выбранный в календаре день: переписка откроется на нём, когда лист закроется.
+    @State private var pickedDay: Date?
     @State private var confirmingLeave = false
     @State private var confirmingClear = false
     @State private var confirmingBlock = false
@@ -202,6 +205,9 @@ struct ChatInfoView: View {
 
     @HeroMenuBuilder
     private func moreMenu(_ chat: ChatRecord) -> [HeroMenuElement] {
+        HeroMenuItem(String(localized: "chats.calendar.title", defaultValue: "Перейти к дате"), symbol: "calendar") {
+            pickingDay = true
+        }
         if canManageGroup {
             HeroMenuItem(String(localized: "feed.edit", defaultValue: "Редактировать"), symbol: "pencil") {
                 editing = true
@@ -473,6 +479,9 @@ struct ChatInfoView: View {
                     pickedMessage = messageID
                 }
             }
+            .sheet(isPresented: $pickingDay, onDismiss: openPickedDay) {
+                ChatCalendarSheet(chatID: chatID) { day in pickedDay = day }
+            }
             .alert(
                 String(localized: "chats.clear.title", defaultValue: "Очистить историю у себя?"),
                 isPresented: $confirmingClear
@@ -556,6 +565,15 @@ struct ChatInfoView: View {
         guard let pickedMessage else { return }
         self.pickedMessage = nil
         showInChat(pickedMessage)
+    }
+
+    /// День из календаря: переписка под этим экраном откроется на нём.
+    private func openPickedDay() {
+        guard let pickedDay else { return }
+        self.pickedDay = nil
+        shared.stopVoice()
+        ChatJumpRequests.shared.days[chatID] = pickedDay
+        dismiss()
     }
 
     /// «Показать в чате» — из поиска или из общих материалов: переписка под этим

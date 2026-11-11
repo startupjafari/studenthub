@@ -29,6 +29,9 @@ struct ChatThreadView: View {
     /// непрочитанного.
     @State private var reachedBottom = false
     @State private var bottomToken = 0
+    /// Календарь «Перейти к дате» и день, с которого он открывается.
+    @State private var showsCalendar = false
+    @State private var calendarDay = Date()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var realtime: RealtimeCoordinator { AppServices.realtime }
     private var jumps: ChatJumpRequests { ChatJumpRequests.shared }
@@ -135,6 +138,10 @@ struct ChatThreadView: View {
                     scrollToBottomToken: bottomToken + model.bottomRequests,
                     onBottomChange: { bottomChanged($0) },
                     followsBottom: !model.isDetached,
+                    onDayTap: { day in
+                        calendarDay = day
+                        showsCalendar = true
+                    },
                     onReachTop: { Task { await model.loadOlder() } },
                     onReachBottom: { Task { await model.loadNewer() } },
                     onAction: { action, message in handle(action, message: message, model: model) }
@@ -248,6 +255,9 @@ struct ChatThreadView: View {
         .onChange(of: jumps.pending[chatID]) {
             consumeJump()
         }
+        .onChange(of: jumps.days[chatID]) {
+            consumeJump()
+        }
         .onAppear {
             consumeJump()
         }
@@ -274,16 +284,28 @@ struct ChatThreadView: View {
         }
     }
 
-    /// Поиск в информации о чате просит открыть переписку на найденном сообщении.
+    /// Поиск, общие материалы или календарь в информации о чате просят открыть
+    /// переписку на сообщении или дате.
     private func consumeJump() {
-        guard let target = jumps.pending[chatID], let model else { return }
-        jumps.pending[chatID] = nil
-        Task { await model.jump(to: target) }
+        guard let model else { return }
+        if let target = jumps.pending[chatID] {
+            jumps.pending[chatID] = nil
+            Task { await model.jump(to: target) }
+        }
+        if let day = jumps.days[chatID] {
+            jumps.days[chatID] = nil
+            Task { await model.jump(toDay: day) }
+        }
     }
 
     private func withDialogs<V: View>(_ view: V) -> some View {
         view
         .remoteFilePreview(opener)
+        .sheet(isPresented: $showsCalendar) {
+            ChatCalendarSheet(chatID: chatID, initialDay: calendarDay) { day in
+                Task { await model?.jump(toDay: day) }
+            }
+        }
         .sheet(item: $forwarding) { batch in
             ForwardPickerView(excludedChatID: chatID) { targets in
                 guard let model else { return false }
