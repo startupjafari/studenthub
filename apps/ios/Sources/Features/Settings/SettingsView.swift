@@ -236,7 +236,7 @@ struct SettingsView: View {
                 .accessibilityIdentifier("settings.edit")
             }
         }
-        .sheet(isPresented: $showsQRApprove) {
+        .fullScreenCover(isPresented: $showsQRApprove) {
             QRApproveView()
         }
         .alert(
