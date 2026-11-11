@@ -87,6 +87,12 @@ enum ChatListTab: Equatable, Hashable {
     case groups
     case subjects
     case university
+
+    /// Id своей папки — у вкладки по типу его нет.
+    var folderID: String? {
+        if case .folder(let id, _) = self { return id }
+        return nil
+    }
 }
 
 enum ChatListQuery {
@@ -164,7 +170,7 @@ enum ChatListQuery {
         if try has("type IN ('FACULTY', 'DEAN', 'SUPPORT', 'SUPPORT_PLATFORM', 'EVENT')") { tabs.append(.university) }
 
         let folders = try FolderRecord
-            .order(FolderRecord.Columns.position)
+            .order(FolderRecord.Columns.position, FolderRecord.Columns.name)
             .fetchAll(db)
         tabs += folders.map { .folder(id: $0.id, name: $0.name) }
 
@@ -179,5 +185,23 @@ enum ChatListQuery {
         if archived > 0 { tabs.append(.archive) }
 
         return tabs
+    }
+
+    /// Свои папки с составом — в порядке вкладок. Позиции после удалений бывают с
+    /// пропусками и повторами, поэтому вторая ступень — имя, как у сервера и веба.
+    /// Состав читается без лимита: его держит сервер — не больше 20 папок по 200 чатов.
+    static func folders(in db: Database) throws -> [ChatFolderDTO] {
+        let folders = try FolderRecord
+            .order(FolderRecord.Columns.position, FolderRecord.Columns.name)
+            .fetchAll(db)
+        let items = Dictionary(grouping: try FolderChatRecord.fetchAll(db), by: \.folderId)
+        return folders.map { folder in
+            ChatFolderDTO(
+                id: folder.id,
+                name: folder.name,
+                position: folder.position,
+                chatIds: items[folder.id]?.map(\.chatId) ?? []
+            )
+        }
     }
 }

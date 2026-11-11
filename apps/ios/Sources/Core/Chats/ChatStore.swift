@@ -33,15 +33,23 @@ struct ChatStore: Sendable {
                 try stale.delete(db)
             }
             for folder in folders {
-                try FolderRecord(id: folder.id, name: folder.name, position: folder.position)
-                    .upsert(db)
-                try FolderChatRecord
-                    .filter(Column("folderId") == folder.id)
-                    .deleteAll(db)
-                for chatID in folder.chatIds {
-                    try FolderChatRecord(folderId: folder.id, chatId: chatID).insert(db)
-                }
+                try write(folder, in: db)
             }
+        }
+    }
+
+    /// Одна папка — ответ на создание или правку, либо её вид до отказа сервера. Прочие
+    /// папки не трогаем: полная замена здесь стёрла бы чужую правку, что ещё в пути.
+    func save(folder: ChatFolderDTO) async throws {
+        try await database.writer.write { db in
+            try write(folder, in: db)
+        }
+    }
+
+    /// Состав уходит вместе с папкой — каскадом по внешнему ключу.
+    func deleteFolder(id: String) async throws {
+        _ = try await database.writer.write { db in
+            try FolderRecord.deleteOne(db, key: id)
         }
     }
 
@@ -59,7 +67,42 @@ struct ChatStore: Sendable {
         try await update(chatID) { chat in chat.muted = muted }
     }
 
+    /// Фото группы после загрузки или удаления: сокет об удалении молчит (`nil` в
+    /// `chat:updated` не отличить от «не менялось»), а список и шапка читают базу.
+    func setAvatar(_ url: String?, chatID: String) async throws {
+        try await update(chatID) { chat in chat.avatarUrl = url }
+    }
+
+    /// Владение передано: права в шапке и меню — сразу, не дожидаясь списка.
+    func setOwner(_ isOwner: Bool, chatID: String) async throws {
+        try await update(chatID) { chat in chat.isOwner = isOwner }
+    }
+
+    /// Флаг «я заблокировал собеседника» у личного чата с человеком — для плашки над полем
+    /// ввода. Собеседника запись чата не хранит, поэтому чат находим по его сообщениям;
+    /// переписку без единого его сообщения поправит следующая страница списка.
+    func setBlocked(_ blocked: Bool, peerID: String) async throws {
+        _ = try await database.writer.write { db in
+            try ChatRecord
+                .filter(Column("type") == ChatKind.private.rawValue)
+                .filter(sql: "id IN (SELECT chatId FROM message WHERE senderId = ?)", arguments: [peerID])
+                .updateAll(db, Column("blocked").set(to: blocked))
+        }
+    }
+
     // MARK: - Внутреннее
+
+    /// Папка с составом. Состав заменяется целиком — так его хранит и сервер.
+    private func write(_ folder: ChatFolderDTO, in db: Database) throws {
+        try FolderRecord(id: folder.id, name: folder.name, position: folder.position)
+            .upsert(db)
+        try FolderChatRecord
+            .filter(Column("folderId") == folder.id)
+            .deleteAll(db)
+        for chatID in Set(folder.chatIds) {
+            try FolderChatRecord(folderId: folder.id, chatId: chatID).insert(db)
+        }
+    }
 
     private func update(
         _ chatID: String,

@@ -138,6 +138,7 @@ struct FolderRecord: Codable, FetchableRecord, PersistableRecord, Equatable {
     var position: Int
 
     enum Columns {
+        static let name = Column(CodingKeys.name)
         static let position = Column(CodingKeys.position)
     }
 }
@@ -175,12 +176,16 @@ struct AttachmentRecord: Codable, FetchableRecord, PersistableRecord, Hashable {
     var durationMs: Int? = nil
     /// Снимок отправлен «под спойлером»: в пузыре размыт, пока его не коснутся.
     var spoiler: Bool = false
+    /// Отправлено «как файл»: картинка в пузыре — строкой файла, а не превью (§9).
+    var asDocument: Bool = false
 
     enum Columns {
         static let messageId = Column(CodingKeys.messageId)
     }
 
     var isImage: Bool { mime.hasPrefix("image/") }
+    /// Показывается снимком: картинка, отправленная не «как файл».
+    var showsAsPhoto: Bool { isImage && !asDocument }
     /// Голосовое узнаётся по имени, как и в вебе: отдельного признака в модели нет.
     var isVoice: Bool { mime.hasPrefix("audio/") && (name?.hasPrefix("voice-") ?? false) }
 }

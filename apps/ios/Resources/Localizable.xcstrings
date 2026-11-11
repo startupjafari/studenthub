@@ -85843,57 +85843,6 @@
         }
       }
     },
-    "chats.info.search.hint": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Найдите сообщение в этом чате"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Осы чаттан хабарлама табыңыз"
-          }
-        }
-      }
-    },
-    "chats.info.search.prompt": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Поиск сообщений"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Хабарламаларды іздеу"
-          }
-        }
-      }
-    },
-    "chats.info.search.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Поиск в чате"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Чаттан іздеу"
-          }
-        }
-      }
-    },
     "chats.members.one": {
       "extractionState": "manual",
       "localizations": {
@@ -92044,6 +91993,1876 @@
           "stringUnit": {
             "state": "translated",
             "value": "Бірнеше жауап"
+          }
+        }
+      }
+    },
+    "chats.selection.select": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбрать"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Таңдау"
+          }
+        }
+      }
+    },
+    "chats.selection.selected": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбрано"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Таңдалды"
+          }
+        }
+      }
+    },
+    "chats.selection.notSelected": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не выбрано"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Таңдалмаған"
+          }
+        }
+      }
+    },
+    "chats.selection.count": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбрано: %lld"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Таңдалды: %lld"
+          }
+        }
+      }
+    },
+    "chats.selection.copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копировать"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Көшіру"
+          }
+        }
+      }
+    },
+    "chats.selection.delete.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить %@ сообщение у всех?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ хабарламаны барлығында жою керек пе?"
+          }
+        }
+      }
+    },
+    "chats.selection.delete.few": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить %@ сообщения у всех?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ хабарламаны барлығында жою керек пе?"
+          }
+        }
+      }
+    },
+    "chats.selection.delete.many": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить %@ сообщений у всех?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ хабарламаны барлығында жою керек пе?"
+          }
+        }
+      }
+    },
+    "chats.attachCamera": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Камера"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Камера"
+          }
+        }
+      }
+    },
+    "chats.attach.tooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файл «%@» больше %@ — такой не отправить"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» файлының өлшемі %@ шегінен асады — оны жіберу мүмкін емес"
+          }
+        }
+      }
+    },
+    "chats.attach.preparing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подготовка файлов…"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файлдар дайындалуда…"
+          }
+        }
+      }
+    },
+    "chats.attach.addMore": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить фото или видео"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фото немесе бейне қосу"
+          }
+        }
+      }
+    },
+    "chats.attach.spoiler": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрыть под спойлер"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спойлермен жасыру"
+          }
+        }
+      }
+    },
+    "chats.attach.asFiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить как файл"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файл ретінде жіберу"
+          }
+        }
+      }
+    },
+    "chats.attach.asFilesHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Без сжатия: собеседник увидит файлы, а не превью."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сығусыз: әңгімелесуші алдын ала көріністі емес, файлдарды көреді."
+          }
+        }
+      }
+    },
+    "chats.attach.spoilerHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спойлер можно поставить и на отдельный снимок — значком глаза на миниатюре."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спойлерді жеке суретке де қоюға болады — шағын суреттегі көз белгішесімен."
+          }
+        }
+      }
+    },
+    "chats.attach.sendVideos": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить %@ видео"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ бейне жіберу"
+          }
+        }
+      }
+    },
+    "chats.attach.sendPhotos": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить %@ фото"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ фото жіберу"
+          }
+        }
+      }
+    },
+    "chats.attach.caption": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подпись"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Түсініктеме"
+          }
+        }
+      }
+    },
+    "chats.attach.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убрать"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Алып тастау"
+          }
+        }
+      }
+    },
+    "chats.attach.spoilerOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать без спойлера"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спойлерсіз көрсету"
+          }
+        }
+      }
+    },
+    "chats.attach.spoilerOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрыть под спойлер"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спойлермен жасыру"
+          }
+        }
+      }
+    },
+    "chats.attach.video": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Видео"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бейне"
+          }
+        }
+      }
+    },
+    "chats.attach.sendFiles.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить %@ файл"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ файл жіберу"
+          }
+        }
+      }
+    },
+    "chats.attach.sendFiles.few": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить %@ файла"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ файл жіберу"
+          }
+        }
+      }
+    },
+    "chats.attach.sendFiles.many": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить %@ файлов"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ файл жіберу"
+          }
+        }
+      }
+    },
+    "chats.attach.messages.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уйдёт %@ сообщение"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ хабарлама жіберіледі"
+          }
+        }
+      }
+    },
+    "chats.attach.messages.few": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уйдут %@ сообщения"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ хабарлама жіберіледі"
+          }
+        }
+      }
+    },
+    "chats.attach.messages.many": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уйдут %@ сообщений"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ хабарлама жіберіледі"
+          }
+        }
+      }
+    },
+    "chats.upload.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отменить загрузку"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жүктеуді болдырмау"
+          }
+        }
+      }
+    },
+    "chats.info.showInChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать в чате"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чатта көрсету"
+          }
+        }
+      }
+    },
+    "chats.group.photo": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фото группы"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Топ фотосы"
+          }
+        }
+      }
+    },
+    "chats.invite.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сбросить ссылку"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сілтемені жаңарту"
+          }
+        }
+      }
+    },
+    "chats.invite.reset.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сбросить ссылку-приглашение?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шақыру сілтемесін жаңарту керек пе?"
+          }
+        }
+      }
+    },
+    "chats.invite.reset.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Старая ссылка перестанет работать. Новая будет скопирована."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ескі сілтеме жұмыс істемей қалады. Жаңасы көшіріледі."
+          }
+        }
+      }
+    },
+    "chats.invite.copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ссылка скопирована"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сілтеме көшірілді"
+          }
+        }
+      }
+    },
+    "chats.invite.resetDone": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новая ссылка скопирована"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жаңа сілтеме көшірілді"
+          }
+        }
+      }
+    },
+    "chats.member.remove.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Исключить %@ из группы?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ топтан шығарылсын ба?"
+          }
+        }
+      }
+    },
+    "chats.member.ban": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заблокировать в группе"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Топта бұғаттау"
+          }
+        }
+      }
+    },
+    "chats.member.ban.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заблокировать %@ в группе?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ топта бұғатталсын ба?"
+          }
+        }
+      }
+    },
+    "chats.member.ban.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Участник покинет группу и не сможет вернуться даже по ссылке-приглашению, пока вы его не разблокируете."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қатысушы топтан шығады және сіз бұғаттан шығармайынша, шақыру сілтемесі арқылы да орала алмайды."
+          }
+        }
+      }
+    },
+    "chats.member.unban": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разблокировать"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бұғаттан шығару"
+          }
+        }
+      }
+    },
+    "chats.member.bannedList": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заблокированные"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бұғатталғандар"
+          }
+        }
+      }
+    },
+    "chats.member.bannedHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не видят группу и не могут вернуться даже по ссылке-приглашению."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Топты көрмейді және шақыру сілтемесі арқылы да орала алмайды."
+          }
+        }
+      }
+    },
+    "chats.member.transfer": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передать владение"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Иелікті беру"
+          }
+        }
+      }
+    },
+    "chats.member.transfer.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передать группу %@?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Топ %@ пайдаланушысына берілсін бе?"
+          }
+        }
+      }
+    },
+    "chats.member.transfer.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новый владелец сможет менять фото, назначать админов, блокировать участников и удалить группу. Вы останетесь админом, а вернуть владение сможет только он."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жаңа иесі фотоны өзгерте, админдер тағайындай, қатысушыларды бұғаттай және топты жоя алады. Сіз админ болып қаласыз, ал иелікті тек ол ғана қайтара алады."
+          }
+        }
+      }
+    },
+    "chats.member.transfer.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передать"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Беру"
+          }
+        }
+      }
+    },
+    "chats.count.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ чат"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ чат"
+          }
+        }
+      }
+    },
+    "chats.count.few": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ чата"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ чат"
+          }
+        }
+      }
+    },
+    "chats.count.many": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ чатов"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ чат"
+          }
+        }
+      }
+    },
+    "chats.folders.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Папки с чатами"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат қалталары"
+          }
+        }
+      }
+    },
+    "chats.folders.manage": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настроить папки"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қалталарды баптау"
+          }
+        }
+      }
+    },
+    "chats.folders.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Собирайте чаты в папки и переключайтесь между ними вкладками над списком."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чаттарды қалталарға жинап, тізім үстіндегі қойындылар арқылы олардың арасында ауысыңыз."
+          }
+        }
+      }
+    },
+    "chats.folders.section": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мои папки"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Менің қалталарым"
+          }
+        }
+      }
+    },
+    "chats.folders.create": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Создать папку"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қалта жасау"
+          }
+        }
+      }
+    },
+    "chats.folders.new": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новая папка"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жаңа қалта"
+          }
+        }
+      }
+    },
+    "chats.folders.edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменить папку"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қалтаны өзгерту"
+          }
+        }
+      }
+    },
+    "chats.folders.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить папку"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қалтаны жою"
+          }
+        }
+      }
+    },
+    "chats.folders.delete.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить папку «%@»?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» қалтасын жою керек пе?"
+          }
+        }
+      }
+    },
+    "chats.folders.delete.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чаты останутся в списке."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чаттар тізімде қалады."
+          }
+        }
+      }
+    },
+    "chats.folders.limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Больше %lld папок не поддерживается"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld қалтадан артық жасауға болмайды"
+          }
+        }
+      }
+    },
+    "chats.folders.limitChats": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В папке не больше %lld чатов"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қалтада %lld чаттан артық болмайды"
+          }
+        }
+      }
+    },
+    "chats.folders.reorderHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чтобы поменять порядок вкладок, нажмите «Изм.» и перетащите папки."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қойындылар ретін өзгерту үшін «Өзгерту» түймесін басып, қалталарды сүйреңіз."
+          }
+        }
+      }
+    },
+    "chats.folders.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Своих папок пока нет"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Әзірге өз қалталарыңыз жоқ"
+          }
+        }
+      }
+    },
+    "chats.folders.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Название папки"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қалта атауы"
+          }
+        }
+      }
+    },
+    "chats.folders.namePlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Например, «Учёба»"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мысалы, «Оқу»"
+          }
+        }
+      }
+    },
+    "chats.folders.chats": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чаты в папке"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қалтадағы чаттар"
+          }
+        }
+      }
+    },
+    "chats.folders.addChats": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить чаты"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чаттарды қосу"
+          }
+        }
+      }
+    },
+    "chats.folders.chatsHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите чаты, которые будут показываться в этой папке."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Осы қалтада көрсетілетін чаттарды таңдаңыз."
+          }
+        }
+      }
+    },
+    "chats.folders.addTo": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить в папку"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қалтаға қосу"
+          }
+        }
+      }
+    },
+    "chats.folders.removeFrom": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить из папки"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қалтадан алып тастау"
+          }
+        }
+      }
+    },
+    "chats.folders.emptyFolder": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В папке пока нет чатов"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қалтада әзірге чат жоқ"
+          }
+        }
+      }
+    },
+    "chats.folders.emptyFolder.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавьте чаты в папку"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қалтаға чаттарды қосыңыз"
+          }
+        }
+      }
+    },
+    "chats.folders.nothing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ничего не найдено"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ештеңе табылмады"
+          }
+        }
+      }
+    },
+    "chats.blocked.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заблокированные"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бұғатталғандар"
+          }
+        }
+      }
+    },
+    "chats.blocked.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы никого не блокировали"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сіз ешкімді бұғаттамадыңыз"
+          }
+        }
+      }
+    },
+    "chats.blocked.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заблокировать пользователя"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пайдаланушыны бұғаттау"
+          }
+        }
+      }
+    },
+    "chats.blocked.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заблокированные не могут писать вам в личные сообщения. Дружба с ними удаляется."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бұғатталған адамдар сізге жеке хабарлама жаза алмайды. Олармен достық жойылады."
+          }
+        }
+      }
+    },
+    "chats.blocked.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заблокировать %@?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ бұғаттау керек пе?"
+          }
+        }
+      }
+    },
+    "chats.blocked.since": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В списке с %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ бастап тізімде"
+          }
+        }
+      }
+    },
+    "chats.calendar.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перейти к дате"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Күнге өту"
+          }
+        }
+      }
+    },
+    "chats.clear.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всю историю"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бүкіл тарихты"
+          }
+        }
+      }
+    },
+    "chats.clear.period": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За период…"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кезең бойынша…"
+          }
+        }
+      }
+    },
+    "chats.clearPeriod.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистить за период"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кезең бойынша тазалау"
+          }
+        }
+      }
+    },
+    "chats.clearPeriod.from": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "С"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бастап"
+          }
+        }
+      }
+    },
+    "chats.clearPeriod.to": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дейін"
+          }
+        }
+      }
+    },
+    "chats.clearPeriod.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сообщения за эти дни пропадут только у вас. У собеседников переписка останется."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Осы күндердегі хабарламалар тек сізде жойылады. Әңгімелесушілерде хат алмасу сақталады."
+          }
+        }
+      }
+    },
+    "chats.clearPeriod.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистить историю за период?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кезеңдегі тарихты тазалау керек пе?"
+          }
+        }
+      }
+    },
+    "chats.clearPeriod.confirm.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "С %@ по %@. У собеседников переписка останется."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ бастап %@ дейін. Әңгімелесушілерде хат алмасу сақталады."
+          }
+        }
+      }
+    },
+    "chats.thread.search.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск в чате"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чаттан іздеу"
+          }
+        }
+      }
+    },
+    "chats.thread.search.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стереть"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Өшіру"
+          }
+        }
+      }
+    },
+    "chats.thread.search.fromName": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "От: %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кімнен: %@"
+          }
+        }
+      }
+    },
+    "chats.thread.search.clearFrom": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убрать фильтр по автору"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автор сүзгісін алып тастау"
+          }
+        }
+      }
+    },
+    "chats.thread.search.from": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "От кого"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кімнен"
+          }
+        }
+      }
+    },
+    "chats.thread.search.fromAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все участники"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Барлық қатысушылар"
+          }
+        }
+      }
+    },
+    "chats.thread.search.list": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Списком"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тізіммен"
+          }
+        }
+      }
+    },
+    "chats.thread.search.older": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предыдущее совпадение"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Алдыңғы сәйкестік"
+          }
+        }
+      }
+    },
+    "chats.thread.search.newer": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Следующее совпадение"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Келесі сәйкестік"
+          }
+        }
+      }
+    },
+    "chats.thread.search.nothing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ничего не найдено"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ештеңе табылмады"
+          }
+        }
+      }
+    },
+    "chats.thread.search.position": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld из %lld"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld / %lld"
+          }
+        }
+      }
+    },
+    "chats.thread.search.positionMore": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld из %lld+"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld / %lld+"
+          }
+        }
+      }
+    },
+    "chats.readBy.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прочитали: %@ участник"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оқыды: %@ қатысушы"
+          }
+        }
+      }
+    },
+    "chats.readBy.few": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прочитали: %@ участника"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оқыды: %@ қатысушы"
+          }
+        }
+      }
+    },
+    "chats.readBy.many": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прочитали: %@ участников"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оқыды: %@ қатысушы"
+          }
+        }
+      }
+    },
+    "chats.readBy.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пока никто не прочитал"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Әзірге ешкім оқымады"
+          }
+        }
+      }
+    },
+    "chats.readBy.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прочитали"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оқығандар"
+          }
+        }
+      }
+    },
+    "chats.members.withOnline": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@ в сети"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@ желіде"
+          }
+        }
+      }
+    },
+    "chats.voice.speed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скорость"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жылдамдық"
+          }
+        }
+      }
+    },
+    "chats.voice.position": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Позиция воспроизведения"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ойнату орны"
           }
         }
       }

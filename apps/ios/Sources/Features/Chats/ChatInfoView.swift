@@ -15,28 +15,50 @@ struct ChatInfoView: View {
     @State private var chat: ChatRecord?
     @State private var members: [ChatMemberDTO] = []
     @State private var membersLoaded = false
+    /// Когда пришёл состав: «в сети» из него старше событий присутствия после этого
+    /// момента (`ChatPresenceSnapshot`).
+    @State private var membersLoadedAt = Date.distantPast
     /// Состав не пришёл — это сбой, а не пустой чат.
     @State private var membersFailure: String?
     @State private var section: ChatMediaKindTab = .media
     @State private var editing = false
     @State private var addingMember = false
-    @State private var searching = false
-    @State private var pickedMessage: String?
+    @State private var pickingDay = false
+    /// Выбранный в календаре день: переписка откроется на нём, когда лист закроется.
+    @State private var pickedDay: Date?
     @State private var confirmingLeave = false
     @State private var confirmingClear = false
+    @State private var clearingPeriod = false
     @State private var confirmingBlock = false
     @State private var copiedInvite = 0
+    /// «Ссылка скопирована» на месте строки приглашения — пара секунд после копирования.
+    @State private var inviteNotice: String?
+    @State private var confirmingInviteReset = false
+    /// Опасное действие над участником ждёт подтверждения.
+    @State private var memberAction: MemberAction?
     @State private var failure: String?
+    /// Медиа, файлы, голосовые и ссылки — со своими страницами и проигрывателем.
+    @State private var shared: ChatSharedContent
     @ScaledMetric(relativeTo: .largeTitle) private var avatarSize: CGFloat = 100
     private let api: ChatActing = ChatsAPI()
     private var realtime: RealtimeCoordinator { AppServices.realtime }
 
+    init(chatID: String) {
+        self.chatID = chatID
+        _shared = State(initialValue: ChatSharedContent(chatID: chatID))
+    }
+
     var body: some View {
         withDialogs(list)
+            .chatSharedContentDialogs(shared)
             .task {
                 await reloadChat()
                 await loadMembers()
             }
+            .task(id: section) { await shared.load(section) }
+            // Голосовое не играет из-под другой вкладки и после выхода из информации.
+            .onChange(of: section) { shared.stopVoice() }
+            .onDisappear { shared.stopVoice() }
     }
 
     private var list: some View {
@@ -66,7 +88,7 @@ struct ChatInfoView: View {
                     .pickerStyle(.segmented)
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: Spacing.sm, trailing: 0))
-                    ChatContentList(chatID: chatID, tab: section)
+                    ChatContentList(shared: shared, tab: section, showInChat: showInChat)
                 }
                 // Заблокировать, очистить и удалить — в «Ещё» под шапкой, как в Telegram:
                 // второй красной карточкой внизу они повторялись.
@@ -146,7 +168,7 @@ struct ChatInfoView: View {
                     title: String(localized: "chats.info.search", defaultValue: "Поиск"),
                     symbol: "magnifyingglass"
                 ) {
-                    searching = true
+                    openSearch()
                 }
                 if canManageGroup {
                     ChatInfoActionButton(
@@ -185,6 +207,9 @@ struct ChatInfoView: View {
 
     @HeroMenuBuilder
     private func moreMenu(_ chat: ChatRecord) -> [HeroMenuElement] {
+        HeroMenuItem(String(localized: "chats.calendar.title", defaultValue: "Перейти к дате"), symbol: "calendar") {
+            pickingDay = true
+        }
         if canManageGroup {
             HeroMenuItem(String(localized: "feed.edit", defaultValue: "Редактировать"), symbol: "pencil") {
                 editing = true
@@ -198,8 +223,13 @@ struct ChatInfoView: View {
                 confirmingBlock = true
             }
         }
-        HeroMenuItem(String(localized: "chats.clear", defaultValue: "Очистить историю"), symbol: "eraser", isDestructive: true) {
-            confirmingClear = true
+        HeroSubmenu(String(localized: "chats.clear", defaultValue: "Очистить историю"), symbol: "eraser") {
+            HeroMenuItem(String(localized: "chats.clear.all", defaultValue: "Всю историю"), symbol: "trash", isDestructive: true) {
+                confirmingClear = true
+            }
+            HeroMenuItem(String(localized: "chats.clear.period", defaultValue: "За период…"), symbol: "calendar") {
+                clearingPeriod = true
+            }
         }
         if chat.kind == .private || chat.kind == .group {
             HeroMenuItem(ChatLeaveTitle.title(for: chat.kind, isOwner: chat.isOwner), symbol: "rectangle.portrait.and.arrow.right", isDestructive: true) {
@@ -225,8 +255,13 @@ struct ChatInfoView: View {
         case .saved:
             return String(localized: "chats.saved.hint", defaultValue: "Заметки и пересланное себе")
         default:
-            let count = max(chat.memberCount, members.count)
-            return count > 0 ? ChatPlural.members(count) : nil
+            // «12 участников, 3 в сети» — по составу, который экран уже загрузил:
+            // отдельный запрос присутствия ради шапки не нужен.
+            let count = max(chat.memberCount, activeMembers.count)
+            return ChatPresence.groupCaption(
+                members: count,
+                online: membersPresence.othersOnline(excluding: viewerID, live: realtime.presenceMarks)
+            )
         }
     }
 
@@ -265,16 +300,40 @@ struct ChatInfoView: View {
                     Button {
                         Task { await copyInvite() }
                     } label: {
-                        Label(String(localized: "chats.invite.copy", defaultValue: "Скопировать ссылку-приглашение"), systemImage: "link")
+                        if let inviteNotice {
+                            Label(inviteNotice, systemImage: "checkmark")
+                                .foregroundStyle(Palette.success)
+                        } else {
+                            Label(String(localized: "chats.invite.copy", defaultValue: "Скопировать ссылку-приглашение"), systemImage: "link")
+                        }
+                    }
+                    Button {
+                        confirmingInviteReset = true
+                    } label: {
+                        Label(String(localized: "chats.invite.reset", defaultValue: "Сбросить ссылку"), systemImage: "arrow.counterclockwise")
                     }
                 }
             }
         }
     }
 
+    /// Забаненные остаются в составе с отметкой: в общем списке им не место, а снять бан
+    /// должно быть с кого — у админов для них своя секция ниже.
+    private var activeMembers: [ChatMemberDTO] { members.filter { $0.banned != true } }
+
+    /// «В сети» участников: из ответа на состав, поверх — события после него.
+    private var membersPresence: ChatPresenceSnapshot {
+        ChatPresenceSnapshot(
+            online: Dictionary(activeMembers.map { ($0.id, $0.online == true) }, uniquingKeysWith: { $0 || $1 }),
+            takenAt: membersLoadedAt
+        )
+    }
+    private var bannedMembers: [ChatMemberDTO] { members.filter { $0.banned == true } }
+
     @ViewBuilder
     private func membersSection(_ chat: ChatRecord) -> some View {
         let canManage = chat.kind == .group && (chat.isAdmin || chat.isOwner)
+        let presence = membersPresence
         Section {
             if canManage {
                 Button {
@@ -284,49 +343,23 @@ struct ChatInfoView: View {
                         .foregroundStyle(Palette.primary)
                 }
             }
-            ForEach(members) { member in
+            ForEach(activeMembers) { member in
                 NavigationLink(value: AppRoute.profile(id: member.id)) {
-                    MemberRow(member: member, isOnline: realtime.onlineUsers.contains(member.id) || member.online == true)
+                    MemberRow(member: member, isOnline: presence.isOnline(member.id, live: realtime.presenceMarks))
                 }
                 .swipeActions(edge: .trailing) {
-                    if canManage, member.id != viewerID {
-                        Button(role: .destructive) {
-                            Task {
-                                await run { try await api.removeMember(chatID: chatID, userID: member.id) }
-                                await loadMembers()
-                            }
-                        } label: {
-                            Label(String(localized: "chats.member.remove", defaultValue: "Исключить"), systemImage: "person.badge.minus")
-                        }
-                    }
-                }
-                .contextMenu {
-                    if chat.kind == .group, chat.isOwner, member.id != viewerID {
+                    // Без `role: .destructive`: с ним список убирает строку сразу, ещё до
+                    // ответа в подтверждении.
+                    if canRemove(member, in: chat) {
                         Button {
-                            Task {
-                                await run { try await api.setAdmin(member.isAdmin != true, chatID: chatID, userID: member.id) }
-                                await loadMembers()
-                            }
-                        } label: {
-                            Label(
-                                member.isAdmin == true
-                                    ? String(localized: "chats.admin.revoke", defaultValue: "Снять админа")
-                                    : String(localized: "chats.admin.grant", defaultValue: "Сделать админом"),
-                                systemImage: "star"
-                            )
-                        }
-                    }
-                    if canManage, member.id != viewerID {
-                        Button(role: .destructive) {
-                            Task {
-                                await run { try await api.removeMember(chatID: chatID, userID: member.id) }
-                                await loadMembers()
-                            }
+                            memberAction = .remove(member)
                         } label: {
                             Label(String(localized: "chats.member.remove", defaultValue: "Исключить"), systemImage: "person.badge.minus")
                         }
+                        .tint(Palette.destructive)
                     }
                 }
+                .contextMenu { memberMenu(member, in: chat) }
             }
             if members.isEmpty {
                 if let membersFailure {
@@ -343,6 +376,106 @@ struct ChatInfoView: View {
         } header: {
             Text(String(localized: "chats.group.members", defaultValue: "Участники"))
         }
+
+        if canManage, !bannedMembers.isEmpty {
+            Section {
+                ForEach(bannedMembers) { member in
+                    NavigationLink(value: AppRoute.profile(id: member.id)) {
+                        MemberRow(member: member, isOnline: false)
+                            .opacity(0.6)
+                    }
+                    .swipeActions(edge: .trailing) {
+                        if chat.isOwner {
+                            Button {
+                                Task { await setBanned(false, member) }
+                            } label: {
+                                Label(String(localized: "chats.member.unban", defaultValue: "Разблокировать"), systemImage: "person.badge.shield.checkmark")
+                            }
+                            .tint(Palette.primary)
+                        }
+                    }
+                    .contextMenu {
+                        Button {
+                            AppServices.router.stacks[.chats, default: []].append(.profile(id: member.id))
+                        } label: {
+                            Label(String(localized: "home.profile.open", defaultValue: "Открыть профиль"), systemImage: "person.crop.circle")
+                        }
+                        if chat.isOwner {
+                            Button {
+                                Task { await setBanned(false, member) }
+                            } label: {
+                                Label(String(localized: "chats.member.unban", defaultValue: "Разблокировать"), systemImage: "person.badge.shield.checkmark")
+                            }
+                        }
+                    }
+                }
+            } header: {
+                Text(String(localized: "chats.member.bannedList", defaultValue: "Заблокированные"))
+            } footer: {
+                Text(String(localized: "chats.member.bannedHint", defaultValue: "Не видят группу и не могут вернуться даже по ссылке-приглашению."))
+            }
+        }
+    }
+
+    /// Меню участника — по правам, как в вебе: назначать админов, передавать группу и
+    /// банить может только создатель, исключать — и админ, но не других админов.
+    @ViewBuilder
+    private func memberMenu(_ member: ChatMemberDTO, in chat: ChatRecord) -> some View {
+        let isMe = member.id == viewerID
+        if !isMe {
+            Button {
+                Task { await openPrivate(with: member) }
+            } label: {
+                Label(String(localized: "profile.message", defaultValue: "Написать"), systemImage: "message")
+            }
+        }
+        Button {
+            AppServices.router.stacks[.chats, default: []].append(.profile(id: member.id))
+        } label: {
+            Label(String(localized: "home.profile.open", defaultValue: "Открыть профиль"), systemImage: "person.crop.circle")
+        }
+        if chat.kind == .group, chat.isOwner, !isMe {
+            Divider()
+            Button {
+                Task {
+                    await run { try await api.setAdmin(member.isAdmin != true, chatID: chatID, userID: member.id) }
+                    await loadMembers()
+                }
+            } label: {
+                Label(
+                    member.isAdmin == true
+                        ? String(localized: "chats.admin.revoke", defaultValue: "Снять админа")
+                        : String(localized: "chats.admin.grant", defaultValue: "Сделать админом"),
+                    systemImage: "star"
+                )
+            }
+            Button {
+                memberAction = .transfer(member)
+            } label: {
+                Label(String(localized: "chats.member.transfer", defaultValue: "Передать владение"), systemImage: "crown")
+            }
+        }
+        if chat.kind == .group, chat.isOwner, !isMe {
+            Divider()
+            Button(role: .destructive) {
+                memberAction = .ban(member)
+            } label: {
+                Label(String(localized: "chats.member.ban", defaultValue: "Заблокировать в группе"), systemImage: "hand.raised")
+            }
+        }
+        if canRemove(member, in: chat) {
+            Button(role: .destructive) {
+                memberAction = .remove(member)
+            } label: {
+                Label(String(localized: "chats.member.remove", defaultValue: "Исключить"), systemImage: "person.badge.minus")
+            }
+        }
+    }
+
+    /// Создателя исключить нельзя (он админ), админа исключает только создатель.
+    private func canRemove(_ member: ChatMemberDTO, in chat: ChatRecord) -> Bool {
+        chat.kind == .group && member.id != viewerID
+            && (chat.isOwner || (chat.isAdmin && member.isAdmin != true))
     }
 
     // MARK: Диалоги
@@ -362,10 +495,11 @@ struct ChatInfoView: View {
                     }
                 }
             }
-            .sheet(isPresented: $searching, onDismiss: openPickedMessage) {
-                ChatInfoSearchSheet(chatID: chatID) { messageID in
-                    pickedMessage = messageID
-                }
+            .sheet(isPresented: $clearingPeriod) {
+                ChatClearPeriodSheet(chatID: chatID)
+            }
+            .sheet(isPresented: $pickingDay, onDismiss: openPickedDay) {
+                ChatCalendarSheet(chatID: chatID) { day in pickedDay = day }
             }
             .alert(
                 String(localized: "chats.clear.title", defaultValue: "Очистить историю у себя?"),
@@ -411,14 +545,62 @@ struct ChatInfoView: View {
                     Text(String(localized: "chats.block.message", defaultValue: "Он не сможет писать вам, дружба будет удалена."))
                 }
             }
+            .alert(
+                String(localized: "chats.invite.reset.title", defaultValue: "Сбросить ссылку-приглашение?"),
+                isPresented: $confirmingInviteReset
+            ) {
+                Button(String(localized: "chats.invite.reset", defaultValue: "Сбросить ссылку"), role: .destructive) {
+                    Task { await copyInvite(reset: true) }
+                }
+                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
+            } message: {
+                Text(String(localized: "chats.invite.reset.message", defaultValue: "Старая ссылка перестанет работать. Новая будет скопирована."))
+            }
+            .alert(
+                memberAction?.title ?? "",
+                isPresented: Binding(get: { memberAction != nil }, set: { if !$0 { memberAction = nil } }),
+                presenting: memberAction
+            ) { action in
+                Button(action.confirmTitle, role: action.isDestructive ? .destructive : nil) {
+                    Task { await perform(action) }
+                }
+                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
+            } message: { action in
+                if let message = action.message {
+                    Text(message)
+                }
+            }
             .sensoryFeedback(.success, trigger: copiedInvite)
+            .task(id: copiedInvite) {
+                guard inviteNotice != nil else { return }
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
+                inviteNotice = nil
+            }
     }
 
-    /// Найденное сообщение: переписка под этим экраном откроется на нём.
-    private func openPickedMessage() {
-        guard let pickedMessage else { return }
-        self.pickedMessage = nil
-        ChatJumpRequests.shared.pending[chatID] = pickedMessage
+    /// «Поиск» ищет прямо в переписке, как в Telegram: поле встаёт на место её шапки,
+    /// а стрелки ведут по найденному в ленте.
+    private func openSearch() {
+        shared.stopVoice()
+        ChatJumpRequests.shared.searches.insert(chatID)
+        dismiss()
+    }
+
+    /// День из календаря: переписка под этим экраном откроется на нём.
+    private func openPickedDay() {
+        guard let pickedDay else { return }
+        self.pickedDay = nil
+        shared.stopVoice()
+        ChatJumpRequests.shared.days[chatID] = pickedDay
+        dismiss()
+    }
+
+    /// «Показать в чате» из общих материалов: переписка под этим экраном откроется на
+    /// сообщении.
+    private func showInChat(_ messageID: String) {
+        shared.stopVoice()
+        ChatJumpRequests.shared.pending[chatID] = messageID
         dismiss()
     }
 
@@ -434,7 +616,9 @@ struct ChatInfoView: View {
             return
         }
         do {
+            let started = Date()
             members = try await api.members(chatID: chatID)
+            membersLoadedAt = started
             membersFailure = nil
         } catch is CancellationError {
             return
@@ -476,24 +660,71 @@ struct ChatInfoView: View {
         await reloadChat()
     }
 
-    /// Ссылка того же вида, что раздаёт веб: `/join-chat/<id>?k=<код>`.
-    private func copyInvite() async {
+    /// Ссылка того же вида, что раздаёт веб: `/join-chat/<id>?k=<код>`. Сброс выдаёт новый
+    /// код — прежняя ссылка перестаёт работать, а новая сразу в буфере.
+    private func copyInvite(reset: Bool = false) async {
         do {
-            let code = try await api.inviteCode(chatID: chatID)
-            guard let base = AppConfiguration.webBaseURL else {
+            let code = reset ? try await api.resetInviteCode(chatID: chatID) : try await api.inviteCode(chatID: chatID)
+            if let base = AppConfiguration.webBaseURL {
+                var components = URLComponents(
+                    url: base.appendingPathComponent("join-chat").appendingPathComponent(chatID),
+                    resolvingAgainstBaseURL: false
+                )
+                components?.queryItems = [URLQueryItem(name: "k", value: code)]
+                UIPasteboard.general.url = components?.url
+            } else {
                 UIPasteboard.general.string = code
-                copiedInvite += 1
-                return
             }
-            var components = URLComponents(
-                url: base.appendingPathComponent("join-chat").appendingPathComponent(chatID),
-                resolvingAgainstBaseURL: false
-            )
-            components?.queryItems = [URLQueryItem(name: "k", value: code)]
-            UIPasteboard.general.url = components?.url
+            inviteNotice = reset
+                ? String(localized: "chats.invite.resetDone", defaultValue: "Новая ссылка скопирована")
+                : String(localized: "chats.invite.copied", defaultValue: "Ссылка скопирована")
             copiedInvite += 1
+            failure = nil
+        } catch is CancellationError {
+            return
         } catch {
-            failure = (error as? APIError)?.displayMessage
+            failure = error.userMessage
+        }
+    }
+
+    private func perform(_ action: MemberAction) async {
+        switch action {
+        case .remove(let member):
+            await run { try await api.removeMember(chatID: chatID, userID: member.id) }
+            await loadMembers()
+        case .ban(let member):
+            await setBanned(true, member)
+        case .transfer(let member):
+            await transferOwnership(to: member)
+        }
+    }
+
+    private func setBanned(_ banned: Bool, _ member: ChatMemberDTO) async {
+        await run { try await api.setBanned(banned, chatID: chatID, userID: member.id) }
+        await loadMembers()
+    }
+
+    /// После передачи я остаюсь админом: «Изм.» и добавление участников остаются, а
+    /// меню создателя (фото, бан, админы) уходит сразу — не дожидаясь списка чатов.
+    private func transferOwnership(to member: ChatMemberDTO) async {
+        do {
+            try await api.transferOwnership(chatID: chatID, to: member.id)
+            try? await ChatStore().setOwner(false, chatID: chatID)
+            failure = nil
+        } catch {
+            if !(error is CancellationError) { failure = error.userMessage }
+        }
+        await reloadChat()
+        await loadMembers()
+    }
+
+    private func openPrivate(with member: ChatMemberDTO) async {
+        do {
+            try await PrivateChatOpener.open(with: member.id, api: api)
+        } catch is CancellationError {
+            return
+        } catch {
+            failure = error.userMessage
         }
     }
 
@@ -505,6 +736,64 @@ struct ChatInfoView: View {
         } catch {
             failure = (error as? APIError)?.displayMessage
         }
+    }
+}
+
+/// Опасные действия над участником группы — все через подтверждение.
+private enum MemberAction {
+    case remove(ChatMemberDTO)
+    case ban(ChatMemberDTO)
+    case transfer(ChatMemberDTO)
+
+    var member: ChatMemberDTO {
+        switch self {
+        case .remove(let member), .ban(let member), .transfer(let member): return member
+        }
+    }
+
+    private var name: String {
+        member.name.isEmpty ? String(localized: "home.someone", defaultValue: "Кто-то") : member.name
+    }
+
+    var title: String {
+        switch self {
+        case .remove:
+            return String(localized: "chats.member.remove.title", defaultValue: "Исключить \(name) из группы?")
+        case .ban:
+            return String(localized: "chats.member.ban.title", defaultValue: "Заблокировать \(name) в группе?")
+        case .transfer:
+            return String(localized: "chats.member.transfer.title", defaultValue: "Передать группу \(name)?")
+        }
+    }
+
+    var message: String? {
+        switch self {
+        case .remove:
+            return nil
+        case .ban:
+            return String(
+                localized: "chats.member.ban.message",
+                defaultValue: "Участник покинет группу и не сможет вернуться даже по ссылке-приглашению, пока вы его не разблокируете."
+            )
+        case .transfer:
+            return String(
+                localized: "chats.member.transfer.message",
+                defaultValue: "Новый владелец сможет менять фото, назначать админов, блокировать участников и удалить группу. Вы останетесь админом, а вернуть владение сможет только он."
+            )
+        }
+    }
+
+    var confirmTitle: String {
+        switch self {
+        case .remove: return String(localized: "chats.member.remove", defaultValue: "Исключить")
+        case .ban: return String(localized: "chats.block", defaultValue: "Заблокировать")
+        case .transfer: return String(localized: "chats.member.transfer.confirm", defaultValue: "Передать")
+        }
+    }
+
+    var isDestructive: Bool {
+        if case .transfer = self { return false }
+        return true
     }
 }
 
@@ -521,102 +810,6 @@ private struct ChatInfoActionButton: View {
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
-    }
-}
-
-/// Поиск по сообщениям этого чата. Выбранное открывается в переписке.
-private struct ChatInfoSearchSheet: View {
-    let chatID: String
-    let pick: (String) -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var query = ""
-    @State private var results: [ChatMessageDTO] = []
-    @State private var isSearching = false
-    @State private var failure: String?
-    @State private var isOffline = false
-    private let api: ChatActing = ChatsAPI()
-
-    private var trimmed: String { query.trimmingCharacters(in: .whitespaces) }
-
-    var body: some View {
-        NavigationStack {
-            List(results, id: \.id) { message in
-                Button {
-                    pick(message.id)
-                    dismiss()
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(message.sender?.name ?? "")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Palette.foreground)
-                                .lineLimit(1)
-                            Spacer(minLength: Spacing.md)
-                            Text(ChatMoment.short(message.createdAt))
-                                .font(Typography.tabular(.footnote))
-                                .foregroundStyle(Palette.mutedForeground)
-                        }
-                        Text(message.content)
-                            .font(.subheadline)
-                            .foregroundStyle(Palette.mutedForeground)
-                            .lineLimit(2)
-                    }
-                    .accessibilityElement(children: .combine)
-                }
-            }
-            .listStyle(.plain)
-            .overlay {
-                if results.isEmpty {
-                    if isSearching {
-                        ProgressView()
-                    } else if let failure {
-                        ErrorStateView(message: failure, isOffline: isOffline) { await search() }
-                    } else if trimmed.count >= 2 {
-                        ContentUnavailableView.search(text: trimmed)
-                    } else {
-                        ContentUnavailableView(
-                            String(localized: "chats.info.search.hint", defaultValue: "Найдите сообщение в этом чате"),
-                            systemImage: "magnifyingglass"
-                        )
-                    }
-                }
-            }
-            .searchable(
-                text: $query,
-                placement: .navigationBarDrawer(displayMode: .always),
-                prompt: Text(String(localized: "chats.info.search.prompt", defaultValue: "Поиск сообщений"))
-            )
-            .navigationTitle(Text(String(localized: "chats.info.search.title", defaultValue: "Поиск в чате")))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    SheetCloseButton { dismiss() }
-                }
-            }
-            .task(id: trimmed) { await search() }
-        }
-    }
-
-    private func search() async {
-        guard trimmed.count >= 2 else {
-            results = []
-            failure = nil
-            return
-        }
-        try? await Task.sleep(for: .milliseconds(300))
-        guard !Task.isCancelled else { return }
-        isSearching = true
-        defer { isSearching = false }
-        do {
-            results = try await api.searchMessages(String(trimmed.prefix(100)), chatID: chatID)
-            failure = nil
-        } catch {
-            guard !Task.isCancelled else { return }
-            results = []
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
     }
 }
 
@@ -687,138 +880,9 @@ enum ChatMediaKindTab: String, CaseIterable, Identifiable {
     }
 }
 
-/// Список выбранного раздела: сетка фото и видео, строки файлов и ссылок.
-private struct ChatContentList: View {
-    let chatID: String
-    let tab: ChatMediaKindTab
-
-    @State private var media: [ChatMediaItemDTO] = []
-    @State private var links: [ChatLinkItemDTO] = []
-    @State private var loaded = false
-    /// Раздел не пришёл — это не «здесь пусто».
-    @State private var failure: String?
-    private let api: ChatActing = ChatsAPI()
-
-    var body: some View {
-        Group {
-            if tab == .media, !media.isEmpty {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 2)], spacing: 2) {
-                    ForEach(media) { item in
-                        ChatMediaThumb(item: item)
-                    }
-                }
-            } else if tab == .links, !links.isEmpty {
-                ForEach(links) { link in
-                    if let preview = link.linkPreview, let url = URL(string: preview.url) {
-                        Link(destination: url) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(preview.title ?? url.host() ?? preview.url)
-                                    .font(Typography.body.weight(.medium))
-                                    .foregroundStyle(Palette.foreground)
-                                    .lineLimit(2)
-                                Text(preview.url)
-                                    .font(Typography.meta)
-                                    .foregroundStyle(Palette.primary)
-                                    .lineLimit(1)
-                            }
-                        }
-                    }
-                }
-            } else if (tab == .files || tab == .voice), !media.isEmpty {
-                ForEach(media) { item in
-                    HStack(spacing: Spacing.lg) {
-                        Image(systemName: tab == .voice ? "waveform" : "doc.fill")
-                            .foregroundStyle(Palette.primary)
-                            .frame(width: 32)
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(item.name ?? String(localized: "chats.preview.file", defaultValue: "Файл"))
-                                .lineLimit(1)
-                            Text(detail(for: item))
-                                .font(Typography.meta)
-                                .foregroundStyle(Palette.mutedForeground)
-                        }
-                    }
-                }
-            } else {
-                // Загрузка, пусто и сбой — без карточки, по центру места под вкладками:
-                // тонкая карточка с одним индикатором смотрелась поломкой.
-                Group {
-                    if let failure {
-                        DashboardFailurePlaceholder(message: failure) { await load() }
-                    } else if loaded {
-                        Text(String(localized: "chats.info.empty", defaultValue: "Здесь пока пусто"))
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.mutedForeground)
-                    } else {
-                        ProgressView()
-                    }
-                }
-                .frame(maxWidth: .infinity, minHeight: 120)
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-            }
-        }
-        .task(id: tab) { await load() }
-    }
-
-    private func detail(for item: ChatMediaItemDTO) -> String {
-        var parts = [item.createdAt.formatted(date: .abbreviated, time: .omitted)]
-        if let size = item.size {
-            parts.append(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
-        }
-        if let duration = item.durationMs {
-            parts.append(Duration.milliseconds(duration).formatted(.time(pattern: .minuteSecond)))
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    private func load() async {
-        loaded = false
-        failure = nil
-        media = []
-        links = []
-        do {
-            if let kind = tab.kind {
-                media = try await api.media(chatID: chatID, kind: kind, cursor: nil).items
-            } else {
-                links = try await api.links(chatID: chatID, cursor: nil).items
-            }
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-        }
-        loaded = true
-    }
-}
-
-/// Плитка сетки медиа: ссылка подписывается по требованию, картинка — из кэша по id.
-private struct ChatMediaThumb: View {
-    let item: ChatMediaItemDTO
-
-    @State private var url: URL?
-
-    var body: some View {
-        Color.clear
-            .aspectRatio(1, contentMode: .fit)
-            .overlay {
-                RemoteImage(url: url, cacheKey: "chatmedia:\(item.id)", placeholder: item.placeholder)
-                    .id(url)
-            }
-            .overlay(alignment: .bottomLeading) {
-                if item.mime.hasPrefix("video/") {
-                    Image(systemName: "play.fill")
-                        .font(.caption)
-                        .foregroundStyle(.white)
-                        .padding(Spacing.xs)
-                }
-            }
-            .clipped()
-            .task { url = await AppServices.attachmentURLs.url(for: item.id) }
-    }
-}
-
-/// Правка группы: название и описание.
+/// Правка группы: фото, название и описание. Фото меняет только создатель (у админов
+/// сервер его не примет) и сразу, без «Сохранить», — как в вебе и Telegram; название и
+/// описание уходят одной правкой по кнопке.
 private struct GroupEditSheet: View {
     let chat: ChatRecord
     let saved: () async -> Void
@@ -826,19 +890,41 @@ private struct GroupEditSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
     @State private var description = ""
+    @State private var avatarURL: String?
+    /// Выбранный снимок: виден сразу, пока идёт загрузка, и остаётся после неё —
+    /// иначе картинка мигнула бы пустым кругом, пока грузится по новой ссылке.
+    @State private var photo: UIImage?
+    @State private var uploading = false
     @State private var failure: String?
     private let api: ChatActing = ChatsAPI()
 
     var body: some View {
         NavigationStack {
             Form {
-                TextField(String(localized: "chats.group.title", defaultValue: "Название группы"), text: $title)
-                TextField(
-                    String(localized: "chats.group.description", defaultValue: "Описание"),
-                    text: $description,
-                    axis: .vertical
-                )
-                .lineLimit(3...8)
+                Section {
+                    GroupAvatarButton(
+                        title: title.isEmpty ? (chat.title ?? "") : title,
+                        avatarURL: avatarURL,
+                        image: photo,
+                        busy: uploading,
+                        removable: avatarURL != nil || photo != nil,
+                        pick: { image in Task { await upload(image) } },
+                        remove: { Task { await removeAvatar() } }
+                    )
+                    .disabled(!chat.isOwner)
+                    .frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+                }
+                Section {
+                    TextField(String(localized: "chats.group.title", defaultValue: "Название группы"), text: $title)
+                    TextField(
+                        String(localized: "chats.group.description", defaultValue: "Описание"),
+                        text: $description,
+                        axis: .vertical
+                    )
+                    .lineLimit(3...8)
+                }
                 if let failure {
                     Text(failure).foregroundStyle(Palette.destructive)
                 }
@@ -859,6 +945,7 @@ private struct GroupEditSheet: View {
             .onAppear {
                 title = chat.title ?? ""
                 description = chat.chatDescription ?? ""
+                avatarURL = chat.avatarUrl
             }
         }
     }
@@ -880,6 +967,96 @@ private struct GroupEditSheet: View {
         } catch {
             failure = (error as? APIError)?.displayMessage
         }
+    }
+
+    private func upload(_ image: UIImage?) async {
+        guard let jpeg = await PhotoJPEG.encode(image, maxSide: PhotoJPEG.avatarSide) else {
+            failure = String(localized: "profile.imageUnreadable", defaultValue: "Не удалось прочитать изображение")
+            return
+        }
+        let previous = photo
+        photo = image
+        uploading = true
+        defer { uploading = false }
+        do {
+            let url = try await api.uploadGroupAvatar(chatID: chat.id, jpeg: jpeg)
+            avatarURL = url
+            try? await ChatStore().setAvatar(url, chatID: chat.id)
+            await saved()
+            failure = nil
+        } catch {
+            photo = previous
+            if !(error is CancellationError) { failure = error.userMessage }
+        }
+    }
+
+    private func removeAvatar() async {
+        uploading = true
+        defer { uploading = false }
+        do {
+            try await api.removeGroupAvatar(chatID: chat.id)
+            photo = nil
+            avatarURL = nil
+            try? await ChatStore().setAvatar(nil, chatID: chat.id)
+            await saved()
+            failure = nil
+        } catch {
+            if !(error is CancellationError) { failure = error.userMessage }
+        }
+    }
+}
+
+/// Круглое фото группы с карандашом: касание открывает меню источника у самого фото.
+/// Общее для правки группы и шага «Новая группа».
+struct GroupAvatarButton: View {
+    let title: String
+    let avatarURL: String?
+    /// Выбранный снимок — важнее ссылки: его видно до и во время загрузки.
+    let image: UIImage?
+    var busy = false
+    let removable: Bool
+    let pick: (UIImage?) -> Void
+    var remove: () -> Void = {}
+
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var choosing = false
+    @ScaledMetric(relativeTo: .title) private var size: CGFloat = 96
+
+    private var side: CGFloat { min(size, 128) }
+
+    var body: some View {
+        Button { choosing = true } label: {
+            ZStack {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: side, height: side)
+                        .clipShape(Circle())
+                } else if avatarURL == nil, title.trimmingCharacters(in: .whitespaces).isEmpty {
+                    // Новая группа без названия и фото: подсказка, что сюда ставится снимок.
+                    Circle().fill(Palette.primary.opacity(0.12))
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: side * 0.32, weight: .semibold))
+                        .foregroundStyle(Palette.primary)
+                } else {
+                    ChatAvatarView(title: title, kind: .group, avatarURL: avatarURL, size: side)
+                }
+                if busy {
+                    Circle().fill(Color.black.opacity(0.35))
+                    ProgressView().tint(.white)
+                }
+            }
+            .frame(width: side, height: side)
+            .overlay(alignment: .bottomTrailing) {
+                if isEnabled { EditBadge() }
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(busy)
+        .padding(.vertical, Spacing.sm)
+        .accessibilityLabel(Text(String(localized: "chats.group.photo", defaultValue: "Фото группы")))
+        .photoSourceMenu(isPresented: $choosing, removable: removable, pick: pick, remove: remove)
     }
 }
 

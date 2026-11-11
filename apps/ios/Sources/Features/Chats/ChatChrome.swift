@@ -85,26 +85,37 @@ struct ChatWallpaper: View {
 // MARK: - Галочки
 
 /// Галочки своего сообщения: одна — доставлено, две — прочитано. Две рисуются
-/// внахлёст, как в Telegram: отдельного символа для них в SF Symbols нет.
+/// внахлёст, как в Telegram: отдельного символа для них в SF Symbols нет. В группе
+/// рядом — сколько участников прочитали, как в вебе.
 struct ChatReadChecks: View {
     let isRead: Bool
+    var readCount = 0
 
     @ScaledMetric(relativeTo: .caption2) private var shift: CGFloat = 4.5
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            Image(systemName: "checkmark")
-            if isRead {
+        HStack(spacing: 2) {
+            ZStack(alignment: .leading) {
                 Image(systemName: "checkmark")
-                    .offset(x: shift)
+                if isRead {
+                    Image(systemName: "checkmark")
+                        .offset(x: shift)
+                }
+            }
+            .padding(.trailing, isRead ? shift : 0)
+            .font(.caption2.weight(.bold))
+            if isRead, readCount > 0 {
+                Text(verbatim: readCount.formatted())
+                    .font(Typography.tabular(.caption2))
             }
         }
-        .padding(.trailing, isRead ? shift : 0)
-        .font(.caption2.weight(.bold))
         .accessibilityElement()
-        .accessibilityLabel(Text(isRead
-            ? String(localized: "chats.read", defaultValue: "Прочитано")
-            : String(localized: "chats.sent", defaultValue: "Отправлено")))
+        .accessibilityLabel(Text(label))
+    }
+
+    private var label: String {
+        guard isRead else { return String(localized: "chats.sent", defaultValue: "Отправлено") }
+        return readCount > 0 ? ChatPlural.readBy(readCount) : String(localized: "chats.read", defaultValue: "Прочитано")
     }
 }
 
@@ -118,6 +129,61 @@ enum ChatPlural {
         case .one: return String(localized: "chats.members.one", defaultValue: "\(number) участник")
         case .few: return String(localized: "chats.members.few", defaultValue: "\(number) участника")
         case .many: return String(localized: "chats.members.many", defaultValue: "\(number) участников")
+        }
+    }
+
+    /// «1 чат», «3 чата», «12 чатов» — число чатов в папке.
+    static func chats(_ count: Int) -> String {
+        let number = count.formatted()
+        switch form(count) {
+        case .one: return String(localized: "chats.count.one", defaultValue: "\(number) чат")
+        case .few: return String(localized: "chats.count.few", defaultValue: "\(number) чата")
+        case .many: return String(localized: "chats.count.many", defaultValue: "\(number) чатов")
+        }
+    }
+
+    /// «Удалить 1 сообщение у всех?», «…2 сообщения…», «…5 сообщений…» — подтверждение
+    /// удаления выбранного.
+    static func deleteMessagesQuestion(_ count: Int) -> String {
+        let number = count.formatted()
+        switch form(count) {
+        case .one:
+            return String(localized: "chats.selection.delete.one", defaultValue: "Удалить \(number) сообщение у всех?")
+        case .few:
+            return String(localized: "chats.selection.delete.few", defaultValue: "Удалить \(number) сообщения у всех?")
+        case .many:
+            return String(localized: "chats.selection.delete.many", defaultValue: "Удалить \(number) сообщений у всех?")
+        }
+    }
+
+    /// Заголовок листа вложений: «Отправить 1 файл», «…2 файла», «…5 файлов».
+    static func sendFiles(_ count: Int) -> String {
+        let number = count.formatted()
+        switch form(count) {
+        case .one: return String(localized: "chats.attach.sendFiles.one", defaultValue: "Отправить \(number) файл")
+        case .few: return String(localized: "chats.attach.sendFiles.few", defaultValue: "Отправить \(number) файла")
+        case .many: return String(localized: "chats.attach.sendFiles.many", defaultValue: "Отправить \(number) файлов")
+        }
+    }
+
+    /// Сколько сообщений уйдёт из листа вложений — видно до отправки: одиннадцать
+    /// снимков это два альбома, и узнавать об этом постфактум поздно.
+    static func messagesToSend(_ count: Int) -> String {
+        let number = count.formatted()
+        switch form(count) {
+        case .one: return String(localized: "chats.attach.messages.one", defaultValue: "Уйдёт \(number) сообщение")
+        case .few: return String(localized: "chats.attach.messages.few", defaultValue: "Уйдут \(number) сообщения")
+        case .many: return String(localized: "chats.attach.messages.many", defaultValue: "Уйдут \(number) сообщений")
+        }
+    }
+
+    /// «Прочитали: 1 участник», «…3 участника», «…5 участников» — как в вебе.
+    static func readBy(_ count: Int) -> String {
+        let number = count.formatted()
+        switch form(count) {
+        case .one: return String(localized: "chats.readBy.one", defaultValue: "Прочитали: \(number) участник")
+        case .few: return String(localized: "chats.readBy.few", defaultValue: "Прочитали: \(number) участника")
+        case .many: return String(localized: "chats.readBy.many", defaultValue: "Прочитали: \(number) участников")
         }
     }
 
@@ -147,12 +213,57 @@ enum ChatPresence {
         // Сведения о собеседнике пришли, а времени нет — он его скрыл.
         return known ? String(localized: "chats.lastSeen.recently", defaultValue: "был(а) недавно") : nil
     }
+
+    /// Подпись группы: «12 участников, 3 в сети», а когда в сети никого — только число
+    /// участников, как в Telegram.
+    static func groupCaption(members: Int, online: Int) -> String? {
+        guard members > 0 else { return nil }
+        let total = ChatPlural.members(members)
+        guard online > 0 else { return total }
+        return String(
+            localized: "chats.members.withOnline",
+            defaultValue: "\(total), \(online.formatted()) в сети"
+        )
+    }
+}
+
+/// Кто из участников чата в сети: снимок с сервера, поверх него — события, пришедшие
+/// позже снимка (`RealtimeCoordinator.presenceMarks`). Событие раньше снимка уже
+/// учтено в нём самом и верх не берёт.
+struct ChatPresenceSnapshot: Equatable {
+    let online: [String: Bool]
+    let takenAt: Date
+
+    init(online: [String: Bool], takenAt: Date) {
+        self.online = online
+        self.takenAt = takenAt
+    }
+
+    init(_ entries: [ChatPresenceDTO], takenAt: Date) {
+        online = Dictionary(entries.map { ($0.userId, $0.online) }, uniquingKeysWith: { $0 || $1 })
+        self.takenAt = takenAt
+    }
+
+    var memberCount: Int { online.count }
+
+    func isOnline(_ userID: String, live: [String: PresenceMark]) -> Bool {
+        if let mark = live[userID], mark.at >= takenAt { return mark.online }
+        return online[userID] ?? false
+    }
+
+    /// Сколько участников, кроме смотрящего, сейчас в сети — как «N в сети» в вебе.
+    func othersOnline(excluding viewerID: String, live: [String: PresenceMark]) -> Int {
+        online.keys.reduce(0) { count, id in
+            count + (id != viewerID && isOnline(id, live: live) ? 1 : 0)
+        }
+    }
 }
 
 // MARK: - Переход к сообщению
 
-/// Просьба открыть переписку на конкретном сообщении — от поиска в информации о чате.
-/// Экран переписки забирает просьбу, когда снова становится видимым.
+/// Просьба открыть переписку на конкретном сообщении или дате либо сразу с поиском —
+/// от поиска и общих материалов, от календаря и «Поиска» в информации о чате. Экран переписки забирает просьбу,
+/// когда снова становится видимым.
 @MainActor
 @Observable
 final class ChatJumpRequests {
@@ -160,6 +271,10 @@ final class ChatJumpRequests {
 
     /// Чат → серверный идентификатор сообщения.
     var pending: [String: String] = [:]
+    /// Чат → день, к которому перейти.
+    var days: [String: Date] = [:]
+    /// Чаты, где открыть поиск прямо в переписке.
+    var searches: Set<String> = []
 }
 
 // MARK: - Раскладка с переносом

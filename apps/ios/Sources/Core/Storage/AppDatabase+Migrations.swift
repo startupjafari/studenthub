@@ -220,6 +220,14 @@ extension AppDatabase {
             }
         }
 
+        migrator.registerMigration("v8.attachmentAsDocument") { db in
+            // Вложение «как файл»: снимок в пузыре — строкой файла. Старые записи — превью
+            // до следующей подгрузки переписки.
+            try db.alter(table: AttachmentRecord.databaseTableName) { table in
+                table.add(column: "asDocument", .boolean).notNull().defaults(to: false)
+            }
+        }
+
         return migrator
     }
 }

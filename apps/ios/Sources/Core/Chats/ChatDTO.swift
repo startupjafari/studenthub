@@ -226,9 +226,17 @@ struct MessageExtras: Codable, Hashable {
 }
 
 /// Папка чатов (§2 эпика «Чаты»): имя, позиция вкладки и состав.
-struct ChatFolderDTO: Decodable, Equatable {
+struct ChatFolderDTO: Decodable, Equatable, Identifiable {
     let id: String
     let name: String
     let position: Int
     let chatIds: [String]
+}
+
+/// Лимиты папок — те же, что проверяет сервер (`CHAT_FOLDER_LIMITS`). Клиент упирается в
+/// них заранее: иначе человек собрал бы папку и узнал об отказе только на «Сохранить».
+enum ChatFolderLimits {
+    static let folders = 20
+    static let chatsPerFolder = 200
+    static let nameLength = 40
 }

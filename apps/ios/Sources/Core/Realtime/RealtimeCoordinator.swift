@@ -17,6 +17,15 @@ final class RealtimeCoordinator {
     /// Кто что делает: чат → (пользователь → действие).
     private(set) var actions: [String: [String: String]] = [:]
     private(set) var onlineUsers: Set<String> = []
+    /// Последняя смена статуса «в сети» по каждому, о ком приходили события, с
+    /// моментом прихода. `onlineUsers` не отличает «ушёл» от «не знаем»; счётчику
+    /// «N в сети» это нужно: снимок участников с сервера старше события — верит
+    /// событию, новее — снимку.
+    private(set) var presenceMarks: [String: PresenceMark] = [:]
+    /// Кто из других участников до какого момента дочитал: чат → (пользователь →
+    /// время). Только из событий — открытый групповой чат накладывает это на свой
+    /// снимок `GET /chats/:id/reads`, а не перезапрашивает его на каждое прочтение.
+    private(set) var memberReads: [String: [String: Date]] = [:]
     /// Последняя пришедшая смена статуса заявки. Экран заявок смотрит на неё и
     /// перечитывает себя: держать копию заявок в координаторе незачем. Время в
     /// поле — чтобы повторный тот же статус тоже считался новостью.
@@ -98,6 +107,8 @@ final class RealtimeCoordinator {
         isConnected = false
         actions = [:]
         onlineUsers = []
+        presenceMarks = [:]
+        memberReads = [:]
         openChatID = nil
         applicationStatus = nil
         listRefresh?.cancel()
@@ -197,7 +208,14 @@ final class RealtimeCoordinator {
             }) ?? true
             if !cleared { scheduleListRefresh() }
 
-        case .messageRead(let chatID, _, let readAt):
+        case .messageRead(let chatID, let userID, let readAt):
+            // Сервер шлёт прочтение всей комнате, и мне — моё же. Галочки своих
+            // сообщений от собственного чтения загорались бы сами.
+            let viewerID = await session.currentToken?.subject
+            guard userID != viewerID else { return }
+            if (memberReads[chatID]?[userID] ?? .distantPast) < readAt {
+                memberReads[chatID, default: [:]][userID] = readAt
+            }
             try? await database.writer.write { db in
                 guard var chat = try ChatRecord.fetchOne(db, key: chatID) else { return }
                 guard (chat.othersReadAt ?? .distantPast) < readAt else { return }
@@ -210,6 +228,7 @@ final class RealtimeCoordinator {
 
         case .presence(let userID, let online):
             if online { onlineUsers.insert(userID) } else { onlineUsers.remove(userID) }
+            presenceMarks[userID] = PresenceMark(online: online, at: Date())
 
         case .chatUpdated(let chatID, let title, let avatar):
             try? await database.writer.write { db in
@@ -332,6 +351,12 @@ final class RealtimeCoordinator {
     private static let stableConnection: TimeInterval = 10
 }
 
+
+/// Статус «в сети» из события и когда оно пришло.
+struct PresenceMark: Equatable {
+    let online: Bool
+    let at: Date
+}
 
 /// Смена статуса заявки, пришедшая в реальном времени.
 struct ApplicationStatusChange: Equatable {
