@@ -97,7 +97,7 @@ struct SettingsView: View {
                     SettingsRow(
                         title: CommunityScreen.username.title,
                         symbol: "at",
-                        tint: TileTint.teal,
+                        tint: TileTint.orange,
                         value: viewer.profile?.username.map { "@\($0)" }
                     )
                 }
@@ -137,7 +137,7 @@ struct SettingsView: View {
                     SettingsRow(
                         title: String(localized: "auth.qrApproveTitle", defaultValue: "Вход на другом устройстве"),
                         symbol: "qrcode.viewfinder",
-                        tint: TileTint.teal
+                        tint: TileTint.blue
                     )
                 }
                 .buttonStyle(.plain)

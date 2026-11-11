@@ -94,7 +94,7 @@ struct ProfileDetailsView: View {
         }
         if let phone = profile.phone, !phone.isEmpty {
             let digits = phone.filter { $0.isNumber || $0 == "+" }
-            rows.append(Row(title: String(localized: "profile.phone", defaultValue: "Телефон"), value: phone, symbol: "phone",
+            rows.append(Row(title: String(localized: "profile.phone", defaultValue: "Телефон"), value: DisplayFormat.phone(phone), symbol: "phone",
                             url: URL(string: "tel:\(digits)")))
         }
         if let telegram = profile.telegram, !telegram.isEmpty {
@@ -219,6 +219,7 @@ struct SavedPostsView: View {
                             symbol: "bookmark",
                             hint: String(localized: "saved.empty.hint", defaultValue: "Нажмите на закладку под публикацией, чтобы вернуться к ней позже")
                         )
+                        .centeredInScreen()
                     } else {
                         ForEach(feed.posts) { post in
                             PostCardView(post: post, model: feed, viewerID: viewerID, actions: actions)

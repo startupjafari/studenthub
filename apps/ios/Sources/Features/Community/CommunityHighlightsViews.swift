@@ -126,7 +126,9 @@ struct CommunityHighlightsView: View {
                             ? String(localized: "community.highlights.empty.hint", defaultValue: "Откройте свою историю и выберите «В актуальное» — она останется в профиле")
                             : nil
                     )
+                    .centeredInScreen()
                     .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                 } else {
                     Section {
                         ForEach(highlights) { highlight in

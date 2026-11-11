@@ -739,6 +739,33 @@ enum DisplayFormat {
         return date.formatted(.dateTime.day().month(.abbreviated).year())
     }
 
+    /// «+7 771 574 95 26» — из того, как номер набрали: «87715749526», «+7 (771)
+    /// 574-95-26», «7715749526». Номер другого формата остаётся как есть: угадывать
+    /// чужие правила группировки хуже, чем показать набранное.
+    static func phone(_ raw: String) -> String {
+        let allowed = Set("+0123456789 -()")
+        guard raw.allSatisfy({ allowed.contains($0) }) else { return raw }
+        var digits = raw.filter(\.isNumber)
+        if digits.count == 11, digits.hasPrefix("8") || digits.hasPrefix("7") {
+            digits.removeFirst()
+        }
+        guard digits.count == 10 else { return raw }
+        let d = Array(digits)
+        return "+7 \(String(d[0..<3])) \(String(d[3..<6])) \(String(d[6..<8])) \(String(d[8..<10]))"
+    }
+
+    /// Длительность ролика: «0:07», «12:40», «1:02:03».
+    static func duration(milliseconds: Int) -> String {
+        let total = max(0, milliseconds / 1000)
+        let hours = total / 3600
+        let minutes = total % 3600 / 60
+        let seconds = total % 60
+        let tail = String(format: "%02d", seconds)
+        return hours > 0
+            ? "\(hours):\(String(format: "%02d", minutes)):\(tail)"
+            : "\(minutes):\(tail)"
+    }
+
     /// «5 мин назад».
     static func relative(_ date: Date?) -> String {
         guard let date else { return "—" }

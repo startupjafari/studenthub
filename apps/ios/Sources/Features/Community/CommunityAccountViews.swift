@@ -326,9 +326,9 @@ struct CommunityMyPostsView: View {
                             (value: Optional("DRAFT"), title: String(localized: "community.myPosts.drafts", defaultValue: "Черновики")),
                             (value: Optional("SCHEDULED"), title: String(localized: "community.myPosts.scheduled", defaultValue: "Отложенные")),
                         ],
-                        selection: Binding(get: { Optional(status) }, set: { if let next = $0 { status = next } })
+                        selection: Binding(get: { Optional(status) }, set: { if let next = $0 { status = next } }),
+                        fillsWidth: true
                     )
-                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     if !feed.hasLoaded {
                         ForEach(0..<2, id: \.self) { _ in PostCardSkeleton() }
@@ -339,8 +339,12 @@ struct CommunityMyPostsView: View {
                             title: status == "DRAFT"
                                 ? String(localized: "community.myPosts.noDrafts", defaultValue: "Черновиков нет")
                                 : String(localized: "community.myPosts.noScheduled", defaultValue: "Отложенных публикаций нет"),
-                            symbol: status == "DRAFT" ? "doc" : "clock"
+                            symbol: status == "DRAFT" ? "doc" : "clock",
+                            hint: status == "DRAFT"
+                                ? String(localized: "community.myPosts.noDrafts.hint", defaultValue: "Сохраните пост черновиком, чтобы закончить его позже")
+                                : String(localized: "community.myPosts.noScheduled.hint", defaultValue: "Выберите время публикации, когда создаёте пост")
                         )
+                        .centeredInScreen()
                     } else {
                         ForEach(feed.posts) { post in
                             VStack(alignment: .leading, spacing: Spacing.sm) {

@@ -125,7 +125,9 @@ struct CommunityAlbumsView: View {
                         symbol: "photo.stack",
                         hint: isMine ? String(localized: "community.albums.empty.hint", defaultValue: "Соберите фото по темам: поездки, проекты, мероприятия") : nil
                     )
+                    .centeredInScreen()
                     .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                 } else {
                     Section {
                         ForEach(albums) { album in

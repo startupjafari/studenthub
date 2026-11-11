@@ -177,8 +177,7 @@ struct ProfileView: View {
                                     .frame(minHeight: scroll.tabContentMinHeight, alignment: .top)
                             } header: {
                                 ProfileTabBar(
-                                    selection: Binding(get: { tab }, set: { select($0, revealing: false, with: scroller) }),
-                                    counts: model.counts
+                                    selection: Binding(get: { tab }, set: { select($0, revealing: false, with: scroller) })
                                 )
                                 // Признак, а не координата: координата меняется на каждом
                                 // кадре прокрутки и перерисовывала бы весь экран.
@@ -701,12 +700,8 @@ private struct ProfileHeaderView: View {
 
     private var moreMenuContent: UIMenu {
         var groups: [UIMenuElement] = []
-        if !profile.isLimited {
-            let details = self.details
-            groups.append(Self.menuGroup([
-                Self.menuAction(String(localized: "profile.details", defaultValue: "Подробнее"), symbol: "info.circle") { details() },
-            ]))
-        }
+        // «Подробнее» в меню нет: это строка карточки под кнопками, третий вход туда же
+        // был лишним.
         if model.isMine {
             var links = [
                 Self.menuLink(CommunityScreen.myPosts.title, symbol: "clock.badge", route: .community(.myPosts)),
@@ -744,14 +739,10 @@ private struct ProfileHeaderView: View {
         UIMenu(options: .displayInline, children: actions)
     }
 
-    private static func menuAction(_ title: String, symbol: String, perform: @escaping () -> Void) -> UIAction {
-        UIAction(title: title, image: UIImage(systemName: symbol)) { _ in perform() }
-    }
-
     /// Переход из меню — в стек текущей вкладки, как `NavigationLink(value:)`: профиль
     /// всегда открыт в стеке вкладки (`AppShellView`).
     private static func menuLink(_ title: String, symbol: String, route: AppRoute) -> UIAction {
-        menuAction(title, symbol: symbol) {
+        UIAction(title: title, image: UIImage(systemName: symbol)) { _ in
             let router = AppServices.router
             router.stacks[router.selectedTab, default: []].append(route)
         }
@@ -987,19 +978,17 @@ extension Role {
 // MARK: - Вкладки
 
 /// Переключатель вкладок — капсула-дорожка как папки в Telegram, прилипает к верху
-/// при прокрутке. Число рядом с названием — сколько там всего. Выбранную вкладку
-/// дорожка сама докручивает в поле зрения (`FilterChips`).
+/// при прокрутке. Пункты делят ширину поровну, если влезают. Чисел в названиях нет:
+/// они уже в итогах под именем. Выбранную вкладку дорожка сама докручивает в поле
+/// зрения (`FilterChips`).
 private struct ProfileTabBar: View {
     @Binding var selection: ProfileTab
-    let counts: ProfileCountsDTO?
 
     var body: some View {
         FilterChips(
-            options: ProfileTab.allCases.map { tab in
-                let title = count(for: tab).map { $0 > 0 ? "\(tab.title) \($0)" : tab.title } ?? tab.title
-                return (value: Optional(tab), title: title)
-            },
-            selection: Binding(get: { selection }, set: { if let next = $0 { selection = next } })
+            options: ProfileTab.allCases.map { (value: Optional($0), title: $0.title) },
+            selection: Binding(get: { selection }, set: { if let next = $0 { selection = next } }),
+            fillsWidth: true
         )
         .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, Spacing.xl)
@@ -1007,16 +996,6 @@ private struct ProfileTabBar: View {
         .frame(maxWidth: .infinity)
         .background(Palette.background)
         .accessibilityIdentifier("profile.tabs")
-    }
-
-    private func count(for tab: ProfileTab) -> Int? {
-        switch tab {
-        case .posts: return nil
-        case .photos: return counts?.photos
-        case .videos: return counts?.videos
-        case .articles: return counts?.articles
-        case .polls: return counts?.polls
-        }
     }
 }
 
@@ -1041,17 +1020,7 @@ private struct ArticleCardRow: View {
                         .foregroundStyle(Palette.mutedForeground)
                         .lineLimit(2)
                 }
-                HStack(spacing: Spacing.md) {
-                    Text(article.publishedAt ?? article.createdAt, format: .dateTime.day().month(.abbreviated).year())
-                    if let minutes = article.readingMinutes, minutes > 0 {
-                        Text(String(localized: "profile.article.minutes", defaultValue: "\(minutes) мин"))
-                    }
-                    if let views = article.views, views > 0 {
-                        Label(String(views), systemImage: "eye")
-                    }
-                }
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
+                ArticleMetaLine(date: article.publishedAt ?? article.createdAt, minutes: article.readingMinutes, views: article.views)
             }
             Spacer(minLength: 0)
         }
