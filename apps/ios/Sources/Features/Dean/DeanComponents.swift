@@ -529,7 +529,7 @@ private struct DeanDebouncedSearch: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .searchable(text: $text, placement: .navigationBarDrawer(displayMode: .always), prompt: Text(prompt))
+            .searchable(text: $text, prompt: Text(prompt))
             .task(id: text) {
                 let needle = text.trimmingCharacters(in: .whitespaces)
                 guard needle != lastSent else { return }

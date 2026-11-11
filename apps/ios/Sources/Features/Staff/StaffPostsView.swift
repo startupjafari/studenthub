@@ -83,8 +83,10 @@ struct StaffPostsView: View {
                 }
                 .padding(.vertical, Spacing.md)
             }
-            .screenState(model.hasLoaded && model.posts.isEmpty) {
-                if let failure = model.failure {
+            .screenState(model.posts.isEmpty) {
+                if !model.hasLoaded {
+                    LoadingStateView()
+                } else if let failure = model.failure {
                     ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
                 } else {
                     EmptyStateView(
@@ -122,10 +124,7 @@ struct StaffPostsView: View {
 
     @ViewBuilder
     private func feed(_ actions: PostCardActions) -> some View {
-        if !model.hasLoaded {
-            ForEach(0..<2, id: \.self) { _ in PostCardSkeleton() }
-                .padding(.horizontal, Spacing.xl)
-        } else if !model.posts.isEmpty {
+        if !model.posts.isEmpty {
             ForEach(model.posts) { post in
                 PostCardView(post: post, model: model, viewerID: viewerID, actions: actions)
                     .padding(.horizontal, Spacing.xl)

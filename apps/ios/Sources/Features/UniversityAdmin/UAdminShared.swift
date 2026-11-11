@@ -437,9 +437,10 @@ extension View {
         modifier(UAdminDebouncedSearch(text: text, prompt: prompt, delay: delay, onChange: onChange))
     }
 
-    /// Мгновенный поиск по уже загруженному списку — поле всегда видно.
+    /// Мгновенный поиск по уже загруженному списку. Поле прячется при прокрутке вниз и
+    /// выезжает жестом вниз, как на остальных экранах-списках.
     func uadminSearchable(_ text: Binding<String>, prompt: String) -> some View {
-        searchable(text: text, placement: .navigationBarDrawer(displayMode: .always), prompt: Text(prompt))
+        searchable(text: text, prompt: Text(prompt))
     }
 }
 
@@ -453,7 +454,7 @@ private struct UAdminDebouncedSearch: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .searchable(text: $text, placement: .navigationBarDrawer(displayMode: .always), prompt: Text(prompt))
+            .searchable(text: $text, prompt: Text(prompt))
             .task(id: text) {
                 let needle = text.trimmingCharacters(in: .whitespaces)
                 guard needle != lastSent else { return }

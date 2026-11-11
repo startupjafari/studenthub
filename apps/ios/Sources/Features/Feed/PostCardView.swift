@@ -481,24 +481,3 @@ struct PostActionsView: View {
         .accessibilityValue(Text(verbatim: count > 0 ? String(count) : ""))
     }
 }
-
-/// Скелет карточки на время первой загрузки.
-struct PostCardSkeleton: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.lg) {
-            HStack(spacing: Spacing.lg) {
-                Circle().fill(Palette.muted).frame(width: 40, height: 40)
-                VStack(alignment: .leading, spacing: Spacing.sm) {
-                    SkeletonBlock(height: 12, width: 140)
-                    SkeletonBlock(height: 10, width: 90)
-                }
-            }
-            SkeletonBlock(height: 12)
-            SkeletonBlock(height: 12)
-            SkeletonBlock(height: 12, width: 200)
-        }
-        .padding(Spacing.xl)
-        .cardSurface()
-        .accessibilityHidden(true)
-    }
-}

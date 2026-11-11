@@ -128,9 +128,9 @@ struct DashboardMetricTile: View {
     @ViewBuilder
     private var valueText: some View {
         if metric.isPending {
-            Text(verbatim: "000")
-                .font(DashboardMetrics.valueFont)
-                .redacted(reason: .placeholder)
+            // Системный индикатор на месте числа, а не серая заглушка.
+            ProgressView()
+                .frame(minHeight: valueLineHeight, alignment: .leading)
         } else if let value = metric.value {
             Text(verbatim: value)
                 .font(DashboardMetrics.valueFont)
@@ -252,10 +252,21 @@ struct DashboardMetricsSection: View {
         }
     }
 
+    /// Пока не пришло ни одного показателя — один индикатор по центру блока, а не
+    /// сетка плиток-заглушек. Высота — как у двух рядов плиток: экран не прыгает, когда
+    /// числа приходят.
+    @ViewBuilder
     private var grid: some View {
-        DashboardMetricGrid(metrics: metrics)
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets())
+        Group {
+            if !metrics.isEmpty, metrics.allSatisfy(\.isPending) {
+                ProgressView()
+                    .frame(maxWidth: .infinity, minHeight: 112 * 2 + DashboardMetrics.gap)
+            } else {
+                DashboardMetricGrid(metrics: metrics)
+            }
+        }
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets())
     }
 }
 

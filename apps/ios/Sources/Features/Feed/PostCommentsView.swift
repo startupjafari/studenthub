@@ -45,8 +45,12 @@ struct PostCommentsView: View {
                     .padding(Spacing.xl)
                 }
                 .scrollDismissesKeyboard(.interactively)
-                .screenState(!showsPost && model.map { !$0.isLoading && $0.comments.isEmpty } == true) {
-                    if let model { commentsState(model) }
+                .screenState(!showsPost && model?.comments.isEmpty != false) {
+                    if let model, !model.isLoading {
+                        commentsState(model)
+                    } else {
+                        LoadingStateView()
+                    }
                 }
                 .background(Palette.background)
                 .refreshable { await reload() }
@@ -131,16 +135,11 @@ struct PostCommentsView: View {
                 .disabled(model.isLoadingOlder)
             }
 
-            if model.isLoading, model.comments.isEmpty {
-                ForEach(0..<3, id: \.self) { _ in
-                    HStack(alignment: .top, spacing: Spacing.lg) {
-                        Circle().fill(Palette.muted).frame(width: 32, height: 32)
-                        VStack(alignment: .leading, spacing: Spacing.sm) {
-                            SkeletonBlock(height: 10, width: 120)
-                            SkeletonBlock(height: 12)
-                        }
-                    }
-                }
+            if showsPost, model.isLoading, model.comments.isEmpty {
+                // Под постом — индикатор строкой; без поста он по центру экрана (`body`).
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, Spacing.xxl)
             } else if showsPost, model.comments.isEmpty {
                 // Под постом — строкой; без поста состояние встаёт по центру (`commentsState`).
                 commentsState(model)

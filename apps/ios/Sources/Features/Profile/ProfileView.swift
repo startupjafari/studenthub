@@ -158,7 +158,7 @@ struct ProfileView: View {
         PostActionsHost(model: posts) { actions in
             ScrollViewReader { scroller in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         ProfileHeaderView(
                             profile: profile,
                             model: model,
@@ -187,7 +187,7 @@ struct ProfileView: View {
                                 .padding(.bottom, Spacing.md)
 
                             // Метка начала вкладок: к ней прокручивается экран при смене
-                            // вкладки, когда полоса вкладок уже прилипла к верху.
+                            // вкладки, когда полоса вкладок уже доехала до верха.
                             Color.clear
                                 .frame(height: 0)
                                 .id(ProfileScrollMetrics.tabsAnchor)
@@ -226,12 +226,12 @@ struct ProfileView: View {
         }
     }
 
-    /// На вкладке нечего листать: пусто, сбой или первая загрузка списка. Скелет ленты
-    /// постов — не состояние: он стоит на месте будущих карточек, сверху.
+    /// На вкладке нечего листать: пусто, сбой или первая загрузка — индикатор, как и
+    /// пустое состояние, стоит по центру вкладки.
     private var showsTabState: Bool {
         switch tab {
         case .posts:
-            return posts.hasLoaded && posts.posts.isEmpty
+            return posts.posts.isEmpty
         case .photos:
             return model.photos?.isEmpty != false
         case .videos:
@@ -243,7 +243,7 @@ struct ProfileView: View {
         }
     }
 
-    /// Смена вкладки. Полоса вкладок прилипла — экран встаёт к началу новой вкладки, а
+    /// Смена вкладки. Полоса вкладок доехала до верха — экран встаёт к началу новой вкладки, а
     /// не остаётся посреди прежней ленты. `revealing` — прокрутить к вкладкам в любом
     /// случае (касание итога в шапке).
     private func select(_ next: ProfileTab, revealing: Bool, with scroller: ScrollViewProxy) {
@@ -300,10 +300,9 @@ struct ProfileView: View {
     @ViewBuilder
     private func postsTab(actions: PostCardActions) -> some View {
         if !posts.hasLoaded, posts.posts.isEmpty {
-            VStack(spacing: Spacing.lg) {
-                ForEach(0..<2, id: \.self) { _ in PostCardSkeleton() }
-            }
-            .padding(.horizontal, Spacing.xl)
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .padding(Spacing.xxl)
         } else if let failure = posts.failure, posts.posts.isEmpty {
             ErrorStateView(message: failure, isOffline: posts.isOffline) { await posts.refresh() }
         } else if posts.posts.isEmpty {
@@ -369,12 +368,12 @@ private struct ProfileScrollMetrics {
     var tabBarHeight: CGFloat = 52
     /// Имя в шапке уехало под панель навигации.
     var nameScrolledAway = false
-    /// Полоса вкладок прилипла к верху (с запасом в точку на округление).
+    /// Полоса вкладок доехала до верха или ушла под панель (с запасом в точку на округление).
     var tabsPinned = false
 
     var topInset: CGFloat { insets.top }
 
-    /// Видимая высота под прилипшей полосой вкладок.
+    /// Видимая высота под полосой вкладок, когда она у верха экрана.
     var tabContentMinHeight: CGFloat {
         max(0, height - insets.top - insets.bottom - tabBarHeight)
     }
@@ -1058,9 +1057,10 @@ extension Role {
 
 // MARK: - Вкладки
 
-/// Переключатель вкладок — капсула-дорожка как папки в Telegram, прилипает к верху
-/// при прокрутке. Пункты делят ширину поровну, если влезают. Чисел в названиях нет:
-/// они уже в итогах под именем. Выбранную вкладку дорожка сама докручивает в поле
+/// Переключатель вкладок — капсула-дорожка как папки в Telegram. Не закреплена:
+/// уезжает вместе с экраном при прокрутке, как вкладки на остальных экранах. Пункты
+/// делят ширину поровну, если влезают. Чисел в названиях нет: они уже в итогах под
+/// именем. Выбранную вкладку дорожка сама докручивает в поле
 /// зрения (`FilterChips`).
 private struct ProfileTabBar: View {
     @Binding var selection: ProfileTab
@@ -1075,8 +1075,6 @@ private struct ProfileTabBar: View {
         .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.sm)
         .frame(maxWidth: .infinity)
-        // Без подложки: прилипнув, полоса — одна стеклянная капсула, а не чёрная
-        // полоса поперёк снимков.
         .accessibilityIdentifier("profile.tabs")
     }
 }

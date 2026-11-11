@@ -85,7 +85,6 @@ struct StarostaGroupView: View {
         .navigationTitle(Text(StarostaScreen.myGroup.title))
         .searchable(
             text: $query,
-            placement: .navigationBarDrawer(displayMode: .always),
             prompt: Text(String(localized: "starosta.group.search", defaultValue: "Найти по имени"))
         )
         .refreshable { await load() }

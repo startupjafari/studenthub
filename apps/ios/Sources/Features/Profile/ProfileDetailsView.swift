@@ -219,9 +219,7 @@ struct SavedPostsView: View {
         PostActionsHost(model: feed) { actions in
             ScrollView {
                 LazyVStack(spacing: Spacing.lg) {
-                    if !feed.hasLoaded, feed.posts.isEmpty {
-                        ForEach(0..<2, id: \.self) { _ in PostCardSkeleton() }
-                    } else if !feed.posts.isEmpty {
+                    if !feed.posts.isEmpty {
                         ForEach(feed.posts) { post in
                             PostCardView(post: post, model: feed, viewerID: viewerID, actions: actions)
                                 .onAppear {
@@ -232,8 +230,10 @@ struct SavedPostsView: View {
                 }
                 .padding(Spacing.xl)
             }
-            .screenState(feed.hasLoaded && feed.posts.isEmpty) {
-                if let failure = feed.failure {
+            .screenState(feed.posts.isEmpty) {
+                if !feed.hasLoaded {
+                    LoadingStateView()
+                } else if let failure = feed.failure {
                     ErrorStateView(message: failure, isOffline: feed.isOffline) { await feed.refresh() }
                 } else {
                     EmptyStateView(

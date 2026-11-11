@@ -66,7 +66,7 @@ struct CommunityUniversityView: View {
     private func content(_ page: CommunityUniversityPageDTO) -> some View {
         PostActionsHost(model: posts) { actions in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: Spacing.lg, pinnedViews: [.sectionHeaders]) {
+                LazyVStack(alignment: .leading, spacing: Spacing.lg) {
                     header(page)
                     about(page)
                     Section {
@@ -80,7 +80,6 @@ struct CommunityUniversityView: View {
                         .padding(.horizontal, Spacing.xl)
                         .padding(.vertical, Spacing.sm)
                         .frame(maxWidth: .infinity)
-                        .background(Palette.background)
                     }
                 }
                 .padding(.bottom, Spacing.xxl)

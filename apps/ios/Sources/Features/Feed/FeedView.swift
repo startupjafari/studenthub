@@ -43,6 +43,9 @@ struct FeedView: View {
                 }
                 .padding(.vertical, Spacing.md)
             }
+            // Первая загрузка — один системный индикатор по центру экрана, без заглушек
+            // карточек: человек видит, что лента грузится, а не пустые серые блоки.
+            .screenState(!feed.hasLoaded && feed.posts.isEmpty) { LoadingStateView() }
             .background(Palette.background)
         }
         .navigationTitle(Text(AppTab.feed.title))
@@ -142,9 +145,8 @@ struct FeedView: View {
 
     @ViewBuilder
     private var storiesSection: some View {
-        if !stories.hasLoaded {
-            StoriesRailSkeleton()
-        } else if stories.failure == nil {
+        // Пока истории грузятся, полосы нет: загрузку экрана показывает общий индикатор.
+        if stories.hasLoaded, stories.failure == nil {
             StoriesRail(
                 model: stories,
                 viewerID: viewerID,
@@ -161,7 +163,8 @@ struct FeedView: View {
     @ViewBuilder
     private func feedSection(actions: PostCardActions) -> some View {
         if !feed.hasLoaded, feed.posts.isEmpty {
-            ForEach(0..<3, id: \.self) { _ in PostCardSkeleton() }
+            // Индикатор — поверх экрана (`screenState` в `body`).
+            EmptyView()
         } else if let failure = feed.failure, feed.posts.isEmpty {
             ErrorStateView(message: failure, isOffline: feed.isOffline) { await feed.refresh() }
         } else if feed.posts.isEmpty {

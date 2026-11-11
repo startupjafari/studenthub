@@ -302,30 +302,6 @@ enum PostReactions {
     static let quick = "❤️"
 }
 
-/// Ровная серая плашка вместо контента, пока идёт первая загрузка.
-struct SkeletonBlock: View {
-    var height: CGFloat
-    var width: CGFloat?
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var dimmed = false
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: Radius.sm)
-            .fill(Palette.muted)
-            .frame(width: width, height: height)
-            .frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
-            .opacity(dimmed ? 0.5 : 1)
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
-                    dimmed = true
-                }
-            }
-            .accessibilityHidden(true)
-    }
-}
-
 /// Поверхность карточки на главной: непрозрачная, со скруглением системы и тонкой
 /// границей — в тёмной теме карточка отделяется от фона цветом, а не тенью.
 struct CardSurface: ViewModifier {

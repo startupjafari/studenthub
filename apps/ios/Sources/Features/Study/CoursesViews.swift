@@ -48,7 +48,6 @@ struct CoursesView: View {
         .navigationTitle(Text(MoreSection.subjects.title))
         .searchable(
             text: $query,
-            placement: .navigationBarDrawer(displayMode: .always),
             prompt: Text(String(localized: "courses.search", defaultValue: "Найти дисциплину"))
         )
         .refreshable { await load() }
@@ -357,7 +356,6 @@ struct GroupMembersView: View {
         .navigationTitle(Text(title))
         .searchable(
             text: $query,
-            placement: .navigationBarDrawer(displayMode: .always),
             prompt: Text(String(localized: "group.search", defaultValue: "Найти по имени"))
         )
         .refreshable { await load() }
