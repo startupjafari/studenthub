@@ -32,9 +32,14 @@ private struct ImageAttachmentView: View {
     let open: () -> Void
 
     @State private var remoteURL: URL?
+    /// Спойлер открыт касанием — дальше снимок открывается как обычно.
+    @State private var revealed = false
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let width: CGFloat = 240
+
+    private var isHidden: Bool { attachment.spoiler && !revealed }
 
     private var localURL: URL? {
         guard let path = attachment.localPath, FileManager.default.fileExists(atPath: path) else { return nil }
@@ -53,9 +58,27 @@ private struct ImageAttachmentView: View {
         .id(url)
         .frame(maxWidth: Self.width)
         .frame(height: 180)
+        // Спойлер — размыт до первого касания, как в вебе и Telegram.
+        .blur(radius: isHidden ? 24 : 0)
+        .overlay {
+            if isHidden {
+                Label(String(localized: "chats.spoiler", defaultValue: "Спойлер"), systemImage: "eye.slash")
+                    .font(Typography.meta.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.vertical, Spacing.sm)
+                    .background(.black.opacity(0.4), in: Capsule())
+            }
+        }
         .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
         .contentShape(RoundedRectangle(cornerRadius: Radius.lg))
-        .onTapGesture(perform: open)
+        .onTapGesture {
+            if isHidden {
+                withAnimation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion)) { revealed = true }
+            } else {
+                open()
+            }
+        }
         .task {
             guard localURL == nil, remoteURL == nil else { return }
             remoteURL = await AppServices.attachmentURLs.url(for: attachment.id)

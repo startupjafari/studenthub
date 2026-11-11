@@ -85,7 +85,7 @@ struct LibrarianScanView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $copyCode) { code in LibrarianCopyView(code: code) }
         .navigationDestination(item: $readerToken) { token in LibrarianIssueView(initialToken: token) }
-        .sheet(isPresented: $approvingLogin) { QRApproveView() }
+        .fullScreenCover(isPresented: $approvingLogin) { QRApproveView() }
     }
 
     private func handle(_ raw: String) -> Bool {

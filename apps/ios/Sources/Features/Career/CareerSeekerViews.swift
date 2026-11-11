@@ -877,14 +877,14 @@ private struct CareerApplicationSheet: View {
                     SheetCloseButton { dismiss() }
                 }
             }
-            .confirmationDialog(
+            .alert(
                 String(localized: "career.apps.withdrawConfirm", defaultValue: "Отозвать отклик? Компания увидит, что отклик отозван. Вернуть его нельзя."),
-                isPresented: $confirmWithdraw,
-                titleVisibility: .visible
+                isPresented: $confirmWithdraw
             ) {
                 Button(String(localized: "career.apps.withdraw", defaultValue: "Отозвать"), role: .destructive) {
                     Task { await withdraw() }
                 }
+                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
             }
             .actionFailureAlert($failure)
             .task { await loadHistory() }

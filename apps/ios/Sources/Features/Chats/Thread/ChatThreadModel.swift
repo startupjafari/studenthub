@@ -313,6 +313,18 @@ final class ChatThreadModel {
         message.extras?.reactions.first { $0.userIds.contains(viewerID) }?.emoji
     }
 
+    /// Новый опрос в чате. Сообщение с ним приходит сокетом, как любое другое.
+    @MainActor
+    func createPoll(question: String, options: [String], multiple: Bool, anonymous: Bool) async -> Bool {
+        do {
+            try await actions.createPoll(chatID: chatID, question: question, options: options, multiple: multiple, anonymous: anonymous)
+            return true
+        } catch {
+            actionFailure = message(for: error)
+            return false
+        }
+    }
+
     @MainActor
     func togglePin(_ message: MessageRecord) async {
         guard let remoteID = message.remoteId else { return }
@@ -506,9 +518,18 @@ final class ChatThreadModel {
                 text: text,
                 replyToId: nil,
                 updatedAt: Date(),
-                // Серверу черновик ещё не донесён: это сделает синхронизация списка.
+                // Серверу черновик ещё не донесён — это ниже.
                 isSynced: false
             ).upsert(db)
+        }
+        // Серверу — чтобы черновик был виден в вебе, а после отправки (пустой текст)
+        // не вернулся старым серверным при следующей синхронизации списка. Не вышло —
+        // запись остаётся несинхронизированной, следующий набор повторит.
+        guard (try? await actions.saveDraft(chatID: chatID, text: text)) != nil, !text.isEmpty else { return }
+        try? await database.writer.write { db in
+            guard var record = try DraftRecord.fetchOne(db, key: chatID), record.text == text else { return }
+            record.isSynced = true
+            try record.update(db)
         }
     }
 
@@ -529,6 +550,9 @@ final class ChatThreadModel {
             olderCursor = page.meta?.cursor
             reachedBeginning = page.meta?.hasNext != true
             failure = nil
+        } catch is CancellationError {
+            // Экран ушёл, и запрос отменили — это не сбой: не пугаем красной строкой.
+            return
         } catch {
             failure = message(for: error)
         }
@@ -544,6 +568,9 @@ final class ChatThreadModel {
             olderCursor = page.meta?.cursor
             reachedBeginning = page.meta?.hasNext != true
             failure = nil
+        } catch is CancellationError {
+            // Экран ушёл, и запрос отменили — это не сбой: не пугаем красной строкой.
+            return
         } catch {
             failure = message(for: error)
         }
@@ -568,6 +595,9 @@ final class ChatThreadModel {
             }
             try await store.apply(updates, chatID: chatID)
             failure = nil
+        } catch is CancellationError {
+            // Экран ушёл, и запрос отменили — это не сбой: не пугаем красной строкой.
+            return
         } catch {
             failure = message(for: error)
         }

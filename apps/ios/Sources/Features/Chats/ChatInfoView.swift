@@ -68,7 +68,8 @@ struct ChatInfoView: View {
                     .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: Spacing.sm, trailing: 0))
                     ChatContentList(chatID: chatID, tab: section)
                 }
-                dangerSection(chat)
+                // Заблокировать, очистить и удалить — в «Ещё» под шапкой, как в Telegram:
+                // второй красной карточкой внизу они повторялись.
             }
         }
         .listStyle(.insetGrouped)
@@ -155,16 +156,8 @@ struct ChatInfoView: View {
                         addingMember = true
                     }
                 }
-                Menu {
-                    moreMenu(chat)
-                } label: {
-                    ChatInfoActionLabel(
-                        title: String(localized: "chats.info.more", defaultValue: "Ещё"),
-                        symbol: "ellipsis"
-                    )
-                }
-                .buttonStyle(.plain)
-                .frame(maxWidth: .infinity)
+                HeroMoreButton(menu: moreMenu(chat))
+                    .frame(maxWidth: .infinity)
             }
         }
     }
@@ -179,52 +172,38 @@ struct ChatInfoView: View {
                 Task { await setMuted(false, minutes: nil, importantOnly: false) }
             }
         } else {
-            Menu {
-                MuteMenu.options { minutes, importantOnly in
+            HeroMoreButton(
+                menu: MuteMenu.heroOptions { minutes, importantOnly in
                     Task { await setMuted(true, minutes: minutes, importantOnly: importantOnly) }
-                }
-            } label: {
-                ChatInfoActionLabel(
-                    title: String(localized: "chats.info.sound", defaultValue: "Звук"),
-                    symbol: "bell.fill"
-                )
-            }
-            .buttonStyle(.plain)
+                },
+                title: String(localized: "chats.info.sound", defaultValue: "Звук"),
+                symbol: "bell.fill"
+            )
             .frame(maxWidth: .infinity)
         }
     }
 
-    @ViewBuilder
-    private func moreMenu(_ chat: ChatRecord) -> some View {
+    @HeroMenuBuilder
+    private func moreMenu(_ chat: ChatRecord) -> [HeroMenuElement] {
         if canManageGroup {
-            Button {
+            HeroMenuItem(String(localized: "feed.edit", defaultValue: "Редактировать"), symbol: "pencil") {
                 editing = true
-            } label: {
-                Label(String(localized: "feed.edit", defaultValue: "Редактировать"), systemImage: "pencil")
             }
-            Button {
+            HeroMenuItem(String(localized: "chats.invite.copy", defaultValue: "Скопировать ссылку-приглашение"), symbol: "link") {
                 Task { await copyInvite() }
-            } label: {
-                Label(String(localized: "chats.invite.copy", defaultValue: "Скопировать ссылку-приглашение"), systemImage: "link")
             }
         }
         if chat.kind == .private, peer != nil {
-            Button(role: chat.blocked ? nil : .destructive) {
+            HeroMenuItem(blockTitle(chat), symbol: "hand.raised", isDestructive: !chat.blocked) {
                 confirmingBlock = true
-            } label: {
-                Label(blockTitle(chat), systemImage: "hand.raised")
             }
         }
-        Button(role: .destructive) {
+        HeroMenuItem(String(localized: "chats.clear", defaultValue: "Очистить историю"), symbol: "eraser", isDestructive: true) {
             confirmingClear = true
-        } label: {
-            Label(String(localized: "chats.clear", defaultValue: "Очистить историю"), systemImage: "eraser")
         }
         if chat.kind == .private || chat.kind == .group {
-            Button(role: .destructive) {
+            HeroMenuItem(ChatLeaveTitle.title(for: chat.kind, isOwner: chat.isOwner), symbol: "rectangle.portrait.and.arrow.right", isDestructive: true) {
                 confirmingLeave = true
-            } label: {
-                Label(ChatLeaveTitle.title(for: chat.kind), systemImage: "rectangle.portrait.and.arrow.right")
             }
         }
     }
@@ -366,31 +345,6 @@ struct ChatInfoView: View {
         }
     }
 
-    @ViewBuilder
-    private func dangerSection(_ chat: ChatRecord) -> some View {
-        Section {
-            if chat.kind == .private, peer != nil {
-                Button(role: chat.blocked ? nil : .destructive) {
-                    confirmingBlock = true
-                } label: {
-                    Label(blockTitle(chat), systemImage: "hand.raised")
-                }
-            }
-            Button(role: .destructive) {
-                confirmingClear = true
-            } label: {
-                Label(String(localized: "chats.clear", defaultValue: "Очистить историю"), systemImage: "eraser")
-            }
-            if chat.kind == .private || chat.kind == .group {
-                Button(role: .destructive) {
-                    confirmingLeave = true
-                } label: {
-                    Label(ChatLeaveTitle.title(for: chat.kind), systemImage: "rectangle.portrait.and.arrow.right")
-                }
-            }
-        }
-    }
-
     // MARK: Диалоги
 
     private func withDialogs<V: View>(_ view: V) -> some View {
@@ -413,10 +367,9 @@ struct ChatInfoView: View {
                     pickedMessage = messageID
                 }
             }
-            .confirmationDialog(
+            .alert(
                 String(localized: "chats.clear.title", defaultValue: "Очистить историю у себя?"),
-                isPresented: $confirmingClear,
-                titleVisibility: .visible
+                isPresented: $confirmingClear
             ) {
                 Button(String(localized: "chats.clear", defaultValue: "Очистить историю"), role: .destructive) {
                     Task {
@@ -427,22 +380,22 @@ struct ChatInfoView: View {
                         }
                     }
                 }
+                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
             }
-            .confirmationDialog(
-                String(localized: "chats.delete.chat.title", defaultValue: "Удалить чат?"),
-                isPresented: $confirmingLeave,
-                titleVisibility: .visible
+            .alert(
+                ChatLeaveTitle.question(for: chat?.kind ?? .private, isOwner: chat?.isOwner ?? false),
+                isPresented: $confirmingLeave
             ) {
-                Button(ChatLeaveTitle.title(for: chat?.kind ?? .private), role: .destructive) {
+                Button(ChatLeaveTitle.title(for: chat?.kind ?? .private, isOwner: chat?.isOwner ?? false), role: .destructive) {
                     Task { await leave() }
                 }
+                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
             }
-            .confirmationDialog(
+            .alert(
                 chat?.blocked == true
                     ? String(localized: "chats.unblock.title", defaultValue: "Разблокировать?")
                     : String(localized: "chats.block.title", defaultValue: "Заблокировать пользователя?"),
-                isPresented: $confirmingBlock,
-                titleVisibility: .visible
+                isPresented: $confirmingBlock
             ) {
                 Button(
                     chat?.blocked == true
@@ -452,6 +405,7 @@ struct ChatInfoView: View {
                 ) {
                     Task { await toggleBlock() }
                 }
+                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
             } message: {
                 if chat?.blocked != true {
                     Text(String(localized: "chats.block.message", defaultValue: "Он не сможет писать вам, дружба будет удалена."))
@@ -554,7 +508,8 @@ struct ChatInfoView: View {
     }
 }
 
-/// Круглая стеклянная кнопка шапки с подписью снизу.
+/// Круглая стеклянная кнопка шапки с подписью снизу — та же, что у карточек людей и
+/// групп (`HeroActionLabel`): круги в рядах всего приложения одного размера.
 private struct ChatInfoActionButton: View {
     let title: String
     let symbol: String
@@ -562,37 +517,10 @@ private struct ChatInfoActionButton: View {
 
     var body: some View {
         Button(action: action) {
-            ChatInfoActionLabel(title: title, symbol: symbol)
+            HeroActionLabel(title: title, symbol: symbol)
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
-    }
-}
-
-private struct ChatInfoActionLabel: View {
-    let title: String
-    let symbol: String
-
-    @ScaledMetric(relativeTo: .body) private var size: CGFloat = 52
-
-    var body: some View {
-        VStack(spacing: Spacing.sm) {
-            Image(systemName: symbol)
-                .font(.title3.weight(.medium))
-                .foregroundStyle(Palette.primary)
-                .frame(width: min(size, 72), height: min(size, 72))
-                .glassSurface(in: Circle())
-            Text(title)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(Palette.primary)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(title))
-        .accessibilityAddTraits(.isButton)
     }
 }
 
@@ -811,15 +739,23 @@ private struct ChatContentList: View {
                         }
                     }
                 }
-            } else if let failure {
-                DashboardFailurePlaceholder(message: failure) { await load() }
-            } else if loaded {
-                Text(String(localized: "chats.info.empty", defaultValue: "Здесь пока пусто"))
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
-                    .frame(maxWidth: .infinity)
             } else {
-                ProgressView().frame(maxWidth: .infinity)
+                // Загрузка, пусто и сбой — без карточки, по центру места под вкладками:
+                // тонкая карточка с одним индикатором смотрелась поломкой.
+                Group {
+                    if let failure {
+                        DashboardFailurePlaceholder(message: failure) { await load() }
+                    } else if loaded {
+                        Text(String(localized: "chats.info.empty", defaultValue: "Здесь пока пусто"))
+                            .font(Typography.meta)
+                            .foregroundStyle(Palette.mutedForeground)
+                    } else {
+                        ProgressView()
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 120)
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             }
         }
         .task(id: tab) { await load() }

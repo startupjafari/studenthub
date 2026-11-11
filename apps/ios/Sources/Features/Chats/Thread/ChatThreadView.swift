@@ -110,6 +110,18 @@ struct ChatThreadView: View {
 
                 if model.chat?.requestIncoming == true {
                     ChatRequestBar(chatID: chatID)
+                } else if model.chat?.requestOutgoing == true, model.chat?.lastMessageId != nil || !model.days.isEmpty {
+                    // Первое сообщение ушло запросом — дальше писать нельзя, пока его не
+                    // примут (как в вебе): иначе следующие сообщения молча отклонялись бы.
+                    Label(
+                        String(localized: "chats.requestPending", defaultValue: "Запрос на переписку ещё не принят"),
+                        systemImage: "clock"
+                    )
+                    .font(Typography.meta)
+                    .foregroundStyle(Palette.mutedForeground)
+                    .frame(maxWidth: .infinity)
+                    .padding(Spacing.xl)
+                    .background(.bar)
                 } else if model.chat?.blocked == true || model.chat?.blockedBy == true {
                     Text(model.chat?.blocked == true
                         ? String(localized: "chats.blockedByMe", defaultValue: "Вы заблокировали этого пользователя")
@@ -210,10 +222,9 @@ struct ChatThreadView: View {
                 return await model.forward(message, to: targets)
             }
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "chats.report.title", defaultValue: "Что не так с сообщением?"),
             isPresented: Binding(get: { reporting != nil }, set: { if !$0 { reporting = nil } }),
-            titleVisibility: .visible,
             presenting: reporting
         ) { message in
             ForEach(ComplaintReason.allCases) { reason in
@@ -221,16 +232,17 @@ struct ChatThreadView: View {
                     Task { reported = await model?.report(message, reason: reason.title) ?? false }
                 }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "chats.delete.title", defaultValue: "Удалить сообщение у всех?"),
             isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
-            titleVisibility: .visible,
             presenting: deleting
         ) { message in
             Button(String(localized: "feed.delete", defaultValue: "Удалить"), role: .destructive) {
                 Task { await model?.delete(message) }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
         .alert(String(localized: "feed.report.sent", defaultValue: "Жалоба отправлена"), isPresented: $reported) {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}

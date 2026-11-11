@@ -189,14 +189,14 @@ struct CommunityArticleView: View {
                 CommunityArticleEditor(article: article) { updated in self.article = updated }
             }
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "community.article.delete.title", defaultValue: "Удалить статью?"),
-            isPresented: $confirmingDelete,
-            titleVisibility: .visible
+            isPresented: $confirmingDelete
         ) {
             Button(String(localized: "feed.delete", defaultValue: "Удалить"), role: .destructive) {
                 Task { await deleteArticle() }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
         .confirmDestructive(
             $deletingComment,

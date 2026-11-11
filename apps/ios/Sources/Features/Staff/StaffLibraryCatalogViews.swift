@@ -372,12 +372,12 @@ struct StaffBookDetailView: View {
         .sheet(item: Binding(get: { sheetFile.map { StaffDownloadedFile(url: $0) } }, set: { sheetFile = $0?.url })) { file in
             StaffActivitySheet(items: [file.url])
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "staff.cat.archive.title", defaultValue: "Убрать книгу в архив?"),
-            isPresented: $confirmArchive,
-            titleVisibility: .visible
+            isPresented: $confirmArchive
         ) {
             Button(String(localized: "staff.cat.archive", defaultValue: "В архив")) { Task { await setArchived(true) } }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: {
             Text(String(localized: "staff.cat.archive.message", defaultValue: "Книга исчезнет из каталога читателей. История выдач останется, вернуть из архива можно в любой момент."))
         }
@@ -450,23 +450,17 @@ struct StaffBookDetailView: View {
                         }
                     }
                     HeroActionRow(actions: heroActions(book, copies: copies)) {
-                        Button {
+                        HeroMenuItem(String(localized: "staff.cat.cover", defaultValue: "Обложка"), symbol: "photo") {
                             pickingCover = true
-                        } label: {
-                            Label(String(localized: "staff.cat.cover", defaultValue: "Обложка"), systemImage: "photo")
                         }
-                        Divider()
+                        HeroMenuDivider()
                         if book.archived {
-                            Button {
+                            HeroMenuItem(String(localized: "staff.cat.restore", defaultValue: "Вернуть из архива"), symbol: "tray.and.arrow.up") {
                                 Task { await setArchived(false) }
-                            } label: {
-                                Label(String(localized: "staff.cat.restore", defaultValue: "Вернуть из архива"), systemImage: "tray.and.arrow.up")
                             }
                         } else {
-                            Button(role: .destructive) {
+                            HeroMenuItem(String(localized: "staff.cat.archive", defaultValue: "В архив"), symbol: "archivebox", isDestructive: true) {
                                 confirmArchive = true
-                            } label: {
-                                Label(String(localized: "staff.cat.archive", defaultValue: "В архив"), systemImage: "archivebox")
                             }
                         }
                     }

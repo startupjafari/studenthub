@@ -459,7 +459,7 @@ struct SecurityScanView: View {
         .navigationDestination(item: $roomCode) { code in
             SecurityRoomStatusView(code: code)
         }
-        .sheet(isPresented: $approvingLogin, onDismiss: { round += 1 }) {
+        .fullScreenCover(isPresented: $approvingLogin, onDismiss: { round += 1 }) {
             QRApproveView()
         }
         .onChange(of: verifyToken) { _, value in if value == nil { round += 1 } }

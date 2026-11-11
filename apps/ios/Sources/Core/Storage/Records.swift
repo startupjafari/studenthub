@@ -173,6 +173,8 @@ struct AttachmentRecord: Codable, FetchableRecord, PersistableRecord, Hashable {
     var localPath: String?
     var placeholder: String? = nil
     var durationMs: Int? = nil
+    /// Снимок отправлен «под спойлером»: в пузыре размыт, пока его не коснутся.
+    var spoiler: Bool = false
 
     enum Columns {
         static let messageId = Column(CodingKeys.messageId)

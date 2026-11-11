@@ -64,10 +64,9 @@ struct PostCommentsView: View {
             ? String(localized: "shell.post", defaultValue: "Публикация")
             : String(localized: "feed.comments", defaultValue: "Комментарии")))
         .navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog(
+        .alert(
             String(localized: "feed.report.comment", defaultValue: "Что не так с комментарием?"),
             isPresented: Binding(get: { reportingComment != nil }, set: { if !$0 { reportingComment = nil } }),
-            titleVisibility: .visible,
             presenting: reportingComment
         ) { comment in
             ForEach(ComplaintReason.allCases) { reason in
@@ -75,6 +74,7 @@ struct PostCommentsView: View {
                     Task { reported = await model?.reportComment(comment, reason: reason.title) ?? false }
                 }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
         .alert(String(localized: "feed.report.sent", defaultValue: "Жалоба отправлена"), isPresented: $reported) {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}

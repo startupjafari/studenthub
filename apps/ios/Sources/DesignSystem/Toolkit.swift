@@ -83,9 +83,15 @@ struct PagedList<Item: Decodable & Identifiable, Row: View, Header: View>: View 
                 }
             } else if let failure = loader.failure {
                 ErrorStateView(message: failure, isOffline: loader.isOffline) { await loader.reload() }
+                    .centeredInScreen()
                     .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
             } else {
-                LoadingStateView().listRowBackground(Color.clear)
+                // Первая загрузка — по центру экрана под шапкой, а не строкой у её края.
+                LoadingStateView()
+                    .centeredInScreen()
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
             }
         }
         .listStyle(.insetGrouped)
@@ -395,7 +401,6 @@ struct PersonRow: View {
                     .lineLimit(1)
             }
         }
-        .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
     }
 }
@@ -598,15 +603,18 @@ extension View {
         actionTitle: String,
         perform: @escaping (Item) async -> Void
     ) -> some View {
-        confirmationDialog(
+        // Alert, а не confirmationDialog: на iOS 26 диалог всплывает у вью, к которой
+        // привязан, — у этого модификатора это весь экран, и вопрос про кнопку внизу
+        // появлялся вверху. Alert всегда по центру.
+        alert(
             item.wrappedValue.map(title) ?? "",
             isPresented: Binding(get: { item.wrappedValue != nil }, set: { if !$0 { item.wrappedValue = nil } }),
-            titleVisibility: .visible,
             presenting: item.wrappedValue
         ) { value in
             Button(actionTitle, role: .destructive) {
                 Task { await perform(value) }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
     }
 

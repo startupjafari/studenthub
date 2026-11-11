@@ -197,10 +197,9 @@ private struct LibrarianLoanActionsModifier: ViewModifier {
                     EmptyView()
                 }
             }
-            .confirmationDialog(
+            .alert(
                 confirmTitle,
                 isPresented: Binding(get: { confirmAction != nil }, set: { if !$0, confirmAction != nil { action = nil } }),
-                titleVisibility: .visible,
                 presenting: confirmAction
             ) { pending in
                 switch pending {
@@ -219,6 +218,7 @@ private struct LibrarianLoanActionsModifier: ViewModifier {
                 default:
                     EmptyView()
                 }
+                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
             } message: { pending in
                 switch pending {
                 case .markLost(let loan):

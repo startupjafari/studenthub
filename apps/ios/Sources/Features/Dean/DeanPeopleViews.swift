@@ -66,13 +66,13 @@ struct DeanPeopleView: View {
                 .accessibilityLabel(Text(String(localized: "dean.people.export", defaultValue: "Выгрузить список")))
             }
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "dean.people.export", defaultValue: "Выгрузить список"),
-            isPresented: $exportChoice,
-            titleVisibility: .visible
+            isPresented: $exportChoice
         ) {
             Button(String("Excel (XLSX)")) { export(.xlsx) }
             Button(String("CSV")) { export(.csv) }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: {
             Text(String(localized: "dean.people.exportHint", defaultValue: "В файл попадёт вся выборка с текущими фильтрами. Больше 5000 строк — только CSV."))
         }
@@ -432,18 +432,14 @@ struct DeanStudentView: View {
         return list
     }
 
-    @ViewBuilder
-    private func moreMenu(_ data: Snapshot) -> some View {
-        Button {
+    @HeroMenuBuilder
+    private func moreMenu(_ data: Snapshot) -> [HeroMenuElement] {
+        HeroMenuItem(String(localized: "dean.contact.profile", defaultValue: "Открыть профиль"), symbol: "person.crop.circle") {
             DeanNav.push(.profile(id: data.profile.id))
-        } label: {
-            Label(String(localized: "dean.contact.profile", defaultValue: "Открыть профиль"), systemImage: "person.crop.circle")
         }
         if let group = data.group {
-            Button {
+            HeroMenuItem(String(localized: "dean.student.openGroup", defaultValue: "Карточка группы"), symbol: "person.3") {
                 DeanNav.push(.dean(.group(id: group.id)))
-            } label: {
-                Label(String(localized: "dean.student.openGroup", defaultValue: "Карточка группы"), systemImage: "person.3")
             }
         }
     }

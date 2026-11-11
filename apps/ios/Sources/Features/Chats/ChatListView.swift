@@ -289,29 +289,28 @@ struct ChatListView: View {
                     }
                 }
             }
-            .confirmationDialog(
+            .alert(
                 String(localized: "chats.clear.title", defaultValue: "Очистить историю у себя?"),
                 isPresented: Binding(get: { clearing != nil }, set: { if !$0 { clearing = nil } }),
-                titleVisibility: .visible,
                 presenting: clearing
             ) { row in
                 Button(String(localized: "chats.clear", defaultValue: "Очистить историю"), role: .destructive) {
                     Task { await model.clearHistory(row) }
                 }
+                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
             } message: { _ in
                 Text(String(localized: "chats.clear.message", defaultValue: "У собеседников переписка останется."))
             }
-            .confirmationDialog(
+            .alert(
                 deleting.count > 1
                     ? String(localized: "chats.delete.selected.title", defaultValue: "Удалить выбранные чаты?")
-                    : String(localized: "chats.delete.chat.title", defaultValue: "Удалить чат?"),
+                    : ChatLeaveTitle.question(for: deleting.first?.kind ?? .private, isOwner: deleting.first?.isOwner ?? false),
                 isPresented: Binding(get: { !deleting.isEmpty }, set: { if !$0 { deleting = [] } }),
-                titleVisibility: .visible,
                 presenting: deleting.isEmpty ? nil : deleting
             ) { rows in
                 Button(
                     rows.count == 1
-                        ? ChatLeaveTitle.title(for: rows[0].kind)
+                        ? ChatLeaveTitle.title(for: rows[0].kind, isOwner: rows[0].isOwner)
                         : String(localized: "chats.delete.selected", defaultValue: "Удалить и покинуть"),
                     role: .destructive
                 ) {
@@ -320,6 +319,7 @@ struct ChatListView: View {
                         finishEditing()
                     }
                 }
+                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
             } message: { rows in
                 if rows.count > 1 {
                     Text(String(
@@ -435,7 +435,7 @@ struct ChatListView: View {
             Button(role: .destructive) {
                 deleting = [row]
             } label: {
-                Label(ChatLeaveTitle.title(for: row.kind), systemImage: "trash")
+                Label(ChatLeaveTitle.title(for: row.kind, isOwner: row.isOwner), systemImage: "trash")
             }
         }
     }
@@ -484,7 +484,7 @@ struct MuteMenu: View {
         }
     }
 
-    /// Варианты срока — общие для меню строки и кнопки «Звук» в информации о чате.
+    /// Варианты срока — для меню строки списка чатов.
     @ViewBuilder
     static func options(_ mute: @escaping (Int?, Bool) -> Void) -> some View {
         Button(String(localized: "chats.mute.1h", defaultValue: "На час")) { mute(60, false) }
@@ -496,14 +496,44 @@ struct MuteMenu: View {
         Divider()
         Button(String(localized: "chats.mute.important", defaultValue: "Только важное")) { mute(nil, true) }
     }
+
+    /// Те же варианты для кнопки «Звук» в информации о чате — её меню строит UIKit
+    /// (`HeroMoreButton`).
+    @HeroMenuBuilder
+    static func heroOptions(_ mute: @escaping (Int?, Bool) -> Void) -> [HeroMenuElement] {
+        HeroMenuItem(String(localized: "chats.mute.1h", defaultValue: "На час")) { mute(60, false) }
+        HeroMenuItem(String(localized: "chats.mute.4h", defaultValue: "На 4 часа")) { mute(240, false) }
+        HeroMenuItem(String(localized: "chats.mute.8h", defaultValue: "На 8 часов")) { mute(480, false) }
+        HeroMenuItem(String(localized: "chats.mute.1d", defaultValue: "На сутки")) { mute(1440, false) }
+        HeroMenuItem(String(localized: "chats.mute.3d", defaultValue: "На 3 дня")) { mute(4320, false) }
+        HeroMenuItem(String(localized: "chats.mute.forever", defaultValue: "Навсегда")) { mute(nil, false) }
+        HeroMenuDivider()
+        HeroMenuItem(String(localized: "chats.mute.important", defaultValue: "Только важное")) { mute(nil, true) }
+    }
 }
 
-/// Подпись удаления по виду чата: из группы выходят, личный чат удаляют у себя.
+/// Подпись удаления по виду чата: из группы выходят, личный чат удаляют у себя, а
+/// создатель группы удаляет её целиком — так делает сервер (`DELETE /chats/:id`), и
+/// подпись «Покинуть группу» у него обманывала бы.
 enum ChatLeaveTitle {
-    static func title(for kind: ChatKind) -> String {
-        kind == .group
-            ? String(localized: "chats.leave", defaultValue: "Покинуть группу")
-            : String(localized: "chats.delete.chat", defaultValue: "Удалить чат")
+    static func title(for kind: ChatKind, isOwner: Bool = false) -> String {
+        guard kind == .group else {
+            return String(localized: "chats.delete.chat", defaultValue: "Удалить чат")
+        }
+        return isOwner
+            ? String(localized: "chats.deleteGroup", defaultValue: "Удалить группу")
+            : String(localized: "chats.leave", defaultValue: "Покинуть группу")
+    }
+
+    /// Вопрос перед действием: у создателя группы — что она исчезнет у всех.
+    static func question(for kind: ChatKind, isOwner: Bool) -> String {
+        if kind == .group, isOwner {
+            return String(localized: "chats.deleteGroup.title", defaultValue: "Удалить группу у всех участников?")
+        }
+        if kind == .group {
+            return String(localized: "chats.leave.title", defaultValue: "Покинуть группу?")
+        }
+        return String(localized: "chats.delete.chat.title", defaultValue: "Удалить чат?")
     }
 }
 

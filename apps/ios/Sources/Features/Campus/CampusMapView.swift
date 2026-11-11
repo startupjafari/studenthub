@@ -133,10 +133,15 @@ struct CampusMapView: View {
     private var searchResults: some View {
         List {
             if model.isSearching, model.results.isEmpty {
-                LoadingStateView().listRowBackground(Color.clear)
+                LoadingStateView()
+                    .centeredInScreen()
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
             } else if let failure = model.searchFailure {
                 ErrorStateView(message: failure, isOffline: model.searchOffline) { model.search(query) }
+                    .centeredInScreen()
                     .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
             } else if model.results.isEmpty {
                 EmptyStateView(
                     title: String(localized: "services.notFound", defaultValue: "Ничего не нашлось"),

@@ -165,25 +165,25 @@ struct AdminUniversityView: View {
                 ) {}
             }
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "admin.university.blockTitle", defaultValue: "Заблокировать вуз?"),
-            isPresented: $confirmBlock,
-            titleVisibility: .visible
+            isPresented: $confirmBlock
         ) {
             Button(String(localized: "admin.university.block", defaultValue: "Заблокировать"), role: .destructive) {
                 Task { await setStatus("BLOCKED") }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: {
             Text(String(localized: "admin.university.blockMessage", defaultValue: "Все пользователи «\((university?.name).orEmpty)» будут сразу отключены и не смогут войти, пока вуз не разблокируют."))
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "admin.university.deleteTitle", defaultValue: "Удалить вуз?"),
-            isPresented: $confirmDelete,
-            titleVisibility: .visible
+            isPresented: $confirmDelete
         ) {
             Button(String(localized: "admin.university.delete", defaultValue: "Удалить вуз"), role: .destructive) {
                 Task { await delete() }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: {
             Text(String(localized: "admin.university.deleteMessage", defaultValue: "«\((university?.name).orEmpty)» будет удалён вместе с неиспользованными приглашениями. Действие нельзя отменить."))
         }
@@ -205,31 +205,23 @@ struct AdminUniversityView: View {
                     } moreMenu: {
                         if canEdit {
                             if university.status != "ACTIVE" {
-                                Button {
+                                HeroMenuItem(AdminText.universityStatus("ACTIVE").text, symbol: "checkmark.circle") {
                                     Task { await setStatus("ACTIVE") }
-                                } label: {
-                                    Label(AdminText.universityStatus("ACTIVE").text, systemImage: "checkmark.circle")
                                 }
                             }
                             if university.status != "PENDING" {
-                                Button {
+                                HeroMenuItem(AdminText.universityStatus("PENDING").text, symbol: "hourglass") {
                                     Task { await setStatus("PENDING") }
-                                } label: {
-                                    Label(AdminText.universityStatus("PENDING").text, systemImage: "hourglass")
                                 }
                             }
                             if university.status != "BLOCKED" {
-                                Button(role: .destructive) {
+                                HeroMenuItem(String(localized: "admin.university.block", defaultValue: "Заблокировать"), symbol: "hand.raised", isDestructive: true) {
                                     confirmBlock = true
-                                } label: {
-                                    Label(String(localized: "admin.university.block", defaultValue: "Заблокировать"), systemImage: "hand.raised")
                                 }
                             }
-                            Divider()
-                            Button(role: .destructive) {
+                            HeroMenuDivider()
+                            HeroMenuItem(String(localized: "admin.university.delete", defaultValue: "Удалить вуз"), symbol: "trash", isDestructive: true) {
                                 confirmDelete = true
-                            } label: {
-                                Label(String(localized: "admin.university.delete", defaultValue: "Удалить вуз"), systemImage: "trash")
                             }
                         }
                     }
@@ -628,14 +620,14 @@ struct AdminDemoRequestView: View {
                 AdminDemoRejectForm(requestID: request.id) { await load() }
             }
         }
-        .confirmationDialog(
+        .alert(
             String(localized: "admin.demo.reissueTitle", defaultValue: "Выписать приглашение заново?"),
-            isPresented: $confirmReissue,
-            titleVisibility: .visible
+            isPresented: $confirmReissue
         ) {
             Button(String(localized: "admin.demo.reissue", defaultValue: "Выписать приглашение заново")) {
                 Task { await reissue() }
             }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: {
             Text(String(localized: "admin.demo.reissueMessage", defaultValue: "Прежняя ссылка перестанет работать. Новое письмо уйдёт на \((request?.email).orEmpty)."))
         }
