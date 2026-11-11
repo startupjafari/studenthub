@@ -47,8 +47,12 @@ final class ChatThreadModel {
     private(set) var readsFailure: String?
     private(set) var readsOffline = false
     /// Просьбы прокрутить к последнему сообщению от самой модели: возврат к свежему из
-    /// окна истории. Каждое новое значение — одна прокрутка.
+    /// окна истории, своя отправка. Каждое новое значение — одна прокрутка.
     private(set) var bottomRequests = 0
+    /// Открытие чата ещё не догнало сервер, а в базе — меньше страницы: обычно одно
+    /// превью из списка чатов. Такую ленту не показываем — иначе первым кадром встаёт
+    /// одно сообщение у верха пустого экрана, а через миг его сменяет вся страница.
+    private(set) var isPreparing = true
 
     private let viewerID: String
     private let database: AppDatabase
@@ -91,6 +95,13 @@ final class ChatThreadModel {
     /// Прошлый раз переписку закрыли посреди окна: пока сбрасываемся к свежему, старое
     /// окно не показываем, чтобы лента не мелькнула им.
     private var pendingWindowReset: DetachedWindows.Mark?
+    /// Окно меняется: база уже переписана, а граница окна ещё старая (или наоборот).
+    /// Срезы из наблюдения в это время запоминаются, но в ленту не идут: кадр, где новое
+    /// окно обрезано старой границей или старое показано без границы, уводил ленту в
+    /// случайное место истории — и своё отправленное сообщение так и не появлялось.
+    private var snapshotHolds = 0
+    /// Сеть на открытии молчит дольше разумного — показываем то, что есть в базе.
+    private var preparingTimeout: Task<Void, Never>?
 
     init(
         chatID: String,
@@ -119,6 +130,7 @@ final class ChatThreadModel {
         chatTask?.cancel()
         draftTask?.cancel()
         markReadRetry?.cancel()
+        preparingTimeout?.cancel()
     }
 
     /// Лента показывает окно истории, а не свежие сообщения: кнопка «вниз» ведёт к
@@ -131,6 +143,11 @@ final class ChatThreadModel {
         observeMessages()
         observeChat()
         loadDraft()
+        preparingTimeout = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(2500))
+            guard !Task.isCancelled else { return }
+            await self?.finishPreparing()
+        }
     }
 
     /// Вход в чат: комната сокета плюс обычное открытие.
@@ -178,6 +195,8 @@ final class ChatThreadModel {
         } else {
             await syncOnOpen()
         }
+        preparingTimeout?.cancel()
+        await finishPreparing()
         // Неотправленное с прошлого раза дослать молча: человек нажал «отправить»
         // когда-то давно, и спрашивать его об этом снова незачем. Файлы, чья загрузка
         // оборвалась закрытием приложения, сами не уедут — им «Повторить».
@@ -209,25 +228,46 @@ final class ChatThreadModel {
         applySnapshot()
     }
 
+    /// Открытие догнало сервер (или сеть не ответила вовремя): лента показывает базу.
+    /// Срез читаем заново, а не берём последний из наблюдения: страница только что
+    /// записана, и наблюдение могло ещё не донести её — тогда первым кадром снова
+    /// встало бы одно превью.
+    @MainActor
+    private func finishPreparing() async {
+        guard isPreparing else { return }
+        let fresh = await freshSnapshot()
+        guard isPreparing else { return }
+        if let fresh { snapshot = fresh }
+        isPreparing = false
+        applySnapshot()
+    }
+
     // MARK: - Отправка
 
     @MainActor
     func send() async {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        // Своё новое сообщение встаёт в конец свежей переписки — из окна истории его не
-        // было бы видно. Как в Telegram, отправка возвращает к свежему.
-        if editing == nil { await returnToLatest() }
         if let editing {
             await saveEdit(of: editing, text: text)
             return
         }
 
+        // Поле и полоса ответа пустеют сразу, до сети: человек видит, что нажатие
+        // принято, даже если возврат из окна истории ещё скачивает последнюю страницу.
         let answering = replyTo?.remoteId
         draft = ""
         replyTo = nil
         draftTask?.cancel()
-        await persistDraft("")
+
+        // Своё новое сообщение встаёт в конец свежей переписки — из окна истории его не
+        // было бы видно. Как в Telegram, отправка возвращает к свежему и всегда ведёт
+        // ленту вниз, где бы человек ни стоял.
+        await returnToLatest()
+        bottomRequests += 1
+        // Черновик стирается параллельно: его запрос к серверу не должен задерживать
+        // появление сообщения в ленте.
+        Task { @MainActor [weak self] in await self?.persistDraft("") }
 
         await outbox.send(text: text, chatID: chatID, senderID: viewerID, replyToID: answering)
         // Сообщение ушло — подпись «печатает…» снимаем явно, не дожидаясь таймера.
@@ -239,12 +279,14 @@ final class ChatThreadModel {
     /// в вебе, отдельной формы для подписи нет.
     @MainActor
     func attach(_ attachment: OutgoingAttachment) async {
-        await returnToLatest()
         let caption = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let answering = replyTo?.remoteId
         draft = ""
         replyTo = nil
-        await persistDraft("")
+        draftTask?.cancel()
+        await returnToLatest()
+        bottomRequests += 1
+        Task { @MainActor [weak self] in await self?.persistDraft("") }
 
         // Подпись о загрузке — не сразу: сжатый снимок улетает за доли секунды, и
         // она успела бы только мигнуть (PROJECT.md §9.1a).
@@ -277,15 +319,16 @@ final class ChatThreadModel {
     @MainActor
     func send(attachments: [OutgoingAttachment], caption: String, asFiles: Bool) async {
         guard !attachments.isEmpty else { return }
-        await returnToLatest()
         let text = caption.trimmingCharacters(in: .whitespacesAndNewlines)
         let answering = replyTo?.remoteId
         replyTo = nil
         if editing == nil {
             draft = ""
             draftTask?.cancel()
-            await persistDraft("")
+            Task { @MainActor [weak self] in await self?.persistDraft("") }
         }
+        await returnToLatest()
+        bottomRequests += 1
 
         var queued: [String] = []
         for (index, batch) in Self.batches(of: attachments, asFiles: asFiles).enumerated() {
@@ -493,10 +536,7 @@ final class ChatThreadModel {
         }
         do {
             let page = try await actions.around(messageID: remoteID, chatID: chatID)
-            try await applyWindow(page)
-            if let id = await localID(of: remoteID) {
-                focus = MessageFocus(id: id)
-            }
+            try await applyWindow(page, focusing: remoteID)
         } catch is CancellationError {
             return
         } catch {
@@ -516,13 +556,10 @@ final class ChatThreadModel {
         }
         do {
             let page = try await api.messages(chatID: chatID, aroundDate: start, limit: ChatsAPI.dateWindowLimit)
-            try await applyWindow(page)
             // Позже даты сообщений нет — сервер отдал последнюю страницу: к самому свежему.
             let target = page.items.filter { $0.createdAt >= start }.min { $0.createdAt < $1.createdAt }
                 ?? page.items.max { $0.createdAt < $1.createdAt }
-            if let target, let id = await localID(of: target.id) {
-                focus = MessageFocus(id: id, atTop: target.createdAt >= start)
-            }
+            try await applyWindow(page, focusing: target?.id, atTop: target.map { $0.createdAt >= start } ?? false)
         } catch is CancellationError {
             return
         } catch {
@@ -530,23 +567,27 @@ final class ChatThreadModel {
         }
     }
 
-    /// Строка базы по серверному id: своё сообщение лежит под локальным ключом.
-    private func localID(of remoteID: String) async -> String? {
-        try? await database.reader.read { db in
-            try MessageRecord
-                .filter(MessageRecord.Columns.remoteId == remoteID)
-                .fetchOne(db)?.id
-        }
-    }
-
     // MARK: - Окно истории
 
     /// Показать окно истории вместо переписки. Окно, дошедшее до свежего (сервер говорит,
     /// что новее ничего нет), — это обычная лента, а не окно.
+    ///
+    /// Цель перехода (`focusing`, серверный id) ставится тем же шагом, что и новая лента:
+    /// раздельно лента успела бы показать низ окна, а потом поехать к цели.
     @MainActor
-    private func applyWindow(_ page: Page<ChatMessageDTO>) async throws {
+    private func applyWindow(
+        _ page: Page<ChatMessageDTO>,
+        focusing remoteID: String? = nil,
+        atTop: Bool = false
+    ) async throws {
         windowGeneration += 1
-        try await store.replaceHistory(with: page.items, chatID: chatID)
+        snapshotHolds += 1
+        do {
+            try await store.replaceHistory(with: page.items, chatID: chatID)
+        } catch {
+            releaseSnapshot()
+            throw error
+        }
         olderCursor = page.meta?.cursor
         reachedBeginning = page.meta?.hasNext != true
         if page.meta?.hasPrev == true, let cursor = page.meta?.prevCursor,
@@ -556,6 +597,36 @@ final class ChatThreadModel {
         } else {
             attach()
         }
+        await showFreshSnapshot()
+        // Своё сообщение лежит под локальным ключом — ищем строку по серверному id.
+        if let remoteID, let local = snapshot?.messages.first(where: { $0.remoteId == remoteID }) {
+            focus = MessageFocus(id: local.id, atTop: atTop)
+        }
+    }
+
+    /// Срез переписки прямо из базы, мимо наблюдения: оно доносит запись асинхронно,
+    /// и сразу после неё последний срез в модели ещё старый.
+    @MainActor
+    private func freshSnapshot() async -> ThreadSnapshot? {
+        let request = store.messages(chatID: chatID)
+        let id = chatID
+        return try? await database.reader.read { db in
+            try ChatThreadModel.readSnapshot(request, chatID: id, in: db)
+        }
+    }
+
+    /// Окно сменилось: показать базу как она есть сейчас, вместе с новой границей.
+    @MainActor
+    private func showFreshSnapshot() async {
+        let fresh = await freshSnapshot()
+        if let fresh { snapshot = fresh }
+        releaseSnapshot()
+    }
+
+    /// Снять задержку срезов (`snapshotHolds`) и пересобрать ленту.
+    @MainActor
+    private func releaseSnapshot() {
+        snapshotHolds = max(0, snapshotHolds - 1)
         applySnapshot()
     }
 
@@ -569,14 +640,22 @@ final class ChatThreadModel {
         do {
             let page = try await api.newerMessages(chatID: chatID, after: cursor, limit: ChatsAPI.messagePageLimit)
             guard generation == windowGeneration else { return }
-            try await store.save(messages: page.items, chatID: chatID)
+            // Страница и сдвиг границы — одним кадром: срез со страницей, но со старой
+            // границей, на миг показал бы окно без неё.
+            snapshotHolds += 1
+            do {
+                try await store.save(messages: page.items, chatID: chatID)
+            } catch {
+                releaseSnapshot()
+                throw error
+            }
             let top = page.items.compactMap(\.seq).max() ?? ceiling
             if page.meta?.hasPrev == true, let next = page.meta?.prevCursor, let top {
                 detach(ceiling: top, cursor: next)
-                applySnapshot()
+                await showFreshSnapshot()
             } else {
                 attach()
-                applySnapshot()
+                await showFreshSnapshot()
                 // Окно сомкнулось со свежим. Пришедшее, пока сервер собирал страницу, и
                 // пропущенное сокетом в окне догоняем разницей от его верха.
                 if let top { await catchUp(since: top) }
@@ -607,11 +686,23 @@ final class ChatThreadModel {
             let page = try await api.messages(chatID: chatID, cursor: nil, limit: ChatsAPI.messagePageLimit)
             // Пока шёл запрос, человек перешёл к сообщению: его окно важнее.
             guard generation == windowGeneration else { return true }
-            try await store.replaceHistory(with: page.items, chatID: chatID)
+            // Корень бага «отправил из окна истории — лента уехала в старую дату»: после
+            // замены базы лента собиралась из прошлого среза наблюдения (старое окно), но
+            // уже без границы, и прокрутка вниз шла по нему. Следом приходила настоящая
+            // последняя страница, и лента оставалась где-то посреди неё. Теперь срезы
+            // держатся, пока база и граница не сменятся вместе, а лента собирается из
+            // свежего чтения базы.
+            snapshotHolds += 1
+            do {
+                try await store.replaceHistory(with: page.items, chatID: chatID)
+            } catch {
+                releaseSnapshot()
+                throw error
+            }
             olderCursor = page.meta?.cursor
             reachedBeginning = page.meta?.hasNext != true
             attach()
-            applySnapshot()
+            await showFreshSnapshot()
             failure = nil
             return true
         } catch is CancellationError {
@@ -1066,20 +1157,7 @@ final class ChatThreadModel {
         // Сообщения и вложения читаем одним наблюдением: раздельные дали бы кадр,
         // где картинка уже пришла, а сообщения под неё ещё нет.
         let observation = ValueObservation.tracking { db -> ThreadSnapshot in
-            let messages = try request.fetchAll(db)
-            let attachments = try AttachmentRecord.fetchAll(
-                db,
-                sql: """
-                    SELECT a.* FROM attachment a
-                    JOIN message m ON m.id = a.messageId
-                    WHERE m.chatId = ?
-                    """,
-                arguments: [id]
-            )
-            return ThreadSnapshot(
-                messages: messages,
-                attachments: Dictionary(grouping: attachments, by: \.messageId)
-            )
+            try ChatThreadModel.readSnapshot(request, chatID: id, in: db)
         }
         // Сильная ссылка живёт только на шаг цикла: держи её задача весь бесконечный
         // поток, модель (и её наблюдения) не освободились бы и после ухода из чата.
@@ -1092,14 +1170,36 @@ final class ChatThreadModel {
         }
     }
 
+    /// Срез переписки: сообщения в порядке ленты и их вложения.
+    private static func readSnapshot(
+        _ request: QueryInterfaceRequest<MessageRecord>,
+        chatID: String,
+        in db: Database
+    ) throws -> ThreadSnapshot {
+        let messages = try request.fetchAll(db)
+        let attachments = try AttachmentRecord.fetchAll(
+            db,
+            sql: """
+                SELECT a.* FROM attachment a
+                JOIN message m ON m.id = a.messageId
+                WHERE m.chatId = ?
+                """,
+            arguments: [chatID]
+        )
+        return ThreadSnapshot(
+            messages: messages,
+            attachments: Dictionary(grouping: attachments, by: \.messageId)
+        )
+    }
+
     /// Пересобрать ленту из среза базы. В окне истории — только то, что не новее его
     /// границы. Своё неотправленное видно всегда: оно уйдёт в конец свежей переписки,
     /// но спрятанное, пока нет сети, выглядело бы потерянным.
     @MainActor
     private func applySnapshot() {
-        guard let snapshot else { return }
+        guard let snapshot, snapshotHolds == 0 else { return }
         let visible: [MessageRecord]
-        if pendingWindowReset != nil {
+        if pendingWindowReset != nil || holdsThinHistory(snapshot) {
             visible = []
         } else if let ceiling {
             visible = snapshot.messages.filter { $0.sendState != .sent || ($0.seq ?? .max) <= ceiling }
@@ -1110,6 +1210,16 @@ final class ChatThreadModel {
         pruneSelection()
         days = MessageTimeline.build(from: visible, attachments: snapshot.attachments, viewerID: viewerID)
         pickAnchorIfNeeded()
+    }
+
+    /// На открытии в базе меньше страницы, а сервер знает больше (`lastSeq` — номер
+    /// последнего сообщения чата): это превью из списка, а не история. Ждём страницу.
+    /// Пока строки чата нет, сравнивать не с чем — тоже ждём: открытие закончится само.
+    @MainActor
+    private func holdsThinHistory(_ snapshot: ThreadSnapshot) -> Bool {
+        guard isPreparing else { return false }
+        guard let chat else { return true }
+        return snapshot.messages.count < min(ChatsAPI.messagePageLimit, chat.lastSeq)
     }
 
     @MainActor
@@ -1123,12 +1233,19 @@ final class ChatThreadModel {
                 self.chat = chat
                 self.title = chat?.title
                 self.unreadCount = chat?.unreadCount ?? 0
+                // Пока открытие ждёт страницу, решение «показывать ли базу» зависит от
+                // строки чата — она могла прийти позже сообщений.
+                if self.isPreparing { self.applySnapshot() }
                 self.pickAnchorIfNeeded()
             }
         }
     }
 
     private var unreadCount = 0
+
+    /// Непрочитанное по счётчику сервера. Нужен кнопке «вниз» в окне истории: свежие
+    /// сообщения там спрятаны за границей окна, и по ленте их не посчитать.
+    var unreadInChat: Int { unreadCount }
 
     /// Якорь выбирается один раз за открытие: пересчитывать его на каждое новое
     /// сообщение значило бы дёргать ленту под пальцем.

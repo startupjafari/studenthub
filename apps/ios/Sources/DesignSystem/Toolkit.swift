@@ -496,7 +496,11 @@ struct FilterChips<Value: Hashable>: View {
     }
 
     private func row(equalWidths: Bool) -> some View {
-        HStack(spacing: 2) {
+        // Равные пункты — своя раскладка, а не HStack с бесконечной шириной: та сообщала
+        // `ViewThatFits` сумму подписей, а занимала «пунктов × самый длинный», и ряд,
+        // который на деле не помещался, выбирался и обрезал подпись («Пользова…»).
+        let layout = equalWidths ? AnyLayout(EqualWidthRow(spacing: 2)) : AnyLayout(HStackLayout(spacing: 2))
+        return layout {
             ForEach(Array(options.enumerated()), id: \.offset) { index, option in
                 let isOn = option.value == selection
                 Button {
@@ -527,6 +531,35 @@ struct FilterChips<Value: Hashable>: View {
             }
         }
         .padding(4)
+    }
+}
+
+/// Ряд пунктов одной ширины — по самому длинному. Идеальная ширина честная: «пунктов ×
+/// самый длинный», поэтому `ViewThatFits` отбрасывает ряд, который не помещается, и
+/// берёт прокручиваемую дорожку.
+private struct EqualWidthRow: Layout {
+    var spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard !subviews.isEmpty else { return .zero }
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        let widest = sizes.map(\.width).max() ?? 0
+        let height = sizes.map(\.height).max() ?? 0
+        let needed = widest * CGFloat(subviews.count) + spacing * CGFloat(subviews.count - 1)
+        guard let width = proposal.width, width.isFinite else { return CGSize(width: needed, height: height) }
+        return CGSize(width: max(width, needed), height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard !subviews.isEmpty else { return }
+        let cell = (bounds.width - spacing * CGFloat(subviews.count - 1)) / CGFloat(subviews.count)
+        for (index, subview) in subviews.enumerated() {
+            subview.place(
+                at: CGPoint(x: bounds.minX + CGFloat(index) * (cell + spacing), y: bounds.midY),
+                anchor: .leading,
+                proposal: ProposedViewSize(width: cell, height: bounds.height)
+            )
+        }
     }
 }
 

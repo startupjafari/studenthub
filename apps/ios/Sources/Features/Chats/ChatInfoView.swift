@@ -12,6 +12,7 @@ struct ChatInfoView: View {
 
     @Environment(\.viewerID) private var viewerID
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var chat: ChatRecord?
     @State private var members: [ChatMemberDTO] = []
     @State private var membersLoaded = false
@@ -39,6 +40,15 @@ struct ChatInfoView: View {
     @State private var failure: String?
     /// Медиа, файлы, голосовые и ссылки — со своими страницами и проигрывателем.
     @State private var shared: ChatSharedContent
+    /// Размер списка и его поля под панелями — для высоты места под вкладками.
+    @State private var viewport: CGSize = .zero
+    @State private var viewportInsets = EdgeInsets()
+    /// Верхний край видимой части списка в координатах окна (под панелью навигации).
+    @State private var visibleTop: CGFloat = 0
+    /// Полоса вкладок доехала до верха (или ушла под панель): смена вкладки ставит
+    /// экран к началу новой, как в профиле.
+    @State private var tabsAtTop = false
+    @State private var tabsHeight: CGFloat = 0
     @ScaledMetric(relativeTo: .largeTitle) private var avatarSize: CGFloat = 100
     private let api: ChatActing = ChatsAPI()
     private var realtime: RealtimeCoordinator { AppServices.realtime }
@@ -62,40 +72,74 @@ struct ChatInfoView: View {
     }
 
     private var list: some View {
-        List {
-            header
-                .listRowInsets(EdgeInsets(top: 0, leading: Spacing.lg, bottom: Spacing.md, trailing: Spacing.lg))
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-
-            if let failure {
-                FormAlert(message: failure)
+        ScrollViewReader { scroller in
+            List {
+                header
+                    .listRowInsets(EdgeInsets(top: 0, leading: Spacing.lg, bottom: Spacing.md, trailing: Spacing.lg))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
-            }
 
-            if let chat {
-                detailsSection(chat)
-                if chat.kind != .private, chat.kind != .saved {
-                    membersSection(chat)
+                if let failure {
+                    FormAlert(message: failure)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                 }
-                Section {
-                    FilterChips(
-                        options: ChatMediaKindTab.allCases.map { (value: Optional($0), title: $0.title) },
-                        selection: Binding(get: { section }, set: { if let next = $0 { section = next } }),
-                        fillsWidth: true
-                    )
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: Spacing.sm, trailing: 0))
-                    ChatContentList(shared: shared, tab: section, showInChat: showInChat)
+
+                if let chat {
+                    detailsSection(chat)
+                    if chat.kind != .private, chat.kind != .saved {
+                        membersSection(chat)
+                    }
+                    Section {
+                        FilterChips(
+                            options: ChatMediaKindTab.allCases.map { (value: Optional($0), title: $0.title) },
+                            selection: Binding(
+                                get: { section },
+                                set: { if let next = $0 { select(next, with: scroller) } }
+                            ),
+                            fillsWidth: true
+                        )
+                        // Признак, а не координата: координата меняется на каждом кадре
+                        // прокрутки и перерисовывала бы весь экран.
+                        .onGeometryChange(for: Bool.self) { [edge = visibleTop] proxy in
+                            proxy.frame(in: .global).minY <= edge + 1
+                        } action: { atTop in
+                            tabsAtTop = atTop
+                        }
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { tabsHeight = $0 }
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: Spacing.sm, trailing: 0))
+                        .id(Self.tabsAnchor)
+                        ChatContentList(shared: shared, tab: section, showInChat: showInChat)
+                    }
+                    // Своей секцией, а не строкой под содержимым: иначе последняя строка
+                    // файлов теряла бы скруглённые нижние углы карточки.
+                    if tabFillerHeight > 1 {
+                        Section {
+                            Color.clear
+                                .frame(height: tabFillerHeight)
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets())
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    // Заблокировать, очистить и удалить — в «Ещё» под шапкой, как в Telegram:
+                    // второй красной карточкой внизу они повторялись.
                 }
-                // Заблокировать, очистить и удалить — в «Ещё» под шапкой, как в Telegram:
-                // второй красной карточкой внизу они повторялись.
             }
+            .listStyle(.insetGrouped)
+            .listSectionSpacing(.compact)
+            // Строки уезжают под заголовок «Информация» с плотным краем, как в профиле:
+            // на мягком «Открыть профиль», файлы и плитки просвечивали сквозь заголовок.
+            .hardTopEdge()
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.frame(in: .global).minY + proxy.safeAreaInsets.top
+            } action: { visibleTop = $0 }
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { viewport = $0 }
+            .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { viewportInsets = $0 }
         }
-        .listStyle(.insetGrouped)
-        .listSectionSpacing(.compact)
         .navigationTitle(Text(String(localized: "chats.info.title", defaultValue: "Информация")))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -104,6 +148,52 @@ struct ChatInfoView: View {
                     Button(String(localized: "chats.edit", defaultValue: "Изм.")) { editing = true }
                 }
             }
+        }
+    }
+
+    /// Метка полосы вкладок: к ней прокручивается список при смене вкладки.
+    private static let tabsAnchor = "chat.info.tabs"
+
+    /// Смена вкладки как в Telegram: полоса стоит на месте, содержимое сменяется быстрым
+    /// растворением. Полоса уже у верха — экран встаёт к началу новой вкладки, а не
+    /// остаётся посреди прежней сетки.
+    private func select(_ next: ChatMediaKindTab, with scroller: ScrollViewProxy) {
+        guard next != section else { return }
+        let animation = Motion.respecting(.easeInOut(duration: Motion.Duration.feedback), reduceMotion: reduceMotion)
+        withAnimation(animation) {
+            section = next
+            if tabsAtTop { scroller.scrollTo(Self.tabsAnchor, anchor: .top) }
+        }
+    }
+
+    /// Короткая вкладка не короче экрана под полосой вкладок. Иначе при смене длинной
+    /// сетки на два файла список терял высоту, система поджимала прокрутку — и шапка с
+    /// вкладками прыгала вниз. Высота содержимого оценивается снизу: лишний пустой
+    /// хвост безвреден, нехватка — тот же прыжок.
+    private var tabFillerHeight: CGFloat {
+        guard viewport.height > 0 else { return 0 }
+        let visible = viewport.height - viewportInsets.top - viewportInsets.bottom
+        return max(0, visible - tabsHeight - Spacing.sm - estimatedTabHeight)
+    }
+
+    /// Высота содержимого вкладки по числу записей: ряд сетки — треть ширины, строка
+    /// файла, голосового и ссылки — не ниже 52 pt, заглушка — 120 pt.
+    private var estimatedTabHeight: CGFloat {
+        let rowHeight: CGFloat = 52
+        switch section {
+        case .media:
+            let count = shared.media.items.count
+            guard count > 0 else { return 120 }
+            let rows = (count + 2) / 3
+            // Поля сгруппированного списка по бокам — с запасом: оценка не выше настоящей.
+            let tile = max(0, (viewport.width - 48) / 3)
+            return CGFloat(rows) * (tile + 2)
+        case .files:
+            return shared.files.items.isEmpty ? 120 : CGFloat(shared.files.items.count) * rowHeight
+        case .voice:
+            return shared.voice.items.isEmpty ? 120 : CGFloat(shared.voice.items.count) * rowHeight
+        case .links:
+            return shared.links.items.isEmpty ? 120 : CGFloat(shared.links.items.count) * rowHeight
         }
     }
 

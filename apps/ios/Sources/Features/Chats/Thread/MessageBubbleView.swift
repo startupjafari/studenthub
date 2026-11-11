@@ -77,17 +77,26 @@ struct MessageBubbleView: View {
     private var isDeleted: Bool { message.deletedAt != nil }
     private var showsAvatarColumn: Bool { context.isGroup && !item.isOwn }
 
+    /// Сдвиг чужого пузыря в режиме выбора: ширина кружка и зазор до пузыря.
+    @ScaledMetric(relativeTo: .body) private var selectionMarkSize: CGFloat = 24
+    private var selectionInset: CGFloat { min(selectionMarkSize, 32) + Spacing.md }
+
     var body: some View {
         if message.systemType != nil {
             SystemMessageView(text: SystemMessageText.text(for: message))
         } else {
-            HStack(spacing: Spacing.md) {
-                if selecting {
-                    SelectionMark(isSelected: isSelected)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
+            // Кружок выбора — поверх ряда, а чужой пузырь отъезжает смещением. Вставка
+            // кружка в HStack сужала ряд: переносы текста менялись мгновенно, а рамка
+            // ехала анимацией, и на кадр текст вылезал за пузырь. Смещение раскладку не
+            // трогает. Свой пузырь не двигается — кружку хватает левого отступа.
+            row
+                .offset(x: selecting && !item.isOwn ? selectionInset : 0)
+                .overlay(alignment: .leading) {
+                    if selecting {
+                        SelectionMark(isSelected: isSelected)
+                            .transition(.move(edge: .leading).combined(with: .opacity))
+                    }
                 }
-                row
-            }
             // В режиме выбора пузырь целиком — одна большая кнопка: вложения, цитата
             // и меню под ней не срабатывают, касание только переключает отметку.
             .overlay {
@@ -201,10 +210,25 @@ struct MessageBubbleView: View {
             }
 
             if !isDeleted {
-                ForEach(item.attachments, id: \.id) { attachment in
+                // Снимки и ролики — альбомом-мозаикой, если их несколько; голосовые,
+                // аудио и файлы — строками под ним, как в вебе (`MessageAttachments`).
+                if mediaAttachments.count > 1 {
+                    ChatMediaMosaic(items: mediaAttachments, upload: upload) { attachment in
+                        onAction(.openAttachment(attachment))
+                    }
+                } else if let single = mediaAttachments.first {
+                    AttachmentView(attachment: single, isOwn: item.isOwn, upload: upload) {
+                        onAction(.openAttachment(single))
+                    }
+                }
+                ForEach(otherAttachments, id: \.id) { attachment in
                     AttachmentView(attachment: attachment, isOwn: item.isOwn, upload: upload) {
                         onAction(.openAttachment(attachment))
                     }
+                }
+                if let share = profileShare {
+                    ProfileShareCard(share: share, isOwn: item.isOwn)
+                        .id(share.userID)
                 }
                 if let post = extras.sharedPost {
                     SharedPostCard(post: post, isOwn: item.isOwn) { onAction(.openPost(post.id)) }
@@ -223,7 +247,8 @@ struct MessageBubbleView: View {
                 textBlock
             }
 
-            if let preview = extras.linkPreview, !isDeleted {
+            // У карточки профиля превью той же ссылки было бы повтором.
+            if let preview = extras.linkPreview, !isDeleted, profileShare == nil {
                 LinkPreviewCard(preview: preview, isOwn: item.isOwn)
                     .layoutValue(key: ChatStretches.self, value: true)
             }
@@ -235,10 +260,20 @@ struct MessageBubbleView: View {
                     reactions
                     meta(metaColor).hidden()
                 }
+                // Первая реакция всплывает пружинкой из угла, как в Telegram.
+                .transition(
+                    reduceMotion
+                        ? AnyTransition.opacity
+                        : AnyTransition.scale(scale: 0.5, anchor: item.isOwn ? .bottomTrailing : .bottomLeading)
+                            .combined(with: .opacity)
+                )
             } else if !textCarriesMeta, !isMediaOnly {
                 meta(metaColor).hidden()
             }
         }
+        // Реакции приходят из модели, а не из касания в `withAnimation`: своя пружина на
+        // их смену — появление, исчезновение, смена числа.
+        .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: extras.reactions)
         .overlay(alignment: .bottomTrailing) {
             if isMediaOnly {
                 meta(Palette.primaryForeground)
@@ -303,9 +338,27 @@ struct MessageBubbleView: View {
 
     /// Текстовая строка есть, если есть текст, сообщение удалено или в нём вообще
     /// ничего другого нет. Подпись к вложению может быть пустой — тогда и строки нет.
+    /// Профиль, которым поделились, — карточкой вместо текста со ссылкой.
     private var hasText: Bool {
-        isDeleted || !message.content.isEmpty
+        if isDeleted { return true }
+        if profileShare != nil { return false }
+        return !message.content.isEmpty
             || (item.attachments.isEmpty && extras.poll == nil && extras.sharedPost == nil && extras.sharedStory == nil)
+    }
+
+    /// «Имя\nссылка на профиль» — так уходит «Поделиться профилем»; рисуем карточкой.
+    private var profileShare: ProfileShare? {
+        guard !isDeleted, item.attachments.isEmpty else { return nil }
+        return ProfileShare.parse(message.content)
+    }
+
+    /// Снимки и ролики — плитками (одиночной или альбомом), остальное — строками.
+    private var mediaAttachments: [AttachmentRecord] {
+        item.attachments.filter(\.showsAsMedia)
+    }
+
+    private var otherAttachments: [AttachmentRecord] {
+        item.attachments.filter { !$0.showsAsMedia }
     }
 
     private var showsReactions: Bool { !extras.reactions.isEmpty && !isDeleted }
@@ -318,7 +371,7 @@ struct MessageBubbleView: View {
     /// Только фото без подписи — время поверх снимка, в тёмной капсуле.
     private var isMediaOnly: Bool {
         !isDeleted && !hasText && !showsReactions && !item.attachments.isEmpty
-            && item.attachments.allSatisfy(\.showsAsPhoto)
+            && item.attachments.allSatisfy(\.showsAsMedia)
             && extras.poll == nil && extras.sharedPost == nil && extras.sharedStory == nil
             && extras.linkPreview == nil && message.replyToId == nil && !extras.isForwarded
             && !(context.isGroup && !item.isOwn && item.isFirstInGroup)
@@ -479,23 +532,37 @@ struct MessageBubbleView: View {
         ChatFlowLayout(spacing: Spacing.xs) {
             ForEach(extras.reactions, id: \.emoji) { group in
                 let mine = group.userIds.contains(context.viewerID)
+                let count = group.userIds.count
                 Button {
                     reactionTick += 1
                     onAction(.react(group.emoji))
                 } label: {
                     HStack(spacing: 3) {
                         Text(verbatim: group.emoji)
-                        if group.userIds.count > 1 {
-                            Text(verbatim: group.userIds.count.formatted())
+                        if count > 1 {
+                            Text(verbatim: count.formatted())
                                 .font(Typography.tabular(.footnote).weight(.semibold))
+                                .contentTransition(.numericText(value: Double(count)))
                         }
                     }
                     .padding(.horizontal, Spacing.md)
                     .padding(.vertical, 3)
                     .foregroundStyle(reactionForeground(mine: mine))
                     .background(reactionBackground(mine: mine), in: Capsule())
+                    // Своя реакция поставлена или снята — капсула коротко «вздыхает».
+                    .keyframeAnimator(initialValue: CGFloat(1), trigger: reduceMotion ? false : mine) { content, scale in
+                        content.scaleEffect(scale)
+                    } keyframes: { _ in
+                        SpringKeyframe(1.18, duration: 0.14, spring: .snappy)
+                        SpringKeyframe(1.0, duration: 0.3, spring: .bouncy)
+                    }
                 }
                 .buttonStyle(.plain)
+                .transition(
+                    reduceMotion
+                        ? AnyTransition.opacity
+                        : AnyTransition.scale(scale: 0.3).combined(with: .opacity)
+                )
                 .accessibilityLabel(Text(verbatim: group.emoji))
                 .accessibilityValue(Text(verbatim: group.userIds.count.formatted()))
                 .accessibilityAddTraits(mine ? .isSelected : [])

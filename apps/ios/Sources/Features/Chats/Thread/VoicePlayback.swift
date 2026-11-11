@@ -20,6 +20,7 @@ struct VoiceAttachmentView: View {
     /// Палец ведёт по волне: показываем место под ним, перематываем — когда отпустит.
     @State private var scrub: Double?
     @State private var waveWidth: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var playback: VoicePlayback { VoicePlayback.shared }
     private var rate: VoicePlaybackRate { VoicePlaybackRate.shared }
@@ -55,6 +56,9 @@ struct VoiceAttachmentView: View {
                     .frame(width: ControlHeight.md, height: ControlHeight.md)
                     .background(isOwn ? Palette.primaryForeground : Palette.primary, in: Circle())
                     .contentTransition(.symbolEffect(.replace))
+                    // Состояние меняет проигрыватель, а не касание в `withAnimation`: без
+                    // своей анимации замена значка шла скачком, без перетекания.
+                    .animation(Motion.respecting(.snappy(duration: 0.25), reduceMotion: reduceMotion), value: isPlaying)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Text(isPlaying
@@ -75,6 +79,7 @@ struct VoiceAttachmentView: View {
             }
         }
         .padding(.vertical, Spacing.xs)
+        .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: hasStarted)
         .task(id: attachment.id) {
             profile = await VoiceProfiles.shared.profile(for: attachment)
         }
@@ -131,6 +136,143 @@ struct VoiceAttachmentView: View {
         let current = scrub.flatMap { fraction in duration.map { fraction * $0 } } ?? player.current
         guard let duration, duration > 0 else { return VoiceWave.time(current) }
         return "\(VoiceWave.time(current)) / \(VoiceWave.time(duration))"
+    }
+}
+
+// MARK: - Аудиофайл в пузыре
+
+/// Аудиофайл (не голосовое): проигрыватель прямо в пузыре, как музыка в Telegram, —
+/// кнопка, название файла, полоса проигранного с перемоткой касанием и время.
+///
+/// Играет тем же общим проигрывателем, что и голосовые (`VoicePlayback.shared`): запуск
+/// трека останавливает голосовое и наоборот. Пока файл грузится — кольцо отмены вместо
+/// кнопки.
+struct AudioFileAttachmentView: View {
+    let attachment: AttachmentRecord
+    let isOwn: Bool
+    var upload: AttachmentUploadState?
+
+    @State private var barWidth: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Ширина ровная, как у музыки в Telegram: короткое имя не сжимает плеер в точку, но
+    /// и за пузырь на узком экране он не вылезает.
+    private static let width: CGFloat = 236
+
+    private var playback: VoicePlayback { VoicePlayback.shared }
+    private var isCurrent: Bool { playback.currentID == attachment.id }
+    private var player: VoicePlayer? { isCurrent ? playback.player : nil }
+    private var isPlaying: Bool { player?.isPlaying ?? false }
+    private var hasStarted: Bool { player?.hasStarted ?? false }
+
+    private var duration: Double? {
+        if let seconds = player?.duration, seconds > 0 { return seconds }
+        if let ms = attachment.durationMs, ms > 0 { return Double(ms) / 1000 }
+        return nil
+    }
+
+    private var title: String {
+        attachment.name ?? String(localized: "chats.file", defaultValue: "Файл")
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: Spacing.md) {
+            if let upload {
+                UploadRing(
+                    fraction: upload.fraction,
+                    tint: isOwn ? Palette.primaryForeground : Palette.primary,
+                    backdrop: nil,
+                    diameter: ControlHeight.xl,
+                    cancel: upload.cancel
+                )
+            } else {
+                playButton
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(Typography.body.weight(.medium))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundStyle(isOwn ? Palette.primaryForeground : Palette.foreground)
+                if hasStarted {
+                    progressBar
+                        .transition(.opacity)
+                }
+                HStack(spacing: 3) {
+                    Image(systemName: "music.note")
+                        .font(.caption2.weight(.semibold))
+                        .accessibilityHidden(true)
+                    Text(verbatim: caption)
+                        .font(Typography.tabular(Typography.meta))
+                        .contentTransition(.numericText())
+                }
+                .foregroundStyle(isOwn ? Palette.primaryForeground.opacity(0.8) : Palette.mutedForeground)
+                .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: Self.width, alignment: .leading)
+        .padding(.vertical, Spacing.xs)
+        .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: hasStarted)
+    }
+
+    private var playButton: some View {
+        Button {
+            Task { await playback.toggle(attachment) }
+        } label: {
+            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(isOwn ? Palette.primary : Palette.primaryForeground)
+                .frame(width: ControlHeight.xl, height: ControlHeight.xl)
+                .background(isOwn ? Palette.primaryForeground : Palette.primary, in: Circle())
+                .contentTransition(.symbolEffect(.replace))
+                .animation(Motion.respecting(.snappy(duration: 0.25), reduceMotion: reduceMotion), value: isPlaying)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(isPlaying
+            ? String(localized: "chats.voice.pause", defaultValue: "Пауза")
+            : String(localized: "chats.voice.play", defaultValue: "Слушать")))
+        .accessibilityValue(Text(title))
+    }
+
+    /// Тонкая полоса проигранного; касание перематывает.
+    private var progressBar: some View {
+        let fraction = min(max(player?.progress ?? 0, 0), 1)
+        return Capsule()
+            .fill(isOwn ? Palette.primaryForeground.opacity(0.3) : Palette.primary.opacity(0.2))
+            .overlay(alignment: .leading) {
+                Capsule()
+                    .fill(isOwn ? Palette.primaryForeground : Palette.primary)
+                    .frame(width: max(3, barWidth * fraction))
+            }
+            .frame(height: 3)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { barWidth = $0 }
+            .gesture(SpatialTapGesture().onEnded { value in
+                guard barWidth > 0 else { return }
+                let target = Double(min(max(value.location.x / barWidth, 0), 1))
+                Task { await playback.seek(attachment, to: target) }
+            })
+            .accessibilityElement()
+            .accessibilityLabel(Text(String(localized: "chats.voice.position", defaultValue: "Позиция воспроизведения")))
+            .accessibilityValue(Text(verbatim: caption))
+            .accessibilityAdjustableAction { direction in
+                let step = direction == .increment ? 0.1 : -0.1
+                let target = min(1, max(0, (player?.progress ?? 0) + step))
+                Task { await playback.seek(attachment, to: target) }
+            }
+    }
+
+    /// До запуска — длительность и размер, начатое — «0:05 / 3:20».
+    private var caption: String {
+        if hasStarted, let player {
+            guard let duration, duration > 0 else { return VoiceWave.time(player.current) }
+            return "\(VoiceWave.time(player.current)) / \(VoiceWave.time(duration))"
+        }
+        let size = attachment.size.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
+        return [duration.map(VoiceWave.time), size].compactMap { $0 }.joined(separator: " · ")
     }
 }
 

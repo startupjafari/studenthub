@@ -38,6 +38,8 @@ struct ChatThreadView: View {
     @State private var search: ChatThreadSearch?
     @State private var showsSearchList = false
     @State private var pickingSearchSender = false
+    /// Размер кнопки «вниз» — для запаса под ней в ленте (`ChatScrollDownButton`).
+    @ScaledMetric(relativeTo: .body) private var downButtonSize: CGFloat = 40
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var realtime: RealtimeCoordinator { AppServices.realtime }
     private var jumps: ChatJumpRequests { ChatJumpRequests.shared }
@@ -151,6 +153,7 @@ struct ChatThreadView: View {
                     scrollToBottomToken: bottomToken + model.bottomRequests,
                     onBottomChange: { bottomChanged($0) },
                     followsBottom: !model.isDetached,
+                    bottomInset: listBottomInset(model),
                     onDayTap: { day in
                         calendarDay = day
                         showsCalendar = true
@@ -170,20 +173,31 @@ struct ChatThreadView: View {
                         .transition(.opacity)
                     }
                 }
-                .overlay(alignment: .bottomTrailing) {
-                    // В окне истории кнопка видна и у его низа: свежие сообщения — дальше.
-                    if !atBottom || model.isDetached {
-                        ChatScrollDownButton(count: unseen(model)) {
-                            if model.isDetached {
-                                Task { await model.returnToLatest() }
-                            } else {
-                                bottomToken += 1
-                            }
-                        }
-                        .padding(.trailing, Spacing.lg)
-                        .padding(.bottom, Spacing.md)
-                        .transition(reduceMotion ? .opacity : .scale(scale: 0.6).combined(with: .opacity))
+                .overlay {
+                    // Открытие ждёт первую страницу: вместо одинокого превью — индикатор.
+                    if model.isPreparing, model.days.isEmpty {
+                        ProgressView()
+                            .transition(.opacity)
                     }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    ZStack {
+                        if showsDownButton(model) {
+                            ChatScrollDownButton(count: downButtonCount(model)) {
+                                if model.isDetached {
+                                    Task { await model.returnToLatest() }
+                                } else {
+                                    bottomToken += 1
+                                }
+                            }
+                            .padding(.trailing, Spacing.lg)
+                            .padding(.bottom, Spacing.md)
+                            .transition(reduceMotion ? .opacity : .scale(scale: 0.6).combined(with: .opacity))
+                        }
+                    }
+                    // Появление и уход — и тогда, когда кнопку убирает не прокрутка, а
+                    // поиск или возврат из окна истории.
+                    .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: showsDownButton(model))
                 }
 
                 if let search {
@@ -271,6 +285,25 @@ struct ChatThreadView: View {
         } else if awaySince == nil {
             awaySince = Date()
         }
+    }
+
+    /// Кнопка «вниз»: лента не у низа, а в окне истории — всегда (свежие сообщения
+    /// дальше). В поиске её нет: у панели поиска свои стрелки, и два «вниз» сразу путают.
+    private func showsDownButton(_ model: ChatThreadModel) -> Bool {
+        search == nil && (!atBottom || model.isDetached)
+    }
+
+    /// В окне истории кнопка «вниз» не уходит и у его низа: под ней оставляем место,
+    /// чтобы она не закрывала время последнего пузыря.
+    private func listBottomInset(_ model: ChatThreadModel) -> CGFloat {
+        guard model.isDetached, search == nil else { return 0 }
+        return min(downButtonSize, 56) + Spacing.md
+    }
+
+    /// Число на кнопке «вниз». В окне истории свежие сообщения спрятаны за его границей,
+    /// и посчитать их по ленте нельзя — берём счётчик непрочитанного с сервера.
+    private func downButtonCount(_ model: ChatThreadModel) -> Int {
+        model.isDetached ? max(unseen(model), model.unreadInChat) : unseen(model)
     }
 
     /// Непрочитанное на кнопке «вниз»: пока человек не дошёл до низа с открытия —
@@ -757,6 +790,7 @@ private struct ChatScrollDownButton: View {
     let action: () -> Void
 
     @ScaledMetric(relativeTo: .body) private var size: CGFloat = 40
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
@@ -766,15 +800,21 @@ private struct ChatScrollDownButton: View {
                 .frame(width: min(size, 56), height: min(size, 56))
                 .floatingGlass(in: Circle())
                 .overlay(alignment: .top) {
-                    if count > 0 {
-                        Text(verbatim: count > 999 ? "999+" : count.formatted())
-                            .font(Typography.tabular(.caption).weight(.semibold))
-                            .foregroundStyle(Palette.primaryForeground)
-                            .padding(.horizontal, Spacing.sm)
-                            .frame(minWidth: 20, minHeight: 20)
-                            .background(Palette.primary, in: Capsule())
-                            .offset(y: -12)
+                    ZStack {
+                        if count > 0 {
+                            Text(verbatim: count > 999 ? "999+" : count.formatted())
+                                .font(Typography.tabular(.caption).weight(.semibold))
+                                .foregroundStyle(Palette.primaryForeground)
+                                // Число перелистывается, а не мигает, как счётчики в Telegram.
+                                .contentTransition(.numericText(value: Double(count)))
+                                .padding(.horizontal, Spacing.sm)
+                                .frame(minWidth: 20, minHeight: 20)
+                                .background(Palette.primary, in: Capsule())
+                                .transition(reduceMotion ? .opacity : .scale(scale: 0.5).combined(with: .opacity))
+                        }
                     }
+                    .offset(y: -12)
+                    .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: count)
                 }
         }
         .buttonStyle(.plain)
