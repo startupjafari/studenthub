@@ -75,6 +75,47 @@ struct MessageStore: Sendable {
         }
     }
 
+    /// Заменить переписку окном истории (переход к далёкому сообщению или дате).
+    ///
+    /// Окно с прежней историей не склеить: между ними может лежать что угодно, а лента
+    /// показала бы их встык, и «дыру» никто бы не заметил. Поэтому в базе остаётся только
+    /// окно — дальше оно растёт страницами в обе стороны и снова доходит до свежего.
+    ///
+    /// Не трогаем неотправленное (оно ещё должно уйти) и последнее сообщение чата: на него
+    /// смотрит превью в списке чатов. Позиция догона — по окну: всё, что новее, лента
+    /// дочитает сама.
+    func replaceHistory(with window: [ChatMessageDTO], chatID: String) async throws {
+        try await database.writer.write { db in
+            let chat = try ChatRecord.fetchOne(db, key: chatID)
+            var stale = MessageRecord
+                .filter(MessageRecord.Columns.chatId == chatID)
+                .filter(MessageRecord.Columns.sendState == MessageSendState.sent.rawValue)
+            if let last = chat?.lastMessageId {
+                stale = stale.filter(MessageRecord.Columns.id != last)
+            }
+            try stale.deleteAll(db)
+            for message in window {
+                try Self.upsert(message, in: db)
+            }
+            if var chat = try ChatRecord.fetchOne(db, key: chatID) {
+                chat.lastSeq = window.compactMap(\.seq).max() ?? 0
+                try chat.update(db)
+            }
+        }
+    }
+
+    /// Убрать очищенный у себя период: границы включительно, как на сервере.
+    /// Неотправленное не трогаем — сервер о нём ещё не знает, и очищать там нечего.
+    func clearHistory(chatID: String, from: Date, to: Date) async throws {
+        try await database.writer.write { db in
+            _ = try MessageRecord
+                .filter(MessageRecord.Columns.chatId == chatID)
+                .filter(MessageRecord.Columns.sendState == MessageSendState.sent.rawValue)
+                .filter(MessageRecord.Columns.createdAt >= from && MessageRecord.Columns.createdAt <= to)
+                .deleteAll(db)
+        }
+    }
+
     // MARK: - Внутреннее
 
     /// Подтвердить свою отправку ответом сервера.

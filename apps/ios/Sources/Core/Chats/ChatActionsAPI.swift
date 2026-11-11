@@ -115,6 +115,13 @@ struct ChatReadDTO: Decodable, Equatable, Identifiable {
     let lastReadAt: Date?
 }
 
+/// День календаря переписки со снимком: `day` — местная дата `YYYY-MM-DD`, `url` —
+/// миниатюра самого свежего снимка дня.
+struct ChatCalendarDayDTO: Decodable, Equatable {
+    let day: String
+    let url: String
+}
+
 /// Вид раздела вложений в информации о чате.
 enum ChatMediaKind: String {
     case media, file, voice
@@ -135,6 +142,7 @@ protocol ChatActing: Sendable {
     func pinned(chatID: String) async throws -> [ChatMessageDTO]
     func forward(messageID: String, to chatID: String) async throws
     func searchMessages(_ query: String, chatID: String?) async throws -> [ChatMessageDTO]
+    func searchInChat(_ query: String, chatID: String, senderID: String?, cursor: String?) async throws -> Page<ChatMessageDTO>
     func around(messageID: String, chatID: String) async throws -> Page<ChatMessageDTO>
     func reads(chatID: String) async throws -> [ChatReadDTO]
     // Чат
@@ -143,6 +151,8 @@ protocol ChatActing: Sendable {
     func links(chatID: String, page: PageRequest) async throws -> Page<ChatLinkItemDTO>
     func mute(chatID: String, minutes: Int?, importantOnly: Bool) async throws
     func clearHistory(chatID: String) async throws
+    func clearHistory(chatID: String, from: Date, to: Date) async throws
+    func mediaCalendar(chatID: String, from: Date, to: Date) async throws -> [ChatCalendarDayDTO]
     func deleteChat(chatID: String) async throws
     func acceptRequest(chatID: String) async throws
     func declineRequest(chatID: String) async throws
@@ -203,6 +213,19 @@ extension ChatsAPI: ChatActing {
         return try await client.page(.get("chats/search", query: items), of: ChatMessageDTO.self).items
     }
 
+    /// Поиск внутри одного чата — для поиска прямо в переписке. Свежие первыми, страницы
+    /// по курсору: стрелка «вверх» дочитывает следующую, когда дошла до конца загруженного.
+    func searchInChat(_ query: String, chatID: String, senderID: String?, cursor: String?) async throws -> Page<ChatMessageDTO> {
+        var items = [
+            URLQueryItem(name: "q", value: query),
+            URLQueryItem(name: "chatId", value: chatID),
+            URLQueryItem(name: "limit", value: String(ChatsAPI.searchPageLimit)),
+        ]
+        if let senderID { items.append(URLQueryItem(name: "senderId", value: senderID)) }
+        if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
+        return try await client.page(.get("chats/search", query: items), of: ChatMessageDTO.self)
+    }
+
     /// Окно истории вокруг сообщения — переход к закреплённому, к найденному, по ссылке.
     func around(messageID: String, chatID: String) async throws -> Page<ChatMessageDTO> {
         try await client.page(
@@ -245,6 +268,33 @@ extension ChatsAPI: ChatActing {
     /// Очистка у себя: у собеседников история остаётся.
     func clearHistory(chatID: String) async throws {
         try await client.send(try .post("chats/\(chatID)/clear", json: [String: String]()))
+    }
+
+    /// Очистка у себя за период: границы включительно, сервер сравнивает время сообщения.
+    func clearHistory(chatID: String, from: Date, to: Date) async throws {
+        let format = ISO8601DateFormatter.contract
+        try await client.send(
+            try .post(
+                "chats/\(chatID)/clear",
+                json: ["from": format.string(from: from), "to": format.string(from: to)]
+            )
+        )
+    }
+
+    /// Миниатюры снимков по дням — кружки календаря «Перейти к дате». `tzOffset` — как
+    /// `getTimezoneOffset()` в браузере: день считает сервер, а рисуем местные даты.
+    func mediaCalendar(chatID: String, from: Date, to: Date) async throws -> [ChatCalendarDayDTO] {
+        struct Response: Decodable {
+            let items: [ChatCalendarDayDTO]
+        }
+        let format = ISO8601DateFormatter.contract
+        let offset = -TimeZone.current.secondsFromGMT(for: from) / 60
+        let query = [
+            URLQueryItem(name: "from", value: format.string(from: from)),
+            URLQueryItem(name: "to", value: format.string(from: to)),
+            URLQueryItem(name: "tzOffset", value: String(offset)),
+        ]
+        return try await client.send(.get("chats/\(chatID)/media/calendar", query: query), as: Response.self).items
     }
 
     /// Владелец группы удаляет её целиком, участник выходит, личный чат скрывается у

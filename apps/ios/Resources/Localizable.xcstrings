@@ -93424,6 +93424,23 @@
           }
         }
       }
+    },
+    "chats.calendar.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перейти к дате"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Күнге өту"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -132,15 +132,22 @@ struct ChatThreadView: View {
                         )
                     },
                     selection: model.selection,
-                    scrollToBottomToken: bottomToken,
+                    scrollToBottomToken: bottomToken + model.bottomRequests,
                     onBottomChange: { bottomChanged($0) },
+                    followsBottom: !model.isDetached,
                     onReachTop: { Task { await model.loadOlder() } },
+                    onReachBottom: { Task { await model.loadNewer() } },
                     onAction: { action, message in handle(action, message: message, model: model) }
                 )
                 .overlay(alignment: .bottomTrailing) {
-                    if !atBottom {
+                    // В окне истории кнопка видна и у его низа: свежие сообщения — дальше.
+                    if !atBottom || model.isDetached {
                         ChatScrollDownButton(count: unseen(model)) {
-                            bottomToken += 1
+                            if model.isDetached {
+                                Task { await model.returnToLatest() }
+                            } else {
+                                bottomToken += 1
+                            }
                         }
                         .padding(.trailing, Spacing.lg)
                         .padding(.bottom, Spacing.md)
