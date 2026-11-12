@@ -19,6 +19,9 @@ struct LibrarianBookView: View {
     @State private var selected: Set<String> = []
     @State private var openCopy: LibrarianCopyDTO?
     @State private var coverItem: PhotosPickerItem?
+    /// Окно «Фото» открывает экран, а не строка списка: строка перерисовывается, пока
+    /// окно открыто, и оно зависало на «Загрузке».
+    @State private var pickingCover = false
     @State private var busy = false
     @State private var actionFailure: String?
     @State private var notice: String?
@@ -70,6 +73,7 @@ struct LibrarianBookView: View {
         } message: {
             Text(String(localized: "librarian.book.archiveDesc", defaultValue: "Книга исчезнет из каталога читателей. История выдач останется, вернуть из архива можно в любой момент."))
         }
+        .photosPicker(isPresented: $pickingCover, selection: $coverItem, matching: .images)
         .onChange(of: coverItem) { _, item in
             guard let item else { return }
             Task { await uploadCover(item) }
@@ -130,7 +134,9 @@ struct LibrarianBookView: View {
             // меняет её, ниже — название, авторы, наличие и круглые кнопки действий.
             Section {
                 VStack(spacing: Spacing.sm) {
-                    PhotosPicker(selection: $coverItem, matching: .images) {
+                    Button {
+                        pickingCover = true
+                    } label: {
                         ZStack(alignment: .bottomTrailing) {
                             BookCoverView(url: book.coverUrl, width: 112)
                             Image(systemName: "camera.fill")

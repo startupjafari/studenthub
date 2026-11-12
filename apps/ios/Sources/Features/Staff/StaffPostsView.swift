@@ -158,6 +158,9 @@ private struct StaffPostComposerSheet: View {
     @State private var schedule = false
     @State private var scheduledAt = Date().addingTimeInterval(60 * 60)
     @State private var picks: [PhotosPickerItem] = []
+    /// Окно «Фото» открывает форма, а не её строка: строка перерисовывается, пока окно
+    /// открыто, и оно зависало на «Загрузке».
+    @State private var pickingMedia = false
     @State private var media: [PreparedMedia] = []
     @State private var isPreparing = false
     @State private var isSaving = false
@@ -216,11 +219,9 @@ private struct StaffPostComposerSheet: View {
                             }
                         }
                     }
-                    PhotosPicker(
-                        selection: $picks,
-                        maxSelectionCount: max(Self.maxMedia - media.count, 1),
-                        matching: .any(of: [.images, .videos])
-                    ) {
+                    Button {
+                        pickingMedia = true
+                    } label: {
                         if isPreparing {
                             ProgressView()
                         } else {
@@ -267,6 +268,12 @@ private struct StaffPostComposerSheet: View {
                     }
                 }
             }
+            .photosPicker(
+                isPresented: $pickingMedia,
+                selection: $picks,
+                maxSelectionCount: max(Self.maxMedia - media.count, 1),
+                matching: .any(of: [.images, .videos])
+            )
             .onChange(of: picks) { _, items in
                 Task { await load(items) }
             }
