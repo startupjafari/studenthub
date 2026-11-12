@@ -11,6 +11,9 @@ final class KeyboardFrame {
 
     /// Верх клавиатуры; `nil` — клавиатура спрятана.
     private(set) var top: CGFloat?
+    /// Высота последней показанной клавиатуры — панель emoji встаёт на её место той же
+    /// высоты, и поле ввода не прыгает.
+    private(set) var lastHeight: CGFloat?
 
     private var observers: [NSObjectProtocol] = []
 
@@ -22,7 +25,9 @@ final class KeyboardFrame {
             guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
             MainActor.assumeIsolated {
                 let screen = UIScreen.main.bounds.height
-                self?.top = frame.minY < screen - 1 && frame.height > 0 ? frame.minY : nil
+                let visible = frame.minY < screen - 1 && frame.height > 0
+                self?.top = visible ? frame.minY : nil
+                if visible, frame.height > 200 { self?.lastHeight = screen - frame.minY }
             }
         })
         observers.append(center.addObserver(

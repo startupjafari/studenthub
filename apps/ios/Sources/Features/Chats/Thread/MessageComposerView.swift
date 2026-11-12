@@ -21,6 +21,8 @@ struct MessageComposerView: View {
     /// Выбор в листе вложений ждёт, пока лист закроется.
     @State private var pendingPick: AttachmentPick?
     @State private var showsScanner = false
+    /// Вместо клавиатуры открыта панель emoji, стикеров и GIF.
+    @State private var showsPanel = false
     @State private var creatingChecklist = false
     @State private var pickingContact = false
     @State private var contactToSend: ContactCardDraft?
@@ -94,9 +96,12 @@ struct MessageComposerView: View {
                     .font(Typography.body)
                     .foregroundStyle(Palette.foreground)
                     .focused($isFocused)
-                    .padding(.horizontal, Spacing.lg)
+                    .padding(.leading, Spacing.lg)
+                    // Справа — место под кнопку emoji внутри поля.
+                    .padding(.trailing, ControlHeight.lg)
                     .padding(.vertical, Spacing.md)
                     .frame(minHeight: ControlHeight.lg)
+                    .overlay(alignment: .bottomTrailing) { expressionButton }
                     // Радиус — половина высоты одной строки: в одну строку поле — капсула,
                     // в несколько — скруглённый прямоугольник, как в Telegram.
                     .composerGlass(in: RoundedRectangle(cornerRadius: ControlHeight.lg / 2, style: .continuous))
@@ -134,12 +139,38 @@ struct MessageComposerView: View {
             .padding(.vertical, Spacing.md)
             .frame(minHeight: ControlHeight.chatInput)
             }
+
+            // Панель emoji, стикеров и GIF — на месте клавиатуры и той же высоты.
+            if showsPanel {
+                ExpressionPanel(
+                    onEmoji: { model.draft += $0 },
+                    onBackspace: {
+                        guard !model.draft.isEmpty else { return }
+                        model.draft.removeLast()
+                    },
+                    onSticker: { sticker in
+                        sentTick += 1
+                        Task { await model.sendSticker(id: sticker.id) }
+                    },
+                    onGif: { gif in
+                        sentTick += 1
+                        Task { await model.sendGif(fileID: gif.fileId) }
+                    }
+                )
+                .frame(height: panelHeight)
+                .transition(.move(edge: .bottom))
+            }
         }
+        .animation(Motion.respecting(.spring(duration: 0.3, bounce: 0), reduceMotion: reduceMotion), value: showsPanel)
         .modifier(ComposerBarBackground())
         // «Отправить», вложение, микрофон — клавиатура остаётся, как в мессенджерах.
         .keepsKeyboardOnTap()
         .sensoryFeedback(.impact(weight: .light), trigger: sentTick)
         .voiceRecordingAlerts(recorder)
+        // Касание поля возвращает клавиатуру — панель уступает ей место.
+        .onChange(of: isFocused) { _, focused in
+            if focused, showsPanel { showsPanel = false }
+        }
         // «Ответить» и «Редактировать» из меню сразу открывают клавиатуру.
         .onChange(of: model.replyTo?.id) { _, id in
             if id != nil { isFocused = true }
@@ -228,6 +259,39 @@ struct MessageComposerView: View {
             let draft = openDraft()
             Task { await draft.add(files: urls) }
         }
+    }
+
+    /// Смайлик внутри поля: открыть панель emoji; на открытой панели — клавиатура.
+    private var expressionButton: some View {
+        Button {
+            if showsPanel {
+                isFocused = true
+            } else {
+                // Сначала панель, потом уход клавиатуры: высота под полем не меняется.
+                showsPanel = true
+                isFocused = false
+            }
+        } label: {
+            Image(systemName: showsPanel ? "keyboard" : "face.smiling")
+                .font(.title3)
+                .foregroundStyle(Palette.mutedForeground)
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: ControlHeight.lg, height: ControlHeight.lg)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(showsPanel
+            ? String(localized: "chats.panel.keyboard", defaultValue: "Клавиатура")
+            : String(localized: "chats.panel.open", defaultValue: "Emoji, стикеры и GIF")))
+    }
+
+    /// Высота панели — как у последней клавиатуры за вычетом нижнего отступа экрана
+    /// (панель стоит над ним, клавиатура — нет).
+    private var panelHeight: CGFloat {
+        let bottom = UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets.bottom }
+            .first ?? 0
+        return max(260, (KeyboardFrame.shared.lastHeight ?? 336) - bottom)
     }
 
     private var sendButton: some View {

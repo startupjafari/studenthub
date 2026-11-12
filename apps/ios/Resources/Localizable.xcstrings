@@ -95617,6 +95617,176 @@
           }
         }
       }
+    },
+    "chats.gifs.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Здесь появятся GIF, которые вы отправляли. Новый GIF — через скрепку из «Фото»."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мұнда сіз жіберген GIF-тер шығады. Жаңа GIF — қыстырғыш арқылы «Фото»-дан."
+          }
+        }
+      }
+    },
+    "chats.panel.backspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стереть"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Өшіру"
+          }
+        }
+      }
+    },
+    "chats.panel.emoji": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emoji"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emoji"
+          }
+        }
+      }
+    },
+    "chats.panel.gif": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GIF"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GIF"
+          }
+        }
+      }
+    },
+    "chats.panel.keyboard": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Клавиатура"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пернетақта"
+          }
+        }
+      }
+    },
+    "chats.panel.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emoji, стикеры и GIF"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emoji, стикерлер және GIF"
+          }
+        }
+      }
+    },
+    "chats.panel.searchEmoji": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск emoji (по-английски)"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emoji іздеу (ағылшынша)"
+          }
+        }
+      }
+    },
+    "chats.panel.searchStickers": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск по набору или emoji"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жинақ немесе emoji бойынша іздеу"
+          }
+        }
+      }
+    },
+    "chats.panel.stickers": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стикеры"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стикерлер"
+          }
+        }
+      }
+    },
+    "chats.stickers.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наборов стикеров пока нет — их добавляет администратор платформы"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стикер жинақтары әлі жоқ — оларды платформа әкімшісі қосады"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
