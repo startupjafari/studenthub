@@ -129,7 +129,8 @@ struct MessageMenuOverlay: View {
     private static let reactionsHeight: CGFloat = 48
     private static let menuWidth: CGFloat = 240
     private static let edge: CGFloat = 8
-    private static let menuRadius: CGFloat = 24
+    /// Скругление как у системного меню iOS 26 (длинное нажатие на чат в списке).
+    private static let menuRadius: CGFloat = 28
     /// Поля сверху и снизу списка.
     private static let menuInset: CGFloat = Spacing.sm * 2
     /// Тонкая линия с отступами над «Выбрать», как в Telegram: отделяет режим выбора от
@@ -343,7 +344,15 @@ struct MessageMenuOverlay: View {
                 .foregroundStyle(action.isDestructive ? Palette.destructive : Palette.foreground)
                 .padding(.horizontal, Spacing.xl)
                 .frame(height: rowHeight)
-                .background(pressed == action ? Palette.foreground.opacity(0.12) : Color.clear)
+                // Подсветка под пальцем — скруглённой плашкой с отступом от краёв, как в
+                // системном меню, а не полосой во всю ширину.
+                .background {
+                    if pressed == action {
+                        RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+                            .fill(Palette.foreground.opacity(0.12))
+                            .padding(.horizontal, Spacing.sm)
+                    }
+                }
                 .opacity(isEnabled(action) ? 1 : 0.4)
                 .contentShape(Rectangle())
                 .background {
@@ -377,9 +386,8 @@ struct MessageMenuOverlay: View {
                 }
         )
         .sensoryFeedback(.selection, trigger: pressed) { _, now in now != nil }
-        // Плотная тёмная подложка под стеклом, как у меню Telegram: пузырь и обои под
-        // панелью не просвечивают, текст читается на любом фоне.
-        .background(Palette.popover.opacity(0.85), in: shape)
+        // То же стекло, что у системного меню длинного нажатия в списке чатов и у панели
+        // реакций над пузырём: всё всплывающее — в одном стиле, без своей тёмной подложки.
         .floatingGlass(in: shape)
         .scaleEffect(shown ? 1 : 0.6, anchor: request.item.isOwn ? .topTrailing : .topLeading)
         .opacity(shown ? 1 : 0)
