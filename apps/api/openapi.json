@@ -20725,6 +20725,116 @@
         ]
       }
     },
+    "/chats/gifs/trending": {
+      "get": {
+        "operationId": "ChatGifsController_trending",
+        "parameters": [
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4999,
+              "default": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 50,
+              "default": 24
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ items: [{ id, title, width, height, previewUrl, previewWidth, previewHeight }], nextOffset }"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — offset/limit вне диапазона"
+          },
+          "503": {
+            "description": "FEATURE_DISABLED — GIPHY_API_KEY не задан"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Популярные GIF каталога (offset-пагинация, ≤ 50 за раз)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/gifs/search": {
+      "get": {
+        "operationId": "ChatGifsController_search",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4999,
+              "default": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 50,
+              "default": 24
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ items: [{ id, title, width, height, previewUrl, previewWidth, previewHeight }], nextOffset }"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — пустой или длинный запрос"
+          },
+          "503": {
+            "description": "FEATURE_DISABLED — GIPHY_API_KEY не задан"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Поиск GIF в каталоге (q 1..50, offset-пагинация, ≤ 50 за раз)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
     "/chats": {
       "get": {
         "operationId": "ChatsController_list",
@@ -21828,7 +21938,90 @@
             "bearer": []
           }
         ],
-        "summary": "Отправить геопозицию (только участник)",
+        "summary": "Отправить геопозицию (только участник); с livePeriod — трансляцию на 15 мин/1 ч/8 ч",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/messages/{messageId}/live-location": {
+      "post": {
+        "operationId": "ChatsController_updateLiveLocation",
+        "parameters": [
+          {
+            "name": "messageId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LiveLocationUpdateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ lat, lng, title, address, liveUntil, liveUpdatedAt, heading, accuracy } — location:updated в чат"
+          },
+          "403": {
+            "description": "FORBIDDEN — трансляция не моя; WRONG_SCOPE — не участник"
+          },
+          "404": {
+            "description": "NOT_FOUND — нет сообщения-трансляции или я не участник"
+          },
+          "409": {
+            "description": "LIVE_LOCATION_ENDED — трансляция закончилась"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Новая точка трансляции геопозиции (только отправитель, пока трансляция идёт; чаще раза в 3 с — без изменений)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/messages/{messageId}/live-location/stop": {
+      "post": {
+        "operationId": "ChatsController_stopLiveLocation",
+        "parameters": [
+          {
+            "name": "messageId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Геопозиция с liveUntil = сейчас — location:updated"
+          },
+          "403": {
+            "description": "FORBIDDEN — трансляция не моя"
+          },
+          "404": {
+            "description": "NOT_FOUND — нет сообщения-трансляции или я не участник"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Остановить трансляцию геопозиции (только отправитель)",
         "tags": [
           "Чаты"
         ]
@@ -22024,6 +22217,54 @@
           }
         ],
         "summary": "Отправить GIF повторно (файл из чата, где я участник)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/gif/external": {
+      "post": {
+        "operationId": "ChatsController_sendExternalGif",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatGifExternalSendDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Сообщение создано и разослано (message:new)"
+          },
+          "404": {
+            "description": "NOT_FOUND — GIF нет в каталоге или нет доступа к чату"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — GIF больше 10 МБ"
+          },
+          "503": {
+            "description": "FEATURE_DISABLED — GIPHY_API_KEY не задан"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отправить GIF из каталога (GIPHY) по id — сервер сам скачивает и хранит копию",
         "tags": [
           "Чаты"
         ]
@@ -34949,6 +35190,19 @@
             "minLength": 1,
             "maxLength": 300
           },
+          "livePeriod": {
+            "type": "integer"
+          },
+          "accuracy": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "heading": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 360
+          },
           "replyToId": {
             "type": "string",
             "minLength": 1,
@@ -34958,6 +35212,36 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 64
+          }
+        },
+        "required": [
+          "lat",
+          "lng"
+        ],
+        "additionalProperties": false
+      },
+      "LiveLocationUpdateDto": {
+        "type": "object",
+        "properties": {
+          "lat": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "lng": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "accuracy": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "heading": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 360
           }
         },
         "required": [
@@ -35094,6 +35378,38 @@
         },
         "required": [
           "fileId"
+        ],
+        "additionalProperties": false
+      },
+      "ChatGifExternalSendDto": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "giphy"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9]+$"
+          },
+          "replyToId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "nonce": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "provider",
+          "id"
         ],
         "additionalProperties": false
       },
