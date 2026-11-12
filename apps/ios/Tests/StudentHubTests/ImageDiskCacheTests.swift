@@ -217,7 +217,13 @@ final class ImageDownloadsTests: XCTestCase {
         let url = try XCTUnwrap(URL(string: "https://cdn.test/slow.webp"))
 
         let waiter = Task { await downloads.data(for: url) }
-        try await Task.sleep(for: .milliseconds(50))
+        // Ждём, пока загрузка дошла до сети (до неё — чтение диска), — иначе проверялась бы
+        // отмена до запроса, а не самого запроса. Без часов: на медленной машине тоже.
+        var attempts = 0
+        while await network.calls == 0, attempts < 500 {
+            attempts += 1
+            try await Task.sleep(for: .milliseconds(10))
+        }
         waiter.cancel()
         let result = await waiter.value
 
