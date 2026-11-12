@@ -579,7 +579,9 @@ describe('Чек-листы', () => {
           title: 'T',
           othersCanAdd: true,
           othersCanMark: true,
-          items: [{ id: 'i1', text: 'a', order: 0, doneAt: null, doneBy: null }],
+          items: [
+            { id: 'i1', text: 'a', order: 0, doneAt: null, doneBy: null, createdById: 'author' },
+          ],
         }),
         update: jest.fn().mockResolvedValue({}),
       },

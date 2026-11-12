@@ -258,6 +258,8 @@ struct MessageExtras: Codable, Hashable {
             let done: Bool
             var doneAt: Date? = nil
             var doneBy: ChatPersonDTO? = nil
+            /// Кто добавил пункт: убрать его может он и автор списка.
+            var createdById: String? = nil
         }
 
         let id: String

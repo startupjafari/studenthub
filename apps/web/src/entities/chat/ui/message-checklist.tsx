@@ -34,7 +34,7 @@ function errorCode(e: unknown): string {
 /**
  * Чек-лист в сообщении: заголовок, пункты с галочками, добавление и удаление пунктов.
  * Права — как на сервере (`checklist-permissions`): отмечать и добавлять может автор списка,
- * а остальные — если автор это разрешил; убирать пункт — автор списка.
+ * а остальные — если автор это разрешил; убирать пункт — автор списка или добавивший пункт.
  *
  * Ответ на любое действие — чек-лист целиком: кладём его прямо в сообщение ленты (тот же путь,
  * что у события `checklist:updated`, которое получают остальные участники).
@@ -43,10 +43,12 @@ export function MessageChecklistView({
   checklist,
   mine,
   chatId,
+  viewerId,
 }: {
   checklist: MessageChecklist
   mine: boolean
   chatId: string
+  viewerId?: string
 }) {
   const t = useTranslations('Chats')
   const tErr = useTranslations('Errors')
@@ -83,7 +85,6 @@ export function MessageChecklistView({
 
   const canMark = canMarkChecklist(current, mine)
   const canAdd = canAddChecklistItem(current, mine)
-  const canRemove = canRemoveChecklistItem(mine)
   const done = current.items.filter((item) => item.done).length
   const busy = toggle.isPending || remove.isPending
 
@@ -124,7 +125,7 @@ export function MessageChecklistView({
                 {item.text}
               </span>
             </button>
-            {canRemove && (
+            {canRemoveChecklistItem(item, mine, viewerId) && (
               // На устройствах без наведения крестик виден всегда, с наведением — у пункта
               // под курсором или в фокусе, чтобы список не рябил крестиками.
               <button

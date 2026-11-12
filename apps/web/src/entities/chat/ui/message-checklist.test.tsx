@@ -22,8 +22,8 @@ import { addChecklistItemRequest, chatKeys, removeChecklistItemRequest } from '.
 import type { ChatMessage, MessageChecklist, MessageChecklistItem } from '../model/types'
 import { MessageChecklistView } from './message-checklist'
 
-function item(id: string, text: string): MessageChecklistItem {
-  return { id, text, order: 0, done: false, doneAt: null, doneBy: null }
+function item(id: string, text: string, createdById = 'author'): MessageChecklistItem {
+  return { id, text, order: 0, done: false, doneAt: null, doneBy: null, createdById }
 }
 
 function checklist(patch: Partial<MessageChecklist> = {}): MessageChecklist {
@@ -37,7 +37,7 @@ function checklist(patch: Partial<MessageChecklist> = {}): MessageChecklist {
   }
 }
 
-function setup(props: { checklist: MessageChecklist; mine: boolean }) {
+function setup(props: { checklist: MessageChecklist; mine: boolean; viewerId?: string }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   qc.setQueryData<ChatMessage[]>(chatKeys.messages('c1'), [
     { id: 'm1', chatId: 'c1', checklist: props.checklist } as unknown as ChatMessage,
@@ -62,6 +62,15 @@ describe('MessageChecklistView — права', () => {
     setup({ checklist: checklist(), mine: false })
     expect(screen.getByRole('button', { name: 'checklistAddItem' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'checklistRemoveItem' })).toBeNull()
+  })
+
+  it('участник убирает пункт, который добавил сам, но не чужой', () => {
+    setup({
+      checklist: checklist({ items: [item('i1', 'Хлеб'), item('i2', 'Молоко', 'u2')] }),
+      mine: false,
+      viewerId: 'u2',
+    })
+    expect(screen.getAllByRole('button', { name: 'checklistRemoveItem' })).toHaveLength(1)
   })
 
   it('участник без othersCanAdd не добавляет', () => {

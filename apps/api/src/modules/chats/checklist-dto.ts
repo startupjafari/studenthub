@@ -17,6 +17,9 @@ export const CHECKLIST_SELECT = {
       order: true,
       doneAt: true,
       doneBy: { select: { id: true, firstName: true, lastName: true } },
+      // Кто добавил пункт: убрать его может он сам и автор списка — клиенту нужно это знать,
+      // чтобы показать «убрать» тем, кому сервер это разрешит.
+      createdById: true,
     },
     orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
     // Пунктов не бывает больше потолка — take страхует выборку (BACKEND_RULES §5.3).
@@ -33,6 +36,7 @@ export interface ChecklistItemDto {
   done: boolean
   doneAt: Date | null
   doneBy: { id: string; firstName: string; lastName: string } | null
+  createdById: string
 }
 
 export interface ChecklistDto {
@@ -60,6 +64,7 @@ export function toChecklistDto(row: ChecklistRow | ChecklistDto): ChecklistDto {
       done: item.doneAt !== null,
       doneAt: item.doneAt,
       doneBy: item.doneBy,
+      createdById: item.createdById,
     })),
   }
 }

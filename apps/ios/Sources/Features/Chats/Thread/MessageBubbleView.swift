@@ -267,7 +267,9 @@ struct MessageBubbleView: View {
                     ContactMessageView(contact: contact, isOwn: item.isOwn)
                 }
                 if let checklist = extras.checklist {
-                    ChecklistMessageView(checklist: checklist, isOwn: item.isOwn, isAuthor: item.isOwn)
+                    ChecklistMessageView(
+                        checklist: checklist, isOwn: item.isOwn, isAuthor: item.isOwn, viewerID: context.viewerID
+                    )
                 }
             }
 

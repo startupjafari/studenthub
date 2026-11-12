@@ -216,6 +216,7 @@ struct ChecklistMessageView: View {
     let isOwn: Bool
     /// Автор сообщения — ему можно всё, остальным — по настройкам списка.
     let isAuthor: Bool
+    var viewerID = ""
 
     @State private var busy: Set<String> = []
     @State private var adding = false
@@ -318,14 +319,24 @@ struct ChecklistMessageView: View {
                 }
             }
             Spacer(minLength: 0)
-        }
-        .contextMenu {
-            if isAuthor {
-                Button(role: .destructive) {
-                    Task { await apply { try await api.removeChecklistItem(checklistID: current.id, itemID: item.id) } }
+            // Убрать пункт: автор списка и тот, кто пункт добавил (как проверяет сервер).
+            if isAuthor || (item.createdById != nil && item.createdById == viewerID) {
+                Button {
+                    busy.insert(item.id)
+                    Task {
+                        await apply { try await api.removeChecklistItem(checklistID: current.id, itemID: item.id) }
+                        busy.remove(item.id)
+                    }
                 } label: {
-                    Label(String(localized: "chats.checklist.remove", defaultValue: "Убрать пункт"), systemImage: "trash")
+                    Image(systemName: "xmark")
+                        .font(.caption2.weight(.bold))
+                        .opacity(0.55)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .disabled(busy.contains(item.id))
+                .accessibilityLabel(Text(String(localized: "chats.checklist.remove", defaultValue: "Убрать пункт")))
             }
         }
     }

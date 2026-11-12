@@ -195,6 +195,8 @@ export interface MessageChecklistItem {
   done: boolean
   doneAt: string | null
   doneBy: { id: string; firstName: string; lastName: string } | null
+  /** Кто добавил пункт; у ответов старого сервера поля нет. */
+  createdById?: string
 }
 
 export interface MessageChecklist {
