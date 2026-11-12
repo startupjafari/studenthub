@@ -360,11 +360,13 @@ private struct GifBrowser: View {
     let onPick: (GifChoice) -> Void
 
     @State private var query = ""
-    @State private var recent: [RecentGifDTO] = []
-    @State private var found: [ExternalGifDTO] = []
-    @State private var nextOffset: Int?
+    // Повторное открытие панели — сразу с прошлым ответом: раньше каждый раз крутился
+    // индикатор, пока сеть заново не скажет то же самое. Сеть догоняет в фоне.
+    @State private var recent: [RecentGifDTO] = GifPanelCache.shared.recent ?? []
+    @State private var found: [ExternalGifDTO] = GifPanelCache.shared.trending ?? []
+    @State private var nextOffset: Int? = GifPanelCache.shared.trendingNext
     @State private var isLoading = false
-    @State private var searchDisabled = false
+    @State private var searchDisabled = GifPanelCache.shared.searchDisabled
     @State private var failure: String?
     private let api: ChatMessaging = ChatsAPI()
 
@@ -502,16 +504,25 @@ private struct GifBrowser: View {
     }
 
     private func loadRecent() async {
-        recent = (try? await api.recentGifs()) ?? []
+        guard let list = try? await api.recentGifs() else {
+            if GifPanelCache.shared.recent == nil { recent = [] }
+            return
+        }
+        recent = list
+        GifPanelCache.shared.recent = list
     }
 
     private func search() async {
         guard !searchDisabled else { return }
         isLoading = true
         defer { isLoading = false }
-        found = []
-        nextOffset = nil
-        await fetch(offset: 0)
+        // Популярные из прошлого открытия остаются на экране, пока не придут свежие.
+        let keepsShown = query.trimmingCharacters(in: .whitespaces).isEmpty && !found.isEmpty
+        if !keepsShown {
+            found = []
+            nextOffset = nil
+        }
+        await fetch(offset: 0, replacing: keepsShown)
     }
 
     private func loadMore() async {
@@ -521,21 +532,41 @@ private struct GifBrowser: View {
         await fetch(offset: offset)
     }
 
-    private func fetch(offset: Int) async {
+    private func fetch(offset: Int, replacing: Bool = false) async {
         do {
             let page = try await api.searchGifs(query, offset: offset)
-            let known = Set(found.map(\.id))
-            found += page.items.filter { !known.contains($0.id) }
+            if replacing {
+                found = page.items
+            } else {
+                let known = Set(found.map(\.id))
+                found += page.items.filter { !known.contains($0.id) }
+            }
             nextOffset = page.nextOffset
             failure = nil
+            if query.trimmingCharacters(in: .whitespaces).isEmpty, offset == 0 {
+                GifPanelCache.shared.trending = page.items
+                GifPanelCache.shared.trendingNext = page.nextOffset
+            }
         } catch is CancellationError {
             return
         } catch let error as APIError where error.code == .unknown("FEATURE_DISABLED") {
             searchDisabled = true
+            GifPanelCache.shared.searchDisabled = true
         } catch {
             failure = error.userMessage
         }
     }
+}
+
+/// Последний ответ вкладки GIF за сеанс: свои недавние, первая страница популярных и
+/// выключен ли каталог на сервере.
+final class GifPanelCache: @unchecked Sendable {
+    static let shared = GifPanelCache()
+
+    var recent: [RecentGifDTO]?
+    var trending: [ExternalGifDTO]?
+    var trendingNext: Int?
+    var searchDisabled = false
 }
 
 private struct GifThumbnail: View {
