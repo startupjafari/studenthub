@@ -10,111 +10,126 @@ struct EmojiBrowser: View {
     let onPick: (String) -> Void
 
     @State private var query = ""
-    @State private var selected: String?
+    /// Раздел у верха сетки. Касание в полосе прокручивает к разделу, прокрутка пальцем
+    /// двигает подсветку в полосе — как в Telegram.
+    @State private var current: String?
 
     private static let recentID = "recent"
     private var recents: RecentEmoji { RecentEmoji.shared }
 
-    var body: some View {
-        ScrollViewReader { reader in
-            VStack(spacing: Spacing.sm) {
-                categoryStrip(reader)
-                ExpressionSearchField(
-                    query: $query,
-                    prompt: String(localized: "chats.panel.search", defaultValue: "Поиск")
-                )
-                .padding(.horizontal, Spacing.md)
+    private struct GridSection: Identifiable {
+        let id: String
+        let title: String
+        let symbol: String
+        let emoji: [String]
+        var clearable = false
+    }
 
-                if query.trimmingCharacters(in: .whitespaces).isEmpty {
-                    grid
-                } else {
-                    EmojiSearchResults(query: query, columns: columns, bottomInset: bottomInset, onPick: onPick)
-                }
-            }
-            .padding(.top, Spacing.sm)
+    private var sections: [GridSection] {
+        var result: [GridSection] = []
+        if !recents.items.isEmpty {
+            result.append(GridSection(
+                id: Self.recentID,
+                title: String(localized: "emoji.recent", defaultValue: "Недавние"),
+                symbol: "clock",
+                emoji: recents.items,
+                clearable: true
+            ))
         }
+        result += EmojiCatalog.categories.map {
+            GridSection(id: $0.id, title: $0.title, symbol: $0.symbol, emoji: $0.emoji)
+        }
+        return result
+    }
+
+    var body: some View {
+        let sections = sections
+        VStack(spacing: Spacing.sm) {
+            categoryStrip(sections)
+            ExpressionSearchField(
+                query: $query,
+                prompt: String(localized: "chats.panel.search", defaultValue: "Поиск")
+            )
+            .padding(.horizontal, Spacing.md)
+
+            if query.trimmingCharacters(in: .whitespaces).isEmpty {
+                grid(sections)
+            } else {
+                EmojiSearchResults(query: query, columns: columns, bottomInset: bottomInset, onPick: onPick)
+            }
+        }
+        .padding(.top, Spacing.sm)
     }
 
     // MARK: Полоса разделов
 
-    private func categoryStrip(_ reader: ScrollViewProxy) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: Spacing.xs) {
-                if !recents.items.isEmpty {
-                    stripButton(
-                        id: Self.recentID,
-                        symbol: "clock",
-                        title: String(localized: "emoji.recent", defaultValue: "Недавние"),
-                        reader: reader
-                    )
+    private func categoryStrip(_ sections: [GridSection]) -> some View {
+        let shown = current ?? sections.first?.id
+        return ScrollViewReader { strip in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Spacing.xs) {
+                    ForEach(sections) { section in
+                        let isCurrent = shown == section.id
+                        Button {
+                            // Раздел из полосы выходит и из поиска: сетка возвращается к нему.
+                            query = ""
+                            withAnimation { current = section.id }
+                        } label: {
+                            Image(systemName: section.symbol)
+                                .font(.title3)
+                                .foregroundStyle(isCurrent ? Palette.foreground : Palette.mutedForeground)
+                                .frame(width: 36, height: 36)
+                                .background(isCurrent ? Palette.muted : Color.clear, in: Circle())
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .id(section.id)
+                        .accessibilityLabel(Text(section.title))
+                        .accessibilityAddTraits(isCurrent ? .isSelected : [])
+                    }
                 }
-                ForEach(EmojiCatalog.categories) { category in
-                    stripButton(id: category.id, symbol: category.symbol, title: category.title, reader: reader)
-                }
+                .padding(.horizontal, Spacing.md)
             }
-            .padding(.horizontal, Spacing.md)
+            // Подсвеченный раздел не уезжает за край полосы.
+            .onChange(of: current) { _, id in
+                guard let id else { return }
+                withAnimation { strip.scrollTo(id) }
+            }
         }
-    }
-
-    private func stripButton(id: String, symbol: String, title: String, reader: ScrollViewProxy) -> some View {
-        let isCurrent = (selected ?? firstSectionID) == id
-        return Button {
-            selected = id
-            // Раздел из полосы выходит и из поиска: сетка возвращается к нему.
-            query = ""
-            withAnimation { reader.scrollTo(id, anchor: .top) }
-        } label: {
-            Image(systemName: symbol)
-                .font(.title3)
-                .foregroundStyle(isCurrent ? Palette.foreground : Palette.mutedForeground)
-                .frame(width: 36, height: 36)
-                .background(isCurrent ? Palette.muted : Color.clear, in: Circle())
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text(title))
-        .accessibilityAddTraits(isCurrent ? .isSelected : [])
-    }
-
-    private var firstSectionID: String {
-        recents.items.isEmpty ? (EmojiCatalog.categories.first?.id ?? Self.recentID) : Self.recentID
     }
 
     // MARK: Сетка
 
-    private var grid: some View {
+    /// Разделы — прямые элементы ленивого столбца: только к таким прокрутка находит
+    /// дорогу, пока раздел ещё не построен. Метка на заголовке внутри ленивой сетки
+    /// для дальних разделов не находилась, и полоса ничего не переключала.
+    private func grid(_ sections: [GridSection]) -> some View {
         ScrollView {
-            LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: columns),
-                spacing: 2
-            ) {
-                if !recents.items.isEmpty {
-                    section(
-                        id: Self.recentID,
-                        title: String(localized: "emoji.recent", defaultValue: "Недавние"),
-                        emoji: recents.items,
-                        onClear: { withAnimation { recents.clear() } }
-                    )
-                }
-                ForEach(EmojiCatalog.categories) { category in
-                    section(id: category.id, title: category.title, emoji: category.emoji)
+            LazyVStack(spacing: 0) {
+                ForEach(sections) { section in
+                    VStack(spacing: 0) {
+                        ExpressionSectionHeader(
+                            title: section.title,
+                            onClear: section.clearable ? { withAnimation { recents.clear() } } : nil
+                        )
+                        LazyVGrid(
+                            columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: columns),
+                            spacing: 2
+                        ) {
+                            ForEach(section.emoji, id: \.self) { item in
+                                EmojiCell(emoji: item, onPick: onPick)
+                            }
+                        }
+                    }
+                    .id(section.id)
                 }
             }
+            .scrollTargetLayout()
             .padding(.horizontal, Spacing.xs)
         }
+        .scrollPosition(id: $current, anchor: .top)
         .contentMargins(.bottom, bottomInset, for: .scrollContent)
         .scrollDismissesKeyboard(.immediately)
-    }
-
-    private func section(id: String, title: String, emoji: [String], onClear: (() -> Void)? = nil) -> some View {
-        Section {
-            ForEach(emoji, id: \.self) { item in
-                EmojiCell(emoji: item, onPick: onPick)
-            }
-        } header: {
-            ExpressionSectionHeader(title: title, onClear: onClear)
-                .id(id)
-        }
     }
 }
 

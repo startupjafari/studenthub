@@ -124,6 +124,8 @@ private struct StickerBrowser: View {
     let onPick: (StickerSetDTO.Sticker) -> Void
 
     @State private var query = ""
+    /// Набор у верха ленты: касание в полосе прокручивает к нему, прокрутка пальцем
+    /// двигает подсветку (см. `EmojiBrowser`).
     @State private var selectedSet: String?
     private var catalog: StickerCatalog { StickerCatalog.shared }
     private var recents: RecentStickers { RecentStickers.shared }
@@ -131,20 +133,18 @@ private struct StickerBrowser: View {
     private static let recentID = "recent"
 
     var body: some View {
-        ScrollViewReader { reader in
-            VStack(spacing: Spacing.sm) {
-                if !catalog.sets.isEmpty {
-                    setStrip(reader)
-                }
-                ExpressionSearchField(
-                    query: $query,
-                    prompt: String(localized: "chats.panel.search", defaultValue: "Поиск")
-                )
-                .padding(.horizontal, Spacing.md)
-                content
+        VStack(spacing: Spacing.sm) {
+            if !catalog.sets.isEmpty {
+                setStrip
             }
-            .padding(.top, Spacing.sm)
+            ExpressionSearchField(
+                query: $query,
+                prompt: String(localized: "chats.panel.search", defaultValue: "Поиск")
+            )
+            .padding(.horizontal, Spacing.md)
+            content
         }
+        .padding(.top, Spacing.sm)
         .task { await catalog.load() }
     }
 
@@ -184,8 +184,10 @@ private struct StickerBrowser: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
-                LazyVGrid(columns: Self.columns, spacing: Spacing.sm) {
-                    if term.isEmpty {
+                if term.isEmpty {
+                    // Наборы — прямые элементы ленивого столбца: только к ним прокрутка
+                    // находит дорогу, пока набор ещё не построен.
+                    LazyVStack(spacing: 0) {
                         if !recentStickers.isEmpty {
                             section(
                                 id: Self.recentID,
@@ -196,13 +198,17 @@ private struct StickerBrowser: View {
                         ForEach(catalog.sets) { set in
                             section(id: set.id, title: set.title, stickers: set.stickers)
                         }
-                    } else {
+                    }
+                    .scrollTargetLayout()
+                    .padding(.horizontal, Spacing.md)
+                } else {
+                    LazyVGrid(columns: Self.columns, spacing: Spacing.sm) {
                         ForEach(found) { sticker in
                             cell(sticker)
                         }
                     }
+                    .padding(.horizontal, Spacing.md)
                 }
-                .padding(.horizontal, Spacing.md)
                 if !term.isEmpty, found.isEmpty {
                     Text(String(localized: "services.notFound", defaultValue: "Ничего не нашлось"))
                         .font(Typography.meta)
@@ -211,6 +217,7 @@ private struct StickerBrowser: View {
                         .padding(Spacing.xxl)
                 }
             }
+            .scrollPosition(id: $selectedSet, anchor: .top)
             .contentMargins(.bottom, bottomInset, for: .scrollContent)
             .scrollDismissesKeyboard(.immediately)
         }
@@ -219,14 +226,15 @@ private struct StickerBrowser: View {
     private static let columns = Array(repeating: GridItem(.flexible(), spacing: Spacing.sm), count: 5)
 
     private func section(id: String, title: String, stickers: [StickerSetDTO.Sticker]) -> some View {
-        Section {
-            ForEach(stickers) { sticker in
-                cell(sticker)
-            }
-        } header: {
+        VStack(spacing: 0) {
             ExpressionSectionHeader(title: title)
-                .id(id)
+            LazyVGrid(columns: Self.columns, spacing: Spacing.sm) {
+                ForEach(stickers) { sticker in
+                    cell(sticker)
+                }
+            }
         }
+        .id(id)
     }
 
     private func cell(_ sticker: StickerSetDTO.Sticker) -> some View {
@@ -243,47 +251,53 @@ private struct StickerBrowser: View {
         .accessibilityLabel(Text(Self.label(for: sticker)))
     }
 
-    private func setStrip(_ reader: ScrollViewProxy) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: Spacing.xs) {
-                if !recentStickers.isEmpty {
-                    stripButton(id: Self.recentID, title: String(localized: "emoji.recent", defaultValue: "Недавние"), reader: reader) {
-                        Image(systemName: "clock")
-                            .font(.title3)
-                            .foregroundStyle(Palette.mutedForeground)
+    private var setStrip: some View {
+        ScrollViewReader { strip in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Spacing.xs) {
+                    if !recentStickers.isEmpty {
+                        stripButton(id: Self.recentID, title: String(localized: "emoji.recent", defaultValue: "Недавние")) {
+                            Image(systemName: "clock")
+                                .font(.title3)
+                                .foregroundStyle(Palette.mutedForeground)
+                        }
                     }
-                }
-                ForEach(catalog.sets) { set in
-                    stripButton(id: set.id, title: set.title, reader: reader) {
-                        if let first = set.stickers.first {
-                            StickerImage(stickerID: first.id, emoji: first.emoji, url: first.url)
+                    ForEach(catalog.sets) { set in
+                        stripButton(id: set.id, title: set.title) {
+                            if let first = set.stickers.first {
+                                StickerImage(stickerID: first.id, emoji: first.emoji, url: first.url)
+                            }
                         }
                     }
                 }
+                .padding(.horizontal, Spacing.md)
             }
-            .padding(.horizontal, Spacing.md)
+            .onChange(of: selectedSet) { _, id in
+                guard let id else { return }
+                withAnimation { strip.scrollTo(id) }
+            }
         }
     }
 
     private func stripButton<Icon: View>(
         id: String,
         title: String,
-        reader: ScrollViewProxy,
         @ViewBuilder icon: () -> Icon
     ) -> some View {
         let isCurrent = currentSet == id
         return Button {
-            selectedSet = id
-            // Раздел из полосы выходит и из поиска: сетка возвращается к нему.
+            // Набор из полосы выходит и из поиска: лента возвращается к нему.
             query = ""
-            withAnimation { reader.scrollTo(id, anchor: .top) }
+            withAnimation { selectedSet = id }
         } label: {
             icon()
                 .frame(width: 30, height: 30)
                 .padding(3)
                 .background(isCurrent ? Palette.muted : Color.clear, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .id(id)
         .accessibilityLabel(Text(title))
         .accessibilityAddTraits(isCurrent ? .isSelected : [])
     }
