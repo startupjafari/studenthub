@@ -81,7 +81,7 @@ private struct PortfolioContent: View {
             await delete(item)
         }
         .actionFailureAlert($actionFailure)
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
     }
 

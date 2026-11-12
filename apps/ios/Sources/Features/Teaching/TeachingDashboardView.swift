@@ -51,7 +51,7 @@ struct TeachingDashboardView: View {
             ShareSheet(items: [file.url])
         }
         .actionFailureAlert($actionFailure)
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
         // Отметили посещаемость и вернулись — список «отметить» должен сократиться.
         .onAppear { if today != nil { Task { await loadMarked() } } }

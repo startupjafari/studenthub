@@ -404,7 +404,7 @@ struct CommunityDocumentDetailView: View {
         .listSectionSpacing(.compact)
         .navigationTitle(Text(current.title))
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await reloadAccess() }
+        .pullToRefresh { await reloadAccess() }
         .task { await reloadAccess() }
         .remoteFilePreview(opener)
         .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf, .jpeg, .png], allowsMultipleSelection: true) { result in

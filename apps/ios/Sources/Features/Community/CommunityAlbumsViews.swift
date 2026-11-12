@@ -156,7 +156,7 @@ struct CommunityAlbumsView: View {
             newTitle = ""
             creating = true
         }
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
         .reasonPrompt(
             $creating,
@@ -312,7 +312,7 @@ struct CommunityAlbumView: View {
         .background(Palette.background)
         .navigationTitle(Text(album?.title ?? CommunityScreen.album(id: albumID, userID: userID).title))
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
         .fullScreenCover(item: $viewing) { target in
             MediaViewer(media: target.media, start: target.start)

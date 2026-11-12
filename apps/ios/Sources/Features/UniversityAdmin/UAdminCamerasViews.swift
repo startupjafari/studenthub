@@ -86,7 +86,7 @@ struct UAdminCamerasView: View {
             await run { try await UAdminAPI().deleteCamera(id: camera.id) }
         }
         .actionFailureAlert($actionFailure)
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
     }
 
@@ -648,7 +648,7 @@ struct UAdminCameraWatchView: View {
         ) {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}
         }
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
     }
 

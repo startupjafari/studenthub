@@ -368,7 +368,7 @@ struct DeanStudentView: View {
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(.compact)
-        .refreshable { reload += 1 }
+        .pullToRefresh { reload += 1 }
     }
 
     // MARK: Шапка

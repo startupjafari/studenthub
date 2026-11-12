@@ -66,7 +66,7 @@ struct AssignmentsView: View {
                 LoadingStateView()
             }
         }
-        .refreshable { await loader.reload() }
+        .pullToRefresh { await loader.reload() }
         .task { await loader.loadIfNeeded() }
         .navigationTitle(Text(String(localized: "study.assignments", defaultValue: "Задания")))
     }
@@ -199,7 +199,7 @@ struct AssignmentDetailView: View {
         }
         .navigationTitle(Text(String(localized: "study.assignment", defaultValue: "Задание")))
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await reload() }
+        .pullToRefresh { await reload() }
         .modifier(FilesPresentation(files: files))
         .alert(notice ?? "", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}

@@ -765,7 +765,7 @@ struct StaffTemplateDetailView: View {
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(.compact)
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
     }
 
     /// Круглые кнопки шапки: главное, что делают с шаблоном, — сформировать документ,

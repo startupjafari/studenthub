@@ -105,7 +105,7 @@ struct ChatListView: View {
             text: $query,
             prompt: Text(String(localized: "chats.search.prompt.short", defaultValue: "Поиск"))
         )
-        .refreshable {
+        .pullToRefresh {
             await model.refresh()
         }
         .navigationTitle(Text(isArchive

@@ -188,7 +188,7 @@ struct ScheduleView: View {
                     emptyDay
                 }
             }
-            .refreshable { await model.refresh() }
+            .pullToRefresh { await model.refresh() }
         }
     }
 
@@ -258,7 +258,7 @@ struct ScheduleView: View {
                 LoadingStateView()
             }
         }
-        .refreshable {
+        .pullToRefresh {
             await model.refresh()
             week = await model.weekPairs()
         }

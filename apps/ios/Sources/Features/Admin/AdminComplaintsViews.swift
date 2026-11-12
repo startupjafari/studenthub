@@ -252,7 +252,7 @@ struct AdminComplaintView: View {
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(.compact)
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
     }
 
     private func header(_ complaint: AdminComplaintDTO) -> some View {

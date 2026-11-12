@@ -383,7 +383,7 @@ struct AdminSupportTicketView: View {
         }
         .defaultScrollAnchor(.bottom)
         .scrollDismissesKeyboard(.interactively)
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .safeAreaInset(edge: .bottom) {
             composer(ticket)
         }

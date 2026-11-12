@@ -24,6 +24,9 @@ struct ChatThreadView: View {
     /// Действие из меню ждёт, пока меню закроется: лист поверх закрывающегося
     /// полноэкранного слоя не откроется.
     @State private var pendingMenuAction: (MessageMenuAction, MessageRecord)?
+    /// Где на экране панели над перепиской (поиск, закреплённое, трансляция): лента
+    /// уходит под них, её отступ сверху — до их низа.
+    @State private var topBars: CGRect = .zero
     /// Фото и видео сообщения — в своём просмотре, как в Telegram.
     @State private var viewer: ChatMediaViewerRequest?
     /// Что сделать, когда просмотр закроется: лист пересылки поверх него не открыть.
@@ -161,6 +164,78 @@ struct ChatThreadView: View {
     @ViewBuilder
     private func thread(_ model: ChatThreadModel) -> some View {
         Group {
+            // Переписка — во весь экран от самого верха: шапка и закреплённое лежат
+            // поверх неё, а размытие под ними плавно нарастает к краю экрана, как в
+            // Telegram. Раньше лента начиналась под закреплённым, и у её верха
+            // система рисовала размытие полосой.
+            ZStack(alignment: .top) {
+                MessageListView(
+                    days: model.days,
+                    anchor: model.openingAnchor,
+                    bubbleContext: bubbleContext(model),
+                    focus: model.focus,
+                    capabilities: { message in
+                        MessageCapabilities(
+                            canEdit: model.canEdit(message),
+                            canDelete: model.canDelete(message),
+                            canReport: message.senderId != viewerID,
+                            myReaction: model.myReaction(on: message)
+                        )
+                    },
+                    selection: model.selection,
+                    scrollToBottomToken: bottomToken + model.bottomRequests,
+                    onBottomChange: { bottomChanged($0) },
+                    followsBottom: !model.isDetached,
+                    bottomInset: listBottomInset(model),
+                    topObstruction: topBars.maxY,
+                    onDayTap: { day in
+                        calendarDay = day
+                        showsCalendar = true
+                    },
+                    onReachTop: { Task { await model.loadOlder() } },
+                    onReachBottom: { Task { await model.loadNewer() } },
+                    onAction: { action, message in handle(action, message: message, model: model) },
+                    onMenu: { item in openMenu(item, model: model) }
+                )
+                .overlay {
+                    // Открытие ждёт первую страницу: вместо одинокого превью — индикатор.
+                    if model.isPreparing, model.days.isEmpty {
+                        ProgressView()
+                            .transition(.opacity)
+                    }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    ZStack {
+                        if showsDownButton(model) {
+                            ChatScrollDownButton(count: downButtonCount(model)) {
+                                if model.isDetached {
+                                    Task { await model.returnToLatest() }
+                                } else {
+                                    bottomToken += 1
+                                }
+                            }
+                            .padding(.trailing, Spacing.lg)
+                            .padding(.bottom, Spacing.md)
+                            .transition(reduceMotion ? .opacity : .scale(scale: 0.6).combined(with: .opacity))
+                        }
+                    }
+                    // Появление и уход — и тогда, когда кнопку убирает не прокрутка, а
+                    // поиск или возврат из окна истории.
+                    .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: showsDownButton(model))
+                }
+                .overlay(alignment: .top) {
+                    // Размытие от края экрана до низа панелей и чуть ниже — плотное
+                    // сверху, сходит на нет к переписке.
+                    GeometryReader { proxy in
+                        ChatTopFade()
+                            .frame(height: max(0, topBars.maxY - proxy.frame(in: .global).minY) + Spacing.xxl)
+                    }
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
+                .ignoresSafeArea(.container, edges: .top)
+
+                VStack(spacing: 0) {
                 if let search {
                     ChatSearchBar(search: search) { closeSearch() }
                         .transition(.move(edge: .top).combined(with: .opacity))
@@ -189,71 +264,21 @@ struct ChatThreadView: View {
                 if search == nil, let live = LiveLocationSharing.shared.session(inChat: chatID) {
                     LiveLocationBar(session: live)
                 }
+                }
+                .frame(maxWidth: .infinity)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { topBars = $0 }
 
-                MessageListView(
-                    days: model.days,
-                    anchor: model.openingAnchor,
-                    bubbleContext: bubbleContext(model),
-                    focus: model.focus,
-                    capabilities: { message in
-                        MessageCapabilities(
-                            canEdit: model.canEdit(message),
-                            canDelete: model.canDelete(message),
-                            canReport: message.senderId != viewerID,
-                            myReaction: model.myReaction(on: message)
-                        )
-                    },
-                    selection: model.selection,
-                    scrollToBottomToken: bottomToken + model.bottomRequests,
-                    onBottomChange: { bottomChanged($0) },
-                    followsBottom: !model.isDetached,
-                    bottomInset: listBottomInset(model),
-                    onDayTap: { day in
-                        calendarDay = day
-                        showsCalendar = true
-                    },
-                    onReachTop: { Task { await model.loadOlder() } },
-                    onReachBottom: { Task { await model.loadNewer() } },
-                    onAction: { action, message in handle(action, message: message, model: model) },
-                    onMenu: { item in openMenu(item, model: model) }
-                )
-                .overlay {
-                    if let search, showsSearchList {
-                        ChatSearchResultsList(search: search, viewerID: viewerID) { position in
-                            showsSearchList = false
-                            if let found = search.select(position) {
-                                Task { await model.jump(to: found.id) }
-                            }
-                        }
-                        .transition(.opacity)
-                    }
-                }
-                .overlay {
-                    // Открытие ждёт первую страницу: вместо одинокого превью — индикатор.
-                    if model.isPreparing, model.days.isEmpty {
-                        ProgressView()
-                            .transition(.opacity)
-                    }
-                }
-                .overlay(alignment: .bottomTrailing) {
-                    ZStack {
-                        if showsDownButton(model) {
-                            ChatScrollDownButton(count: downButtonCount(model)) {
-                                if model.isDetached {
-                                    Task { await model.returnToLatest() }
-                                } else {
-                                    bottomToken += 1
-                                }
-                            }
-                            .padding(.trailing, Spacing.lg)
-                            .padding(.bottom, Spacing.md)
-                            .transition(reduceMotion ? .opacity : .scale(scale: 0.6).combined(with: .opacity))
+                if let search, showsSearchList {
+                    ChatSearchResultsList(search: search, viewerID: viewerID) { position in
+                        showsSearchList = false
+                        if let found = search.select(position) {
+                            Task { await model.jump(to: found.id) }
                         }
                     }
-                    // Появление и уход — и тогда, когда кнопку убирает не прокрутка, а
-                    // поиск или возврат из окна истории.
-                    .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: showsDownButton(model))
+                    .padding(.top, topBars.height)
+                    .transition(.opacity)
                 }
+            }
 
                 if let search {
                     // Писать во время поиска некуда: поле ввода уступает место панели
@@ -682,7 +707,14 @@ struct ChatThreadView: View {
             date: message.createdAt,
             onShowInChat: { pendingViewerAction = .jump(message.id) },
             onReply: { pendingViewerAction = .reply },
-            onForward: { pendingViewerAction = .forward }
+            forward: {
+                AnyView(ForwardPickerView(messages: [message]) { targets, comment, requestID in
+                    guard let model else { return ForwardOutcome() }
+                    let outcome = await model.forward([message], to: targets, comment: comment, requestID: requestID)
+                    if outcome.isComplete { showToast(ChatPlural.forwardedTo(outcome.delivered.count)) }
+                    return outcome
+                })
+            }
         )
     }
 
@@ -800,6 +832,26 @@ struct ChatThreadView: View {
                 return url
             }
         }
+    }
+}
+
+/// Размытие у верха переписки, как в Telegram: материал под маской-градиентом —
+/// плотный у края экрана, к низу плавно сходит на нет.
+private struct ChatTopFade: View {
+    var body: some View {
+        Rectangle()
+            .fill(.ultraThinMaterial)
+            .mask {
+                LinearGradient(
+                    stops: [
+                        .init(color: .black, location: 0),
+                        .init(color: .black, location: 0.45),
+                        .init(color: .black.opacity(0), location: 1),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
     }
 }
 

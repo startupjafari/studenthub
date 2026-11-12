@@ -129,7 +129,7 @@ struct ChatFoldersView: View {
                 }
             }
         }
-        .refreshable { await model.refresh() }
+        .pullToRefresh { await model.refresh() }
         .onChange(of: model.folders.count) {
             // Последнюю пару разобрали — переставлять нечего, и кнопки «Готово» уже нет.
             if model.folders.count < 2 { editMode = .inactive }

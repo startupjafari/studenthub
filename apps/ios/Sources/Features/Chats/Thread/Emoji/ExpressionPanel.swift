@@ -17,6 +17,8 @@ struct ExpressionPanel: View {
 
     @State private var tab: Tab = .emoji
     @Namespace private var tabSelection
+    /// Вкладка под пальцем, пока его ведут по капсуле.
+    @State private var hoveredTab: Int?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Запас под плавающей капсулой вкладок: последний ряд прокручивается из-под неё.
@@ -71,33 +73,43 @@ struct ExpressionPanel: View {
     }
 
     /// Капсула вкладок: выбранная — светлая подложка, которая переезжает пружиной.
+    /// Вкладку выбирают и скольжением пальца по капсуле (`slideSelection`).
     private var tabPicker: some View {
-        HStack(spacing: 0) {
-            ForEach(Tab.allCases, id: \.self) { item in
-                Button {
-                    withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) { tab = item }
-                } label: {
-                    Text(title(item))
-                        .font(.subheadline.weight(tab == item ? .semibold : .medium))
-                        .foregroundStyle(tab == item ? Palette.foreground : Palette.mutedForeground)
-                        .lineLimit(1)
-                        .padding(.horizontal, Spacing.lg)
-                        .frame(height: ControlHeight.md)
-                        .background {
-                            if tab == item {
-                                Capsule()
-                                    .fill(Palette.foreground.opacity(0.12))
-                                    .matchedGeometryEffect(id: "tab", in: tabSelection)
-                            }
+        let items = Tab.allCases
+        let shown = hoveredTab.flatMap { items.indices.contains($0) ? items[$0] : nil } ?? tab
+        return HStack(spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.element) { index, item in
+                let isCurrent = shown == item
+                Text(title(item))
+                    .font(.subheadline.weight(isCurrent ? .semibold : .medium))
+                    .foregroundStyle(isCurrent ? Palette.foreground : Palette.mutedForeground)
+                    .lineLimit(1)
+                    .padding(.horizontal, Spacing.lg)
+                    .frame(height: ControlHeight.md)
+                    .background {
+                        if isCurrent {
+                            Capsule()
+                                .fill(Palette.foreground.opacity(0.12))
+                                .matchedGeometryEffect(id: "tab", in: tabSelection)
                         }
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(tab == item ? .isSelected : [])
+                    }
+                    .slideItemFrame(index, in: Self.tabSpace)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
+                    .accessibilityAction { choose(item) }
             }
         }
         .padding(Spacing.xs)
+        .slideSelection(space: Self.tabSpace, hovered: $hoveredTab) { index in
+            if items.indices.contains(index) { choose(items[index]) }
+        }
         .floatingGlass(in: Capsule())
+    }
+
+    private static let tabSpace = "expressionTabs"
+
+    private func choose(_ item: Tab) {
+        withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) { tab = item }
     }
 
     private func title(_ item: Tab) -> String {

@@ -28,7 +28,7 @@ struct StarostaGroupDocumentsView: View {
                     hint: String(localized: "starosta.documents.empty.hint", defaultValue: "Когда университет запросит документы у группы, факультета или всего вуза, здесь появится прогресс сдачи")
                 )
             }
-            .refreshable { reloadToken += 1 }
+            .pullToRefresh { reloadToken += 1 }
         }
         .background(Palette.background)
         .navigationTitle(Text(StarostaScreen.groupDocuments.title))
@@ -170,7 +170,7 @@ struct StarostaGroupDocumentRequestView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .refreshable { reloadToken += 1 }
+        .pullToRefresh { reloadToken += 1 }
     }
 
     private func metrics(_ request: StarostaGroupProgressDTO) -> [DashboardMetric] {

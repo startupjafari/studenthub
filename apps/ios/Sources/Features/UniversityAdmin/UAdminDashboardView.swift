@@ -67,7 +67,7 @@ struct UAdminDashboardView: View {
             }
         }
         .sheet(isPresented: $exporting) { UAdminReportExportSheet(facultyID: nil) }
-        .refreshable {
+        .pullToRefresh {
             reloadToken += 1
             await load()
         }

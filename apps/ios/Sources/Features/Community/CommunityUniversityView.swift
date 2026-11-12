@@ -84,7 +84,7 @@ struct CommunityUniversityView: View {
                 }
                 .padding(.bottom, Spacing.xxl)
             }
-            .refreshable { await load(refreshTabs: true) }
+            .pullToRefresh { await load(refreshTabs: true) }
         }
         .task(id: tab) { await loadTab() }
     }

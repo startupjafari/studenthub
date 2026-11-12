@@ -121,7 +121,7 @@ struct SecurityCamerasView: View {
         ) {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}
         }
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task {
             // Состояние камер меняет агент — список не должен застывать, пока охрана на посту.
             while !Task.isCancelled {

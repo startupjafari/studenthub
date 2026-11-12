@@ -90,7 +90,7 @@ struct LibrarianBookView: View {
                     .glassSurface(interactive: false, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             }
         }
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
     }
 

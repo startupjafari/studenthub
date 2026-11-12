@@ -104,7 +104,7 @@ struct CareerEmployerHomeView: View {
                 }
             }
             .dashboardListStyle()
-            .refreshable { token += 1 }
+            .pullToRefresh { token += 1 }
             .navigationTitle(Text(company.name))
         }
         .navigationTitle(Text(CareerScreen.employerHome.title))
@@ -410,7 +410,7 @@ struct CareerEmployerVacancyView: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .refreshable { token += 1 }
+            .pullToRefresh { token += 1 }
             .task(id: vacancy.city) { kato.request([vacancy.city]) }
         }
         .navigationTitle(Text(CareerScreen.employerVacancy(id: id).title))
@@ -1074,7 +1074,7 @@ struct CareerCandidateView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
     }
 
     @Environment(\.openURL) private var openURL
@@ -1347,7 +1347,7 @@ struct CareerTeamView: View {
                     }
                 }
                 .listStyle(.insetGrouped)
-                .refreshable { token += 1 }
+                .pullToRefresh { token += 1 }
                 .floatingAction(String(localized: "career.team.invite", defaultValue: "Пригласить коллегу"), symbol: "person.badge.plus") {
                     inviting = true
                 }
@@ -1497,7 +1497,7 @@ struct CareerCompanyProfileView: View {
                 CareerCompanyDetailsSection(company: company)
             }
             .listStyle(.insetGrouped)
-            .refreshable { token += 1 }
+            .pullToRefresh { token += 1 }
             .task(id: company.city) { kato.request([company.city]) }
         }
         .navigationTitle(Text(CareerScreen.companyProfile.title))

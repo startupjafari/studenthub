@@ -41,7 +41,7 @@ struct TeachingPostsView: View {
                         }
                     }
                 }
-                .refreshable { await feed.refresh() }
+                .pullToRefresh { await feed.refresh() }
                 .sheet(isPresented: $composing, onDismiss: { Task { await feed.refresh() } }) {
                     PostComposerView(feed: feed)
                 }

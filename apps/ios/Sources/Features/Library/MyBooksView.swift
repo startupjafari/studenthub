@@ -55,7 +55,7 @@ struct MyBooksView: View {
         }
         .navigationTitle(Text(String(localized: "library.tabMine", defaultValue: "Мои книги")))
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await model.refresh() }
+        .pullToRefresh { await model.refresh() }
         .task { await model.refresh() }
         .alert(
             String(localized: "library.disputeTitle", defaultValue: "Вы не брали эту книгу?"),

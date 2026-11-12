@@ -73,7 +73,7 @@ struct StaffDocumentTypesView: View {
             await remove(row)
         }
         .actionFailureAlert($actionFailure)
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
     }
 

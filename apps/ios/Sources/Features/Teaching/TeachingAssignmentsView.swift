@@ -479,7 +479,7 @@ struct TeachingSubmissionsView: View {
                 TeachingAssignmentForm(assignment: assignment) { await load() }
             }
         }
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
     }
 

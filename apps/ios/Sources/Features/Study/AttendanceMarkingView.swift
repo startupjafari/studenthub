@@ -111,7 +111,7 @@ struct AttendanceMarkingView: View {
             noteFor = nil
         }
         .sensoryFeedback(.success, trigger: model?.savedAt)
-        .refreshable { await model?.load(keepEdits: true) }
+        .pullToRefresh { await model?.load(keepEdits: true) }
         .task {
             // `.task` срабатывает и при возврате на экран (переключили вкладку, открыли
             // карточку студента): чистая загрузка там стёрла бы несохранённые отметки.

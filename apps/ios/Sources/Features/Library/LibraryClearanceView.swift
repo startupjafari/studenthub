@@ -28,7 +28,7 @@ struct LibraryClearanceView: View {
         }
         .navigationTitle(Text(String(localized: "library.clearance", defaultValue: "Справка из библиотеки")))
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await model.refresh() }
+        .pullToRefresh { await model.refresh() }
         .task { await model.refresh() }
     }
 

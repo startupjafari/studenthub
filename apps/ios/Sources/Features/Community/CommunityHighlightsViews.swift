@@ -194,7 +194,7 @@ struct CommunityHighlightsView: View {
                 ToolbarItem(placement: .topBarTrailing) { EditButton() }
             }
         }
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
         .fullScreenCover(item: $playing) { target in
             CommunityHighlightPlayer(highlightID: target.id) { Task { await load() } }

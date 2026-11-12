@@ -96355,6 +96355,57 @@
           }
         }
       }
+    },
+    "chats.attach.morePhotos": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбрать ещё фото"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тағы фото таңдау"
+          }
+        }
+      }
+    },
+    "chats.attach.allowAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить доступ ко всем фото"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Барлық фотоға рұқсат беру"
+          }
+        }
+      }
+    },
+    "chats.attach.limitedHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приложению видны только фото, которые вы выбрали"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қолданбаға тек өзіңіз таңдаған фотолар көрінеді"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

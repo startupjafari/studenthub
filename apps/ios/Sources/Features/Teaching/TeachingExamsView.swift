@@ -114,7 +114,7 @@ struct TeachingExamsView: View {
             await load()
         }
         .actionFailureAlert($actionFailure)
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task(id: query) { await load() }
     }
 
@@ -307,7 +307,7 @@ struct TeachingExamDetailView: View {
             }
         }
         .actionFailureAlert($actionFailure)
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
     }
 

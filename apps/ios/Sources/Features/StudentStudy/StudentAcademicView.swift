@@ -118,7 +118,7 @@ struct StudentAcademicView: View {
                 }
             }
             .dashboardListStyle()
-            .refreshable { reloadToken += 1 }
+            .pullToRefresh { reloadToken += 1 }
         }
         .background(Palette.background)
         .navigationTitle(Text(String(localized: "student.academic.title", defaultValue: "Академический профиль")))

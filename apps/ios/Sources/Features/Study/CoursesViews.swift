@@ -50,7 +50,7 @@ struct CoursesView: View {
             text: $query,
             prompt: Text(String(localized: "courses.search", defaultValue: "Найти дисциплину"))
         )
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
     }
 
@@ -358,7 +358,7 @@ struct GroupMembersView: View {
             text: $query,
             prompt: Text(String(localized: "group.search", defaultValue: "Найти по имени"))
         )
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
     }
 

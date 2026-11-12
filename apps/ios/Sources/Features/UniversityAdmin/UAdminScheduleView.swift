@@ -135,7 +135,7 @@ struct UAdminScheduleView: View {
         }
         .actionFailureAlert($actionFailure)
         .onChange(of: containerID) { _, _ in Task { await loadDetail() } }
-        .refreshable { await loadContainers(select: containerID) }
+        .pullToRefresh { await loadContainers(select: containerID) }
         .task { await prepare() }
     }
 

@@ -40,7 +40,7 @@ struct CommunityDocumentRequestsView: View {
                     hint: String(localized: "community.requests.empty.hint", defaultValue: "Когда деканат или преподаватель попросит документы, запрос появится здесь")
                 )
             }
-            .refreshable { reload += 1 }
+            .pullToRefresh { reload += 1 }
         }
         .background(Palette.background)
         .navigationTitle(Text(CommunityScreen.documentRequests.title))
@@ -161,7 +161,7 @@ struct CommunityDocumentRequestView: View {
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(.compact)
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
     }
 
     @ViewBuilder

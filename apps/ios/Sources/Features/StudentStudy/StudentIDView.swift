@@ -29,7 +29,7 @@ struct StudentIDView: View {
                     }
                     .padding(Spacing.xl)
                 }
-                .refreshable { await load() }
+                .pullToRefresh { await load() }
             } else if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
             } else {

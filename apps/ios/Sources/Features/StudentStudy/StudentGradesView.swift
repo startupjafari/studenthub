@@ -49,7 +49,7 @@ struct StudentGradesView: View {
                     hint: String(localized: "student.grades.emptyHint", defaultValue: "Опубликованные оценки появятся здесь.")
                 )
             }
-            .refreshable { reloadToken += 1 }
+            .pullToRefresh { reloadToken += 1 }
         }
         .background(Palette.background)
         .navigationTitle(Text(StudentScreen.grades.title))

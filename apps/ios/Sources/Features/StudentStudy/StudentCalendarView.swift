@@ -94,7 +94,7 @@ struct StudentCalendarView: View {
                     : String(localized: "student.calendar.view.month", defaultValue: "Месяц")))
             }
         }
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task(id: anchor) { await load() }
     }
 

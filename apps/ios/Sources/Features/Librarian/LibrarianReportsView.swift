@@ -101,7 +101,7 @@ struct LibrarianReportsView: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .refreshable {
+            .pullToRefresh {
                 token += 1
                 await loadPopular()
             }

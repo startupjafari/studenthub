@@ -307,7 +307,7 @@ struct AdminUniversityView: View {
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(.compact)
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
     }
 
     private func heroActions(_ university: AdminUniversityDTO) -> [HeroAction] {
@@ -728,7 +728,7 @@ struct AdminDemoRequestView: View {
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(.compact)
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
     }
 
     private func heroActions(_ request: AdminDemoRequestDTO) -> [HeroAction] {

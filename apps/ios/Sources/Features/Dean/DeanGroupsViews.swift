@@ -192,7 +192,7 @@ struct DeanGroupView: View {
             }
             .listStyle(.insetGrouped)
             .listSectionSpacing(.compact)
-            .refreshable { reload += 1 }
+            .pullToRefresh { reload += 1 }
         }
     }
 

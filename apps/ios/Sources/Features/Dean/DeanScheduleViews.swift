@@ -96,7 +96,7 @@ struct DeanScheduleManageView: View {
         .modifier(DeanAddPairButton(isOn: containerID != nil && detail?.id == containerID) {
             addingDay = DeanTime.isoWeekday(Date())
         })
-        .refreshable { await reloadAll() }
+        .pullToRefresh { await reloadAll() }
         .task {
             guard !bootstrapped else { return }
             bootstrapped = true

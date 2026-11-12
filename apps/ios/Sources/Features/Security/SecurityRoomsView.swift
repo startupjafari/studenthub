@@ -288,7 +288,7 @@ private struct SecurityRoomStatusContent: View {
             }
         }
         .listStyle(.insetGrouped)
-        .refreshable { refresh() }
+        .pullToRefresh { refresh() }
     }
 
     @Environment(\.openURL) private var openURL

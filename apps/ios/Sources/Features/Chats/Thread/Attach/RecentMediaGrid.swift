@@ -16,6 +16,9 @@ struct RecentMediaGrid: View {
     @State private var status = PhotoAssets.status
     @State private var assets: [PHAsset] = []
     @State private var picked: [PhotosPickerItem] = []
+    /// Системный выбор открывает сама сетка, а не строка внутри прокрутки (как в формах:
+    /// окно «Фото» из строки теряло хозяина и висело на «Загрузке»).
+    @State private var pickingAll = false
     @Environment(\.displayScale) private var displayScale
     @State private var manager = PHCachingImageManager()
 
@@ -52,6 +55,7 @@ struct RecentMediaGrid: View {
             }
         }
         .onAppear(perform: reload)
+        .photosPicker(isPresented: $pickingAll, selection: $picked, maxSelectionCount: limit, matching: .any(of: [.images, .videos]))
         .onChange(of: picked) {
             guard !picked.isEmpty else { return }
             let items = picked
@@ -88,18 +92,74 @@ struct RecentMediaGrid: View {
                 }
             }
             .padding(.horizontal, 2)
-            pickerButton
+            moreOptions
                 .padding(Spacing.lg)
         }
     }
 
-    /// Системный выбор — для всего, чего нет среди недавних (и без доступа к «Фото»).
-    private var pickerButton: some View {
-        PhotosPicker(selection: $picked, maxSelectionCount: limit, matching: .any(of: [.images, .videos])) {
-            Label(String(localized: "chats.attach.allPhotos", defaultValue: "Все фото и видео"), systemImage: "photo.on.rectangle")
-                .frame(maxWidth: .infinity)
+    /// Под сеткой — карточка, как «Файл» в листе вложений: системный выбор всего, чего
+    /// нет среди недавних, а при частичном доступе — добавить снимки и открыть доступ ко
+    /// всем: человек, однажды выбравший «Ограничить», иначе застревал с пустой сеткой.
+    private var moreOptions: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            VStack(spacing: 0) {
+                optionRow(String(localized: "chats.attach.allPhotos", defaultValue: "Все фото и видео"), symbol: "photo.on.rectangle") {
+                    pickingAll = true
+                }
+                if status == .limited {
+                    Divider().padding(.leading, Spacing.xl + 28 + Spacing.lg)
+                    optionRow(String(localized: "chats.attach.morePhotos", defaultValue: "Выбрать ещё фото"), symbol: "plus.circle") {
+                        chooseMoreLimited()
+                    }
+                    Divider().padding(.leading, Spacing.xl + 28 + Spacing.lg)
+                    optionRow(String(localized: "chats.attach.allowAll", defaultValue: "Разрешить доступ ко всем фото"), symbol: "lock.open") {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                    }
+                }
+            }
+            .background(Palette.secondary, in: RoundedRectangle(cornerRadius: Radius.xxl, style: .continuous))
+            if status == .limited {
+                Text(String(
+                    localized: "chats.attach.limitedHint",
+                    defaultValue: "Приложению видны только фото, которые вы выбрали"
+                ))
+                .font(Typography.meta)
+                .foregroundStyle(Palette.mutedForeground)
+                .padding(.horizontal, Spacing.xl)
+            }
         }
-        .glassButton()
+    }
+
+    private func optionRow(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: Spacing.lg) {
+                Image(systemName: symbol)
+                    .font(.title3)
+                    .frame(width: 28)
+                    .accessibilityHidden(true)
+                Text(title)
+                    .font(Typography.body)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(Palette.primary)
+            .padding(.horizontal, Spacing.xl)
+            .frame(minHeight: 52)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Системный выбор снимков, доступных приложению при частичном доступе; после него
+    /// сетка перечитывается.
+    private func chooseMoreLimited() {
+        let window = UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow }
+            .first
+        guard var top = window?.rootViewController else { return }
+        while let next = top.presentedViewController { top = next }
+        PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: top) { _ in
+            DispatchQueue.main.async { reload() }
+        }
     }
 
     private func prompt(text: String, action: String, perform: @escaping () -> Void) -> some View {
@@ -113,7 +173,12 @@ struct RecentMediaGrid: View {
                 .multilineTextAlignment(.center)
             Button(action, action: perform)
                 .glassProminentButton()
-            pickerButton
+            Button {
+                pickingAll = true
+            } label: {
+                Label(String(localized: "chats.attach.allPhotos", defaultValue: "Все фото и видео"), systemImage: "photo.on.rectangle")
+            }
+            .glassButton()
         }
         .padding(Spacing.xxl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -96,7 +96,7 @@ struct AdminPlatformDashboardView: View {
         }
         .dashboardListStyle()
         .navigationTitle(Text(AdminScreen.platformDashboard.title))
-        .refreshable {
+        .pullToRefresh {
             await loadOverview()
             await loadRange()
         }
@@ -471,7 +471,7 @@ struct AdminPlatformStatsView: View {
         .dashboardListStyle()
         .navigationTitle(Text(AdminScreen.stats.title))
         .searchable(text: $search, prompt: Text(String(localized: "admin.stats.search", defaultValue: "Поиск вуза")))
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
     }
 
@@ -627,7 +627,7 @@ struct AdminUniversityModeratorDashboardView: View {
         }
         .dashboardListStyle()
         .navigationTitle(Text(AdminScreen.universityModeratorDashboard.title))
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
     }
 

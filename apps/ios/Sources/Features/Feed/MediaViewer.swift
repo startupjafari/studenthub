@@ -31,6 +31,8 @@ struct MediaViewer: View {
     @State private var originals: Set<String> = []
     @State private var isBusy = false
     @State private var sharing: ExportedFile?
+    /// «Переслать» — окно поверх просмотра, сам просмотр не закрывается, как в Telegram.
+    @State private var forwarding = false
     @State private var notice: String?
     @State private var failure: String?
 
@@ -91,6 +93,9 @@ struct MediaViewer: View {
             }
         }
         .statusBarHidden(!showsControls)
+        .sheet(isPresented: $forwarding) {
+            context?.forward?()
+        }
         .sheet(item: $sharing) { file in
             ShareSheet(items: [file.url])
                 .presentationDetents([.medium, .large])
@@ -197,10 +202,9 @@ struct MediaViewer: View {
     /// Снизу, как в Telegram: слева «Переслать» (в чате), справа «Поделиться».
     private var bottomBar: some View {
         HStack {
-            if let onForward = context?.onForward {
+            if context?.forward != nil {
                 MediaViewerBar.button(symbol: "arrowshape.turn.up.right", title: String(localized: "chats.forward", defaultValue: "Переслать")) {
-                    onForward()
-                    dismiss()
+                    forwarding = true
                 }
             }
             Spacer(minLength: 0)
@@ -325,13 +329,15 @@ struct MediaViewer: View {
 // MARK: - Открыт из чата
 
 /// Просмотр открыт из переписки: чьё сообщение, когда, и что с ним можно сделать.
-/// Действия выполняет экран чата, когда просмотр уже закрыт.
+/// «Показать в чате» и «Ответить» экран чата выполняет, когда просмотр закроется;
+/// «Переслать» открывается поверх просмотра.
 struct MediaViewerContext {
     let title: String
     let date: Date
     var onShowInChat: (() -> Void)?
     var onReply: (() -> Void)?
-    var onForward: (() -> Void)?
+    /// Окно «Переслать»: просмотр показывает его поверх себя.
+    var forward: (() -> AnyView)?
 
     /// «сегодня в 14:06», «вчера в 9:12», «3 нояб. в 18:40» — как в Telegram.
     static func when(_ date: Date, calendar: Calendar = .current) -> String {
@@ -533,12 +539,18 @@ private struct SystemPlayer: UIViewControllerRepresentable {
 private enum MediaDownload {
     static func file(for media: PostDTO.Media) async throws -> URL {
         guard let remote = media.originalURL else { throw URLError(.badURL) }
+        let destination = FileManager.default.temporaryDirectory
+            .appending(path: "studenthub-\(media.id).\(fileExtension(for: media, remote: remote))")
+        // Файл уже на устройстве — копия под понятным именем, без сети.
+        if remote.isFileURL {
+            try? FileManager.default.removeItem(at: destination)
+            try FileManager.default.copyItem(at: remote, to: destination)
+            return destination
+        }
         let (temporary, response) = try await URLSession.shared.download(from: remote)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw URLError(.badServerResponse)
         }
-        let destination = FileManager.default.temporaryDirectory
-            .appending(path: "studenthub-\(media.id).\(fileExtension(for: media, remote: remote))")
         try? FileManager.default.removeItem(at: destination)
         try FileManager.default.moveItem(at: temporary, to: destination)
         return destination

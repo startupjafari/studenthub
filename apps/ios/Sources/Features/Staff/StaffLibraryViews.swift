@@ -150,7 +150,7 @@ struct StaffLibrarySettingsView: View {
                 .disabled(isSaving || !isDirty)
             }
         }
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
     }
 
     private var isDirty: Bool {
@@ -324,7 +324,7 @@ struct StaffLibraryReportsView: View {
         .listStyle(.insetGrouped)
         .listSectionSpacing(.compact)
         .navigationTitle(Text(StaffScreen.libraryReports.title))
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
         .onChange(of: days) { Task { await loadPopular() } }
     }
