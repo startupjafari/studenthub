@@ -108,6 +108,8 @@ final class MessageListViewController: UIViewController {
     /// Плавающая дата у верха ленты прячется, когда лента стоит, — как в Telegram.
     private var headerHideTask: Task<Void, Never>?
     private var headersHidden = false
+    /// Ответ свайпом пузыря влево, как в Telegram.
+    private let swipeToReply = SwipeToReply()
 
     private struct Entrance {
         let own: Bool
@@ -328,6 +330,9 @@ final class MessageListViewController: UIViewController {
         collectionView.keyboardDismissMode = .interactive
         // Короткая переписка тоже тянется: жест к началу ленты есть всегда.
         collectionView.alwaysBounceVertical = true
+        swipeToReply.attach(to: collectionView)
+        swipeToReply.target = { [weak self] point in self?.replyTarget(at: point) }
+        swipeToReply.onReply = { [weak self] message in self?.onAction?(.reply, message) }
         collectionView.delegate = self
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         // До первой расстановки лента прозрачна (`needsInitialPosition`).
@@ -569,6 +574,22 @@ final class MessageListViewController: UIViewController {
             view.alpha = 1
             view.transform = .identity
         }
+    }
+
+    // MARK: - Ответ свайпом
+
+    /// Строка под пальцем, если на её сообщение можно ответить: не в режиме выбора, не
+    /// удалённое и не системное, уже дошедшее до сервера — как пункт «Ответить» в меню.
+    private func replyTarget(at point: CGPoint) -> (cell: UICollectionViewCell, message: MessageRecord)? {
+        guard selection == nil,
+            let indexPath = collectionView.indexPathForItem(at: point),
+            let id = dataSource.itemIdentifier(for: indexPath),
+            let item = itemsByID[id],
+            let cell = collectionView.cellForItem(at: indexPath)
+        else { return nil }
+        let message = item.message
+        guard message.remoteId != nil, message.deletedAt == nil, message.systemType == nil else { return nil }
+        return (cell, message)
     }
 
     // MARK: - Плавающая дата
