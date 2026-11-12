@@ -2444,6 +2444,11 @@
     "uploadingPercent": "Загружаем медиа… {percent}%"
   },
   "Chats": {
+    "checklistAddItem": "Добавить пункт",
+    "checklistNewItem": "Новый пункт",
+    "checklistAddCancel": "Отменить добавление",
+    "checklistRemoveItem": "Убрать пункт «{text}»",
+    "checklistItemEmpty": "Введите текст пункта",
     "liveLocationTitle": "Геопозиция в реальном времени",
     "liveLocationUntil": "Трансляция до {time}",
     "liveLocationUpdatedMin": "{count, plural, =0 {Обновлено только что} one {Обновлено # мин назад} few {Обновлено # мин назад} many {Обновлено # мин назад} other {Обновлено # мин назад}}",
