@@ -73,6 +73,7 @@ struct AttachmentMenuSheet: View {
     @Namespace private var sectionSelection
     /// Раздел под пальцем, пока его ведут по капсуле.
     @State private var hoveredSection: Int?
+    @State private var albums = PhotoAlbumsModel()
     @State private var poll = PollDraft()
     @State private var checklist = ChecklistDraft()
     /// Клавиатура поднята (печатают опрос или список) — капсула разделов уходит, как в
@@ -118,17 +119,57 @@ struct AttachmentMenuSheet: View {
         HStack {
             GlassCloseButton { dismiss() }
             Spacer()
-            Text(section == .gallery && !selection.isEmpty
-                ? String(localized: "chats.attach.selected", defaultValue: "Выбрано: \(selection.count)")
-                : section.title)
-                .font(.headline)
-                .contentTransition(.numericText())
+            if section == .gallery, selection.isEmpty, !albums.albums.isEmpty {
+                albumMenu
+            } else {
+                Text(section == .gallery && !selection.isEmpty
+                    ? String(localized: "chats.attach.selected", defaultValue: "Выбрано: \(selection.count)")
+                    : section.title)
+                    .font(.headline)
+                    .contentTransition(.numericText())
+            }
             Spacer()
             trailingAction
         }
         .padding(.horizontal, Spacing.lg)
         .padding(.top, Spacing.lg)
         .padding(.bottom, Spacing.sm)
+    }
+
+    /// Заголовок «Галереи» — выбор альбома, как в Telegram: «Недавние ⌄», в меню —
+    /// альбомы с обложкой и числом снимков.
+    private var albumMenu: some View {
+        Menu {
+            ForEach(albums.albums) { album in
+                Button {
+                    // «Недавние» — первый альбом: выбор его снимает фильтр.
+                    albums.selected = album.id == albums.albums.first?.id ? nil : album
+                } label: {
+                    Label {
+                        Text(album.title)
+                        Text(album.count.formatted())
+                    } icon: {
+                        if let cover = albums.covers[album.id] {
+                            Image(uiImage: cover)
+                        } else {
+                            Image(systemName: "photo.on.rectangle")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: Spacing.xs) {
+                Text(albums.title)
+                    .font(.headline)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Palette.mutedForeground)
+            }
+            .foregroundStyle(Palette.foreground)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel(Text(String(localized: "chats.attach.album", defaultValue: "Альбом: \(albums.title)")))
     }
 
     /// Справа в шапке: «Отправить» у опроса и списка, у остальных — место под кнопку,
@@ -173,6 +214,7 @@ struct AttachmentMenuSheet: View {
         case .gallery:
             RecentMediaGrid(
                 selection: $selection,
+                albums: albums,
                 limit: albumLimit,
                 onCamera: { pick(.camera) },
                 onPicked: { pick(.photos($0)) }
