@@ -2,6 +2,7 @@ import CoreLocation
 import Foundation
 import GRDB
 import Observation
+import os
 
 /// Экран переписки.
 ///
@@ -1332,6 +1333,7 @@ final class ChatThreadModel {
         chatID: String,
         in db: Database
     ) throws -> ThreadSnapshot {
+        let signpost = Signposts.chats.beginInterval("ThreadSnapshotRead")
         let messages = try request.fetchAll(db)
         let attachments = try AttachmentRecord.fetchAll(
             db,
@@ -1341,6 +1343,10 @@ final class ChatThreadModel {
                 WHERE m.chatId = ?
                 """,
             arguments: [chatID]
+        )
+        Signposts.chats.endInterval(
+            "ThreadSnapshotRead", signpost,
+            "messages: \(messages.count), attachments: \(attachments.count)"
         )
         return ThreadSnapshot(
             messages: messages,
@@ -1364,7 +1370,9 @@ final class ChatThreadModel {
         }
         messages = visible
         pruneSelection()
+        let signpost = Signposts.chats.beginInterval("TimelineBuild")
         days = MessageTimeline.build(from: visible, attachments: snapshot.attachments, viewerID: viewerID)
+        Signposts.chats.endInterval("TimelineBuild", signpost, "messages: \(visible.count)")
         pickAnchorIfNeeded()
     }
 

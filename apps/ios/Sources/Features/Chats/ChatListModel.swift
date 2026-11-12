@@ -1,6 +1,7 @@
 import Foundation
 import GRDB
 import Observation
+import os
 
 /// Список чатов.
 ///
@@ -251,7 +252,12 @@ final class ChatListModel {
     private func observeRows() {
         rowsTask?.cancel()
         let request = ChatListQuery.rows(for: tab)
-        let observation = ValueObservation.tracking { db in try request.fetchAll(db) }
+        let observation = ValueObservation.tracking { db -> [ChatListRow] in
+            let signpost = Signposts.chats.beginInterval("ChatListRead")
+            let rows = try request.fetchAll(db)
+            Signposts.chats.endInterval("ChatListRead", signpost, "rows: \(rows.count)")
+            return rows
+        }
         rowsTask = Task { @MainActor [weak self, database] in
             var isFirst = true
             for await rows in AsyncValues.stream(of: observation, in: database.reader) {

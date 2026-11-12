@@ -1,6 +1,7 @@
 import SwiftUI
 import ImageIO
 import UIKit
+import os
 
 // Общие детали ленты и историй: картинка с кэшем, аватар, форматированный текст,
 // подписи ролей и аудиторий.
@@ -42,10 +43,15 @@ final class ImageMemoryCache: @unchecked Sendable {
     /// декодировании (`CGImageSource`), полный кадр в память не попадает вовсе.
     func load(_ url: URL, key: String, maxPixelSize: CGFloat? = nil) async -> UIImage? {
         if let cached = image(for: key) { return cached }
+        let fetch = Signposts.images.beginInterval("ImageFetch")
+        let loaded = try? await URLSession.shared.data(from: url)
+        Signposts.images.endInterval("ImageFetch", fetch, "bytes: \(loaded?.0.count ?? 0)")
         guard
-            let (data, response) = try? await URLSession.shared.data(from: url),
+            let (data, response) = loaded,
             (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true
         else { return nil }
+        let decode = Signposts.images.beginInterval("ImageDecode")
+        defer { Signposts.images.endInterval("ImageDecode", decode) }
         let decoded: UIImage?
         if let maxPixelSize {
             decoded = Self.thumbnail(data, maxPixelSize: maxPixelSize)

@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 /// Состояние сессии для интерфейса.
 ///
@@ -40,7 +41,16 @@ final class AppSessionModel {
         // Прежние сборки держали refresh-cookie в системном хранилище — на диске, в
         // резервной копии. Значение давно в связке ключей; файл больше не нужен.
         RefreshCookieJar.purgeSystemStorage()
-        switch await store.restore() {
+        let signpost = Signposts.launch.beginInterval("SessionRestore")
+        let restoration = await store.restore()
+        // Только исход, без токена: токенам в логах и метках не место.
+        let outcome: String = switch restoration {
+        case .active: "active"
+        case .offline: "offline"
+        case .none: "none"
+        }
+        Signposts.launch.endInterval("SessionRestore", signpost, "\(outcome, privacy: .public)")
+        switch restoration {
         case .active(let token), .offline(let token):
             // Без сети — по последнему токену: расписание и чаты в базе, а выбросить
             // человека на вход только потому, что он в метро, — значит отнять у него и их.

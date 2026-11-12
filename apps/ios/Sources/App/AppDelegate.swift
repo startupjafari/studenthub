@@ -1,5 +1,6 @@
 import UIKit
 import UserNotifications
+import os
 
 /// Делегат приложения.
 ///
@@ -13,6 +14,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ application: UIApplication,
         didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        Signposts.launch.emitEvent("AppDidFinishLaunching")
         Observability.start()
         KeyboardDismissal.install()
         UNUserNotificationCenter.current().delegate = self

@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import os
 
 /// Лента сообщений.
 ///
@@ -218,6 +219,8 @@ final class MessageListViewController: UIViewController {
     /// По нему, а не по выросшей высоте: в окне истории страницы доезжают и снизу, и
     /// сдвиг на их высоту унёс бы ленту прочь от того, что человек читает.
     func apply(days: [MessageTimeline.Day], anchor: String?, context: BubbleContext, selection: Set<String>? = nil) {
+        // Весь проход — от сборки снапшота до конца его применения (`SnapshotApply`).
+        let signpost = Signposts.chats.beginInterval("SnapshotApply")
         let previous = itemsByID
         let previousSnapshot = dataSource.snapshot()
         let previousOrder = previousSnapshot.itemIdentifiers
@@ -270,7 +273,9 @@ final class MessageListViewController: UIViewController {
             needsInitialPosition = true
         }
 
+        let itemCount = snapshot.numberOfItems
         dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
+            Signposts.chats.endInterval("SnapshotApply", signpost, "items: \(itemCount)")
             guard let self else { return }
             defer {
                 // Срез мог дописать ленту снизу без прокрутки — «у низа» пересчитываем.
