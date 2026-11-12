@@ -30,8 +30,8 @@ final class UnreadNotificationsCounter {
     @ObservationIgnored private var requestID = 0
 
     nonisolated init(
-        fetch: @escaping @Sendable () async throws -> Int = UnreadNotificationsCounter.fetchFromServer,
-        setBadge: @escaping @Sendable (Int) async -> Void = UnreadNotificationsCounter.applyBadge,
+        fetch: @escaping @Sendable () async throws -> Int = { try await UnreadNotificationsCounter.fetchFromServer() },
+        setBadge: @escaping @Sendable (Int) async -> Void = { await UnreadNotificationsCounter.applyBadge($0) },
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.fetch = fetch

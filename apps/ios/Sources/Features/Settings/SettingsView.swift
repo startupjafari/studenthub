@@ -386,7 +386,12 @@ final class NotificationPreferencesModel {
                 // Ответ — все поля, но правда из него берётся только для своего: соседнее
                 // поле может быть ещё в пути, и старое значение затёрло бы нажатое.
                 // Поля в ответе нет — верим отправленному, а не «выключено по умолчанию».
-                return try await api.updateNotificationPreferences(change)[keyPath: keyPath] ?? next
+                // Развёрнуто явно: `Value` здесь сам `Bool?`, и `?? next` молча выбирал бы
+                // «нет поля» как значение.
+                if let saved = try await api.updateNotificationPreferences(change)[keyPath: keyPath] {
+                    return saved
+                }
+                return next
             },
             failed: { [weak self] error in self?.failure = error.rollbackMessage }
         )

@@ -30,7 +30,7 @@ actor ImageDownloads {
 
     init(
         disk: ImageDiskCache = .shared,
-        fetch: @escaping @Sendable (URL) async -> Fetched? = ImageDownloads.network
+        fetch: @escaping @Sendable (URL) async -> Fetched? = { await ImageDownloads.network($0) }
     ) {
         self.disk = disk
         self.fetch = fetch
@@ -63,7 +63,8 @@ actor ImageDownloads {
         let fetch = fetch
         let generation = disk.generation
         let task = Task<Data?, Never> {
-            defer { Task { await self.finish(key, id: id) } }
+            // Задача унаследовала изоляцию актора: снять себя с полёта можно сразу.
+            defer { self.finish(key, id: id) }
             if let stored = await disk.data(for: key) {
                 Signposts.images.emitEvent("ImageDiskHit")
                 return stored
