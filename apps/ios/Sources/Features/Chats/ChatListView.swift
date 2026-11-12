@@ -53,9 +53,6 @@ struct ChatListView: View {
 
     private var list: some View {
         List(selection: $selection) {
-            // Папки — первой строкой списка, а не закреплённой полосой: уезжают вместе со
-            // списком при прокрутке, как вкладки на остальных экранах.
-            tabsBar
             // Пустой список со сбоем загрузки — ошибка на весь экран (`emptyState`), строка
             // не нужна. Отказ действия показывается строкой всегда.
             if let failure = model.failure, !(showsEmptyState && model.loadFailure == failure) {
@@ -96,8 +93,9 @@ struct ChatListView: View {
         // перещёлкивает цифры. Ревизия растёт только на изменениях после первого среза
         // (`ChatListModel.liveRevision`): открытие экрана и смена вкладки не анимируются.
         .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: model.liveRevision)
-        // Край под панелью мягкий и в поиске: резкая граница смотрелась обрывом.
-        .softTopEdge()
+        // Папки закреплены под поиском, как в Telegram: строкой списка они уезжали под
+        // заголовок и поле поиска и наслаивались на них. Список под ними тает мягко.
+        .softEdgeBar(edge: .top) { tabsBar }
         .environment(\.editMode, $editMode)
         .overlay { emptyState }
         .searchable(
@@ -182,8 +180,8 @@ struct ChatListView: View {
 
     // MARK: Папки
 
-    /// Папки и вкладки по типу — стеклянной дорожкой первой строкой списка, как папки
-    /// Telegram. «Архив» здесь не вкладка, а строка под ними.
+    /// Папки и вкладки по типу — стеклянной дорожкой над списком, как папки Telegram.
+    /// «Архив» здесь не вкладка, а строка под ними.
     @ViewBuilder
     private var tabsBar: some View {
         let tabs = model.tabs.filter { $0 != .archive }
@@ -193,10 +191,8 @@ struct ChatListView: View {
                 selection: $chip,
                 menu: tabActions
             )
-            .listRowInsets(EdgeInsets(top: Spacing.xs, leading: Spacing.xl, bottom: Spacing.xs, trailing: Spacing.xl))
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
-            .selectionDisabled()
+            .padding(.horizontal, Spacing.xl)
+            .padding(.vertical, Spacing.xs)
         }
     }
 
