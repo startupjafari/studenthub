@@ -1038,7 +1038,13 @@ export class ChatsService implements OnModuleInit {
       countBranches.length > 0
         ? await this.prisma.message.groupBy({
             by: ['chatId'],
-            where: { deletedAt: null, senderId: { not: viewer.sub }, OR: countBranches },
+            where: {
+              deletedAt: null,
+              senderId: { not: viewer.sub },
+              // Скрытое «у себя» в ленте не показывается — и непрочитанным числиться не должно.
+              hiddenBy: { none: { userId: viewer.sub } },
+              OR: countBranches,
+            },
             _count: { _all: true },
           })
         : []
@@ -1162,6 +1168,7 @@ export class ChatsService implements OnModuleInit {
       where: {
         deletedAt: null,
         senderId: { not: viewer.sub },
+        hiddenBy: { none: { userId: viewer.sub } },
         OR: counted.map((m) => unreadBranch(m.chatId, m)),
       },
       _count: { _all: true },
