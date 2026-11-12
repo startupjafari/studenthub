@@ -77,7 +77,7 @@ struct ExpressionPanel: View {
             TextField(
                 tab == .stickers
                     ? String(localized: "chats.panel.searchStickers", defaultValue: "Поиск по набору или emoji")
-                    : String(localized: "chats.panel.searchEmoji", defaultValue: "Поиск emoji (по-английски)"),
+                    : String(localized: "chats.panel.searchEmoji", defaultValue: "Поиск emoji"),
                 text: $query
             )
             .font(Typography.body)
@@ -105,7 +105,7 @@ struct ExpressionPanel: View {
     }
 }
 
-/// Поиск emoji по названию Unicode (английскому) и по самому символу.
+/// Поиск emoji по словам на русском, казахском и английском (`EmojiKeywords`).
 private struct EmojiSearchResults: View {
     let query: String
     let onPick: (String) -> Void
@@ -137,14 +137,7 @@ private struct EmojiSearchResults: View {
     }
 
     static func search(_ query: String) -> [String] {
-        let term = query.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !term.isEmpty else { return [] }
-        return EmojiCatalog.all.filter { emoji in
-            if emoji.contains(term) { return true }
-            return emoji.unicodeScalars.contains { scalar in
-                scalar.properties.name?.lowercased().contains(term) == true
-            }
-        }
+        EmojiKeywords.search(query)
     }
 }
 

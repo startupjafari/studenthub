@@ -81,6 +81,15 @@ final class MessageMenuTests: XCTestCase {
         XCTAssertTrue(EmojiCatalog.categories.allSatisfy { !$0.emoji.isEmpty })
     }
 
+    /// Поиск emoji понимает русский, казахский и английский; флаги — по названию страны.
+    func testEmojiSearchInRussianKazakhAndEnglish() {
+        XCTAssertTrue(EmojiKeywords.search("сердце").contains("❤️"))
+        XCTAssertTrue(EmojiKeywords.search("жүрек").contains("❤️"))
+        XCTAssertTrue(EmojiKeywords.search("heart").contains("❤️"))
+        XCTAssertTrue(EmojiKeywords.search("казахстан").contains("🇰🇿"))
+        XCTAssertTrue(EmojiKeywords.search("   ").isEmpty)
+    }
+
     private func message(content: String, pinned: Bool = false) -> MessageRecord {
         MessageRecord(
             id: "m-1",

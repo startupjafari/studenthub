@@ -95709,13 +95709,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Поиск emoji (по-английски)"
+            "value": "Поиск emoji"
           }
         },
         "kk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Emoji іздеу (ағылшынша)"
+            "value": "Emoji іздеу"
           }
         }
       }
