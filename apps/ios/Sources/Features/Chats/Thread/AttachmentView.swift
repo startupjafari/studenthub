@@ -143,8 +143,15 @@ struct ChatMediaTile: View {
 
     @State private var image: UIImage?
     @State private var failed = false
+    /// Картинка грузится дольше мгновения — по центру кольцо загрузки, как в Telegram.
+    @State private var slow = false
+    /// Повтор после сбоя: новый номер — новая загрузка.
+    @State private var attempt = 0
     /// Спойлер открыт касанием — дальше плитка открывается как обычно.
     @State private var revealed = false
+    /// Откуда и насколько раскрылся спойлер: круг растёт от точки касания.
+    @State private var revealOrigin: CGPoint?
+    @State private var revealRadius: CGFloat = 0
     /// Размытое превью разбирается один раз на плитку, а не на каждый кадр.
     @State private var preview: UIImage?
     @Environment(\.displayScale) private var displayScale
@@ -212,7 +219,8 @@ struct ChatMediaTile: View {
         "att:\(attachment.id):\(Int(points))"
     }
 
-    var body: some View {
+    /// Снимок или кадр ролика по рамке плитки, поверх подложки.
+    private var picture: some View {
         // `Color.clear` берёт рамку от раскладки, картинка заполняет её с обрезкой.
         Color.clear.overlay {
             ZStack {
@@ -231,62 +239,131 @@ struct ChatMediaTile: View {
             }
         }
         .clipped()
-        // Спойлер — размыт до первого касания, как в вебе и Telegram; `opaque` держит
-        // края плитки чёткими.
-        .blur(radius: isHidden ? 24 : 0, opaque: true)
-        .overlay {
-            if isHidden {
-                Label(String(localized: "chats.spoiler", defaultValue: "Спойлер"), systemImage: "eye.slash")
-                    .font(Typography.meta.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, Spacing.lg)
-                    .padding(.vertical, Spacing.sm)
-                    .background(.black.opacity(0.4), in: Capsule())
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .padding(Spacing.xs)
-                    .transition(
-                        reduceMotion ? AnyTransition.opacity : AnyTransition.opacity.combined(with: .scale(scale: 1.15))
-                    )
-            } else if isVideo, upload == nil {
-                playGlyph
-                    .transition(.opacity)
+    }
+
+    var body: some View {
+        picture
+            .overlay {
+                if isHidden { spoilerCover }
             }
-        }
-        .overlay(alignment: .topLeading) {
-            if isVideo, !isHidden, let duration = attachment.durationMs, duration > 0 {
-                Text(verbatim: VoiceWave.time(Double(duration) / 1000))
-                    .font(Typography.tabular(.caption2.weight(.semibold)))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, Spacing.sm)
-                    .padding(.vertical, 2)
-                    .background(.black.opacity(0.45), in: Capsule())
-                    .padding(Spacing.sm)
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        .contentShape(Rectangle())
-        .overlay {
-            if let upload {
-                UploadRing(fraction: upload.fraction, cancel: upload.cancel)
-            }
-        }
-        .onTapGesture {
-            if isHidden {
-                withAnimation(Motion.respecting(.easeOut(duration: Motion.Duration.surface), reduceMotion: reduceMotion)) {
-                    revealed = true
+            .overlay {
+                // У ролика «играть» по центру; пока там кольцо загрузки или повтор — они.
+                if isVideo, !isHidden, upload == nil, !(image == nil && (slow || failed)) {
+                    playGlyph
+                        .transition(.opacity)
                 }
-            } else {
-                open()
             }
+            .overlay(alignment: .topLeading) {
+                if isVideo, !isHidden, let badge = videoBadge {
+                    Text(verbatim: badge)
+                        .font(Typography.tabular(.caption2.weight(.semibold)))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, Spacing.sm)
+                        .padding(.vertical, 2)
+                        .background(.black.opacity(0.45), in: Capsule())
+                        .padding(Spacing.sm)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .contentShape(Rectangle())
+            .overlay {
+                if let upload {
+                    UploadRing(fraction: upload.fraction, cancel: upload.cancel)
+                } else if image == nil, failed {
+                    retryGlyph
+                } else if image == nil, slow {
+                    LoadingRingGlyph()
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.2), value: slow)
+            .onTapGesture(coordinateSpace: .local) { location in
+                tap(at: location)
+            }
+            .task(id: "\(cacheKey)#\(attempt)") { await load() }
+            .accessibilityElement()
+            .accessibilityLabel(Text(accessibilityLabel))
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction(.default) {
+                if isHidden { revealed = true } else { open() }
+            }
+    }
+
+    /// Спойлер как в Telegram: размытый снимок под мерцающей «пылью»; касание раскрывает
+    /// его кругом, растущим от пальца.
+    private var spoilerCover: some View {
+        GeometryReader { proxy in
+            ZStack {
+                picture
+                    .blur(radius: 24, opaque: true)
+                Color.black.opacity(0.18)
+                SpoilerDust()
+            }
+            .mask {
+                Rectangle()
+                    .overlay {
+                        if let origin = revealOrigin {
+                            Circle()
+                                .frame(width: revealRadius * 2, height: revealRadius * 2)
+                                .position(origin)
+                                .blendMode(.destinationOut)
+                        }
+                    }
+                    .compositingGroup()
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
-        .task(id: cacheKey) { await load() }
-        .accessibilityElement()
-        .accessibilityLabel(Text(accessibilityLabel))
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction(.default) {
-            if isHidden { revealed = true } else { open() }
+        .allowsHitTesting(false)
+        .transition(.identity)
+    }
+
+    private func tap(at location: CGPoint) {
+        if isHidden {
+            reveal(from: location)
+        } else if image == nil, failed {
+            failed = false
+            attempt += 1
+        } else {
+            open()
         }
+    }
+
+    private func reveal(from origin: CGPoint) {
+        // Круг уже растёт — второе касание его не перезапускает.
+        guard revealOrigin == nil else { return }
+        guard !reduceMotion else {
+            revealed = true
+            return
+        }
+        // Круг должен накрыть дальний угол плитки.
+        let reach = hypot(max(origin.x, nominal.width - origin.x), max(origin.y, nominal.height - origin.y)) + 24
+        revealOrigin = origin
+        revealRadius = 0
+        withAnimation(.easeOut(duration: 0.45)) {
+            revealRadius = reach
+        } completion: {
+            revealed = true
+        }
+    }
+
+    /// Ролик: длительность, а пока не загружен кадр — и размер файла, как в Telegram.
+    private var videoBadge: String? {
+        let duration = attachment.durationMs.flatMap { $0 > 0 ? VoiceWave.time(Double($0) / 1000) : nil }
+        let size = image == nil
+            ? attachment.size.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
+            : nil
+        let parts = [duration, size].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// Загрузка не удалась — круг со стрелкой повтора, касание грузит заново.
+    private var retryGlyph: some View {
+        Image(systemName: "arrow.clockwise")
+            .font(.system(size: 18, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: ControlHeight.xl, height: ControlHeight.xl)
+            .background(.black.opacity(0.45), in: Circle())
+            .accessibilityHidden(true)
     }
 
     /// Пока картинки нет: размытое превью, у ролика без превью — тёмная плитка, у снимка —
@@ -304,12 +381,6 @@ struct ChatMediaTile: View {
             // Полупрозрачный тон, а не `muted`: на синем своём пузыре светлая подложка
             // читалась как белая дыра на месте снимка.
             Palette.foreground.opacity(0.08)
-                .overlay {
-                    if failed {
-                        Image(systemName: "photo")
-                            .foregroundStyle(Palette.mutedForeground)
-                    }
-                }
         }
     }
 
@@ -339,6 +410,15 @@ struct ChatMediaTile: View {
             image = cached
             return
         }
+        // Быстрая загрузка (кэш на диске) обходится без кольца — оно мелькало бы.
+        let spinner = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(400))
+            if !Task.isCancelled, image == nil { slow = true }
+        }
+        defer {
+            spinner.cancel()
+            slow = false
+        }
         let loaded = await ChatMediaImages.load(attachment, points: points, scale: displayScale, key: key)
         guard !Task.isCancelled else { return }
         if let loaded {
@@ -348,6 +428,71 @@ struct ChatMediaTile: View {
         } else {
             failed = true
         }
+    }
+}
+
+/// Кольцо загрузки по центру снимка, как в Telegram: дуга крутится, пока картинка едет.
+struct LoadingRingGlyph: View {
+    var diameter: CGFloat = ControlHeight.xl
+    @State private var spinning = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack {
+            Circle().fill(.black.opacity(0.45))
+            Circle()
+                .trim(from: 0, to: 0.28)
+                .stroke(.white, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                .padding(Spacing.sm)
+                .rotationEffect(.degrees(spinning ? 360 : 0))
+                .animation(
+                    reduceMotion ? nil : .linear(duration: 0.9).repeatForever(autoreverses: false),
+                    value: spinning
+                )
+        }
+        .frame(width: diameter, height: diameter)
+        .onAppear { spinning = true }
+        .accessibilityHidden(true)
+    }
+}
+
+/// «Пыль» спойлера, как в Telegram: мелкие светлые точки медленно плывут и мерцают
+/// поверх размытого снимка. Без движения — неподвижный узор.
+struct SpoilerDust: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { timeline in
+            Canvas { context, size in
+                let time = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
+                // Плотность по площади, с потолком: большая плитка не съедает кадр.
+                let count = min(260, Int(size.width * size.height / 110))
+                var seed: UInt64 = 0x9E37_79B9_7F4A_7C15
+                func random() -> Double {
+                    seed = seed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+                    return Double(seed >> 11) / Double(1 << 53)
+                }
+                for _ in 0..<count {
+                    let startX = random() * size.width
+                    let startY = random() * size.height
+                    let angle = random() * .pi * 2
+                    let speed = 4 + random() * 9
+                    let phase = random() * .pi * 2
+                    let radius = 0.5 + random() * 0.9
+                    var x = (startX + cos(angle) * speed * time).truncatingRemainder(dividingBy: size.width)
+                    var y = (startY + sin(angle) * speed * time).truncatingRemainder(dividingBy: size.height)
+                    if x < 0 { x += size.width }
+                    if y < 0 { y += size.height }
+                    let alpha = 0.35 + 0.65 * (0.5 + 0.5 * sin(time * 2.2 + phase))
+                    context.fill(
+                        Path(ellipseIn: CGRect(x: x - radius, y: y - radius, width: radius * 2, height: radius * 2)),
+                        with: .color(.white.opacity(alpha))
+                    )
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
