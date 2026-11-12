@@ -500,13 +500,80 @@ final class ChatThreadModel {
 
     /// Новый опрос в чате. Сообщение с ним приходит сокетом, как любое другое.
     @MainActor
-    func createPoll(question: String, options: [String], multiple: Bool, anonymous: Bool) async -> Bool {
+    func createPoll(question: String, description: String?, options: [String], multiple: Bool, anonymous: Bool) async -> Bool {
         do {
-            try await actions.createPoll(chatID: chatID, question: question, options: options, multiple: multiple, anonymous: anonymous)
+            try await actions.createPoll(
+                chatID: chatID, question: question, description: description,
+                options: options, multiple: multiple, anonymous: anonymous
+            )
             return true
         } catch {
             actionFailure = message(for: error)
             return false
+        }
+    }
+
+    // MARK: - Геопозиция, контакт, список, стикер, GIF
+
+    /// Отправка особого сообщения (не текст и не файл): сервер отвечает готовым
+    /// сообщением, оно сразу ложится в базу — сокет потом принесёт его же, без дубля.
+    /// `nonce` защищает от повтора: второй такой же запрос сервер не превратит во второе
+    /// сообщение.
+    @MainActor
+    private func sendSpecial(_ request: (_ replyToID: String?, _ nonce: String) async throws -> ChatMessageDTO) async -> Bool {
+        let answering = replyTo?.remoteId
+        let nonce = UUID().uuidString.lowercased()
+        do {
+            let sent = try await request(answering, nonce)
+            replyTo = nil
+            await returnToLatest()
+            bottomRequests += 1
+            try? await store.save(messages: [sent], chatID: chatID)
+            return true
+        } catch {
+            actionFailure = message(for: error)
+            return false
+        }
+    }
+
+    @MainActor
+    func sendLocation(latitude: Double, longitude: Double, title: String?, address: String?) async -> Bool {
+        await sendSpecial { [actions, chatID] reply, nonce in
+            try await actions.sendLocation(
+                chatID: chatID, latitude: latitude, longitude: longitude,
+                title: title, address: address, replyToID: reply, nonce: nonce
+            )
+        }
+    }
+
+    @MainActor
+    func sendContact(_ contact: ContactCardDraft) async -> Bool {
+        await sendSpecial { [actions, chatID] reply, nonce in
+            try await actions.sendContact(chatID: chatID, contact: contact, replyToID: reply, nonce: nonce)
+        }
+    }
+
+    @MainActor
+    func sendChecklist(title: String, items: [String], othersCanAdd: Bool, othersCanMark: Bool) async -> Bool {
+        await sendSpecial { [actions, chatID] reply, nonce in
+            try await actions.sendChecklist(
+                chatID: chatID, title: title, items: items, othersCanAdd: othersCanAdd,
+                othersCanMark: othersCanMark, replyToID: reply, nonce: nonce
+            )
+        }
+    }
+
+    @MainActor
+    func sendSticker(id: String) async -> Bool {
+        await sendSpecial { [actions, chatID] reply, nonce in
+            try await actions.sendSticker(chatID: chatID, stickerID: id, replyToID: reply, nonce: nonce)
+        }
+    }
+
+    @MainActor
+    func sendGif(fileID: String) async -> Bool {
+        await sendSpecial { [actions, chatID] reply, nonce in
+            try await actions.sendGif(chatID: chatID, fileID: fileID, replyToID: reply, nonce: nonce)
         }
     }
 

@@ -1,5 +1,7 @@
+import AVFoundation
 import ImageIO
 import Observation
+import Photos
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
@@ -69,6 +71,47 @@ enum AttachmentStaging {
         }
         guard let data = try await item.loadTransferable(type: Data.self) else {
             throw MediaPreparation.Failure.unreadable
+        }
+        return try keep(MediaPreparation.prepareImage(data))
+    }
+
+    /// Снимок или ролик из сетки недавних «Фото». Ролик перекодируется в MP4 (сервер MOV
+    /// не берёт), GIF уходит как есть — иначе анимация превратилась бы в один кадр.
+    static func stage(_ asset: PHAsset) async throws -> StagedAttachment {
+        if asset.mediaType == .video {
+            let source = try await PhotoAssets.movieFile(for: asset)
+            defer { try? FileManager.default.removeItem(at: source) }
+            let output = AttachmentUploader.outboxURL(forName: "video.mp4")
+            try await MediaPreparation.exportMP4(from: source, to: output)
+            let size = fileSize(output)
+            guard size <= limit(for: "video/mp4") else {
+                try? FileManager.default.removeItem(at: output)
+                throw Failure.tooLarge(name: "video.mp4", limit: limit(for: "video/mp4"))
+            }
+            return StagedAttachment(
+                file: output,
+                mime: "video/mp4",
+                name: "video.mp4",
+                size: size,
+                preview: MediaPreparation.thumbnail(ofVideoAt: output),
+                width: asset.pixelWidth,
+                height: asset.pixelHeight
+            )
+        }
+        let (data, uti) = try await PhotoAssets.imageData(for: asset)
+        if uti == UTType.gif.identifier {
+            let url = AttachmentUploader.outboxURL(forName: "animation.gif")
+            try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            let source = CGImageSourceCreateWithData(data as CFData, nil)
+            return StagedAttachment(
+                file: url,
+                mime: "image/gif",
+                name: "animation.gif",
+                size: data.count,
+                preview: source.flatMap(thumbnail(of:)),
+                width: asset.pixelWidth,
+                height: asset.pixelHeight
+            )
         }
         return try keep(MediaPreparation.prepareImage(data))
     }
@@ -223,6 +266,10 @@ final class AttachmentDraft: Identifiable {
 
     func add(photos: [PhotosPickerItem]) async {
         await add(photos.count) { index in try await AttachmentStaging.stage(photos[index]) }
+    }
+
+    func add(assets: [PHAsset]) async {
+        await add(assets.count) { index in try await AttachmentStaging.stage(assets[index]) }
     }
 
     func add(files: [URL]) async {
@@ -512,10 +559,30 @@ private struct FileRow: View {
     let item: StagedAttachment
     let onRemove: () -> Void
 
+    /// Аудио можно прослушать до отправки.
+    @State private var player = VoicePreviewPlayer()
+    @State private var duration: TimeInterval?
+
+    private var isAudio: Bool { item.mime.hasPrefix("audio/") }
+
     var body: some View {
         HStack(spacing: Spacing.lg) {
             Group {
-                if let preview = item.preview {
+                if isAudio {
+                    Button {
+                        if player.duration == 0 { player.load(item.file, duration: duration ?? 0) }
+                        player.toggle()
+                    } label: {
+                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                            .foregroundStyle(Palette.primaryForeground)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(Palette.primary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text(player.isPlaying
+                        ? String(localized: "chats.voice.pause", defaultValue: "Пауза")
+                        : String(localized: "chats.voice.play", defaultValue: "Прослушать")))
+                } else if let preview = item.preview {
                     Image(uiImage: preview)
                         .resizable()
                         .scaledToFill()
@@ -528,8 +595,8 @@ private struct FileRow: View {
                 }
             }
             .frame(width: ControlHeight.lg, height: ControlHeight.lg)
-            .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
-            .accessibilityHidden(true)
+            .clipShape(isAudio ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous)))
+            .accessibilityHidden(!isAudio)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.name)
@@ -537,9 +604,13 @@ private struct FileRow: View {
                     .foregroundStyle(Palette.foreground)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text(verbatim: ByteCountFormatter.string(fromByteCount: Int64(item.size), countStyle: .file))
-                    .font(Typography.meta)
+                Text(verbatim: details)
+                    .font(Typography.tabular(Typography.meta))
                     .foregroundStyle(Palette.mutedForeground)
+                if isAudio, player.isPlaying || player.progress > 0 {
+                    ProgressView(value: player.progress)
+                        .tint(Palette.primary)
+                }
             }
             Spacer(minLength: Spacing.md)
             Button(action: onRemove) {
@@ -551,5 +622,21 @@ private struct FileRow: View {
             .buttonStyle(.plain)
             .accessibilityLabel(Text(String(localized: "chats.attach.remove", defaultValue: "Убрать")))
         }
+        .task(id: item.id) {
+            guard isAudio else { return }
+            let seconds = try? await AVURLAsset(url: item.file).load(.duration).seconds
+            if let seconds, seconds.isFinite { duration = seconds }
+        }
+        .onDisappear { player.stop() }
+    }
+
+    /// «MP3 · 3:24 · 4,1 МБ» — расширение, длительность (у звука) и размер.
+    private var details: String {
+        var parts: [String] = []
+        let ext = item.file.pathExtension.uppercased()
+        if !ext.isEmpty { parts.append(ext) }
+        if let duration { parts.append(VoiceRecordingStrip.clock(duration).components(separatedBy: ",").first ?? "") }
+        parts.append(ByteCountFormatter.string(fromByteCount: Int64(item.size), countStyle: .file))
+        return parts.joined(separator: " · ")
     }
 }

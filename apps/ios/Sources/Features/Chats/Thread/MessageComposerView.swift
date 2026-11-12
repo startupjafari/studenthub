@@ -14,8 +14,16 @@ struct MessageComposerView: View {
     @State private var recorder = VoiceRecorder()
     /// Смещение пальца на микрофоне во время записи.
     @State private var micOffset: CGSize = .zero
-    @State private var photos: [PhotosPickerItem] = []
     @State private var showsFileImporter = false
+    /// Какие файлы выбирает `fileImporter`: любые или только аудио («Звук»).
+    @State private var importTypes: [UTType] = [.item]
+    @State private var showsAttachMenu = false
+    /// Выбор в листе вложений ждёт, пока лист закроется.
+    @State private var pendingPick: AttachmentPick?
+    @State private var showsScanner = false
+    @State private var creatingChecklist = false
+    @State private var pickingContact = false
+    @State private var contactToSend: ContactCardDraft?
     @State private var showsCamera = false
     /// Выбранное к отправке — открыт лист вложений.
     @State private var sending: AttachmentDraft?
@@ -62,45 +70,8 @@ struct MessageComposerView: View {
             GlassGroup(spacing: Spacing.md) {
             HStack(alignment: .bottom, spacing: Spacing.md) {
                 HStack(alignment: .bottom, spacing: Spacing.md) {
-                    Menu {
-                        // До десяти за раз — столько несёт одно сообщение-альбом, как в вебе.
-                        PhotosPicker(
-                            selection: $photos,
-                            maxSelectionCount: AttachmentUploader.albumLimit,
-                            matching: .any(of: [.images, .videos])
-                        ) {
-                            Label(
-                                String(localized: "chats.attachMedia", defaultValue: "Фото или видео"),
-                                systemImage: "photo"
-                            )
-                        }
-                        if CameraPicker.isAvailable {
-                            Button {
-                                showsCamera = true
-                            } label: {
-                                Label(
-                                    String(localized: "chats.attachCamera", defaultValue: "Камера"),
-                                    systemImage: "camera"
-                                )
-                            }
-                        }
-                        Button {
-                            showsFileImporter = true
-                        } label: {
-                            Label(
-                                String(localized: "chats.attachFile", defaultValue: "Файл"),
-                                systemImage: "doc"
-                            )
-                        }
-                        // Опрос — в группах и официальных чатах, не в личных и не в
-                        // «Избранном» (как в вебе: голосовать там некому).
-                        if let kind = model.chat?.kind, kind != .private, kind != .saved {
-                            Button {
-                                creatingPoll = true
-                            } label: {
-                                Label(String(localized: "chats.poll.new", defaultValue: "Опрос"), systemImage: "chart.bar.xaxis")
-                            }
-                        }
+                    Button {
+                        showsAttachMenu = true
                     } label: {
                         Image(systemName: "paperclip")
                             .font(.title3)
@@ -108,6 +79,7 @@ struct MessageComposerView: View {
                             .frame(width: ControlHeight.lg, height: ControlHeight.lg)
                             .composerGlass(in: Circle())
                     }
+                    .buttonStyle(.plain)
                     .accessibilityLabel(Text(String(localized: "chats.attach", defaultValue: "Вложение")))
 
                     TextField(
@@ -183,13 +155,6 @@ struct MessageComposerView: View {
             // Ушли из чата посреди записи — недописанное не уходит само.
             if recorder.machine.isRecording { recorder.delete() }
         }
-        .onChange(of: photos) {
-            let picked = photos
-            guard !picked.isEmpty else { return }
-            photos = []
-            let draft = openDraft()
-            Task { await draft.add(photos: picked) }
-        }
         .fullScreenCover(isPresented: $showsCamera, onDismiss: {
             guard let image = captured else { return }
             captured = nil
@@ -204,14 +169,59 @@ struct MessageComposerView: View {
                 send(draft)
             }
         }
+        .sheet(isPresented: $showsAttachMenu, onDismiss: runPendingPick) {
+            AttachmentMenuSheet(
+                allowsPoll: allowsPoll,
+                albumLimit: AttachmentUploader.albumLimit,
+                onPick: { pendingPick = $0 },
+                onSendLocation: { coordinate, title, address in
+                    await model.sendLocation(
+                        latitude: coordinate.latitude, longitude: coordinate.longitude, title: title, address: address
+                    )
+                }
+            )
+        }
         .sheet(isPresented: $creatingPoll) {
-            ChatPollCreatorView { question, options, multiple, anonymous in
-                await model.createPoll(question: question, options: options, multiple: multiple, anonymous: anonymous)
+            ChatPollCreatorView { question, description, options, multiple, anonymous in
+                await model.createPoll(
+                    question: question, description: description, options: options, multiple: multiple, anonymous: anonymous
+                )
             }
+        }
+        .sheet(isPresented: $creatingChecklist) {
+            ChecklistComposerView { title, items, othersCanAdd, othersCanMark in
+                await model.sendChecklist(title: title, items: items, othersCanAdd: othersCanAdd, othersCanMark: othersCanMark)
+            }
+        }
+        .sheet(isPresented: $pickingContact) {
+            ContactPicker(
+                onPick: { contact in
+                    pickingContact = false
+                    contactToSend = ContactCardDraft(contact)
+                },
+                onCancel: { pickingContact = false }
+            )
+            .ignoresSafeArea()
+        }
+        .sheet(item: $contactToSend) { contact in
+            ContactConfirmSheet(contact: contact) {
+                await model.sendContact(contact)
+            }
+        }
+        .fullScreenCover(isPresented: $showsScanner) {
+            DocumentScanner(
+                onScan: { url in
+                    showsScanner = false
+                    let draft = openDraft()
+                    Task { await draft.add(files: [url]) }
+                },
+                onCancel: { showsScanner = false }
+            )
+            .ignoresSafeArea()
         }
         .fileImporter(
             isPresented: $showsFileImporter,
-            allowedContentTypes: [.item],
+            allowedContentTypes: importTypes,
             allowsMultipleSelection: true
         ) { result in
             guard case .success(let urls) = result, !urls.isEmpty else { return }
@@ -236,6 +246,43 @@ struct MessageComposerView: View {
         .accessibilityLabel(Text(model.editing == nil
             ? String(localized: "chats.send", defaultValue: "Отправить")
             : String(localized: "common.save", defaultValue: "Сохранить")))
+    }
+
+    /// Опрос — в группах и официальных чатах, не в личных и не в «Избранном» (как в
+    /// вебе: голосовать там некому).
+    private var allowsPoll: Bool {
+        guard let kind = model.chat?.kind else { return false }
+        return kind != .private && kind != .saved
+    }
+
+    /// Выбор в листе вложений: системные окна открываются, когда лист уже закрылся.
+    private func runPendingPick() {
+        guard let pick = pendingPick else { return }
+        pendingPick = nil
+        switch pick {
+        case .assets(let assets):
+            let draft = openDraft()
+            Task { await draft.add(assets: assets) }
+        case .photos(let items):
+            let draft = openDraft()
+            Task { await draft.add(photos: items) }
+        case .camera:
+            showsCamera = true
+        case .files:
+            importTypes = [.item]
+            showsFileImporter = true
+        case .audio:
+            importTypes = [.audio]
+            showsFileImporter = true
+        case .scan:
+            showsScanner = true
+        case .poll:
+            creatingPoll = true
+        case .checklist:
+            creatingChecklist = true
+        case .contact:
+            pickingContact = true
+        }
     }
 
     /// Лист вложений: уже открытый (выбранное добавляется к нему) или новый. Начатый в
