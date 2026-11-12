@@ -2444,6 +2444,11 @@
     "uploadingPercent": "Медиа жүктелуде… {percent}%"
   },
   "Chats": {
+    "liveLocationTitle": "Нақты уақыттағы геолокация",
+    "liveLocationUntil": "Трансляция {time} дейін",
+    "liveLocationUpdatedMin": "{count, plural, =0 {Жаңа ғана жаңартылды} one {# мин бұрын жаңартылды} other {# мин бұрын жаңартылды}}",
+    "liveLocationUpdatedHour": "{count, plural, one {# сағ бұрын жаңартылды} other {# сағ бұрын жаңартылды}}",
+    "liveLocationStop": "Трансляцияны тоқтату",
     "storyReplyLabel": "Сториске жауап",
     "storySharedLabel": "Сторис",
     "storyUnavailable": "Сторис қолжетімсіз",

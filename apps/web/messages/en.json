@@ -2444,6 +2444,11 @@
     "uploadingPercent": "Uploading media… {percent}%"
   },
   "Chats": {
+    "liveLocationTitle": "Live location",
+    "liveLocationUntil": "Live until {time}",
+    "liveLocationUpdatedMin": "{count, plural, =0 {Updated just now} one {Updated # min ago} other {Updated # min ago}}",
+    "liveLocationUpdatedHour": "{count, plural, one {Updated # hour ago} other {Updated # hours ago}}",
+    "liveLocationStop": "Stop sharing",
     "storyReplyLabel": "Replied to a story",
     "storySharedLabel": "Story",
     "storyUnavailable": "Story unavailable",
