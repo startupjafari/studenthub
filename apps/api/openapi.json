@@ -20506,6 +20506,225 @@
         ]
       }
     },
+    "/chats/checklists/{checklistId}": {
+      "get": {
+        "operationId": "ChatChecklistsController_get",
+        "parameters": [
+          {
+            "name": "checklistId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Чек-лист с пунктами"
+          },
+          "403": {
+            "description": "WRONG_SCOPE — не участник"
+          },
+          "404": {
+            "description": "NOT_FOUND — списка нет или сообщение удалено"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Чек-лист целиком (участник чата)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/checklists/{checklistId}/items": {
+      "post": {
+        "operationId": "ChatChecklistsController_addItem",
+        "parameters": [
+          {
+            "name": "checklistId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatChecklistItemAddDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Чек-лист после изменения"
+          },
+          "403": {
+            "description": "FORBIDDEN — добавлять может только автор"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Добавить пункт (автор списка или все при othersCanAdd)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/checklists/{checklistId}/items/{itemId}": {
+      "delete": {
+        "operationId": "ChatChecklistsController_removeItem",
+        "parameters": [
+          {
+            "name": "checklistId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "itemId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Чек-лист после изменения"
+          },
+          "403": {
+            "description": "FORBIDDEN — не автор списка и не автор пункта"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Убрать пункт (автор списка или тот, кто добавил пункт)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/checklists/{checklistId}/items/{itemId}/toggle": {
+      "post": {
+        "operationId": "ChatChecklistsController_toggleItem",
+        "parameters": [
+          {
+            "name": "checklistId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "itemId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatChecklistItemToggleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Чек-лист после изменения"
+          },
+          "403": {
+            "description": "FORBIDDEN — отмечать может только автор"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отметить пункт выполненным или снять отметку",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/stickers/sets": {
+      "get": {
+        "operationId": "ChatStickersController_sets",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "[{ id, title, slug, stickers: [{ id, emoji, width, height, url, expiresAt }] }]"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Опубликованные наборы стикеров со ссылками на картинки",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/stickers/{stickerId}/url": {
+      "get": {
+        "operationId": "ChatStickersController_url",
+        "parameters": [
+          {
+            "name": "stickerId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ url, expiresAt }"
+          },
+          "404": {
+            "description": "NOT_FOUND — стикера нет или набор не опубликован"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Свежая подписанная ссылка на картинку стикера",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
     "/chats": {
       "get": {
         "operationId": "ChatsController_list",
@@ -20833,6 +21052,10 @@
                   "replyToId": {
                     "type": "string"
                   },
+                  "nonce": {
+                    "type": "string",
+                    "description": "Ключ повтора отправки (≤ 64), 10 минут"
+                  },
                   "file": {
                     "type": "string",
                     "format": "binary"
@@ -20951,7 +21174,10 @@
               "enum": [
                 "media",
                 "file",
-                "voice"
+                "voice",
+                "voice_note",
+                "music",
+                "gif"
               ],
               "default": "media"
             }
@@ -20970,7 +21196,7 @@
             "bearer": []
           }
         ],
-        "summary": "Общие материалы: media|file|voice (cursor, только участник)",
+        "summary": "Общие материалы: media|file|voice|voice_note|music|gif (cursor, только участник). voice — всё аудио, voice_note — голосовые, music — аудио кроме голосовых",
         "tags": [
           "Чаты"
         ]
@@ -21129,6 +21355,94 @@
         ]
       }
     },
+    "/chats/{id}/polls": {
+      "get": {
+        "operationId": "ChatsController_polls",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Страница сообщений (полный DTO сообщения)"
+          },
+          "403": {
+            "description": "WRONG_SCOPE — не участник"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Опросы чата — сообщения с опросом, свежие первыми (cursor)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/polls/{pollId}/close": {
+      "post": {
+        "operationId": "ChatsController_closePoll",
+        "parameters": [
+          {
+            "name": "pollId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Результаты завершённого опроса"
+          },
+          "403": {
+            "description": "FORBIDDEN — не автор и не админ группы"
+          },
+          "404": {
+            "description": "NOT_FOUND — опроса нет или сообщение удалено"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Завершить опрос (автор опроса или админ/владелец группы)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
     "/chats/polls/{pollId}": {
       "get": {
         "operationId": "ChatsController_pollResults",
@@ -21184,6 +21498,9 @@
         "responses": {
           "201": {
             "description": "Обновлённые результаты опроса"
+          },
+          "409": {
+            "description": "POLL_CLOSED — опрос завершён"
           }
         },
         "security": [
@@ -21359,6 +21676,359 @@
         ]
       }
     },
+    "/chats/{id}/messages/hide": {
+      "post": {
+        "operationId": "ChatsController_hideMessages",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageIdsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ hiddenIds } — скрытые; чужие чату id пропущены"
+          },
+          "403": {
+            "description": "WRONG_SCOPE — не участник"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "«Удалить у себя»: скрыть сообщения только для себя (≤ 100)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/messages/delete": {
+      "post": {
+        "operationId": "ChatsController_deleteMessages",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageIdsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ deletedIds, skippedIds }"
+          },
+          "403": {
+            "description": "WRONG_SCOPE — не участник"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "«Удалить у всех» пачкой — только свои сообщения (≤ 100)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/messages/{messageId}": {
+      "delete": {
+        "operationId": "ChatsController_deleteMessage",
+        "parameters": [
+          {
+            "name": "messageId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ chatId, messageId }"
+          },
+          "403": {
+            "description": "WRONG_SCOPE — чужое сообщение или не участник"
+          },
+          "404": {
+            "description": "NOT_FOUND — сообщения нет или уже удалено"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удалить своё сообщение у всех (как WS message:delete)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/location": {
+      "post": {
+        "operationId": "ChatsController_sendLocation",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatLocationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Сообщение создано и разослано (message:new)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отправить геопозицию (только участник)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/contact": {
+      "post": {
+        "operationId": "ChatsController_sendContact",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatContactDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Сообщение создано и разослано (message:new)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отправить карточку контакта (хотя бы телефон или почта)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/checklist": {
+      "post": {
+        "operationId": "ChatsController_sendChecklist",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatChecklistCreateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Сообщение создано и разослано (message:new)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отправить чек-лист (до 50 пунктов)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/sticker": {
+      "post": {
+        "operationId": "ChatsController_sendSticker",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatStickerSendDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Сообщение создано и разослано (message:new)"
+          },
+          "404": {
+            "description": "NOT_FOUND — стикера нет или набор не опубликован"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отправить стикер из опубликованного набора",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/gifs/recent": {
+      "get": {
+        "operationId": "ChatsController_recentGifs",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 50,
+              "default": 30
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "[{ fileId, width, height, url, expiresAt }]"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Недавние GIF, которые я отправлял (свежие первыми, ≤ 50)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/gif": {
+      "post": {
+        "operationId": "ChatsController_sendGif",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatGifSendDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Сообщение создано и разослано (message:new)"
+          },
+          "404": {
+            "description": "NOT_FOUND — файла нет, это не GIF или нет доступа"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отправить GIF повторно (файл из чата, где я участник)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
     "/chats/{id}/pinned": {
       "get": {
         "operationId": "ChatsController_pinned",
@@ -21478,6 +22148,45 @@
           }
         ],
         "summary": "Тоггл эмодзи-реакции на сообщение (участник чата)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/forward": {
+      "post": {
+        "operationId": "ChatsController_forwardBatch",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageForwardBatchDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ results: [{ chatId, ok, messageIds, code? }] } — отказ чата не роняет другие"
+          },
+          "404": {
+            "description": "NOT_FOUND — исходное сообщение не найдено"
+          },
+          "409": {
+            "description": "REQUEST_IN_PROGRESS — тот же requestId ещё идёт"
+          },
+          "429": {
+            "description": "RATE_LIMIT — антифлуд"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Переслать пачку сообщений в несколько чатов (комментарий — перед ними; requestId — ключ идемпотентности на сутки)",
         "tags": [
           "Чаты"
         ]
@@ -23138,6 +23847,234 @@
         "summary": "Закрыть обращение (переписка остаётся)",
         "tags": [
           "Поддержка платформы"
+        ]
+      }
+    },
+    "/admin/sticker-sets": {
+      "get": {
+        "operationId": "StickerSetsAdminController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Наборы со стикерами"
+          },
+          "403": {
+            "description": "FORBIDDEN — не PLATFORM_ADMIN"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Все наборы стикеров, включая неопубликованные",
+        "tags": [
+          "Стикеры (админ)"
+        ]
+      },
+      "post": {
+        "operationId": "StickerSetsAdminController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StickerSetCreateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Набор создан"
+          },
+          "403": {
+            "description": "FORBIDDEN — не PLATFORM_ADMIN"
+          },
+          "409": {
+            "description": "CONFLICT — короткое имя занято"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Создать набор (не опубликован)",
+        "tags": [
+          "Стикеры (админ)"
+        ]
+      }
+    },
+    "/admin/sticker-sets/{id}": {
+      "patch": {
+        "operationId": "StickerSetsAdminController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StickerSetUpdateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Набор после изменения"
+          },
+          "404": {
+            "description": "NOT_FOUND — набора нет"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Изменить название, порядок или публикацию набора",
+        "tags": [
+          "Стикеры (админ)"
+        ]
+      },
+      "delete": {
+        "operationId": "StickerSetsAdminController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Набор удалён"
+          },
+          "404": {
+            "description": "NOT_FOUND — набора нет"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удалить набор со всеми стикерами",
+        "tags": [
+          "Стикеры (админ)"
+        ]
+      }
+    },
+    "/admin/sticker-sets/{id}/stickers": {
+      "post": {
+        "operationId": "StickerSetsAdminController_addSticker",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "PNG, WebP или GIF, ≤ 512 КБ"
+                  },
+                  "emoji": {
+                    "type": "string",
+                    "description": "Один эмодзи — подсказка к стикеру"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Набор после изменения"
+          },
+          "413": {
+            "description": "FILE_TOO_LARGE — больше 512 КБ"
+          },
+          "415": {
+            "description": "FILE_TYPE_NOT_ALLOWED — не PNG/WebP/GIF"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Добавить стикер в набор",
+        "tags": [
+          "Стикеры (админ)"
+        ]
+      }
+    },
+    "/admin/sticker-sets/{id}/stickers/{stickerId}": {
+      "delete": {
+        "operationId": "StickerSetsAdminController_removeSticker",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "stickerId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Набор после изменения"
+          },
+          "404": {
+            "description": "NOT_FOUND — стикера нет в наборе"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удалить стикер из набора",
+        "tags": [
+          "Стикеры (админ)"
         ]
       }
     },
@@ -33704,6 +34641,32 @@
         },
         "additionalProperties": false
       },
+      "ChatChecklistItemAddDto": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "ChatChecklistItemToggleDto": {
+        "type": "object",
+        "properties": {
+          "done": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "done"
+        ],
+        "additionalProperties": false
+      },
       "CreateChatDto": {
         "type": "object",
         "properties": {
@@ -33742,6 +34705,10 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 300
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
           },
           "options": {
             "type": "array",
@@ -33875,6 +34842,11 @@
           "asFiles": {
             "type": "boolean"
           },
+          "nonce": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
           "attachments": {
             "type": "array",
             "items": {
@@ -33935,17 +34907,247 @@
         ],
         "additionalProperties": false
       },
+      "MessageIdsDto": {
+        "type": "object",
+        "properties": {
+          "messageIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "minItems": 1,
+            "maxItems": 100
+          }
+        },
+        "required": [
+          "messageIds"
+        ],
+        "additionalProperties": false
+      },
+      "ChatLocationDto": {
+        "type": "object",
+        "properties": {
+          "lat": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "lng": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "address": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "replyToId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "nonce": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "lat",
+          "lng"
+        ],
+        "additionalProperties": false
+      },
+      "ChatContactDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "phones": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40
+            },
+            "maxItems": 5
+          },
+          "emails": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "email",
+              "maxLength": 254
+            },
+            "maxItems": 5
+          },
+          "replyToId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "nonce": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "ChatChecklistCreateDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "minItems": 1,
+            "maxItems": 50
+          },
+          "othersCanAdd": {
+            "type": "boolean"
+          },
+          "othersCanMark": {
+            "type": "boolean"
+          },
+          "replyToId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "nonce": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "title",
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "ChatStickerSendDto": {
+        "type": "object",
+        "properties": {
+          "stickerId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "replyToId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "nonce": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "stickerId"
+        ],
+        "additionalProperties": false
+      },
+      "ChatGifSendDto": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "replyToId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "nonce": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "fileId"
+        ],
+        "additionalProperties": false
+      },
       "MessageReactionDto": {
         "type": "object",
         "properties": {
           "emoji": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 16
+            "maxLength": 32
           }
         },
         "required": [
           "emoji"
+        ],
+        "additionalProperties": false
+      },
+      "MessageForwardBatchDto": {
+        "type": "object",
+        "properties": {
+          "messageIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "minItems": 1,
+            "maxItems": 100
+          },
+          "chatIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "minItems": 1,
+            "maxItems": 20
+          },
+          "comment": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "messageIds",
+          "chatIds",
+          "requestId"
         ],
         "additionalProperties": false
       },
@@ -34163,6 +35365,44 @@
         "required": [
           "intoId"
         ],
+        "additionalProperties": false
+      },
+      "StickerSetCreateDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "slug": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{1,63}$"
+          }
+        },
+        "required": [
+          "title",
+          "slug"
+        ],
+        "additionalProperties": false
+      },
+      "StickerSetUpdateDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "order": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "isPublished": {
+            "type": "boolean"
+          }
+        },
         "additionalProperties": false
       },
       "UpdateNotificationSettingsDto": {
