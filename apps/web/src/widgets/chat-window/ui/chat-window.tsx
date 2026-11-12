@@ -95,6 +95,7 @@ import {
   type ChatReadReceipt,
   type AttachmentSendOptions,
   type MessageAttachment,
+  type MessageChecklist,
   type MessageMenuAnchor,
 } from '../../../entities/chat'
 import { needsDirectUpload } from '../../../shared/api'
@@ -1716,6 +1717,25 @@ export function ChatWindow() {
   useRealtimeEvent<{ message: ChatMessage; chatId: string }>(
     'message:reaction',
     ({ message, chatId }) => upsert(message, chatId),
+  )
+  // Чек-лист изменили (пункт добавили, убрали или отметили) — кладём его прямо в сообщение.
+  useRealtimeEvent<{ checklistId: string; chatId: string; checklist: MessageChecklist }>(
+    'checklist:updated',
+    ({ checklistId, chatId, checklist }) => {
+      qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) =>
+        old?.map((m) => (m.checklist?.id === checklistId ? { ...m, checklist } : m)),
+      )
+    },
+  )
+  // «Удалить у себя» с другого устройства — убираем сообщения из ленты этого чата.
+  useRealtimeEvent<{ chatId: string; messageIds: string[] }>(
+    'message:hidden',
+    ({ chatId, messageIds }) => {
+      const hidden = new Set(messageIds)
+      qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) =>
+        old?.filter((m) => !hidden.has(m.id)),
+      )
+    },
   )
   // Посторонних для открытого чата хранилище отбрасывает само.
   useRealtimeEvent<{ userId: string; online: boolean }>(

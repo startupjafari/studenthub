@@ -54,6 +54,8 @@ export {
   createChatPoll,
   fetchPollResults,
   votePollRequest,
+  toggleChecklistItemRequest,
+  fetchStickerUrl,
   fetchChatUpdates,
   fetchChatFolders,
   createChatFolderRequest,
@@ -83,11 +85,19 @@ export {
   type ChatLinkItem,
   type ChatPoll,
   type PollResults,
+  type MessageLocation,
+  type MessageContact,
+  type MessageChecklist,
+  type MessageChecklistItem,
+  type MessageSticker,
   type BlockedUser,
   type ChatFolder,
 } from './model/types'
 export { MessageContent } from './ui/message-content'
 export { ChatPollView } from './ui/chat-poll'
+export { MessageLocationCard, MessageContactCard } from './ui/message-place-cards'
+export { MessageChecklistView } from './ui/message-checklist'
+export { MessageStickerView } from './ui/message-sticker'
 export { MessageAttachments } from './ui/message-attachments'
 export { AttachmentLinkProvider, type AttachmentLinkSource } from './ui/attachment-link-source'
 export { LinkPreviewCard } from './ui/link-preview-card'

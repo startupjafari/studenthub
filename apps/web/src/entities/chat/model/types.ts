@@ -93,6 +93,8 @@ export interface ChatPollOptionStatic {
 export interface ChatPoll {
   id: string
   question: string
+  // Пояснение под вопросом; старый сервер поля не отдаёт.
+  description?: string | null
   multiple: boolean
   anonymous: boolean
   allowRevote: boolean
@@ -151,10 +153,56 @@ export interface ChatMessage {
   reactions: MessageReaction[]
   // Опрос (§38): не null → сообщение-опрос (рендерится как ChatPoll, не как текст).
   poll: ChatPoll | null
+  // Особые сообщения (у них пустой content): геопозиция, карточка контакта, чек-лист,
+  // стикер каталога. Необязательны — их нет у оптимистичных пузырей и у старого сервера.
+  location?: MessageLocation | null
+  contact?: MessageContact | null
+  checklist?: MessageChecklist | null
+  sticker?: MessageSticker | null
   // Системное событие группы (§20): не null → служебное сообщение (member_added, title_changed, …).
   // sender = инициатор; systemMeta — денормализованные детали для текста.
   systemType: string | null
   systemMeta: { targetName?: string; title?: string } | null
+}
+
+export interface MessageLocation {
+  lat: number
+  lng: number
+  title: string | null
+  address: string | null
+}
+
+export interface MessageContact {
+  name: string
+  phones: string[]
+  emails: string[]
+  userId: string | null
+}
+
+export interface MessageChecklistItem {
+  id: string
+  text: string
+  order: number
+  done: boolean
+  doneAt: string | null
+  doneBy: { id: string; firstName: string; lastName: string } | null
+}
+
+export interface MessageChecklist {
+  id: string
+  title: string
+  othersCanAdd: boolean
+  othersCanMark: boolean
+  items: MessageChecklistItem[]
+}
+
+// Стикер каталога: картинку отдаёт подписанной ссылкой GET /chats/stickers/:id/url.
+export interface MessageSticker {
+  id: string
+  setId: string
+  emoji: string | null
+  width: number | null
+  height: number | null
 }
 
 // Инлайн-превью ссылки (OG-мета) в сообщении.
