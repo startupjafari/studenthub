@@ -123,14 +123,31 @@ extension PagedList where Header == EmptyView {
 
 /// Экран, который грузит одно значение: карточка, сводка, настройки. `reloadToken` —
 /// повод перечитать (сохранили форму — увеличили счётчик).
+///
+/// Кеш экранов (итерация 5, п. 27 аудита): на первом показе значение собирается из
+/// сохранённых ответов (`ScreenCache.cached`) и встаёт сразу, сеть обновляет его фоном
+/// (`ScreenCache.refreshing`); не обновилось — полоса «данные не свежие» над
+/// сохранённым. При возврате на экран свежее значение не перезапрашивается раньше чем
+/// через `revisitInterval`. `caching: false` — экран, который нельзя показывать из
+/// сохранённого (маршруты-исключения `ScreenCache.allows` не кешируются и так).
 struct RemoteContent<Value, Content: View>: View {
     var reloadToken: Int = 0
+    var caching = true
     let load: () async throws -> Value
     @ViewBuilder let content: (Value) -> Content
 
     @State private var value: Value?
     @State private var failure: String?
     @State private var isOffline = false
+    /// Сохранённое уже проверено. До этого вместо спиннера — пусто: чтение с диска —
+    /// миллисекунды, и спиннер только мигнул бы перед содержимым.
+    @State private var checkedCache = false
+    /// Когда и по какому `reloadToken` значение пришло из сети.
+    @State private var freshAt: Date?
+    @State private var freshToken: Int?
+
+    /// Сколько секунд свежее значение не перезапрашивается при возврате на экран.
+    static var revisitInterval: TimeInterval { 30 }
 
     var body: some View {
         Group {
@@ -140,28 +157,46 @@ struct RemoteContent<Value, Content: View>: View {
                     // а не молча показываем несвежее (и не стираем его ошибкой).
                     .safeAreaInset(edge: .top, spacing: 0) {
                         if let failure {
-                            StaleDataBanner(message: failure, isOffline: isOffline) { await run() }
+                            StaleDataBanner(message: failure, isOffline: isOffline) { await run(force: true) }
                                 .padding(.horizontal, Spacing.xl)
                                 .padding(.vertical, Spacing.sm)
                         }
                     }
             } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await run() }
-            } else {
+                ErrorStateView(message: failure, isOffline: isOffline) { await run(force: true) }
+            } else if checkedCache || !usesCache {
                 LoadingStateView()
+            } else {
+                Color.clear
             }
         }
-        .task(id: reloadToken) { await run() }
+        .task(id: reloadToken) { await run(force: false) }
     }
 
+    private var usesCache: Bool { caching && PerformanceFlags.screenCache }
+
     @MainActor
-    private func run() async {
+    private func run(force: Bool) async {
+        if !force, value != nil, freshToken == reloadToken, let freshAt,
+           Date().timeIntervalSince(freshAt) < Self.revisitInterval {
+            return
+        }
+        if value == nil, usesCache {
+            let cached = await ScreenCache.cached(load)
+            guard !Task.isCancelled else { return }
+            if let cached, value == nil { value = cached }
+            checkedCache = true
+        }
         do {
-            value = try await load()
+            let loaded = usesCache ? try await ScreenCache.refreshing(load) : try await load()
+            value = loaded
             failure = nil
+            freshAt = Date()
+            freshToken = reloadToken
         } catch is CancellationError {
             return
         } catch {
+            guard !Task.isCancelled else { return }
             failure = error.userMessage
             isOffline = error.isOffline
         }

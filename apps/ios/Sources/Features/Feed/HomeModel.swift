@@ -31,7 +31,18 @@ final class HomeModel {
     /// сюда больше не грузится: его никто не читал, а колокольчик берёт свой.
     @MainActor
     func refreshSummary() async {
-        if let value = try? await feed.upcomingEvents() { self.events = value }
+        let feed = feed
+        if let value = try? await ScreenCache.refreshing({ try await feed.upcomingEvents() }) { self.events = value }
+    }
+
+    /// Сохранённые события — для первого кадра «Главной», без сети (кеш экранов, п. 25).
+    @MainActor
+    func showCachedSummary() async {
+        guard events.isEmpty else { return }
+        let feed = feed
+        if let value = await ScreenCache.cached({ try await feed.upcomingEvents() }), events.isEmpty {
+            events = value
+        }
     }
 
     /// Только заявки в друзья — для ленты: события и колокольчик живут на «Главной».

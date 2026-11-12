@@ -126,7 +126,7 @@ final class OptimisticFeedActionsTests: XCTestCase {
     func testMarkReadIsImmediateWithoutReloadingList() async {
         let api = StubFeed()
         api.notifications = [notification(id: "n-1", read: false), notification(id: "n-2", read: false)]
-        let model = NotificationsModel(api: api, pacing: .immediate)
+        let model = NotificationsModel(api: api, pacing: .immediate, counter: Self.quietCounter())
         await model.refresh()
 
         await model.markRead("n-1")
@@ -140,7 +140,7 @@ final class OptimisticFeedActionsTests: XCTestCase {
     func testMarkAllReadIsImmediateAndRollsBackOnRejection() async {
         let api = StubFeed()
         api.notifications = [notification(id: "n-1", read: false), notification(id: "n-2", read: true)]
-        let model = NotificationsModel(api: api, pacing: .immediate)
+        let model = NotificationsModel(api: api, pacing: .immediate, counter: Self.quietCounter())
         await model.refresh()
         api.failure = .server(code: .forbidden, message: "Нельзя", details: [], statusCode: 403)
 
@@ -157,7 +157,7 @@ final class OptimisticFeedActionsTests: XCTestCase {
         let api = StubFeed()
         api.notifications = [notification(id: "n-1", read: false)]
         api.markReadDrops = 1
-        let model = NotificationsModel(api: api, pacing: .immediate)
+        let model = NotificationsModel(api: api, pacing: .immediate, counter: Self.quietCounter())
         await model.refresh()
 
         await model.markRead("n-1")
@@ -174,7 +174,7 @@ final class OptimisticFeedActionsTests: XCTestCase {
         api.markReadDrops = 1
         // Пауза перед повтором — чтобы обновление пришло, пока «прочитано» не решено.
         let pacing = OptimisticPacing(debounce: .zero, retryDelays: [.milliseconds(300)])
-        let model = NotificationsModel(api: api, pacing: pacing)
+        let model = NotificationsModel(api: api, pacing: pacing, counter: Self.quietCounter())
         await model.refresh()
 
         let task = Task { await model.markRead("n-1") }
@@ -195,6 +195,11 @@ final class OptimisticFeedActionsTests: XCTestCase {
             },
             counts: PostDTO.Counts(comments: 0)
         )
+    }
+
+    /// Счётчик без сети и без бейджа иконки.
+    private static func quietCounter() -> UnreadNotificationsCounter {
+        UnreadNotificationsCounter(fetch: { 0 }, setBadge: { _ in })
     }
 
     private func notification(id: String, read: Bool) -> NotificationDTO {

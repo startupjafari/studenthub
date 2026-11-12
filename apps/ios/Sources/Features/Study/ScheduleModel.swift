@@ -20,6 +20,9 @@ final class ScheduleModel {
     /// Когда последний раз удалось обновиться. Нужно на экране: «расписание от
     /// вторника» честнее, чем молча показанное старое.
     private(set) var syncedAt: Date?
+    /// Пары выбранного дня ещё не прочитаны из базы: пустой список сейчас — не «пар
+    /// нет», а «ещё не знаем» (п. 29 аудита — на миг мелькало «пар нет»).
+    private(set) var isReadingDay = true
 
     private let database: AppDatabase
     private let api: ScheduleFetching
@@ -90,6 +93,15 @@ final class ScheduleModel {
     /// ставится посещаемость.
     var selectedDate: Date { dateOfSelectedDay() }
 
+    /// Обновить, только если последняя удачная синхронизация старше `maxAge` секунд:
+    /// экран расписания и «Главная» показываются часто, а расписание меняется редко
+    /// (п. 29). Жест обновления зовёт `refresh()` — всегда.
+    @MainActor
+    func refreshIfStale(maxAge: TimeInterval = 300) async {
+        if let syncedAt, Date().timeIntervalSince(syncedAt) < maxAge, failure == nil { return }
+        await refresh()
+    }
+
     @MainActor
     func refresh() async {
         guard !isRefreshing else { return }
@@ -153,9 +165,11 @@ final class ScheduleModel {
         let day = selectedDay
         let pairsRequest = store.pairs(dayOfWeek: day)
         let pairsObservation = ValueObservation.tracking { db in try pairsRequest.fetchAll(db) }
+        isReadingDay = true
         pairsTask = Task { @MainActor [weak self, database] in
             for await rows in AsyncValues.stream(of: pairsObservation, in: database.reader) {
                 self?.pairs = rows
+                self?.isReadingDay = false
             }
         }
 

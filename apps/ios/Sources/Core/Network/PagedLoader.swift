@@ -44,15 +44,25 @@ final class PagedLoader<Item: Decodable & Identifiable> {
     @ObservationIgnored private var cursor: String?
     @ObservationIgnored private var page = 1
     @ObservationIgnored private var generation = 0
+    /// Первая страница исходного запроса — в кеше экранов (итерация 5, п. 28): при первом
+    /// показе встаёт сразу, сеть обновляет фоном.
+    @ObservationIgnored private let cachesFirstPage: Bool
+    /// Запрос заменили (поиск, другой фильтр): такие страницы не сохраняем — строки
+    /// поиска не должны копиться на диске, а их выдача быстро устаревает.
+    @ObservationIgnored private var replaced = false
 
-    init(limit: Int = 30, fetch: @escaping (PageRequest) async throws -> Page<Item>) {
+    init(limit: Int = 30, cachesFirstPage: Bool = true, fetch: @escaping (PageRequest) async throws -> Page<Item>) {
         self.limit = limit
+        self.cachesFirstPage = cachesFirstPage
         self.fetch = fetch
     }
+
+    private var usesCache: Bool { cachesFirstPage && !replaced && PerformanceFlags.screenCache }
 
     /// Сменить запрос — новый поиск или фильтр — и загрузить с начала.
     func replace(fetch: @escaping (PageRequest) async throws -> Page<Item>) async {
         self.fetch = fetch
+        replaced = true
         await reload()
     }
 
@@ -64,7 +74,11 @@ final class PagedLoader<Item: Decodable & Identifiable> {
         isLoading = true
         defer { if current == generation { isLoading = false } }
         do {
-            let result = try await fetch(PageRequest(cursor: nil, page: 1, limit: limit))
+            let request = PageRequest(cursor: nil, page: 1, limit: limit)
+            let fetch = fetch
+            let result = usesCache
+                ? try await ScreenCache.refreshing { try await fetch(request) }
+                : try await fetch(request)
             guard current == generation else { return }
             items = result.items
             apply(result.meta, received: result.items.count, page: 1)
@@ -85,7 +99,22 @@ final class PagedLoader<Item: Decodable & Identifiable> {
     /// возврате на экран, а список, ушедший на второй экран, перечитывать незачем.
     func loadIfNeeded() async {
         guard !isLoaded, !isLoading else { return }
+        if usesCache, items.isEmpty { await showCachedFirstPage() }
         await reload()
+    }
+
+    /// Сохранённая первая страница — сразу, до сети. Нет её — ничего не меняется.
+    private func showCachedFirstPage() async {
+        let current = generation
+        let request = PageRequest(cursor: nil, page: 1, limit: limit)
+        let fetch = fetch
+        guard
+            let cached = await ScreenCache.cached({ try await fetch(request) }),
+            current == generation, !isLoaded, !Task.isCancelled
+        else { return }
+        items = cached.items
+        apply(cached.meta, received: cached.items.count, page: 1)
+        isLoaded = true
     }
 
     /// Следующая страница, когда на экране показался последний элемент.

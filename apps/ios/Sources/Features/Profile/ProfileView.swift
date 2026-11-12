@@ -94,6 +94,11 @@ struct ProfileView: View {
             if model.isMine, !viewerID.isEmpty {
                 posts = FeedModel(api: FeedAPI(scope: .author(id: viewerID)))
             }
+            // Свой профиль уже в памяти оболочки — шапка сразу, без спиннера (п. 21);
+            // карточка с сервера обновит её фоном.
+            if model.isMine, model.profile == nil, let mine = viewer.profile {
+                model.adopt(mine)
+            }
             async let card: Void = model.load()
             async let feed: Void = posts.refresh()
             _ = await (card, feed)

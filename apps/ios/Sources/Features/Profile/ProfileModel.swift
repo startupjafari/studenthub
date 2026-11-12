@@ -125,13 +125,19 @@ final class ProfileModel {
 
     @MainActor
     func load() async {
+        let feed = feed
+        let userID = userID
+        let request: () async throws -> UserProfileDTO = {
+            if let userID { return try await feed.user(id: userID) }
+            return try await feed.me()
+        }
+        // Чужой профиль, открытый раньше, — из кеша экранов сразу (свой уже взят из
+        // оболочки, `adopt`).
+        if profile == nil, let cached = await ScreenCache.cached(request), profile == nil {
+            profile = cached
+        }
         do {
-            let value: UserProfileDTO
-            if let userID {
-                value = try await feed.user(id: userID)
-            } else {
-                value = try await feed.me()
-            }
+            let value = try await ScreenCache.refreshing(request)
             profile = value
             failure = nil
             isOffline = false

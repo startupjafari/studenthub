@@ -19,4 +19,6 @@ enum Signposts {
     static let images = OSSignposter(subsystem: subsystem, category: "Images")
     /// Оптимистичные действия: отправка итогового состояния, слияние нажатий, откат.
     static let actions = OSSignposter(subsystem: subsystem, category: "Actions")
+    /// Кеш экранов: чтение сохранённого, попадание или промах.
+    static let screenCache = OSSignposter(subsystem: subsystem, category: "ScreenCache")
 }

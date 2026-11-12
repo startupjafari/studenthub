@@ -28,19 +28,22 @@ actor APIClient {
     private let authorization: AuthorizationProvider?
     private let maxRetries: Int
     private let cookieJar: RefreshCookieJar?
+    private let screenCache: ScreenCacheStore
 
     init(
         baseURL: URL = AppConfiguration.apiBaseURL,
         session: URLSession = APIClient.session,
         authorization: AuthorizationProvider? = nil,
         maxRetries: Int = 2,
-        cookieJar: RefreshCookieJar? = .shared
+        cookieJar: RefreshCookieJar? = .shared,
+        screenCache: ScreenCacheStore = .shared
     ) {
         self.baseURL = baseURL
         self.session = session
         self.authorization = authorization
         self.maxRetries = maxRetries
         self.cookieJar = cookieJar
+        self.screenCache = screenCache
     }
 
     /// Соединение без системного хранилища cookie: refresh-cookie оно записало бы на диск,
@@ -56,7 +59,7 @@ actor APIClient {
 
     /// Запрос с телом ответа.
     func send<Response: Decodable>(_ endpoint: Endpoint, as type: Response.Type) async throws -> Response {
-        let data = try await perform(endpoint)
+        let data = try await perform(endpoint, cacheable: true)
         do {
             return try JSONCoding.decoder.decode(APISuccessEnvelope<Response>.self, from: data).data
         } catch {
@@ -66,7 +69,7 @@ actor APIClient {
 
     /// Запрос со страницей списка: данные и курсоры приходят рядом, в одном конверте.
     func page<Item: Decodable>(_ endpoint: Endpoint, of type: Item.Type) async throws -> Page<Item> {
-        let data = try await perform(endpoint)
+        let data = try await perform(endpoint, cacheable: true)
         do {
             let envelope = try JSONCoding.decoder.decode(APISuccessEnvelope<[Item]>.self, from: data)
             return Page(items: envelope.data, meta: envelope.meta)
@@ -87,7 +90,34 @@ actor APIClient {
 
     // MARK: - Внутреннее
 
-    private func perform(_ endpoint: Endpoint) async throws -> Data {
+    /// Запрос с учётом кеша экранов (`ScreenCache`). Вне его скобок — как раньше.
+    /// `cacheable` — ответ — JSON экрана (`send`, `page`), а не файл (`data`).
+    private func perform(_ endpoint: Endpoint, cacheable: Bool = false) async throws -> Data {
+        guard let scope = ScreenCache.scope else { return try await performNetwork(endpoint) }
+        let key: ScreenCacheKey? = cacheable && endpoint.method == .get
+            && ScreenCache.allows(path: endpoint.path, query: endpoint.query)
+            ? ScreenCacheKey(
+                owner: scope.owner,
+                method: endpoint.method.rawValue,
+                path: endpoint.path,
+                query: endpoint.query,
+                language: ScreenCache.language
+            )
+            : nil
+        switch scope.mode {
+        case .cachedOnly:
+            // Только сохранённое: ни сети, ни продления сессии. Запись (POST и др.) и
+            // несохраняемые маршруты — промах, а не запрос.
+            guard let key, let data = await screenCache.data(for: key) else { throw ScreenCacheMiss() }
+            return data
+        case .refresh:
+            let data = try await performNetwork(endpoint)
+            if let key { screenCache.store(data, for: key, generation: scope.generation) }
+            return data
+        }
+    }
+
+    private func performNetwork(_ endpoint: Endpoint) async throws -> Data {
         let token = endpoint.requiresAuthorization ? await authorization?.accessToken() : nil
         try await failIfSessionPending(endpoint, token: token)
 

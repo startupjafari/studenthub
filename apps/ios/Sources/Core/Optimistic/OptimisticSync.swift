@@ -160,6 +160,9 @@ final class OptimisticSync<Key: Hashable, Value: Equatable> {
     /// Действие по ключу ещё не решено.
     func isPending(_ key: Key) -> Bool { entries[key] != nil }
 
+    /// Хоть одно действие ещё не решено.
+    var hasPending: Bool { !entries.isEmpty }
+
     /// Ключи, по которым ответ сервера со стороны надо пропустить через `resolve`:
     /// действие в полёте или подтверждено недавно.
     var trackedKeys: [Key] {

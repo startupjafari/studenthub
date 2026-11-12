@@ -76,6 +76,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     /// тогда всё это уже сделано и ничего не стоит.
     func applicationProtectedDataDidBecomeAvailable(_ application: UIApplication) {
         AppServices.databaseHolder.prewarm()
+        // Уборка кеша экранов, отложенная запуском до разблокировки (файлы были заперты).
+        ScreenCacheStore.shared.housekeeping()
         let syncDeferred = deferredSync
         deferredSync = false
         Task {

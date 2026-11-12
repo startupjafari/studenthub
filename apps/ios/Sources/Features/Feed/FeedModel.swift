@@ -57,9 +57,11 @@ final class FeedModel {
             isRefreshing = false
             hasLoaded = true
         }
+        if posts.isEmpty, !hasLoaded { await showCachedFirstPage() }
         let stamp = beginRead()
+        let api = api
         do {
-            let page = try await api.posts(cursor: nil)
+            let page = try await ScreenCache.refreshing { try await api.posts(cursor: nil) }
             posts = page.items.map { resolvePin($0, readAt: stamp) }
             cursor = page.meta?.hasNext == true ? page.meta?.cursor : nil
             myReactions = [:]
@@ -74,6 +76,21 @@ final class FeedModel {
         } catch {
             report(error)
         }
+    }
+
+    /// Сохранённая первая страница — сразу, без сети (кеш экранов, п. 26): на холодном
+    /// старте лента не начинается со спиннера. Свежая придёт следом и заменит её.
+    @MainActor
+    private func showCachedFirstPage() async {
+        let api = api
+        let stamp = beginRead()
+        guard let page = await ScreenCache.cached({ try await api.posts(cursor: nil) }), posts.isEmpty else { return }
+        posts = page.items.map { resolvePin($0, readAt: stamp) }
+        // Курсор — тоже из сохранённого: иначе под лентой мелькнуло бы «Это все
+        // публикации». Подгрузка по нему не уйдёт, пока идёт обновление (`isRefreshing`).
+        cursor = page.meta?.hasNext == true ? page.meta?.cursor : nil
+        remember(page.items, readAt: stamp)
+        RichText.warm(page.items.compactMap(\.content))
     }
 
     @MainActor
@@ -617,12 +634,19 @@ final class NotificationsModel {
 
     private let api: FeedFetching
     private let readSync: OptimisticSync<NotificationReadKey, Bool>
+    /// Общий счётчик колокольчика и бейджа: прочитанное здесь гасит его сразу.
+    private let counter: UnreadNotificationsCounter
     /// До какого момента «прочитать все» действует на строки: уведомление, пришедшее
     /// после нажатия, остаётся непрочитанным.
     @ObservationIgnored private var readAllMoment: Date?
 
-    init(api: FeedFetching = FeedAPI(), pacing: OptimisticPacing = .standard) {
+    init(
+        api: FeedFetching = FeedAPI(),
+        pacing: OptimisticPacing = .standard,
+        counter: UnreadNotificationsCounter = AppServices.unreadNotifications
+    ) {
         self.api = api
+        self.counter = counter
         readSync = OptimisticSync(label: "notifications.read", pacing: pacing)
     }
 
@@ -632,10 +656,23 @@ final class NotificationsModel {
     func refresh() async {
         isLoading = true
         defer { isLoading = false }
+        let api = api
+        // Первый показ — сохранённый список сразу (кеш экранов, п. 20), сеть — следом.
+        if items.isEmpty, failure == nil {
+            let stamp = readSync.beginRead()
+            if let cached = await ScreenCache.cached({ try await api.notifications(cursor: nil).items }), items.isEmpty {
+                items = cached.map { resolveRead($0, readAt: stamp) }
+            }
+        }
         let stamp = readSync.beginRead()
         do {
-            let fresh = try await api.notifications(cursor: nil).items
+            let fresh = try await ScreenCache.refreshing { try await api.notifications(cursor: nil).items }
             items = fresh.map { resolveRead($0, readAt: stamp) }
+            // Список пришёл — и число колокольчика пора сверить с сервером. Пока
+            // «прочитано» в пути, сервер вернул бы старое число: тогда верим своему.
+            if !readSync.hasPending {
+                Task { [counter] in await counter.refresh(maxAge: 0) }
+            }
             failure = nil
             isOffline = false
         } catch is CancellationError {
@@ -723,11 +760,14 @@ final class NotificationsModel {
         guard !ids.isEmpty else { return }
         let targets = Set(ids)
         var next = items
-        var changed = false
+        var changed = 0
         for index in next.indices where targets.contains(next[index].id) && next[index].isRead != read {
             next[index].isRead = read
-            changed = true
+            changed += 1
         }
-        if changed { items = next }
+        guard changed > 0 else { return }
+        items = next
+        // Колокольчик и бейдж — сразу, до ответа сервера; откат вернёт число назад.
+        counter.adjust(by: read ? -changed : changed)
     }
 }

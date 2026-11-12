@@ -154,10 +154,16 @@ enum LocalData {
             await erase()
         }
         UserDefaults.standard.set(userID, forKey: ownerKey)
+        // Кеш экранов читается и пишется только под id вошедшего (ключ ответа включает его).
+        ScreenCacheStore.shared.claim(owner: userID)
     }
 
     @MainActor
     static func erase() async {
+        // Первым: ответы экранов прежнего человека не должны показаться ни на кадр, даже
+        // пока стирается остальное.
+        ScreenCacheStore.shared.erase()
+        AppServices.unreadNotifications.reset()
         try? await AppServices.database.eraseAll()
         await AppServices.attachmentURLs.clear()
         // Фото, аватары и свои вложения прежнего человека — тоже его данные.
@@ -169,6 +175,7 @@ enum LocalData {
         try? FileManager.default.removeItem(at: AttachmentUploader.outboxDirectory)
         UserDefaults.standard.removeObject(forKey: ScheduleModel.syncedKey)
         UserDefaults.standard.removeObject(forKey: ScheduleModel.timeZoneKey)
+        UserDefaults.standard.removeObject(forKey: WorkspaceView.libraryEnabledKey)
         UserDefaults.standard.removeObject(forKey: ownerKey)
         await BadgeCounter().reset()
     }

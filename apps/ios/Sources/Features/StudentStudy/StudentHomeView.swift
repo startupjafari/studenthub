@@ -54,14 +54,17 @@ struct StudentHomeView: View {
             schedule.start()
             // Вкладка появляется снова после каждого «назад»: данные главной меняются
             // редко, повторно грузим жестом обновления и при возврате из уведомлений.
-            guard !hasLoaded else { return }
-            async let pairs: Void = schedule.refresh()
+            guard !hasLoaded else {
+                // Вернулись из уведомлений или заявки — показанное могло устареть. В
+                // `.task`, а не `Task {}` в `onAppear`: ушли с экрана — запрос снят (п. 31).
+                await refreshAttention()
+                return
+            }
+            // Сохранённая сводка — сразу, без сети (п. 25), свежая — следом.
+            await showCached()
+            async let pairs: Void = schedule.refreshIfStale()
             async let rest: Void = load()
             _ = await (pairs, rest)
-        }
-        .onAppear {
-            // Вернулись из уведомлений или заявки — показанное могло устареть.
-            if hasLoaded { Task { await refreshAttention() } }
         }
     }
 
@@ -79,8 +82,9 @@ struct StudentHomeView: View {
                 // Расписание ни разу не скачивалось, а первая попытка упала: пустая база —
                 // не «пар нет».
                 DashboardFailurePlaceholder(message: failure) { await schedule.refresh() }
-            } else if today.isEmpty, schedule.syncedAt == nil {
-                // Первая синхронизация ещё идёт (или вот-вот начнётся из `.task`).
+            } else if today.isEmpty, schedule.syncedAt == nil || schedule.isReadingDay {
+                // Первая синхронизация ещё идёт (или вот-вот начнётся из `.task`), либо
+                // день ещё читается из базы — «пар нет» здесь было бы неправдой.
                 DashboardLoadingPlaceholder(height: 60)
             } else if upcoming.isEmpty {
                 DashboardEmptyRow(
@@ -265,12 +269,34 @@ struct StudentHomeView: View {
 
     // MARK: Загрузка
 
+    /// Последняя сводка из кеша экранов: блоки встают сразу, а не после сети.
+    /// Каждый блок — отдельно: сохранённого одного нет — остальные всё равно видны.
+    @MainActor
+    private func showCached() async {
+        let study = StudyAPI()
+        async let gradesValue = ScreenCache.cached { try await study.grades() }
+        async let attendanceValue = ScreenCache.cached { try await study.attendance() }
+        async let tasks = ScreenCache.cached { try await study.assignments().items }
+        async let page = ScreenCache.cached { try await FeedAPI().notifications(cursor: nil) }
+        async let mine = ScreenCache.cached { try await ApplicationsAPI().applications() }
+        async let summary: Void = home.showCachedSummary()
+        let (cachedGrades, cachedAttendance, cachedTasks) = await (gradesValue, attendanceValue, tasks)
+        let (cachedNotifications, cachedApplications) = await (page, mine)
+        _ = await summary
+        // Сеть могла успеть раньше диска — свежее не перезаписываем сохранённым.
+        if grades == nil { grades = cachedGrades }
+        if attendance == nil { attendance = cachedAttendance }
+        if assignments == nil { assignments = cachedTasks }
+        if notifications == nil { notifications = cachedNotifications?.items }
+        if applications == nil { applications = cachedApplications?.items }
+    }
+
     @MainActor
     private func load() async {
         let study = StudyAPI()
-        async let gradesValue = try? study.grades()
-        async let attendanceValue = try? study.attendance()
-        async let tasks = try? study.assignments().items
+        async let gradesValue = try? ScreenCache.refreshing { try await study.grades() }
+        async let attendanceValue = try? ScreenCache.refreshing { try await study.attendance() }
+        async let tasks = try? ScreenCache.refreshing { try await study.assignments().items }
         async let attention: Int = refreshAttention()
         async let summary: Void = home.refreshSummary()
         let freshGrades = await gradesValue
@@ -297,8 +323,8 @@ struct StudentHomeView: View {
     @MainActor
     @discardableResult
     private func refreshAttention() async -> Int {
-        async let page = try? FeedAPI().notifications(cursor: nil)
-        async let mine = try? ApplicationsAPI().applications()
+        async let page = try? ScreenCache.refreshing { try await FeedAPI().notifications(cursor: nil) }
+        async let mine = try? ScreenCache.refreshing { try await ApplicationsAPI().applications() }
         let (notificationsPage, applicationsPage) = await (page, mine)
         if let notificationsPage { notifications = notificationsPage.items }
         if let applicationsPage { applications = applicationsPage.items }

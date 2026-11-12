@@ -52,9 +52,20 @@ struct TeachingDashboardView: View {
         }
         .actionFailureAlert($actionFailure)
         .pullToRefresh { await load() }
-        .task { await load() }
-        // Отметили посещаемость и вернулись — список «отметить» должен сократиться.
-        .onAppear { if today != nil { Task { await loadMarked() } } }
+        // Первый показ — всё, причём сводка дня из кеша экранов сразу (итерация 5).
+        // Возврат на экран (отметили посещаемость) — только отметки: раньше `.task`
+        // грузил всё заново, а `onAppear` ещё раз отметки (п. 31 аудита).
+        .task {
+            guard today == nil else {
+                await loadMarked()
+                return
+            }
+            let api = api
+            if let cached = await ScreenCache.cached({ try await api.today() }), today == nil {
+                today = cached
+            }
+            await load()
+        }
     }
 
     // MARK: Содержимое
@@ -375,7 +386,8 @@ struct TeachingDashboardView: View {
     @MainActor
     private func load() async {
         do {
-            async let summary = api.today()
+            let api = api
+            async let summary = ScreenCache.refreshing { try await api.today() }
             async let review = try? api.reviewQueue(limit: 5)
             async let slots = try? UniversityServicesAPI().myConsultations()
             today = try await summary

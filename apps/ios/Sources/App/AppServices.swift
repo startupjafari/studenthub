@@ -21,6 +21,10 @@ enum AppServices {
     /// Что делать по тихому пушу.
     static let pushSync = PushSync()
 
+    /// Непрочитанные уведомления: одно число для колокольчика, бейджа иконки и догона
+    /// по пушу (п. 18 аудита).
+    static let unreadNotifications = UnreadNotificationsCounter()
+
     /// Ссылки на вложения: кэш по id файла, а не по адресу.
     static let attachmentURLs = AttachmentURLProvider()
 

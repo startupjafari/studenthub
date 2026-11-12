@@ -11,8 +11,15 @@ struct WorkspaceView: View {
     let role: Role
 
     @State private var query = ""
-    /// Включённые вузом модули: пункт выключенного не показываем вовсе.
-    @State private var enabledModules: Set<MoreSection> = []
+    /// Включённые вузом модули: пункт выключенного не показываем вовсе. Первый кадр —
+    /// с прошлым известным ответом (п. 32 аудита): иначе «Библиотека» появлялась только
+    /// после сети, на каждом показе вкладки.
+    @State private var enabledModules: Set<MoreSection> = UserDefaults.standard.bool(forKey: WorkspaceView.libraryEnabledKey)
+        ? [.library] : []
+
+    /// Последний ответ «включена ли библиотека у вуза». Данные человека — стирается при
+    /// выходе (`LocalData.erase`).
+    static let libraryEnabledKey = "workspace.libraryEnabled"
 
     var body: some View {
         List {
@@ -76,6 +83,7 @@ struct WorkspaceView: View {
     private func loadModules() async {
         guard MoreSection.modules(for: role).contains(.library) else { return }
         guard let settings = try? await LibraryAPI().settings() else { return }
+        UserDefaults.standard.set(settings.enabled, forKey: Self.libraryEnabledKey)
         if settings.enabled {
             enabledModules.insert(.library)
         } else {
