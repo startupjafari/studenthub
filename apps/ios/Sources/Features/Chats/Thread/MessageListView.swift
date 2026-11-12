@@ -108,6 +108,10 @@ final class MessageListViewController: UIViewController {
     /// Плавающая дата у верха ленты прячется, когда лента стоит, — как в Telegram.
     private var headerHideTask: Task<Void, Never>?
     private var headersHidden = false
+    /// Ответ свайпом пузыря влево, как в Telegram.
+    private let swipeToReply = SwipeToReply()
+    /// Долгое нажатие на пузырь — меню; то же касание дальше выбирает в нём пункт.
+    private let menuPress = UILongPressGestureRecognizer()
 
     private struct Entrance {
         let own: Bool
@@ -328,6 +332,13 @@ final class MessageListViewController: UIViewController {
         collectionView.keyboardDismissMode = .interactive
         // Короткая переписка тоже тянется: жест к началу ленты есть всегда.
         collectionView.alwaysBounceVertical = true
+        swipeToReply.attach(to: collectionView)
+        swipeToReply.target = { [weak self] point in self?.replyTarget(at: point) }
+        swipeToReply.onReply = { [weak self] message in self?.onAction?(.reply, message) }
+        menuPress.minimumPressDuration = 0.3
+        menuPress.addTarget(self, action: #selector(handleMenuPress(_:)))
+        menuPress.delegate = self
+        collectionView.addGestureRecognizer(menuPress)
         collectionView.delegate = self
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         // До первой расстановки лента прозрачна (`needsInitialPosition`).
@@ -571,6 +582,54 @@ final class MessageListViewController: UIViewController {
         }
     }
 
+    // MARK: - Меню долгим нажатием
+
+    /// Сообщение, чей пузырь под пальцем; вне пузыря (поля строки, аватар) меню нет.
+    private func menuItem(at point: CGPoint) -> MessageTimeline.Item? {
+        guard selection == nil,
+            let indexPath = collectionView.indexPathForItem(at: point),
+            let id = dataSource.itemIdentifier(for: indexPath),
+            let item = itemsByID[id],
+            let bubble = BubbleAnchors.shared.rect(for: id, part: .bubble)
+        else { return nil }
+        let inWindow = collectionView.convert(point, to: nil)
+        return bubble.insetBy(dx: -4, dy: -4).contains(inWindow) ? item : nil
+    }
+
+    @objc private func handleMenuPress(_ press: UILongPressGestureRecognizer) {
+        let touch = MessageMenuTouch.shared
+        switch press.state {
+        case .began:
+            guard let item = menuItem(at: press.location(in: collectionView)) else { return }
+            touch.reset()
+            onMenu?(item)
+        case .changed:
+            touch.move(to: press.location(in: nil))
+        case .ended:
+            touch.release(at: press.location(in: nil))
+        case .cancelled, .failed:
+            touch.reset()
+        default:
+            break
+        }
+    }
+
+    // MARK: - Ответ свайпом
+
+    /// Строка под пальцем, если на её сообщение можно ответить: не в режиме выбора, не
+    /// удалённое и не системное, уже дошедшее до сервера — как пункт «Ответить» в меню.
+    private func replyTarget(at point: CGPoint) -> (cell: UICollectionViewCell, message: MessageRecord)? {
+        guard selection == nil,
+            let indexPath = collectionView.indexPathForItem(at: point),
+            let id = dataSource.itemIdentifier(for: indexPath),
+            let item = itemsByID[id],
+            let cell = collectionView.cellForItem(at: indexPath)
+        else { return nil }
+        let message = item.message
+        guard message.remoteId != nil, message.deletedAt == nil, message.systemType == nil else { return nil }
+        return (cell, message)
+    }
+
     // MARK: - Плавающая дата
 
     /// Дата, прилипшая к верху, гаснет через полторы секунды покоя и возвращается с
@@ -640,6 +699,13 @@ final class MessageListViewController: UIViewController {
             let first = collectionView.layoutAttributesForItem(at: IndexPath(item: 0, section: section))
         else { return false }
         return header.frame.maxY > first.frame.minY + 1
+    }
+}
+
+extension MessageListViewController: UIGestureRecognizerDelegate {
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === menuPress else { return true }
+        return menuItem(at: gestureRecognizer.location(in: collectionView)) != nil
     }
 }
 

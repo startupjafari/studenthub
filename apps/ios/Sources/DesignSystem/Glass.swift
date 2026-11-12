@@ -139,6 +139,27 @@ struct SheetCloseButton: View {
     }
 }
 
+/// Крестик в стеклянном круге для своей шапки листа — вне панели навигации, как в
+/// листе вложений Telegram. `Button(role: .close)` крестиком рисуется только в панели
+/// навигации, а в обычной шапке система пишет слово «Закрыть».
+struct GlassCloseButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Palette.foreground)
+                .frame(width: ControlHeight.xl, height: ControlHeight.xl)
+                .floatingGlass(in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("sheet.close")
+        .accessibilityLabel(Text(String(localized: "common.close", defaultValue: "Закрыть")))
+    }
+}
+
 // MARK: - Верхний край
 
 extension View {

@@ -45,7 +45,7 @@ enum MessageMenuAction: Hashable, Identifiable {
         switch self {
         case .reply: "arrowshape.turn.up.left"
         case .copy: "doc.on.doc"
-        case .edit: "pencil"
+        case .edit: "square.and.pencil"
         case .pin(let isPinned): isPinned ? "pin.slash" : "pin"
         case .forward: "arrowshape.turn.up.right"
         case .readers: "checkmark.message"
@@ -115,6 +115,10 @@ struct MessageMenuOverlay: View {
 
     @State private var shown = false
     @State private var expanded = false
+    /// Пункт под пальцем: меню ведут скольжением, как в Telegram, — палец лёг на
+    /// панель, подсветка идёт за ним вверх и вниз, отпустил — действие.
+    @State private var pressed: MessageMenuAction?
+    @State private var rowFrames: [String: CGRect] = [:]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 42
 
@@ -152,6 +156,8 @@ struct MessageMenuOverlay: View {
             }
         }
         .sensoryFeedback(.impact(weight: .medium), trigger: shown) { _, now in now }
+        .onChange(of: MessageMenuTouch.shared.phase) { _, phase in follow(phase) }
+        .onDisappear { MessageMenuTouch.shared.reset() }
         .accessibilityAction(.escape) { dismiss() }
     }
 
@@ -175,9 +181,17 @@ struct MessageMenuOverlay: View {
         return CGFloat(request.actions.count) * rowHeight + Self.menuInset + divider
     }
 
+    /// Отступы окна: слой меню растянут на весь экран (`ignoresSafeArea`), и его
+    /// собственные отступы — нули; по ним панель реакций вставала под часы.
+    private static var windowInsets: UIEdgeInsets {
+        UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets }
+            .first ?? .zero
+    }
+
     private func layout(in proxy: GeometryProxy) -> Layout {
         let size = proxy.size
-        let insets = proxy.safeAreaInsets
+        let insets = Self.windowInsets
         let safeTop = insets.top + Self.edge
         // Открытая клавиатура остаётся поверх меню — раскладываемся над ней.
         let floor = min(size.height - insets.bottom, KeyboardFrame.shared.top ?? .infinity)
@@ -310,36 +324,91 @@ struct MessageMenuOverlay: View {
                         .padding(.horizontal, Spacing.lg)
                         .padding(.vertical, Spacing.xs)
                 }
-                Button {
-                    onAction(action)
-                    dismiss()
-                } label: {
-                    // Как в Telegram: значок слева, подпись за ним.
-                    HStack(spacing: Spacing.lg) {
-                        Image(systemName: action.symbol)
-                            .frame(width: 24)
-                        Text(action.title)
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
-                    }
-                    .font(Typography.body)
-                    .foregroundStyle(action.isDestructive ? Palette.destructive : Palette.foreground)
-                    .padding(.horizontal, Spacing.xl)
-                    .frame(height: rowHeight)
-                    .contentShape(Rectangle())
+                // Как в Telegram: значок слева, подпись за ним.
+                HStack(spacing: Spacing.lg) {
+                    Image(systemName: action.symbol)
+                        .frame(width: 24)
+                    Text(action.title)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
                 }
-                .buttonStyle(MenuRowStyle())
+                .font(Typography.body)
+                .foregroundStyle(action.isDestructive ? Palette.destructive : Palette.foreground)
+                .padding(.horizontal, Spacing.xl)
+                .frame(height: rowHeight)
+                .background(pressed == action ? Palette.foreground.opacity(0.12) : Color.clear)
+                .opacity(isEnabled(action) ? 1 : 0.4)
+                .contentShape(Rectangle())
+                .background {
+                    GeometryReader { row in
+                        Color.clear.preference(
+                            key: MenuRowFrames.self,
+                            value: [action.id: row.frame(in: .global)]
+                        )
+                    }
+                }
+                // VoiceOver и UI-тесты нажимают пункт как кнопку.
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isButton)
                 .accessibilityIdentifier("message.menu.\(action.id)")
-                .disabled(action == .readers(count: 0))
+                .accessibilityAction { perform(action) }
             }
         }
         .padding(.vertical, Spacing.xs)
         .frame(width: Self.menuWidth)
+        .onPreferenceChange(MenuRowFrames.self) { rowFrames = $0 }
+        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .gesture(
+            DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                .onChanged { drag in pressed = action(at: drag.location) }
+                .onEnded { drag in
+                    let chosen = action(at: drag.location)
+                    pressed = nil
+                    if let chosen { perform(chosen) }
+                }
+        )
+        .sensoryFeedback(.selection, trigger: pressed) { _, now in now != nil }
+        // Тёмная подложка под стеклом, как у меню Telegram: пузырь и обои под панелью
+        // не просвечивают пёстрыми пятнами.
+        .background(Palette.popover.opacity(0.55), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .floatingGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .scaleEffect(shown ? 1 : 0.6, anchor: request.item.isOwn ? .topTrailing : .topLeading)
         .opacity(shown ? 1 : 0)
         .offset(x: leading(width: Self.menuWidth, screen: layout.screen), y: layout.menuY)
         .transition(.opacity)
+    }
+
+    /// Палец, которым меню открыли, ещё на экране: ведёт подсветку, отпускание над
+    /// пунктом — выбор. Отпустили мимо пунктов (на месте нажатия) — меню остаётся.
+    private func follow(_ phase: MessageMenuTouch.Phase) {
+        switch phase {
+        case .idle:
+            break
+        case .moving(let point):
+            guard !expanded else { return }
+            pressed = action(at: point)
+        case .released(let point):
+            MessageMenuTouch.shared.reset()
+            let chosen = expanded ? nil : action(at: point)
+            pressed = nil
+            if let chosen { perform(chosen) }
+        }
+    }
+
+    private func isEnabled(_ action: MessageMenuAction) -> Bool {
+        action != .readers(count: 0)
+    }
+
+    /// Пункт под точкой панели; мимо пунктов или неактивный — ничего.
+    private func action(at point: CGPoint) -> MessageMenuAction? {
+        request.actions.first { action in
+            isEnabled(action) && rowFrames[action.id]?.contains(point) == true
+        }
+    }
+
+    private func perform(_ action: MessageMenuAction) {
+        onAction(action)
+        dismiss()
     }
 
     private func dismiss() {
@@ -376,11 +445,12 @@ private struct ReactionTail: View {
     }
 }
 
-/// Подсветка нажатого пункта меню, как в системных меню.
-private struct MenuRowStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .background(configuration.isPressed ? Palette.muted : Color.clear)
+/// Рамки пунктов меню в его системе координат — по ним палец находит пункт.
+private struct MenuRowFrames: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { $1 }
     }
 }
 

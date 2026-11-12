@@ -97,7 +97,7 @@ struct AttachmentMenuSheet: View {
 
     private var header: some View {
         HStack {
-            SheetCloseButton { dismiss() }
+            GlassCloseButton { dismiss() }
             Spacer()
             Text(section == .gallery && !selection.isEmpty
                 ? String(localized: "chats.attach.selected", defaultValue: "Выбрано: \(selection.count)")
@@ -106,7 +106,7 @@ struct AttachmentMenuSheet: View {
                 .contentTransition(.numericText())
             Spacer()
             // Место под кнопку слева, чтобы заголовок стоял по центру.
-            Color.clear.frame(width: ControlHeight.md, height: ControlHeight.md)
+            Color.clear.frame(width: ControlHeight.xl, height: ControlHeight.xl)
         }
         .padding(.horizontal, Spacing.lg)
         .padding(.top, Spacing.lg)

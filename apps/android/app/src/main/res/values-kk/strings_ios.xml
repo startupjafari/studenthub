@@ -1550,6 +1550,10 @@
     <string name="chats_unreadCount">Оқылмаған: %1$s</string>
     <string name="chats_untitled">Атауы жоқ</string>
     <string name="chats_upload_cancel">Жүктеуді болдырмау</string>
+    <string name="chats_viewer_dateAt">%1$s, %2$s</string>
+    <string name="chats_viewer_showInChat">Чатта көрсету</string>
+    <string name="chats_viewer_today">бүгін %1$s</string>
+    <string name="chats_viewer_yesterday">кеше %1$s</string>
     <string name="chats_voice_busy">Микрофонды басқа қолданба пайдаланып жатыр немесе ол қолжетімсіз.</string>
     <string name="chats_voice_delete">Жазбаны жою</string>
     <string name="chats_voice_empty">Жазба бос болып шықты.</string>

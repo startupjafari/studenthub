@@ -151,10 +151,8 @@ struct MessageBubbleView: View {
                     reactionTick += 1
                     onAction(.react(ChatReactions.doubleTap))
                 }
-                .onLongPressGesture(minimumDuration: 0.3) {
-                    guard !isMenuPreview, !selecting else { return }
-                    onAction(.menu)
-                }
+                // Долгое нажатие ловит лента (UIKit), а не пузырь: то же касание ведёт
+                // и открывшееся меню — к пункту, не отрывая пальца (`MessageMenuTouch`).
                 .sensoryFeedback(.impact(weight: .light), trigger: reactionTick)
                 .accessibilityAction(named: Text(String(localized: "chats.menu.actions", defaultValue: "Действия"))) {
                     onAction(.menu)

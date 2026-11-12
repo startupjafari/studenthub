@@ -7,9 +7,10 @@ import UIKit
 /// счётчик, увеличение, скачивание), перенесённые на привычные жесты и системные
 /// листы iOS.
 ///
-/// Сверху — компактная панель: закрыть, «2 / 14», «Поделиться» и «…» (сохранить в
-/// «Фото», скопировать, оригинал). Касание снимка прячет и показывает панель, не
-/// сдвигая сам снимок. Щипок и двойное касание увеличивают, увеличенный снимок
+/// Панели как в Telegram: сверху — «назад», капсула (в чате — автор и время снимка,
+/// иначе «2 / 14») и «…» (в чате — «Показать в чате» и «Ответить»; сохранить в «Фото»,
+/// скопировать, оригинал), снизу — «Переслать» (в чате) и «Поделиться». Касание снимка
+/// прячет и показывает панели, не сдвигая сам снимок. Щипок и двойное касание увеличивают, увеличенный снимок
 /// двигается пальцем, а листание и смахивание вниз (закрыть) ждут, пока его вернут к
 /// исходному размеру. Видео играет системный `AVPlayerViewController`: его контролы —
 /// пауза, ±10 с, полоса прокрутки, время, скорость, AirPlay, картинка в картинке, — и
@@ -17,6 +18,8 @@ import UIKit
 struct MediaViewer: View {
     let media: [PostDTO.Media]
     let start: Int
+    /// Открыт из переписки: автор, время и действия с сообщением.
+    var context: MediaViewerContext?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -69,6 +72,12 @@ struct MediaViewer: View {
             }
         }
         .overlay(alignment: .bottom) {
+            if showsControls || current?.isVideo == true {
+                bottomBar
+                    .transition(.opacity)
+            }
+        }
+        .overlay(alignment: .bottom) {
             if let notice {
                 Text(notice)
                     .font(Typography.meta.weight(.semibold))
@@ -76,7 +85,7 @@ struct MediaViewer: View {
                     .padding(.horizontal, Spacing.xl)
                     .padding(.vertical, Spacing.md)
                     .floatingGlass(in: Capsule())
-                    .padding(.bottom, Spacing.xxl)
+                    .padding(.bottom, MediaViewerBar.height + Spacing.xl)
                     .transition(.opacity)
                     .accessibilityAddTraits(.updatesFrequently)
             }
@@ -100,6 +109,7 @@ struct MediaViewer: View {
             // перекрывают друг друга.
             ViewerVideo(url: url, isActive: selection == index)
                 .safeAreaPadding(.top, MediaViewerBar.height)
+                .safeAreaPadding(.bottom, MediaViewerBar.height)
         } else {
             ZoomableImage(
                 media: item,
@@ -131,18 +141,11 @@ struct MediaViewer: View {
 
     private var topBar: some View {
         HStack(spacing: Spacing.md) {
-            MediaViewerBar.button(symbol: "xmark", title: String(localized: "common.close", defaultValue: "Закрыть")) {
+            MediaViewerBar.button(symbol: "chevron.left", title: String(localized: "common.close", defaultValue: "Закрыть")) {
                 dismiss()
             }
             Spacer(minLength: 0)
-            if media.count > 1 {
-                Text(verbatim: "\(selection + 1) / \(media.count)")
-                    .font(Typography.tabular(.subheadline.weight(.semibold)))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, Spacing.lg)
-                    .frame(height: ControlHeight.md)
-                    .floatingGlass(in: Capsule())
-            }
+            titleCapsule
             Spacer(minLength: 0)
             if isBusy {
                 ProgressView()
@@ -150,23 +153,83 @@ struct MediaViewer: View {
                     .frame(width: ControlHeight.xl, height: ControlHeight.xl)
                     .floatingGlass(in: Circle())
             } else {
-                MediaViewerBar.button(symbol: "square.and.arrow.up", title: String(localized: "feed.share", defaultValue: "Поделиться")) {
-                    Task { await share() }
-                }
+                MediaViewerBar.circle(symbol: "ellipsis")
+                    .accessibilityHidden(true)
+                    .overlay {
+                        MenuOverlay(menu: moreMenu.uiMenu, accessibilityLabel: String(localized: "chats.info.more", defaultValue: "Ещё"))
+                    }
             }
-            MediaViewerBar.circle(symbol: "ellipsis")
-                .accessibilityHidden(true)
-                .overlay {
-                    MenuOverlay(menu: moreMenu.uiMenu, accessibilityLabel: String(localized: "chats.info.more", defaultValue: "Ещё"))
-                }
-                .disabled(isBusy)
         }
         .padding(.horizontal, Spacing.xl)
         .padding(.top, Spacing.sm)
     }
 
+    /// В чате — автор и время снимка (и номер в альбоме), как в Telegram; иначе номер.
+    @ViewBuilder
+    private var titleCapsule: some View {
+        if let context {
+            VStack(spacing: 0) {
+                Text(context.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text(media.count > 1
+                    ? "\(MediaViewerContext.when(context.date)) · \(selection + 1) / \(media.count)"
+                    : MediaViewerContext.when(context.date))
+                    .font(Typography.tabular(.caption2))
+                    .opacity(0.7)
+                    .lineLimit(1)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, Spacing.xl)
+            .frame(height: ControlHeight.xl)
+            .floatingGlass(in: Capsule())
+            .accessibilityElement(children: .combine)
+        } else if media.count > 1 {
+            Text(verbatim: "\(selection + 1) / \(media.count)")
+                .font(Typography.tabular(.subheadline.weight(.semibold)))
+                .foregroundStyle(.white)
+                .padding(.horizontal, Spacing.lg)
+                .frame(height: ControlHeight.md)
+                .floatingGlass(in: Capsule())
+        }
+    }
+
+    /// Снизу, как в Telegram: слева «Переслать» (в чате), справа «Поделиться».
+    private var bottomBar: some View {
+        HStack {
+            if let onForward = context?.onForward {
+                MediaViewerBar.button(symbol: "arrowshape.turn.up.right", title: String(localized: "chats.forward", defaultValue: "Переслать")) {
+                    onForward()
+                    dismiss()
+                }
+            }
+            Spacer(minLength: 0)
+            MediaViewerBar.button(symbol: "square.and.arrow.up", title: String(localized: "feed.share", defaultValue: "Поделиться")) {
+                Task { await share() }
+            }
+            .disabled(isBusy)
+        }
+        .padding(.horizontal, Spacing.xl)
+        .padding(.bottom, Spacing.sm)
+    }
+
     @HeroMenuBuilder
     private var moreMenu: [HeroMenuElement] {
+        if let onShowInChat = context?.onShowInChat {
+            HeroMenuItem(String(localized: "chats.viewer.showInChat", defaultValue: "Показать в чате"), symbol: "text.bubble") {
+                onShowInChat()
+                dismiss()
+            }
+        }
+        if let onReply = context?.onReply {
+            HeroMenuItem(String(localized: "chats.reply", defaultValue: "Ответить"), symbol: "arrowshape.turn.up.left") {
+                onReply()
+                dismiss()
+            }
+        }
+        if context?.onShowInChat != nil || context?.onReply != nil {
+            HeroMenuDivider()
+        }
         if let item = current {
             HeroMenuItem(String(localized: "media.save", defaultValue: "Сохранить в «Фото»"), symbol: "square.and.arrow.down") {
                 Task { await saveToPhotos(item) }
@@ -256,6 +319,33 @@ struct MediaViewer: View {
             try? await Task.sleep(for: .seconds(1.6))
             if notice == message { notice = nil }
         }
+    }
+}
+
+// MARK: - Открыт из чата
+
+/// Просмотр открыт из переписки: чьё сообщение, когда, и что с ним можно сделать.
+/// Действия выполняет экран чата, когда просмотр уже закрыт.
+struct MediaViewerContext {
+    let title: String
+    let date: Date
+    var onShowInChat: (() -> Void)?
+    var onReply: (() -> Void)?
+    var onForward: (() -> Void)?
+
+    /// «сегодня в 14:06», «вчера в 9:12», «3 нояб. в 18:40» — как в Telegram.
+    static func when(_ date: Date, calendar: Calendar = .current) -> String {
+        let time = date.formatted(date: .omitted, time: .shortened)
+        if calendar.isDateInToday(date) {
+            return String(localized: "chats.viewer.today", defaultValue: "сегодня в \(time)")
+        }
+        if calendar.isDateInYesterday(date) {
+            return String(localized: "chats.viewer.yesterday", defaultValue: "вчера в \(time)")
+        }
+        let day = calendar.isDate(date, equalTo: Date(), toGranularity: .year)
+            ? date.formatted(.dateTime.day().month(.abbreviated))
+            : date.formatted(.dateTime.day().month(.abbreviated).year())
+        return String(localized: "chats.viewer.dateAt", defaultValue: "\(day) в \(time)")
     }
 }
 
