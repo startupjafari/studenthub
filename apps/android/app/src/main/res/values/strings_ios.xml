@@ -5547,13 +5547,17 @@
     <string name="validation_cameras_hostMissing">В адресе нет хоста камеры</string>
     <string name="validation_cameras_rtspScheme">Адрес должен начинаться с rtsp://</string>
     <string name="validation_career_slug">Только строчная латиница, цифры и дефис</string>
+    <string name="validation_chats_contactEmpty">Укажите хотя бы один телефон или адрес почты</string>
     <string name="validation_chats_emptyMessage">Сообщение не может быть пустым</string>
+    <string name="validation_chats_livePeriod">Трансляция: 15 минут, 1 час или 8 часов</string>
     <string name="validation_chats_nothingToChange">Нечего менять: укажите название или описание</string>
     <string name="validation_chats_privateOneMember">Личный чат создаётся ровно с одним собеседником</string>
     <string name="validation_chats_quoteWithoutReply">Цитата возможна только вместе с ответом на сообщение</string>
+    <string name="validation_chats_reactionEmoji">Реакция — один эмодзи</string>
     <string name="validation_chats_scheduleInPast">Время отправки должно быть в будущем</string>
     <string name="validation_chats_scheduleTooFar">Отложить можно не больше чем на год</string>
     <string name="validation_chats_spoilerIndexes">Ожидались номера вложений через запятую</string>
+    <string name="validation_chats_stickerSlug">Короткое имя: латиница, цифры, «-» и «_», от 2 до 64 знаков</string>
     <string name="validation_common_duplicateIds">Идентификаторы повторяются</string>
     <string name="validation_common_nothingToChange">Нечего менять</string>
     <string name="validation_common_pageLimit">При постраничной выдаче — не больше 100 записей</string>
