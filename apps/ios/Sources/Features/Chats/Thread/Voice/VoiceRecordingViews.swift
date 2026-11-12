@@ -292,8 +292,10 @@ struct VoiceRecordingStrip: View {
 
     /// «0:07,42» — как таймер записи в Telegram.
     static func clock(_ seconds: TimeInterval) -> String {
-        let whole = Int(seconds)
-        let hundredths = Int((seconds - Double(whole)) * 100)
+        // Через сотые целиком: 7,42 − 7 в двоичной дроби даёт 41,999…
+        let total = Int((seconds * 100).rounded(.down))
+        let whole = total / 100
+        let hundredths = total % 100
         return String(format: "%d:%02d,%02d", whole / 60, whole % 60, hundredths)
     }
 
