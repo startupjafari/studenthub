@@ -588,6 +588,8 @@ final class MessageListViewController: UIViewController {
 
     /// Сколько экранов лента проезжает анимацией; дальше — переход без пробега.
     private static let nearScreens: CGFloat = 1.5
+    /// За сколько экранов до края загруженного просим следующую страницу.
+    private static let preloadScreens: CGFloat = 3
 
     /// Цель в пределах полутора экранов от видимого — туда можно доехать анимацией.
     private func isNear(_ indexPath: IndexPath) -> Bool {
@@ -836,12 +838,15 @@ extension MessageListViewController: UICollectionViewDelegate {
         guard hasContent else { return }
         reportBottom()
         if headersHidden { showHeaders() }
-        // Подгружаем заранее: к моменту, когда человек долистает, страница уже тут.
-        if scrollView.contentOffset.y < scrollView.bounds.height {
+        // Подгружаем заранее, как Telegram: за три экрана до края. С запасом в один экран
+        // быстрая прокрутка упиралась в край раньше, чем приходила страница, — лента
+        // вставала, а потом прыгала, когда страница всё же доезжала.
+        let preload = scrollView.bounds.height * Self.preloadScreens
+        if scrollView.contentOffset.y < preload {
             onReachTop?()
         }
         let distance = scrollView.contentSize.height - scrollView.contentOffset.y - scrollView.bounds.height
-        if distance < scrollView.bounds.height {
+        if distance < preload {
             onReachBottom?()
         }
     }
