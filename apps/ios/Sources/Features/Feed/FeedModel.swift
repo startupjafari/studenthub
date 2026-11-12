@@ -66,6 +66,9 @@ final class FeedModel {
             counts = [:]
             bookmarks = []
             remember(page.items, readAt: stamp)
+            // Тексты страницы — разобрать фоном, пока лента встаёт на экран: карточки
+            // возьмут готовое (п. 34).
+            RichText.warm(page.items.compactMap(\.content))
             failure = nil
             isOffline = false
         } catch {
@@ -89,6 +92,7 @@ final class FeedModel {
             // Реакции дозагруженных постов — туда же, иначе со второй страницы все
             // счётчики показывались нулями.
             remember(fresh, readAt: stamp)
+            RichText.warm(fresh.compactMap(\.content))
             self.cursor = page.meta?.hasNext == true ? page.meta?.cursor : nil
             pageFailure = nil
         } catch is CancellationError {
@@ -407,6 +411,17 @@ final class PostCommentsModel {
     /// Ответы на корневой комментарий, по порядку.
     func replies(to rootID: String) -> [PostCommentDTO] {
         comments.filter { $0.parentId == rootID }
+    }
+
+    /// Все ответы по корням разом, по порядку внутри корня: экран берёт их одним
+    /// проходом, а не `replies(to:)` на каждый корень.
+    var repliesByRoot: [String: [PostCommentDTO]] {
+        Self.groupReplies(comments)
+    }
+
+    /// Ответы по корням: порядок внутри корня — как в `comments`.
+    static func groupReplies(_ comments: [PostCommentDTO]) -> [String: [PostCommentDTO]] {
+        Dictionary(grouping: comments.filter { $0.parentId != nil }) { $0.parentId ?? "" }
     }
 
     /// Ответ, чей корень не попал в загруженные страницы, показываем отдельной строкой,

@@ -8,14 +8,17 @@ struct BookCoverView: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: Radius.md).fill(Palette.muted)
+            placeholder
             if let raw = url, let link = URL(string: raw) {
-                AsyncImage(url: link) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    placeholder
-                }
-            } else {
-                placeholder
+                // Общий кеш картинок и копия под размер обложки (п. 38 аудита): у
+                // `AsyncImage` не было ни того, ни другого — список из сотни книг качал и
+                // распаковывал полные обложки при каждом показе. Пока обложки нет — под
+                // ней значок книги (`emptyFill: nil`).
+                RemoteImage(
+                    url: link,
+                    cacheKey: "book:" + (raw.split(separator: "?").first.map(String.init) ?? raw),
+                    emptyFill: nil
+                )
             }
         }
         .frame(width: width, height: width * 1.5)

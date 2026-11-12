@@ -18,6 +18,11 @@ struct FeedView: View {
     @State private var composingPost = false
     /// Раздел ленты (`filter` сервера); `nil` — вся лента.
     @State private var filter: String?
+    /// Текст и первая картинка следующих постов — заранее (п. 40 аудита).
+    @State private var prefetcher = FeedPrefetcher()
+    /// Ширина ленты: по ней предзагрузка считает размер плитки.
+    @State private var listWidth: CGFloat = 0
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         PostActionsHost(model: feed) { actions in
@@ -43,6 +48,7 @@ struct FeedView: View {
                 }
                 .padding(.vertical, Spacing.md)
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { listWidth = $0 }
             // Первая загрузка — один системный индикатор по центру экрана, без заглушек
             // карточек: человек видит, что лента грузится, а не пустые серые блоки.
             .screenState(!feed.hasLoaded && feed.posts.isEmpty) { LoadingStateView() }
@@ -86,6 +92,7 @@ struct FeedView: View {
             case "SAVED": scope = .saved
             case let value?: scope = .filter(value)
             }
+            prefetcher.cancelAll()
             feed = FeedModel(api: FeedAPI(scope: scope))
             Task { await feed.refresh() }
         }
@@ -186,9 +193,17 @@ struct FeedView: View {
             ForEach(feed.posts) { post in
                 PostCardView(post: post, model: feed, viewerID: viewerID, actions: actions)
                     .onAppear {
-                        if post.id == feed.posts.last?.id {
+                        prefetcher.appeared(post.id, in: feed.posts, width: mediaWidth, scale: displayScale)
+                        // Следующая страница — за пять постов до конца, а не на последнем:
+                        // к концу ленты она уже пришла (п. 40). Сбой подгрузки не
+                        // повторяем на каждую строку — для этого «Повторить» под лентой.
+                        if feed.pageFailure == nil, let index = feed.posts.firstIndex(where: { $0.id == post.id }),
+                           index >= feed.posts.count - 5 {
                             Task { await feed.loadMore() }
                         }
+                    }
+                    .onDisappear {
+                        prefetcher.disappeared(post.id, in: feed.posts, width: mediaWidth, scale: displayScale)
                     }
             }
 
@@ -206,6 +221,13 @@ struct FeedView: View {
                     .padding(Spacing.lg)
             }
         }
+    }
+}
+
+extension FeedView {
+    /// Ширина плитки медиа: лента минус поля по бокам.
+    fileprivate var mediaWidth: CGFloat {
+        max(0, listWidth - 2 * Spacing.xl)
     }
 }
 

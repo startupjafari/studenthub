@@ -1,114 +1,59 @@
+import CoreImage
 import SwiftUI
-import ImageIO
 import UIKit
 import os
 
 // Общие детали ленты и историй: картинка с кэшем, аватар, форматированный текст,
 // подписи ролей и аудиторий.
 
-/// Картинки ленты в памяти.
-///
-/// Ключ — id файла и ширина копии, а не ссылка: ссылки подписаны и меняются при каждом
-/// обновлении ленты, и кэш по адресу промахивался бы всякий раз. `NSCache` сам
-/// отпускает память, когда системе её не хватает.
-final class ImageMemoryCache: @unchecked Sendable {
-    static let shared = ImageMemoryCache()
-
-    private let cache: NSCache<NSString, UIImage> = {
-        let cache = NSCache<NSString, UIImage>()
-        cache.totalCostLimit = 80 * 1024 * 1024
-        return cache
-    }()
-
-    func image(for key: String) -> UIImage? {
-        cache.object(forKey: key as NSString)
-    }
-
-    /// Выход из аккаунта: фото и аватары прежнего человека следующему ни к чему.
-    func removeAll() {
-        cache.removeAllObjects()
-    }
-
-    func store(_ image: UIImage, for key: String) {
-        let cost = Int(image.size.width * image.size.height * image.scale * image.scale * 4)
-        cache.setObject(image, forKey: key as NSString, cost: cost)
-    }
-
-    /// Загрузка с декодированием вне главного потока: крупный JPEG, распакованный при
-    /// первом показе, дёргает прокрутку.
-    ///
-    /// `maxPixelSize` — длинная сторона копии в пикселях. Аватар хранится до 1024 px, а
-    /// рисуется кружком в 40 pt: распакованный целиком, он занимал бы 4 МБ памяти вместо
-    /// 60 КБ, и кэш вмещал бы два десятка лиц. Уменьшенная копия делается прямо при
-    /// декодировании (`CGImageSource`), полный кадр в память не попадает вовсе.
-    func load(_ url: URL, key: String, maxPixelSize: CGFloat? = nil) async -> UIImage? {
-        if let cached = image(for: key) { return cached }
-        let fetch = Signposts.images.beginInterval("ImageFetch")
-        let loaded = try? await URLSession.shared.data(from: url)
-        Signposts.images.endInterval("ImageFetch", fetch, "bytes: \(loaded?.0.count ?? 0)")
-        guard
-            let (data, response) = loaded,
-            (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true
-        else { return nil }
-        let decode = Signposts.images.beginInterval("ImageDecode")
-        defer { Signposts.images.endInterval("ImageDecode", decode) }
-        let decoded: UIImage?
-        if let maxPixelSize {
-            decoded = Self.thumbnail(data, maxPixelSize: maxPixelSize)
-        } else if let image = UIImage(data: data) {
-            decoded = await image.byPreparingForDisplay() ?? image
-        } else {
-            decoded = nil
-        }
-        guard let decoded else { return nil }
-        store(decoded, for: key)
-        return decoded
-    }
-
-    /// Уменьшенная декодированная копия. Меньше исходника не растягивает: маленькую
-    /// картинку отдаёт как есть.
-    private static func thumbnail(_ data: Data, maxPixelSize: CGFloat) -> UIImage? {
-        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
-        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceThumbnailMaxPixelSize: max(Int(maxPixelSize), 1),
-        ]
-        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
-        return UIImage(cgImage: image)
-    }
-}
-
 /// Картинка по сети: пока грузится — размытое превью или ровная подложка, при ошибке
 /// — значок. Пропорции держит тот, кто ставит рамку.
+///
+/// Размер копии: `maxPixelSize`, если его задал вызывающий (аватар), иначе — по
+/// фактическому размеру вида × масштаб экрана (`ImageTarget.view`), с учётом
+/// `contentMode`. Первый кадр берёт из памяти любую готовую копию — при возврате
+/// прокруткой картинка не мигает превью, а точная копия догружается следом.
 struct RemoteImage: View {
     let url: URL?
     let cacheKey: String
     var placeholder: String?
     var contentMode: ContentMode = .fill
     /// Длинная сторона копии в пикселях: аватару и миниатюре полный кадр не нужен.
+    /// `nil` — по размеру вида.
     var maxPixelSize: CGFloat?
+    /// Подложка, пока картинки нет. `nil` — прозрачно: под картинкой своя заглушка
+    /// (обложка книги со значком).
+    var emptyFill: Color? = Palette.muted
 
     @State private var image: UIImage?
     @State private var failed = false
+    /// Размер вида в пикселях, ступенями (`ImageTarget.view`).
+    @State private var measured: ImageTarget?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.displayScale) private var displayScale
+
+    private var target: ImageTarget? {
+        if let maxPixelSize { return .longSide(maxPixelSize) }
+        return measured
+    }
 
     var body: some View {
+        // Готовая копия из памяти — уже в первом кадре, без ожидания `.task`.
+        let shown = image ?? ImageMemoryCache.shared.image(for: cacheKey)
         ZStack {
-            if let image {
-                Image(uiImage: image)
+            if let shown {
+                Image(uiImage: shown)
                     .resizable()
                     .aspectRatio(contentMode: contentMode)
                     .transition(.opacity)
-            } else if let preview = LQIP.image(from: placeholder) {
+            } else if let preview = LQIP.blurred(from: placeholder) {
+                // Превью уже размыто при разборе: размытие на каждом кадре прокрутки —
+                // лишний проход вне экрана на каждую плитку.
                 Image(uiImage: preview)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    .blur(radius: 12)
-            } else {
-                Rectangle().fill(Palette.muted)
+            } else if let emptyFill {
+                Rectangle().fill(emptyFill)
                 if failed {
                     Image(systemName: "photo")
                         .foregroundStyle(Palette.mutedForeground)
@@ -116,33 +61,130 @@ struct RemoteImage: View {
             }
         }
         .clipped()
-        .task(id: cacheKey) {
-            if let cached = ImageMemoryCache.shared.image(for: cacheKey) {
-                image = cached
-                return
-            }
-            guard let url else {
-                failed = true
-                return
-            }
-            let loaded = await ImageMemoryCache.shared.load(url, key: cacheKey, maxPixelSize: maxPixelSize)
+        .onGeometryChange(for: CGSize.self) { proxy in
+            proxy.size
+        } action: { size in
+            guard maxPixelSize == nil else { return }
+            let next = ImageTarget.view(size, scale: displayScale, mode: contentMode == .fit ? .fit : .fill)
+            if let next, next != measured { measured = next }
+        }
+        .task(id: RemoteImageLoad(key: cacheKey, target: target)) {
+            await load()
+        }
+    }
+
+    @MainActor
+    private func load() async {
+        // Размер вида ещё неизвестен: грузить полный кадр «на всякий случай» нельзя —
+        // дождёмся раскладки (`measured` сменит id задачи).
+        guard let target else { return }
+        if let cached = ImageMemoryCache.shared.image(for: cacheKey, satisfying: target) {
+            image = cached
+            failed = false
+            return
+        }
+        guard let url else {
+            failed = image == nil
+            return
+        }
+        let hadImage = image != nil || ImageMemoryCache.shared.image(for: cacheKey) != nil
+        let loaded = await ImageMemoryCache.shared.load(url, key: cacheKey, target: target)
+        guard !Task.isCancelled else { return }
+        guard let loaded else {
+            failed = !hadImage
+            return
+        }
+        if hadImage {
+            // Точная копия вместо приблизительной — без анимации: картинка та же.
+            image = loaded
+        } else {
             withAnimation(Motion.respecting(.easeOut(duration: Motion.Duration.feedback), reduceMotion: reduceMotion)) {
                 image = loaded
-                failed = loaded == nil
+                failed = false
             }
         }
     }
 }
 
-/// Размытое превью из data-URI (`data:image/webp;base64,…`).
+/// Повод перезапустить загрузку: другой файл или другая цель.
+private struct RemoteImageLoad: Hashable {
+    let key: String
+    let target: ImageTarget?
+}
+
+/// Превью из data-URI (`data:image/webp;base64,…`), разобранное один раз.
+///
+/// Тело карточки пересчитывается при каждой прокрутке, и base64 с WebP разбирался
+/// бы каждый раз (п. 37 аудита). Кеш — по самой строке: превью крошечные, строка
+/// однозначно определяет картинку. Потокобезопасно: зовётся и из тела вида, и из
+/// предзагрузки.
 enum LQIP {
+    /// Кеши и контекст Core Image — потокобезопасны сами по себе (`NSCache`,
+    /// `CIContext`); обёртка только сообщает это компилятору.
+    private final class Storage: @unchecked Sendable {
+        let raw: NSCache<NSString, UIImage> = {
+            let cache = NSCache<NSString, UIImage>()
+            cache.countLimit = 400
+            return cache
+        }()
+
+        let soft: NSCache<NSString, UIImage> = {
+            let cache = NSCache<NSString, UIImage>()
+            cache.countLimit = 400
+            return cache
+        }()
+
+        /// Создавать контекст на каждое превью дорого.
+        let context = CIContext(options: [.cacheIntermediates: false])
+    }
+
+    private static let storage = Storage()
+
+    /// Выход из аккаунта: превью чужих фото в памяти не остаются.
+    static func clearCache() {
+        storage.raw.removeAllObjects()
+        storage.soft.removeAllObjects()
+    }
+
+    /// Превью как есть (переписка размывает его сама).
     static func image(from dataURI: String?) -> UIImage? {
+        guard let dataURI, !dataURI.isEmpty else { return nil }
+        let key = dataURI as NSString
+        if let known = storage.raw.object(forKey: key) { return known }
         guard
-            let dataURI,
             let comma = dataURI.firstIndex(of: ","),
-            let data = Data(base64Encoded: String(dataURI[dataURI.index(after: comma)...]))
+            let data = Data(base64Encoded: String(dataURI[dataURI.index(after: comma)...])),
+            let image = UIImage(data: data)
         else { return nil }
-        return UIImage(data: data)
+        let prepared = image.preparingForDisplay() ?? image
+        storage.raw.setObject(prepared, forKey: key)
+        return prepared
+    }
+
+    /// Превью, уже размытое: вид рисует его как обычную картинку, без `.blur` на
+    /// каждом кадре. Размытие — один раз, на крошечной копии.
+    static func blurred(from dataURI: String?) -> UIImage? {
+        guard let dataURI, !dataURI.isEmpty else { return nil }
+        let key = dataURI as NSString
+        if let known = storage.soft.object(forKey: key) { return known }
+        guard let source = image(from: dataURI) else { return nil }
+        let result = blur(source) ?? source
+        storage.soft.setObject(result, forKey: key)
+        return result
+    }
+
+    /// Крошечное превью растягивается до 64 px по длинной стороне и размывается: на
+    /// экране это то же мягкое пятно, что давал `.blur(radius: 12)` поверх плитки.
+    private static func blur(_ image: UIImage) -> UIImage? {
+        guard let cgImage = image.cgImage else { return nil }
+        let input = CIImage(cgImage: cgImage)
+        let side = max(input.extent.width, input.extent.height)
+        guard side > 0 else { return nil }
+        let scale = max(1, 64 / side)
+        let scaled = input.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let blurred = scaled.clampedToExtent().applyingGaussianBlur(sigma: 3).cropped(to: scaled.extent)
+        guard let output = storage.context.createCGImage(blurred, from: scaled.extent) else { return nil }
+        return UIImage(cgImage: output)
     }
 }
 
@@ -215,9 +257,80 @@ struct AvatarView: View {
 ///
 /// Списки и цитаты остаются строками как есть: разбор `inlineOnlyPreservingWhitespace`
 /// сохраняет переносы, и «- пункт» читается и без отрисовки маркера.
+///
+/// Разбор — один раз на текст (п. 3 и 34 аудита): `attributed` берёт готовое из кеша в
+/// памяти, а `prepare`/`warm` разбирают заранее вне главного потока (сборка ленты
+/// переписки, загрузка страницы ленты, предзагрузка ячеек), и ячейка получает готовый
+/// результат. Ключ — сам текст: правка сообщения меняет текст и тем самым ключ, так что
+/// устаревший разбор не покажется ни при какой правке, в том числе до ответа сервера.
+/// От темы, Dynamic Type и языка результат не зависит: цвет и шрифт упоминаний —
+/// системные динамические (`Palette.primary`, `Typography.body`), разрешаются при
+/// отрисовке. Подсветка поиска накладывается на копию (значение `AttributedString`).
 enum RichText {
+    /// `NSCache` потокобезопасен; обёртка только сообщает это компилятору.
+    private final class Storage: @unchecked Sendable {
+        final class Parsed {
+            let value: AttributedString
+            init(_ value: AttributedString) { self.value = value }
+        }
+
+        let cache: NSCache<NSString, Parsed> = {
+            let cache = NSCache<NSString, Parsed>()
+            // Цена — длина текста: ограничение и по числу, и по объёму (≈ 8 МБ строк).
+            cache.countLimit = 3_000
+            cache.totalCostLimit = 4_000_000
+            return cache
+        }()
+    }
+
+    private static let storage = Storage()
+
+    /// Разобранный текст: из кеша, иначе — разбор здесь же (и в кеш).
     static func attributed(_ source: String) -> AttributedString {
-        // Разбор зовётся из тела пузыря и карточки поста — сколько раз и сколько стоит.
+        if let known = cached(source) { return known }
+        let parsed = parse(source)
+        remember(parsed, for: source)
+        return parsed
+    }
+
+    /// Готовый разбор, если он уже есть.
+    static func cached(_ source: String) -> AttributedString? {
+        guard !source.isEmpty else { return nil }
+        return storage.cache.object(forKey: source as NSString)?.value
+    }
+
+    /// Разобрать заранее то, чего ещё нет в кеше. Синхронно — для фоновых задач
+    /// (сборка ленты переписки); прерывается отменой задачи.
+    static func prepare<Sources: Sequence>(_ sources: Sources) where Sources.Element == String {
+        let signpost = Signposts.chats.beginInterval("TextPrepare")
+        var parsed = 0
+        for source in sources {
+            if Task.isCancelled { break }
+            guard !source.isEmpty, cached(source) == nil else { continue }
+            remember(parse(source), for: source)
+            parsed += 1
+        }
+        Signposts.chats.endInterval("TextPrepare", signpost, "parsed: \(parsed)")
+    }
+
+    /// Разобрать заранее фоном. Задачу можно отменить (ячейка ушла с экрана).
+    @discardableResult
+    static func warm(_ sources: [String], priority: TaskPriority = .utility) -> Task<Void, Never> {
+        Task.detached(priority: priority) { prepare(sources) }
+    }
+
+    /// Выход из аккаунта: тексты прежнего человека в памяти не остаются.
+    static func clearCache() {
+        storage.cache.removeAllObjects()
+    }
+
+    private static func remember(_ parsed: AttributedString, for source: String) {
+        guard !source.isEmpty else { return }
+        storage.cache.setObject(Storage.Parsed(parsed), forKey: source as NSString, cost: source.utf16.count)
+    }
+
+    private static func parse(_ source: String) -> AttributedString {
+        // Разбор — только при промахе кеша: сколько раз и сколько стоит.
         let signpost = Signposts.chats.beginInterval("TextParse")
         defer { Signposts.chats.endInterval("TextParse", signpost, "chars: \(source.count)") }
         var text = (try? AttributedString(

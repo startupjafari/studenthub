@@ -145,10 +145,13 @@ struct PostCommentsView: View {
                 commentsState(model)
             }
 
+            // Ответы сгруппированы одним проходом на пересчёт, а не фильтром всех
+            // комментариев на каждый корень (п. 43 аудита: было O(n²)).
+            let replies = model.repliesByRoot
             ForEach(model.roots) { root in
                 CommentRow(comment: root, isReply: false, viewerID: viewerID, actions: rowActions(model))
                     .id(root.id)
-                ForEach(model.replies(to: root.id)) { reply in
+                ForEach(replies[root.id] ?? []) { reply in
                     CommentRow(comment: reply, isReply: true, viewerID: viewerID, actions: rowActions(model))
                         .id(reply.id)
                 }

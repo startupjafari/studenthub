@@ -20,6 +20,8 @@ final class ChatThreadModel {
     /// Последняя запрошенная сборка ленты: запоздавшая фоновая сборка старого среза не
     /// перезапишет новую.
     @ObservationIgnored private var buildGeneration = 0
+    /// Сколько свежих сообщений разобрать до показа ленты: экран и запас на прокрутку.
+    private static let preparedOnScreen = 60
     /// Идущая фоновая сборка ленты: новый срез отменяет прежнюю, уход с экрана — любую.
     @ObservationIgnored private var buildTask: Task<Void, Never>?
     private(set) var title: String?
@@ -1390,6 +1392,7 @@ final class ChatThreadModel {
         let generation = buildGeneration
         let attachments = snapshot.attachments
         let viewer = viewerID
+        let onScreen = Self.preparedOnScreen
         // В сборку уходят только значения (записи базы и строки), ссылок на модель нет;
         // `self` — слабо и только на главном потоке, после сборки.
         buildTask?.cancel()
@@ -1399,11 +1402,18 @@ final class ChatThreadModel {
             let built = MessageTimeline.build(from: visible, attachments: attachments, viewerID: viewer)
             Signposts.chats.endInterval("TimelineBuild", signpost, "messages: \(visible.count)")
             guard !Task.isCancelled else { return }
+            // Разбор текста — здесь же, вне главного потока (п. 3): сначала то, что у
+            // свежего края и встанет на экран первым, — до показа, потом остальное.
+            // Разобранное уже лежит в кеше, повторная сборка только сверяет ключи.
+            let texts = visible.map(\.content)
+            RichText.prepare(texts.suffix(onScreen))
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard let self, self.buildGeneration == generation else { return }
                 self.days = built
                 self.daysRevision &+= 1
             }
+            RichText.prepare(texts.dropLast(onScreen).reversed())
         }
     }
 

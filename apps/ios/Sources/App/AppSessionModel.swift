@@ -162,6 +162,9 @@ enum LocalData {
         await AppServices.attachmentURLs.clear()
         // Фото, аватары и свои вложения прежнего человека — тоже его данные.
         ImageMemoryCache.shared.removeAll()
+        // Разобранные тексты и превью фото — тоже его данные, хоть и в памяти.
+        RichText.clearCache()
+        LQIP.clearCache()
         URLCache.shared.removeAllCachedResponses()
         try? FileManager.default.removeItem(at: AttachmentUploader.outboxDirectory)
         UserDefaults.standard.removeObject(forKey: ScheduleModel.syncedKey)
