@@ -127,16 +127,14 @@ struct MessageMenuOverlay: View {
     /// Между панелью реакций и пузырём — место под «хвостик» из двух кружков.
     private static let reactionsGap: CGFloat = 12
     private static let reactionsHeight: CGFloat = 48
-    private static let menuWidth: CGFloat = 250
+    private static let menuWidth: CGFloat = 240
     private static let edge: CGFloat = 8
-    private static let menuRadius: CGFloat = 22
-    /// Широкая полоса над «Выбрать», как в Telegram: отделяет режим выбора от действий
-    /// с самим сообщением.
-    private static let selectDivider: CGFloat = 8
-    /// Полоса темнее панели в обеих темах — как в Telegram, не светлее.
-    private static let groupGapColor = Color(uiColor: UIColor { traits in
-        UIColor.black.withAlphaComponent(traits.userInterfaceStyle == .dark ? 0.3 : 0.08)
-    })
+    private static let menuRadius: CGFloat = 24
+    /// Поля сверху и снизу списка.
+    private static let menuInset: CGFloat = Spacing.sm * 2
+    /// Тонкая линия с отступами над «Выбрать», как в Telegram: отделяет режим выбора от
+    /// действий с самим сообщением.
+    private static let selectDivider: CGFloat = 1 + Spacing.sm * 2
 
     var body: some View {
         GeometryReader { proxy in
@@ -183,7 +181,7 @@ struct MessageMenuOverlay: View {
 
     private var menuHeight: CGFloat {
         let divider = request.actions.count > 1 && request.actions.last == .select ? Self.selectDivider : 0
-        return CGFloat(request.actions.count) * rowHeight + divider
+        return CGFloat(request.actions.count) * rowHeight + Self.menuInset + divider
     }
 
     /// Отступы окна: слой меню растянут на весь экран (`ignoresSafeArea`), и его
@@ -323,31 +321,29 @@ struct MessageMenuOverlay: View {
         let shape = RoundedRectangle(cornerRadius: Self.menuRadius, style: .continuous)
         return VStack(spacing: 0) {
             ForEach(Array(request.actions.enumerated()), id: \.element.id) { index, action in
-                let opensGroup = action == .select && index > 0
-                if opensGroup {
-                    Self.groupGapColor
-                        .frame(height: Self.selectDivider)
+                // Линия — только над «Выбрать», как в Telegram.
+                if action == .select, index > 0 {
+                    Rectangle()
+                        .fill(Palette.foreground.opacity(0.15))
+                        .frame(height: 1 / displayScale)
+                        .padding(.horizontal, Spacing.xl)
+                        .padding(.vertical, Spacing.sm)
                         .accessibilityHidden(true)
                 }
-                // Как в Telegram для iPhone: подпись слева, значок справа, между
-                // пунктами — тонкая линия во всю ширину.
-                HStack(spacing: Spacing.md) {
+                // Как в Telegram: значок слева, подпись за ним, линий между пунктами нет.
+                HStack(spacing: Spacing.lg) {
+                    Image(systemName: action.symbol)
+                        .font(.body)
+                        .frame(width: 24)
                     Text(action.title)
                         .lineLimit(1)
                     Spacer(minLength: 0)
-                    Image(systemName: action.symbol)
-                        .frame(width: 24)
                 }
                 .font(Typography.body)
                 .foregroundStyle(action.isDestructive ? Palette.destructive : Palette.foreground)
                 .padding(.horizontal, Spacing.xl)
                 .frame(height: rowHeight)
                 .background(pressed == action ? Palette.foreground.opacity(0.12) : Color.clear)
-                .overlay(alignment: .top) {
-                    if index > 0, !opensGroup {
-                        Palette.border.frame(height: 1 / displayScale)
-                    }
-                }
                 .opacity(isEnabled(action) ? 1 : 0.4)
                 .contentShape(Rectangle())
                 .background {
@@ -365,6 +361,7 @@ struct MessageMenuOverlay: View {
                 .accessibilityAction { perform(action) }
             }
         }
+        .padding(.vertical, Spacing.sm)
         .frame(width: Self.menuWidth)
         // Подсветка крайних пунктов не вылезает за скругление.
         .clipShape(shape)
@@ -380,9 +377,9 @@ struct MessageMenuOverlay: View {
                 }
         )
         .sensoryFeedback(.selection, trigger: pressed) { _, now in now != nil }
-        // Плотная подложка под стеклом, как у меню Telegram: пузырь и обои под панелью
-        // не просвечивают пёстрыми пятнами, текст читается на любом фоне.
-        .background(Palette.popover.opacity(0.8), in: shape)
+        // Плотная тёмная подложка под стеклом, как у меню Telegram: пузырь и обои под
+        // панелью не просвечивают, текст читается на любом фоне.
+        .background(Palette.popover.opacity(0.85), in: shape)
         .floatingGlass(in: shape)
         .scaleEffect(shown ? 1 : 0.6, anchor: request.item.isOwn ? .topTrailing : .topLeading)
         .opacity(shown ? 1 : 0)
