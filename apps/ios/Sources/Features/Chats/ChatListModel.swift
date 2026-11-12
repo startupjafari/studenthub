@@ -261,6 +261,7 @@ final class ChatListModel {
         rowsTask = Task { @MainActor [weak self, database] in
             var isFirst = true
             for await rows in AsyncValues.stream(of: observation, in: database.reader) {
+                Signposts.chats.emitEvent("ChatListApply", "rows: \(rows.count)")
                 self?.rows = rows
                 if isFirst {
                     isFirst = false

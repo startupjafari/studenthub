@@ -216,6 +216,9 @@ struct AvatarView: View {
 /// сохраняет переносы, и «- пункт» читается и без отрисовки маркера.
 enum RichText {
     static func attributed(_ source: String) -> AttributedString {
+        // Разбор зовётся из тела пузыря и карточки поста — сколько раз и сколько стоит.
+        let signpost = Signposts.chats.beginInterval("TextParse")
+        defer { Signposts.chats.endInterval("TextParse", signpost, "chars: \(source.count)") }
         var text = (try? AttributedString(
             markdown: source,
             options: AttributedString.MarkdownParsingOptions(

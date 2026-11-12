@@ -340,6 +340,8 @@ final class MessageListViewController: UIViewController {
         sticksToBottom = target == nil
         reportBottom()
         reveal()
+        // Переписка показала первое содержимое — конец «открытия чата» для человека.
+        Signposts.chats.emitEvent("FirstContentFrame", "items: \(dataSource.snapshot().numberOfItems)")
         scheduleHeaderHide()
     }
 

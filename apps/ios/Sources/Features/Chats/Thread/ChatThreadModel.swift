@@ -1487,7 +1487,12 @@ enum AsyncValues {
                 in: reader,
                 scheduling: .async(onQueue: .main),
                 onError: { _ in continuation.finish() },
-                onChange: { value in continuation.yield(value) }
+                onChange: { value in
+                    // Значение наблюдения дошло до главного потока (после отсева, если
+                    // он есть): сколько раз экран будят изменения базы.
+                    Signposts.chats.emitEvent("DBChangeObserved", "\(String(describing: type(of: value)), privacy: .public)")
+                    continuation.yield(value)
+                }
             )
             continuation.onTermination = { _ in cancellable.cancel() }
         }

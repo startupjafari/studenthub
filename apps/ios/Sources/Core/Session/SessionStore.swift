@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Сессия пользователя: кто вошёл и каким токеном подписываются запросы.
 ///
@@ -175,15 +176,21 @@ actor SessionStore: AuthorizationProvider {
 
     private func performRefresh() async -> AccessToken? {
         restoreRefreshCookieIfNeeded()
+        // Только исход, без токена: токенам в логах и метках не место.
+        let signpost = Signposts.launch.beginInterval("TokenRefresh")
         do {
-            return adopt(try await auth.refresh())
+            let refreshed = adopt(try await auth.refresh())
+            Signposts.launch.endInterval("TokenRefresh", signpost, "refreshed")
+            return refreshed
         } catch {
             // Сессия невосстановима — забываем её, иначе каждый следующий запрос
             // будет заново ломиться в обновление.
             if let apiError = error as? APIError, apiError.code?.meansSessionExpired == true {
+                Signposts.launch.endInterval("TokenRefresh", signpost, "expired")
                 forgetSession()
                 sessionEnded?()
             } else {
+                Signposts.launch.endInterval("TokenRefresh", signpost, "failed")
                 refreshUndecided = true
             }
             return nil

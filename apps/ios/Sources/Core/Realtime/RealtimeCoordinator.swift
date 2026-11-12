@@ -1,6 +1,7 @@
 import Foundation
 import GRDB
 import Observation
+import os
 
 /// Приём событий реального времени.
 ///
@@ -192,9 +193,11 @@ final class RealtimeCoordinator {
             scheduleReconnect()
 
         case .messageNew(let message):
+            Signposts.chats.emitEvent("MessageReceived", "new")
             await save(message, countsAsUnread: true)
 
         case .messageUpdated(let message):
+            Signposts.chats.emitEvent("MessageReceived", "updated")
             await save(message, countsAsUnread: false)
 
         case .messageDeleted(let id, _):
@@ -205,6 +208,7 @@ final class RealtimeCoordinator {
             }
 
         case .chatRead(let chatID, let readAt):
+            Signposts.chats.emitEvent("ReadReceiptReceived", "chat")
             // Прочитано на другом устройстве — счётчик гаснет и здесь, но только если
             // отметка дошла до последнего сообщения: иначе непрочитанное ещё есть, и
             // точное число скажет список.
@@ -219,6 +223,7 @@ final class RealtimeCoordinator {
             if !cleared { scheduleListRefresh() }
 
         case .messageRead(let chatID, let userID, let readAt):
+            Signposts.chats.emitEvent("ReadReceiptReceived", "message")
             // Сервер шлёт прочтение всей комнате, и мне — моё же. Галочки своих
             // сообщений от собственного чтения загорались бы сами.
             let viewerID = await session.currentToken?.subject
@@ -234,6 +239,7 @@ final class RealtimeCoordinator {
             }
 
         case .action(let chatID, let userID, let action):
+            Signposts.chats.emitEvent("TypingReceived")
             apply(action: action, chatID: chatID, userID: userID)
 
         case .presence(let userID, let online):
