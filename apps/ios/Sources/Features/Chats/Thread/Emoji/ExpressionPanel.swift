@@ -149,11 +149,7 @@ private struct StickerBrowser: View {
             if !catalog.sets.isEmpty {
                 setStrip
             }
-            ExpressionSearchField(
-                query: $query,
-                prompt: String(localized: "chats.panel.search", defaultValue: "Поиск")
-            )
-            .padding(.horizontal, Spacing.md)
+            searchRow
             content
         }
         .padding(.top, Spacing.sm)
@@ -162,6 +158,43 @@ private struct StickerBrowser: View {
 
     private var term: String {
         query.trimmingCharacters(in: .whitespaces).lowercased()
+    }
+
+    /// Быстрые фильтры по emoji рядом с поиском, как в Telegram: касание ищет стикеры
+    /// с этим emoji.
+    private static let quickFilters = ["❤️", "👍", "👎", "🎉", "😂", "😢", "😮", "😡", "🔥", "🙏", "👋", "😴"]
+
+    /// Поиск и фильтры одной строкой: пока запроса нет — компактное поле, за ним emoji;
+    /// начали искать — поле во всю ширину.
+    private var searchRow: some View {
+        HStack(spacing: Spacing.sm) {
+            ExpressionSearchField(
+                query: $query,
+                prompt: String(localized: "chats.panel.search", defaultValue: "Поиск")
+            )
+            .frame(maxWidth: term.isEmpty ? 130 : .infinity)
+            if term.isEmpty, !catalog.sets.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Spacing.xs) {
+                        ForEach(Self.quickFilters, id: \.self) { emoji in
+                            Button {
+                                query = emoji
+                            } label: {
+                                Text(verbatim: emoji)
+                                    .font(.title3)
+                                    .frame(width: 34, height: ControlHeight.md)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(Text(String(localized: "chats.stickers.filter", defaultValue: "Стикеры \(emoji)")))
+                        }
+                    }
+                }
+                .transition(.opacity)
+            }
+        }
+        .padding(.horizontal, Spacing.md)
+        .animation(Motion.lively, value: term.isEmpty)
     }
 
     @ViewBuilder
