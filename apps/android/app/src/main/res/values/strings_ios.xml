@@ -2513,6 +2513,7 @@
     <string name="home_notifications_unreadTitle">Непрочитанные уведомления</string>
     <string name="home_nowPair">Сейчас идёт</string>
     <string name="home_offline">Нет связи</string>
+    <string name="home_offline_cached">Нет связи — показано сохранённое</string>
     <string name="home_offline_schedule">Нет связи — расписание из сохранённого</string>
     <string name="home_profile_open">Открыть профиль</string>
     <string name="home_schedule_all">Всё расписание</string>
@@ -3085,6 +3086,7 @@
     <string name="notifications_readAll">Прочитать все</string>
     <string name="notifications_settings">Настройки уведомлений</string>
     <string name="notifications_unread">Не прочитано</string>
+    <string name="optimistic_offline">Нет связи — изменение не сохранилось</string>
     <string name="portfolio_add">Добавить запись</string>
     <string name="portfolio_dates">Указать период</string>
     <string name="portfolio_delete_confirm">Удалить «{title}» из портфолио?</string>

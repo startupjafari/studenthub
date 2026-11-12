@@ -2513,6 +2513,7 @@
     <string name="home_notifications_unreadTitle">Оқылмаған хабарламалар</string>
     <string name="home_nowPair">Қазір жүріп жатыр</string>
     <string name="home_offline">Байланыс жоқ</string>
+    <string name="home_offline_cached">Байланыс жоқ — сақталғаны көрсетілді</string>
     <string name="home_offline_schedule">Байланыс жоқ — сақталған кесте көрсетілген</string>
     <string name="home_profile_open">Профильді ашу</string>
     <string name="home_schedule_all">Бүкіл кесте</string>
@@ -3085,6 +3086,7 @@
     <string name="notifications_readAll">Барлығын оқу</string>
     <string name="notifications_settings">Хабарлама баптаулары</string>
     <string name="notifications_unread">Оқылмаған</string>
+    <string name="optimistic_offline">Байланыс жоқ — өзгеріс сақталмады</string>
     <string name="portfolio_add">Жазба қосу</string>
     <string name="portfolio_dates">Кезеңді көрсету</string>
     <string name="portfolio_delete_confirm">«{title}» портфолиодан жойылсын ба?</string>
