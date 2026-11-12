@@ -378,7 +378,9 @@ final class MessageListViewController: UIViewController {
         reportBottom()
         reveal()
         // Переписка показала первое содержимое — конец «открытия чата» для человека.
-        Signposts.chats.emitEvent("FirstContentFrame", "items: \(dataSource.snapshot().numberOfItems)")
+        // Число — заранее: строка метки — автозамыкание, и `self` в ней пришлось бы писать явно.
+        let items = dataSource.snapshot().numberOfItems
+        Signposts.chats.emitEvent("FirstContentFrame", "items: \(items)")
         scheduleHeaderHide()
     }
 
