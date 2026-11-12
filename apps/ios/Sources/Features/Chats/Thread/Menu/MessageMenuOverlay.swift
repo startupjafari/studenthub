@@ -156,6 +156,8 @@ struct MessageMenuOverlay: View {
             }
         }
         .sensoryFeedback(.impact(weight: .medium), trigger: shown) { _, now in now }
+        .onChange(of: MessageMenuTouch.shared.phase) { _, phase in follow(phase) }
+        .onDisappear { MessageMenuTouch.shared.reset() }
         .accessibilityAction(.escape) { dismiss() }
     }
 
@@ -341,7 +343,7 @@ struct MessageMenuOverlay: View {
                     GeometryReader { row in
                         Color.clear.preference(
                             key: MenuRowFrames.self,
-                            value: [action.id: row.frame(in: .named(Self.menuSpace))]
+                            value: [action.id: row.frame(in: .global)]
                         )
                     }
                 }
@@ -354,11 +356,10 @@ struct MessageMenuOverlay: View {
         }
         .padding(.vertical, Spacing.xs)
         .frame(width: Self.menuWidth)
-        .coordinateSpace(.named(Self.menuSpace))
         .onPreferenceChange(MenuRowFrames.self) { rowFrames = $0 }
         .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .gesture(
-            DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.menuSpace))
+            DragGesture(minimumDistance: 0, coordinateSpace: .global)
                 .onChanged { drag in pressed = action(at: drag.location) }
                 .onEnded { drag in
                     let chosen = action(at: drag.location)
@@ -377,7 +378,22 @@ struct MessageMenuOverlay: View {
         .transition(.opacity)
     }
 
-    private static let menuSpace = "messageMenu"
+    /// Палец, которым меню открыли, ещё на экране: ведёт подсветку, отпускание над
+    /// пунктом — выбор. Отпустили мимо пунктов (на месте нажатия) — меню остаётся.
+    private func follow(_ phase: MessageMenuTouch.Phase) {
+        switch phase {
+        case .idle:
+            break
+        case .moving(let point):
+            guard !expanded else { return }
+            pressed = action(at: point)
+        case .released(let point):
+            MessageMenuTouch.shared.reset()
+            let chosen = expanded ? nil : action(at: point)
+            pressed = nil
+            if let chosen { perform(chosen) }
+        }
+    }
 
     private func isEnabled(_ action: MessageMenuAction) -> Bool {
         action != .readers(count: 0)
