@@ -855,10 +855,19 @@ extension MessageListViewController: UICollectionViewDelegate {
         scheduleHeaderHide()
     }
 
-    /// Касание строки состояния уводит к началу — тоже решение человека.
+    /// Касание строки состояния уводит к началу — тоже решение человека. Издалека — без
+    /// системного пробега через всю загруженную историю (пустые кадры по пути), сразу.
     func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
         sticksToBottom = false
-        return true
+        pendingFocus = nil
+        let top = -scrollView.adjustedContentInset.top
+        guard scrollView.contentOffset.y - top > scrollView.bounds.height * Self.nearScreens else { return true }
+        showHeaders()
+        crossfade {
+            scrollView.setContentOffset(CGPoint(x: 0, y: top), animated: false)
+        }
+        reportBottom()
+        return false
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
