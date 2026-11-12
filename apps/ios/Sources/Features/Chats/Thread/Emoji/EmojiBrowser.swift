@@ -226,14 +226,15 @@ struct EmojiSearchResults: View {
 
     var body: some View {
         let found = EmojiKeywords.search(query)
-        ScrollView {
-            if found.isEmpty {
-                Text(String(localized: "services.notFound", defaultValue: "Ничего не нашлось"))
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
-                    .frame(maxWidth: .infinity)
-                    .padding(Spacing.xxl)
-            } else {
+        if found.isEmpty {
+            // Пояснение — по центру панели, а не прижатым к поиску.
+            Text(String(localized: "services.notFound", defaultValue: "Ничего не нашлось"))
+                .font(Typography.meta)
+                .foregroundStyle(Palette.mutedForeground)
+                .padding(.bottom, bottomInset)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: columns), spacing: 2) {
                     ForEach(found, id: \.self) { emoji in
                         EmojiCell(emoji: emoji, onPick: onPick)
@@ -241,9 +242,9 @@ struct EmojiSearchResults: View {
                 }
                 .padding(.horizontal, Spacing.xs)
             }
+            .contentMargins(.bottom, bottomInset, for: .scrollContent)
+            .scrollDismissesKeyboard(.immediately)
         }
-        .contentMargins(.bottom, bottomInset, for: .scrollContent)
-        .scrollDismissesKeyboard(.immediately)
     }
 }
 

@@ -380,7 +380,48 @@ private struct GifBrowser: View {
         }
     }
 
+    /// Сетки нет (грузится, пусто, ничего не нашлось, сбой) — пояснение по центру панели,
+    /// а не прижатым к поиску.
+    private var hasTiles: Bool {
+        (query.trimmingCharacters(in: .whitespaces).isEmpty && !recent.isEmpty) || (!searchDisabled && !found.isEmpty)
+    }
+
+    @ViewBuilder
+    private var centeredState: some View {
+        VStack(spacing: Spacing.md) {
+            if isLoading {
+                ProgressView()
+            } else if let failure {
+                note(failure, isError: true)
+            } else if searchDisabled {
+                note(String(
+                    localized: "chats.gifs.empty",
+                    defaultValue: "Здесь появятся GIF, которые вы отправляли. Новый GIF — через скрепку из «Фото»."
+                ))
+            } else if !query.trimmingCharacters(in: .whitespaces).isEmpty {
+                note(String(localized: "services.notFound", defaultValue: "Ничего не нашлось"))
+            } else {
+                ProgressView()
+            }
+        }
+        .padding(.bottom, bottomInset)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private var results: some View {
+        Group {
+            if hasTiles { tiles } else { centeredState }
+        }
+        .task { await loadRecent() }
+        .task(id: query) {
+            // Пауза — чтобы не спрашивать каталог на каждую букву.
+            try? await Task.sleep(for: .milliseconds(query.isEmpty ? 0 : 350))
+            guard !Task.isCancelled else { return }
+            await search()
+        }
+    }
+
+    private var tiles: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.sm) {
                 if query.trimmingCharacters(in: .whitespaces).isEmpty, !recent.isEmpty {
@@ -423,13 +464,6 @@ private struct GifBrowser: View {
         }
         .contentMargins(.bottom, bottomInset, for: .scrollContent)
         .scrollDismissesKeyboard(.immediately)
-        .task { await loadRecent() }
-        .task(id: query) {
-            // Пауза — чтобы не спрашивать каталог на каждую букву.
-            try? await Task.sleep(for: .milliseconds(query.isEmpty ? 0 : 350))
-            guard !Task.isCancelled else { return }
-            await search()
-        }
     }
 
     private struct GifTile: Identifiable {
