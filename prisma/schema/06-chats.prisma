@@ -429,6 +429,9 @@ model ChatChecklist {
   othersCanAdd  Boolean  @default(true) @map("others_can_add")
   othersCanMark Boolean  @default(true) @map("others_can_mark")
   createdAt     DateTime @default(now()) @map("created_at")
+  // Любая правка пунктов (добавили, убрали, отметили) двигает отметку: по ней догон после
+  // обрыва (GET /chats/:id/updates) отдаёт сообщение чек-листа в `mutated`.
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   message Message             @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   items   ChatChecklistItem[]

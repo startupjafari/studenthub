@@ -43,6 +43,7 @@ CREATE TABLE "chat_checklists" (
     "others_can_add" BOOLEAN NOT NULL DEFAULT true,
     "others_can_mark" BOOLEAN NOT NULL DEFAULT true,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "chat_checklists_pkey" PRIMARY KEY ("id")
 );

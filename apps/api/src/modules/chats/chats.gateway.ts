@@ -191,7 +191,13 @@ export class ChatGateway {
     if (!(await this.realtime.admitSocket(client, 'message:send'))) return
     if (await this.halted(client, 'message:send')) return
     try {
-      const { message } = await this.chats.createMessage(uid, data)
+      const { message, duplicate } = await this.chats.createMessage(uid, data)
+      // Повтор того же nonce: сообщение уже есть и уже разослано. Подтверждаем только этому
+      // сокету — отправитель заменит pending-пузырь, а комната второй раз его не получает.
+      if (duplicate) {
+        client.emit('message:new', { message, chatId: data.chatId, nonce: data.nonce })
+        return
+      }
       // Всем участникам в комнате чата (включая отправителя) ровно один раз. nonce эхом —
       // отправитель заменит свой оптимистичный «pending» пузырь (#1); остальные его игнорируют.
       this.server
