@@ -95,6 +95,11 @@ final class MessageListViewController: UIViewController {
     private var fingerprints: [String: UInt64] = [:]
     private let heights = MessageHeightCache.shared
     private var lastPageRequest: CFTimeInterval = 0
+    /// Уже найденные высоты по id — быстрый путь пересборки раскладки: без ключа-строки,
+    /// блокировки и словаря кэша на каждое из тысяч сообщений при каждом срезе базы.
+    /// Сбрасывается вместе с отпечатком сообщения, шириной и размером шрифта.
+    private var resolved: [String: CGFloat] = [:]
+    private var resolvedFor: (width: CGFloat, category: UIContentSizeCategory)?
     private var hasContent = false
     private var lastBoundsHeight: CGFloat = 0
 
@@ -172,17 +177,30 @@ final class MessageListViewController: UIViewController {
 
     /// Высота сообщения для раскладки: точная из кэша, иначе прошлая, иначе оценка.
     private func height(for id: String) -> CGFloat {
+        let width = collectionView.bounds.width
+        let category = traitCollection.preferredContentSizeCategory
+        if resolvedFor?.width != width || resolvedFor?.category != category {
+            resolved = [:]
+            resolvedFor = (width, category)
+        }
+        if let known = resolved[id] { return known }
         guard let item = itemsByID[id] else { return 60 }
         let key = heightKey(id)
+        let height: CGFloat
         if let fingerprint = fingerprints[id], let exact = heights.height(for: key, fingerprint: fingerprint) {
-            return exact
+            height = exact
+        } else if let last = heights.lastHeight(for: key) {
+            height = last
+        } else {
+            height = item.estimatedHeight(width: width, isGroup: bubbleContext.isGroup)
         }
-        if let last = heights.lastHeight(for: key) { return last }
-        return item.estimatedHeight(width: collectionView.bounds.width, isGroup: bubbleContext.isGroup)
+        resolved[id] = height
+        return height
     }
 
     private func remember(_ height: CGFloat, for id: String) {
         guard collectionView.bounds.width > 1, let fingerprint = fingerprints[id] else { return }
+        resolved[id] = height
         heights.store(height, for: heightKey(id), fingerprint: fingerprint)
     }
 
@@ -302,7 +320,10 @@ final class MessageListViewController: UIViewController {
             fingerprints = fingerprints.filter { itemsByID[$0.key] != nil }
         }
         for (id, item) in itemsByID where recomputesAll || fingerprints[id] == nil || previous[id] != item {
-            fingerprints[id] = item.heightFingerprint(isGroup: context.isGroup, selecting: selection != nil)
+            let fingerprint = item.heightFingerprint(isGroup: context.isGroup, selecting: selection != nil)
+            // Содержимое сменилось — найденная высота больше не точная.
+            if fingerprints[id] != fingerprint { resolved[id] = nil }
+            fingerprints[id] = fingerprint
         }
 
         var snapshot = NSDiffableDataSourceSnapshot<Date, String>()
