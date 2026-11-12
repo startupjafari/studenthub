@@ -99,7 +99,7 @@ struct ProfileView: View {
             async let feed: Void = posts.refresh()
             _ = await (card, feed)
         }
-        .refreshable {
+        .pullToRefresh {
             async let card: Void = model.load()
             async let feed: Void = posts.refresh()
             async let current: Void = model.loadTab(tab, force: true)
@@ -1223,7 +1223,11 @@ private extension View {
         if let url, !url.isEmpty {
             self
                 .onTapGesture { open(url) }
-                .onLongPressGesture(minimumDuration: 0.35) { open(url) }
+                .onLongPressGesture(minimumDuration: 0.35) {
+                    // Долгое нажатие сработало — толчок, как в Telegram.
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    open(url)
+                }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text(label))
                 .accessibilityAddTraits(.isButton)

@@ -155,7 +155,6 @@ struct MessageMenuOverlay: View {
                 shown = true
             }
         }
-        .sensoryFeedback(.impact(weight: .medium), trigger: shown) { _, now in now }
         .onChange(of: MessageMenuTouch.shared.phase) { _, phase in follow(phase) }
         .onDisappear { MessageMenuTouch.shared.reset() }
         .accessibilityAction(.escape) { dismiss() }

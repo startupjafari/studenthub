@@ -116,6 +116,7 @@ final class MessageListViewController: UIViewController {
     private let swipeToReply = SwipeToReply()
     /// Долгое нажатие на пузырь — меню; то же касание дальше выбирает в нём пункт.
     private let menuPress = UILongPressGestureRecognizer()
+    private let menuFeedback = UIImpactFeedbackGenerator(style: .medium)
 
     private struct Entrance {
         let own: Bool
@@ -638,6 +639,9 @@ final class MessageListViewController: UIViewController {
         case .began:
             guard let item = menuItem(at: press.location(in: collectionView)) else { return }
             touch.reset()
+            // Толчок — в тот же миг, когда сработало нажатие, как в Telegram, а не
+            // когда меню уже показалось.
+            menuFeedback.impactOccurred()
             onMenu?(item)
         case .changed:
             touch.move(to: press.location(in: nil))
