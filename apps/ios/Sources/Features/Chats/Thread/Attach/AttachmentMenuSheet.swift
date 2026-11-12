@@ -66,6 +66,8 @@ struct AttachmentMenuSheet: View {
     @State private var selection: [PHAsset] = []
     @State private var detent: PresentationDetent = .medium
     @Namespace private var sectionSelection
+    /// Раздел под пальцем, пока его ведут по капсуле.
+    @State private var hoveredSection: Int?
 
     private var sections: [Section] {
         Section.allCases.filter { $0 != .poll || allowsPoll }
@@ -194,45 +196,50 @@ struct AttachmentMenuSheet: View {
 
     /// Капсула разделов внизу листа, как в Telegram: значок над подписью, выбранный
     /// раздел — фирменного цвета на подсвеченной подложке, которая переезжает пружиной.
+    /// Раздел выбирают и скольжением пальца по капсуле (`slideSelection`), поэтому все
+    /// разделы помещаются в неё без прокрутки вбок.
     private var sectionBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
-                ForEach(sections) { item in
-                    let isCurrent = section == item
-                    Button {
-                        select(item)
-                    } label: {
-                        VStack(spacing: 2) {
-                            Image(systemName: item.symbol)
-                                .font(.title3)
-                                .frame(height: 26)
-                            Text(item.title)
-                                .font(.caption2.weight(isCurrent ? .semibold : .medium))
-                                .lineLimit(1)
-                        }
-                        .foregroundStyle(isCurrent ? Palette.primary : Palette.foreground)
-                        .padding(.horizontal, Spacing.md)
-                        .frame(minWidth: 68, minHeight: 54)
-                        .background {
-                            if isCurrent {
-                                Capsule()
-                                    .fill(Palette.foreground.opacity(0.1))
-                                    .matchedGeometryEffect(id: "section", in: sectionSelection)
-                            }
-                        }
-                        .contentShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(isCurrent ? .isSelected : [])
+        let items = sections
+        let shown = hoveredSection.flatMap { items.indices.contains($0) ? items[$0] : nil } ?? section
+        return HStack(spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.element) { index, item in
+                let isCurrent = shown == item
+                VStack(spacing: 2) {
+                    Image(systemName: item.symbol)
+                        .font(.title3)
+                        .frame(height: 26)
+                    Text(item.title)
+                        .font(.caption2.weight(isCurrent ? .semibold : .medium))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 }
+                .foregroundStyle(isCurrent ? Palette.primary : Palette.foreground)
+                .padding(.horizontal, 2)
+                .frame(maxWidth: .infinity, minHeight: 54)
+                .background {
+                    if isCurrent {
+                        Capsule()
+                            .fill(Palette.foreground.opacity(0.1))
+                            .matchedGeometryEffect(id: "section", in: sectionSelection)
+                    }
+                }
+                .slideItemFrame(index, in: Self.barSpace)
+                // VoiceOver и UI-тесты нажимают раздел как кнопку.
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
+                .accessibilityAction { select(item) }
             }
-            .padding(Spacing.xs)
         }
-        .clipShape(Capsule())
+        .padding(Spacing.xs)
+        .slideSelection(space: Self.barSpace, hovered: $hoveredSection) { index in
+            if items.indices.contains(index) { select(items[index]) }
+        }
         .floatingGlass(in: Capsule())
         .padding(.horizontal, Spacing.lg)
         .padding(.bottom, Spacing.sm)
     }
+
+    private static let barSpace = "attachSections"
 
     /// Выбраны снимки — вместо разделов «Отправить N»: дальше лист с подписью и
     /// предпросмотром.
