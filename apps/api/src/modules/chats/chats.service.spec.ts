@@ -85,6 +85,11 @@ function setup() {
       findMany: jest.fn().mockResolvedValue([]),
     },
     pair: { findMany: jest.fn().mockResolvedValue([]) },
+    // «Удалить у себя» (HiddenMessage): по умолчанию у смотрящего ничего не скрыто.
+    hiddenMessage: {
+      findMany: jest.fn().mockResolvedValue([]),
+      createMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
     chatPoll: { findUnique: jest.fn(), create: jest.fn() },
     chatPollVote: {
       findMany: jest.fn().mockResolvedValue([]),
@@ -1194,7 +1199,8 @@ describe('ChatsService.toggleReaction (одна реакция на сообще
   })
 
   // BUG-179: схема пропускала любую строку до 16 знаков — под сообщением появлялись слова.
-  it('эмодзи не из набора реакций → BAD_REQUEST, но свою прежнюю снять можно', async () => {
+  // Теперь принимается любой ОДИН эмодзи, но не текст.
+  it('не эмодзи → BAD_REQUEST, но свою прежнюю снять можно', async () => {
     const { service, prisma } = setup()
     prisma.message.findFirst.mockResolvedValue({ id: 'm1', chatId: 'c1' })
     prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1' })
@@ -2449,7 +2455,7 @@ describe('ChatsService — опросы (§38–39)', () => {
     expect(err.code).toBe('BAD_REQUEST')
   })
 
-  it('votePoll: опрос завершён → BAD_REQUEST', async () => {
+  it('votePoll: опрос завершён → POLL_CLOSED', async () => {
     const { service, prisma } = setup()
     prisma.chatPoll.findUnique.mockResolvedValue({
       id: 'p1',
@@ -2461,7 +2467,7 @@ describe('ChatsService — опросы (§38–39)', () => {
     })
     prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
     const err = await service.votePoll(user('u1'), 'p1', { optionIds: ['o1'] }).catch((e) => e)
-    expect(err.code).toBe('BAD_REQUEST')
+    expect(err.code).toBe('POLL_CLOSED')
   })
 
   it('votePoll: allowRevote=false и уже голосовал → BAD_REQUEST', async () => {
@@ -3764,7 +3770,7 @@ describe('ChatsService — доставка отложенных', () => {
       scheduledMessage
     const send = jest
       .spyOn(ctx.service, 'createMessage')
-      .mockResolvedValue({ message: { id: 'm1' } as never, recipientIds: [] })
+      .mockResolvedValue({ message: { id: 'm1' } as never, recipientIds: [], duplicate: false })
     return { ...ctx, scheduledMessage, send }
   }
 

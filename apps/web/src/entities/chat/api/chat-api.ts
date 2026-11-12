@@ -22,6 +22,7 @@ import type {
   ChatMemberInfo,
   ChatMessage,
   ChatReadReceipt,
+  MessageChecklist,
   PollResults,
   PresenceEntry,
 } from '../model/types'
@@ -41,6 +42,7 @@ export const chatKeys = {
   mediaCalendar: (id: string, month: string) => ['chats', id, 'media-calendar', month] as const,
   links: (id: string) => ['chats', id, 'links'] as const,
   poll: (pollId: string) => ['chats', 'poll', pollId] as const,
+  stickerUrl: (stickerId: string) => ['chats', 'sticker-url', stickerId] as const,
   blocked: () => ['chats', 'blocked'] as const,
   unread: () => ['chats', 'unread'] as const,
   folders: () => ['chats', 'folders'] as const,
@@ -294,6 +296,30 @@ export async function fetchPollResults(pollId: string): Promise<PollResults> {
 }
 export async function votePollRequest(pollId: string, optionIds: string[]): Promise<PollResults> {
   const { data } = await api.post<PollResults>(`/chats/polls/${pollId}/vote`, { optionIds })
+  return data
+}
+
+// Чек-лист в сообщении: отметить пункт. Ответ — чек-лист целиком (его же получает комната
+// событием checklist:updated).
+export async function toggleChecklistItemRequest(
+  checklistId: string,
+  itemId: string,
+  done: boolean,
+): Promise<MessageChecklist> {
+  const { data } = await api.post<MessageChecklist>(
+    `/chats/checklists/${checklistId}/items/${itemId}/toggle`,
+    { done },
+  )
+  return data
+}
+
+// Подписанная ссылка на картинку стикера каталога (срок — expiresAt).
+export async function fetchStickerUrl(
+  stickerId: string,
+): Promise<{ url: string; expiresAt: string }> {
+  const { data } = await api.get<{ url: string; expiresAt: string }>(
+    `/chats/stickers/${stickerId}/url`,
+  )
   return data
 }
 

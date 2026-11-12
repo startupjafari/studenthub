@@ -1736,7 +1736,9 @@
     "LOGIN_LOCKED": "Слишком много неудачных попыток входа. Вход в эту учётную запись временно закрыт — подождите несколько минут",
     "retryHint": "Не удалось загрузить данные. Обновите страницу или попробуйте позже.",
     "VACANCY_NOT_DELETABLE": "Удалить можно только черновик. Закройте вакансию — история откликов сохранится",
-    "COMPANY_INVITE_EMAIL_TAKEN": "На этот адрес уже есть аккаунт StudentHub. Попросите приглашение на другой адрес"
+    "COMPANY_INVITE_EMAIL_TAKEN": "На этот адрес уже есть аккаунт StudentHub. Попросите приглашение на другой адрес",
+    "POLL_CLOSED": "Опрос завершён — голосовать больше нельзя",
+    "REQUEST_IN_PROGRESS": "Запрос уже выполняется — подождите"
   },
   "Notifications": {
     "title": "Уведомления",
@@ -2497,6 +2499,12 @@
     "previewProfile": "Профиль: {name}",
     "previewPost": "Публикация",
     "previewPoll": "Опрос: {question}",
+    "previewLocation": "Геопозиция",
+    "previewContact": "Контакт: {name}",
+    "previewChecklist": "Список: {title}",
+    "previewSticker": "Стикер",
+    "locationOpenMap": "Открыть на карте",
+    "checklistProgress": "Выполнено {done} из {total}",
     "previewPhoto": "{n, plural, one {Фото} few {# фото} many {# фото} other {# фото}}",
     "previewVideo": "{n, plural, one {Видео} few {# видео} many {# видео} other {# видео}}",
     "previewFile": "{n, plural, one {Файл} few {# файла} many {# файлов} other {# файла}}",
@@ -6786,7 +6794,10 @@
       "spoilerIndexes": "Ожидались номера вложений через запятую",
       "quoteWithoutReply": "Цитата возможна только вместе с ответом на сообщение",
       "scheduleInPast": "Время отправки должно быть в будущем",
-      "scheduleTooFar": "Отложить можно не больше чем на год"
+      "scheduleTooFar": "Отложить можно не больше чем на год",
+      "reactionEmoji": "Реакция — один эмодзи",
+      "contactEmpty": "Укажите хотя бы один телефон или адрес почты",
+      "stickerSlug": "Короткое имя: латиница, цифры, «-» и «_», от 2 до 64 знаков"
     },
     "documents": {
       "typeCode": "Код: заглавные латинские, цифры, подчёркивание"

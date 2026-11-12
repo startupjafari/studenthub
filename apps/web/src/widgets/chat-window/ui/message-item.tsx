@@ -7,7 +7,11 @@ import {
   ChatPollView,
   LinkPreviewCard,
   MessageAttachments,
+  MessageChecklistView,
+  MessageContactCard,
   MessageContent,
+  MessageLocationCard,
+  MessageStickerView,
   ReactionBar,
   type ChatMessage,
 } from '../../../entities/chat'
@@ -386,6 +390,14 @@ function MessageItemInner({
             )}
             {m.poll ? (
               <ChatPollView poll={m.poll} mine={mine} viewerId={myId} />
+            ) : m.sticker ? (
+              <MessageStickerView sticker={m.sticker} />
+            ) : m.location ? (
+              <MessageLocationCard location={m.location} mine={mine} />
+            ) : m.contact ? (
+              <MessageContactCard contact={m.contact} mine={mine} />
+            ) : m.checklist ? (
+              <MessageChecklistView checklist={m.checklist} mine={mine} />
             ) : profileShare ? (
               // Пересланный профиль — карточкой вместо сырого «Имя + ссылка».
               <div className={cn(m.media.length > 0 && 'mt-1')}>

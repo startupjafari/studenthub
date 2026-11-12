@@ -92,6 +92,8 @@ export const DETACHED_WHERE = {
   bookCovers: { none: {} },
   // Исходный DOCX версии шаблона документов: снимает только модуль шаблонов.
   documentTemplateVersion: { is: null },
+  // Картинка стикера каталога: снимает только админка стикеров.
+  sticker: { is: null },
 } satisfies Prisma.FileWhereInput
 
 const ATTACHMENT_SELECT = {
@@ -106,6 +108,7 @@ const ATTACHMENT_SELECT = {
   universityPageId: true,
   highlightItem: { select: { id: true } },
   documentTemplateVersion: { select: { id: true } },
+  sticker: { select: { id: true } },
   _count: { select: { stories: true, albumsCovered: true, bookCovers: true } },
 } satisfies Prisma.FileSelect
 
@@ -125,7 +128,8 @@ function isAttached(file: Prisma.FileGetPayload<{ select: typeof ATTACHMENT_SELE
     file.highlightItem !== null ||
     file._count.albumsCovered > 0 ||
     file._count.bookCovers > 0 ||
-    file.documentTemplateVersion !== null
+    file.documentTemplateVersion !== null ||
+    file.sticker !== null
   )
 }
 
