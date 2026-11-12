@@ -52,6 +52,19 @@ const optionalMessageText = (max = 4000) =>
 
 // ── REST ─────────────────────────────────────────────────────────────────────
 
+/**
+ * Ключ повтора отправки (nonce): клиент шлёт его с сообщением и повторяет при переотправке
+ * после обрыва. Сервер помнит nonce 10 минут и на повтор возвращает уже созданное сообщение.
+ */
+export const CHAT_NONCE_MAX = 64
+
+/**
+ * id сообщений и чатов во входных данных. Не `.uuid()`: у сгенерированных сидом строк id
+ * читаемые (`u042-…-msg-7`), а не UUID, и строгая проверка закрыла бы их для пересылки и
+ * скрытия. Длина ограничена — это всё ещё ключ, а не текст.
+ */
+const entityId = z.string().min(1).max(100)
+
 // Список чатов (cursor). Потолок страницы выше общего курсорного (50) намеренно: клиент
 // забирает список целиком — по нему считаются вкладки-папки, счётчики и поиск по названиям, —
 // и страница на 20 записей означала бы десяток запросов при каждом открытии экрана.
@@ -249,9 +262,14 @@ export const UpdateChatFolderSchema = z
 export type UpdateChatFolderInput = z.infer<typeof UpdateChatFolderSchema>
 
 // Опрос в чате (§38–39): вопрос + 2..10 вариантов + настройки.
+/** Потолок пояснения к опросу в чате. */
+export const CHAT_POLL_DESCRIPTION_MAX = 500
+
 export const CreateChatPollSchema = z
   .object({
     question: z.string().trim().min(1).max(300),
+    // Пояснение под вопросом. Пустая строка — без пояснения.
+    description: z.string().trim().max(CHAT_POLL_DESCRIPTION_MAX).optional(),
     options: z.array(z.string().trim().min(1).max(100)).min(2).max(10),
     multiple: z.boolean().optional(),
     anonymous: z.boolean().optional(),
@@ -268,7 +286,9 @@ export type PollVoteInput = z.infer<typeof PollVoteSchema>
 // Общие материалы чата (§23, правый sidebar): вложения по типу.
 // media — фото/видео; file — документы/прочее; voice — аудио/голосовые.
 export const ChatMediaQuerySchema = CursorPaginationSchema.extend({
-  type: z.enum(['media', 'file', 'voice']).default('media'),
+  // voice — всё аудио (как раньше, для веба); voice_note — только голосовые (`voice-…`);
+  // music — аудио кроме голосовых; gif — только image/gif.
+  type: z.enum(['media', 'file', 'voice', 'voice_note', 'music', 'gif']).default('media'),
 })
 export type ChatMediaQueryInput = z.infer<typeof ChatMediaQuerySchema>
 
@@ -298,6 +318,8 @@ export const MessageSendRestSchema = z
     // multipart отдаёт поля строками, поэтому queryBoolean (в отличие от WS-схемы ниже):
     // `z.coerce.boolean()` читал строку "false" как true.
     silent: queryBoolean.optional(),
+    // Ключ повтора отправки: тот же nonce в течение 10 минут не создаёт второе сообщение.
+    nonce: z.string().min(1).max(CHAT_NONCE_MAX).optional(),
   })
   .strict()
   // Цитата без ответа не имеет смысла — из чего цитата, непонятно ни серверу, ни клиенту.
@@ -345,13 +367,212 @@ export const UpdateScheduledMessageSchema = z
   })
 export type UpdateScheduledMessageInput = z.infer<typeof UpdateScheduledMessageSchema>
 
-// Реакция-эмодзи на сообщение (Ф9+): тоггл по [сообщение, пользователь, эмодзи].
-export const MessageReactionSchema = z.object({ emoji: z.string().min(1).max(16) }).strict()
+/** Потолок длины эмодзи-реакции в UTF-16: хватает на самые длинные ZWJ-семьи и флаги-теги. */
+export const REACTION_EMOJI_MAX = 32
+
+// Один элемент эмодзи: пиктограмма с необязательным селектором U+FE0F и модификатором тона кожи.
+const EMOJI_ATOM = '(?:\\p{Extended_Pictographic}\\uFE0F?\\p{Emoji_Modifier}?)'
+const SINGLE_EMOJI_RE = new RegExp(
+  '^(?:' +
+    // Флаг страны — пара региональных индикаторов.
+    '\\p{Regional_Indicator}{2}' +
+    // Клавиша: цифра, # или * + U+20E3.
+    '|[#*0-9]\\uFE0F?\\u20E3' +
+    // Флаг-тег (Англия, Шотландия): 🏴 + теги + завершающий тег.
+    '|\\u{1F3F4}[\\u{E0020}-\\u{E007E}]+\\u{E007F}' +
+    // Пиктограмма и цепочка через ZWJ (семьи, профессии, радужный флаг).
+    `|${EMOJI_ATOM}(?:\\u200D${EMOJI_ATOM})*` +
+    ')$',
+  'u',
+)
+
+/**
+ * Ровно один эмодзи (одна графема): одиночная пиктограмма, с тоном кожи, ZWJ-последовательность,
+ * флаг или клавиша. Текст, два эмодзи подряд и буквы не проходят — под сообщением снова
+ * появились бы слова, ради чего раньше и стоял белый список.
+ */
+export function isSingleEmoji(value: string): boolean {
+  return value.length > 0 && value.length <= REACTION_EMOJI_MAX && SINGLE_EMOJI_RE.test(value)
+}
+
+// Реакция-эмодзи на сообщение (Ф9+): тоггл по [сообщение, пользователь, эмодзи]. Любой один
+// эмодзи — набор быстрых реакций (CHAT_REACTION_EMOJIS) остался только подсказкой клиентам.
+export const MessageReactionSchema = z
+  .object({
+    emoji: z
+      .string()
+      .min(1)
+      .max(REACTION_EMOJI_MAX)
+      .refine(isSingleEmoji, vm('validation.chats.reactionEmoji')),
+  })
+  .strict()
 export type MessageReactionInput = z.infer<typeof MessageReactionSchema>
 
 // Пересылка сообщения в текущий чат (:id — цель): messageId — источник (из любого моего чата).
 export const MessageForwardSchema = z.object({ messageId: z.string().min(1) }).strict()
 export type MessageForwardInput = z.infer<typeof MessageForwardSchema>
+
+/** Потолки пересылки пачкой: сообщений за раз и чатов-получателей. */
+export const FORWARD_BATCH_LIMITS = { MESSAGES: 100, CHATS: 20 } as const
+
+/**
+ * Пересылка пачкой (`POST /chats/forward`): несколько сообщений в несколько чатов, с
+ * необязательным комментарием — он уходит в каждый чат обычным сообщением перед пересланными.
+ * requestId — ключ идемпотентности: повтор с тем же ключом сутки отдаёт прежний ответ.
+ */
+export const MessageForwardBatchSchema = z
+  .object({
+    messageIds: z.array(entityId).min(1).max(FORWARD_BATCH_LIMITS.MESSAGES),
+    chatIds: z.array(entityId).min(1).max(FORWARD_BATCH_LIMITS.CHATS),
+    comment: messageText().optional(),
+    requestId: z.string().uuid(),
+  })
+  .strict()
+export type MessageForwardBatchInput = z.infer<typeof MessageForwardBatchSchema>
+
+/** Сколько сообщений за раз можно скрыть у себя или удалить у всех. */
+export const MESSAGE_BULK_MAX = 100
+
+/** «Удалить у себя» (`POST /chats/:id/messages/hide`) и «удалить у всех» пачкой (`…/delete`). */
+export const MessageIdsSchema = z
+  .object({ messageIds: z.array(entityId).min(1).max(MESSAGE_BULK_MAX) })
+  .strict()
+export type MessageIdsInput = z.infer<typeof MessageIdsSchema>
+
+/** Общие поля отправки особых сообщений (геопозиция, контакт, чек-лист, стикер, GIF). */
+const richMessageFields = {
+  replyToId: entityId.optional(),
+  nonce: z.string().min(1).max(CHAT_NONCE_MAX).optional(),
+}
+
+/** Геопозиция (`POST /chats/:id/location`). */
+export const ChatLocationSchema = z
+  .object({
+    lat: z.number().min(-90).max(90),
+    lng: z.number().min(-180).max(180),
+    title: z.string().trim().min(1).max(200).optional(),
+    address: z.string().trim().min(1).max(300).optional(),
+    ...richMessageFields,
+  })
+  .strict()
+export type ChatLocationInput = z.infer<typeof ChatLocationSchema>
+
+/** Потолки карточки контакта. */
+export const CHAT_CONTACT_LIMITS = { NAME_MAX: 200, ITEMS_MAX: 5, PHONE_MAX: 40 } as const
+
+/** Карточка контакта (`POST /chats/:id/contact`): хотя бы один телефон или адрес. */
+export const ChatContactSchema = z
+  .object({
+    name: z.string().trim().min(1).max(CHAT_CONTACT_LIMITS.NAME_MAX),
+    phones: z
+      .array(z.string().trim().min(1).max(CHAT_CONTACT_LIMITS.PHONE_MAX))
+      .max(CHAT_CONTACT_LIMITS.ITEMS_MAX)
+      .optional(),
+    emails: z
+      .array(z.string().trim().email().max(254))
+      .max(CHAT_CONTACT_LIMITS.ITEMS_MAX)
+      .optional(),
+    ...richMessageFields,
+  })
+  .strict()
+  .refine((v) => (v.phones?.length ?? 0) + (v.emails?.length ?? 0) > 0, {
+    path: ['phones'],
+    message: vm('validation.chats.contactEmpty'),
+  })
+export type ChatContactInput = z.infer<typeof ChatContactSchema>
+
+/** Потолки чек-листа: пунктов в списке и длина строк. */
+export const CHAT_CHECKLIST_LIMITS = { ITEMS_MAX: 50, TITLE_MAX: 200, ITEM_MAX: 200 } as const
+
+/** Чек-лист (`POST /chats/:id/checklist`). */
+export const ChatChecklistCreateSchema = z
+  .object({
+    title: z.string().trim().min(1).max(CHAT_CHECKLIST_LIMITS.TITLE_MAX),
+    items: z
+      .array(z.string().trim().min(1).max(CHAT_CHECKLIST_LIMITS.ITEM_MAX))
+      .min(1)
+      .max(CHAT_CHECKLIST_LIMITS.ITEMS_MAX),
+    othersCanAdd: z.boolean().optional(),
+    othersCanMark: z.boolean().optional(),
+    ...richMessageFields,
+  })
+  .strict()
+export type ChatChecklistCreateInput = z.infer<typeof ChatChecklistCreateSchema>
+
+/** Новый пункт чек-листа (`POST /chats/checklists/:checklistId/items`). */
+export const ChatChecklistItemAddSchema = z
+  .object({ text: z.string().trim().min(1).max(CHAT_CHECKLIST_LIMITS.ITEM_MAX) })
+  .strict()
+export type ChatChecklistItemAddInput = z.infer<typeof ChatChecklistItemAddSchema>
+
+/** Отметить пункт (`POST /chats/checklists/:checklistId/items/:itemId/toggle`). */
+export const ChatChecklistItemToggleSchema = z.object({ done: z.boolean() }).strict()
+export type ChatChecklistItemToggleInput = z.infer<typeof ChatChecklistItemToggleSchema>
+
+/** Стикер из каталога (`POST /chats/:id/sticker`). */
+export const ChatStickerSendSchema = z
+  .object({ stickerId: entityId, ...richMessageFields })
+  .strict()
+export type ChatStickerSendInput = z.infer<typeof ChatStickerSendSchema>
+
+/** Повторная отправка GIF (`POST /chats/:id/gif`) — файла из чата, где отправитель участник. */
+export const ChatGifSendSchema = z.object({ fileId: entityId, ...richMessageFields }).strict()
+export type ChatGifSendInput = z.infer<typeof ChatGifSendSchema>
+
+/** Недавние GIF (`GET /chats/gifs/recent`). */
+export const ChatGifRecentQuerySchema = z
+  .object({ limit: z.coerce.number().int().positive().max(50).default(30) })
+  .strict()
+export type ChatGifRecentQueryInput = z.infer<typeof ChatGifRecentQuerySchema>
+
+/** Опросы чата (`GET /chats/:id/polls`) — свежие первыми. */
+export const ChatPollsQuerySchema = CursorPaginationSchema
+export type ChatPollsQueryInput = z.infer<typeof ChatPollsQuerySchema>
+
+/** Каталог стикеров: картинка не больше 512 КБ, только png/webp/gif. */
+export const STICKER_LIMITS = {
+  MAX_BYTES: 512 * 1024,
+  MIMES: ['image/png', 'image/webp', 'image/gif'],
+  TITLE_MAX: 64,
+  SETS_MAX: 100,
+  STICKERS_PER_SET_MAX: 200,
+} as const
+
+/** Набор стикеров (`POST /admin/sticker-sets`). slug — латиница, цифры, `-` и `_`. */
+export const StickerSetCreateSchema = z
+  .object({
+    title: z.string().trim().min(1).max(STICKER_LIMITS.TITLE_MAX),
+    slug: z
+      .string()
+      .trim()
+      .regex(/^[a-z0-9][a-z0-9_-]{1,63}$/, vm('validation.chats.stickerSlug')),
+  })
+  .strict()
+export type StickerSetCreateInput = z.infer<typeof StickerSetCreateSchema>
+
+export const StickerSetUpdateSchema = z
+  .object({
+    title: z.string().trim().min(1).max(STICKER_LIMITS.TITLE_MAX).optional(),
+    order: z.number().int().min(0).max(100_000).optional(),
+    isPublished: z.boolean().optional(),
+  })
+  .strict()
+  .refine((v) => v.title !== undefined || v.order !== undefined || v.isPublished !== undefined, {
+    message: vm('validation.common.nothingToChange'),
+  })
+export type StickerSetUpdateInput = z.infer<typeof StickerSetUpdateSchema>
+
+/** Поля multipart загрузки стикера (`POST /admin/sticker-sets/:id/stickers`) кроме файла. */
+export const StickerUploadFieldsSchema = z
+  .object({
+    emoji: z
+      .string()
+      .max(REACTION_EMOJI_MAX)
+      .refine(isSingleEmoji, vm('validation.chats.reactionEmoji'))
+      .optional(),
+  })
+  .strict()
+export type StickerUploadFieldsInput = z.infer<typeof StickerUploadFieldsSchema>
 
 // Поделиться постом в чат (:id — цель): postId — пост (должен быть виден отправителю),
 // comment — необязательная подпись. В сообщении сохраняется sharedPostId → превью-карточка.
@@ -396,7 +617,7 @@ export const MessageSendSchema = z
     silent: z.boolean().optional(),
     // Клиентский идентификатор для оптимистичной отправки (#1): сервер эхом возвращает его в
     // message:new, чтобы отправитель заменил свой временный «pending» пузырь. В БД не пишется.
-    nonce: z.string().min(1).max(64).optional(),
+    nonce: z.string().min(1).max(CHAT_NONCE_MAX).optional(),
   })
   .strict()
   // Цитата без ответа не имеет смысла — из чего цитата, непонятно ни серверу, ни клиенту.
@@ -515,6 +736,7 @@ export const MessageSendUploadedSchema = z
     silent: z.boolean().optional(),
     // §9: показывать вложения строками файлов, а не превью.
     asFiles: z.boolean().optional(),
+    nonce: z.string().min(1).max(CHAT_NONCE_MAX).optional(),
     attachments: z
       .array(
         z

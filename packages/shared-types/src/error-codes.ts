@@ -69,6 +69,12 @@ export const ErrorCode = {
   // строка на книгу), структурный список — `GET /users/me/deletion-check`. Отдельно от
   // CONFLICT: клиент объясняет, что сначала вернуть книги, а не «конфликт данных».
   LIBRARY_DEBTS_OPEN: 'LIBRARY_DEBTS_OPEN',
+  // Опрос в чате завершён (POST /chats/polls/:pollId/close): голос больше не принимается.
+  // Отдельно от CONFLICT: клиент перерисовывает опрос как закрытый, а не «конфликт данных».
+  POLL_CLOSED: 'POLL_CLOSED',
+  // Запрос с тем же ключом идемпотентности ещё выполняется (POST /chats/forward с тем же
+  // requestId): повторять его сейчас нечего — ответ появится, когда первый закончится.
+  REQUEST_IN_PROGRESS: 'REQUEST_IN_PROGRESS',
 } as const
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
@@ -119,6 +125,8 @@ export const ERROR_CODE_STATUS: Record<ErrorCode, number> = {
   TEMPLATE_DATA_MISSING: 422,
   // 409 — состояние ресурса не позволяет действие, пока книги не вернут.
   LIBRARY_DEBTS_OPEN: 409,
+  POLL_CLOSED: 409,
+  REQUEST_IN_PROGRESS: 409,
 }
 
 /** Код по умолчанию для HTTP-статуса (для стандартных Nest-исключений без явного кода). */
