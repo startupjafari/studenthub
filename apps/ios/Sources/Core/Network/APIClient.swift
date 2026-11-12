@@ -149,6 +149,7 @@ actor APIClient {
         }
 
         var request = URLRequest(url: url)
+        if let timeout = endpoint.timeout { request.timeoutInterval = timeout }
         request.httpMethod = endpoint.method.rawValue
         request.httpBody = endpoint.body
         request.setValue("application/json", forHTTPHeaderField: "Accept")

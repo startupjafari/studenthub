@@ -7,6 +7,11 @@ private let longLivedToken = """
     eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLWZ1dHVyZSIsInJvbGUiOiJURUFDSEVSIiwidW5pdmVyc2l0eUlkIjoidS05IiwiZmFjdWx0eUlkIjpudWxsLCJncm91cElkIjpudWxsLCJ0ZmEiOnRydWUsImV4cCI6NDEwMjQ0NDgwMH0.signature
     """
 
+/// Истёк в 2001 году — для холодного старта с просроченным последним токеном.
+private let expiredToken = """
+    eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLXBhc3QiLCJyb2xlIjoiVEVBQ0hFUiIsInVuaXZlcnNpdHlJZCI6InUtOSIsImZhY3VsdHlJZCI6bnVsbCwiZ3JvdXBJZCI6bnVsbCwidGZhIjp0cnVlLCJleHAiOjEwMDAwMDAwMDB9.signature
+    """
+
 final class SessionStoreTests: XCTestCase {
     /// Главное требование плана: сколько бы экранов ни спросили токен разом,
     /// обновление уходит одно. Второй refresh сервер считает повторным
@@ -125,40 +130,75 @@ final class SessionStoreTests: XCTestCase {
 
     // MARK: - Холодный старт без сети
 
-    /// Сеть не ответила, а вход был — приложение открывается по последнему токену, а не
-    /// выбрасывает на вход: расписание и чаты лежат в базе.
-    func testOfflineColdStartKeepsLastKnownUser() async {
+    /// Последний токен ещё действует — интерфейс открывается по нему без сети и без
+    /// продления: запросы им же и подписываются.
+    func testColdStartWithUsableTokenOpensWithoutNetwork() async {
         let secrets = MemorySecrets()
         secrets.set("rt-1", for: .refreshToken)
         secrets.set("1", for: .sessionPresent)
         secrets.set(longLivedToken, for: .lastAccessToken)
         let auth = StubAuth(token: longLivedToken)
-        await auth.failNext(with: .transport(URLError(.notConnectedToInternet)))
         let store = makeStore(auth: auth, secrets: secrets)
 
         let restoration = await store.restore()
 
-        XCTAssertEqual(restoration, .offline(AccessToken(raw: longLivedToken)!))
-        let hasSession = await store.hasStoredSession
-        XCTAssertTrue(hasSession)
+        XCTAssertEqual(restoration, .active(AccessToken(raw: longLivedToken)!))
+        let token = await store.accessToken()
+        XCTAssertEqual(token, longLivedToken)
+        let calls = await auth.refreshCalls
+        XCTAssertEqual(calls, 0)
     }
 
-    /// Отказ сервера — не «нет сети»: сессия кончилась, показываем вход.
-    func testRejectedSessionOnColdStartShowsLogin() async {
+    /// Токен истёк, сети нет: интерфейс всё равно открывается сразу по последнему
+    /// токену, продление идёт фоном одно на всех, и его неудача человека не разлогинивает.
+    func testColdStartWithExpiredTokenSurvivesNoNetwork() async {
         let secrets = MemorySecrets()
         secrets.set("rt-1", for: .refreshToken)
         secrets.set("1", for: .sessionPresent)
-        secrets.set(longLivedToken, for: .lastAccessToken)
+        secrets.set(expiredToken, for: .lastAccessToken)
+        let auth = StubAuth(token: longLivedToken)
+        await auth.failNext(with: .transport(URLError(.timedOut)))
+        let store = makeStore(auth: auth, secrets: secrets)
+        let ended = Flag()
+        await store.onSessionEnded { ended.raise() }
+
+        let restoration = await store.restore()
+        // Запрос экрана присоединяется к фоновому продлению, а не шлёт своё.
+        let token = await store.accessToken()
+
+        XCTAssertEqual(restoration, .cached(AccessToken(raw: expiredToken)!))
+        XCTAssertNil(token)
+        let calls = await auth.refreshCalls
+        XCTAssertEqual(calls, 1)
+        let hasSession = await store.hasStoredSession
+        XCTAssertTrue(hasSession)
+        XCTAssertFalse(ended.isRaised)
+        XCTAssertNotNil(secrets.value(for: .lastAccessToken))
+    }
+
+    /// Отказ сервера в фоновом продлении — не «нет сети»: сессия кончилась, следы
+    /// стираются, интерфейс уходит на вход (`onSessionEnded`).
+    func testRejectedBackgroundRefreshEndsSession() async {
+        let secrets = MemorySecrets()
+        secrets.set("rt-1", for: .refreshToken)
+        secrets.set("1", for: .sessionPresent)
+        secrets.set(expiredToken, for: .lastAccessToken)
         let auth = StubAuth(token: longLivedToken)
         await auth.failNext(
             with: .server(code: .tokenExpired, message: "Сессия истекла", details: [], statusCode: 401)
         )
         let store = makeStore(auth: auth, secrets: secrets)
+        let ended = Flag()
+        await store.onSessionEnded { ended.raise() }
 
         let restoration = await store.restore()
+        _ = await store.accessToken()
 
-        XCTAssertEqual(restoration, .none)
+        XCTAssertEqual(restoration, .cached(AccessToken(raw: expiredToken)!))
+        XCTAssertTrue(ended.isRaised)
         XCTAssertNil(secrets.value(for: .lastAccessToken))
+        let hasSession = await store.hasStoredSession
+        XCTAssertFalse(hasSession)
     }
 
     // MARK: - Выход без сети
@@ -248,6 +288,15 @@ private actor StubAuth: SessionRefreshing {
         }
         endedSessions.append((deviceToken, refreshToken))
     }
+}
+
+/// Отметка «сессия кончилась» из обработчика хранилища.
+private final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var raised = false
+
+    func raise() { lock.withLock { raised = true } }
+    var isRaised: Bool { lock.withLock { raised } }
 }
 
 /// Связка ключей симулятора в юнит-тестах недоступна без прав на подпись.

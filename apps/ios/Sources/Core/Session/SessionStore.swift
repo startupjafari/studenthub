@@ -15,6 +15,8 @@ actor SessionStore: AuthorizationProvider {
 
     private var token: AccessToken?
     private var inFlightRefresh: Task<AccessToken?, Never>?
+    /// Номер последнего заведённого продления: снимает с полёта только своё.
+    private var refreshGeneration = 0
     /// Последнее продление не дало ответа по существу: не было сети или сервер ответил
     /// 5xx. Сессия при этом жива — решить, что она кончилась, может только отказ сервера.
     private var refreshUndecided = false
@@ -52,18 +54,28 @@ actor SessionStore: AuthorizationProvider {
 
     /// Холодный старт с ответом на вопрос «что показать».
     ///
-    /// Сеть не ответила, а вход на устройстве был — открываем приложение по последнему
-    /// токену: расписание и чаты лежат в базе и работают без связи. Запросы при этом
-    /// уходят без токена и упираются в ту же сеть; первый, что пройдёт, продлит сессию,
-    /// а отказ сервера в ней переведёт интерфейс на вход (`onSessionEnded`).
+    /// Вход на устройстве был и последний токен известен — интерфейс открывается сразу
+    /// по нему, из базы, не дожидаясь сети: роль и id в токене есть, а чаты и расписание
+    /// лежат локально. Токен ещё действует — он и подписывает запросы, продление не
+    /// нужно. Истёк — продление уходит фоном; запросы экранов, пришедшие раньше ответа,
+    /// ждут это же продление (`inFlightRefresh`). Отказ сервера в нём переведёт интерфейс
+    /// на вход (`onSessionEnded`), а нет связи или 5xx — нет: сессия жива, пока сервер
+    /// не сказал обратного.
+    ///
+    /// Без последнего токена (вход сборкой до него) — как раньше: ждём продления.
     func restore() async -> SessionRestoration {
+        if hasStoredSession, let raw = secrets.value(for: .lastAccessToken), let known = AccessToken(raw: raw) {
+            if known.isUsable() {
+                token = known
+                return .active(known)
+            }
+            // Продление заводится здесь же, синхронно: запрос экрана, пришедший следом,
+            // застанет его в полёте и присоединится, а не пошлёт второе.
+            _ = startRefresh()
+            return .cached(known)
+        }
         if let restored = await restoredToken() { return .active(restored) }
-        guard
-            refreshUndecided, hasStoredSession,
-            let raw = secrets.value(for: .lastAccessToken),
-            let known = AccessToken(raw: raw)
-        else { return .none }
-        return .offline(known)
+        return .none
     }
 
     // MARK: - AuthorizationProvider
@@ -75,13 +87,23 @@ actor SessionStore: AuthorizationProvider {
     }
 
     func refreshedAccessToken() async -> String? {
-        if let inFlightRefresh { return await inFlightRefresh.value?.raw }
+        await startRefresh().value?.raw
+    }
 
-        let task = Task<AccessToken?, Never> { await self.performRefresh() }
+    /// Продление в полёте — одно на всех: новое заводится, только если прежнего нет.
+    /// Задача сама снимает себя с полёта, когда закончит, — в том числе фоновая, которую
+    /// никто не ждёт (`restore`).
+    private func startRefresh() -> Task<AccessToken?, Never> {
+        if let inFlightRefresh { return inFlightRefresh }
+        refreshGeneration &+= 1
+        let generation = refreshGeneration
+        let task = Task<AccessToken?, Never> {
+            let refreshed = await self.performRefresh()
+            if self.refreshGeneration == generation { self.inFlightRefresh = nil }
+            return refreshed
+        }
         inFlightRefresh = task
-        let refreshed = await task.value
-        if inFlightRefresh == task { inFlightRefresh = nil }
-        return refreshed?.raw
+        return task
     }
 
     /// Подписка на конец сессии, который случился не по кнопке «Выйти»: refresh-токен
@@ -218,8 +240,8 @@ actor SessionStore: AuthorizationProvider {
 enum SessionRestoration: Equatable {
     /// Сессия продлена — всё как обычно.
     case active(AccessToken)
-    /// Сеть не ответила, но вход на устройстве был: работаем по последнему токену.
-    case offline(AccessToken)
+    /// Последний токен истёк, интерфейс открыт по нему сразу, продление идёт фоном.
+    case cached(AccessToken)
     /// Входа нет или сервер в сессии отказал — экран входа.
     case none
 }

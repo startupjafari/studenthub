@@ -20,6 +20,9 @@ final class AppSessionModel {
     }
 
     private(set) var state: State = .restoring
+    /// Сервер отказал в продлении, пока интерфейс ещё открывался (фоновое продление
+    /// успело раньше `state = .signedIn`): выход доводится сразу после открытия.
+    @ObservationIgnored private var endedWhileRestoring = false
 
     private let store: SessionStore
 
@@ -46,16 +49,20 @@ final class AppSessionModel {
         // Только исход, без токена: токенам в логах и метках не место.
         let outcome: String = switch restoration {
         case .active: "active"
-        case .offline: "offline"
+        case .cached: "cached"
         case .none: "none"
         }
         Signposts.launch.endInterval("SessionRestore", signpost, "\(outcome, privacy: .public)")
         switch restoration {
-        case .active(let token), .offline(let token):
+        case .active(let token), .cached(let token):
             // Без сети — по последнему токену: расписание и чаты в базе, а выбросить
             // человека на вход только потому, что он в метро, — значит отнять у него и их.
             await LocalData.claim(for: token.subject)
             state = .signedIn(token)
+            if endedWhileRestoring {
+                endedWhileRestoring = false
+                await sessionDidEnd()
+            }
         case .none:
             // Сессия не поднялась — отложенная ссылка из пуша никому не адресована.
             AppServices.router.reset()
@@ -94,7 +101,10 @@ final class AppSessionModel {
     /// другой — их сотрёт `LocalData.claim`.
     @MainActor
     private func sessionDidEnd() async {
-        guard case .signedIn = state else { return }
+        guard case .signedIn = state else {
+            if state == .restoring { endedWhileRestoring = true }
+            return
+        }
         await AppServices.realtime.stop()
         AppServices.router.reset()
         GifPanelCache.shared.clear()

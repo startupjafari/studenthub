@@ -83,8 +83,15 @@ struct AuthAPI: SessionRefreshing, SessionIssuing {
 
     // MARK: - Продление и выход
 
+    /// Предел ожидания — короткий: продление идёт фоном после холодного старта, и запросы
+    /// экранов ждут его. Не ответил за это время — считаем «нет связи» (сессия жива), а
+    /// не держим экраны минуту на системном пределе.
+    static let refreshTimeout: TimeInterval = 8
+
     func refresh() async throws -> AuthSession {
-        try await client.send(publicEndpoint("auth/refresh"), as: AuthSession.self)
+        var endpoint = publicEndpoint("auth/refresh")
+        endpoint.timeout = Self.refreshTimeout
+        return try await client.send(endpoint, as: AuthSession.self)
     }
 
     func endSession(deviceToken: String?, refreshToken: String?) async throws {
