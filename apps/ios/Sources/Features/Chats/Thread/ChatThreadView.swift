@@ -30,6 +30,9 @@ struct ChatThreadView: View {
     @State private var toastTask: Task<Void, Never>?
     @State private var reported = false
     @State private var pinnedIndex = 0
+    /// Плашку закреплённого закрыли крестиком — до нового закрепления (id самого
+    /// свежего закреплённого на момент закрытия).
+    @State private var hiddenPinned: String?
     /// Лента у нижнего края — кнопка «вниз» не нужна.
     @State private var atBottom = true
     /// С какого момента человек не у низа: всё чужое позже — непрочитанное на кнопке.
@@ -123,6 +126,15 @@ struct ChatThreadView: View {
         }
     }
 
+    private static func hiddenPinnedKey(_ chatID: String) -> String { "chats.pinnedHidden.\(chatID)" }
+
+    /// Крестик на плашке: прячем, пока не закрепят что-то новое, — как в Telegram.
+    private func hidePinned(_ model: ChatThreadModel) {
+        guard let newest = model.pinned.first?.id else { return }
+        withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) { hiddenPinned = newest }
+        UserDefaults.standard.set(newest, forKey: Self.hiddenPinnedKey(chatID))
+    }
+
     private func showToast(_ text: String) {
         toastTask?.cancel()
         withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) { toast = text }
@@ -154,11 +166,12 @@ struct ChatThreadView: View {
                         .padding(.top, Spacing.md)
                 }
 
-                if !model.pinned.isEmpty, search == nil {
+                if !model.pinned.isEmpty, search == nil, model.pinned.first?.id != hiddenPinned {
                     PinnedBar(
                         message: model.pinned[min(pinnedIndex, model.pinned.count - 1)],
                         index: min(pinnedIndex, model.pinned.count - 1),
-                        count: model.pinned.count
+                        count: model.pinned.count,
+                        onClose: { hidePinned(model) }
                     ) {
                         let current = model.pinned[min(pinnedIndex, model.pinned.count - 1)]
                         Task { await model.jump(to: current.id) }
@@ -368,6 +381,7 @@ struct ChatThreadView: View {
         .task {
             guard model == nil else { return }
             KeyboardFrame.shared.start()
+            hiddenPinned = UserDefaults.standard.string(forKey: Self.hiddenPinnedKey(chatID))
             let created = ChatThreadModel(chatID: chatID, viewerID: viewerID)
             model = created
             created.start()
@@ -773,6 +787,7 @@ private struct PinnedBar: View {
     let message: ChatMessageDTO
     let index: Int
     let count: Int
+    let onClose: () -> Void
     let action: () -> Void
 
     var body: some View {
@@ -800,8 +815,15 @@ private struct PinnedBar: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                Image(systemName: "pin")
-                    .foregroundStyle(Palette.mutedForeground)
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Palette.mutedForeground)
+                        .frame(width: ControlHeight.sm, height: ControlHeight.sm)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(String(localized: "chats.pinned.hide", defaultValue: "Скрыть закреплённое")))
             }
             .padding(.horizontal, Spacing.lg)
             .padding(.vertical, Spacing.sm)

@@ -85673,23 +85673,6 @@
         }
       }
     },
-    "chats.info.add": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Добавить"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Қосу"
-          }
-        }
-      }
-    },
     "chats.info.more": {
       "extractionState": "manual",
       "localizations": {
@@ -95784,6 +95767,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "Стикер жинақтары әлі жоқ — оларды платформа әкімшісі қосады"
+          }
+        }
+      }
+    },
+    "chats.info.leave": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Покинуть"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шығу"
+          }
+        }
+      }
+    },
+    "chats.info.music": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Музыка"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Музыка"
+          }
+        }
+      }
+    },
+    "chats.info.polls": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Опросы"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сауалнамалар"
+          }
+        }
+      }
+    },
+    "chats.pinned.hide": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрыть закреплённое"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бекітілгенді жасыру"
+          }
+        }
+      }
+    },
+    "chats.poll.close": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрыть опрос"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сауалнаманы жабу"
+          }
+        }
+      }
+    },
+    "chats.poll.closeQuestion": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрыть опрос? Голосовать больше будет нельзя."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сауалнаманы жабу керек пе? Бұдан әрі дауыс беруге болмайды."
+          }
+        }
+      }
+    },
+    "chats.poll.optionsCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вариантов: %lld"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нұсқалар: %lld"
           }
         }
       }

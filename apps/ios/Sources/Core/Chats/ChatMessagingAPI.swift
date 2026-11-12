@@ -4,6 +4,9 @@ import Foundation
 // сообщений (геопозиция, контакт, список, стикер, GIF), закрытие опроса. Контракты —
 // docs/PROJECT.md, раздел чатов.
 
+/// Сообщение как строка списка (вкладка «Опросы» в информации о чате).
+extension ChatMessageDTO: Identifiable {}
+
 struct ForwardResultDTO: Decodable, Equatable {
     struct Target: Decodable, Equatable {
         let chatId: String
