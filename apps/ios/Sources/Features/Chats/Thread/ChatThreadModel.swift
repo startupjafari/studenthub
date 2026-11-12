@@ -73,6 +73,7 @@ final class ChatThreadModel {
     private var lastReadSent: String?
     private var lastReadAt: Date?
     private var lastActionAt: Date?
+    private var voiceAnnouncer: Task<Void, Never>?
     private var messages: [MessageRecord] = []
     /// Последний срез базы целиком — из него лента пересобирается, когда сдвигается
     /// граница окна истории, а сама база не менялась.
@@ -131,6 +132,7 @@ final class ChatThreadModel {
         draftTask?.cancel()
         markReadRetry?.cancel()
         preparingTimeout?.cancel()
+        voiceAnnouncer?.cancel()
     }
 
     /// Лента показывает окно истории, а не свежие сообщения: кнопка «вниз» ведёт к
@@ -1033,6 +1035,24 @@ final class ChatThreadModel {
         if let sentAt = lastActionAt, Date().timeIntervalSince(sentAt) < 3 { return }
         lastActionAt = Date()
         Task { [realtime, chatID] in await realtime.send(action: "TYPING", chatID: chatID) }
+    }
+
+    /// «Записывает голосовое…» у собеседников. Получатель гасит подпись через четыре
+    /// секунды, поэтому, пока идёт запись, подтверждение повторяется каждые три.
+    @MainActor
+    func announceVoice(_ recording: Bool) {
+        voiceAnnouncer?.cancel()
+        voiceAnnouncer = nil
+        guard recording else {
+            Task { [realtime, chatID] in await realtime.send(action: nil, chatID: chatID) }
+            return
+        }
+        voiceAnnouncer = Task { [realtime, chatID] in
+            while !Task.isCancelled {
+                await realtime.send(action: "RECORDING_VOICE", chatID: chatID)
+                try? await Task.sleep(for: .seconds(3))
+            }
+        }
     }
 
     @MainActor

@@ -94104,6 +94104,210 @@
           }
         }
       }
+    },
+    "chats.voice.busy": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Микрофон занят другим приложением или недоступен."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Микрофонды басқа қолданба пайдаланып жатыр немесе ол қолжетімсіз."
+          }
+        }
+      }
+    },
+    "chats.voice.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить запись"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жазбаны жою"
+          }
+        }
+      }
+    },
+    "chats.voice.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запись получилась пустой."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жазба бос болып шықты."
+          }
+        }
+      }
+    },
+    "chats.voice.failedTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не получилось записать"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жазу мүмкін болмады"
+          }
+        }
+      }
+    },
+    "chats.voice.holdHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удерживайте, чтобы записать; вверх — без рук, влево — отмена"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жазу үшін басып тұрыңыз; жоғары — қолсыз, солға — бас тарту"
+          }
+        }
+      }
+    },
+    "chats.voice.holdToRecord": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удерживайте, чтобы записать голосовое"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дауыстық жазу үшін басып тұрыңыз"
+          }
+        }
+      }
+    },
+    "chats.voice.noMicMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешите доступ к микрофону в настройках, чтобы записывать голосовые."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дауыстық хабар жазу үшін баптауларда микрофонға рұқсат беріңіз."
+          }
+        }
+      }
+    },
+    "chats.voice.noMicTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет доступа к микрофону"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Микрофонға рұқсат жоқ"
+          }
+        }
+      }
+    },
+    "chats.voice.openSettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть настройки"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Баптауларды ашу"
+          }
+        }
+      }
+    },
+    "chats.voice.recordingFor": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Идёт запись, %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жазылып жатыр, %@"
+          }
+        }
+      }
+    },
+    "chats.voice.send": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить голосовое"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дауыстық хабарды жіберу"
+          }
+        }
+      }
+    },
+    "chats.voice.slideToCancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Влево — отмена"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Солға — бас тарту"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
