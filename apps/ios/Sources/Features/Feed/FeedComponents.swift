@@ -27,19 +27,25 @@ struct RemoteImage: View {
 
     @State private var image: UIImage?
     @State private var failed = false
-    /// Размер вида в пикселях, ступенями (`ImageTarget.view`).
-    @State private var measured: ImageTarget?
+    /// Чьи `image` и `failed`: вид мог получить другой ключ (сменили аватар), и прежний
+    /// кадр или прежний сбой показывать уже нельзя.
+    @State private var stateKey: String?
+    /// Размер вида в точках — из него цель считается в теле, с текущими масштабом
+    /// экрана и `contentMode`.
+    @State private var viewSize: CGSize = .zero
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.displayScale) private var displayScale
 
     private var target: ImageTarget? {
         if let maxPixelSize { return .longSide(maxPixelSize) }
-        return measured
+        return ImageTarget.view(viewSize, scale: displayScale, mode: contentMode == .fit ? .fit : .fill)
     }
 
     var body: some View {
         // Готовая копия из памяти — уже в первом кадре, без ожидания `.task`.
-        let shown = image ?? ImageMemoryCache.shared.image(for: cacheKey)
+        let own = stateKey == cacheKey ? image : nil
+        let shown = own ?? ImageMemoryCache.shared.image(for: cacheKey)
+        let showsFailure = stateKey == cacheKey && failed
         ZStack {
             if let shown {
                 Image(uiImage: shown)
@@ -54,7 +60,7 @@ struct RemoteImage: View {
                     .aspectRatio(contentMode: .fill)
             } else if let emptyFill {
                 Rectangle().fill(emptyFill)
-                if failed {
+                if showsFailure {
                     Image(systemName: "photo")
                         .foregroundStyle(Palette.mutedForeground)
                 }
@@ -65,8 +71,11 @@ struct RemoteImage: View {
             proxy.size
         } action: { size in
             guard maxPixelSize == nil else { return }
-            let next = ImageTarget.view(size, scale: displayScale, mode: contentMode == .fit ? .fit : .fill)
-            if let next, next != measured { measured = next }
+            // Цель идёт ступенями, так что дрожь раскладки в доли точки задачу не
+            // перезапустит; лишнее присваивание отсекаем здесь же.
+            if abs(size.width - viewSize.width) >= 0.5 || abs(size.height - viewSize.height) >= 0.5 {
+                viewSize = size
+            }
         }
         .task(id: RemoteImageLoad(key: cacheKey, target: target)) {
             await load()
@@ -76,33 +85,53 @@ struct RemoteImage: View {
     @MainActor
     private func load() async {
         // Размер вида ещё неизвестен: грузить полный кадр «на всякий случай» нельзя —
-        // дождёмся раскладки (`measured` сменит id задачи).
+        // дождёмся раскладки (`viewSize` сменит цель, а с ней id задачи).
         guard let target else { return }
-        if let cached = ImageMemoryCache.shared.image(for: cacheKey, satisfying: target) {
-            image = cached
+        let key = cacheKey
+        if let cached = ImageMemoryCache.shared.image(for: key, satisfying: target) {
+            adopt(cached, for: key, animated: false)
+            return
+        }
+        // Приблизительная копия этого же файла (своя или из памяти) — держим её, пока
+        // грузится точная, и оставляем, если точная не пришла.
+        let approximate = (stateKey == key ? image : nil) ?? ImageMemoryCache.shared.image(for: key)
+        guard let url else {
+            settle(approximate, for: key)
+            return
+        }
+        let loaded = await ImageMemoryCache.shared.load(url, key: key, target: target)
+        // Ключ сменился или вид ушёл — задачу сняли, её результат не наш.
+        guard !Task.isCancelled else { return }
+        if let loaded {
+            adopt(loaded, for: key, animated: approximate == nil)
+        } else {
+            settle(approximate, for: key)
+        }
+    }
+
+    /// Показать загруженное. Точная копия вместо приблизительной — без анимации:
+    /// картинка та же.
+    @MainActor
+    private func adopt(_ loaded: UIImage, for key: String, animated: Bool) {
+        guard animated else {
+            image = loaded
+            stateKey = key
             failed = false
             return
         }
-        guard let url else {
-            failed = image == nil
-            return
-        }
-        let hadImage = image != nil || ImageMemoryCache.shared.image(for: cacheKey) != nil
-        let loaded = await ImageMemoryCache.shared.load(url, key: cacheKey, target: target)
-        guard !Task.isCancelled else { return }
-        guard let loaded else {
-            failed = !hadImage
-            return
-        }
-        if hadImage {
-            // Точная копия вместо приблизительной — без анимации: картинка та же.
+        withAnimation(Motion.respecting(.easeOut(duration: Motion.Duration.feedback), reduceMotion: reduceMotion)) {
             image = loaded
-        } else {
-            withAnimation(Motion.respecting(.easeOut(duration: Motion.Duration.feedback), reduceMotion: reduceMotion)) {
-                image = loaded
-                failed = false
-            }
+            stateKey = key
+            failed = false
         }
+    }
+
+    /// Загрузить не вышло: остаётся то, что было для этого ключа, иначе — значок сбоя.
+    @MainActor
+    private func settle(_ fallback: UIImage?, for key: String) {
+        image = fallback
+        stateKey = key
+        failed = fallback == nil
     }
 }
 
@@ -136,14 +165,25 @@ enum LQIP {
 
         /// Создавать контекст на каждое превью дорого.
         let context = CIContext(options: [.cacheIntermediates: false])
+
+        private let lock = NSLock()
+        private var generation = 0
+
+        /// Растёт с каждой очисткой: превью, разобранное до выхода, в кеш не вернётся.
+        var currentGeneration: Int { lock.withLock { generation } }
+
+        func clear() {
+            lock.withLock { generation += 1 }
+            raw.removeAllObjects()
+            soft.removeAllObjects()
+        }
     }
 
     private static let storage = Storage()
 
     /// Выход из аккаунта: превью чужих фото в памяти не остаются.
     static func clearCache() {
-        storage.raw.removeAllObjects()
-        storage.soft.removeAllObjects()
+        storage.clear()
     }
 
     /// Превью как есть (переписка размывает его сама).
@@ -151,13 +191,14 @@ enum LQIP {
         guard let dataURI, !dataURI.isEmpty else { return nil }
         let key = dataURI as NSString
         if let known = storage.raw.object(forKey: key) { return known }
+        let generation = storage.currentGeneration
         guard
             let comma = dataURI.firstIndex(of: ","),
             let data = Data(base64Encoded: String(dataURI[dataURI.index(after: comma)...])),
             let image = UIImage(data: data)
         else { return nil }
         let prepared = image.preparingForDisplay() ?? image
-        storage.raw.setObject(prepared, forKey: key)
+        if storage.currentGeneration == generation { storage.raw.setObject(prepared, forKey: key) }
         return prepared
     }
 
@@ -167,9 +208,10 @@ enum LQIP {
         guard let dataURI, !dataURI.isEmpty else { return nil }
         let key = dataURI as NSString
         if let known = storage.soft.object(forKey: key) { return known }
+        let generation = storage.currentGeneration
         guard let source = image(from: dataURI) else { return nil }
         let result = blur(source) ?? source
-        storage.soft.setObject(result, forKey: key)
+        if storage.currentGeneration == generation { storage.soft.setObject(result, forKey: key) }
         return result
     }
 
@@ -281,6 +323,18 @@ enum RichText {
             cache.totalCostLimit = 4_000_000
             return cache
         }()
+
+        private let lock = NSLock()
+        private var generation = 0
+
+        /// Растёт с каждой очисткой: разбор, начатый до выхода из аккаунта, в кеш
+        /// следующего человека не попадёт.
+        var currentGeneration: Int { lock.withLock { generation } }
+
+        func clear() {
+            lock.withLock { generation += 1 }
+            cache.removeAllObjects()
+        }
     }
 
     private static let storage = Storage()
@@ -288,8 +342,9 @@ enum RichText {
     /// Разобранный текст: из кеша, иначе — разбор здесь же (и в кеш).
     static func attributed(_ source: String) -> AttributedString {
         if let known = cached(source) { return known }
+        let generation = storage.currentGeneration
         let parsed = parse(source)
-        remember(parsed, for: source)
+        remember(parsed, for: source, generation: generation)
         return parsed
     }
 
@@ -303,11 +358,12 @@ enum RichText {
     /// (сборка ленты переписки); прерывается отменой задачи.
     static func prepare<Sources: Sequence>(_ sources: Sources) where Sources.Element == String {
         let signpost = Signposts.chats.beginInterval("TextPrepare")
+        let generation = storage.currentGeneration
         var parsed = 0
         for source in sources {
-            if Task.isCancelled { break }
+            if Task.isCancelled || storage.currentGeneration != generation { break }
             guard !source.isEmpty, cached(source) == nil else { continue }
-            remember(parse(source), for: source)
+            remember(parse(source), for: source, generation: generation)
             parsed += 1
         }
         Signposts.chats.endInterval("TextPrepare", signpost, "parsed: \(parsed)")
@@ -321,11 +377,12 @@ enum RichText {
 
     /// Выход из аккаунта: тексты прежнего человека в памяти не остаются.
     static func clearCache() {
-        storage.cache.removeAllObjects()
+        storage.clear()
     }
 
-    private static func remember(_ parsed: AttributedString, for source: String) {
-        guard !source.isEmpty else { return }
+    /// В кеш — только если с начала разбора его не очищали.
+    private static func remember(_ parsed: AttributedString, for source: String, generation: Int) {
+        guard !source.isEmpty, storage.currentGeneration == generation else { return }
         storage.cache.setObject(Storage.Parsed(parsed), forKey: source as NSString, cost: source.utf16.count)
     }
 

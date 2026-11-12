@@ -41,6 +41,13 @@ final class ImageMemoryCache: @unchecked Sendable {
         return cache
     }()
 
+    private let lock = NSLock()
+    private var generation = 0
+
+    /// Растёт с каждой очисткой: загрузка, начатая до выхода из аккаунта, в кеш
+    /// следующего человека свой кадр не положит.
+    var currentGeneration: Int { lock.withLock { generation } }
+
     /// Любая копия по ключу — для первого кадра: показать сразу хоть что-то, а точную
     /// копию догрузить.
     func image(for key: String) -> UIImage? {
@@ -55,6 +62,7 @@ final class ImageMemoryCache: @unchecked Sendable {
 
     /// Выход из аккаунта: фото и аватары прежнего человека следующему ни к чему.
     func removeAll() {
+        lock.withLock { generation += 1 }
         cache.removeAllObjects()
     }
 
@@ -87,6 +95,7 @@ final class ImageMemoryCache: @unchecked Sendable {
     /// под размер вида делается прямо при декодировании (`ImageDownsampler`).
     func load(_ url: URL, key: String, target: ImageTarget?) async -> UIImage? {
         if let cached = image(for: key, satisfying: target) { return cached }
+        let generation = currentGeneration
         let fetch = Signposts.images.beginInterval("ImageFetch")
         let loaded = try? await URLSession.shared.data(from: url)
         Signposts.images.endInterval("ImageFetch", fetch, "bytes: \(loaded?.0.count ?? 0)")
@@ -97,6 +106,9 @@ final class ImageMemoryCache: @unchecked Sendable {
         // Ячейка ушла с экрана, пока шла сеть: декодировать уже незачем.
         guard !Task.isCancelled else { return nil }
         guard let decoded = await Self.decode(data, target: target) else { return nil }
+        // Кеш очистили, пока шла загрузка (выход из аккаунта): кадр — не в кеш и не
+        // на экран.
+        guard currentGeneration == generation else { return nil }
         store(decoded, for: key)
         return image(for: key, satisfying: target) ?? decoded.image
     }

@@ -104,6 +104,31 @@ final class ImageMemoryCacheTests: XCTestCase {
         XCTAssertEqual(cache.image(for: "k")?.cgImage?.width, 600)
     }
 
+    /// Очистка (выход из аккаунта) меняет поколение: загрузка, начатая раньше, свой
+    /// кадр в кеш уже не положит.
+    func testRemoveAllStartsNewGeneration() {
+        let cache = ImageMemoryCache()
+        let before = cache.currentGeneration
+
+        cache.removeAll()
+
+        XCTAssertEqual(cache.currentGeneration, before + 1)
+    }
+
+    /// Загрузка файла с диска (как свои вложения переписки) проходит весь путь:
+    /// декодирование под цель и запись в кеш.
+    func testLoadsLocalFileUnderTarget() async throws {
+        let cache = ImageMemoryCache()
+        let file = FileManager.default.temporaryDirectory.appending(path: "image-cache-test-\(UUID().uuidString).png")
+        try XCTUnwrap(ImageDownsamplerTests.png(width: 800, height: 400)).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+
+        let image = await cache.load(file, key: "file", target: .longSide(200))
+
+        XCTAssertEqual(image?.cgImage?.width, 200)
+        XCTAssertNotNil(cache.image(for: "file", satisfying: .longSide(200)))
+    }
+
     func testRemoveAllForgetsEverything() throws {
         let cache = ImageMemoryCache()
         let decoded = try XCTUnwrap(ImageDownsampler.decode(XCTUnwrap(ImageDownsamplerTests.png(width: 10, height: 10)), target: nil))
