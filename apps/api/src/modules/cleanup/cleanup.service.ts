@@ -614,6 +614,9 @@ export class CleanupService {
       {
         bucket: chatBucket,
         messageId: null,
+        // Картинка стикера каталога живёт в бакете чатов без сообщения — законно, пока на
+        // неё ссылается стикер (Sticker.fileId).
+        sticker: { is: null },
         createdAt: { lt: new Date(now - DETACHED_CHAT_FILE_SAFETY_MINUTES * 60 * 1000) },
       },
       { bucket: this.config.get('MINIO_BUCKET_MATERIALS', { infer: true }), materialId: null },
