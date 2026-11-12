@@ -63,6 +63,8 @@ actor APIClient {
         do {
             return try JSONCoding.decoder.decode(APISuccessEnvelope<Response>.self, from: data).data
         } catch {
+            // Сохранённый ответ не разобрался новой моделью — тоже промах кеша.
+            ScreenCache.scope?.misses.record()
             throw APIError.decoding(underlying: error, statusCode: 200)
         }
     }
@@ -74,6 +76,7 @@ actor APIClient {
             let envelope = try JSONCoding.decoder.decode(APISuccessEnvelope<[Item]>.self, from: data)
             return Page(items: envelope.data, meta: envelope.meta)
         } catch {
+            ScreenCache.scope?.misses.record()
             throw APIError.decoding(underlying: error, statusCode: 200)
         }
     }
@@ -108,7 +111,10 @@ actor APIClient {
         case .cachedOnly:
             // Только сохранённое: ни сети, ни продления сессии. Запись (POST и др.) и
             // несохраняемые маршруты — промах, а не запрос.
-            guard let key, let data = await screenCache.data(for: key) else { throw ScreenCacheMiss() }
+            guard let key, let data = await screenCache.data(for: key) else {
+                scope.misses.record()
+                throw ScreenCacheMiss()
+            }
             return data
         case .refresh:
             let data = try await performNetwork(endpoint)

@@ -610,10 +610,13 @@ final class EventsModel {
     }
 }
 
-/// Что «прочитано» оптимистично: одно уведомление или все разом.
+/// Что «прочитано» оптимистично: одно уведомление или все разом. «Все» — со своим
+/// номером нажатия: второе «прочитать все», пока первое в пути, захватывает
+/// уведомления, пришедшие между нажатиями, и должно уйти своим запросом, а не слиться
+/// с первым.
 enum NotificationReadKey: Hashable, Sendable {
     case item(String)
-    case all
+    case all(Int)
 }
 
 /// Центр уведомлений.
@@ -639,6 +642,8 @@ final class NotificationsModel {
     /// До какого момента «прочитать все» действует на строки: уведомление, пришедшее
     /// после нажатия, остаётся непрочитанным.
     @ObservationIgnored private var readAllMoment: Date?
+    /// Номер последнего нажатия «прочитать все».
+    @ObservationIgnored private var readAllTap = 0
 
     init(
         api: FeedFetching = FeedAPI(),
@@ -715,9 +720,11 @@ final class NotificationsModel {
         // показанных, иначе оно осталось бы непрочитанным после обновления.
         let newest = items.map(\.createdAt).max() ?? Date()
         readAllMoment = max(Date(), newest)
+        readAllTap += 1
+        let tap = readAllTap
         let api = api
         await readSync.set(
-            .all,
+            .all(tap),
             to: true,
             current: false,
             retry: .retry(attempts: 3),
@@ -726,8 +733,9 @@ final class NotificationsModel {
                 if read {
                     self.setRead(true, ids: unread)
                 } else {
-                    // Откат «всех» не трогает те, что читаются по одному прямо сейчас.
-                    self.readAllMoment = nil
+                    // Откат «всех» не трогает те, что читаются по одному прямо сейчас, и
+                    // границу более позднего нажатия.
+                    if tap == self.readAllTap { self.readAllMoment = nil }
                     self.setRead(false, ids: unread.filter { !self.readSync.isPending(.item($0)) })
                 }
             },
@@ -747,7 +755,7 @@ final class NotificationsModel {
         guard !item.isRead else { return item }
         var shown = readSync.resolve(.item(item.id), server: false, readAt: stamp)
         if !shown, let moment = readAllMoment, item.createdAt <= moment {
-            shown = readSync.resolve(.all, server: false, readAt: stamp)
+            shown = readSync.resolve(.all(readAllTap), server: false, readAt: stamp)
         }
         guard shown else { return item }
         var copy = item

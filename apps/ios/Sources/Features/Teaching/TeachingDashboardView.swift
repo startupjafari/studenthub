@@ -61,17 +61,16 @@ struct TeachingDashboardView: View {
         }
         .actionFailureAlert($actionFailure)
         .pullToRefresh { await load() }
-        // Первый показ — всё, причём сводка дня из кеша экранов сразу (итерация 5).
-        // Возврат на экран (отметили посещаемость) — только отметки: раньше `.task`
-        // грузил всё заново, а `onAppear` ещё раз отметки (п. 31 аудита).
+        // Каждый показ — всё заново, как раньше: вернулись после проверки работы или
+        // отметки — очередь и отметки свежие (отметки — внутри `load`, один раз; раньше
+        // их ещё раз грузил `onAppear`, п. 31). Первый показ — сводка дня из кеша экранов
+        // сразу (итерация 5); на возврате на экране остаётся показанное, без спиннера.
         .task {
-            guard !isFresh else {
-                await loadMarked()
-                return
-            }
-            let api = api
-            if let cached = await ScreenCache.cached({ try await api.today() }), today == nil {
-                today = cached
+            if !isFresh, today == nil {
+                let api = api
+                if let cached = await ScreenCache.cached({ try await api.today() }), today == nil {
+                    today = cached
+                }
             }
             await load()
         }

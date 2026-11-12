@@ -151,6 +151,29 @@ final class OptimisticFeedActionsTests: XCTestCase {
         XCTAssertNotNil(model.actionNotice)
     }
 
+    /// Второе «прочитать все», пока первое в пути, уходит своим запросом: между
+    /// нажатиями могли прийти новые уведомления.
+    func testSecondReadAllIsSentSeparately() async {
+        let api = StubFeed()
+        api.notifications = [notification(id: "n-1", read: false)]
+        let model = NotificationsModel(api: api, pacing: .immediate, counter: Self.quietCounter())
+        await model.refresh()
+        api.holdsReadAll = true
+
+        let first = Task { await model.markAllRead() }
+        await waitUntil { api.markAllCalls == 1 }
+        api.notifications = [notification(id: "n-2", read: false), notification(id: "n-1", read: false)]
+        await model.refresh()
+        let second = Task { await model.markAllRead() }
+        await waitUntil { api.heldReadAllCount == 2 }
+        api.releaseReadAll()
+        await first.value
+        await second.value
+
+        XCTAssertEqual(api.markAllCalls, 2)
+        XCTAssertEqual(model.unreadCount, 0)
+    }
+
     /// Без связи «прочитано» не откатывается сразу: повторяется, и связь появилась —
     /// сохранено без сообщения.
     func testMarkReadRetriesWhenOffline() async {
@@ -349,6 +372,8 @@ private final class StubFeed: FeedFetching, @unchecked Sendable {
     /// Ответ, который придёт после `release()`: так тест видит, что на экране, пока
     /// запрос в полёте.
     var holdsReactions = false
+    var holdsReadAll = false
+    private var heldReadAll: [CheckedContinuation<Void, Never>] = []
     /// Сколько первых «прочитано» оборвать «нет связи».
     var markReadDrops = 0
     private var heldReactions: [CheckedContinuation<Void, Never>] = []
@@ -446,8 +471,26 @@ private final class StubFeed: FeedFetching, @unchecked Sendable {
         if let failure = lock.withLock({ failure }) { throw failure }
     }
     func markAllRead() async throws {
-        lock.withLock { markAllCalls += 1 }
+        let hold = lock.withLock { () -> Bool in
+            markAllCalls += 1
+            return holdsReadAll
+        }
+        if hold {
+            await withCheckedContinuation { continuation in
+                lock.withLock { heldReadAll.append(continuation) }
+            }
+        }
         if let failure = lock.withLock({ failure }) { throw failure }
+    }
+
+    var heldReadAllCount: Int { lock.withLock { heldReadAll.count } }
+
+    func releaseReadAll() {
+        let held = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            defer { heldReadAll = [] }
+            return heldReadAll
+        }
+        held.forEach { $0.resume() }
     }
     func notificationSettings() async throws -> NotificationSettingsDTO {
         NotificationSettingsDTO(pushEnabled: true, emailEnabled: true)

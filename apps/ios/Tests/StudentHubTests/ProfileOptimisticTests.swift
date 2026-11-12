@@ -53,6 +53,20 @@ final class ProfileOptimisticTests: XCTestCase {
         XCTAssertNil(model.actionFailure)
     }
 
+    /// 409 «недавно отклонили» — тот же код, но заявки на сервере нет: это отказ, а не
+    /// «уже отправлена».
+    func testCooldownConflictRollsBack() async {
+        let content = StubProfileContent(status: FriendshipStatusDTO(status: "NONE", friendshipId: nil))
+        let model = ProfileModel(userID: "u-2", feed: StubProfileFeed(), content: content, pacing: .immediate)
+        await model.load()
+        content.requestFailure = .server(code: .conflict, message: "Недавно отклонили", details: [], statusCode: 409)
+
+        await model.friendshipAction()
+
+        XCTAssertEqual(model.friendship?.status, "NONE")
+        XCTAssertNotNil(model.actionFailure)
+    }
+
     func testRejectedFriendRequestRollsBack() async {
         let content = StubProfileContent(status: FriendshipStatusDTO(status: "NONE", friendshipId: nil))
         let model = ProfileModel(userID: "u-2", feed: StubProfileFeed(), content: content, pacing: .immediate)

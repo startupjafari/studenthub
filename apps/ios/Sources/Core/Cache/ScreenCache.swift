@@ -26,6 +26,23 @@ enum ScreenCache {
         let mode: Mode
         let owner: String
         let generation: Int
+        /// Был ли промах в этой загрузке. Экран может сам гасить ошибки отдельных
+        /// запросов (сводка из нескольких блоков) — тогда `load` вернёт значение с пустыми
+        /// блоками, и без этой отметки неполное сохранённое сошло бы за попадание.
+        let misses: MissLog
+    }
+
+    /// Отметка промахов загрузки: общая для всех запросов одной загрузки, в том числе
+    /// из дочерних задач (`async let`), — под замком.
+    final class MissLog: @unchecked Sendable {
+        private let lock = NSLock()
+        private var missed = false
+
+        var hasMisses: Bool { lock.withLock { missed } }
+
+        func record() {
+            lock.withLock { missed = true }
+        }
     }
 
     @TaskLocal static var scope: Scope?
@@ -40,9 +57,14 @@ enum ScreenCache {
     ) async -> Value? {
         guard PerformanceFlags.screenCache, let owner = store.owner else { return nil }
         let signpost = signposter.beginInterval("ScreenCacheRead")
-        let value = try? await $scope.withValue(Scope(mode: .cachedOnly, owner: owner, generation: store.generation)) {
+        let misses = MissLog()
+        let scope = Scope(mode: .cachedOnly, owner: owner, generation: store.generation, misses: misses)
+        var value = try? await $scope.withValue(scope) {
             try await load()
         }
+        // Хоть один запрос не нашёлся — значение неполное: лучше ждать сеть, чем показать
+        // пустые блоки или ошибку «не нашлось в сохранённом».
+        if misses.hasMisses { value = nil }
         signposter.endInterval("ScreenCacheRead", signpost, "\(value == nil ? "miss" : "hit", privacy: .public)")
         return value
     }
@@ -53,7 +75,7 @@ enum ScreenCache {
         _ load: () async throws -> Value
     ) async throws -> Value {
         guard PerformanceFlags.screenCache, let owner = store.owner else { return try await load() }
-        return try await $scope.withValue(Scope(mode: .refresh, owner: owner, generation: store.generation)) {
+        return try await $scope.withValue(Scope(mode: .refresh, owner: owner, generation: store.generation, misses: MissLog())) {
             try await load()
         }
     }

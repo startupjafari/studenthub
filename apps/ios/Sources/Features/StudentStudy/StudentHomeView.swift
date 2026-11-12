@@ -307,6 +307,9 @@ struct StudentHomeView: View {
         assignments = freshTasks ?? assignments
         let attentionAnswered = await attention
         _ = await summary
+        // Ушли с вкладки посреди первой загрузки: `try?` вернули пустое не из-за сети —
+        // не считаем главную загруженной, следующий показ загрузит снова.
+        guard !Task.isCancelled else { return }
         let answeredAll = freshGrades != nil && freshAttendance != nil && freshTasks != nil && attentionAnswered == 2
         let answeredAny = freshGrades != nil || freshAttendance != nil || freshTasks != nil || attentionAnswered > 0
         if attentionAnswered == 0, grades == nil {

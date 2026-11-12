@@ -289,8 +289,9 @@ struct CommunityFriendsView: View {
         isSearching = false
     }
 
-    /// Заявка из поиска: значок «отправлена» сразу. Повтор заявки, которую сервер уже
-    /// принял (409), — успех: второй заявки не будет.
+    /// Заявка из поиска: значок «отправлена» сразу. 409 — успех, только если заявка или
+    /// дружба правда есть на сервере («уже отправлена»); «недавно отклонили» — откат с
+    /// причиной.
     @MainActor
     private func add(_ person: SearchResultsDTO.Person) async {
         let settlement = await requestSync.set(
@@ -303,7 +304,10 @@ struct CommunityFriendsView: View {
             send: { [api] _, _ in
                 do {
                     try await api.requestFriendship(userID: person.id)
-                } catch where error.isAlreadyApplied(turningOn: true) {}
+                } catch where error.isAlreadyApplied(turningOn: true) {
+                    let truth = try await ProfileContentAPI().friendship(with: person.id)
+                    guard ["PENDING_OUTGOING", "ACCEPTED"].contains(truth.status) else { throw error }
+                }
                 return nil
             },
             failed: { error in failure = error.rollbackMessage }

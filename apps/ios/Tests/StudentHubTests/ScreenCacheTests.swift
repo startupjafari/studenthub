@@ -290,6 +290,25 @@ final class ScreenCacheClientTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.path()))
     }
 
+    /// Экран сам гасит ошибку одного из запросов (сводка из блоков): если этого ответа
+    /// нет в сохранённом, значение неполное — это промах, а не попадание с пустым блоком.
+    func testSwallowedMissIsStillAMiss() async throws {
+        let store = ScreenCacheStore(root: root, build: "1", isLocked: { false })
+        store.claim(owner: "u-1")
+        let client = try client(store)
+        StubURLProtocol.respond(status: 200, body: #"{"data":{"value":7}}"#)
+        _ = try await ScreenCache.refreshing(store: store) { try await client.send(.get("first"), as: Thing.self) }
+        await store.flush()
+
+        let cached = await ScreenCache.cached(store: store) { () -> [Thing?] in
+            let first = try? await client.send(.get("first"), as: Thing.self)
+            let second = try? await client.send(.get("second"), as: Thing.self)
+            return [first, second]
+        }
+
+        XCTAssertNil(cached)
+    }
+
     /// Ответ, который не разбирается новой моделью, — промах, а не падение.
     func testUndecodableCachedResponseIsAMiss() async throws {
         let store = ScreenCacheStore(root: root, build: "1", isLocked: { false })

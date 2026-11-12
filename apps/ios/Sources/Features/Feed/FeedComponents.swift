@@ -77,7 +77,9 @@ struct RemoteImage: View {
                 viewSize = size
             }
         }
-        .task(id: RemoteImageLoad(key: cacheKey, target: target)) {
+        // После сбоя в повод входит и адрес: экран из сохранённого мог дать просроченную
+        // подписанную ссылку (403), а свежий ответ — новую с тем же ключом файла.
+        .task(id: RemoteImageLoad(key: cacheKey, target: target, retryURL: showsFailure ? url : nil)) {
             await load()
         }
     }
@@ -139,6 +141,8 @@ struct RemoteImage: View {
 private struct RemoteImageLoad: Hashable {
     let key: String
     let target: ImageTarget?
+    /// Адрес — только пока показан сбой: новая ссылка на тот же файл — повод повторить.
+    let retryURL: URL?
 }
 
 /// Превью из data-URI (`data:image/webp;base64,…`), разобранное один раз.

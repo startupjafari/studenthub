@@ -159,7 +159,9 @@ final class ProfileModel {
         async let friends: Int? = isMine ? try? content.friendsCount() : nil
         self.counts = await counts
         if let loaded = await friendship {
-            friendshipID = loaded.friendshipId
+            // Пока шаг дружбы в пути, id из чтения, начатого раньше, может быть уже
+            // устаревшим — его узнает сам шаг.
+            if !friendshipSync.isPending(id) { friendshipID = loaded.friendshipId }
             let shown = friendshipSync.resolve(id, server: loaded.status, readAt: stamp)
             self.friendship = FriendshipStatusDTO(status: shown, friendshipId: loaded.friendshipId)
         } else if isMine {
@@ -231,15 +233,15 @@ final class ProfileModel {
             current: poll.myVotes,
             apply: { [weak self] votes in self?.applyVote(pollID: poll.id, votes: votes) },
             send: { _, votes in
-                // Повтор голоса, который сервер уже принял, — 409: это не сбой.
-                do {
-                    try await content.vote(pollID: poll.id, optionIDs: votes)
-                } catch where error.isAlreadyApplied(turningOn: true) {}
+                // 409 здесь — отказ («Опрос завершён», «Вы уже проголосовали»), а не
+                // успех: откат и причина на экране.
+                try await content.vote(pollID: poll.id, optionIDs: votes)
                 return nil
             },
             failed: { [weak self] error in self?.actionFailure = error.rollbackMessage }
         )
-        if settlement == .confirmed {
+        // Подтвердили — свежие доли; откатили — правда сервера (опрос мог закрыться).
+        if settlement == .confirmed || settlement == .rolledBack {
             await loadTab(.polls, force: true)
         }
     }
@@ -258,8 +260,10 @@ final class ProfileModel {
     ///
     /// Переходы: «нет» → «заявка отправлена», «входящая» → «друзья», «друзья» и
     /// «исходящая» → «нет». Нажатие во время полёта меняет только итог, и уходит
-    /// ровно один запрос на итоговое состояние. Повтор заявки, которую сервер уже
-    /// принял (409), и удаление уже удалённой (404) — успех: дублей не будет.
+    /// ровно один запрос на итоговое состояние. 409 на заявку — успех, только если
+    /// сервер правда держит заявку или дружбу («уже отправлена»); «недавно отклонили» —
+    /// отказ с причиной. Удаление уже удалённой (404) — успех. Id дружбы неизвестен —
+    /// сначала читается с сервера: шаг не пропадает молча.
     @MainActor
     func friendshipAction() async {
         guard let id = userID, let current = friendship else { return }
@@ -276,20 +280,31 @@ final class ProfileModel {
             current: current.status,
             apply: { [weak self] status in self?.applyFriendship(status) },
             send: { [weak self] from, to in
-                let known = self?.friendshipID
+                var known = self?.friendshipID
+                if known == nil, to != "PENDING_OUTGOING" {
+                    let current = try await content.friendship(with: id)
+                    self?.adoptFriendshipID(current)
+                    known = current.friendshipId
+                }
                 switch (from, to) {
                 case ("NONE", "PENDING_OUTGOING"):
                     do {
                         try await content.requestFriendship(with: id)
-                    } catch where error.isAlreadyApplied(turningOn: true) {}
-                case ("PENDING_INCOMING", "ACCEPTED"):
-                    if let known { try await content.acceptFriendship(id: known) }
-                case (_, "NONE"):
-                    if let known {
-                        do {
-                            try await content.removeFriendship(id: known)
-                        } catch where error.isAlreadyApplied(turningOn: false) {}
+                    } catch where error.isAlreadyApplied(turningOn: true) {
+                        let truth = try await content.friendship(with: id)
+                        guard ["PENDING_OUTGOING", "ACCEPTED"].contains(truth.status) else { throw error }
+                        self?.adoptFriendshipID(truth)
+                        return truth.status
                     }
+                case ("PENDING_INCOMING", "ACCEPTED"):
+                    guard let known else { return "NONE" }
+                    try await content.acceptFriendship(id: known)
+                case (_, "NONE"):
+                    // Id так и нет — на сервере дружбы уже нет.
+                    guard let known else { return "NONE" }
+                    do {
+                        try await content.removeFriendship(id: known)
+                    } catch where error.isAlreadyApplied(turningOn: false) {}
                 default:
                     break
                 }

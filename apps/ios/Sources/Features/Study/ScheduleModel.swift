@@ -171,6 +171,10 @@ final class ScheduleModel {
                 self?.pairs = rows
                 self?.isReadingDay = false
             }
+            // Поток кончился без значения (ошибка чтения базы) — «ещё читаем» не должно
+            // висеть вечно. Отменённая задача (сменили день) флаг не трогает: его уже
+            // завела новая.
+            if !Task.isCancelled { self?.isReadingDay = false }
         }
 
         let date = dateOfSelectedDay()
