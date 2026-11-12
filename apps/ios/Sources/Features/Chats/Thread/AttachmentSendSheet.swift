@@ -581,7 +581,7 @@ private struct FileRow: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel(Text(player.isPlaying
                         ? String(localized: "chats.voice.pause", defaultValue: "Пауза")
-                        : String(localized: "chats.voice.play", defaultValue: "Прослушать")))
+                        : String(localized: "chats.voice.play", defaultValue: "Слушать")))
                 } else if let preview = item.preview {
                     Image(uiImage: preview)
                         .resizable()
