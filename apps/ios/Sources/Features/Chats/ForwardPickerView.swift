@@ -152,6 +152,22 @@ struct ForwardPickerView: View {
         }
         .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.md)
+        // Размытая подложка, как у панели Telegram: без неё строки списка просвечивали
+        // сквозь «что пересылаем» и поле комментария. Верх подложки сходит на нет —
+        // без резкой черты.
+        .background {
+            Rectangle()
+                .fill(.bar)
+                .mask {
+                    LinearGradient(
+                        stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.18)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+                .padding(.top, -Spacing.xl)
+                .ignoresSafeArea(edges: .bottom)
+        }
         .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: selected.isEmpty)
     }
 

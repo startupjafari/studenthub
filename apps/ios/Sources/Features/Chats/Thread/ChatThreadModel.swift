@@ -54,6 +54,9 @@ final class ChatThreadModel {
     /// превью из списка чатов. Такую ленту не показываем — иначе первым кадром встаёт
     /// одно сообщение у верха пустого экрана, а через миг его сменяет вся страница.
     private(set) var isPreparing = true
+    /// Идёт запись голосового: над микрофоном — замок, кнопка «вниз» на это время уходит,
+    /// чтобы не налезать на него.
+    private(set) var isRecordingVoice = false
 
     private let viewerID: String
     private let database: AppDatabase
@@ -1173,6 +1176,7 @@ final class ChatThreadModel {
     /// секунды, поэтому, пока идёт запись, подтверждение повторяется каждые три.
     @MainActor
     func announceVoice(_ recording: Bool) {
+        isRecordingVoice = recording
         voiceAnnouncer?.cancel()
         voiceAnnouncer = nil
         guard recording else {

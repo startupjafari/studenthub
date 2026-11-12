@@ -82,19 +82,13 @@ struct ChatThreadView: View {
         // Панель emoji стоит на месте клавиатуры: пока она открыта, уход и приход
         // клавиатуры не двигает поле ввода.
         .onPreferenceChange(ComposerPanelShown.self) { composerPanelShown = $0 }
-        .ignoresSafeArea(.keyboard, edges: composerPanelShown ? .bottom : [])
+        // В поиске нижняя панель (календарь, список, стрелки) едет над клавиатурой во всю
+        // ширину, как в Telegram. Строка клавиатуры системы (`placement: .keyboard`) на
+        // iOS 26 сжимала её в обрезанную капсулу поверх переписки.
+        .ignoresSafeArea(.keyboard, edges: composerPanelShown && search == nil ? .bottom : [])
         .navigationBarTitleDisplayMode(.inline)
         // В режиме поиска место шапки занимает поле, как в Telegram; выход — «Отмена».
         .toolbar(search == nil ? .automatic : .hidden, for: .navigationBar)
-        // Пока набирают запрос, кнопки поиска стоят над клавиатурой, как в Telegram:
-        // нижняя панель в это время под ней.
-        .toolbar {
-            if let model, let search {
-                ToolbarItemGroup(placement: .keyboard) {
-                    searchPanel(search, model: model, overKeyboard: true)
-                }
-            }
-        }
         .toolbar {
             if let model, model.isSelecting {
                 selectionToolbar(model)
@@ -298,7 +292,7 @@ struct ChatThreadView: View {
                 if let search {
                     // Писать во время поиска некуда: поле ввода уступает место панели
                     // со счётчиком и стрелками.
-                    searchPanel(search, model: model, overKeyboard: false)
+                    searchPanel(search, model: model)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else if model.isSelecting {
                     // Поле ввода на время выбора уступает место панели действий.
@@ -367,7 +361,7 @@ struct ChatThreadView: View {
     /// Кнопка «вниз»: лента не у низа, а в окне истории — всегда (свежие сообщения
     /// дальше). В поиске её нет: у панели поиска свои стрелки, и два «вниз» сразу путают.
     private func showsDownButton(_ model: ChatThreadModel) -> Bool {
-        search == nil && (!atBottom || model.isDetached)
+        search == nil && !model.isRecordingVoice && (!atBottom || model.isDetached)
     }
 
     /// В окне истории кнопка «вниз» не уходит и у его низа: под ней оставляем место,
@@ -497,14 +491,13 @@ struct ChatThreadView: View {
         }
     }
 
-    /// Кнопки поиска: календарь, автор, список, счётчик и стрелки. `overKeyboard` — над
-    /// клавиатурой, без своей подложки и отступов панели.
-    private func searchPanel(_ search: ChatThreadSearch, model: ChatThreadModel, overKeyboard: Bool) -> ChatSearchPanel {
+    /// Нижняя панель поиска: календарь, автор, список, счётчик и стрелки. С клавиатурой
+    /// поднимается над ней.
+    private func searchPanel(_ search: ChatThreadSearch, model: ChatThreadModel) -> ChatSearchPanel {
         ChatSearchPanel(
             search: search,
             isGroup: bubbleContext(model).isGroup,
             showsList: showsSearchList,
-            overKeyboard: overKeyboard,
             onCalendar: {
                 calendarDay = search.current?.createdAt ?? Date()
                 showsCalendar = true

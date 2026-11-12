@@ -265,7 +265,7 @@ struct ChecklistMessageView: View {
             ForEach(current.items.sorted { ($0.order ?? 0) < ($1.order ?? 0) }) { item in
                 row(item)
             }
-            if canAdd, current.items.count < ChecklistComposerView.maxItems {
+            if canAdd, current.items.count < ChecklistDraft.maxItems {
                 Button {
                     adding = true
                 } label: {

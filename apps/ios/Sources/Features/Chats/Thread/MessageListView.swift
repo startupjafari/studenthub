@@ -87,8 +87,13 @@ final class MessageListViewController: UIViewController {
     private var followedBottom = true
 
     private var collectionView: UICollectionView!
+    private let layout = MessageTimelineLayout()
     private var dataSource: UICollectionViewDiffableDataSource<Date, String>!
     private var itemsByID: [String: MessageTimeline.Item] = [:]
+    /// Отпечатки содержимого для кэша высот (`MessageHeightCache`): считаются один раз на
+    /// новое или изменившееся сообщение, а не на каждую пересборку раскладки.
+    private var fingerprints: [String: UInt64] = [:]
+    private let heights = MessageHeightCache.shared
     private var hasContent = false
     private var lastBoundsHeight: CGFloat = 0
 
@@ -138,6 +143,61 @@ final class MessageListViewController: UIViewController {
         super.viewDidLoad()
         configureCollectionView()
         configureDataSource()
+        layout.source = MessageTimelineLayout.Source(
+            itemID: { [weak self] indexPath in self?.dataSource.itemIdentifier(for: indexPath) },
+            height: { [weak self] id in self?.height(for: id) ?? 60 },
+            didMeasure: { [weak self] id, height in self?.remember(height, for: id) }
+        )
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) {
+            (controller: MessageListViewController, _: UITraitCollection) in
+            // Другой размер шрифта — другие высоты: раскладка заново по своим замерам.
+            controller.layout.rebuildAll()
+        }
+    }
+
+    deinit {
+        MessageHeightCache.shared.save()
+    }
+
+    // MARK: - Высоты
+
+    private func heightKey(_ id: String) -> String {
+        MessageHeightCache.key(
+            id: id,
+            width: collectionView.bounds.width,
+            category: traitCollection.preferredContentSizeCategory
+        )
+    }
+
+    /// Высота сообщения для раскладки: точная из кэша, иначе прошлая, иначе оценка.
+    private func height(for id: String) -> CGFloat {
+        guard let item = itemsByID[id] else { return 60 }
+        let key = heightKey(id)
+        if let fingerprint = fingerprints[id], let exact = heights.height(for: key, fingerprint: fingerprint) {
+            return exact
+        }
+        if let last = heights.lastHeight(for: key) { return last }
+        return item.estimatedHeight(width: collectionView.bounds.width, isGroup: bubbleContext.isGroup)
+    }
+
+    private func remember(_ height: CGFloat, for id: String) {
+        guard let fingerprint = fingerprints[id] else { return }
+        heights.store(height, for: heightKey(id), fingerprint: fingerprint)
+    }
+
+    /// Ячейки на экране, чьё содержимое сменилось (правка, реакция, прочтение), меряются
+    /// заново: раскладка узнаёт новую высоту сразу, а не при следующем показе.
+    private func remeasure(_ ids: [String]) {
+        let width = collectionView.bounds.width
+        for id in ids {
+            guard let indexPath = dataSource.indexPath(for: id),
+                let cell = collectionView.cellForItem(at: indexPath) as? SelfSizingTimelineCell
+            else { continue }
+            cell.layoutIfNeeded()
+            let height = cell.fittingHeight(width: width)
+            remember(height, for: id)
+            layout.resize(indexPath, to: height)
+        }
     }
 
     /// Высота ленты меняется под клавиатуру, растущее поле ввода, полосы ответа и
@@ -231,6 +291,13 @@ final class MessageListViewController: UIViewController {
         itemsByID = Dictionary(
             uniqueKeysWithValues: days.flatMap(\.items).map { ($0.id, $0) }
         )
+        let recomputesAll = contextChanged || selectionModeChanged
+        if recomputesAll || fingerprints.count > itemsByID.count * 2 {
+            fingerprints = fingerprints.filter { itemsByID[$0.key] != nil }
+        }
+        for (id, item) in itemsByID where recomputesAll || fingerprints[id] == nil || previous[id] != item {
+            fingerprints[id] = item.heightFingerprint(isGroup: context.isGroup, selecting: selection != nil)
+        }
 
         var snapshot = NSDiffableDataSourceSnapshot<Date, String>()
         snapshot.appendSections(days.map(\.id))
@@ -271,6 +338,7 @@ final class MessageListViewController: UIViewController {
 
         dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
             guard let self else { return }
+            if !changed.isEmpty { self.remeasure(changed) }
             defer {
                 // Срез мог дописать ленту снизу без прокрутки — «у низа» пересчитываем.
                 self.reportBottom()
@@ -376,22 +444,7 @@ final class MessageListViewController: UIViewController {
     // MARK: - Сборка
 
     private func configureCollectionView() {
-        var configuration = UICollectionLayoutListConfiguration(appearance: .plain)
-        configuration.showsSeparators = false
-        configuration.backgroundColor = .clear
-        configuration.headerMode = .supplementary
-        configuration.headerTopPadding = 0
-
-        // Дата дня прилипает к верху, пока листаешь этот день, — как в Telegram.
-        let layout = UICollectionViewCompositionalLayout { _, environment in
-            let section = NSCollectionLayoutSection.list(using: configuration, layoutEnvironment: environment)
-            for header in section.boundarySupplementaryItems {
-                header.pinToVisibleBounds = true
-                header.zIndex = 2
-            }
-            return section
-        }
-
+        // Своя раскладка с кэшем высот вместо системного списка: см. `MessageTimelineLayout`.
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         collectionView.backgroundColor = .clear
         collectionView.keyboardDismissMode = .interactive
@@ -429,7 +482,7 @@ final class MessageListViewController: UIViewController {
     }
 
     private func configureDataSource() {
-        let cell = UICollectionView.CellRegistration<UICollectionViewListCell, String> {
+        let cell = UICollectionView.CellRegistration<MessageTimelineCell, String> {
             [weak self] cell, _, id in
             guard let item = self?.itemsByID[id] else { return }
             cell.contentConfiguration = UIHostingConfiguration {
@@ -455,7 +508,7 @@ final class MessageListViewController: UIViewController {
 
         // Обычная ячейка, не строка списка: у прилипшего заголовка списка система рисует
         // подложку во всю ширину — полосу под датой. Здесь видна только капсула даты.
-        let header = UICollectionView.SupplementaryRegistration<UICollectionViewCell>(
+        let header = UICollectionView.SupplementaryRegistration<DayHeaderCell>(
             elementKind: UICollectionView.elementKindSectionHeader
         ) { [weak self] view, _, indexPath in
             guard let day = self?.dataSource.sectionIdentifier(for: indexPath.section) else { return }
@@ -588,6 +641,8 @@ final class MessageListViewController: UIViewController {
 
     /// Сколько экранов лента проезжает анимацией; дальше — переход без пробега.
     private static let nearScreens: CGFloat = 1.5
+    /// За сколько экранов до края загруженного просим следующую страницу.
+    private static let preloadScreens: CGFloat = 3
 
     /// Цель в пределах полутора экранов от видимого — туда можно доехать анимацией.
     private func isNear(_ indexPath: IndexPath) -> Bool {
@@ -836,12 +891,15 @@ extension MessageListViewController: UICollectionViewDelegate {
         guard hasContent else { return }
         reportBottom()
         if headersHidden { showHeaders() }
-        // Подгружаем заранее: к моменту, когда человек долистает, страница уже тут.
-        if scrollView.contentOffset.y < scrollView.bounds.height {
+        // Подгружаем заранее, как Telegram: за три экрана до края. С запасом в один экран
+        // быстрая прокрутка упиралась в край раньше, чем приходила страница, — лента
+        // вставала, а потом прыгала, когда страница всё же доезжала.
+        let preload = scrollView.bounds.height * Self.preloadScreens
+        if scrollView.contentOffset.y < preload {
             onReachTop?()
         }
         let distance = scrollView.contentSize.height - scrollView.contentOffset.y - scrollView.bounds.height
-        if distance < scrollView.bounds.height {
+        if distance < preload {
             onReachBottom?()
         }
     }
