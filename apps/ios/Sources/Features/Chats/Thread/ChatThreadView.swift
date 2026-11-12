@@ -24,6 +24,12 @@ struct ChatThreadView: View {
     /// Действие из меню ждёт, пока меню закроется: лист поверх закрывающегося
     /// полноэкранного слоя не откроется.
     @State private var pendingMenuAction: (MessageMenuAction, MessageRecord)?
+    /// Фото и видео сообщения — в своём просмотре, как в Telegram.
+    @State private var viewer: ChatMediaViewerRequest?
+    /// Что сделать, когда просмотр закроется: лист пересылки поверх него не открыть.
+    @State private var pendingViewerAction: MessageAction?
+    /// Сообщение последнего просмотра: к `onDismiss` сам `viewer` уже обнулён.
+    @State private var lastViewerMessage: MessageRecord?
     @State private var copiedTick = 0
     /// Короткое уведомление сверху: «Переслано», «Скопировано».
     @State private var toast: String?
@@ -539,6 +545,9 @@ struct ChatThreadView: View {
             }
             Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
+        .fullScreenCover(item: $viewer, onDismiss: runPendingViewerAction) { request in
+            MediaViewer(media: request.media, start: request.start, context: viewerContext(request.message))
+        }
         .fullScreenCover(item: $menu, onDismiss: runPendingMenuAction) { request in
             MessageMenuOverlay(
                 request: request,
@@ -612,7 +621,7 @@ struct ChatThreadView: View {
         case .openPost(let id):
             AppServices.router.stacks[.chats, default: []].append(.post(id: id))
         case .openAttachment(let file):
-            open(file)
+            open(file, in: message)
         case .menu:
             break
         }
@@ -661,6 +670,31 @@ struct ChatThreadView: View {
         withTransaction(transaction) { menu = nil }
     }
 
+    /// Подпись и действия просмотра: «Показать в чате», «Ответить», «Переслать» — только у
+    /// дошедшего до сервера сообщения, как в меню.
+    private func viewerContext(_ message: MessageRecord) -> MediaViewerContext {
+        let title = message.senderId == viewerID
+            ? String(localized: "chats.you", defaultValue: "Вы")
+            : (message.senderName ?? "")
+        guard message.remoteId != nil else { return MediaViewerContext(title: title, date: message.createdAt) }
+        return MediaViewerContext(
+            title: title,
+            date: message.createdAt,
+            onShowInChat: { pendingViewerAction = .jump(message.id) },
+            onReply: { pendingViewerAction = .reply },
+            onForward: { pendingViewerAction = .forward }
+        )
+    }
+
+    private func runPendingViewerAction() {
+        guard let action = pendingViewerAction, let message = lastViewerMessage, let model else {
+            pendingViewerAction = nil
+            return
+        }
+        pendingViewerAction = nil
+        handle(action, message: message, model: model)
+    }
+
     private func runPendingMenuAction() {
         guard let (action, message) = pendingMenuAction, let model else { return }
         pendingMenuAction = nil
@@ -693,7 +727,65 @@ struct ChatThreadView: View {
         }
     }
 
-    /// Вложение — системным просмотром (фото, PDF, Office, видео). Свой файл на диске
+    /// Фото и видео — своим просмотром (альбом сообщения листается), остальное —
+    /// системным (PDF, Office). Системный просмотр картинок из переписки открывался
+    /// пустым и без выхода.
+    private func open(_ file: AttachmentRecord, in message: MessageRecord) {
+        guard file.showsAsMedia else {
+            open(file)
+            return
+        }
+        Task { await openViewer(file, in: message) }
+    }
+
+    private func openViewer(_ file: AttachmentRecord, in message: MessageRecord) async {
+        let album = model?.days.lazy.flatMap(\.items).first(where: { $0.message.id == message.id })?
+            .attachments.filter(\.showsAsMedia) ?? [file]
+        opener.isLoading = true
+        var shown: [PostDTO.Media] = []
+        for attachment in album.isEmpty ? [file] : album {
+            if let media = await Self.viewerMedia(attachment) { shown.append(media) }
+        }
+        opener.isLoading = false
+        guard let start = shown.firstIndex(where: { $0.id == file.id }) else {
+            // Ссылку не подписали — хотя бы системным просмотром, с его ошибкой.
+            open(file)
+            return
+        }
+        lastViewerMessage = message
+        viewer = ChatMediaViewerRequest(media: shown, start: start, message: message)
+    }
+
+    /// Снимок для просмотра: свой файл на диске — сразу, чужой — по свежей подписанной
+    /// ссылке с уменьшенными копиями и HLS ролика.
+    private static func viewerMedia(_ file: AttachmentRecord) async -> PostDTO.Media? {
+        if let path = file.localPath, FileManager.default.fileExists(atPath: path) {
+            return PostDTO.Media(
+                id: file.id,
+                url: URL(filePath: path).absoluteString,
+                mime: file.mime,
+                width: file.width,
+                height: file.height,
+                placeholder: file.placeholder,
+                durationMs: file.durationMs
+            )
+        }
+        guard let signed = try? await AppServices.attachmentURLs.media(for: file.id) else { return nil }
+        return PostDTO.Media(
+            id: file.id,
+            url: signed.url.absoluteString,
+            mime: file.mime,
+            width: file.width,
+            height: file.height,
+            placeholder: file.placeholder,
+            durationMs: file.durationMs,
+            sources: signed.sources.isEmpty ? nil : signed.sources,
+            poster: signed.poster.isEmpty ? nil : signed.poster,
+            hls: signed.hls
+        )
+    }
+
+    /// Вложение — системным просмотром (PDF, Office, прочие файлы). Свой файл на диске
     /// открывается сразу, чужой скачивается по свежей ссылке: подписанная живёт минуты.
     private func open(_ file: AttachmentRecord) {
         if let path = file.localPath, FileManager.default.fileExists(atPath: path) {
@@ -709,6 +801,14 @@ struct ChatThreadView: View {
             }
         }
     }
+}
+
+/// Фото и видео сообщения для просмотра и само сообщение — для подписи и действий.
+private struct ChatMediaViewerRequest: Identifiable {
+    let id = UUID()
+    let media: [PostDTO.Media]
+    let start: Int
+    let message: MessageRecord
 }
 
 /// Что удаляем: одно сообщение из меню или выбранные разом. «У всех» — только своё.

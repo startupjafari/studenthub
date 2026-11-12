@@ -1550,6 +1550,10 @@
     <string name="chats_unreadCount">Непрочитанных: %1$s</string>
     <string name="chats_untitled">Без названия</string>
     <string name="chats_upload_cancel">Отменить загрузку</string>
+    <string name="chats_viewer_dateAt">%1$s в %2$s</string>
+    <string name="chats_viewer_showInChat">Показать в чате</string>
+    <string name="chats_viewer_today">сегодня в %1$s</string>
+    <string name="chats_viewer_yesterday">вчера в %1$s</string>
     <string name="chats_voice_busy">Микрофон занят другим приложением или недоступен.</string>
     <string name="chats_voice_delete">Удалить запись</string>
     <string name="chats_voice_empty">Запись получилась пустой.</string>
