@@ -86,7 +86,7 @@ final class ChatFlowsUITests: XCTestCase {
 
     func testExpressionPanelTabs() throws {
         app.buttons["chat.expressions"].tap()
-        for title in ["Emoji", "Стикеры", "GIF"] {
+        for title in ["Эмодзи", "Стикеры", "GIF"] {
             XCTAssertTrue(app.buttons[title].waitForExistence(timeout: 3), "нет вкладки «\(title)»")
         }
         app.buttons["Стикеры"].tap()

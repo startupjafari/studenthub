@@ -146,4 +146,10 @@ final class RecentEmoji {
         if items.count > Self.limit { items.removeLast(items.count - Self.limit) }
         UserDefaults.standard.set(items, forKey: Self.key)
     }
+
+    /// Крестик у «Недавних», как в Telegram.
+    func clear() {
+        items = []
+        UserDefaults.standard.removeObject(forKey: Self.key)
+    }
 }

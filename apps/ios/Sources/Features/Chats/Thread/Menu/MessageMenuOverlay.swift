@@ -116,12 +116,17 @@ struct MessageMenuOverlay: View {
     @State private var shown = false
     @State private var expanded = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 44
+    @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 42
 
     private static let gap: CGFloat = 8
+    /// Между панелью реакций и пузырём — место под «хвостик» из двух кружков.
+    private static let reactionsGap: CGFloat = 12
     private static let reactionsHeight: CGFloat = 48
-    private static let menuWidth: CGFloat = 250
+    private static let menuWidth: CGFloat = 240
     private static let edge: CGFloat = 8
+    /// Поля сверху и снизу списка и линия с отступами над «Выбрать».
+    private static let menuInset: CGFloat = Spacing.xs * 2
+    private static let selectDivider: CGFloat = 1 + Spacing.xs * 2
 
     var body: some View {
         GeometryReader { proxy in
@@ -165,7 +170,10 @@ struct MessageMenuOverlay: View {
         var safeBottom: CGFloat
     }
 
-    private var menuHeight: CGFloat { CGFloat(request.actions.count) * rowHeight }
+    private var menuHeight: CGFloat {
+        let divider = request.actions.count > 1 && request.actions.last == .select ? Self.selectDivider : 0
+        return CGFloat(request.actions.count) * rowHeight + Self.menuInset + divider
+    }
 
     private func layout(in proxy: GeometryProxy) -> Layout {
         let size = proxy.size
@@ -177,7 +185,7 @@ struct MessageMenuOverlay: View {
         let row = request.rowRect
         // Пузырь внутри строки может начинаться ниже (имя автора, отступы).
         let bubbleOffset = max(0, request.bubbleRect.minY - row.minY)
-        let above = request.canReact ? Self.reactionsHeight + Self.gap - bubbleOffset : 0
+        let above = request.canReact ? Self.reactionsHeight + Self.reactionsGap - bubbleOffset : 0
         let below = Self.gap + menuHeight
         let room = safeBottom - safeTop - max(0, above) - below
         let shownHeight = min(row.height, max(room, rowHeight * 2))
@@ -189,7 +197,7 @@ struct MessageMenuOverlay: View {
             rowTop: top,
             rowHeight: shownHeight,
             clipped: shownHeight < row.height - 0.5,
-            reactionsY: top + bubbleOffset - Self.gap - Self.reactionsHeight,
+            reactionsY: top + bubbleOffset - Self.reactionsGap - Self.reactionsHeight,
             menuY: top + shownHeight + Self.gap,
             screen: size,
             safeTop: safeTop,
@@ -253,38 +261,66 @@ struct MessageMenuOverlay: View {
         let width: CGFloat = expanded
             ? min(layout.screen.width - Self.edge * 2, 360)
             : CGFloat(EmojiCatalog.quickReactions.count + 1) * 42 + Spacing.md * 2
-        let height: CGFloat = expanded ? min(320, layout.safeBottom - max(layout.reactionsY, layout.safeTop)) : Self.reactionsHeight
-        let y = expanded ? max(layout.reactionsY, layout.safeTop) : layout.reactionsY
-        return ReactionPicker(
-            expanded: $expanded,
-            mine: request.capabilities.myReaction,
-            onPick: { emoji in
-                RecentEmoji.shared.use(emoji)
-                onReact(emoji)
-                dismiss()
+        // Раскрытый выбор растёт вверх от панели: низ остаётся над пузырём, у хвостика.
+        // Сверху тесно (пузырь у шапки) — растёт вниз, поверх пузыря.
+        let barBottom = layout.reactionsY + Self.reactionsHeight
+        let roomAbove = barBottom - layout.safeTop
+        let growsUp = roomAbove >= 240
+        let height: CGFloat = expanded
+            ? min(360, growsUp ? roomAbove : layout.safeBottom - max(layout.reactionsY, layout.safeTop))
+            : Self.reactionsHeight
+        let y = expanded && growsUp ? barBottom - height : (expanded ? max(layout.reactionsY, layout.safeTop) : layout.reactionsY)
+        let x = leading(width: width, screen: layout.screen)
+        // Хвостик смотрит на угол пузыря: у своего — левый верхний, у чужого — тоже
+        // левый, но правее аватара; за края панели не выходит.
+        let tailX = min(max(request.bubbleRect.minX + Spacing.md - x, 20), width - 20)
+        return GlassGroup(spacing: Spacing.sm) {
+            ZStack(alignment: .topLeading) {
+                ReactionPicker(
+                    expanded: $expanded,
+                    mine: request.capabilities.myReaction,
+                    onPick: { emoji in
+                        RecentEmoji.shared.use(emoji)
+                        onReact(emoji)
+                        dismiss()
+                    }
+                )
+                .frame(width: width, height: height)
+                .floatingGlass(in: RoundedRectangle(cornerRadius: expanded ? 22 : Self.reactionsHeight / 2, style: .continuous))
+
+                ReactionTail()
+                    .opacity(expanded && !growsUp ? 0 : 1)
+                    .offset(x: tailX - ReactionTail.big / 2, y: height - ReactionTail.big / 2)
+                    .accessibilityHidden(true)
             }
-        )
-        .frame(width: width, height: height)
-        .floatingGlass(in: RoundedRectangle(cornerRadius: expanded ? 22 : Self.reactionsHeight / 2, style: .continuous))
+        }
         .scaleEffect(shown ? 1 : 0.6, anchor: anchor)
         .opacity(shown ? 1 : 0)
-        .offset(x: leading(width: width, screen: layout.screen), y: y)
+        .offset(x: x, y: y)
         .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: expanded)
     }
 
     private func menu(_ layout: Layout) -> some View {
         VStack(spacing: 0) {
             ForEach(Array(request.actions.enumerated()), id: \.element.id) { index, action in
+                // Линия — только над «Выбрать»: она отделяет режим выбора от действий
+                // с самим сообщением, как в Telegram.
+                if action == .select, index > 0 {
+                    Divider()
+                        .padding(.horizontal, Spacing.lg)
+                        .padding(.vertical, Spacing.xs)
+                }
                 Button {
                     onAction(action)
                     dismiss()
                 } label: {
+                    // Как в Telegram: значок слева, подпись за ним.
                     HStack(spacing: Spacing.lg) {
-                        Text(action.title)
-                            .lineLimit(1)
-                        Spacer(minLength: Spacing.md)
                         Image(systemName: action.symbol)
                             .frame(width: 24)
+                        Text(action.title)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
                     }
                     .font(Typography.body)
                     .foregroundStyle(action.isDestructive ? Palette.destructive : Palette.foreground)
@@ -295,13 +331,11 @@ struct MessageMenuOverlay: View {
                 .buttonStyle(MenuRowStyle())
                 .accessibilityIdentifier("message.menu.\(action.id)")
                 .disabled(action == .readers(count: 0))
-                if index < request.actions.count - 1 {
-                    Divider().padding(.leading, Spacing.xl)
-                }
             }
         }
+        .padding(.vertical, Spacing.xs)
         .frame(width: Self.menuWidth)
-        .floatingGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .floatingGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .scaleEffect(shown ? 1 : 0.6, anchor: request.item.isOwn ? .topTrailing : .topLeading)
         .opacity(shown ? 1 : 0)
         .offset(x: leading(width: Self.menuWidth, screen: layout.screen), y: layout.menuY)
@@ -318,6 +352,27 @@ struct MessageMenuOverlay: View {
             try? await Task.sleep(for: .milliseconds(reduceMotion ? 50 : 230))
             onDismiss()
         }
+    }
+}
+
+/// «Хвостик» панели реакций, как в Telegram: кружок у края панели и кружок поменьше
+/// ближе к пузырю — панель будто выдута из сообщения.
+private struct ReactionTail: View {
+    static let big: CGFloat = 12
+    static let small: CGFloat = 6
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Color.clear
+                .frame(width: Self.big, height: Self.big)
+                .floatingGlass(in: Circle())
+            Color.clear
+                .frame(width: Self.small, height: Self.small)
+                .floatingGlass(in: Circle())
+                .offset(x: -Self.small, y: Self.big - 1)
+        }
+        .frame(width: Self.big, height: Self.big, alignment: .topLeading)
+        .allowsHitTesting(false)
     }
 }
 
@@ -339,7 +394,7 @@ struct ReactionPicker: View {
 
     var body: some View {
         if expanded {
-            EmojiGrid(columns: 7, onPick: onPick)
+            EmojiBrowser(columns: 8, onPick: onPick)
                 .transition(.opacity)
         } else {
             HStack(spacing: 0) {
@@ -369,90 +424,6 @@ struct ReactionPicker: View {
                 .accessibilityLabel(Text(String(localized: "chats.reactions.more", defaultValue: "Другие реакции")))
             }
             .padding(.horizontal, Spacing.md)
-        }
-    }
-}
-
-/// Emoji под пальцем подрастает, как в Telegram.
-private struct ReactionButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 1.25 : 1)
-            .animation(.spring(duration: 0.2, bounce: 0.4), value: configuration.isPressed)
-    }
-}
-
-/// Сетка emoji: сверху недавние, дальше — разделы каталога с быстрым переходом.
-struct EmojiGrid: View {
-    var columns = 8
-    let onPick: (String) -> Void
-
-    private var recent: [String] { RecentEmoji.shared.items }
-
-    var body: some View {
-        ScrollViewReader { reader in
-            VStack(spacing: 0) {
-                ScrollView {
-                    LazyVGrid(
-                        columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: columns),
-                        alignment: .leading,
-                        spacing: 2,
-                        pinnedViews: [.sectionHeaders]
-                    ) {
-                        if !recent.isEmpty {
-                            section(
-                                id: "recent",
-                                title: String(localized: "emoji.recent", defaultValue: "Недавние"),
-                                emoji: recent
-                            )
-                        }
-                        ForEach(EmojiCatalog.categories) { category in
-                            section(id: category.id, title: category.title, emoji: category.emoji)
-                        }
-                    }
-                    .padding(.horizontal, Spacing.sm)
-                }
-                Divider()
-                HStack(spacing: 0) {
-                    ForEach(EmojiCatalog.categories) { category in
-                        Button {
-                            withAnimation { reader.scrollTo(category.id, anchor: .top) }
-                        } label: {
-                            Image(systemName: category.symbol)
-                                .font(.subheadline)
-                                .foregroundStyle(Palette.mutedForeground)
-                                .frame(maxWidth: .infinity, minHeight: 36)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(Text(category.title))
-                    }
-                }
-            }
-        }
-    }
-
-    private func section(id: String, title: String, emoji: [String]) -> some View {
-        Section {
-            ForEach(emoji, id: \.self) { item in
-                Button {
-                    onPick(item)
-                } label: {
-                    Text(verbatim: item)
-                        .font(.system(size: 30))
-                        .frame(maxWidth: .infinity, minHeight: 42)
-                }
-                .buttonStyle(ReactionButtonStyle())
-                .accessibilityLabel(Text(verbatim: item))
-            }
-        } header: {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Palette.mutedForeground)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, Spacing.xs)
-                .padding(.horizontal, Spacing.xs)
-                .background(.bar)
-                .id(id)
         }
     }
 }

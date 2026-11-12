@@ -4,99 +4,107 @@ import UIKit
 /// Панель emoji, стикеров и GIF на месте клавиатуры — как в Telegram.
 ///
 /// Встаёт под поле ввода той же высоты, что была у клавиатуры: поле не прыгает ни при
-/// открытии, ни при возврате к клавиатуре. Сверху — разделы и поиск, ниже — сетка.
+/// открытии, ни при возврате к клавиатуре. Содержимое вкладки — во всю высоту, сверху у
+/// него свой поиск; внизу плавает капсула вкладок «GIF · Стикеры · Эмодзи», справа от
+/// неё у emoji — «стереть».
 struct ExpressionPanel: View {
-    enum Tab: Hashable { case emoji, stickers, gifs }
+    enum Tab: Hashable, CaseIterable { case gifs, stickers, emoji }
 
     let onEmoji: (String) -> Void
     let onBackspace: () -> Void
     let onSticker: (StickerSetDTO.Sticker) -> Void
     let onGif: (GifChoice) -> Void
 
-    @State private var tab: Tab? = .emoji
-    @State private var query = ""
+    @State private var tab: Tab = .emoji
+    @Namespace private var tabSelection
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Запас под плавающей капсулой вкладок: последний ряд прокручивается из-под неё.
+    private static let barClearance: CGFloat = ControlHeight.xl + Spacing.md * 2
+
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: Spacing.md) {
-                FilterChips(
-                    options: [
-                        (Tab.emoji, String(localized: "chats.panel.emoji", defaultValue: "Emoji")),
-                        (Tab.stickers, String(localized: "chats.panel.stickers", defaultValue: "Стикеры")),
-                        (Tab.gifs, String(localized: "chats.panel.gif", defaultValue: "GIF")),
-                    ],
-                    selection: $tab,
-                    fillsWidth: true
-                )
-                if tab == .emoji {
-                    Button(action: onBackspace) {
-                        Image(systemName: "delete.left")
-                            .font(.body)
-                            .foregroundStyle(Palette.mutedForeground)
-                            .frame(width: ControlHeight.md, height: ControlHeight.md)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Text(String(localized: "chats.panel.backspace", defaultValue: "Стереть")))
-                }
-            }
-            .padding(.horizontal, Spacing.lg)
-            .padding(.top, Spacing.sm)
-
-            searchField
-                .padding(.horizontal, Spacing.lg)
-                .padding(.vertical, Spacing.sm)
-
+        ZStack(alignment: .bottom) {
             Group {
-                switch tab ?? .emoji {
+                switch tab {
                 case .emoji:
-                    if query.isEmpty {
-                        EmojiGrid(columns: 8, onPick: pickEmoji)
-                    } else {
-                        EmojiSearchResults(query: query, onPick: pickEmoji)
-                    }
+                    EmojiBrowser(columns: 8, bottomInset: Self.barClearance, onPick: pickEmoji)
                 case .stickers:
-                    StickerBrowser(query: query, onPick: onSticker)
+                    StickerBrowser(bottomInset: Self.barClearance, onPick: onSticker)
                 case .gifs:
-                    GifBrowser(query: query, onPick: onGif)
+                    GifBrowser(bottomInset: Self.barClearance, onPick: onGif)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            bottomBar
         }
-        .background(Palette.plainBackground.opacity(0.98))
-        .onChange(of: tab) { query = "" }
+        .background { Palette.card.ignoresSafeArea(edges: .bottom) }
     }
 
-    private var searchField: some View {
-        HStack(spacing: Spacing.sm) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(Palette.mutedForeground)
-                .accessibilityHidden(true)
-            TextField(searchPrompt, text: $query)
-            .font(Typography.body)
-            .autocorrectionDisabled()
-            .textInputAutocapitalization(.never)
-            if !query.isEmpty {
-                Button {
-                    query = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(Palette.mutedForeground)
+    // MARK: Нижняя полоса
+
+    private var bottomBar: some View {
+        HStack(spacing: Spacing.md) {
+            // Пустое место слева — чтобы капсула вкладок стояла ровно по центру.
+            Color.clear.frame(width: ControlHeight.xl, height: ControlHeight.xl)
+            Spacer(minLength: 0)
+            tabPicker
+            Spacer(minLength: 0)
+            if tab == .emoji {
+                Button(action: onBackspace) {
+                    Image(systemName: "delete.left")
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(Palette.foreground)
+                        .frame(width: ControlHeight.xl, height: ControlHeight.xl)
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(Text(String(localized: "chats.thread.search.clear", defaultValue: "Стереть")))
+                .floatingGlass(in: Circle())
+                .accessibilityLabel(Text(String(localized: "chats.panel.backspace", defaultValue: "Стереть")))
+                .transition(.scale.combined(with: .opacity))
+            } else {
+                Color.clear.frame(width: ControlHeight.xl, height: ControlHeight.xl)
             }
         }
         .padding(.horizontal, Spacing.lg)
-        .frame(height: ControlHeight.md)
-        .background(Palette.muted, in: Capsule())
+        .padding(.bottom, Spacing.md)
     }
 
-    private var searchPrompt: String {
-        switch tab ?? .emoji {
-        case .emoji: String(localized: "chats.panel.searchEmoji", defaultValue: "Поиск emoji")
-        case .stickers: String(localized: "chats.panel.searchStickers", defaultValue: "Поиск по набору или emoji")
-        case .gifs: String(localized: "chats.panel.searchGif", defaultValue: "Поиск GIF")
+    /// Капсула вкладок: выбранная — светлая подложка, которая переезжает пружиной.
+    private var tabPicker: some View {
+        HStack(spacing: 0) {
+            ForEach(Tab.allCases, id: \.self) { item in
+                Button {
+                    withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) { tab = item }
+                } label: {
+                    Text(title(item))
+                        .font(.subheadline.weight(tab == item ? .semibold : .medium))
+                        .foregroundStyle(tab == item ? Palette.foreground : Palette.mutedForeground)
+                        .lineLimit(1)
+                        .padding(.horizontal, Spacing.lg)
+                        .frame(height: ControlHeight.md)
+                        .background {
+                            if tab == item {
+                                Capsule()
+                                    .fill(Palette.foreground.opacity(0.12))
+                                    .matchedGeometryEffect(id: "tab", in: tabSelection)
+                            }
+                        }
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(tab == item ? .isSelected : [])
+            }
+        }
+        .padding(Spacing.xs)
+        .floatingGlass(in: Capsule())
+    }
+
+    private func title(_ item: Tab) -> String {
+        switch item {
+        case .emoji: String(localized: "chats.panel.emoji", defaultValue: "Эмодзи")
+        case .stickers: String(localized: "chats.panel.stickers", defaultValue: "Стикеры")
+        case .gifs: String(localized: "chats.panel.gif", defaultValue: "GIF")
         }
     }
 
@@ -106,50 +114,16 @@ struct ExpressionPanel: View {
     }
 }
 
-/// Поиск emoji по словам на русском, казахском и английском (`EmojiKeywords`).
-private struct EmojiSearchResults: View {
-    let query: String
-    let onPick: (String) -> Void
-
-    var body: some View {
-        let found = Self.search(query)
-        ScrollView {
-            if found.isEmpty {
-                Text(String(localized: "services.notFound", defaultValue: "Ничего не нашлось"))
-                    .font(Typography.meta)
-                    .foregroundStyle(Palette.mutedForeground)
-                    .padding(Spacing.xxl)
-            } else {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 8), spacing: 2) {
-                    ForEach(found, id: \.self) { emoji in
-                        Button {
-                            onPick(emoji)
-                        } label: {
-                            Text(verbatim: emoji)
-                                .font(.system(size: 30))
-                                .frame(maxWidth: .infinity, minHeight: 42)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, Spacing.sm)
-            }
-        }
-    }
-
-    static func search(_ query: String) -> [String] {
-        EmojiKeywords.search(query)
-    }
-}
-
 // MARK: - Стикеры
 
-/// Наборы стикеров: полоса наборов (недавние первыми) и сетка выбранного. Поиск — по
-/// названию набора и по emoji стикера.
+/// Стикеры как в Telegram: сверху — полоса наборов (недавние первыми), под ней — поиск,
+/// ниже — все наборы одной лентой с подписью над каждым. Касание набора в полосе
+/// прокручивает к нему. Поиск — по названию набора и по emoji стикера.
 private struct StickerBrowser: View {
-    let query: String
+    let bottomInset: CGFloat
     let onPick: (StickerSetDTO.Sticker) -> Void
 
+    @State private var query = ""
     @State private var selectedSet: String?
     private var catalog: StickerCatalog { StickerCatalog.shared }
     private var recents: RecentStickers { RecentStickers.shared }
@@ -157,14 +131,25 @@ private struct StickerBrowser: View {
     private static let recentID = "recent"
 
     var body: some View {
-        VStack(spacing: 0) {
-            if !catalog.sets.isEmpty, query.isEmpty {
-                setStrip
-                Divider()
+        ScrollViewReader { reader in
+            VStack(spacing: Spacing.sm) {
+                if !catalog.sets.isEmpty {
+                    setStrip(reader)
+                }
+                ExpressionSearchField(
+                    query: $query,
+                    prompt: String(localized: "chats.panel.search", defaultValue: "Поиск")
+                )
+                .padding(.horizontal, Spacing.md)
+                content
             }
-            content
+            .padding(.top, Spacing.sm)
         }
         .task { await catalog.load() }
+    }
+
+    private var term: String {
+        query.trimmingCharacters(in: .whitespaces).lowercased()
     }
 
     @ViewBuilder
@@ -195,40 +180,81 @@ private struct StickerBrowser: View {
                 }
             }
             .padding(Spacing.xxl)
+            .padding(.bottom, bottomInset)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Spacing.sm), count: 4), spacing: Spacing.sm) {
-                    ForEach(shown) { sticker in
-                        Button {
-                            RecentStickers.shared.use(sticker.id)
-                            onPick(sticker)
-                        } label: {
-                            StickerImage(stickerID: sticker.id, emoji: sticker.emoji, url: sticker.url)
-                                .frame(height: 72)
-                                .frame(maxWidth: .infinity)
-                                .contentShape(Rectangle())
+                LazyVGrid(columns: Self.columns, spacing: Spacing.sm) {
+                    if term.isEmpty {
+                        if !recentStickers.isEmpty {
+                            section(
+                                id: Self.recentID,
+                                title: String(localized: "emoji.recent", defaultValue: "Недавние"),
+                                stickers: recentStickers
+                            )
                         }
-                        .buttonStyle(StickerPressStyle())
-                        .accessibilityLabel(Text(Self.label(for: sticker)))
+                        ForEach(catalog.sets) { set in
+                            section(id: set.id, title: set.title, stickers: set.stickers)
+                        }
+                    } else {
+                        ForEach(found) { sticker in
+                            cell(sticker)
+                        }
                     }
                 }
-                .padding(Spacing.md)
+                .padding(.horizontal, Spacing.md)
+                if !term.isEmpty, found.isEmpty {
+                    Text(String(localized: "services.notFound", defaultValue: "Ничего не нашлось"))
+                        .font(Typography.meta)
+                        .foregroundStyle(Palette.mutedForeground)
+                        .frame(maxWidth: .infinity)
+                        .padding(Spacing.xxl)
+                }
             }
+            .contentMargins(.bottom, bottomInset, for: .scrollContent)
+            .scrollDismissesKeyboard(.immediately)
         }
     }
 
-    private var setStrip: some View {
+    private static let columns = Array(repeating: GridItem(.flexible(), spacing: Spacing.sm), count: 5)
+
+    private func section(id: String, title: String, stickers: [StickerSetDTO.Sticker]) -> some View {
+        Section {
+            ForEach(stickers) { sticker in
+                cell(sticker)
+            }
+        } header: {
+            ExpressionSectionHeader(title: title)
+                .id(id)
+        }
+    }
+
+    private func cell(_ sticker: StickerSetDTO.Sticker) -> some View {
+        Button {
+            RecentStickers.shared.use(sticker.id)
+            onPick(sticker)
+        } label: {
+            StickerImage(stickerID: sticker.id, emoji: sticker.emoji, url: sticker.url)
+                .frame(height: 64)
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(StickerPressStyle())
+        .accessibilityLabel(Text(Self.label(for: sticker)))
+    }
+
+    private func setStrip(_ reader: ScrollViewProxy) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: Spacing.sm) {
+            HStack(spacing: Spacing.xs) {
                 if !recentStickers.isEmpty {
-                    stripButton(id: Self.recentID, title: String(localized: "emoji.recent", defaultValue: "Недавние")) {
+                    stripButton(id: Self.recentID, title: String(localized: "emoji.recent", defaultValue: "Недавние"), reader: reader) {
                         Image(systemName: "clock")
+                            .font(.title3)
                             .foregroundStyle(Palette.mutedForeground)
                     }
                 }
                 ForEach(catalog.sets) { set in
-                    stripButton(id: set.id, title: set.title) {
+                    stripButton(id: set.id, title: set.title, reader: reader) {
                         if let first = set.stickers.first {
                             StickerImage(stickerID: first.id, emoji: first.emoji, url: first.url)
                         }
@@ -236,22 +262,30 @@ private struct StickerBrowser: View {
                 }
             }
             .padding(.horizontal, Spacing.md)
-            .padding(.vertical, Spacing.xs)
         }
     }
 
-    private func stripButton<Icon: View>(id: String, title: String, @ViewBuilder icon: () -> Icon) -> some View {
-        Button {
+    private func stripButton<Icon: View>(
+        id: String,
+        title: String,
+        reader: ScrollViewProxy,
+        @ViewBuilder icon: () -> Icon
+    ) -> some View {
+        let isCurrent = currentSet == id
+        return Button {
             selectedSet = id
+            // Раздел из полосы выходит и из поиска: сетка возвращается к нему.
+            query = ""
+            withAnimation { reader.scrollTo(id, anchor: .top) }
         } label: {
             icon()
-                .frame(width: 32, height: 32)
-                .padding(Spacing.xs)
-                .background(currentSet == id ? Palette.muted : Color.clear, in: RoundedRectangle(cornerRadius: Radius.md))
+                .frame(width: 30, height: 30)
+                .padding(3)
+                .background(isCurrent ? Palette.muted : Color.clear, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(title))
-        .accessibilityAddTraits(currentSet == id ? .isSelected : [])
+        .accessibilityAddTraits(isCurrent ? .isSelected : [])
     }
 
     private static func label(for sticker: StickerSetDTO.Sticker) -> String {
@@ -267,17 +301,12 @@ private struct StickerBrowser: View {
         selectedSet ?? (recentStickers.isEmpty ? catalog.sets.first?.id : Self.recentID)
     }
 
-    private var shown: [StickerSetDTO.Sticker] {
-        let term = query.trimmingCharacters(in: .whitespaces).lowercased()
-        if !term.isEmpty {
-            return catalog.sets.flatMap { set in
-                set.title.lowercased().contains(term)
-                    ? set.stickers
-                    : set.stickers.filter { $0.emoji?.contains(term) == true }
-            }
+    private var found: [StickerSetDTO.Sticker] {
+        catalog.sets.flatMap { set in
+            set.title.lowercased().contains(term)
+                ? set.stickers
+                : set.stickers.filter { $0.emoji?.contains(term) == true }
         }
-        if currentSet == Self.recentID { return recentStickers }
-        return catalog.sets.first { $0.id == currentSet }?.stickers ?? []
     }
 }
 
@@ -301,9 +330,10 @@ enum GifChoice {
 /// GIPHY (через сервер: ключ каталога в приложение не попадает). Нет ключа на сервере —
 /// остаются только свои, и это сказано честно.
 private struct GifBrowser: View {
-    let query: String
+    let bottomInset: CGFloat
     let onPick: (GifChoice) -> Void
 
+    @State private var query = ""
     @State private var recent: [RecentGifDTO] = []
     @State private var found: [ExternalGifDTO] = []
     @State private var nextOffset: Int?
@@ -313,6 +343,18 @@ private struct GifBrowser: View {
     private let api: ChatMessaging = ChatsAPI()
 
     var body: some View {
+        VStack(spacing: Spacing.sm) {
+            ExpressionSearchField(
+                query: $query,
+                prompt: String(localized: "chats.panel.searchGif", defaultValue: "Поиск GIF")
+            )
+            .padding(.horizontal, Spacing.md)
+            .padding(.top, Spacing.sm)
+            results
+        }
+    }
+
+    private var results: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.sm) {
                 if query.trimmingCharacters(in: .whitespaces).isEmpty, !recent.isEmpty {
@@ -353,6 +395,8 @@ private struct GifBrowser: View {
             }
             .padding(2)
         }
+        .contentMargins(.bottom, bottomInset, for: .scrollContent)
+        .scrollDismissesKeyboard(.immediately)
         .task { await loadRecent() }
         .task(id: query) {
             // Пауза — чтобы не спрашивать каталог на каждую букву.
@@ -385,11 +429,7 @@ private struct GifBrowser: View {
     }
 
     private func sectionTitle(_ text: String) -> some View {
-        Text(text)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(Palette.mutedForeground)
-            .padding(.horizontal, Spacing.md)
-            .padding(.top, Spacing.xs)
+        ExpressionSectionHeader(title: text)
     }
 
     private func note(_ text: String, isError: Bool = false) -> some View {
