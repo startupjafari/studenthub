@@ -641,7 +641,10 @@ final class NotificationsModel {
             current: false,
             retry: .retry(attempts: 3),
             apply: { [weak self] read in self?.setRead(read, ids: [id]) },
-            send: { _, _ in
+            send: { [weak self] _, _ in
+                // Модели нет — экран закрыт или человек вышел из аккаунта: повтор не уходит
+                // (с токеном следующего вошедшего он и вовсе был бы чужим).
+                guard self != nil else { throw CancellationError() }
                 // 404 — уведомления уже нет (удалено, истекло): читать нечего, это не сбой.
                 do {
                     try await api.markRead(notificationID: id)
@@ -676,7 +679,8 @@ final class NotificationsModel {
                     self.setRead(false, ids: unread.filter { !self.readSync.isPending(.item($0)) })
                 }
             },
-            send: { _, _ in
+            send: { [weak self] _, _ in
+                guard self != nil else { throw CancellationError() }
                 try await api.markAllRead()
                 return nil
             },
