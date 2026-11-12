@@ -10,16 +10,22 @@ import SwiftUI
 /// непрозрачными: текст на стекле над пёстрой лентой читается хуже.
 extension View {
     /// Плавающий контрол над контентом: кнопка создания, панель действий просмотрщика.
+    ///
+    /// Касание принимает вся форма: такое стекло часто стоит в подписи `Button`, а само
+    /// по себе касаний не ловит (см. `glassSurface`).
     @ViewBuilder
     func floatingGlass<S: Shape>(in shape: S) -> some View {
         #if compiler(>=6.2)
             if #available(iOS 26, *) {
                 glassEffect(.regular.interactive(), in: shape)
+                    .contentShape(shape)
             } else {
                 background(.regularMaterial, in: shape)
+                    .contentShape(shape)
             }
         #else
             background(.regularMaterial, in: shape)
+                .contentShape(shape)
         #endif
     }
 }
@@ -58,17 +64,24 @@ extension View {
 
     /// Стекло под произвольной формой: тонированное (выбранная капсула) или прозрачное.
     /// До iOS 26 — заливка той же формы.
+    ///
+    /// Касание принимает вся форма (`contentShape`): стекло само по себе касаний не
+    /// ловит, и у кнопки со стилем `.plain` нажимался только значок — синие «+» и
+    /// «Отправить» на круге казались мёртвыми.
     @ViewBuilder
     func glassSurface<S: Shape>(tint: Color? = nil, interactive: Bool = true, in shape: S) -> some View {
         #if compiler(>=6.2)
             if #available(iOS 26, *) {
                 let base: Glass = tint.map { Glass.regular.tint($0) } ?? .regular
                 glassEffect(interactive ? base.interactive() : base, in: shape)
+                    .contentShape(shape)
             } else {
                 background(tint ?? Palette.muted, in: shape)
+                    .contentShape(shape)
             }
         #else
             background(tint ?? Palette.muted, in: shape)
+                .contentShape(shape)
         #endif
     }
 

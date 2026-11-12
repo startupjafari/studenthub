@@ -221,6 +221,7 @@ struct CommunityDocumentDetailView: View {
     @State private var removingFile: CommunityDocumentDTO.File?
     @State private var importing = false
     @State private var photoPick: PhotosPickerItem?
+    @State private var pickingPhoto = false
     @State private var isUploading = false
     @State private var actionFailure: String?
 
@@ -326,7 +327,11 @@ struct CommunityDocumentDetailView: View {
                         } label: {
                             Label(String(localized: "community.documents.fromFiles", defaultValue: "Из «Файлов»"), systemImage: "folder")
                         }
-                        PhotosPicker(selection: $photoPick, matching: .images) {
+                        // Окно «Фото» открывает экран, а не пункт меню: меню закрывается
+                        // вместе с пунктом, и окно, открытое из него, висело на «Загрузке».
+                        Button {
+                            pickingPhoto = true
+                        } label: {
                             Label(String(localized: "community.documents.fromPhotos", defaultValue: "Из галереи"), systemImage: "photo")
                         }
                     } label: {
@@ -409,6 +414,7 @@ struct CommunityDocumentDetailView: View {
                 await addFiles(files)
             }
         }
+        .photosPicker(isPresented: $pickingPhoto, selection: $photoPick, matching: .images)
         .task(id: photoPick) {
             guard let photoPick else { return }
             if let prepared = try? await MediaPreparation.prepare(photoPick) {
@@ -668,6 +674,7 @@ struct CommunityDocumentUploadView: View {
     @State private var files: [CommunityPickedFile] = []
     @State private var importing = false
     @State private var photoPicks: [PhotosPickerItem] = []
+    @State private var pickingPhotos = false
 
     private var selectedType: CommunityDocumentTypeDTO? { types.first { $0.typeId == typeID } }
     private var fields: Set<String> { Set(selectedType?.fields ?? ["number", "issuedAt", "expiresAt", "issuedBy", "comment"]) }
@@ -727,7 +734,11 @@ struct CommunityDocumentUploadView: View {
                 } label: {
                     Label(String(localized: "community.documents.fromFiles", defaultValue: "Из «Файлов»"), systemImage: "folder")
                 }
-                PhotosPicker(selection: $photoPicks, maxSelectionCount: 10, matching: .images) {
+                // Окно «Фото» открывает сама форма, а не её строка: строка списка
+                // перерисовывается, пока окно открыто, и оно зависало на «Загрузке».
+                Button {
+                    pickingPhotos = true
+                } label: {
                     Label(String(localized: "community.documents.fromPhotos", defaultValue: "Из галереи"), systemImage: "photo")
                 }
             } header: {
@@ -740,6 +751,7 @@ struct CommunityDocumentUploadView: View {
             guard case .success(let urls) = result else { return }
             files += urls.compactMap { try? CommunityPickedFile.read($0) }
         }
+        .photosPicker(isPresented: $pickingPhotos, selection: $photoPicks, maxSelectionCount: 10, matching: .images)
         .onChange(of: photoPicks) { _, picks in
             guard !picks.isEmpty else { return }
             Task {

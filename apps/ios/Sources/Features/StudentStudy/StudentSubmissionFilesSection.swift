@@ -14,6 +14,9 @@ final class StudentSubmissionFilesModel {
 
     let opener = RemoteFileOpener()
     var isImportingFile = false
+    /// Окно «Фото» открывает экран карточки, а не строка списка: строка перерисовывается,
+    /// пока окно открыто, и оно зависало на «Загрузке».
+    var isPickingPhoto = false
     var photo: PhotosPickerItem?
     var isUploading = false
     var removing: StudentSubmissionFileDTO?
@@ -96,6 +99,7 @@ private struct StudentSubmissionFilesPresentation: ViewModifier {
             .fileImporter(isPresented: $model.isImportingFile, allowedContentTypes: [.item]) { result in
                 Task { await model.attachFile(result) }
             }
+            .photosPicker(isPresented: $model.isPickingPhoto, selection: $model.photo, matching: .any(of: [.images, .videos]))
             .onChange(of: model.photo) {
                 Task { await model.attachPhoto() }
             }
@@ -187,7 +191,9 @@ struct StudentSubmissionFilesSection: View {
                     } label: {
                         Label(String(localized: "student.files.attach", defaultValue: "Прикрепить файл"), systemImage: "paperclip")
                     }
-                    PhotosPicker(selection: $model.photo, matching: .any(of: [.images, .videos])) {
+                    Button {
+                        model.isPickingPhoto = true
+                    } label: {
                         Label(String(localized: "student.files.attachPhoto", defaultValue: "Прикрепить фото или видео"), systemImage: "photo")
                     }
                 }
