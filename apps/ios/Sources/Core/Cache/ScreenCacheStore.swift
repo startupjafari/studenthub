@@ -18,8 +18,13 @@ struct ScreenCacheKey: Hashable, Sendable {
         self.owner = owner
         self.method = method
         self.path = path
+        // Имена и значения экранированы: значение с «&» или «=» не склеится с соседним
+        // параметром в чужой ключ.
+        func escaped(_ text: String) -> String {
+            text.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? text
+        }
         self.query = query
-            .map { "\($0.name)=\($0.value ?? "")" }
+            .map { "\(escaped($0.name))=\(escaped($0.value ?? ""))" }
             .sorted()
             .joined(separator: "&")
         self.language = language

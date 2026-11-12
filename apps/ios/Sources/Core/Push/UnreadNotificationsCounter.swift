@@ -71,7 +71,9 @@ final class UnreadNotificationsCounter {
         let next = max(0, current + delta)
         generation += 1
         count = next
-        fetchedAt = nil
+        // Своё число — свежее: колокольчик в ближайшие секунды не спросит сервер, который
+        // мог ещё не получить «прочитано», и точка не вернётся.
+        fetchedAt = now()
         let setBadge = setBadge
         Task { await setBadge(next) }
     }

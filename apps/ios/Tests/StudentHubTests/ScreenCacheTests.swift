@@ -22,6 +22,19 @@ final class ScreenCacheKeyTests: XCTestCase {
         XCTAssertFalse(a.fileName.contains("u-1"), "в имени файла нет id человека")
     }
 
+    /// Значение с «&» не склеивается с соседним параметром в чужой ключ.
+    func testQueryValuesAreEscaped() {
+        let joined = ScreenCacheKey(
+            owner: "u-1", method: "GET", path: "search", query: [URLQueryItem(name: "q", value: "a&b=1")], language: "ru"
+        )
+        let split = ScreenCacheKey(
+            owner: "u-1", method: "GET", path: "search",
+            query: [URLQueryItem(name: "q", value: "a"), URLQueryItem(name: "b", value: "1")], language: "ru"
+        )
+
+        XCTAssertNotEqual(joined, split)
+    }
+
     func testSensitiveRoutesAreNotCached() {
         XCTAssertTrue(ScreenCache.allows(path: "grades", query: []))
         XCTAssertTrue(ScreenCache.allows(path: "users/me", query: []))
@@ -330,6 +343,21 @@ final class UnreadNotificationsCounterTests: XCTestCase {
 
         XCTAssertEqual(counter.count, 1)
         await waitUntil { badges.last == 1 }
+    }
+
+    /// Своё поправленное число — свежее: колокольчик сразу после «прочитано» не
+    /// спрашивает сервер, который мог его ещё не получить.
+    func testAdjustedCountIsNotRefetchedRightAway() async {
+        let server = CountingFetch(value: 3)
+        let counter = UnreadNotificationsCounter(fetch: { try await server.fetch() }, setBadge: { _ in })
+        await counter.refresh(maxAge: 0)
+
+        counter.adjust(by: -1)
+        let shown = await counter.refresh(maxAge: 15)
+
+        XCTAssertEqual(shown, 2)
+        let calls = await server.calls
+        XCTAssertEqual(calls, 1)
     }
 
     /// Выход: число прежнего человека не возвращается запоздавшим ответом.

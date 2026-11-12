@@ -85,6 +85,9 @@ final class ProfileModel {
     private(set) var failure: String?
     private(set) var isOffline = false
     private(set) var actionFailure: String?
+    /// Карточка на экране — из сохранённого (или из оболочки), а обновить не вышло:
+    /// короткая плашка, не замена экрана ошибкой.
+    var staleNotice: String?
     private(set) var tabFailure: [ProfileTab: String] = [:]
     /// Вкладки, чей сбой — из-за связи.
     private(set) var offlineTabs: Set<ProfileTab> = []
@@ -141,7 +144,10 @@ final class ProfileModel {
             profile = value
             failure = nil
             isOffline = false
+        } catch is CancellationError {
+            return
         } catch {
+            if profile != nil { staleNotice = error.userMessage }
             failure = error.userMessage
             if case .transport = error as? APIError { isOffline = true }
             return

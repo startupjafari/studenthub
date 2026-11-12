@@ -50,6 +50,10 @@ final class PagedLoader<Item: Decodable & Identifiable> {
     /// Запрос заменили (поиск, другой фильтр): такие страницы не сохраняем — строки
     /// поиска не должны копиться на диске, а их выдача быстро устаревает.
     @ObservationIgnored private var replaced = false
+    /// Первая страница пришла из сети (а не только из сохранённого). Без неё
+    /// `loadIfNeeded` грузит снова: обновление, снятое уходом с экрана, иначе оставило бы
+    /// сохранённую страницу навсегда.
+    @ObservationIgnored private var hasNetworkPage = false
 
     init(limit: Int = 30, cachesFirstPage: Bool = true, fetch: @escaping (PageRequest) async throws -> Page<Item>) {
         self.limit = limit
@@ -86,6 +90,7 @@ final class PagedLoader<Item: Decodable & Identifiable> {
             pageFailure = nil
             isOffline = false
             isLoaded = true
+            hasNetworkPage = true
         } catch is CancellationError {
             return
         } catch {
@@ -98,7 +103,7 @@ final class PagedLoader<Item: Decodable & Identifiable> {
     /// Первая загрузка — только если ещё не грузили: `.task` срабатывает при каждом
     /// возврате на экран, а список, ушедший на второй экран, перечитывать незачем.
     func loadIfNeeded() async {
-        guard !isLoaded, !isLoading else { return }
+        guard !hasNetworkPage, !isLoading else { return }
         if usesCache, items.isEmpty { await showCachedFirstPage() }
         await reload()
     }

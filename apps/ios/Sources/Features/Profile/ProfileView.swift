@@ -103,6 +103,7 @@ struct ProfileView: View {
             async let feed: Void = posts.refresh()
             _ = await (card, feed)
         }
+        .actionToast($model.staleNotice)
         .pullToRefresh {
             async let card: Void = model.load()
             async let feed: Void = posts.refresh()

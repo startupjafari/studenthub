@@ -308,8 +308,13 @@ struct StudentHomeView: View {
         let attentionAnswered = await attention
         _ = await summary
         let answeredAll = freshGrades != nil && freshAttendance != nil && freshTasks != nil && attentionAnswered == 2
+        let answeredAny = freshGrades != nil || freshAttendance != nil || freshTasks != nil || attentionAnswered > 0
         if attentionAnswered == 0, grades == nil {
             failure = String(localized: "home.offline.schedule", defaultValue: "Нет связи — расписание из сохранённого")
+        } else if !answeredAny {
+            // Ни один блок не ответил, но на экране сохранённая сводка (итерация 5): не
+            // «часть данных», а всё — из сохранённого.
+            failure = String(localized: "home.offline.cached", defaultValue: "Нет связи — показано сохранённое")
         } else if !answeredAll {
             failure = String(localized: "student.partialFailure", defaultValue: "Часть данных не загрузилась")
         } else {

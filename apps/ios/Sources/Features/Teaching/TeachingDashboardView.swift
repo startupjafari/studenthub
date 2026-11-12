@@ -20,11 +20,20 @@ struct TeachingDashboardView: View {
     @State private var exported: ExportedFile?
     @State private var isExporting = false
     @State private var actionFailure: String?
+    /// Сводка дня пришла из сети. Пока нет — на экране сохранённое, и возврат на экран
+    /// грузит заново, а не только отметки.
+    @State private var isFresh = false
 
     private let api = TeachingAPI()
 
     var body: some View {
         List {
+            // Сводка из сохранённого, а обновить не вышло — говорим полосой (итерация 5).
+            if today != nil, let failure {
+                StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+            }
             if let today {
                 content(today)
             }
@@ -56,7 +65,7 @@ struct TeachingDashboardView: View {
         // Возврат на экран (отметили посещаемость) — только отметки: раньше `.task`
         // грузил всё заново, а `onAppear` ещё раз отметки (п. 31 аудита).
         .task {
-            guard today == nil else {
+            guard !isFresh else {
                 await loadMarked()
                 return
             }
@@ -391,6 +400,7 @@ struct TeachingDashboardView: View {
             async let review = try? api.reviewQueue(limit: 5)
             async let slots = try? UniversityServicesAPI().myConsultations()
             today = try await summary
+            isFresh = true
             // Не пришедший блок не затирает показанное — только помечается сбоем.
             let fetchedQueue = await review
             // Ушли с экрана посреди загрузки — это не сбой.
