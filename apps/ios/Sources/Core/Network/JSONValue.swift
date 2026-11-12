@@ -106,7 +106,7 @@ enum JSONValue: Codable, Equatable, Hashable, Sendable {
     /// Дата из ISO-строки — тем же разбором, что у всего API.
     var date: Date? {
         guard let raw = string else { return nil }
-        return try? JSONCoding.decoder.decode(Date.self, from: Data("\"\(raw)\"".utf8))
+        return JSONCoding.isoDate(raw)
     }
 
     /// Короткое человекочитаемое значение для строки «подпись — значение».

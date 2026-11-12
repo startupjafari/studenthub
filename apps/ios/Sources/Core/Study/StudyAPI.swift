@@ -379,9 +379,6 @@ struct StudyAPI: StudyFetching {
     /// Дата занятия — «ГГГГ-ММ-ДД» в местном дне, а не в UTC: занятие в 9 утра в
     /// Алматы не должно оказаться вчерашним.
     private static func day(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
+        DayString.string(from: date)
     }
 }

@@ -160,11 +160,7 @@ enum StudentPlan {
     }
 
     static func today(_ date: Date = Date()) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
+        DayString.string(from: date)
     }
 
     private enum Phase { case current, past, future }

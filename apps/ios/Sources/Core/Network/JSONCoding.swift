@@ -12,7 +12,7 @@ enum JSONCoding {
         decoder.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
             let raw = try container.decode(String.self)
-            if let date = fractional.date(from: raw) ?? plain.date(from: raw) {
+            if let date = isoDate(raw) {
                 return date
             }
             throw DecodingError.dataCorruptedError(
@@ -35,6 +35,12 @@ enum JSONCoding {
     /// Момент для параметра запроса — тем же форматом, что и в теле.
     static func isoString(_ date: Date) -> String {
         fractional.string(from: date)
+    }
+
+    /// Момент из ISO-строки — тот же разбор, что у декодера, но без `JSONDecoder` на
+    /// одну строку (п. 49 аудита).
+    static func isoDate(_ raw: String) -> Date? {
+        fractional.date(from: raw) ?? plain.date(from: raw)
     }
 
     private static let fractional: ISO8601DateFormatter = {

@@ -258,8 +258,9 @@ actor SocketIORealtimeTransport: RealtimeTransport {
 
     private static func date(_ raw: Any?) -> Date? {
         guard let string = raw as? String else { return nil }
-        return ISO8601DateFormatter.contract.date(from: string)
-            ?? ISO8601DateFormatter().date(from: string)
+        // Тот же разбор, что у API: с долями секунды, потом без — без нового
+        // форматтера на каждое событие (п. 49).
+        return JSONCoding.isoDate(string)
     }
 
     /// Адрес без пути API: `https://host/api/v1` → `https://host`.

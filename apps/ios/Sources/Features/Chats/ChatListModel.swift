@@ -90,6 +90,10 @@ final class ChatListModel {
         defer { isRefreshing = false }
 
         do {
+            // Папки не зависят от страниц — запрос идёт параллельно, а не после всех
+            // страниц (п. 45 аудита). Сбой страниц снимет и его (`async let`).
+            let api = api
+            async let folders = api.folders()
             var cursor: String?
             for _ in 0..<Self.maxPages {
                 let page = try await api.chats(cursor: cursor, limit: ChatsAPI.pageLimit)
@@ -97,7 +101,7 @@ final class ChatListModel {
                 guard page.meta?.hasNext == true, let next = page.meta?.cursor else { break }
                 cursor = next
             }
-            try await store.save(folders: try await api.folders())
+            try await store.save(folders: try await folders)
             failure = nil
             loadFailure = nil
             isOffline = false
