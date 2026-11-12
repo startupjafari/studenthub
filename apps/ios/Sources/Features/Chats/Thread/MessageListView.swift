@@ -27,6 +27,9 @@ struct MessageListView: UIViewControllerRepresentable {
     /// Запас под последним сообщением. В окне истории кнопка «вниз» видна и у его низа,
     /// и без запаса закрывала бы время последнего пузыря.
     var bottomInset: CGFloat = 0
+    /// Низ панелей над лентой (шапка, закреплённое) в координатах окна: лента уходит
+    /// под них во весь экран, а первое сообщение встаёт ниже.
+    var topObstruction: CGFloat = 0
     /// Нажатие на дату дня — календарь «Перейти к дате».
     var onDayTap: (Date) -> Void = { _ in }
     let onReachTop: () -> Void
@@ -45,6 +48,7 @@ struct MessageListView: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: MessageListViewController, context: Context) {
         bind(controller)
         controller.setBottomInset(bottomInset)
+        controller.setTopObstruction(topObstruction)
         controller.apply(days: days, anchor: anchor, context: bubbleContext, selection: selection)
         controller.focus(focus)
         controller.scrollToBottom(token: scrollToBottomToken)
@@ -135,6 +139,7 @@ final class MessageListViewController: UIViewController {
     /// сообщения уезжают под клавиатуру ровно тогда, когда на них отвечают.
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        applyTopInset()
         let height = collectionView.bounds.height
         defer { lastBoundsHeight = height }
         if needsInitialPosition {
@@ -148,6 +153,27 @@ final class MessageListViewController: UIViewController {
     }
 
     /// Запас снизу под кнопку «вниз». Стояла лента у низа — остаётся у нового низа.
+    private var topObstruction: CGFloat = 0
+
+    func setTopObstruction(_ y: CGFloat) {
+        loadViewIfNeeded()
+        topObstruction = y
+        applyTopInset()
+    }
+
+    /// Отступ сверху — от верха ленты до низа панелей над ней. Считается в окне: где
+    /// стоит сама лента, знает только UIKit.
+    private func applyTopInset() {
+        guard collectionView.window != nil else { return }
+        let top = collectionView.convert(CGPoint.zero, to: nil).y
+        let inset = max(0, topObstruction - top)
+        guard abs(collectionView.contentInset.top - inset) > 0.5 else { return }
+        let keepsBottom = hasContent && !needsInitialPosition && (isNearBottom || sticksToBottom)
+        collectionView.contentInset.top = inset
+        collectionView.verticalScrollIndicatorInsets.top = inset
+        if keepsBottom { scrollToBottom(animated: false) }
+    }
+
     func setBottomInset(_ inset: CGFloat) {
         loadViewIfNeeded()
         guard abs(collectionView.contentInset.bottom - inset) > 0.5 else { return }
@@ -332,6 +358,16 @@ final class MessageListViewController: UIViewController {
         collectionView.keyboardDismissMode = .interactive
         // Короткая переписка тоже тянется: жест к началу ленты есть всегда.
         collectionView.alwaysBounceVertical = true
+        // Отступы задаёт экран чата (низ панелей над лентой, поле ввода), а не система:
+        // лента уходит под шапку во весь экран.
+        collectionView.contentInsetAdjustmentBehavior = .never
+        #if compiler(>=6.2)
+            // Размытие у верха рисует экран чата — плавно от края экрана; системное
+            // легло бы второй полосой.
+            if #available(iOS 26, *) {
+                collectionView.topEdgeEffect.isHidden = true
+            }
+        #endif
         swipeToReply.attach(to: collectionView)
         swipeToReply.target = { [weak self] point in self?.replyTarget(at: point) }
         swipeToReply.onReply = { [weak self] message in self?.onAction?(.reply, message) }
