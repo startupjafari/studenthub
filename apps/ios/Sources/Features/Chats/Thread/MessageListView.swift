@@ -94,6 +94,7 @@ final class MessageListViewController: UIViewController {
     /// новое или изменившееся сообщение, а не на каждую пересборку раскладки.
     private var fingerprints: [String: UInt64] = [:]
     private let heights = MessageHeightCache.shared
+    private var lastPageRequest: CFTimeInterval = 0
     private var hasContent = false
     private var lastBoundsHeight: CGFloat = 0
 
@@ -284,6 +285,7 @@ final class MessageListViewController: UIViewController {
         let previousOrder = previousSnapshot.itemIdentifiers
         let previousDays = Set(previousSnapshot.sectionIdentifiers)
         let contextChanged = context != bubbleContext
+        let previousIsGroup = bubbleContext.isGroup
         bubbleContext = context
         // Вход в режим выбора и выход перерисовывают все ячейки (кружки слева), а
         // касание в режиме — только те, чья отметка сменилась.
@@ -293,7 +295,9 @@ final class MessageListViewController: UIViewController {
         itemsByID = Dictionary(
             uniqueKeysWithValues: days.flatMap(\.items).map { ($0.id, $0) }
         )
-        let recomputesAll = contextChanged || selectionModeChanged
+        // Все отпечатки — только когда меняется то, что входит в каждый из них (группа,
+        // режим выбора), а не на каждую отметку о прочтении внутри контекста.
+        let recomputesAll = context.isGroup != previousIsGroup || selectionModeChanged
         if recomputesAll || fingerprints.count > itemsByID.count * 2 {
             fingerprints = fingerprints.filter { itemsByID[$0.key] != nil }
         }
@@ -487,6 +491,7 @@ final class MessageListViewController: UIViewController {
         let cell = UICollectionView.CellRegistration<MessageTimelineCell, String> {
             [weak self] cell, _, id in
             guard let item = self?.itemsByID[id] else { return }
+            cell.invalidateMeasurement()
             cell.contentConfiguration = UIHostingConfiguration {
                 MessageBubbleView(
                     item: item,
@@ -897,11 +902,17 @@ extension MessageListViewController: UICollectionViewDelegate {
         // быстрая прокрутка упиралась в край раньше, чем приходила страница, — лента
         // вставала, а потом прыгала, когда страница всё же доезжала.
         let preload = scrollView.bounds.height * Self.preloadScreens
+        // Просьба о странице — не чаще раза в треть секунды: на каждом кадре прокрутки
+        // она порождала задачу, а страница всё равно одна.
+        let now = CACurrentMediaTime()
+        guard now - lastPageRequest > 0.3 else { return }
         if scrollView.contentOffset.y < preload {
+            lastPageRequest = now
             onReachTop?()
         }
         let distance = scrollView.contentSize.height - scrollView.contentOffset.y - scrollView.bounds.height
         if distance < preload {
+            lastPageRequest = now
             onReachBottom?()
         }
     }

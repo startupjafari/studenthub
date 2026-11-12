@@ -26,7 +26,16 @@ final class MessageTimelineLayout: UICollectionViewLayout {
 
     var source: Source?
 
-    private var headerHeight: CGFloat = 38
+    /// Высота даты дня — по размеру шрифта, без замера: заголовок прилипает и
+    /// перекладывается на каждом кадре прокрутки, и замер SwiftUI-вида каждый кадр
+    /// тормозил ленту.
+    private var headerHeight: CGFloat = MessageTimelineLayout.dayHeaderHeight()
+
+    static func dayHeaderHeight() -> CGFloat {
+        // Капсула: строка `footnote` и поля 4 + 4, вокруг — по 6 сверху и снизу.
+        let line = UIFont.preferredFont(forTextStyle: .footnote).lineHeight
+        return (line + 8 + 12).rounded(.up)
+    }
     private var sectionTops: [CGFloat] = []
     private var itemFrames: [[CGRect]] = []
     private var contentHeight: CGFloat = 0
@@ -43,6 +52,7 @@ final class MessageTimelineLayout: UICollectionViewLayout {
 
     /// Пересобрать всё по высотам из источника: сменился размер шрифта или правила.
     func rebuildAll() {
+        headerHeight = Self.dayHeaderHeight()
         needsRebuild = true
         invalidateLayout()
     }
@@ -197,8 +207,13 @@ final class MessageTimelineLayout: UICollectionViewLayout {
             return context
         }
         context.keepsGeometry = true
-        let visible = layoutAttributesForElements(in: newBounds) ?? []
-        let headers = visible.filter { $0.representedElementCategory == .supplementaryView }.map(\.indexPath)
+        // Только даты видимых дней — без сборки атрибутов всех видимых ячеек.
+        var headers: [IndexPath] = []
+        for section in sectionTops.indices {
+            guard sectionBottom(section) > newBounds.minY else { continue }
+            if sectionTops[section] >= newBounds.maxY { break }
+            headers.append(IndexPath(item: 0, section: section))
+        }
         if !headers.isEmpty {
             context.invalidateSupplementaryElements(ofKind: Self.headerKind, at: headers)
         }
@@ -211,8 +226,9 @@ final class MessageTimelineLayout: UICollectionViewLayout {
         forPreferredLayoutAttributes preferred: UICollectionViewLayoutAttributes,
         withOriginalAttributes original: UICollectionViewLayoutAttributes
     ) -> Bool {
-        // Ленту ещё не разложили по ширине — замер по нулевой ширине бессмыслен.
-        guard width > 1 else { return false }
+        // Ленту ещё не разложили по ширине — замер по нулевой ширине бессмыслен. Дата
+        // дня не досчитывается: её высота известна заранее.
+        guard width > 1, original.representedElementCategory == .cell else { return false }
         if original.representedElementCategory == .cell,
             let id = source?.itemID(original.indexPath)
         {
@@ -226,12 +242,6 @@ final class MessageTimelineLayout: UICollectionViewLayout {
         withOriginalAttributes original: UICollectionViewLayoutAttributes
     ) -> UICollectionViewLayoutInvalidationContext {
         let context = super.invalidationContext(forPreferredLayoutAttributes: preferred, withOriginalAttributes: original)
-        guard original.representedElementCategory == .cell else {
-            // Дата дня: у всех дней одна высота — пересобираем по ней.
-            headerHeight = preferred.size.height.rounded(.up)
-            needsRebuild = true
-            return context
-        }
         fill(context, resizing: original.indexPath, to: preferred.size.height, originalFrame: original.frame)
         return context
     }
@@ -299,7 +309,23 @@ final class MessageTimelineLayout: UICollectionViewLayout {
 
 /// Ячейка ленты, которая сама меряет свою высоту по ширине ленты: SwiftUI-пузырь внутри
 /// (`UIHostingConfiguration`) знает её только после раскладки.
+///
+/// Замер дорогой (раскладка SwiftUI), поэтому запоминается до смены содержимого или
+/// ширины: UIKit спрашивает высоту при каждом обновлении атрибутов, и без этого лента
+/// перемеряла видимые пузыри на ходу прокрутки.
 class SelfSizingTimelineCell: UICollectionViewCell {
+    private var measured: (width: CGFloat, height: CGFloat)?
+
+    /// Содержимое сменилось — прежний замер недействителен.
+    func invalidateMeasurement() {
+        measured = nil
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        measured = nil
+    }
+
     override func preferredLayoutAttributesFitting(
         _ layoutAttributes: UICollectionViewLayoutAttributes
     ) -> UICollectionViewLayoutAttributes {
@@ -311,14 +337,25 @@ class SelfSizingTimelineCell: UICollectionViewCell {
     }
 
     func fittingHeight(width: CGFloat) -> CGFloat {
+        if let measured, abs(measured.width - width) < 0.5 { return measured.height }
         let size = contentView.systemLayoutSizeFitting(
             CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
             withHorizontalFittingPriority: .required,
             verticalFittingPriority: .fittingSizeLevel
         )
-        return size.height.rounded(.up)
+        let height = size.height.rounded(.up)
+        measured = (width, height)
+        return height
     }
 }
 
 final class MessageTimelineCell: SelfSizingTimelineCell {}
-final class DayHeaderCell: SelfSizingTimelineCell {}
+
+/// Дата дня: высота известна заранее (`MessageTimelineLayout.dayHeaderHeight`), замера нет.
+final class DayHeaderCell: UICollectionViewCell {
+    override func preferredLayoutAttributesFitting(
+        _ layoutAttributes: UICollectionViewLayoutAttributes
+    ) -> UICollectionViewLayoutAttributes {
+        layoutAttributes
+    }
+}
