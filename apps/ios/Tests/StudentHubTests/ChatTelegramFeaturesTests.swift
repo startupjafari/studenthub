@@ -82,6 +82,15 @@ final class ChatTelegramFeaturesTests: XCTestCase {
         XCTAssertNil(ChatMediaKindTab.polls.kind)
     }
 
+    func testExternalGifPageDecodes() throws {
+        let json = Data(
+            #"{"items":[{"id":"abc123","title":"Ура","width":480,"height":270,"previewUrl":"https://media.giphy.com/media/abc123/200w.gif","previewWidth":200,"previewHeight":113}],"nextOffset":24}"#.utf8
+        )
+        let page = try JSONCoding.decoder.decode(ExternalGifPageDTO.self, from: json)
+        XCTAssertEqual(page.items.first?.id, "abc123")
+        XCTAssertEqual(page.nextOffset, 24)
+    }
+
     // MARK: Пересылка
 
     func testForwardOutcomeCompleteness() {

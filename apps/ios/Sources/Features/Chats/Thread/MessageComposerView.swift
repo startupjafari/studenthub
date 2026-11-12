@@ -152,9 +152,12 @@ struct MessageComposerView: View {
                         sentTick += 1
                         Task { await model.sendSticker(id: sticker.id) }
                     },
-                    onGif: { gif in
+                    onGif: { choice in
                         sentTick += 1
-                        Task { await model.sendGif(fileID: gif.fileId) }
+                        switch choice {
+                        case .recent(let gif): Task { await model.sendGif(fileID: gif.fileId) }
+                        case .external(let gif): Task { await model.sendExternalGif(id: gif.id) }
+                        }
                     }
                 )
                 .frame(height: panelHeight)

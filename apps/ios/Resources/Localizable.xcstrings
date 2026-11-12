@@ -96144,6 +96144,57 @@
           }
         }
       }
+    },
+    "chats.gifs.results": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Найдено"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Табылды"
+          }
+        }
+      }
+    },
+    "chats.gifs.trending": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Популярные"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Танымал"
+          }
+        }
+      }
+    },
+    "chats.panel.searchGif": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск GIF"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GIF іздеу"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

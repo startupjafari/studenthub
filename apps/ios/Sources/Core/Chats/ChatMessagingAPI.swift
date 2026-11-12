@@ -64,7 +64,27 @@ struct RecentGifDTO: Decodable, Equatable, Identifiable, Sendable {
     var id: String { fileId }
 }
 
+/// GIF из внешнего каталога (GIPHY) через прокси сервера: ключ живёт только там.
+struct ExternalGifDTO: Decodable, Equatable, Identifiable, Sendable {
+    let id: String
+    let title: String?
+    let width: Int?
+    let height: Int?
+    let previewUrl: String
+    let previewWidth: Int?
+    let previewHeight: Int?
+}
+
+struct ExternalGifPageDTO: Decodable, Equatable, Sendable {
+    let items: [ExternalGifDTO]
+    let nextOffset: Int?
+}
+
 protocol ChatMessaging: Sendable {
+    /// Популярные (пустой запрос) или найденные GIF. Без ключа на сервере — 503
+    /// `FEATURE_DISABLED`.
+    func searchGifs(_ query: String, offset: Int) async throws -> ExternalGifPageDTO
+    func sendExternalGif(chatID: String, gifID: String, replyToID: String?, nonce: String) async throws -> ChatMessageDTO
     func forward(messageIDs: [String], to chatIDs: [String], comment: String?, requestID: UUID) async throws -> ForwardResultDTO
     func hide(messageIDs: [String], chatID: String) async throws -> HiddenMessagesDTO
     func deleteForEveryone(messageIDs: [String], chatID: String) async throws -> DeletedMessagesDTO
@@ -93,6 +113,32 @@ protocol ChatMessaging: Sendable {
 }
 
 extension ChatsAPI: ChatMessaging {
+    func searchGifs(_ query: String, offset: Int) async throws -> ExternalGifPageDTO {
+        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        var items = [URLQueryItem(name: "offset", value: String(offset)), URLQueryItem(name: "limit", value: "24")]
+        if term.isEmpty {
+            return try await client.send(.get("chats/gifs/trending", query: items), as: ExternalGifPageDTO.self)
+        }
+        items.append(URLQueryItem(name: "q", value: String(term.prefix(50))))
+        return try await client.send(.get("chats/gifs/search", query: items), as: ExternalGifPageDTO.self)
+    }
+
+    func sendExternalGif(chatID: String, gifID: String, replyToID: String?, nonce: String) async throws -> ChatMessageDTO {
+        struct Body: Encodable {
+            let provider: String
+            let id: String
+            let replyToId: String?
+            let nonce: String
+        }
+        return try await client.send(
+            try .post(
+                "chats/\(chatID)/gif/external",
+                json: Body(provider: "giphy", id: gifID, replyToId: replyToID, nonce: nonce)
+            ),
+            as: ChatMessageDTO.self
+        )
+    }
+
     func forward(messageIDs: [String], to chatIDs: [String], comment: String?, requestID: UUID) async throws -> ForwardResultDTO {
         struct Body: Encodable {
             let messageIds: [String]

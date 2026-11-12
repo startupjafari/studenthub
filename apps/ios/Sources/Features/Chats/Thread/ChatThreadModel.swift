@@ -591,6 +591,13 @@ final class ChatThreadModel {
     }
 
     @MainActor
+    func sendExternalGif(id: String) async -> Bool {
+        await sendSpecial { [actions, chatID] reply, nonce in
+            try await actions.sendExternalGif(chatID: chatID, gifID: id, replyToID: reply, nonce: nonce)
+        } != nil
+    }
+
+    @MainActor
     func sendGif(fileID: String) async -> Bool {
         await sendSpecial { [actions, chatID] reply, nonce in
             try await actions.sendGif(chatID: chatID, fileID: fileID, replyToID: reply, nonce: nonce)

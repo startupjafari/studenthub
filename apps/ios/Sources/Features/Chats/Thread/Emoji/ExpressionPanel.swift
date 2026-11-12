@@ -11,7 +11,7 @@ struct ExpressionPanel: View {
     let onEmoji: (String) -> Void
     let onBackspace: () -> Void
     let onSticker: (StickerSetDTO.Sticker) -> Void
-    let onGif: (RecentGifDTO) -> Void
+    let onGif: (GifChoice) -> Void
 
     @State private var tab: Tab? = .emoji
     @State private var query = ""
@@ -43,11 +43,9 @@ struct ExpressionPanel: View {
             .padding(.horizontal, Spacing.lg)
             .padding(.top, Spacing.sm)
 
-            if tab != .gifs {
-                searchField
-                    .padding(.horizontal, Spacing.lg)
-                    .padding(.vertical, Spacing.sm)
-            }
+            searchField
+                .padding(.horizontal, Spacing.lg)
+                .padding(.vertical, Spacing.sm)
 
             Group {
                 switch tab ?? .emoji {
@@ -60,7 +58,7 @@ struct ExpressionPanel: View {
                 case .stickers:
                     StickerBrowser(query: query, onPick: onSticker)
                 case .gifs:
-                    GifBrowser(onPick: onGif)
+                    GifBrowser(query: query, onPick: onGif)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -74,12 +72,7 @@ struct ExpressionPanel: View {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(Palette.mutedForeground)
                 .accessibilityHidden(true)
-            TextField(
-                tab == .stickers
-                    ? String(localized: "chats.panel.searchStickers", defaultValue: "Поиск по набору или emoji")
-                    : String(localized: "chats.panel.searchEmoji", defaultValue: "Поиск emoji"),
-                text: $query
-            )
+            TextField(searchPrompt, text: $query)
             .font(Typography.body)
             .autocorrectionDisabled()
             .textInputAutocapitalization(.never)
@@ -97,6 +90,14 @@ struct ExpressionPanel: View {
         .padding(.horizontal, Spacing.lg)
         .frame(height: ControlHeight.md)
         .background(Palette.muted, in: Capsule())
+    }
+
+    private var searchPrompt: String {
+        switch tab ?? .emoji {
+        case .emoji: String(localized: "chats.panel.searchEmoji", defaultValue: "Поиск emoji")
+        case .stickers: String(localized: "chats.panel.searchStickers", defaultValue: "Поиск по набору или emoji")
+        case .gifs: String(localized: "chats.panel.searchGif", defaultValue: "Поиск GIF")
+        }
     }
 
     private func pickEmoji(_ emoji: String) {
@@ -290,71 +291,156 @@ private struct StickerPressStyle: ButtonStyle {
 
 // MARK: - GIF
 
-/// GIF: те, что человек уже отправлял (сервер хранит их у себя). Внешнего поиска GIF у
-/// StudentHub нет — новый GIF отправляется из «Фото» через скрепку.
-private struct GifBrowser: View {
-    let onPick: (RecentGifDTO) -> Void
+/// Что выбрали во вкладке GIF: свой уже отправленный или из каталога GIPHY.
+enum GifChoice {
+    case recent(RecentGifDTO)
+    case external(ExternalGifDTO)
+}
 
-    @State private var gifs: [RecentGifDTO] = []
-    @State private var loaded = false
+/// GIF: сверху — те, что человек уже отправлял, ниже — популярные или найденные в
+/// GIPHY (через сервер: ключ каталога в приложение не попадает). Нет ключа на сервере —
+/// остаются только свои, и это сказано честно.
+private struct GifBrowser: View {
+    let query: String
+    let onPick: (GifChoice) -> Void
+
+    @State private var recent: [RecentGifDTO] = []
+    @State private var found: [ExternalGifDTO] = []
+    @State private var nextOffset: Int?
+    @State private var isLoading = false
+    @State private var searchDisabled = false
     @State private var failure: String?
     private let api: ChatMessaging = ChatsAPI()
 
     var body: some View {
-        Group {
-            if !loaded {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if gifs.isEmpty {
-                VStack(spacing: Spacing.md) {
-                    Image(systemName: "photo.stack")
-                        .font(.largeTitle)
+        ScrollView {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                if query.trimmingCharacters(in: .whitespaces).isEmpty, !recent.isEmpty {
+                    sectionTitle(String(localized: "emoji.recent", defaultValue: "Недавние"))
+                    grid(recent.map { GifTile(id: "r-\($0.fileId)", url: $0.url, choice: .recent($0)) })
+                }
+                if !searchDisabled {
+                    if !found.isEmpty {
+                        sectionTitle(query.trimmingCharacters(in: .whitespaces).isEmpty
+                            ? String(localized: "chats.gifs.trending", defaultValue: "Популярные")
+                            : String(localized: "chats.gifs.results", defaultValue: "Найдено"))
+                        grid(found.map { GifTile(id: "e-\($0.id)", url: $0.previewUrl, choice: .external($0)) })
+                        if nextOffset != nil {
+                            ProgressView()
+                                .frame(maxWidth: .infinity)
+                                .task(id: found.count) { await loadMore() }
+                        }
+                    } else if isLoading {
+                        ProgressView().frame(maxWidth: .infinity).padding(Spacing.xl)
+                    } else if !query.trimmingCharacters(in: .whitespaces).isEmpty {
+                        note(String(localized: "services.notFound", defaultValue: "Ничего не нашлось"))
+                    }
+                    // Условие каталога GIPHY: подпись источника рядом с результатами.
+                    Text(verbatim: "Powered by GIPHY")
+                        .font(.caption2.weight(.semibold))
                         .foregroundStyle(Palette.mutedForeground)
-                    Text(failure ?? String(
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, Spacing.xs)
+                } else if recent.isEmpty {
+                    note(String(
                         localized: "chats.gifs.empty",
                         defaultValue: "Здесь появятся GIF, которые вы отправляли. Новый GIF — через скрепку из «Фото»."
                     ))
-                    .font(Typography.meta)
-                    .foregroundStyle(failure == nil ? Palette.mutedForeground : Palette.destructive)
-                    .multilineTextAlignment(.center)
                 }
-                .padding(Spacing.xxl)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 3), spacing: 2) {
-                        ForEach(gifs) { gif in
-                            Button {
-                                onPick(gif)
-                            } label: {
-                                GifThumbnail(gif: gif)
-                                    .aspectRatio(1, contentMode: .fit)
-                                    .clipped()
-                            }
-                            .buttonStyle(StickerPressStyle())
-                            .accessibilityLabel(Text(String(localized: "chats.preview.gif", defaultValue: "GIF")))
-                        }
-                    }
-                    .padding(2)
+                if let failure {
+                    note(failure, isError: true)
                 }
+            }
+            .padding(2)
+        }
+        .task { await loadRecent() }
+        .task(id: query) {
+            // Пауза — чтобы не спрашивать каталог на каждую букву.
+            try? await Task.sleep(for: .milliseconds(query.isEmpty ? 0 : 350))
+            guard !Task.isCancelled else { return }
+            await search()
+        }
+    }
+
+    private struct GifTile: Identifiable {
+        let id: String
+        let url: String
+        let choice: GifChoice
+    }
+
+    private func grid(_ tiles: [GifTile]) -> some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 3), spacing: 2) {
+            ForEach(tiles) { tile in
+                Button {
+                    onPick(tile.choice)
+                } label: {
+                    GifThumbnail(key: tile.id, url: tile.url)
+                        .aspectRatio(1, contentMode: .fit)
+                        .clipped()
+                }
+                .buttonStyle(StickerPressStyle())
+                .accessibilityLabel(Text(String(localized: "chats.preview.gif", defaultValue: "GIF")))
             }
         }
-        .task {
-            do {
-                gifs = try await api.recentGifs()
-                failure = nil
-            } catch is CancellationError {
-                return
-            } catch {
-                failure = error.userMessage
-            }
-            loaded = true
+    }
+
+    private func sectionTitle(_ text: String) -> some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Palette.mutedForeground)
+            .padding(.horizontal, Spacing.md)
+            .padding(.top, Spacing.xs)
+    }
+
+    private func note(_ text: String, isError: Bool = false) -> some View {
+        Text(text)
+            .font(Typography.meta)
+            .foregroundStyle(isError ? Palette.destructive : Palette.mutedForeground)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(Spacing.xl)
+    }
+
+    private func loadRecent() async {
+        recent = (try? await api.recentGifs()) ?? []
+    }
+
+    private func search() async {
+        guard !searchDisabled else { return }
+        isLoading = true
+        defer { isLoading = false }
+        found = []
+        nextOffset = nil
+        await fetch(offset: 0)
+    }
+
+    private func loadMore() async {
+        guard let offset = nextOffset, !isLoading else { return }
+        isLoading = true
+        defer { isLoading = false }
+        await fetch(offset: offset)
+    }
+
+    private func fetch(offset: Int) async {
+        do {
+            let page = try await api.searchGifs(query, offset: offset)
+            let known = Set(found.map(\.id))
+            found += page.items.filter { !known.contains($0.id) }
+            nextOffset = page.nextOffset
+            failure = nil
+        } catch is CancellationError {
+            return
+        } catch let error as APIError where error.code == .unknown("FEATURE_DISABLED") {
+            searchDisabled = true
+        } catch {
+            failure = error.userMessage
         }
     }
 }
 
 private struct GifThumbnail: View {
-    let gif: RecentGifDTO
+    let key: String
+    let url: String
 
     @State private var image: UIImage?
 
@@ -367,13 +453,13 @@ private struct GifThumbnail: View {
                     Palette.muted
                 }
             }
-            .task(id: gif.fileId) {
-                let key = "gif-panel:\(gif.fileId)"
+            .task(id: key) {
+                let key = "gif-panel:\(key)"
                 if let cached = AnimatedGIF.cached(key) {
                     image = cached
                     return
                 }
-                guard let url = URL(string: gif.url), let (data, _) = try? await URLSession.shared.data(from: url) else { return }
+                guard let url = URL(string: url), let (data, _) = try? await URLSession.shared.data(from: url) else { return }
                 image = await Task.detached(priority: .utility) {
                     AnimatedGIF.decode(data, maxPixelSize: 240, key: key)
                 }.value
