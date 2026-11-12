@@ -94,6 +94,12 @@ final class MessageListViewController: UIViewController {
     /// новое или изменившееся сообщение, а не на каждую пересборку раскладки.
     private var fingerprints: [String: UInt64] = [:]
     private let heights = MessageHeightCache.shared
+    private var lastPageRequest: CFTimeInterval = 0
+    /// Уже найденные высоты по id — быстрый путь пересборки раскладки: без ключа-строки,
+    /// блокировки и словаря кэша на каждое из тысяч сообщений при каждом срезе базы.
+    /// Сбрасывается вместе с отпечатком сообщения, шириной и размером шрифта.
+    private var resolved: [String: CGFloat] = [:]
+    private var resolvedFor: (width: CGFloat, category: UIContentSizeCategory)?
     private var hasContent = false
     private var lastBoundsHeight: CGFloat = 0
 
@@ -171,17 +177,30 @@ final class MessageListViewController: UIViewController {
 
     /// Высота сообщения для раскладки: точная из кэша, иначе прошлая, иначе оценка.
     private func height(for id: String) -> CGFloat {
+        let width = collectionView.bounds.width
+        let category = traitCollection.preferredContentSizeCategory
+        if resolvedFor?.width != width || resolvedFor?.category != category {
+            resolved = [:]
+            resolvedFor = (width, category)
+        }
+        if let known = resolved[id] { return known }
         guard let item = itemsByID[id] else { return 60 }
         let key = heightKey(id)
+        let height: CGFloat
         if let fingerprint = fingerprints[id], let exact = heights.height(for: key, fingerprint: fingerprint) {
-            return exact
+            height = exact
+        } else if let last = heights.lastHeight(for: key) {
+            height = last
+        } else {
+            height = item.estimatedHeight(width: width, isGroup: bubbleContext.isGroup)
         }
-        if let last = heights.lastHeight(for: key) { return last }
-        return item.estimatedHeight(width: collectionView.bounds.width, isGroup: bubbleContext.isGroup)
+        resolved[id] = height
+        return height
     }
 
     private func remember(_ height: CGFloat, for id: String) {
-        guard let fingerprint = fingerprints[id] else { return }
+        guard collectionView.bounds.width > 1, let fingerprint = fingerprints[id] else { return }
+        resolved[id] = height
         heights.store(height, for: heightKey(id), fingerprint: fingerprint)
     }
 
@@ -257,6 +276,7 @@ final class MessageListViewController: UIViewController {
         collectionView.contentInset.top = inset
         collectionView.verticalScrollIndicatorInsets.top = inset
         if keepsBottom { scrollToBottom(animated: false) }
+        layout.invalidatePinnedHeaders()
     }
 
     func setBottomInset(_ inset: CGFloat) {
@@ -266,6 +286,7 @@ final class MessageListViewController: UIViewController {
         collectionView.contentInset.bottom = inset
         collectionView.verticalScrollIndicatorInsets.bottom = inset
         if keepsBottom { scrollToBottom(animated: false) }
+        layout.invalidatePinnedHeaders()
     }
 
     /// Применить срез.
@@ -282,6 +303,7 @@ final class MessageListViewController: UIViewController {
         let previousOrder = previousSnapshot.itemIdentifiers
         let previousDays = Set(previousSnapshot.sectionIdentifiers)
         let contextChanged = context != bubbleContext
+        let previousIsGroup = bubbleContext.isGroup
         bubbleContext = context
         // Вход в режим выбора и выход перерисовывают все ячейки (кружки слева), а
         // касание в режиме — только те, чья отметка сменилась.
@@ -291,12 +313,17 @@ final class MessageListViewController: UIViewController {
         itemsByID = Dictionary(
             uniqueKeysWithValues: days.flatMap(\.items).map { ($0.id, $0) }
         )
-        let recomputesAll = contextChanged || selectionModeChanged
+        // Все отпечатки — только когда меняется то, что входит в каждый из них (группа,
+        // режим выбора), а не на каждую отметку о прочтении внутри контекста.
+        let recomputesAll = context.isGroup != previousIsGroup || selectionModeChanged
         if recomputesAll || fingerprints.count > itemsByID.count * 2 {
             fingerprints = fingerprints.filter { itemsByID[$0.key] != nil }
         }
         for (id, item) in itemsByID where recomputesAll || fingerprints[id] == nil || previous[id] != item {
-            fingerprints[id] = item.heightFingerprint(isGroup: context.isGroup, selecting: selection != nil)
+            let fingerprint = item.heightFingerprint(isGroup: context.isGroup, selecting: selection != nil)
+            // Содержимое сменилось — найденная высота больше не точная.
+            if fingerprints[id] != fingerprint { resolved[id] = nil }
+            fingerprints[id] = fingerprint
         }
 
         var snapshot = NSDiffableDataSourceSnapshot<Date, String>()
@@ -485,6 +512,7 @@ final class MessageListViewController: UIViewController {
         let cell = UICollectionView.CellRegistration<MessageTimelineCell, String> {
             [weak self] cell, _, id in
             guard let item = self?.itemsByID[id] else { return }
+            cell.invalidateMeasurement()
             cell.contentConfiguration = UIHostingConfiguration {
                 MessageBubbleView(
                     item: item,
@@ -895,11 +923,17 @@ extension MessageListViewController: UICollectionViewDelegate {
         // быстрая прокрутка упиралась в край раньше, чем приходила страница, — лента
         // вставала, а потом прыгала, когда страница всё же доезжала.
         let preload = scrollView.bounds.height * Self.preloadScreens
+        // Просьба о странице — не чаще раза в треть секунды: на каждом кадре прокрутки
+        // она порождала задачу, а страница всё равно одна.
+        let now = CACurrentMediaTime()
+        guard now - lastPageRequest > 0.3 else { return }
         if scrollView.contentOffset.y < preload {
+            lastPageRequest = now
             onReachTop?()
         }
         let distance = scrollView.contentSize.height - scrollView.contentOffset.y - scrollView.bounds.height
         if distance < preload {
+            lastPageRequest = now
             onReachBottom?()
         }
     }

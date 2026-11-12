@@ -190,6 +190,8 @@ struct AttachmentMenuSheet: View {
         }
     }
 
+    /// «Отправить» той же высоты и в том же стекле, что крестик слева (`GlassCloseButton`):
+    /// системный стиль `.glass` у кнопки с текстом выходил выше круга.
     private func sendButton(canSend: Bool, isSending: Bool, action: @escaping () async -> Void) -> some View {
         Button {
             Task { await action() }
@@ -199,13 +201,15 @@ struct AttachmentMenuSheet: View {
                     .opacity(isSending ? 0 : 1)
                 if isSending { ProgressView() }
             }
-            .font(Typography.body.weight(.semibold))
-            .frame(minHeight: ControlHeight.xl)
+            .font(.body.weight(.semibold))
+            .foregroundStyle(canSend ? Palette.primary : Palette.mutedForeground)
             .padding(.horizontal, Spacing.lg)
+            .frame(height: ControlHeight.xl)
+            .floatingGlass(in: Capsule())
+            .contentShape(Capsule())
         }
-        .glassButton()
-        .buttonBorderShape(.capsule)
-        .disabled(!canSend)
+        .buttonStyle(.plain)
+        .disabled(!canSend || isSending)
     }
 
     @ViewBuilder

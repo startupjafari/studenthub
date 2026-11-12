@@ -40,7 +40,8 @@ struct ExpressionPanel: View {
 
             bottomBar
         }
-        .background { Palette.card.ignoresSafeArea(edges: .bottom) }
+        .padding(.top, Spacing.xs)
+        .background { PanelSurface() }
     }
 
     // MARK: Нижняя полоса
@@ -126,6 +127,32 @@ struct ExpressionPanel: View {
     }
 }
 
+/// Подложка панели — как клавиатура iOS 26 и панель Telegram: стеклянный лист со
+/// скруглёнными верхними углами, а не плоская серая плита с резкой границей у переписки.
+/// До iOS 26 — системный материал той же формы.
+private struct PanelSurface: View {
+    private let shape = UnevenRoundedRectangle(
+        topLeadingRadius: 26,
+        topTrailingRadius: 26,
+        style: .continuous
+    )
+
+    var body: some View {
+        Group {
+            #if compiler(>=6.2)
+                if #available(iOS 26, *) {
+                    Color.clear.glassEffect(.regular, in: shape)
+                } else {
+                    shape.fill(.regularMaterial)
+                }
+            #else
+                shape.fill(.regularMaterial)
+            #endif
+        }
+        .ignoresSafeArea(edges: .bottom)
+    }
+}
+
 // MARK: - Стикеры
 
 /// Стикеры как в Telegram: сверху — полоса наборов (недавние первыми), под ней — поиск,
@@ -172,7 +199,9 @@ private struct StickerBrowser: View {
                 query: $query,
                 prompt: String(localized: "chats.panel.search", defaultValue: "Поиск")
             )
-            .frame(maxWidth: term.isEmpty ? 130 : .infinity)
+            // Компактное поле — только когда рядом есть фильтры; без наборов поиск во всю
+            // ширину, а не узкой капсулой посередине.
+            .frame(maxWidth: term.isEmpty && !catalog.sets.isEmpty ? 130 : .infinity)
             if term.isEmpty, !catalog.sets.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: Spacing.xs) {
