@@ -114,7 +114,10 @@ final class RealtimeCoordinator {
         connectedAt = nil
         isConnected = false
         actions = [:]
+        // Выход из аккаунта: строки списка прежнего аккаунта уже ушли, их объекты не
+        // нужны следующему. Погашены — на случай, если чей-то вид ещё держит ссылку.
         for activity in activities.values { activity.action = nil }
+        activities = [:]
         onlineUsers = []
         presenceMarks = [:]
         memberReads = [:]

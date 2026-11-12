@@ -20,6 +20,8 @@ final class ChatThreadModel {
     /// Последняя запрошенная сборка ленты: запоздавшая фоновая сборка старого среза не
     /// перезапишет новую.
     @ObservationIgnored private var buildGeneration = 0
+    /// Идущая фоновая сборка ленты: новый срез отменяет прежнюю, уход с экрана — любую.
+    @ObservationIgnored private var buildTask: Task<Void, Never>?
     private(set) var title: String?
     private(set) var isLoadingOlder = false
     private(set) var failure: String?
@@ -138,6 +140,7 @@ final class ChatThreadModel {
     }
 
     deinit {
+        buildTask?.cancel()
         messagesTask?.cancel()
         chatTask?.cancel()
         draftTask?.cancel()
@@ -1387,10 +1390,15 @@ final class ChatThreadModel {
         let generation = buildGeneration
         let attachments = snapshot.attachments
         let viewer = viewerID
-        Task.detached(priority: .userInitiated) { [weak self] in
+        // В сборку уходят только значения (записи базы и строки), ссылок на модель нет;
+        // `self` — слабо и только на главном потоке, после сборки.
+        buildTask?.cancel()
+        buildTask = Task.detached(priority: .userInitiated) { [weak self] in
+            guard !Task.isCancelled else { return }
             let signpost = Signposts.chats.beginInterval("TimelineBuild")
             let built = MessageTimeline.build(from: visible, attachments: attachments, viewerID: viewer)
             Signposts.chats.endInterval("TimelineBuild", signpost, "messages: \(visible.count)")
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard let self, self.buildGeneration == generation else { return }
                 self.days = built
