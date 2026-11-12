@@ -445,17 +445,49 @@ const richMessageFields = {
   nonce: z.string().min(1).max(CHAT_NONCE_MAX).optional(),
 }
 
-/** Геопозиция (`POST /chats/:id/location`). */
+/** Сроки трансляции геопозиции в секундах: 15 минут, час, 8 часов (как в Telegram). */
+export const LIVE_LOCATION_PERIODS = [900, 3600, 28800] as const
+export type LiveLocationPeriod = (typeof LIVE_LOCATION_PERIODS)[number]
+
+/** Точность (м) и направление движения (градусы от севера) точки геопозиции. */
+const locationFix = {
+  accuracy: z.number().min(0).max(100_000).optional(),
+  heading: z.number().min(0).max(360).optional(),
+}
+
+/**
+ * Геопозиция (`POST /chats/:id/location`). С `livePeriod` — трансляция: точку двигает
+ * `POST /chats/messages/:messageId/live-location` до `liveUntil = now + livePeriod`.
+ */
 export const ChatLocationSchema = z
   .object({
     lat: z.number().min(-90).max(90),
     lng: z.number().min(-180).max(180),
     title: z.string().trim().min(1).max(200).optional(),
     address: z.string().trim().min(1).max(300).optional(),
+    livePeriod: z
+      .number()
+      .int()
+      .refine(
+        (v) => (LIVE_LOCATION_PERIODS as readonly number[]).includes(v),
+        vm('validation.chats.livePeriod'),
+      )
+      .optional(),
+    ...locationFix,
     ...richMessageFields,
   })
   .strict()
 export type ChatLocationInput = z.infer<typeof ChatLocationSchema>
+
+/** Новая точка трансляции (`POST /chats/messages/:messageId/live-location`). */
+export const LiveLocationUpdateSchema = z
+  .object({
+    lat: z.number().min(-90).max(90),
+    lng: z.number().min(-180).max(180),
+    ...locationFix,
+  })
+  .strict()
+export type LiveLocationUpdateInput = z.infer<typeof LiveLocationUpdateSchema>
 
 /** Потолки карточки контакта. */
 export const CHAT_CONTACT_LIMITS = { NAME_MAX: 200, ITEMS_MAX: 5, PHONE_MAX: 40 } as const
@@ -524,6 +556,49 @@ export const ChatGifRecentQuerySchema = z
   .object({ limit: z.coerce.number().int().positive().max(50).default(30) })
   .strict()
 export type ChatGifRecentQueryInput = z.infer<typeof ChatGifRecentQuerySchema>
+
+/** Поиск GIF во внешнем каталоге: потолок выдачи за раз и длина запроса. */
+export const GIF_SEARCH_LIMITS = { LIMIT_MAX: 50, LIMIT_DEFAULT: 24, QUERY_MAX: 50 } as const
+
+const gifPage = {
+  offset: z.coerce.number().int().min(0).max(4999).default(0),
+  limit: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(GIF_SEARCH_LIMITS.LIMIT_MAX)
+    .default(GIF_SEARCH_LIMITS.LIMIT_DEFAULT),
+}
+
+/** Популярные GIF каталога (`GET /chats/gifs/trending`). */
+export const ChatGifTrendingQuerySchema = z.object(gifPage).strict()
+export type ChatGifTrendingQueryInput = z.infer<typeof ChatGifTrendingQuerySchema>
+
+/** Поиск GIF в каталоге (`GET /chats/gifs/search`). */
+export const ChatGifSearchQuerySchema = z
+  .object({ q: z.string().trim().min(1).max(GIF_SEARCH_LIMITS.QUERY_MAX), ...gifPage })
+  .strict()
+export type ChatGifSearchQueryInput = z.infer<typeof ChatGifSearchQuerySchema>
+
+/** Внешние каталоги GIF. Сейчас один — GIPHY. */
+export const CHAT_GIF_PROVIDERS = ['giphy'] as const
+
+/**
+ * GIF из внешнего каталога (`POST /chats/:id/gif/external`). Клиент передаёт только id —
+ * адрес картинки сервер берёт у каталога сам (ссылке клиента не верим: SSRF).
+ */
+export const ChatGifExternalSendSchema = z
+  .object({
+    provider: z.enum(CHAT_GIF_PROVIDERS),
+    id: z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[A-Za-z0-9]+$/),
+    ...richMessageFields,
+  })
+  .strict()
+export type ChatGifExternalSendInput = z.infer<typeof ChatGifExternalSendSchema>
 
 /** Опросы чата (`GET /chats/:id/polls`) — свежие первыми. */
 export const ChatPollsQuerySchema = CursorPaginationSchema

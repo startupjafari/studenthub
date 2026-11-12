@@ -75,6 +75,12 @@ export const ErrorCode = {
   // Запрос с тем же ключом идемпотентности ещё выполняется (POST /chats/forward с тем же
   // requestId): повторять его сейчас нечего — ответ появится, когда первый закончится.
   REQUEST_IN_PROGRESS: 'REQUEST_IN_PROGRESS',
+  // Функция выключена конфигурацией сервера (например, поиск GIF без GIPHY_API_KEY): повтор
+  // не поможет, клиент прячет её вход. Отдельно от MAINTENANCE — платформа при этом работает.
+  FEATURE_DISABLED: 'FEATURE_DISABLED',
+  // Трансляция геопозиции уже закончилась (истёк срок или её остановили): точку больше не
+  // двигают. Отдельно от CONFLICT: клиент гасит трансляцию у себя, а не показывает ошибку.
+  LIVE_LOCATION_ENDED: 'LIVE_LOCATION_ENDED',
 } as const
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
@@ -127,6 +133,9 @@ export const ERROR_CODE_STATUS: Record<ErrorCode, number> = {
   LIBRARY_DEBTS_OPEN: 409,
   POLL_CLOSED: 409,
   REQUEST_IN_PROGRESS: 409,
+  // 503 — функция недоступна на этом сервере (не настроена), а не сломана.
+  FEATURE_DISABLED: 503,
+  LIVE_LOCATION_ENDED: 409,
 }
 
 /** Код по умолчанию для HTTP-статуса (для стандартных Nest-исключений без явного кода). */

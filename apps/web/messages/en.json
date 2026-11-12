@@ -1738,7 +1738,9 @@
     "VACANCY_NOT_DELETABLE": "Only a draft can be deleted. Close the vacancy instead — its application history will be kept",
     "COMPANY_INVITE_EMAIL_TAKEN": "This address already has a StudentHub account. Ask for an invitation to a different address",
     "POLL_CLOSED": "The poll is closed — voting is no longer possible",
-    "REQUEST_IN_PROGRESS": "The request is already in progress — please wait"
+    "REQUEST_IN_PROGRESS": "The request is already in progress — please wait",
+    "FEATURE_DISABLED": "This feature is currently unavailable",
+    "LIVE_LOCATION_ENDED": "Live location has already ended"
   },
   "Notifications": {
     "title": "Notifications",
@@ -6797,7 +6799,8 @@
       "scheduleTooFar": "You can schedule at most a year ahead",
       "reactionEmoji": "A reaction must be a single emoji",
       "contactEmpty": "Add at least one phone number or email address",
-      "stickerSlug": "Short name: Latin letters, digits, “-” and “_”, 2 to 64 characters"
+      "stickerSlug": "Short name: Latin letters, digits, “-” and “_”, 2 to 64 characters",
+      "livePeriod": "Live location: 15 minutes, 1 hour or 8 hours"
     },
     "documents": {
       "typeCode": "Code: uppercase Latin letters, digits, underscore"
