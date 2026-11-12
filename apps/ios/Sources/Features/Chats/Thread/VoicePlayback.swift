@@ -29,16 +29,23 @@ struct VoiceAttachmentView: View {
     private var isPlaying: Bool { player?.isPlaying ?? false }
     private var hasStarted: Bool { player?.hasStarted ?? false }
 
+    /// Разобранная запись: из состояния ячейки или — с первого кадра — из кэша. Без кэша
+    /// переиспользованная ячейка на миг показывала «0:00» и запасную волну, а потом
+    /// настоящие, и пузырь менял ширину на глазах.
+    private var resolvedProfile: VoiceProfile? {
+        profile ?? VoiceProfileCache.shared.profile(for: attachment.id)
+    }
+
     /// Длительность: разобранная запись точнее, иначе — из вложения или от проигрывателя.
     private var duration: Double? {
-        if let profile { return profile.duration }
+        if let profile = resolvedProfile { return profile.duration }
         if let ms = attachment.durationMs, ms > 0 { return Double(ms) / 1000 }
         return player?.duration
     }
 
     private var bars: [Double] {
         let count = VoiceWave.barCount(duration: duration)
-        if let profile { return VoiceWave.resample(profile.envelope, count: count) }
+        if let profile = resolvedProfile { return VoiceWave.resample(profile.envelope, count: count) }
         return VoiceWave.seeded(attachment.id, count: count)
     }
 
@@ -70,6 +77,9 @@ struct VoiceAttachmentView: View {
                 Text(verbatim: caption)
                     .font(Typography.tabular(Typography.meta))
                     .foregroundStyle(isOwn ? Palette.primaryForeground.opacity(0.8) : Palette.mutedForeground)
+                    // Длительность ещё неизвестна — место держим, но «0:00» не пишем:
+                    // это неправда, и через миг она сменялась настоящей.
+                    .opacity(duration == nil && !hasStarted ? 0 : 1)
             }
 
             // Скорость — только у начатого голосового, справа, как в вебе и Telegram.
@@ -81,6 +91,7 @@ struct VoiceAttachmentView: View {
         .padding(.vertical, Spacing.xs)
         .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: hasStarted)
         .task(id: attachment.id) {
+            if VoiceProfileCache.shared.profile(for: attachment.id) != nil { return }
             profile = await VoiceProfiles.shared.profile(for: attachment)
         }
     }
@@ -453,9 +464,59 @@ enum VoiceWave {
 }
 
 /// Огибающая записи: громкость по времени (0…1) и точная длительность.
-struct VoiceProfile: Sendable, Equatable {
+struct VoiceProfile: Sendable, Equatable, Codable {
     let envelope: [Double]
     let duration: Double
+}
+
+/// Разобранные волны, доступные синхронно — с первого кадра ячейки. В памяти — до
+/// выхода из приложения, на диске (кэши) — между запусками: голосовое не меняется, и
+/// после перезапуска пузырь сразу встаёт с настоящей длительностью и волной.
+final class VoiceProfileCache: @unchecked Sendable {
+    static let shared = VoiceProfileCache()
+
+    private let lock = NSLock()
+    private var memory: [String: VoiceProfile] = [:]
+    /// Чего нет и на диске — второй раз диск не читаем.
+    private var missing: Set<String> = []
+    private let directory: URL? = FileManager.default
+        .urls(for: .cachesDirectory, in: .userDomainMask).first?
+        .appendingPathComponent("voice-profiles", isDirectory: true)
+
+    func profile(for id: String) -> VoiceProfile? {
+        lock.lock()
+        if let known = memory[id] {
+            lock.unlock()
+            return known
+        }
+        let skip = missing.contains(id)
+        lock.unlock()
+        guard !skip else { return nil }
+        let stored = file(for: id)
+            .flatMap { try? Data(contentsOf: $0) }
+            .flatMap { try? JSONDecoder().decode(VoiceProfile.self, from: $0) }
+        lock.lock()
+        if let stored { memory[id] = stored } else { missing.insert(id) }
+        lock.unlock()
+        return stored
+    }
+
+    func store(_ profile: VoiceProfile, for id: String) {
+        lock.lock()
+        memory[id] = profile
+        missing.remove(id)
+        lock.unlock()
+        guard let directory, let target = file(for: id),
+            let data = try? JSONEncoder().encode(profile)
+        else { return }
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? data.write(to: target, options: .atomic)
+    }
+
+    private func file(for id: String) -> URL? {
+        let safe = id.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? id
+        return directory?.appendingPathComponent("\(safe).json")
+    }
 }
 
 /// Разбор голосовых ради волны. Свой файл читается с диска, чужой скачивается по
@@ -490,6 +551,7 @@ actor VoiceProfiles {
         let result = await task.value
         parsed[id] = .some(result)
         inFlight[id] = nil
+        if let result { VoiceProfileCache.shared.store(result, for: id) }
         return result
     }
 
