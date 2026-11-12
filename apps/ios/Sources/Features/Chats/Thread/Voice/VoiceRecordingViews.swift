@@ -336,7 +336,7 @@ private struct VoicePreviewStrip: View {
             .buttonStyle(.plain)
             .accessibilityLabel(Text(player.isPlaying
                 ? String(localized: "chats.voice.pause", defaultValue: "Пауза")
-                : String(localized: "chats.voice.play", defaultValue: "Прослушать")))
+                : String(localized: "chats.voice.play", defaultValue: "Слушать")))
 
             VoiceEnvelopeView(levels: recorder.envelope, progress: player.progress)
                 .frame(height: 22)

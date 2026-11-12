@@ -16,13 +16,17 @@
     <string name="validation_cameras_hostMissing">The address has no camera host</string>
     <string name="validation_cameras_rtspScheme">The address must start with rtsp://</string>
     <string name="validation_career_slug">Lowercase Latin letters, digits and hyphens only</string>
+    <string name="validation_chats_contactEmpty">Add at least one phone number or email address</string>
     <string name="validation_chats_emptyMessage">The message cannot be empty</string>
+    <string name="validation_chats_livePeriod">Live location: 15 minutes, 1 hour or 8 hours</string>
     <string name="validation_chats_nothingToChange">Nothing to change: enter a title or a description</string>
     <string name="validation_chats_privateOneMember">A private chat is created with exactly one person</string>
     <string name="validation_chats_quoteWithoutReply">A quote is only possible together with a reply</string>
+    <string name="validation_chats_reactionEmoji">A reaction must be a single emoji</string>
     <string name="validation_chats_scheduleInPast">The send time must be in the future</string>
     <string name="validation_chats_scheduleTooFar">You can schedule at most a year ahead</string>
     <string name="validation_chats_spoilerIndexes">Expected attachment numbers separated by commas</string>
+    <string name="validation_chats_stickerSlug">Short name: Latin letters, digits, “-” and “_”, 2 to 64 characters</string>
     <string name="validation_common_duplicateIds">IDs must not repeat</string>
     <string name="validation_common_nothingToChange">Nothing to change</string>
     <string name="validation_common_pageLimit">At most 100 records per page</string>

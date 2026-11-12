@@ -123,7 +123,8 @@ export function ClearanceView() {
           <div className="flex flex-col gap-1">
             <p className="font-semibold">{t('clearTitle')}</p>
             <p className="text-sm">{t('clearBody', { name: c.reader.name, date: checked })}</p>
-            <p className="text-sm text-muted-foreground">{t('certificateHint')}</p>
+            {/* Не muted-foreground: на зелёной подложке он не добирает контраста 4.5:1. */}
+            <p className="text-sm text-foreground/80">{t('certificateHint')}</p>
           </div>
         </Card>
       ) : (
