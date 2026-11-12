@@ -42,6 +42,7 @@ const MODELS = [
   'auditLog',
   'messageReaction',
   'chatPollVote',
+  'chatChecklistItem',
   'chatFolder',
   'scheduledMessage',
   'event',

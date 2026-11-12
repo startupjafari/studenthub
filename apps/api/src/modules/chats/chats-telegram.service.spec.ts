@@ -173,10 +173,9 @@ describe('Повтор отправки по nonce', () => {
   it('повтор, пока первая отправка ещё идёт, — REQUEST_IN_PROGRESS', async () => {
     const { service, redis } = setup()
     redis.store.set('chat:nonce:u1:n1', 'pending')
-    const err = await service
-      .createMessage('u1', { chatId: 'c1', content: 'hi', nonce: 'n1' })
-      .catch((e: { code?: string }) => e)
-    expect(err.code).toBe('REQUEST_IN_PROGRESS')
+    await expect(
+      service.createMessage('u1', { chatId: 'c1', content: 'hi', nonce: 'n1' }),
+    ).rejects.toMatchObject({ code: 'REQUEST_IN_PROGRESS' })
   })
 
   it('сбой отправки снимает ключ — повтор отправит заново', async () => {
@@ -310,19 +309,17 @@ describe('Пересылка пачкой', () => {
   it('тот же requestId, пока первый идёт, — REQUEST_IN_PROGRESS', async () => {
     const ctx = setup()
     ctx.redis.store.set(`chat:fwd:u1:${input.requestId}`, 'pending')
-    const err = await ctx.service
-      .forwardBatch(viewer('u1'), input)
-      .catch((e: { code?: string }) => e)
-    expect(err.code).toBe('REQUEST_IN_PROGRESS')
+    await expect(ctx.service.forwardBatch(viewer('u1'), input)).rejects.toMatchObject({
+      code: 'REQUEST_IN_PROGRESS',
+    })
   })
 
   it('источник не найден — NOT_FOUND, ключ снят для повтора', async () => {
     const ctx = setup()
     ctx.prisma.message.findMany.mockResolvedValue([])
-    const err = await ctx.service
-      .forwardBatch(viewer('u1'), input)
-      .catch((e: { code?: string }) => e)
-    expect(err.code).toBe('NOT_FOUND')
+    await expect(ctx.service.forwardBatch(viewer('u1'), input)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
     expect(ctx.redis.store.has(`chat:fwd:u1:${input.requestId}`)).toBe(false)
   })
 

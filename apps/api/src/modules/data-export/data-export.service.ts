@@ -491,6 +491,7 @@ export class DataExportService {
     const [
       chatReactions,
       chatPollVotes,
+      chatChecklistItems,
       chatFolders,
       scheduledMessages,
       eventsOrganized,
@@ -512,6 +513,13 @@ export class DataExportService {
       this.prisma.chatPollVote.findMany({
         where: { userId },
         select: { pollId: true, optionId: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      // Пункты чек-листов, которые человек добавил сам (свой текст в общем списке).
+      this.prisma.chatChecklistItem.findMany({
+        where: { createdById: userId },
+        select: { checklistId: true, text: true, doneAt: true, createdAt: true },
         orderBy: { createdAt: 'desc' },
         take,
       }),
@@ -618,6 +626,7 @@ export class DataExportService {
     return {
       chatReactions: section(chatReactions, SECTION_LIMIT),
       chatPollVotes: section(chatPollVotes, SECTION_LIMIT),
+      chatChecklistItems: section(chatChecklistItems, SECTION_LIMIT),
       chatFolders: section(chatFolders, SECTION_LIMIT),
       scheduledMessages: section(scheduledMessages, SECTION_LIMIT),
       eventsOrganized: section(eventsOrganized, SECTION_LIMIT),
@@ -1299,6 +1308,18 @@ export const USER_RELATIONS: Readonly<Record<string, { section: string } | { exc
     'MessageReaction.userId': { section: 'chatReactions' },
     'ChatFolder.userId': { section: 'chatFolders' },
     'ChatPollVote.userId': { section: 'chatPollVotes' },
+    'ChatChecklistItem.createdById': { section: 'chatChecklistItems' },
+    'ChatChecklistItem.doneById': {
+      excluded: 'отметка «выполнено» в общем списке переписки — пункт выгружается его автору',
+    },
+    'HiddenMessage.userId': {
+      excluded:
+        'служебная отметка интерфейса «скрыто у себя»: только id сообщения, без содержимого',
+    },
+    'ChatContact.userId': {
+      excluded: 'карточка контакта, которую отправил другой человек; сервер поле не заполняет',
+    },
+    'StickerSet.createdById': { excluded: STAFF_WORK },
     'ScheduledMessage.senderId': { section: 'scheduledMessages' },
     'Event.organizerId': { section: 'eventsOrganized' },
     'EventParticipant.userId': { section: 'events' },
