@@ -27,6 +27,8 @@ struct ChatThreadView: View {
     /// Где на экране панели над перепиской (поиск, закреплённое, трансляция): лента
     /// уходит под них, её отступ сверху — до их низа.
     @State private var topBars: CGRect = .zero
+    /// Открыта панель emoji и стикеров — экран не отступает от клавиатуры.
+    @State private var composerPanelShown = false
     /// Фото и видео сообщения — в своём просмотре, как в Telegram.
     @State private var viewer: ChatMediaViewerRequest?
     /// Что сделать, когда просмотр закроется: лист пересылки поверх него не открыть.
@@ -77,6 +79,10 @@ struct ChatThreadView: View {
             }
         }
         .background { ChatWallpaper().ignoresSafeArea() }
+        // Панель emoji стоит на месте клавиатуры: пока она открыта, уход и приход
+        // клавиатуры не двигает поле ввода.
+        .onPreferenceChange(ComposerPanelShown.self) { composerPanelShown = $0 }
+        .ignoresSafeArea(.keyboard, edges: composerPanelShown ? .bottom : [])
         .navigationBarTitleDisplayMode(.inline)
         // В режиме поиска место шапки занимает поле, как в Telegram; выход — «Отмена».
         .toolbar(search == nil ? .automatic : .hidden, for: .navigationBar)

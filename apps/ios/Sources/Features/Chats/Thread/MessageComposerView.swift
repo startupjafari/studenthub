@@ -173,14 +173,31 @@ struct MessageComposerView: View {
             }
         }
         .animation(Motion.respecting(.spring(duration: 0.3, bounce: 0), reduceMotion: reduceMotion), value: showsPanel)
+        // Пока открыта панель, экран чата не отступает от клавиатуры (`ComposerPanelShown`):
+        // панель и клавиатура сменяют друг друга на одном месте, и поле ввода не прыгает.
+        .preference(key: ComposerPanelShown.self, value: showsPanel)
+        // Клавиатура поднялась поверх панели — панель уходит без анимации: высоты
+        // совпадают, и под полем ничего не сдвигается.
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+            guard showsPanel, isFocused else { return }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { showsPanel = false }
+        }
         .modifier(ComposerBarBackground())
         // «Отправить», вложение, микрофон — клавиатура остаётся, как в мессенджерах.
         .keepsKeyboardOnTap()
         .sensoryFeedback(.impact(weight: .light), trigger: sentTick)
         .voiceRecordingAlerts(recorder)
-        // Касание поля возвращает клавиатуру — панель уступает ей место.
+        // Касание поля возвращает клавиатуру. Панель уступает ей место, когда клавиатура
+        // уже поднялась (`keyboardDidShow` выше); не поднялась (внешняя клавиатура) —
+        // уходит через мгновение сама.
         .onChange(of: isFocused) { _, focused in
-            if focused, showsPanel { showsPanel = false }
+            guard focused, showsPanel else { return }
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(600))
+                if isFocused, showsPanel, KeyboardFrame.shared.top == nil { showsPanel = false }
+            }
         }
         // «Ответить» и «Редактировать» из меню сразу открывают клавиатуру.
         .onChange(of: model.replyTo?.id) { _, id in
@@ -280,10 +297,16 @@ struct MessageComposerView: View {
         Button {
             if showsPanel {
                 isFocused = true
+            } else if KeyboardFrame.shared.top != nil {
+                // С клавиатуры: панель сразу встаёт на её место (без въезда — она под
+                // клавиатурой), и клавиатура уезжает, открывая её. Экран к этому моменту
+                // уже не отступает от клавиатуры — поле стоит на месте.
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { showsPanel = true }
+                DispatchQueue.main.async { isFocused = false }
             } else {
-                // Сначала панель, потом уход клавиатуры: высота под полем не меняется.
                 showsPanel = true
-                isFocused = false
             }
         } label: {
             Image(systemName: showsPanel ? "keyboard" : "face.smiling")
@@ -578,6 +601,16 @@ struct ComposerBarBackground: ViewModifier {
                         .frame(height: 1)
                 }
         }
+    }
+}
+
+/// Открыта ли панель emoji, стикеров и GIF: экран чата на это время не отступает от
+/// клавиатуры.
+struct ComposerPanelShown: PreferenceKey {
+    static let defaultValue = false
+
+    static func reduce(value: inout Bool, nextValue: () -> Bool) {
+        value = value || nextValue()
     }
 }
 
