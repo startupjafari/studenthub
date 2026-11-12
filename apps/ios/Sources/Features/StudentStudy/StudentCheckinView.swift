@@ -58,6 +58,14 @@ struct StudentCheckinView: View {
             .padding(Spacing.xl)
         }
         .background(Palette.background)
+        // Отметка принята или отклонена — ощутимо, не только видно (п. 50 аудита).
+        .sensoryFeedback(trigger: state) { _, new in
+            switch new {
+            case .done: .success
+            case .failed: .error
+            case .scanning, .loading: nil
+            }
+        }
         .navigationTitle(Text(StudentScreen.checkin.title))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

@@ -1,11 +1,19 @@
 import Foundation
 import Observation
 
+/// Реакция на пост — ключ оптимистичного движка: эмодзи поста живут независимо.
+struct PostReactionKey: Hashable, Sendable {
+    let postID: String
+    let emoji: String
+}
+
 /// Лента постов.
 ///
-/// Реакции ставятся оптимистично, как свайпы в списке чатов: палец убрал — цифра
-/// уже изменилась. Отказ сервера откатываем, иначе человек уверен, что поставил
-/// лайк, а его нет.
+/// Реакции, закладки и закрепление ставятся оптимистично (`OptimisticSync`), как свайпы
+/// в списке чатов: палец убрал — цифра уже изменилась. Быстрые повторные нажатия
+/// сливаются, и на сервер уходит только итоговое состояние. Отказ сервера откатываем,
+/// иначе человек уверен, что поставил лайк, а его нет; без связи — тоже откат с
+/// сообщением (`CHANGELOG-PERF.md`, итерация 3).
 @Observable
 final class FeedModel {
     private(set) var posts: [PostDTO] = []
@@ -28,9 +36,15 @@ final class FeedModel {
 
     private let api: FeedFetching
     private var cursor: String?
+    private let reactionSync: OptimisticSync<PostReactionKey, Bool>
+    private let bookmarkSync: OptimisticSync<String, Bool>
+    private let pinSync: OptimisticSync<String, Bool>
 
-    init(api: FeedFetching = FeedAPI()) {
+    init(api: FeedFetching = FeedAPI(), pacing: OptimisticPacing = .standard) {
         self.api = api
+        reactionSync = OptimisticSync(label: "feed.reaction", pacing: pacing)
+        bookmarkSync = OptimisticSync(label: "feed.bookmark", pacing: pacing)
+        pinSync = OptimisticSync(label: "feed.pin", pacing: pacing)
     }
 
     var hasMore: Bool { cursor != nil }
@@ -43,14 +57,15 @@ final class FeedModel {
             isRefreshing = false
             hasLoaded = true
         }
+        let stamp = beginRead()
         do {
             let page = try await api.posts(cursor: nil)
-            posts = page.items
+            posts = page.items.map { resolvePin($0, readAt: stamp) }
             cursor = page.meta?.hasNext == true ? page.meta?.cursor : nil
             myReactions = [:]
             counts = [:]
             bookmarks = []
-            remember(page.items)
+            remember(page.items, readAt: stamp)
             failure = nil
             isOffline = false
         } catch {
@@ -63,16 +78,17 @@ final class FeedModel {
         guard let cursor, !isRefreshing, !isLoadingMore else { return }
         isLoadingMore = true
         defer { isLoadingMore = false }
+        let stamp = beginRead()
         do {
             let page = try await api.posts(cursor: cursor)
             // Пост мог сдвинуться между страницами (закрепили, подняли приоритет) —
             // повтор с тем же id сломал бы идентичность строк в ленте.
             let known = Set(posts.map(\.id))
             let fresh = page.items.filter { !known.contains($0.id) }
-            posts += fresh
+            posts += fresh.map { resolvePin($0, readAt: stamp) }
             // Реакции дозагруженных постов — туда же, иначе со второй страницы все
             // счётчики показывались нулями.
-            remember(fresh)
+            remember(fresh, readAt: stamp)
             self.cursor = page.meta?.hasNext == true ? page.meta?.cursor : nil
             pageFailure = nil
         } catch is CancellationError {
@@ -108,34 +124,48 @@ final class FeedModel {
             .map(\.key)
     }
 
+    /// Поставить или снять реакцию. Состояние меняется сразу; «вкл-выкл-вкл» подряд
+    /// отправляет одно итоговое «вкл». Повтор, уже применённый сервером (409 на
+    /// «поставить», 404 на «снять»), — успех: дубля реакции не будет.
     @MainActor
     func toggle(_ emoji: String, on postID: String) async {
-        let wasMine = isMine(emoji, in: postID)
-        apply(emoji: emoji, postID: postID, mine: !wasMine)
-        do {
-            try await api.react(postID: postID, emoji: emoji, on: !wasMine)
-        } catch {
-            apply(emoji: emoji, postID: postID, mine: wasMine)
+        let shown = isMine(emoji, in: postID)
+        let api = api
+        await reactionSync.set(
+            PostReactionKey(postID: postID, emoji: emoji),
+            to: !shown,
+            current: shown,
+            apply: { [weak self] mine in self?.apply(emoji: emoji, postID: postID, mine: mine) },
+            send: { _, mine in
+                do {
+                    try await api.react(postID: postID, emoji: emoji, on: mine)
+                } catch where error.isAlreadyApplied(turningOn: mine) {}
+                return nil
+            },
             // Отказ действия — не отказ ленты: полоса «данные устарели» здесь солгала бы.
-            actionFailure = message(for: error)
-        }
+            failed: { [weak self] error in self?.actionFailure = error.rollbackMessage }
+        )
     }
 
     // MARK: - Действия над постом
 
     func isBookmarked(_ postID: String) -> Bool { bookmarks.contains(postID) }
 
+    /// Закладка. Сервер — переключатель: запрос уходит, только когда показанное
+    /// расходится с подтверждённым, и ответ сервера (его положение) — правда, которую
+    /// и показываем.
     @MainActor
     func toggleBookmark(_ postID: String) async {
-        let was = isBookmarked(postID)
-        setBookmark(postID, !was)
-        do {
-            // Сервер — переключатель: верим его ответу, а не своему предположению.
-            setBookmark(postID, try await api.toggleBookmark(postID: postID))
-        } catch {
-            setBookmark(postID, was)
-            actionFailure = message(for: error)
-        }
+        let shown = isBookmarked(postID)
+        let api = api
+        await bookmarkSync.set(
+            postID,
+            to: !shown,
+            current: shown,
+            apply: { [weak self] on in self?.setBookmark(postID, on) },
+            send: { _, _ in try await api.toggleBookmark(postID: postID) },
+            failed: { [weak self] error in self?.actionFailure = error.rollbackMessage }
+        )
     }
 
     /// Репост в свою группу. Новый пост встаёт наверх ленты — человек видит результат.
@@ -188,17 +218,23 @@ final class FeedModel {
         }
     }
 
-    /// Закрепить или открепить — только роль выше автора (`canPin`).
+    /// Закрепить или открепить — только роль выше автора (`canPin`). Метка на
+    /// карточке меняется сразу, отказ её возвращает.
     @MainActor
     func setPinned(_ postID: String, _ pinned: Bool) async {
-        do {
-            try await CommunityAPI().setPinned(postID: postID, pinned: pinned)
-            if let index = posts.firstIndex(where: { $0.id == postID }) {
-                posts[index].pinnedAt = pinned ? Date() : nil
-            }
-        } catch {
-            actionFailure = message(for: error)
-        }
+        guard let index = posts.firstIndex(where: { $0.id == postID }) else { return }
+        let shown = posts[index].pinnedAt != nil
+        await pinSync.set(
+            postID,
+            to: pinned,
+            current: shown,
+            apply: { [weak self] on in self?.setPinnedLocally(postID, on) },
+            send: { _, on in
+                try await CommunityAPI().setPinned(postID: postID, pinned: on)
+                return nil
+            },
+            failed: { [weak self] error in self?.actionFailure = error.rollbackMessage }
+        )
     }
 
     /// Опубликовать свой черновик сейчас. Из списка черновиков он уходит.
@@ -231,7 +267,7 @@ final class FeedModel {
     func insert(_ post: PostDTO) {
         posts.removeAll { $0.id == post.id }
         posts.insert(post, at: 0)
-        remember([post])
+        remember([post], readAt: beginRead())
     }
 
     @MainActor
@@ -241,13 +277,59 @@ final class FeedModel {
 
     // MARK: - Внутреннее
 
+    /// Чтение с сервера начинается — отметка для всех движков сразу.
     @MainActor
-    private func remember(_ items: [PostDTO]) {
+    private func beginRead() -> FeedReadStamp {
+        FeedReadStamp(
+            reactions: reactionSync.beginRead(),
+            bookmarks: bookmarkSync.beginRead(),
+            pins: pinSync.beginRead()
+        )
+    }
+
+    /// Реакции и закладки с сервера — поверх них то, что человек нажал и что ещё не
+    /// решено (или подтверждено уже после начала этого чтения): иначе обновление ленты
+    /// посреди запроса возвращало бы снятый лайк на секунду.
+    @MainActor
+    private func remember(_ items: [PostDTO], readAt stamp: FeedReadStamp) {
+        let tracked = Dictionary(grouping: reactionSync.trackedKeys, by: \.postID)
         for post in items {
-            myReactions[post.id] = Set(post.myReactions)
-            counts[post.id] = post.reactions
-            if post.bookmarked == true { bookmarks.insert(post.id) }
+            var mine = Set(post.myReactions)
+            var map = post.reactions
+            for key in tracked[post.id] ?? [] {
+                let server = mine.contains(key.emoji)
+                let shown = reactionSync.resolve(key, server: server, readAt: stamp.reactions)
+                guard shown != server else { continue }
+                if shown {
+                    mine.insert(key.emoji)
+                    map[key.emoji] = (map[key.emoji] ?? 0) + 1
+                } else {
+                    mine.remove(key.emoji)
+                    map[key.emoji] = max(0, (map[key.emoji] ?? 0) - 1)
+                }
+            }
+            myReactions[post.id] = mine
+            counts[post.id] = map
+            let bookmarked = bookmarkSync.resolve(post.id, server: post.bookmarked == true, readAt: stamp.bookmarks)
+            setBookmark(post.id, bookmarked)
         }
+    }
+
+    @MainActor
+    private func resolvePin(_ post: PostDTO, readAt stamp: FeedReadStamp) -> PostDTO {
+        let server = post.pinnedAt != nil
+        let shown = pinSync.resolve(post.id, server: server, readAt: stamp.pins)
+        guard shown != server else { return post }
+        var copy = post
+        copy.pinnedAt = shown ? Date() : nil
+        return copy
+    }
+
+    @MainActor
+    private func setPinnedLocally(_ postID: String, _ pinned: Bool) {
+        guard let index = posts.firstIndex(where: { $0.id == postID }) else { return }
+        guard (posts[index].pinnedAt != nil) != pinned else { return }
+        posts[index].pinnedAt = pinned ? Date() : nil
     }
 
     @MainActor
@@ -267,8 +349,11 @@ final class FeedModel {
         error.userMessage
     }
 
+    /// Показать реакцию. Повторное применение того же состояния ничего не меняет:
+    /// движок зовёт его и при откате, и при поправке сервера.
     @MainActor
     private func apply(emoji: String, postID: String, mine: Bool) {
+        guard isMine(emoji, in: postID) != mine else { return }
         var set = myReactions[postID] ?? []
         var map = counts[postID] ?? [:]
         if mine {
@@ -426,6 +511,13 @@ final class PostCommentsModel {
     }
 }
 
+/// Отметки начала чтения ленты для каждого движка.
+private struct FeedReadStamp {
+    let reactions: OptimisticReadStamp
+    let bookmarks: OptimisticReadStamp
+    let pins: OptimisticReadStamp
+}
+
 /// События и запись на них.
 @Observable
 final class EventsModel {
@@ -435,19 +527,24 @@ final class EventsModel {
     private(set) var failure: String?
 
     private let api: FeedFetching
+    private let registration: OptimisticSync<String, Bool>
 
-    init(api: FeedFetching = FeedAPI()) {
+    init(api: FeedFetching = FeedAPI(), pacing: OptimisticPacing = .standard) {
         self.api = api
+        registration = OptimisticSync(label: "events.register", pacing: pacing)
     }
 
     @MainActor
     func refresh() async {
         isLoading = true
         defer { isLoading = false }
+        let stamp = registration.beginRead()
         do {
             let page = try await api.events(onlyMine: false)
             events = page.items
-            registered = Set(page.items.filter { $0.isRegistered == true }.map(\.id))
+            registered = Set(page.items.filter { event in
+                registration.resolve(event.id, server: event.isRegistered == true, readAt: stamp)
+            }.map(\.id))
             failure = nil
         } catch {
             failure = error.userMessage
@@ -457,33 +554,61 @@ final class EventsModel {
     func isRegistered(_ id: String) -> Bool { registered.contains(id) }
 
     /// Запись тоже оптимистична: человек нажал «пойду» и должен увидеть это сразу,
-    /// а не через круг ожидания.
+    /// а не через круг ожидания. 409 здесь — «мест нет», это отказ, а не «уже записан»:
+    /// откатываем и показываем причину.
     @MainActor
     func toggleRegistration(_ id: String) async {
-        let was = isRegistered(id)
-        if was { registered.remove(id) } else { registered.insert(id) }
-        do {
-            try await api.register(eventID: id, on: !was)
-        } catch {
-            if was { registered.insert(id) } else { registered.remove(id) }
-            failure = error.userMessage
-        }
+        let shown = isRegistered(id)
+        let api = api
+        await registration.set(
+            id,
+            to: !shown,
+            current: shown,
+            apply: { [weak self] on in
+                if on { self?.registered.insert(id) } else { self?.registered.remove(id) }
+            },
+            send: { _, on in
+                do {
+                    try await api.register(eventID: id, on: on)
+                } catch where !on && error.isAlreadyApplied(turningOn: false) {}
+                return nil
+            },
+            failed: { [weak self] error in self?.failure = error.userMessage }
+        )
     }
 }
 
-/// Центр уведомлений и каналы доставки.
+/// Что «прочитано» оптимистично: одно уведомление или все разом.
+enum NotificationReadKey: Hashable, Sendable {
+    case item(String)
+    case all
+}
+
+/// Центр уведомлений.
+///
+/// «Прочитано» и «прочитать все» меняют строки сразу, без перезагрузки списка. Действие
+/// безвредное и идемпотентное: без связи оно не откатывается сразу, а повторяется
+/// (`OptimisticRetryPolicy.retry`); не вышло и с повторами — откат и плашка.
+/// Настройки каналов здесь больше не грузятся: экран их не показывал, а сбой их запроса
+/// ломал весь список (каналы — `NotificationPreferencesModel`).
 @Observable
 final class NotificationsModel {
     private(set) var items: [NotificationDTO] = []
-    private(set) var settings: NotificationSettingsDTO?
     private(set) var isLoading = false
     private(set) var failure: String?
     private(set) var isOffline = false
+    /// Действие не сохранилось — короткая плашка (`actionToast`), не алерт.
+    var actionNotice: String?
 
     private let api: FeedFetching
+    private let readSync: OptimisticSync<NotificationReadKey, Bool>
+    /// До какого момента «прочитать все» действует на строки: уведомление, пришедшее
+    /// после нажатия, остаётся непрочитанным.
+    @ObservationIgnored private var readAllMoment: Date?
 
-    init(api: FeedFetching = FeedAPI()) {
+    init(api: FeedFetching = FeedAPI(), pacing: OptimisticPacing = .standard) {
         self.api = api
+        readSync = OptimisticSync(label: "notifications.read", pacing: pacing)
     }
 
     var unreadCount: Int { items.filter { !$0.isRead }.count }
@@ -492,11 +617,14 @@ final class NotificationsModel {
     func refresh() async {
         isLoading = true
         defer { isLoading = false }
+        let stamp = readSync.beginRead()
         do {
-            items = try await api.notifications(cursor: nil).items
-            settings = try await api.notificationSettings()
+            let fresh = try await api.notifications(cursor: nil).items
+            items = fresh.map { resolveRead($0, readAt: stamp) }
             failure = nil
             isOffline = false
+        } catch is CancellationError {
+            return
         } catch {
             failure = error.userMessage
             isOffline = error.isOffline
@@ -505,29 +633,82 @@ final class NotificationsModel {
 
     @MainActor
     func markRead(_ id: String) async {
-        guard let index = items.firstIndex(where: { $0.id == id }), !items[index].isRead else { return }
-        try? await api.markRead(notificationID: id)
-        await refresh()
+        guard let item = items.first(where: { $0.id == id }), !item.isRead else { return }
+        let api = api
+        await readSync.set(
+            .item(id),
+            to: true,
+            current: false,
+            retry: .retry(attempts: 3),
+            apply: { [weak self] read in self?.setRead(read, ids: [id]) },
+            send: { _, _ in
+                // 404 — уведомления уже нет (удалено, истекло): читать нечего, это не сбой.
+                do {
+                    try await api.markRead(notificationID: id)
+                } catch where error.isAlreadyApplied(turningOn: false) {}
+                return nil
+            },
+            failed: { [weak self] error in self?.actionNotice = error.rollbackMessage }
+        )
     }
 
     @MainActor
     func markAllRead() async {
-        try? await api.markAllRead()
-        await refresh()
+        let unread = items.filter { !$0.isRead }.map(\.id)
+        guard !unread.isEmpty else { return }
+        // Часы сервера и телефона расходятся: граница — не раньше самого свежего из
+        // показанных, иначе оно осталось бы непрочитанным после обновления.
+        let newest = items.map(\.createdAt).max() ?? Date()
+        readAllMoment = max(Date(), newest)
+        let api = api
+        await readSync.set(
+            .all,
+            to: true,
+            current: false,
+            retry: .retry(attempts: 3),
+            apply: { [weak self] read in
+                guard let self else { return }
+                if read {
+                    self.setRead(true, ids: unread)
+                } else {
+                    // Откат «всех» не трогает те, что читаются по одному прямо сейчас.
+                    self.readAllMoment = nil
+                    self.setRead(false, ids: unread.filter { !self.readSync.isPending(.item($0)) })
+                }
+            },
+            send: { _, _ in
+                try await api.markAllRead()
+                return nil
+            },
+            failed: { [weak self] error in self?.actionNotice = error.rollbackMessage }
+        )
+    }
+
+    /// Строка с сервера — поверх неё «прочитано», которое ещё в пути или подтверждено
+    /// уже после начала этого чтения.
+    @MainActor
+    private func resolveRead(_ item: NotificationDTO, readAt stamp: OptimisticReadStamp) -> NotificationDTO {
+        guard !item.isRead else { return item }
+        var shown = readSync.resolve(.item(item.id), server: false, readAt: stamp)
+        if !shown, let moment = readAllMoment, item.createdAt <= moment {
+            shown = readSync.resolve(.all, server: false, readAt: stamp)
+        }
+        guard shown else { return item }
+        var copy = item
+        copy.isRead = true
+        return copy
     }
 
     @MainActor
-    func update(push: Bool? = nil, email: Bool? = nil) async {
-        let next = NotificationSettingsDTO(
-            pushEnabled: push ?? settings?.pushEnabled,
-            emailEnabled: email ?? settings?.emailEnabled
-        )
-        settings = next
-        do {
-            try await api.updateNotificationSettings(next)
-        } catch {
-            failure = error.userMessage
-            await refresh()
+    private func setRead(_ read: Bool, ids: [String]) {
+        guard !ids.isEmpty else { return }
+        let targets = Set(ids)
+        var next = items
+        var changed = false
+        for index in next.indices where targets.contains(next[index].id) && next[index].isRead != read {
+            next[index].isRead = read
+            changed = true
         }
+        if changed { items = next }
     }
 }

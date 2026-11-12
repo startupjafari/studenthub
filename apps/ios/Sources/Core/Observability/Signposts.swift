@@ -17,4 +17,6 @@ enum Signposts {
     static let launch = OSSignposter(subsystem: subsystem, category: "Launch")
     /// Картинки: сеть и декодирование.
     static let images = OSSignposter(subsystem: subsystem, category: "Images")
+    /// Оптимистичные действия: отправка итогового состояния, слияние нажатий, откат.
+    static let actions = OSSignposter(subsystem: subsystem, category: "Actions")
 }

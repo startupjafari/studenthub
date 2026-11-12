@@ -26,6 +26,13 @@ struct CommunityFriendsView: View {
     @State private var requested: Set<String> = []
     @State private var removing: CommunityFriendDTO?
     @State private var failure: String?
+    /// Принять, отклонить, отозвать, убрать — строка уходит из списка сразу и
+    /// возвращается на место при отказе.
+    @State private var rowSync = OptimisticSync<String, Bool>(label: "friends.row")
+    /// Заявка из поиска — «отправлена» сразу.
+    @State private var requestSync = OptimisticSync<String, Bool>(label: "friends.request")
+    /// Принял заявку — тактильный отклик сразу, не по ответу сервера.
+    @State private var acceptedTick = 0
 
     private let api = CommunityAPI()
 
@@ -76,9 +83,10 @@ struct CommunityFriendsView: View {
             title: { String(localized: "community.friends.remove.title", defaultValue: "Убрать \($0.user.name) из друзей?") },
             actionTitle: String(localized: "community.friends.remove", defaultValue: "Убрать из друзей")
         ) { item in
-            await perform(item, in: friends) { try await api.removeFriendship(id: item.friendshipId) }
+            await decline(item, in: friends)
         }
         .actionFailureAlert($failure)
+        .sensoryFeedback(.success, trigger: acceptedTick)
     }
 
     private var isForeign: Bool { userID != nil && userID != viewerID && !viewerID.isEmpty }
@@ -135,7 +143,7 @@ struct CommunityFriendsView: View {
             // для тех, кто привык к нему.
             if tab == .incoming {
                 Button {
-                    Task { await perform(item, in: incoming) { try await api.removeFriendship(id: item.friendshipId) } }
+                    Task { await decline(item, in: incoming) }
                 } label: {
                     Image(systemName: "xmark")
                         .font(.subheadline.weight(.semibold))
@@ -146,10 +154,7 @@ struct CommunityFriendsView: View {
                 .buttonStyle(.borderless)
                 .accessibilityLabel(Text(String(localized: "friends.decline", defaultValue: "Отклонить")))
                 Button {
-                    Task {
-                        await perform(item, in: incoming) { try await api.acceptFriendship(id: item.friendshipId) }
-                        await friends.reload()
-                    }
+                    Task { await accept(item) }
                 } label: {
                     Image(systemName: "checkmark")
                         .font(.subheadline.weight(.semibold))
@@ -171,22 +176,19 @@ struct CommunityFriendsView: View {
                 }
             case .incoming:
                 Button {
-                    Task {
-                        await perform(item, in: incoming) { try await api.acceptFriendship(id: item.friendshipId) }
-                        await friends.reload()
-                    }
+                    Task { await accept(item) }
                 } label: {
                     Label(String(localized: "friends.accept", defaultValue: "Принять"), systemImage: "checkmark")
                 }
                 .tint(Palette.success)
                 Button(role: .destructive) {
-                    Task { await perform(item, in: incoming) { try await api.removeFriendship(id: item.friendshipId) } }
+                    Task { await decline(item, in: incoming) }
                 } label: {
                     Label(String(localized: "friends.decline", defaultValue: "Отклонить"), systemImage: "xmark")
                 }
             case .outgoing:
                 Button(role: .destructive) {
-                    Task { await perform(item, in: outgoing) { try await api.removeFriendship(id: item.friendshipId) } }
+                    Task { await decline(item, in: outgoing) }
                 } label: {
                     Label(String(localized: "community.friends.cancelRequest", defaultValue: "Отозвать"), systemImage: "xmark")
                 }
@@ -195,10 +197,7 @@ struct CommunityFriendsView: View {
         .contextMenu {
             if tab == .incoming {
                 Button {
-                    Task {
-                        await perform(item, in: incoming) { try await api.acceptFriendship(id: item.friendshipId) }
-                        await friends.reload()
-                    }
+                    Task { await accept(item) }
                 } label: {
                     Label(String(localized: "friends.accept", defaultValue: "Принять"), systemImage: "checkmark")
                 }
@@ -290,25 +289,81 @@ struct CommunityFriendsView: View {
         isSearching = false
     }
 
+    /// Заявка из поиска: значок «отправлена» сразу. Повтор заявки, которую сервер уже
+    /// принял (409), — успех: второй заявки не будет.
     @MainActor
     private func add(_ person: SearchResultsDTO.Person) async {
-        do {
-            try await api.requestFriendship(userID: person.id)
-            requested.insert(person.id)
-            await outgoing.reload()
-        } catch {
-            failure = error.userMessage
+        let settlement = await requestSync.set(
+            person.id,
+            to: true,
+            current: requested.contains(person.id),
+            apply: { on in
+                if on { requested.insert(person.id) } else { requested.remove(person.id) }
+            },
+            send: { [api] _, _ in
+                do {
+                    try await api.requestFriendship(userID: person.id)
+                } catch where error.isAlreadyApplied(turningOn: true) {}
+                return nil
+            },
+            failed: { error in failure = error.rollbackMessage }
+        )
+        if settlement == .confirmed { await outgoing.reload() }
+    }
+
+    /// Принять входящую: строка уходит из заявок сразу, список друзей перечитывается
+    /// после подтверждения.
+    @MainActor
+    private func accept(_ item: CommunityFriendDTO) async {
+        acceptedTick += 1
+        let confirmed = await removeRow(item, from: incoming) { [api] in
+            do {
+                try await api.acceptFriendship(id: item.friendshipId)
+            } catch where error.isAlreadyApplied(turningOn: true) {}
+        }
+        if confirmed { await friends.reload() }
+    }
+
+    /// Отклонить входящую, отозвать исходящую, убрать из друзей — одно удаление
+    /// дружбы. Уже удалённая (404) — успех.
+    @MainActor
+    private func decline(_ item: CommunityFriendDTO, in loader: PagedLoader<CommunityFriendDTO>) async {
+        await removeRow(item, from: loader) { [api] in
+            do {
+                try await api.removeFriendship(id: item.friendshipId)
+            } catch where error.isAlreadyApplied(turningOn: false) {}
         }
     }
 
+    /// Строка уходит из списка сразу; отказ возвращает её на прежнее место. Счётчики
+    /// вкладок — после подтверждения.
     @MainActor
-    private func perform(_ item: CommunityFriendDTO, in loader: PagedLoader<CommunityFriendDTO>, _ action: () async throws -> Void) async {
-        do {
-            try await action()
-            loader.remove(id: item.id)
-            counts = try? await api.friendCounts()
-        } catch {
-            failure = error.userMessage
-        }
+    @discardableResult
+    private func removeRow(
+        _ item: CommunityFriendDTO,
+        from loader: PagedLoader<CommunityFriendDTO>,
+        _ action: @escaping @MainActor () async throws -> Void
+    ) async -> Bool {
+        guard let position = loader.items.firstIndex(where: { $0.id == item.id }) else { return false }
+        let settlement = await rowSync.set(
+            item.id,
+            to: false,
+            current: true,
+            apply: { listed in
+                if listed {
+                    loader.insert(item, at: position)
+                } else {
+                    loader.remove(id: item.id)
+                }
+            },
+            send: { _, _ in
+                try await action()
+                return nil
+            },
+            failed: { error in failure = error.rollbackMessage }
+        )
+        guard settlement == .confirmed else { return false }
+        counts = try? await api.friendCounts()
+        return true
     }
 }

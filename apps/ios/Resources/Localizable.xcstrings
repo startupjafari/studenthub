@@ -96508,6 +96508,23 @@
           }
         }
       }
+    },
+    "optimistic.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет связи — изменение не сохранилось"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Байланыс жоқ — өзгеріс сақталмады"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -25,6 +25,9 @@ private struct CommunityEventsList: View {
     }
     @State private var creating = false
     @State private var failure: String?
+    /// Запись свайпом — оптимистично, строка меняется сразу.
+    @State private var registration = OptimisticSync<String, Bool>(label: "events.list.register")
+    @State private var registrationTick = 0
 
     enum Scope: Hashable {
         case upcoming, past, mine
@@ -84,19 +87,28 @@ private struct CommunityEventsList: View {
             CommunityEventEditor(event: nil) { _ in Task { await loader.reload() } }
         }
         .actionFailureAlert($failure)
+        .sensoryFeedback(.success, trigger: registrationTick)
     }
 
     @MainActor
     private func toggle(_ event: CommunityEventDTO) async {
-        let on = event.isRegistered != true
-        do {
-            try await CommunityAPI().setRegistered(eventID: event.id, on)
-            loader.update { items in
-                if let index = items.firstIndex(where: { $0.id == event.id }) { items[index].isRegistered = on }
-            }
-        } catch {
-            failure = error.userMessage
-        }
+        let shown = loader.items.first(where: { $0.id == event.id })?.isRegistered == true
+        registrationTick += 1
+        await registration.set(
+            event.id,
+            to: !shown,
+            current: shown,
+            apply: { on in
+                loader.update { items in
+                    if let index = items.firstIndex(where: { $0.id == event.id }) { items[index].isRegistered = on }
+                }
+            },
+            send: { _, on in
+                try await CommunityAPI().setRegistered(eventID: event.id, on)
+                return nil
+            },
+            failed: { error in failure = error.rollbackMessage }
+        )
     }
 }
 
@@ -109,6 +121,8 @@ struct NotificationsView: View {
 
     @State private var model = NotificationsModel()
     @State private var loadedOnce = false
+    /// «Прочитать все» нажато — тактильный отклик сразу, не по ответу сервера.
+    @State private var readAllTick = 0
 
     var body: some View {
         List {
@@ -172,11 +186,13 @@ struct NotificationsView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
+                    readAllTick += 1
                     Task { await model.markAllRead() }
                 } label: {
                     Image(systemName: "checkmark.circle")
                 }
                 .disabled(model.unreadCount == 0)
+                .sensoryFeedback(.success, trigger: readAllTick)
                 .accessibilityLabel(Text(String(localized: "notifications.readAll", defaultValue: "Прочитать все")))
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -189,6 +205,7 @@ struct NotificationsView: View {
             }
         }
         .pullToRefresh { await model.refresh() }
+        .actionToast($model.actionNotice)
         .task {
             await model.refresh()
             loadedOnce = true

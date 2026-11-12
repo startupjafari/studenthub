@@ -125,8 +125,16 @@ final class PagedLoader<Item: Decodable & Identifiable> {
     }
 
     func remove(id: Item.ID) {
+        let before = items.count
         items.removeAll { $0.id == id }
-        if let total { self.total = max(0, total - 1) }
+        if let total, items.count < before { self.total = max(0, total - 1) }
+    }
+
+    /// Вернуть строку на место — откат оптимистичного удаления. Уже есть — ничего.
+    func insert(_ item: Item, at index: Int) {
+        guard !items.contains(where: { $0.id == item.id }) else { return }
+        items.insert(item, at: min(max(0, index), items.count))
+        if let total { self.total = total + 1 }
     }
 
     private func apply(_ meta: APIMeta?, received: Int, page: Int) {

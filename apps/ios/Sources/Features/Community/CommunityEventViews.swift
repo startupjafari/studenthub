@@ -118,6 +118,11 @@ struct CommunityEventView: View {
     @State private var replyTo: CommunityEventCommentDTO?
     @State private var isSending = false
     @State private var deletingComment: CommunityEventCommentDTO?
+    /// Запись на событие — оптимистично: «Записаться» сразу превращается в «Вы
+    /// записаны», отказ («мест нет») возвращает как было.
+    @State private var registration = OptimisticSync<String, Bool>(label: "event.register")
+    /// Нажали «Записаться» или «Отменить запись» — тактильный отклик сразу.
+    @State private var registrationTick = 0
 
     private let api = CommunityAPI()
 
@@ -177,6 +182,7 @@ struct CommunityEventView: View {
             }
         }
         .actionFailureAlert($actionFailure)
+        .sensoryFeedback(.success, trigger: registrationTick)
     }
 
     private func content(_ event: CommunityEventDTO) -> some View {
@@ -407,8 +413,18 @@ struct CommunityEventView: View {
 
     @MainActor
     private func load() async {
+        let stamp = registration.beginRead()
         do {
-            let loaded = try await api.event(id: eventID)
+            var loaded = try await api.event(id: eventID)
+            // Запись, ещё не решённая сервером, поверх ответа: обновление посреди
+            // запроса не должно на миг вернуть «Записаться».
+            let server = loaded.isRegistered == true
+            let shown = registration.resolve(eventID, server: server, readAt: stamp)
+            if shown != server {
+                loaded.isRegistered = shown
+                let count = loaded.counts?.participants ?? 0
+                loaded.counts = CommunityEventDTO.Counts(participants: max(0, count + (shown ? 1 : -1)))
+            }
             event = loaded
             failure = nil
             await comments.replace { [api, eventID] request in
@@ -440,18 +456,29 @@ struct CommunityEventView: View {
 
     @MainActor
     private func toggleRegistration(_ current: CommunityEventDTO) async {
-        guard !isBusy else { return }
-        isBusy = true
-        defer { isBusy = false }
-        let on = current.isRegistered != true
-        do {
-            try await api.setRegistered(eventID: current.id, on)
-            event?.isRegistered = on
-            let count = current.counts?.participants ?? 0
-            event?.counts = CommunityEventDTO.Counts(participants: max(0, count + (on ? 1 : -1)))
-        } catch {
-            actionFailure = error.userMessage
-        }
+        let shown = current.isRegistered == true
+        registrationTick += 1
+        await registration.set(
+            current.id,
+            to: !shown,
+            current: shown,
+            apply: { on in applyRegistration(on) },
+            send: { [api, eventID] _, on in
+                try await api.setRegistered(eventID: eventID, on)
+                return nil
+            },
+            failed: { error in actionFailure = error.rollbackMessage }
+        )
+    }
+
+    /// Показать запись и поправить число участников. Повтор того же состояния ничего
+    /// не меняет: движок зовёт это и при откате.
+    @MainActor
+    private func applyRegistration(_ on: Bool) {
+        guard let current = event, (current.isRegistered == true) != on else { return }
+        let count = current.counts?.participants ?? 0
+        event?.isRegistered = on
+        event?.counts = CommunityEventDTO.Counts(participants: max(0, count + (on ? 1 : -1)))
     }
 
     /// Ссылка на встречу выдаётся только в окне подключения (за 15 минут до начала).

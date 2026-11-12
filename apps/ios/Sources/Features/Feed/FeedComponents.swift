@@ -93,6 +93,7 @@ struct RemoteImage: View {
 
     @State private var image: UIImage?
     @State private var failed = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -125,7 +126,7 @@ struct RemoteImage: View {
                 return
             }
             let loaded = await ImageMemoryCache.shared.load(url, key: cacheKey, maxPixelSize: maxPixelSize)
-            withAnimation(.easeOut(duration: Motion.Duration.feedback)) {
+            withAnimation(Motion.respecting(.easeOut(duration: Motion.Duration.feedback), reduceMotion: reduceMotion)) {
                 image = loaded
                 failed = loaded == nil
             }
