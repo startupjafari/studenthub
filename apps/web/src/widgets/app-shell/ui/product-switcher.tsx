@@ -52,9 +52,11 @@ export function ProductSwitcher({
   return (
     <HoverCardPrimitive.Root openDelay={120} closeDelay={160}>
       <HoverCardPrimitive.Trigger asChild>
+        {/* Имя кнопки — видимый логотип плюс скрытое «Переключить продукт», а не aria-label:
+            подпись, не содержащая видимого «StudentHub», расходится с тем, что произносит
+            голосовое управление (WCAG 2.5.3, axe label-content-name-mismatch). */}
         <button
           type="button"
-          aria-label={t('switch')}
           className="-ml-1.5 flex shrink-0 cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1 text-left whitespace-nowrap outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/30"
         >
           <GraduationCap className="size-6 shrink-0 text-primary" aria-hidden />
@@ -66,6 +68,7 @@ export function ProductSwitcher({
               </span>
             )}
           </span>
+          <span className="sr-only">{t('switch')}</span>
         </button>
       </HoverCardPrimitive.Trigger>
 
