@@ -110,7 +110,16 @@ describe('Chats (e2e) — функции Telegram-уровня', () => {
     expect(loc.body.data).toEqual(
       expect.objectContaining({
         content: '',
-        location: { lat: 43.238, lng: 76.945, title: 'КазНУ', address: null },
+        location: {
+          lat: 43.238,
+          lng: 76.945,
+          title: 'КазНУ',
+          address: null,
+          liveUntil: null,
+          liveUpdatedAt: null,
+          heading: null,
+          accuracy: null,
+        },
       }),
     )
     await request(server)
@@ -290,6 +299,10 @@ describe('Chats (e2e) — функции Telegram-уровня', () => {
       (c) => c.id === chatId,
     )
     expect(row?.lastMessage?.id).toBe(m1.body.data.id)
+    // Скрытое не числится непрочитанным: в списке и в сводке бейджа — только m1.
+    expect((row as unknown as { unreadCount: number }).unreadCount).toBe(1)
+    const unread = await request(server).get('/api/v1/chats/unread').set(auth(a)).expect(200)
+    expect(unread.body.data).toMatchObject({ chats: 1, messages: 1 })
 
     const updates = await request(server)
       .get(`/api/v1/chats/${chatId}/updates`)
@@ -462,5 +475,130 @@ describe('Chats (e2e) — функции Telegram-уровня', () => {
     })
     expect(after.stickerId).toBeNull()
     expect(await prisma.file.count()).toBe(0)
+  })
+  it('трансляция геопозиции: точка, частота, догон, остановка, пересылка снимком', async () => {
+    const { a, b, chatId } = await pair()
+    const sent = await request(server)
+      .post(`/api/v1/chats/${chatId}/location`)
+      .set(auth(a))
+      .send({ lat: 43.2, lng: 76.9, livePeriod: 900, accuracy: 12, heading: 90 })
+      .expect(201)
+    const messageId = sent.body.data.id as string
+    const loc = sent.body.data.location
+    expect(loc).toMatchObject({ lat: 43.2, lng: 76.9, accuracy: 12, heading: 90 })
+    expect(new Date(loc.liveUntil).getTime() - new Date(loc.liveUpdatedAt).getTime()).toBe(900_000)
+    // Срок только из списка 15 мин / 1 ч / 8 ч.
+    await request(server)
+      .post(`/api/v1/chats/${chatId}/location`)
+      .set(auth(a))
+      .send({ lat: 1, lng: 1, livePeriod: 60 })
+      .expect(422)
+
+    // Чужую трансляцию не двигают.
+    await request(server)
+      .post(`/api/v1/chats/messages/${messageId}/live-location`)
+      .set(auth(b))
+      .send({ lat: 1, lng: 1 })
+      .expect(403)
+
+    // Точка раньше 3 с после предыдущей — ответ текущим состоянием, без записи.
+    const early = await request(server)
+      .post(`/api/v1/chats/messages/${messageId}/live-location`)
+      .set(auth(a))
+      .send({ lat: 50, lng: 50 })
+      .expect(200)
+    expect(early.body.data).toMatchObject({ lat: 43.2, lng: 76.9 })
+
+    // Отметка последней точки — в прошлое: следующая принимается.
+    const sinceSeq = sent.body.data.seq as number
+    const since = new Date().toISOString()
+    await prisma.chatLocation.update({
+      where: { messageId },
+      data: { liveUpdatedAt: new Date(Date.now() - 10_000) },
+    })
+    const moved = await request(server)
+      .post(`/api/v1/chats/messages/${messageId}/live-location`)
+      .set(auth(a))
+      .send({ lat: 43.25, lng: 76.95, heading: 180 })
+      .expect(200)
+    expect(moved.body.data).toMatchObject({
+      lat: 43.25,
+      lng: 76.95,
+      heading: 180,
+      accuracy: null,
+      title: null,
+      address: null,
+    })
+    expect(new Date(moved.body.data.liveUpdatedAt).getTime()).toBeGreaterThan(
+      new Date(since).getTime() - 1000,
+    )
+
+    // Переподключившийся клиент получает сообщение в mutated.
+    const updates = await request(server)
+      .get(`/api/v1/chats/${chatId}/updates`)
+      .query({ since: sinceSeq, sinceTs: since })
+      .set(auth(b))
+      .expect(200)
+    const mutated = updates.body.data.mutated as { id: string; location: { lat: number } }[]
+    expect(mutated.map((m) => m.id)).toEqual([messageId])
+    expect(mutated[0]?.location.lat).toBe(43.25)
+
+    // Пересылка трансляции — статичный снимок.
+    const forwarded = await request(server)
+      .post('/api/v1/chats/forward')
+      .set(auth(b))
+      .send({ messageIds: [messageId], chatIds: [chatId], requestId: randomUUID() })
+      .expect(201)
+    const copyId = forwarded.body.data.results[0].messageIds[0] as string
+    const copy = await prisma.chatLocation.findUniqueOrThrow({ where: { messageId: copyId } })
+    expect(copy).toMatchObject({ lat: 43.25, lng: 76.95, liveUntil: null, liveUpdatedAt: null })
+
+    // Остановка: чужому — 403, автору — liveUntil = сейчас; дальше точки не принимаются.
+    await request(server)
+      .post(`/api/v1/chats/messages/${messageId}/live-location/stop`)
+      .set(auth(b))
+      .expect(403)
+    const stopped = await request(server)
+      .post(`/api/v1/chats/messages/${messageId}/live-location/stop`)
+      .set(auth(a))
+      .expect(200)
+    expect(new Date(stopped.body.data.liveUntil).getTime()).toBeLessThanOrEqual(Date.now())
+    const ended = await request(server)
+      .post(`/api/v1/chats/messages/${messageId}/live-location`)
+      .set(auth(a))
+      .send({ lat: 1, lng: 1 })
+      .expect(409)
+    expect(ended.body.error.code).toBe('LIVE_LOCATION_ENDED')
+
+    // Статичная точка — не трансляция.
+    await request(server)
+      .post(`/api/v1/chats/messages/${copyId}/live-location/stop`)
+      .set(auth(b))
+      .expect(404)
+  })
+
+  it('поиск GIF без GIPHY_API_KEY — 503 FEATURE_DISABLED', async () => {
+    const { a, chatId } = await pair()
+    const trending = await request(server)
+      .get('/api/v1/chats/gifs/trending')
+      .set(auth(a))
+      .expect(503)
+    expect(trending.body.error.code).toBe('FEATURE_DISABLED')
+    await request(server)
+      .get('/api/v1/chats/gifs/search')
+      .query({ q: 'кот' })
+      .set(auth(a))
+      .expect(503)
+    await request(server).get('/api/v1/chats/gifs/search').query({ q: '' }).set(auth(a)).expect(422)
+    await request(server)
+      .post(`/api/v1/chats/${chatId}/gif/external`)
+      .set(auth(a))
+      .send({ provider: 'giphy', id: 'abc123' })
+      .expect(503)
+    await request(server)
+      .post(`/api/v1/chats/${chatId}/gif/external`)
+      .set(auth(a))
+      .send({ provider: 'giphy', id: '../../x' })
+      .expect(422)
   })
 })
