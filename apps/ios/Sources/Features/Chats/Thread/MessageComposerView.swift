@@ -79,7 +79,7 @@ struct MessageComposerView: View {
                             .font(.title3)
                             .foregroundStyle(Palette.mutedForeground)
                             .frame(width: ControlHeight.lg, height: ControlHeight.lg)
-                            .composerGlass(in: Circle())
+                            .composerGlass(in: Circle(), isVisible: !recorder.machine.isActive)
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("chat.attach")
@@ -106,14 +106,20 @@ struct MessageComposerView: View {
                     .overlay(alignment: .bottomTrailing) { expressionButton }
                     // Радиус — половина высоты одной строки: в одну строку поле — капсула,
                     // в несколько — скруглённый прямоугольник, как в Telegram.
-                    .composerGlass(in: RoundedRectangle(cornerRadius: ControlHeight.lg / 2, style: .continuous))
+                    .composerGlass(
+                        in: RoundedRectangle(cornerRadius: ControlHeight.lg / 2, style: .continuous),
+                        isVisible: !recorder.machine.isActive
+                    )
                     .onChange(of: model.draft) {
                         model.draftChanged()
                     }
                 }
                 // Во время записи место скрепки и поля занимает полоса записи. Поле
                 // остаётся в иерархии (прозрачным): клавиатура и черновик не сбрасываются,
-                // а микрофон под пальцем не перестраивается.
+                // а микрофон под пальцем не перестраивается. Стекло поля и скрепки на это
+                // время выключено: стекло в общем контейнере рисует сам контейнер, и
+                // прозрачность его не гасила — скрепка и «Сообщение» проступали сквозь
+                // полосу записи.
                 .opacity(recorder.machine.isActive ? 0 : 1)
                 .allowsHitTesting(!recorder.machine.isActive)
                 .overlay {
@@ -577,12 +583,20 @@ struct ComposerBarBackground: ViewModifier {
 
 extension View {
     /// Элемент панели ввода: на iOS 26 — стекло, раньше — серая заливка.
+    ///
+    /// `isVisible: false` убирает стекло, не меняя устройства вида (`Glass.identity`):
+    /// поле под полосой записи не теряет фокус и черновик.
     @ViewBuilder
-    func composerGlass<S: Shape>(in shape: S) -> some View {
-        if #available(iOS 26, *) {
-            glassSurface(in: shape)
-        } else {
-            background(Palette.muted, in: shape)
-        }
+    func composerGlass<S: Shape>(in shape: S, isVisible: Bool = true) -> some View {
+        #if compiler(>=6.2)
+            if #available(iOS 26, *) {
+                glassEffect(isVisible ? Glass.regular.interactive() : Glass.identity, in: shape)
+                    .contentShape(shape)
+            } else {
+                background(isVisible ? Palette.muted : Color.clear, in: shape)
+            }
+        #else
+            background(isVisible ? Palette.muted : Color.clear, in: shape)
+        #endif
     }
 }
