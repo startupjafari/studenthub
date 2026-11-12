@@ -361,7 +361,7 @@ struct ChatThreadView: View {
     /// Кнопка «вниз»: лента не у низа, а в окне истории — всегда (свежие сообщения
     /// дальше). В поиске её нет: у панели поиска свои стрелки, и два «вниз» сразу путают.
     private func showsDownButton(_ model: ChatThreadModel) -> Bool {
-        search == nil && (!atBottom || model.isDetached)
+        search == nil && !model.isRecordingVoice && (!atBottom || model.isDetached)
     }
 
     /// В окне истории кнопка «вниз» не уходит и у его низа: под ней оставляем место,
