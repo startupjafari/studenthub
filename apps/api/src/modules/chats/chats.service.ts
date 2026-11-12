@@ -21,6 +21,7 @@ import type {
   MessageForwardBatchInput,
   ChatPollsQueryInput,
   ChatLocationInput,
+  LiveLocationUpdateInput,
   ChatContactInput,
   ChatChecklistCreateInput,
   ChatGifRecentQueryInput,
@@ -317,6 +318,26 @@ type ChatLinkRow = {
   linkPreview: Prisma.JsonValue
 }
 
+/**
+ * Геопозиция в клиентской форме. У статичной `liveUntil`/`liveUpdatedAt` — null; трансляция
+ * идёт, пока `liveUntil` в будущем (точку двигает `updateLiveLocation`).
+ */
+export const LOCATION_SELECT = {
+  lat: true,
+  lng: true,
+  title: true,
+  address: true,
+  liveUntil: true,
+  liveUpdatedAt: true,
+  heading: true,
+  accuracy: true,
+} satisfies Prisma.ChatLocationSelect
+
+export type LocationDto = Prisma.ChatLocationGetPayload<{ select: typeof LOCATION_SELECT }>
+
+/** Как часто сервер принимает новую точку трансляции (чаще — ответ без изменений). */
+const LIVE_LOCATION_MIN_INTERVAL_MS = 3000
+
 const MESSAGE_SELECT = {
   id: true,
   chatId: true,
@@ -406,7 +427,7 @@ const MESSAGE_SELECT = {
   },
   // Особые сообщения: геопозиция, карточка контакта, чек-лист, стикер каталога. У таких
   // сообщений `content` пустой, и клиент рисует пузырь по этим полям.
-  location: { select: { lat: true, lng: true, title: true, address: true } },
+  location: { select: LOCATION_SELECT },
   contact: { select: { name: true, phones: true, emails: true, userId: true } },
   checklist: { select: CHECKLIST_SELECT },
   sticker: { select: { id: true, setId: true, emoji: true, width: true, height: true } },
@@ -1702,6 +1723,8 @@ export class ChatsService implements OnModuleInit {
                 { unpinnedAt: { gt: sinceTs } },
                 // Пункты чек-листа: добавили, убрали или отметили.
                 { checklist: { updatedAt: { gt: sinceTs } } },
+                // Трансляция геопозиции: новая точка или остановка.
+                { location: { liveUpdatedAt: { gt: sinceTs } } },
               ],
             },
             select: MESSAGE_SELECT,
@@ -3989,8 +4012,15 @@ export class ChatsService implements OnModuleInit {
     return message
   }
 
-  /** Геопозиция (`POST /chats/:id/location`). */
+  /**
+   * Геопозиция (`POST /chats/:id/location`). С `livePeriod` — трансляция: `liveUntil` через
+   * заданный срок, точку дальше двигает `updateLiveLocation`.
+   */
   async sendLocation(senderId: string, chatId: string, input: ChatLocationInput) {
+    const now = new Date()
+    const live = input.livePeriod
+      ? { liveUntil: new Date(now.getTime() + input.livePeriod * 1000), liveUpdatedAt: now }
+      : {}
     return this.sendRichMessage(senderId, chatId, {
       replyToId: input.replyToId,
       nonce: input.nonce,
@@ -4001,10 +4031,105 @@ export class ChatsService implements OnModuleInit {
             lng: input.lng,
             title: input.title ?? null,
             address: input.address ?? null,
+            heading: input.heading ?? null,
+            accuracy: input.accuracy ?? null,
+            ...live,
           },
         },
       },
     })
+  }
+
+  /**
+   * Новая точка трансляции (`POST /chats/messages/:messageId/live-location`): только
+   * отправитель, только действующим участником и пока трансляция идёт.
+   *
+   * Частота — не чаще раза в 3 секунды на сообщение. Лишняя точка не ошибка: клиент шлёт их
+   * по мере прихода от GPS, и 429 на каждую вторую только шумел бы. Ответ тогда — текущее
+   * состояние без изменений и без события. Проверка и запись — одним условным UPDATE: две
+   * точки, пришедшие одновременно, не пройдут обе.
+   */
+  async updateLiveLocation(
+    userId: string,
+    messageId: string,
+    input: LiveLocationUpdateInput,
+  ): Promise<LocationDto> {
+    const msg = await this.liveLocationOf(userId, messageId)
+    await this.assertMembership(userId, msg.chatId)
+    // Блокировка в личном чате останавливает и трансляцию; антифлуд не трогаем — у точек
+    // своя частота, а потолок запроса — про новые сообщения.
+    await this.assertCanSend(msg.chatId, userId, { skipFlood: true, skipQuota: true })
+    const now = new Date()
+    const { count } = await this.prisma.chatLocation.updateMany({
+      where: {
+        messageId,
+        liveUntil: { gt: now },
+        OR: [
+          { liveUpdatedAt: null },
+          { liveUpdatedAt: { lte: new Date(now.getTime() - LIVE_LOCATION_MIN_INTERVAL_MS) } },
+        ],
+      },
+      data: {
+        lat: input.lat,
+        lng: input.lng,
+        heading: input.heading ?? null,
+        accuracy: input.accuracy ?? null,
+        liveUpdatedAt: now,
+      },
+    })
+    const location = await this.prisma.chatLocation.findUniqueOrThrow({
+      where: { messageId },
+      select: LOCATION_SELECT,
+    })
+    if (count === 0) {
+      if (!location.liveUntil || location.liveUntil.getTime() <= now.getTime()) {
+        throw new AppException('LIVE_LOCATION_ENDED', 'Трансляция геопозиции уже закончилась')
+      }
+      // Слишком часто — отдаём то, что есть.
+      return location
+    }
+    this.emitLocationUpdated(msg.chatId, messageId, location)
+    return location
+  }
+
+  /**
+   * Остановить трансляцию (`POST /chats/messages/:messageId/live-location/stop`): только
+   * отправитель. Уже закончившаяся — ответ текущим состоянием, без события. Членство не
+   * требуется: вышедший из чата должен мочь погасить свою трансляцию.
+   */
+  async stopLiveLocation(userId: string, messageId: string): Promise<LocationDto> {
+    const msg = await this.liveLocationOf(userId, messageId)
+    const now = new Date()
+    const { count } = await this.prisma.chatLocation.updateMany({
+      where: { messageId, liveUntil: { gt: now } },
+      data: { liveUntil: now, liveUpdatedAt: now },
+    })
+    const location = await this.prisma.chatLocation.findUniqueOrThrow({
+      where: { messageId },
+      select: LOCATION_SELECT,
+    })
+    if (count > 0) this.emitLocationUpdated(msg.chatId, messageId, location)
+    return location
+  }
+
+  /** Сообщение-трансляция и его автор: нет такого — 404, чужое — 403. */
+  private async liveLocationOf(
+    userId: string,
+    messageId: string,
+  ): Promise<{ chatId: string; senderId: string | null }> {
+    const msg = await this.prisma.message.findFirst({
+      where: { id: messageId, deletedAt: null, location: { liveUntil: { not: null } } },
+      select: { chatId: true, senderId: true },
+    })
+    if (!msg) throw new AppException('NOT_FOUND', 'Трансляция геопозиции не найдена')
+    if (msg.senderId !== userId) {
+      throw new AppException('FORBIDDEN', 'Трансляцией управляет только её автор')
+    }
+    return msg
+  }
+
+  private emitLocationUpdated(chatId: string, messageId: string, location: LocationDto): void {
+    this.realtime.emitToRoom(`chat:${chatId}`, 'location:updated', { chatId, messageId, location })
   }
 
   /**

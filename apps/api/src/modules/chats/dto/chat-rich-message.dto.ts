@@ -2,9 +2,13 @@ import { createZodDto } from 'nestjs-zod'
 import {
   ChatChecklistCreateSchema,
   ChatContactSchema,
+  ChatGifExternalSendSchema,
   ChatGifRecentQuerySchema,
+  ChatGifSearchQuerySchema,
   ChatGifSendSchema,
+  ChatGifTrendingQuerySchema,
   ChatLocationSchema,
+  LiveLocationUpdateSchema,
   ChatPollsQuerySchema,
   ChatStickerSendSchema,
 } from '@studenthub/shared-schemas'
@@ -17,3 +21,7 @@ export class ChatStickerSendDto extends createZodDto(ChatStickerSendSchema) {}
 export class ChatGifSendDto extends createZodDto(ChatGifSendSchema) {}
 export class ChatGifRecentQueryDto extends createZodDto(ChatGifRecentQuerySchema) {}
 export class ChatPollsQueryDto extends createZodDto(ChatPollsQuerySchema) {}
+export class LiveLocationUpdateDto extends createZodDto(LiveLocationUpdateSchema) {}
+export class ChatGifTrendingQueryDto extends createZodDto(ChatGifTrendingQuerySchema) {}
+export class ChatGifSearchQueryDto extends createZodDto(ChatGifSearchQuerySchema) {}
+export class ChatGifExternalSendDto extends createZodDto(ChatGifExternalSendSchema) {}

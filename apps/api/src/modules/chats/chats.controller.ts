@@ -64,13 +64,16 @@ import { MessageIdsDto } from './dto/message-ids.dto'
 import {
   ChatChecklistCreateDto,
   ChatContactDto,
+  ChatGifExternalSendDto,
   ChatGifRecentQueryDto,
   ChatGifSendDto,
   ChatLocationDto,
   ChatPollsQueryDto,
   ChatStickerSendDto,
+  LiveLocationUpdateDto,
 } from './dto/chat-rich-message.dto'
 import { ChatStickersService } from './chat-stickers.service'
+import { ChatGifsService } from './chat-gifs.service'
 
 // REST для чатов (docs/PROJECT.md §3.6, §8.3): список/создание/история/участники.
 // Real-time (сообщения, typing, статусы) — через ChatGateway (WS).
@@ -82,6 +85,7 @@ export class ChatsController {
     private readonly chats: ChatsService,
     private readonly branding: ExportBrandingService,
     private readonly stickers: ChatStickersService,
+    private readonly gifs: ChatGifsService,
   ) {}
 
   @Get()
@@ -386,7 +390,9 @@ export class ChatsController {
   // ── Особые сообщения: геопозиция, контакт, чек-лист, стикер, GIF ───────────
 
   @Post(':id/location')
-  @ApiOperation({ summary: 'Отправить геопозицию (только участник)' })
+  @ApiOperation({
+    summary: 'Отправить геопозицию (только участник); с livePeriod — трансляцию на 15 мин/1 ч/8 ч',
+  })
   @ApiResponse({ status: 201, description: 'Сообщение создано и разослано (message:new)' })
   sendLocation(
     @CurrentUser() user: CurrentUserData,
@@ -394,6 +400,49 @@ export class ChatsController {
     @Body() dto: ChatLocationDto,
   ) {
     return this.chats.sendLocation(user.sub, id, dto)
+  }
+
+  @Post('messages/:messageId/live-location')
+  @HttpCode(HttpStatus.OK)
+  // Клиент шлёт точку не чаще раза в 3 с; 40/мин — запас на несколько трансляций сразу.
+  @Throttle({ default: { limit: 40, ttl: 60_000 } })
+  @ApiOperation({
+    summary:
+      'Новая точка трансляции геопозиции (только отправитель, пока трансляция идёт; чаще раза в 3 с — без изменений)',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      '{ lat, lng, title, address, liveUntil, liveUpdatedAt, heading, accuracy } — location:updated в чат',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'FORBIDDEN — трансляция не моя; WRONG_SCOPE — не участник',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'NOT_FOUND — нет сообщения-трансляции или я не участник',
+  })
+  @ApiResponse({ status: 409, description: 'LIVE_LOCATION_ENDED — трансляция закончилась' })
+  updateLiveLocation(
+    @CurrentUser() user: CurrentUserData,
+    @Param('messageId') messageId: string,
+    @Body() dto: LiveLocationUpdateDto,
+  ) {
+    return this.chats.updateLiveLocation(user.sub, messageId, dto)
+  }
+
+  @Post('messages/:messageId/live-location/stop')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Остановить трансляцию геопозиции (только отправитель)' })
+  @ApiResponse({ status: 200, description: 'Геопозиция с liveUntil = сейчас — location:updated' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — трансляция не моя' })
+  @ApiResponse({
+    status: 404,
+    description: 'NOT_FOUND — нет сообщения-трансляции или я не участник',
+  })
+  stopLiveLocation(@CurrentUser() user: CurrentUserData, @Param('messageId') messageId: string) {
+    return this.chats.stopLiveLocation(user.sub, messageId)
   }
 
   @Post(':id/contact')
@@ -447,6 +496,26 @@ export class ChatsController {
     @Body() dto: ChatGifSendDto,
   ) {
     return this.chats.sendGif(user.sub, id, dto)
+  }
+
+  @Post(':id/gif/external')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @ApiOperation({
+    summary: 'Отправить GIF из каталога (GIPHY) по id — сервер сам скачивает и хранит копию',
+  })
+  @ApiResponse({ status: 201, description: 'Сообщение создано и разослано (message:new)' })
+  @ApiResponse({
+    status: 404,
+    description: 'NOT_FOUND — GIF нет в каталоге или нет доступа к чату',
+  })
+  @ApiResponse({ status: 422, description: 'VALIDATION_ERROR — GIF больше 10 МБ' })
+  @ApiResponse({ status: 503, description: 'FEATURE_DISABLED — GIPHY_API_KEY не задан' })
+  sendExternalGif(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: ChatGifExternalSendDto,
+  ) {
+    return this.gifs.sendExternal(user.sub, id, dto)
   }
 
   @Get(':id/pinned')
