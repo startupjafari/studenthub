@@ -77,7 +77,7 @@ struct DeanAnalyticsView: View {
                 .presentationDetents([.medium, .large])
         }
         .deanExportSheet(exporter)
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { if overview == nil { await load() } }
     }
 

@@ -108,7 +108,7 @@ struct StaffSecurityJournalsView: View {
         .onChange(of: useDate) { Task { await apply() } }
         .onChange(of: day) { Task { await apply() } }
         .onChange(of: insideOnly) { Task { await apply() } }
-        .refreshable { await loadSummary() }
+        .pullToRefresh { await loadSummary() }
         .task { await loadSummary() }
     }
 

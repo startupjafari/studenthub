@@ -139,7 +139,7 @@ private struct CareerSeekerHomeView: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .refreshable { token += 1 }
+            .pullToRefresh { token += 1 }
         }
         .navigationTitle(Text(CareerScreen.home.title))
     }
@@ -548,7 +548,7 @@ private struct CareerVacancyCard: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .refreshable { token += 1 }
+            .pullToRefresh { token += 1 }
             .task(id: vacancy.id) { kato.request([vacancy.city, vacancy.company?.city]) }
             .sheet(isPresented: $applying) {
                 CareerApplySheet(vacancy: vacancy, profile: details.profile) { token += 1 }
@@ -1163,7 +1163,7 @@ struct CareerProfileView: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .refreshable { token += 1 }
+            .pullToRefresh { token += 1 }
         }
         .navigationTitle(Text(CareerScreen.profile.title))
         .sheet(item: Binding(
@@ -1435,7 +1435,7 @@ struct CareerResumeView: View {
                 .foregroundStyle(Palette.mutedForeground)
             }
             .listStyle(.insetGrouped)
-            .refreshable { token += 1 }
+            .pullToRefresh { token += 1 }
             .sheet(isPresented: $renaming) {
                 CareerResumeTitleForm(title: resume.title) { token += 1 }
             }

@@ -38,7 +38,7 @@ struct StudentTasksView: View {
                     hint: String(localized: "student.tasks.emptyHint", defaultValue: "Всё выполнено. Новые задачи появятся здесь автоматически.")
                 )
             }
-            .refreshable { reloadToken += 1 }
+            .pullToRefresh { reloadToken += 1 }
         }
         .background(Palette.background)
         .navigationTitle(Text(StudentScreen.tasks.title))

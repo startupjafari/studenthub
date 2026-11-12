@@ -58,7 +58,7 @@ struct StudentStudyPlanView: View {
                     hint: String(localized: "student.plan.emptyHint", defaultValue: "Дисциплины появятся после назначения деканатом.")
                 )
             }
-            .refreshable { reloadToken += 1 }
+            .pullToRefresh { reloadToken += 1 }
         }
         .background(Palette.background)
         .navigationTitle(Text(StudentScreen.studyPlan.title))

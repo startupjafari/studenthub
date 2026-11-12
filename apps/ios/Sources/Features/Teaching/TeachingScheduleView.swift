@@ -83,7 +83,7 @@ private struct TeachingScheduleChangesList: View {
                 LoadingStateView()
             }
         }
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task(id: weeks) { await load() }
     }
 
@@ -248,7 +248,7 @@ private struct TeachingPairsEditor: View {
         .sheet(item: Binding(get: { editing.map(TeachingEditedPair.init) }, set: { editing = $0?.pair })) { item in
             TeachingPairForm(scheduleID: containerID, pair: item.pair, viewerID: viewerID) { await loadDetail() }
         }
-        .refreshable { await loadAll() }
+        .pullToRefresh { await loadAll() }
         .task { if groups == nil { await loadAll() } }
         .onChange(of: groupID) { Task { await loadContainers() } }
         .onChange(of: containerID) { Task { await loadDetail() } }

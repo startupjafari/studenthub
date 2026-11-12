@@ -88,7 +88,7 @@ struct PagedList<Item: Decodable & Identifiable, Row: View, Header: View>: View 
                 LoadingStateView()
             }
         }
-        .refreshable { await loader.reload() }
+        .pullToRefresh { await loader.reload() }
         .task { await loader.loadIfNeeded() }
     }
 }

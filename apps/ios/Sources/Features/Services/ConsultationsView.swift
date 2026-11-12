@@ -150,7 +150,7 @@ struct ConsultationsView: View {
         ) { slot in
             await cancel(slot)
         }
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task(id: range) { await load() }
         .actionFailureAlert($actionFailure)
     }
@@ -330,7 +330,7 @@ private struct TeacherSlotsView: View {
         .listSectionSpacing(.compact)
         .navigationTitle(Text(teacher.name))
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
         .sheet(item: $booking) { slot in
             BookSlotSheet(slot: slot) {

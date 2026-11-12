@@ -39,7 +39,7 @@ struct DeanDashboardView: View {
             DeanReportExportSheet(exporter: exporter)
         }
         .deanExportSheet(exporter)
-        .refreshable { await model.load() }
+        .pullToRefresh { await model.load() }
         .task { if !model.isLoaded { await model.load() } }
     }
 

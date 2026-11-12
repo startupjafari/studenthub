@@ -99,7 +99,7 @@ private struct CareerStaffOverview: View {
                 skillsSection(data)
             }
             .dashboardListStyle()
-            .refreshable { token += 1 }
+            .pullToRefresh { token += 1 }
         }
     }
 
@@ -1256,7 +1256,7 @@ struct CareerCompanyView: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .refreshable { token += 1 }
+            .pullToRefresh { token += 1 }
             .task(id: company.id) { kato.request([company.city]) }
             .toolbar {
                 if company.isMember == true, role == .employer {

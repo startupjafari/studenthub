@@ -523,7 +523,7 @@ struct StaffBookDetailView: View {
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(.compact)
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
     }
 
     private func heroActions(_ book: StaffBook, copies: [StaffBookCopy]) -> [HeroAction] {

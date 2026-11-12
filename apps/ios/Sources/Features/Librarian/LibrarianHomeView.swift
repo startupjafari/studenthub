@@ -126,7 +126,7 @@ struct LibrarianHomeView: View {
                     hint: String(localized: "librarian.disabledHint", defaultValue: "Её включает администратор вуза в разделе «Библиотека». Пока модуль выключен, выдача и брони недоступны.")
                 )
             }
-            .refreshable { token += 1 }
+            .pullToRefresh { token += 1 }
         }
         .background(Palette.background)
         .navigationTitle(Text(LibrarianScreen.home.title))

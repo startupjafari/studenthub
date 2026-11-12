@@ -186,7 +186,7 @@ private struct NameCatalogView: View {
             await remove(item)
         }
         .actionFailureAlert($actionFailure)
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
     }
 
@@ -618,7 +618,7 @@ struct UAdminGroupDetailView: View {
             Text(change.message)
         }
         .actionFailureAlert($actionFailure)
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
     }
 

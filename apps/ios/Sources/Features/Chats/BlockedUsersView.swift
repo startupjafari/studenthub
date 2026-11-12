@@ -152,7 +152,7 @@ struct BlockedUsersView: View {
                 .accessibilityLabel(Text(String(localized: "chats.blocked.add", defaultValue: "Заблокировать пользователя")))
             }
         }
-        .refreshable { await model.load() }
+        .pullToRefresh { await model.load() }
         .task {
             // Пришли из настроек — список уже там загружен; повторно не тянем.
             if model.users == nil { await model.load() }

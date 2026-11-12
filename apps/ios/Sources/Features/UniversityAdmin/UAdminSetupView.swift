@@ -30,7 +30,7 @@ struct UAdminSetupView: View {
         .alert(String(localized: "uadmin.setup.launched", defaultValue: "Вуз запущен"), isPresented: $launched) {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}
         }
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
     }
 

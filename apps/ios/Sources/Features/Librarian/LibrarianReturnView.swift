@@ -169,7 +169,7 @@ struct LibrarianReturnView: View {
             }
             await loadOverdue()
         }
-        .refreshable { await loadOverdue() }
+        .pullToRefresh { await loadOverdue() }
         .task { await loadOverdue() }
         .sensoryFeedback(trigger: returned.count) { _, _ in
             returned.first?.heldFor == nil ? .success : .warning

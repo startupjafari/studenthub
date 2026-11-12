@@ -97,7 +97,7 @@ struct StaffPostsView: View {
                 }
             }
             .background(Palette.background)
-            .refreshable { await model.refresh() }
+            .pullToRefresh { await model.refresh() }
         }
         .navigationTitle(Text(StaffScreen.posts.title))
         .adminFloatingAction(canPost, String(localized: "staff.post.new", defaultValue: "Новая публикация"), symbol: "square.and.pencil") {

@@ -227,7 +227,7 @@ private struct TeachingMaterialDetailView: View {
         }
         .remoteFilePreview(opener)
         .actionFailureAlert($actionFailure)
-        .refreshable { await loader.reload() }
+        .pullToRefresh { await loader.reload() }
     }
 
     @MainActor

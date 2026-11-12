@@ -247,7 +247,7 @@ struct SavedPostsView: View {
         .background(Palette.background)
         .navigationTitle(Text(String(localized: "saved.title", defaultValue: "Сохранённое")))
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await feed.refresh() }
+        .pullToRefresh { await feed.refresh() }
         .task { await feed.refresh() }
     }
 }

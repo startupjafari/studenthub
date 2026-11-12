@@ -395,7 +395,7 @@ struct StaffEventDetailView: View {
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(.compact)
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
     }
 
     /// Круглые кнопки шапки: участвовать, войти во встречу, организатор, изменить.

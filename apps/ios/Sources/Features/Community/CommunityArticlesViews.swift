@@ -60,7 +60,7 @@ struct CommunityArticlesView: View {
                     hint: emptyHint
                 )
             }
-            .refreshable { reload += 1 }
+            .pullToRefresh { reload += 1 }
         }
         .background(Palette.background)
         .navigationTitle(Text(CommunityScreen.articles(userID: nil).title))
@@ -313,7 +313,7 @@ struct CommunityArticleView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { scrollTopInset = $0 }
-            .refreshable { await load() }
+            .pullToRefresh { await load() }
         }
         .toolbar {
             if isOwn(article) {

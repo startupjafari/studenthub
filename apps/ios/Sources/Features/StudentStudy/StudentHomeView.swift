@@ -44,7 +44,7 @@ struct StudentHomeView: View {
         }
         .dashboardListStyle()
         .navigationTitle(Text(AppTab.home.title))
-        .refreshable {
+        .pullToRefresh {
             async let pairs: Void = schedule.refresh()
             async let rest: Void = load()
             async let me: Void = viewer.refresh()

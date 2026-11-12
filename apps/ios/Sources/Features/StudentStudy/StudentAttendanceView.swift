@@ -61,7 +61,7 @@ struct StudentAttendanceView: View {
                     hint: String(localized: "student.attendance.emptyHint", defaultValue: "Отметки появятся после занятий.")
                 )
             }
-            .refreshable { reloadToken += 1 }
+            .pullToRefresh { reloadToken += 1 }
         }
         .background(Palette.background)
         .navigationTitle(Text(StudentScreen.attendance.title))

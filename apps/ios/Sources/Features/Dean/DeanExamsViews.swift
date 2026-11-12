@@ -89,7 +89,7 @@ struct DeanExamsView: View {
             }
         }
         .floatingAction(String(localized: "dean.exams.new", defaultValue: "Назначить экзамен")) { creating = true }
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task(id: QueryKey(tab: tab, periodOn: periodOn, from: periodFrom, to: periodTo)) {
             let key = QueryKey(tab: tab, periodOn: periodOn, from: periodFrom, to: periodTo)
             // Другая вкладка или период — прежний список уже не ответ: загрузка с нуля.
@@ -444,7 +444,7 @@ struct DeanExamRosterView: View {
                 }
             }
         }
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { if roster == nil { await load() } }
         .sheet(isPresented: $editingExam) {
             if let exam {

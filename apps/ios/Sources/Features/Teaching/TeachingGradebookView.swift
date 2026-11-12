@@ -112,7 +112,7 @@ struct TeachingGradebookCourseView: View {
             }
         }
         .actionFailureAlert($actionFailure)
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
     }
 

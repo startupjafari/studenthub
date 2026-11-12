@@ -259,7 +259,7 @@ struct CommunityTelegramLinkView: View {
         .compactListStyle()
         .hardTopEdge()
         .navigationTitle(Text(CommunityScreen.telegramLink.title))
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
         .alert(
             String(localized: "community.telegram.revoke.title", defaultValue: "Отвязать Telegram?"),
@@ -373,7 +373,7 @@ struct CommunityMyPostsView: View {
                 }
             }
             .background(Palette.background)
-            .refreshable { await feed.refresh() }
+            .pullToRefresh { await feed.refresh() }
         }
         .navigationTitle(Text(CommunityScreen.myPosts.title))
         .navigationBarTitleDisplayMode(.inline)

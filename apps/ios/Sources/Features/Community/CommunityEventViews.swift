@@ -262,7 +262,7 @@ struct CommunityEventView: View {
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(.compact)
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
     }
 
     /// Главные действия кругами под шапкой: запись, встреча, правка.

@@ -229,7 +229,7 @@ struct AdminDocumentAccessView: View {
         .listStyle(.insetGrouped)
         .listSectionSpacing(.compact)
         .navigationTitle(Text(AdminScreen.documentAccess.title))
-        .refreshable { await loadLog() }
+        .pullToRefresh { await loadLog() }
         .task { await loadLog() }
         .remoteFilePreview(opener)
     }

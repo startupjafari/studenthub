@@ -90,7 +90,7 @@ struct LibraryBookView: View {
         }
         .navigationTitle(Text(String(localized: "library.book", defaultValue: "Книга")))
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await model?.load() }
+        .pullToRefresh { await model?.load() }
         .task {
             if model == nil { model = LibraryBookModel(bookID: bookID) }
             await model?.load()

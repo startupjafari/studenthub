@@ -172,7 +172,7 @@ struct TeachingAttendanceJournalView: View {
             }
         }
         .navigationTitle(Text(TeacherScreen.attendanceJournal.title))
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task(id: TeachingAPI.day(date)) { await load() }
         // Вернулись из отметки — признак «отмечено» должен обновиться без жеста.
         .onAppear { if pairs != nil { Task { await loadMarked() } } }

@@ -89,7 +89,7 @@ struct UAdminAnalyticsView: View {
                 .presentationDetents([.medium, .large])
         }
         .onChange(of: facultyID) { _, _ in Task { await loadFaculty() } }
-        .refreshable { await loadFaculty() }
+        .pullToRefresh { await loadFaculty() }
         .task { if faculties == nil { await loadFaculties() } }
     }
 

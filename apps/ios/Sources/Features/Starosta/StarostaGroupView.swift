@@ -87,7 +87,7 @@ struct StarostaGroupView: View {
             text: $query,
             prompt: Text(String(localized: "starosta.group.search", defaultValue: "Найти по имени"))
         )
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task(id: viewer.profile?.groupId) { await load() }
     }
 

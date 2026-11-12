@@ -65,7 +65,7 @@ struct UAdminCampusListView: View {
             CampusPropertiesForm(campus: nil) { await load() }
                 .presentationDetents([.medium, .large])
         }
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
     }
 
@@ -228,7 +228,7 @@ struct UAdminCampusDetailView: View {
         ) {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}
         }
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task { await load() }
     }
 

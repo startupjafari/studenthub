@@ -188,7 +188,7 @@ struct NotificationsView: View {
                 .accessibilityLabel(Text(String(localized: "notifications.settings", defaultValue: "Настройки уведомлений")))
             }
         }
-        .refreshable { await model.refresh() }
+        .pullToRefresh { await model.refresh() }
         .task {
             await model.refresh()
             loadedOnce = true

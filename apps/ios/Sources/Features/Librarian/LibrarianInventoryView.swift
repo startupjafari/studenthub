@@ -154,7 +154,7 @@ struct LibrarianInventoryView: View {
                 remember(result)
             }
         }
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .task(id: sinceRaw) { await load() }
     }
 

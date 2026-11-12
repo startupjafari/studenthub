@@ -53,7 +53,7 @@ struct StudentExamsView: View {
                     )
                 }
             }
-            .refreshable { reloadToken += 1 }
+            .pullToRefresh { reloadToken += 1 }
         }
         .background(Palette.background)
         .navigationTitle(Text(String(localized: "student.exams.title", defaultValue: "Экзамены и сессия")))

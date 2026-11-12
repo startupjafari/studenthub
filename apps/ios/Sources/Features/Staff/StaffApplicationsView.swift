@@ -512,7 +512,7 @@ struct StaffApplicationDetailView: View {
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(.compact)
-        .refreshable { await load() }
+        .pullToRefresh { await load() }
         .safeAreaInset(edge: .bottom) {
             actionBar(app)
         }

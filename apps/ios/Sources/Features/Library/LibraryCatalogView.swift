@@ -70,7 +70,7 @@ struct LibraryCatalogView: View {
                 }
             }
         }
-        .refreshable { await model.refresh() }
+        .pullToRefresh { await model.refresh() }
         .task(id: model.query) {
             // Возврат с карточки книги не перезагружает список: подгруженные страницы
             // и прокрутка остаются на месте. Свежее — по жесту обновления.
