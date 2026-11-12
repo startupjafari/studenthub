@@ -86,6 +86,15 @@ struct ChatThreadView: View {
         .navigationBarTitleDisplayMode(.inline)
         // В режиме поиска место шапки занимает поле, как в Telegram; выход — «Отмена».
         .toolbar(search == nil ? .automatic : .hidden, for: .navigationBar)
+        // Пока набирают запрос, кнопки поиска стоят над клавиатурой, как в Telegram:
+        // нижняя панель в это время под ней.
+        .toolbar {
+            if let model, let search {
+                ToolbarItemGroup(placement: .keyboard) {
+                    searchPanel(search, model: model, overKeyboard: true)
+                }
+            }
+        }
         .toolbar {
             if let model, model.isSelecting {
                 selectionToolbar(model)
@@ -289,29 +298,7 @@ struct ChatThreadView: View {
                 if let search {
                     // Писать во время поиска некуда: поле ввода уступает место панели
                     // со счётчиком и стрелками.
-                    ChatSearchPanel(
-                        search: search,
-                        isGroup: bubbleContext(model).isGroup,
-                        showsList: showsSearchList,
-                        onCalendar: {
-                            calendarDay = search.current?.createdAt ?? Date()
-                            showsCalendar = true
-                        },
-                        onSender: { pickingSearchSender = true },
-                        onList: { showsSearchList.toggle() },
-                        onOlder: {
-                            showsSearchList = false
-                            Task {
-                                if let found = await search.older() { await model.jump(to: found.id) }
-                            }
-                        },
-                        onNewer: {
-                            showsSearchList = false
-                            if let found = search.newer() {
-                                Task { await model.jump(to: found.id) }
-                            }
-                        }
-                    )
+                    searchPanel(search, model: model, overKeyboard: false)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else if model.isSelecting {
                     // Поле ввода на время выбора уступает место панели действий.
@@ -508,6 +495,35 @@ struct ChatThreadView: View {
         withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) {
             search = ChatThreadSearch(chatID: chatID)
         }
+    }
+
+    /// Кнопки поиска: календарь, автор, список, счётчик и стрелки. `overKeyboard` — над
+    /// клавиатурой, без своей подложки и отступов панели.
+    private func searchPanel(_ search: ChatThreadSearch, model: ChatThreadModel, overKeyboard: Bool) -> ChatSearchPanel {
+        ChatSearchPanel(
+            search: search,
+            isGroup: bubbleContext(model).isGroup,
+            showsList: showsSearchList,
+            overKeyboard: overKeyboard,
+            onCalendar: {
+                calendarDay = search.current?.createdAt ?? Date()
+                showsCalendar = true
+            },
+            onSender: { pickingSearchSender = true },
+            onList: { showsSearchList.toggle() },
+            onOlder: {
+                showsSearchList = false
+                Task {
+                    if let found = await search.older() { await model.jump(to: found.id) }
+                }
+            },
+            onNewer: {
+                showsSearchList = false
+                if let found = search.newer() {
+                    Task { await model.jump(to: found.id) }
+                }
+            }
+        )
     }
 
     private func closeSearch() {
