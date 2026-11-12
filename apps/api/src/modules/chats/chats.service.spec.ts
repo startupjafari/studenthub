@@ -1199,7 +1199,8 @@ describe('ChatsService.toggleReaction (одна реакция на сообще
   })
 
   // BUG-179: схема пропускала любую строку до 16 знаков — под сообщением появлялись слова.
-  it('эмодзи не из набора реакций → BAD_REQUEST, но свою прежнюю снять можно', async () => {
+  // Теперь принимается любой ОДИН эмодзи, но не текст.
+  it('не эмодзи → BAD_REQUEST, но свою прежнюю снять можно', async () => {
     const { service, prisma } = setup()
     prisma.message.findFirst.mockResolvedValue({ id: 'm1', chatId: 'c1' })
     prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1' })
