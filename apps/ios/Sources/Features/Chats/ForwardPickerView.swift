@@ -42,32 +42,33 @@ struct ForwardPickerView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
+            List(filtered) { row in
+                Button {
+                    toggle(row.id)
+                } label: {
+                    ForwardTargetRow(row: row, isSelected: selected.contains(row.id), showsMark: multiple || !selected.isEmpty)
+                }
+                .accessibilityAddTraits(selected.contains(row.id) ? .isSelected : [])
+            }
+            .listStyle(.plain)
+            .overlay {
+                if loaded, filtered.isEmpty {
+                    EmptyStateView(
+                        title: query.trimmingCharacters(in: .whitespaces).isEmpty
+                            ? String(localized: "chats.empty", defaultValue: "Чатов пока нет")
+                            : String(localized: "services.notFound", defaultValue: "Ничего не нашлось"),
+                        symbol: query.trimmingCharacters(in: .whitespaces).isEmpty ? "bubble.left.and.bubble.right" : "magnifyingglass"
+                    )
+                }
+            }
+            // Папки и нижняя панель висят над списком, как в Telegram: строки уезжают под
+            // них и плавно тают, а не обрываются чертой у края полосы.
+            .softEdgeBar(edge: .top) {
                 FilterChips(options: tabOptions, selection: $tab)
                     .padding(.horizontal, Spacing.xl)
                     .padding(.vertical, Spacing.sm)
-
-                List(filtered) { row in
-                    Button {
-                        toggle(row.id)
-                    } label: {
-                        ForwardTargetRow(row: row, isSelected: selected.contains(row.id), showsMark: multiple || !selected.isEmpty)
-                    }
-                    .accessibilityAddTraits(selected.contains(row.id) ? .isSelected : [])
-                }
-                .listStyle(.plain)
-                .overlay {
-                    if loaded, filtered.isEmpty {
-                        EmptyStateView(
-                            title: query.trimmingCharacters(in: .whitespaces).isEmpty
-                                ? String(localized: "chats.empty", defaultValue: "Чатов пока нет")
-                                : String(localized: "services.notFound", defaultValue: "Ничего не нашлось"),
-                            symbol: query.trimmingCharacters(in: .whitespaces).isEmpty ? "bubble.left.and.bubble.right" : "magnifyingglass"
-                        )
-                    }
-                }
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) { bottomPanel }
+            .softEdgeBar(edge: .bottom) { bottomPanel }
             .searchable(
                 text: $query,
                 placement: .navigationBarDrawer(displayMode: .always),
@@ -151,7 +152,6 @@ struct ForwardPickerView: View {
         }
         .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.md)
-        .background(.bar)
         .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: selected.isEmpty)
     }
 
