@@ -151,6 +151,10 @@ extension URL {
     /// Путь от корня API (`/api/v1/media/…`) — к хосту API из конфигурации.
     static func apiRooted(_ path: String) -> URL? {
         if path.hasPrefix("http") { return URL(string: path) }
+        // Свой файл на устройстве (снимок из переписки до отправки или уже скачанный):
+        // приклеенный к адресу API, он превращался в ссылку в никуда, и «Поделиться»
+        // висело на загрузке.
+        if path.hasPrefix("file:") { return URL(string: path) }
         var components = URLComponents(url: AppConfiguration.apiBaseURL, resolvingAgainstBaseURL: false)
         components?.path = ""
         components?.query = nil

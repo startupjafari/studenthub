@@ -682,7 +682,14 @@ struct ChatThreadView: View {
             date: message.createdAt,
             onShowInChat: { pendingViewerAction = .jump(message.id) },
             onReply: { pendingViewerAction = .reply },
-            onForward: { pendingViewerAction = .forward }
+            forward: {
+                AnyView(ForwardPickerView(messages: [message]) { targets, comment, requestID in
+                    guard let model else { return ForwardOutcome() }
+                    let outcome = await model.forward([message], to: targets, comment: comment, requestID: requestID)
+                    if outcome.isComplete { showToast(ChatPlural.forwardedTo(outcome.delivered.count)) }
+                    return outcome
+                })
+            }
         )
     }
 
