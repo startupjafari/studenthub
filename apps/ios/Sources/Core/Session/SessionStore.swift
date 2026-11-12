@@ -12,6 +12,13 @@ actor SessionStore: AuthorizationProvider {
     private let auth: SessionRefreshing
     private let secrets: SecretStore
     private let cookies: RefreshCookieStore
+    /// Фоновое задание ОС вокруг продления. Реальное — в приложении
+    /// (`UIKitBackgroundActivity`), в тестах — пустышка: хранилище сессии UIKit не знает.
+    private let background: BackgroundActivity
+    /// Пауза перед единственным повтором продления, ответ на которое потерялся.
+    private let lossRetryDelay: Duration
+    /// Повтор после потерянного ответа уже назначен — второго не будет до успеха.
+    private var retriedAfterLoss = false
 
     private var token: AccessToken?
     private var inFlightRefresh: Task<AccessToken?, Never>?
@@ -22,8 +29,13 @@ actor SessionStore: AuthorizationProvider {
     /// продление ждёт ответа дольше (`AuthAPI.refreshTimeout`) и продолжается фоном.
     static let tokenWait: Duration = .seconds(10)
     /// За сколько до истечения токен продлевается заранее, фоном: запросы не ждут
-    /// продления, а сбитые на минуту-другую часы устройства не дают 401.
-    static let earlyRefresh: TimeInterval = 5 * 60
+    /// продления, а сбитые на минуту-другую часы устройства не дают 401. Не больше трети
+    /// срока жизни токена — короткоживущий иначе продлевался бы сразу после выдачи.
+    static let earlyRefreshCap: TimeInterval = 5 * 60
+
+    static func earlyRefreshWindow(for token: AccessToken) -> TimeInterval {
+        min(earlyRefreshCap, token.lifetime / 3)
+    }
     /// Последнее продление не дало ответа по существу: не было сети или сервер ответил
     /// 5xx. Сессия при этом жива — решить, что она кончилась, может только отказ сервера.
     private var refreshUndecided = false
@@ -33,11 +45,15 @@ actor SessionStore: AuthorizationProvider {
     init(
         auth: SessionRefreshing = AuthAPI(),
         secrets: SecretStore = Keychain(),
-        cookies: RefreshCookieStore = RefreshCookieJar.shared
+        cookies: RefreshCookieStore = RefreshCookieJar.shared,
+        background: BackgroundActivity = NoBackgroundActivity(),
+        lossRetryDelay: Duration = .milliseconds(2500)
     ) {
         self.auth = auth
         self.secrets = secrets
         self.cookies = cookies
+        self.background = background
+        self.lossRetryDelay = lossRetryDelay
     }
 
     /// Был ли вход на этом устройстве. По нему холодный старт решает, пробовать
@@ -117,7 +133,33 @@ actor SessionStore: AuthorizationProvider {
     /// Токен ещё действует, но скоро истечёт — продление уходит фоном, запрос идёт со
     /// старым токеном и не ждёт.
     private func refreshEarlyIfNeeded(_ current: AccessToken) {
-        guard !current.isUsable(at: Date().addingTimeInterval(Self.earlyRefresh)) else { return }
+        let window = Self.earlyRefreshWindow(for: current)
+        guard !current.isUsable(at: Date().addingTimeInterval(window)) else { return }
+        _ = startRefresh()
+    }
+
+    /// Данные устройства разблокированы впервые после включения — доводим продление,
+    /// отложенное из-за запертой связки ключей.
+    func resumeAfterUnlock() {
+        guard !secrets.isLocked, refreshUndecided, hasStoredSession, token?.isUsable() != true else { return }
+        _ = startRefresh()
+    }
+
+    /// Ответ на продление потерялся (обрыв, таймаут): сервер мог уже ротировать токен.
+    /// Один повтор через пару секунд — тем же единственным продлением — успевает в окно,
+    /// где сервер отдаёт уже выданного преемника, а не считает повтор кражей.
+    private func scheduleRetryAfterLoss() {
+        guard !retriedAfterLoss else { return }
+        retriedAfterLoss = true
+        let delay = lossRetryDelay
+        Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            await self?.retryAfterLoss()
+        }
+    }
+
+    private func retryAfterLoss() {
+        guard refreshUndecided, hasStoredSession, !secrets.isLocked else { return }
         _ = startRefresh()
     }
 
@@ -251,9 +293,9 @@ actor SessionStore: AuthorizationProvider {
     /// токена, не замораживается до ответа — иначе ротированный сервером токен до нас
     /// не дошёл бы.
     private func performRefresh() async -> AccessToken? {
-        let activity = await BackgroundActivity.begin("session.refresh")
+        let activity = await background.begin("session.refresh")
         let refreshed = await refreshNow()
-        await BackgroundActivity.end(activity)
+        await background.end(activity)
         return refreshed
     }
 
@@ -271,17 +313,20 @@ actor SessionStore: AuthorizationProvider {
         do {
             let refreshed = adopt(try await auth.refresh())
             Signposts.launch.endInterval("TokenRefresh", signpost, "refreshed")
+            retriedAfterLoss = false
             return refreshed
         } catch {
             // Сессия невосстановима — забываем её, иначе каждый следующий запрос
             // будет заново ломиться в обновление.
             if let apiError = error as? APIError, apiError.code?.meansSessionExpired == true {
                 Signposts.launch.endInterval("TokenRefresh", signpost, "expired")
+                retriedAfterLoss = false
                 forgetSession()
                 sessionEnded?()
             } else {
                 Signposts.launch.endInterval("TokenRefresh", signpost, "failed")
                 refreshUndecided = true
+                if case .transport? = error as? APIError { scheduleRetryAfterLoss() }
             }
             return nil
         }

@@ -34,7 +34,7 @@ struct RootView: View {
             .task {
                 // База (открытие и миграции) поднимается фоном, пока идёт восстановление
                 // сессии: иначе её открывал бы первый кадр оболочки на главном потоке.
-                Task.detached(priority: .userInitiated) { _ = AppServices.database }
+                AppServices.databaseHolder.prewarm()
                 // Версию и сессию спрашиваем разом: они не зависят друг от друга, а
                 // по очереди это лишняя секунда к запуску.
                 async let version: Void = update.check()

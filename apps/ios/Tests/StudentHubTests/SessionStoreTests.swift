@@ -259,6 +259,58 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(secrets.value(for: .refreshToken), "rt-1")
     }
 
+    /// Ответ на продление потерялся (обрыв) — через пару секунд один повтор тем же
+    /// единственным продлением: успевает в окно, где сервер отдаёт уже выданного преемника.
+    func testLostRefreshResponseIsRetriedOnce() async throws {
+        let secrets = MemorySecrets()
+        secrets.set("rt-1", for: .refreshToken)
+        secrets.set("1", for: .sessionPresent)
+        let auth = StubAuth(token: longLivedToken)
+        await auth.failNext(with: .transport(URLError(.networkConnectionLost)))
+        let store = makeStore(auth: auth, secrets: secrets, lossRetryDelay: .milliseconds(50))
+
+        let first = await store.refreshedAccessToken()
+        XCTAssertNil(first)
+        try await Task.sleep(for: .milliseconds(400))
+
+        let calls = await auth.refreshCalls
+        XCTAssertEqual(calls, 2)
+        let token = await store.accessToken()
+        XCTAssertEqual(token, longLivedToken)
+    }
+
+    /// Связку ключей разблокировали — отложенное из-за неё продление доводится.
+    func testUnlockResumesDeferredRefresh() async {
+        let secrets = MemorySecrets()
+        secrets.set("rt-1", for: .refreshToken)
+        secrets.set("1", for: .sessionPresent)
+        secrets.locked = true
+        let auth = StubAuth(token: longLivedToken)
+        let store = makeStore(auth: auth, secrets: secrets)
+
+        let locked = await store.refreshedAccessToken()
+        XCTAssertNil(locked)
+        secrets.locked = false
+        await store.resumeAfterUnlock()
+        let token = await store.refreshedAccessToken()
+
+        XCTAssertEqual(token, longLivedToken)
+        let calls = await auth.refreshCalls
+        XCTAssertEqual(calls, 1)
+    }
+
+    /// Запас продления заранее — 5 минут, но не больше трети срока жизни токена.
+    func testEarlyRefreshWindowIsCappedByLifetime() {
+        let usual = AccessToken(raw: makeToken(expiringIn: 15 * 60, issuedAgo: 0))!
+        let short = AccessToken(raw: makeToken(expiringIn: 6 * 60, issuedAgo: 0))!
+        let withoutIssueTime = AccessToken(raw: makeToken(expiringIn: 60))!
+
+        XCTAssertEqual(SessionStore.earlyRefreshWindow(for: usual), 5 * 60, accuracy: 1)
+        XCTAssertEqual(SessionStore.earlyRefreshWindow(for: short), 2 * 60, accuracy: 1)
+        // Без `iat` — срок жизни по умолчанию сервера, 15 минут.
+        XCTAssertEqual(SessionStore.earlyRefreshWindow(for: withoutIssueTime), 5 * 60, accuracy: 1)
+    }
+
     // MARK: - Выход без сети
 
     /// Выход не дошёл до сервера — он откладывается вместе с refresh-токеном и токеном
@@ -306,17 +358,19 @@ final class SessionStoreTests: XCTestCase {
     }
 
     /// Токен с заданным сроком — для проверок «скоро истечёт».
-    private func makeToken(expiringIn seconds: TimeInterval) -> String {
+    private func makeToken(expiringIn seconds: TimeInterval, issuedAgo: TimeInterval? = nil) -> String {
         func encode(_ json: String) -> String {
             Data(json.utf8).base64EncodedString()
                 .replacingOccurrences(of: "+", with: "-")
                 .replacingOccurrences(of: "/", with: "_")
                 .replacingOccurrences(of: "=", with: "")
         }
-        let exp = Int(Date().addingTimeInterval(seconds).timeIntervalSince1970)
+        let now = Date()
+        let exp = Int(now.addingTimeInterval(seconds).timeIntervalSince1970)
+        let iat = issuedAgo.map { #","iat":\#(Int(now.addingTimeInterval(-$0).timeIntervalSince1970))"# } ?? ""
         let header = encode(#"{"alg":"HS256","typ":"JWT"}"#)
         let payload = encode(
-            #"{"sub":"user-soon","role":"TEACHER","universityId":"u-9","facultyId":null,"groupId":null,"tfa":true,"exp":"# + "\(exp)}"
+            #"{"sub":"user-soon","role":"TEACHER","universityId":"u-9","facultyId":null,"groupId":null,"tfa":true,"exp":"# + "\(exp)\(iat)}"
         )
         return "\(header).\(payload).signature"
     }
@@ -324,9 +378,15 @@ final class SessionStoreTests: XCTestCase {
     private func makeStore(
         auth: StubAuth? = nil,
         secrets: MemorySecrets = MemorySecrets(),
-        cookies: MemoryCookies = MemoryCookies()
+        cookies: MemoryCookies = MemoryCookies(),
+        lossRetryDelay: Duration = .seconds(60)
     ) -> SessionStore {
-        SessionStore(auth: auth ?? StubAuth(token: longLivedToken), secrets: secrets, cookies: cookies)
+        SessionStore(
+            auth: auth ?? StubAuth(token: longLivedToken),
+            secrets: secrets,
+            cookies: cookies,
+            lossRetryDelay: lossRetryDelay
+        )
     }
 }
 
