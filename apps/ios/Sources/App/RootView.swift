@@ -37,6 +37,7 @@ struct RootView: View {
                 AppServices.databaseHolder.prewarm()
                 // Каталоги кеша экранов от прежних сборок и записи сверх лимитов — фоном.
                 ScreenCacheStore.shared.housekeeping()
+                ImageDiskCache.shared.housekeeping()
                 // Версию и сессию спрашиваем разом: они не зависят друг от друга, а
                 // по очереди это лишняя секунда к запуску.
                 async let version: Void = update.check()

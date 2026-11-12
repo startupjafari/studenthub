@@ -12,8 +12,17 @@ import os
 /// На ключ хранится одна копия — самая крупная из декодированных: аватар, уже
 /// показанный крупно, подходит и мелкой ячейке, а мелкая копия под крупную цель —
 /// повод декодировать заново (`image(for:satisfying:)`).
+///
+/// Это первый уровень. Второй — диск (`ImageDiskCache`, исходные байты); загрузка —
+/// одна на картинку для всех ждущих (`ImageDownloads`). Порядок: память → диск → сеть.
 final class ImageMemoryCache: @unchecked Sendable {
     static let shared = ImageMemoryCache()
+
+    private let downloads: ImageDownloads
+
+    init(downloads: ImageDownloads = .shared) {
+        self.downloads = downloads
+    }
 
     private final class Entry {
         let image: UIImage
@@ -96,13 +105,7 @@ final class ImageMemoryCache: @unchecked Sendable {
     func load(_ url: URL, key: String, target: ImageTarget?) async -> UIImage? {
         if let cached = image(for: key, satisfying: target) { return cached }
         let generation = currentGeneration
-        let fetch = Signposts.images.beginInterval("ImageFetch")
-        let loaded = try? await URLSession.shared.data(from: url)
-        Signposts.images.endInterval("ImageFetch", fetch, "bytes: \(loaded?.0.count ?? 0)")
-        guard
-            let (data, response) = loaded,
-            (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true
-        else { return nil }
+        guard let data = await bytes(for: url) else { return nil }
         // Ячейка ушла с экрана, пока шла сеть: декодировать уже незачем.
         guard !Task.isCancelled else { return nil }
         guard let decoded = await Self.decode(data, target: target) else { return nil }
@@ -111,6 +114,17 @@ final class ImageMemoryCache: @unchecked Sendable {
         guard currentGeneration == generation else { return nil }
         store(decoded, for: key)
         return image(for: key, satisfying: target) ?? decoded.image
+    }
+
+    /// Исходные байты: свой файл — прямо с диска, по сети — через общий загрузчик
+    /// (диск кеша, затем сеть, одна загрузка на картинку).
+    private func bytes(for url: URL) async -> Data? {
+        if url.isFileURL {
+            return await Task.detached(priority: Task.currentPriority) {
+                try? Data(contentsOf: url, options: .mappedIfSafe)
+            }.value
+        }
+        return await downloads.data(for: url)
     }
 
     /// Декодирование в отдельной задаче — явно не на главном потоке, кто бы ни звал.

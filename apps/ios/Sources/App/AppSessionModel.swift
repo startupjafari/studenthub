@@ -168,6 +168,9 @@ enum LocalData {
         await AppServices.attachmentURLs.clear()
         // Фото, аватары и свои вложения прежнего человека — тоже его данные.
         ImageMemoryCache.shared.removeAll()
+        // И с диска — все картинки, аватары тоже: платформа закрытая, а смена аккаунта не
+        // должна показать чужое ни на кадр (итерация 6).
+        ImageDiskCache.shared.eraseAll()
         // Разобранные тексты и превью фото — тоже его данные, хоть и в памяти.
         RichText.clearCache()
         LQIP.clearCache()

@@ -78,6 +78,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         AppServices.databaseHolder.prewarm()
         // Уборка кеша экранов, отложенная запуском до разблокировки (файлы были заперты).
         ScreenCacheStore.shared.housekeeping()
+        ImageDiskCache.shared.housekeeping()
         let syncDeferred = deferredSync
         deferredSync = false
         Task {
