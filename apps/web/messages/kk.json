@@ -2444,6 +2444,10 @@
     "uploadingPercent": "Медиа жүктелуде… {percent}%"
   },
   "Chats": {
+    "tabMusic": "Музыка",
+    "tabGif": "GIF",
+    "tabPolls": "Сауалнамалар",
+    "sharedLoadError": "Материалдарды жүктеу мүмкін болмады",
     "checklistAddItem": "Тармақ қосу",
     "checklistNewItem": "Жаңа тармақ",
     "checklistAddCancel": "Қосудан бас тарту",

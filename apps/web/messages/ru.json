@@ -2444,6 +2444,10 @@
     "uploadingPercent": "Загружаем медиа… {percent}%"
   },
   "Chats": {
+    "tabMusic": "Музыка",
+    "tabGif": "GIF",
+    "tabPolls": "Опросы",
+    "sharedLoadError": "Не удалось загрузить материалы",
     "checklistAddItem": "Добавить пункт",
     "checklistNewItem": "Новый пункт",
     "checklistAddCancel": "Отменить добавление",

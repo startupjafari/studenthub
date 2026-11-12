@@ -2444,6 +2444,10 @@
     "uploadingPercent": "Uploading media… {percent}%"
   },
   "Chats": {
+    "tabMusic": "Music",
+    "tabGif": "GIFs",
+    "tabPolls": "Polls",
+    "sharedLoadError": "Couldn't load shared content",
     "checklistAddItem": "Add item",
     "checklistNewItem": "New item",
     "checklistAddCancel": "Cancel adding",
