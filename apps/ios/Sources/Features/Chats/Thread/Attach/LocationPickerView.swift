@@ -105,38 +105,40 @@ struct LocationPickerView: View {
                     .foregroundStyle(Palette.mutedForeground)
                     .multilineTextAlignment(.center)
                 }
-                if let location = provider.location {
-                    sendRow(
-                        title: String(localized: "chats.location.mine", defaultValue: "Отправить моё местоположение"),
-                        subtitle: String(
-                            localized: "chats.location.accuracy",
-                            defaultValue: "Точность \(Int(location.horizontalAccuracy.rounded())) м"
-                        ),
-                        symbol: "location.fill"
-                    ) {
-                        await send(location.coordinate, title: nil)
+                // Трансляция и точка с карты — карточкой, как списки в Telegram.
+                if (provider.location != nil && onSendLive != nil) || center != nil {
+                    VStack(spacing: 0) {
+                        if provider.location != nil, onSendLive != nil {
+                            sendRow(
+                                title: String(localized: "chats.live.share", defaultValue: "Транслировать геопозицию"),
+                                subtitle: String(
+                                    localized: "chats.live.shareHint",
+                                    defaultValue: "Участники увидят, как вы перемещаетесь, пока трансляция идёт"
+                                ),
+                                symbol: "location.circle"
+                            ) {
+                                choosingLivePeriod = true
+                            }
+                        }
+                        if let center {
+                            if provider.location != nil, onSendLive != nil {
+                                Divider().padding(.leading, Spacing.xl + 28 + Spacing.lg)
+                            }
+                            sendRow(
+                                title: String(localized: "chats.location.point", defaultValue: "Отправить эту точку"),
+                                subtitle: address ?? Self.coordinates(center),
+                                symbol: "mappin.and.ellipse"
+                            ) {
+                                await send(center, title: nil)
+                            }
+                        }
                     }
+                    .background(Palette.secondary, in: RoundedRectangle(cornerRadius: Radius.xxl, style: .continuous))
                 }
-                if provider.location != nil, onSendLive != nil {
-                    sendRow(
-                        title: String(localized: "chats.live.share", defaultValue: "Транслировать геопозицию"),
-                        subtitle: String(
-                            localized: "chats.live.shareHint",
-                            defaultValue: "Участники увидят, как вы перемещаетесь, пока трансляция идёт"
-                        ),
-                        symbol: "location.circle.fill"
-                    ) {
-                        choosingLivePeriod = true
-                    }
-                }
-                if let center {
-                    sendRow(
-                        title: String(localized: "chats.location.point", defaultValue: "Отправить эту точку"),
-                        subtitle: address ?? Self.coordinates(center),
-                        symbol: "mappin.and.ellipse"
-                    ) {
-                        await send(center, title: nil)
-                    }
+                // Главное действие — большой капсулой внизу, как «Отправить геопозицию»
+                // в Telegram; пока точка не определена — подпись об этом.
+                if provider.isAllowed || provider.status == .notDetermined {
+                    sendMineButton
                 }
             }
             .padding(Spacing.lg)
@@ -174,18 +176,49 @@ struct LocationPickerView: View {
         }
     }
 
+    private var sendMineButton: some View {
+        Button {
+            guard let location = provider.location else { return }
+            Task { await send(location.coordinate, title: nil) }
+        } label: {
+            VStack(spacing: 0) {
+                Text(String(localized: "chats.location.mine", defaultValue: "Отправить моё местоположение"))
+                    .font(Typography.body.weight(.semibold))
+                Group {
+                    if let location = provider.location {
+                        Text(String(
+                            localized: "chats.location.accuracy",
+                            defaultValue: "Точность \(Int(location.horizontalAccuracy.rounded())) м"
+                        ))
+                    } else {
+                        Text(String(localized: "chats.location.locating", defaultValue: "Определение геопозиции…"))
+                    }
+                }
+                .font(Typography.meta)
+                .opacity(0.8)
+            }
+            .foregroundStyle(Palette.primaryForeground)
+            .frame(maxWidth: .infinity, minHeight: 54)
+            .background(Palette.primary.opacity(provider.location == nil ? 0.5 : 1), in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(provider.location == nil)
+    }
+
     private func sendRow(title: String, subtitle: String, symbol: String, action: @escaping () async -> Void) -> some View {
         Button {
             Task { await action() }
         } label: {
             HStack(spacing: Spacing.lg) {
                 Image(systemName: symbol)
-                    .foregroundStyle(Palette.primaryForeground)
-                    .frame(width: 40, height: 40)
-                    .background(Palette.primary, in: Circle())
+                    .font(.title3)
+                    .foregroundStyle(Palette.primary)
+                    .frame(width: 28)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(Typography.body.weight(.semibold))
+                        .font(Typography.body)
                         .foregroundStyle(Palette.primary)
                     Text(subtitle)
                         .font(Typography.meta)
@@ -194,6 +227,8 @@ struct LocationPickerView: View {
                 }
                 Spacer(minLength: 0)
             }
+            .padding(.horizontal, Spacing.xl)
+            .padding(.vertical, Spacing.md)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -94972,23 +94972,6 @@
         }
       }
     },
-    "chats.attach.scanHint": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Страницы соберутся в один PDF"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Беттер бір PDF-ке жиналады"
-          }
-        }
-      }
-    },
     "chats.attach.selected": {
       "extractionState": "manual",
       "localizations": {
@@ -96192,6 +96175,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Соңғыларды тазалау"
+          }
+        }
+      }
+    },
+    "chats.location.locating": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Определение геопозиции…"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Геопозиция анықталуда…"
           }
         }
       }
