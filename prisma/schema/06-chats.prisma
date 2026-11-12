@@ -392,12 +392,19 @@ model HiddenMessage {
 }
 
 /// Геопозиция в сообщении. Координаты WGS84; title/address — подпись места от отправителя.
+/// Трансляция (live location): liveUntil — до какого момента отправитель двигает точку
+/// (null — статичная), liveUpdatedAt — время последней точки (по нему /updates отдаёт
+/// сообщение в mutated). heading — направление в градусах от севера, accuracy — точность в м.
 model ChatLocation {
-  messageId String  @id @map("message_id")
-  lat       Float
-  lng       Float
-  title     String?
-  address   String?
+  messageId     String    @id @map("message_id")
+  lat           Float
+  lng           Float
+  title         String?
+  address       String?
+  liveUntil     DateTime? @map("live_until")
+  liveUpdatedAt DateTime? @map("live_updated_at")
+  heading       Float?
+  accuracy      Float?
 
   message Message @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
