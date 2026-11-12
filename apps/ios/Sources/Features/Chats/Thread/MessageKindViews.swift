@@ -156,12 +156,30 @@ struct ContactMessageView: View {
     @State private var showsActions = false
     @State private var copiedTick = 0
 
+    /// Инициалы на цветном кружке, как у контакта в Telegram. Обычный аватар без фото —
+    /// фирменный цвет на его же тоне — на своём синем пузыре сливался в пустое место.
+    private var initialsCircle: some View {
+        let letters = contact.name.split(separator: " ").prefix(2).compactMap(\.first)
+        return Text(verbatim: letters.isEmpty ? "?" : String(letters).uppercased())
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(Palette.primaryForeground)
+            .frame(width: 44, height: 44)
+            .background {
+                if isOwn {
+                    Circle().fill(Palette.primaryForeground.opacity(0.25))
+                } else {
+                    Circle().fill(SenderColor.color(for: contact.name).gradient)
+                }
+            }
+            .accessibilityHidden(true)
+    }
+
     var body: some View {
         Button {
             showsActions = true
         } label: {
             HStack(spacing: Spacing.lg) {
-                AvatarView(url: nil, name: contact.name, size: 44)
+                initialsCircle
                 VStack(alignment: .leading, spacing: 2) {
                     Text(contact.name)
                         .font(Typography.body.weight(.semibold))
