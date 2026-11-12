@@ -1188,11 +1188,14 @@
     <string name="chats_attach_asFilesHint">Сығусыз: әңгімелесуші алдын ала көріністі емес, файлдарды көреді.</string>
     <string name="chats_attach_assetUnavailable">«Фото» ішіндегі файлды оқу мүмкін болмады</string>
     <string name="chats_attach_audio">Дыбыс</string>
+    <string name="chats_attach_audioFromFiles">Файлдардан таңдау</string>
+    <string name="chats_attach_audioHint">«Файлдар» ішіндегі музыка мен жазбалар — чатта ойнатқышпен</string>
     <string name="chats_attach_caption">Түсініктеме</string>
     <string name="chats_attach_checklist">Тізім</string>
     <string name="chats_attach_clearSelection">Тазалау</string>
     <string name="chats_attach_fromFiles">«Файлдар» ішінен таңдау</string>
     <string name="chats_attach_fromFilesHint">PDF, Office құжаттары, архивтер, бейне — 500 МБ-қа дейін</string>
+    <string name="chats_attach_fromGallery">Галереядан таңдау</string>
     <string name="chats_attach_gallery">Галерея</string>
     <string name="chats_attach_limitedHint">Қолданбаға тек өзіңіз таңдаған фотолар көрінеді</string>
     <string name="chats_attach_location">Геолокация</string>
@@ -1270,6 +1273,9 @@
     <string name="chats_contact_mail">%1$s адресіне жазу</string>
     <string name="chats_contact_phones">Телефон</string>
     <string name="chats_contact_title">Контакт</string>
+    <string name="chats_contacts_denied">Контактілерге рұқсат жоқ. Контактіні жүйелік терезеде таңдауға немесе баптауларда рұқсат беруге болады.</string>
+    <string name="chats_contacts_prompt">Кімнің контактісін жіберу керегін таңдау үшін контактілерге рұқсат беріңіз</string>
+    <string name="chats_contacts_systemPicker">«Контактілер» ішінен таңдау</string>
     <string name="chats_copied">Мәтін көшірілді</string>
     <string name="chats_count_few">%1$s чат</string>
     <string name="chats_count_many">%1$s чат</string>

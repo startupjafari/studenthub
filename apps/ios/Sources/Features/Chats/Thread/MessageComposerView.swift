@@ -25,6 +25,9 @@ struct MessageComposerView: View {
     @State private var showsPanel = false
     @State private var creatingChecklist = false
     @State private var pickingContact = false
+    /// «Выбрать из Галереи» во вкладке «Файл»: снимки уходят файлами.
+    @State private var pickingPhotoFiles = false
+    @State private var photoFiles: [PhotosPickerItem] = []
     @State private var contactToSend: ContactCardDraft?
     @State private var showsCamera = false
     /// Выбранное к отправке — открыт лист вложений.
@@ -254,6 +257,22 @@ struct MessageComposerView: View {
             ChecklistComposerView { title, items, othersCanAdd, othersCanMark in
                 await model.sendChecklist(title: title, items: items, othersCanAdd: othersCanAdd, othersCanMark: othersCanMark)
             }
+            // Компактно, как разделы листа вложений; выше — потянув за ручку.
+            .presentationDetents([.medium, .large])
+        }
+        .photosPicker(
+            isPresented: $pickingPhotoFiles,
+            selection: $photoFiles,
+            maxSelectionCount: AttachmentUploader.albumLimit,
+            matching: .any(of: [.images, .videos])
+        )
+        .onChange(of: photoFiles) { _, items in
+            guard !items.isEmpty else { return }
+            photoFiles = []
+            let draft = openDraft()
+            // Снимки из вкладки «Файл» — файлами, без сжатия, как в Telegram.
+            draft.asFiles = true
+            Task { await draft.add(photos: items) }
         }
         .sheet(isPresented: $pickingContact) {
             ContactPicker(
@@ -374,6 +393,8 @@ struct MessageComposerView: View {
         case .files:
             importTypes = [.item]
             showsFileImporter = true
+        case .photosAsFiles:
+            pickingPhotoFiles = true
         case .audio:
             importTypes = [.audio]
             showsFileImporter = true
@@ -385,6 +406,8 @@ struct MessageComposerView: View {
             creatingChecklist = true
         case .contact:
             pickingContact = true
+        case .contactCard(let contact):
+            contactToSend = contact
         }
     }
 
