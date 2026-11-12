@@ -49,7 +49,7 @@ struct SupportView: View {
             }
         }
         .settingsFormLayout()
-        .hardTopEdge()
+        .softTopEdge()
         .scrollDismissesKeyboard(.interactively)
         .navigationTitle(Text(String(localized: "settings.support", defaultValue: "Поддержка")))
         .navigationBarTitleDisplayMode(.inline)
@@ -162,7 +162,7 @@ struct DeleteAccountView: View {
             }
         }
         .settingsFormLayout()
-        .hardTopEdge()
+        .softTopEdge()
         // Проверка ещё идёт или не пришла — состояние по центру экрана, как на других
         // разделах, а не строкой формы под панелью.
         .screenState(check == nil) {

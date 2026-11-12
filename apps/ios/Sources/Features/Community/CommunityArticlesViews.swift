@@ -202,9 +202,8 @@ struct CommunityArticleView: View {
             }
         }
         .background(Palette.background)
-        // Текст статьи уходит под панель с плотным краем: мягкий край оставлял строки
-        // видными сквозь размытие прямо под заголовком «Статья».
-        .hardTopEdge()
+        // Текст статьи плавно тает под панелью, без резкой границы.
+        .softTopEdge()
         .navigationTitle(Text(CommunityScreen.article(id: articleID).title))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -976,7 +975,7 @@ struct CommunityArticleEditor: View {
             .listSectionSpacing(.compact)
             .contentMargins(.top, Spacing.sm, for: .scrollContent)
             .scrollDismissesKeyboard(.interactively)
-            .hardTopEdge()
+            .softTopEdge()
             .background(Palette.background)
             .navigationTitle(Text(article == nil
                 ? String(localized: "community.articles.new", defaultValue: "Написать статью")

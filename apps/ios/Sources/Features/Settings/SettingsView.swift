@@ -213,7 +213,7 @@ struct SettingsView: View {
         // Шапка — сразу под панелью, без пустой полосы, которую список ставит над
         // первой секцией.
         .contentMargins(.top, Spacing.sm, for: .scrollContent)
-        .hardTopEdge()
+        .softTopEdge()
         .navigationTitle(Text(String(localized: "more.settings", defaultValue: "Настройки")))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -408,7 +408,7 @@ struct NotificationSettingsView: View {
             }
         }
         .settingsFormLayout()
-        .hardTopEdge()
+        .softTopEdge()
         // Загрузка и ошибка — по центру экрана, как на остальных экранах-списках, а не
         // строкой формы вплотную под панелью.
         .screenState(model.value == nil) {
@@ -525,7 +525,7 @@ struct PrivacySettingsView: View {
             }
         }
         .settingsFormLayout()
-        .hardTopEdge()
+        .softTopEdge()
         .navigationTitle(Text(String(localized: "settings.privacy", defaultValue: "Конфиденциальность")))
         .navigationBarTitleDisplayMode(.inline)
         // При каждом возврате: блокируют и из информации о чате, число не должно отставать.

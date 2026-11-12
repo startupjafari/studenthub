@@ -348,8 +348,10 @@ final class PostCommentsModel {
             failure = nil
             isOffline = false
             // Просмотр засчитывается при открытии поста, как в вебе. Ошибка счётчика
-            // человеку ни о чём не говорит.
-            try? await api.markViewed(postID: postID)
+            // человеку ни о чём не говорит. Не ждём его: карточка поста встаёт на экран
+            // после `load()`, и лишний запрос показывал сначала одни комментарии, а через
+            // миг сверху въезжал пост и сдвигал их.
+            Task { [api, postID] in try? await api.markViewed(postID: postID) }
         } catch {
             report(error)
         }

@@ -182,19 +182,22 @@ extension View {
         #endif
     }
 
-    /// Верхний край для плотных списков и форм (настройки, правка профиля): чёткая
-    /// граница под панелью вместо мягкого размытия. Строки с текстом и полями, уходя под
-    /// заголовок и кнопки панели, иначе просвечивают сквозь них и спорят с заголовком.
+    /// Своя панель у края прокручиваемого списка (фильтры под поиском, поле внизу листа):
+    /// на iOS 26 — `safeAreaBar` без фона, и список под ней плавно размывается и тает тем
+    /// же мягким краем, что и под панелью навигации. Полоса `.bar` поверх списка давала
+    /// резкую черту там, где строки обрываются. До iOS 26 — вставка с полосой материала.
     @ViewBuilder
-    func hardTopEdge() -> some View {
+    func softEdgeBar<Bar: View>(edge: VerticalEdge, @ViewBuilder content: () -> Bar) -> some View {
+        let bar = content()
         #if compiler(>=6.2)
             if #available(iOS 26, *) {
-                scrollEdgeEffectStyle(.hard, for: .top)
+                safeAreaBar(edge: edge, spacing: 0) { bar }
+                    .scrollEdgeEffectStyle(.soft, for: edge == .top ? .top : .bottom)
             } else {
-                self
+                safeAreaInset(edge: edge, spacing: 0) { bar.background(.bar) }
             }
         #else
-            self
+            safeAreaInset(edge: edge, spacing: 0) { bar.background(.bar) }
         #endif
     }
 }

@@ -80,6 +80,11 @@ final class MessageListViewController: UIViewController {
     private var appliedBottomToken = 0
     private var reportedAtBottom = true
     private var appliedFocus: MessageFocus?
+    /// Вела ли лента за новыми сообщениями на прошлом срезе. Окно истории, сомкнувшееся
+    /// со свежим, включает `followsBottom` тем же обновлением, что приносит последнюю
+    /// страницу: решать по новому значению — значит считать низ окна низом переписки и
+    /// уехать через всю догруженную страницу в самый конец.
+    private var followedBottom = true
 
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Date, String>!
@@ -136,8 +141,11 @@ final class MessageListViewController: UIViewController {
     }
 
     /// Высота ленты меняется под клавиатуру, растущее поле ввода, полосы ответа и
-    /// записи. Стоял человек у последнего сообщения — остаётся у него: иначе свежие
-    /// сообщения уезжают под клавиатуру ровно тогда, когда на них отвечают.
+    /// записи. Лента держится за нижний край, как в Telegram: стоял человек у последнего
+    /// сообщения — остаётся у него, читал середину — нижнее видимое сообщение остаётся
+    /// над полем ввода. Раньше середина держалась за верх: клавиатура закрывала то, что
+    /// человек читал, а уход и возврат клавиатуры (меню, просмотр фото) уводили ленту
+    /// к старым сообщениям.
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         applyTopInset()
@@ -147,10 +155,26 @@ final class MessageListViewController: UIViewController {
             positionInitiallyIfPossible()
             return
         }
-        guard hasContent, lastBoundsHeight > 0, abs(height - lastBoundsHeight) > 0.5,
-            reportedAtBottom || sticksToBottom
-        else { return }
-        scrollToBottom(animated: false)
+        guard hasContent, lastBoundsHeight > 0, abs(height - lastBoundsHeight) > 0.5 else { return }
+        // У низа ли лента была до смены высоты: смещение пока прежнее, а высота уже новая.
+        let wasNearBottom = collectionView.contentSize.height - collectionView.contentOffset.y - lastBoundsHeight < 80
+        // Не по `reportedAtBottom`: он обновляется только прокруткой, и после догрузки
+        // снизу без прокрутки оставался «у низа» — клавиатура уводила ленту в конец.
+        if wasNearBottom || sticksToBottom {
+            scrollToBottom(animated: false)
+        } else {
+            shiftKeepingBottom(by: lastBoundsHeight - height)
+        }
+    }
+
+    /// Сдвинуть ленту так, чтобы нижний край видимого остался на месте экрана.
+    private func shiftKeepingBottom(by delta: CGFloat) {
+        let inset = collectionView.adjustedContentInset
+        let lowest = -inset.top
+        let highest = max(lowest, collectionView.contentSize.height - collectionView.bounds.height + inset.bottom)
+        let target = min(max(collectionView.contentOffset.y + delta, lowest), highest)
+        guard abs(target - collectionView.contentOffset.y) > 0.5 else { return }
+        collectionView.contentOffset.y = target
     }
 
     /// Запас снизу под кнопку «вниз». Стояла лента у низа — остаётся у нового низа.
@@ -222,6 +246,8 @@ final class MessageListViewController: UIViewController {
         if !changed.isEmpty { snapshot.reconfigureItems(changed) }
 
         let wasAtBottom = isNearBottom
+        let followed = followedBottom && followsBottom
+        followedBottom = followsBottom
         let oldHeight = collectionView.contentSize.height
         let oldOffset = collectionView.contentOffset.y
         let pinned = topVisibleItem()
@@ -245,7 +271,11 @@ final class MessageListViewController: UIViewController {
 
         dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
             guard let self else { return }
-            defer { self.requestOlderIfScreenNotFilled() }
+            defer {
+                // Срез мог дописать ленту снизу без прокрутки — «у низа» пересчитываем.
+                self.reportBottom()
+                self.requestOlderIfScreenNotFilled()
+            }
 
             if self.needsInitialPosition {
                 self.positionInitiallyIfPossible()
@@ -255,7 +285,7 @@ final class MessageListViewController: UIViewController {
             // иначе каждая страница, синхронизация и отметка о прочтении утягивали ленту
             // к низу из-под пальца, как только человек оказывался рядом с ним.
             let interacting = self.collectionView.isTracking || self.collectionView.isDecelerating
-            if !interacting, self.sticksToBottom || (wasAtBottom && self.followsBottom) {
+            if !interacting, self.sticksToBottom || (wasAtBottom && followed) {
                 self.sticksToBottom = true
                 // Плавно — только когда в хвост пришло новое сообщение. Остальное (правка,
                 // прочтение, реакция, догрузка) держит низ без анимации: лента не плывёт
@@ -462,12 +492,18 @@ final class MessageListViewController: UIViewController {
             scheduleFocusFinish(for: request, after: .milliseconds(300))
             return
         }
-        // Окно только что сменилось целиком — к цели сразу, без пробега по чужой ленте:
-        // так переход и выглядит в Telegram.
+        // Окно только что сменилось целиком или цель далеко — к ней сразу, без пробега
+        // по ленте: так переход и выглядит в Telegram. Пробег через недели переписки
+        // шёл по оценочным высотам — с пустыми кадрами, наложением пузырей и промахом.
         let recentlyReplaced = replacedAt.map { Date().timeIntervalSince($0) < 0.5 } ?? false
-        let animated = !recentlyReplaced && !reduceMotion
         collectionView.layoutIfNeeded()
-        collectionView.scrollToItem(at: indexPath, at: Self.position(for: request), animated: animated)
+        let near = isNear(indexPath)
+        let animated = !recentlyReplaced && !reduceMotion && near
+        if !near, !recentlyReplaced {
+            crossfade { self.collectionView.scrollToItem(at: indexPath, at: Self.position(for: request), animated: false) }
+        } else {
+            collectionView.scrollToItem(at: indexPath, at: Self.position(for: request), animated: animated)
+        }
         // Сообщение могло уже стоять на месте — тогда конца прокрутки не будет, и
         // подсветку запускает таймер.
         scheduleFocusFinish(for: request, after: .milliseconds(animated ? 450 : 30))
@@ -534,7 +570,45 @@ final class MessageListViewController: UIViewController {
         showHeaders()
         collectionView.layoutIfNeeded()
         let recentlyReplaced = replacedAt.map { Date().timeIntervalSince($0) < 0.5 } ?? false
+        // Далеко от низа — не катимся через всю историю, а встаём к низу сразу.
+        if !recentlyReplaced, distanceToBottom > collectionView.bounds.height * Self.nearScreens {
+            crossfade {
+                // Два прохода: первый ставит ленту по оценочным высотам, второй — по
+                // настоящим высотам ячеек, оказавшихся на экране.
+                for _ in 0..<2 {
+                    self.scrollToBottom(animated: false)
+                    self.collectionView.layoutIfNeeded()
+                }
+            }
+            reportBottom()
+            return
+        }
         scrollToBottom(animated: !recentlyReplaced && !reduceMotion)
+    }
+
+    /// Сколько экранов лента проезжает анимацией; дальше — переход без пробега.
+    private static let nearScreens: CGFloat = 1.5
+
+    /// Цель в пределах полутора экранов от видимого — туда можно доехать анимацией.
+    private func isNear(_ indexPath: IndexPath) -> Bool {
+        guard let frame = collectionView.layoutAttributesForItem(at: indexPath)?.frame else { return false }
+        let visibleMid = collectionView.contentOffset.y + collectionView.bounds.height / 2
+        return abs(frame.midY - visibleMid) < collectionView.bounds.height * Self.nearScreens
+    }
+
+    /// Мгновенная смена места с коротким растворением, как переход к далёкому сообщению
+    /// в Telegram. Без движения — просто смена.
+    private func crossfade(_ change: @escaping () -> Void) {
+        guard !reduceMotion else {
+            change()
+            return
+        }
+        UIView.transition(
+            with: collectionView,
+            duration: Motion.Duration.layer,
+            options: [.transitionCrossDissolve, .allowUserInteraction],
+            animations: change
+        )
     }
 
     /// Сообщить SwiftUI, у низа ли лента. Только при смене и вне текущего прохода
@@ -788,10 +862,19 @@ extension MessageListViewController: UICollectionViewDelegate {
         scheduleHeaderHide()
     }
 
-    /// Касание строки состояния уводит к началу — тоже решение человека.
+    /// Касание строки состояния уводит к началу — тоже решение человека. Издалека — без
+    /// системного пробега через всю загруженную историю (пустые кадры по пути), сразу.
     func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
         sticksToBottom = false
-        return true
+        pendingFocus = nil
+        let top = -scrollView.adjustedContentInset.top
+        guard scrollView.contentOffset.y - top > scrollView.bounds.height * Self.nearScreens else { return true }
+        showHeaders()
+        crossfade {
+            scrollView.setContentOffset(CGPoint(x: 0, y: top), animated: false)
+        }
+        reportBottom()
+        return false
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {

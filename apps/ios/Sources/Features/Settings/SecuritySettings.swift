@@ -67,7 +67,7 @@ struct SecuritySettingsView: View {
             }
         }
         .settingsFormLayout()
-        .hardTopEdge()
+        .softTopEdge()
         .navigationTitle(Text(String(localized: "settings.security", defaultValue: "Безопасность")))
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $changingPassword) {

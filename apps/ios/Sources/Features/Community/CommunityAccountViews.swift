@@ -41,7 +41,7 @@ struct CommunityUsernameView: View {
             }
         }
         .settingsFormLayout()
-        .hardTopEdge()
+        .softTopEdge()
         .navigationTitle(Text(CommunityScreen.username.title))
         .navigationBarTitleDisplayMode(.inline)
         .sensoryFeedback(.success, trigger: saved)
@@ -126,7 +126,7 @@ struct CommunityLanguageView: View {
             }
         }
         .compactListStyle()
-        .hardTopEdge()
+        .softTopEdge()
         .navigationTitle(Text(CommunityScreen.notificationLanguage.title))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { selection = viewer.profile?.locale ?? "ru" }
@@ -257,7 +257,7 @@ struct CommunityTelegramLinkView: View {
             }
         }
         .compactListStyle()
-        .hardTopEdge()
+        .softTopEdge()
         .navigationTitle(Text(CommunityScreen.telegramLink.title))
         .pullToRefresh { await load() }
         .task { await load() }

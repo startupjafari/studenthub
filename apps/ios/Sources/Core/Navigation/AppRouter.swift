@@ -50,7 +50,12 @@ enum AppRoute: Hashable {
 /// поведение теряет, и его потом не вернуть — путь уже затёрт.
 @Observable
 final class AppRouter {
-    var selectedTab: AppTab = .home
+    /// Выбранная вкладка переживает выгрузку приложения системой: вернулся человек из
+    /// переключателя — он во вкладке, где был (в чатах), а не на главной, как после
+    /// холодного старта. Поиск — мимолётный, его не восстанавливаем.
+    var selectedTab: AppTab = AppRouter.restoredTab() {
+        didSet { UserDefaults.standard.set(selectedTab.rawValue, forKey: Self.selectedTabKey) }
+    }
     var stacks: [AppTab: [AppRoute]] = [:]
 
     /// Ссылка из уведомления, нажатого на холодном старте: роль ещё неизвестна (сессия
@@ -80,6 +85,14 @@ final class AppRouter {
         selectedTab = .home
         stacks = [:]
         pending = nil
+    }
+
+    private static let selectedTabKey = "app.selectedTab"
+
+    private static func restoredTab() -> AppTab {
+        let stored = UserDefaults.standard.string(forKey: selectedTabKey).flatMap(AppTab.init(rawValue:))
+        guard let stored, stored != .search else { return .home }
+        return stored
     }
 
     /// Открыть ссылку. `false` означает «не наше»: ссылка либо незнакомая, либо

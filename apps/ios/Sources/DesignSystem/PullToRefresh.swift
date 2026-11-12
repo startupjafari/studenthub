@@ -161,7 +161,15 @@ final class PullTuner: NSObject {
 
     /// Поиск в шапке, как в Telegram, при открытии спрятан: список чуть прокручен под
     /// него, а оттянув список вниз, поиск возвращают.
+    ///
+    /// Только до iOS 26. Там поле поиска от такого сдвига не сворачивается: оно остаётся
+    /// на месте, а под ним и под заголовком оказываются первые строки — вкладки папок
+    /// наслаивались на «Поиск» и на «Чаты». Поиск на iOS 26 сворачивает сама система.
     private func hideSearchInitially() {
+        if #available(iOS 26, *) {
+            hidSearch = true
+            return
+        }
         guard !hidSearch, let scrollView, let controller = Self.viewController(of: scrollView),
             let search = controller.navigationItem.searchController ?? controller.parent?.navigationItem.searchController,
             controller.navigationItem.hidesSearchBarWhenScrolling || controller.parent?.navigationItem.hidesSearchBarWhenScrolling == true
