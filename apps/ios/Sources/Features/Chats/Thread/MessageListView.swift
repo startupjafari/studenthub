@@ -181,7 +181,7 @@ final class MessageListViewController: UIViewController {
     }
 
     private func remember(_ height: CGFloat, for id: String) {
-        guard let fingerprint = fingerprints[id] else { return }
+        guard collectionView.bounds.width > 1, let fingerprint = fingerprints[id] else { return }
         heights.store(height, for: heightKey(id), fingerprint: fingerprint)
     }
 
@@ -257,6 +257,7 @@ final class MessageListViewController: UIViewController {
         collectionView.contentInset.top = inset
         collectionView.verticalScrollIndicatorInsets.top = inset
         if keepsBottom { scrollToBottom(animated: false) }
+        layout.invalidatePinnedHeaders()
     }
 
     func setBottomInset(_ inset: CGFloat) {
@@ -266,6 +267,7 @@ final class MessageListViewController: UIViewController {
         collectionView.contentInset.bottom = inset
         collectionView.verticalScrollIndicatorInsets.bottom = inset
         if keepsBottom { scrollToBottom(animated: false) }
+        layout.invalidatePinnedHeaders()
     }
 
     /// Применить срез.

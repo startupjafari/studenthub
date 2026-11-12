@@ -88,7 +88,11 @@ struct MessageComposerView: View {
 
                     TextField(
                         text: $model.draft,
-                        prompt: Text(verbatim: String(localized: "chats.placeholder", defaultValue: "Сообщение")),
+                        // Во время записи подсказки нет: стекло контейнера не гасит
+                        // прозрачность поля, и «Сообщение» проступало сквозь полосу записи.
+                        prompt: Text(verbatim: recorder.machine.isActive
+                            ? ""
+                            : String(localized: "chats.placeholder", defaultValue: "Сообщение")),
                         axis: .vertical
                     ) {
                         Text(verbatim: String(localized: "chats.placeholder", defaultValue: "Сообщение"))
@@ -96,7 +100,9 @@ struct MessageComposerView: View {
                     .labelsHidden()
                     .lineLimit(1...6)
                     .font(Typography.body)
-                    .foregroundStyle(Palette.foreground)
+                    .foregroundStyle(recorder.machine.isActive ? Color.clear : Palette.foreground)
+                    // Курсор тоже гаснет на время записи — клавиатура при этом остаётся.
+                    .tint(recorder.machine.isActive ? Color.clear : Palette.primary)
                     .focused($isFocused)
                     .accessibilityIdentifier("chat.composer")
                     .padding(.leading, Spacing.lg)
@@ -104,7 +110,9 @@ struct MessageComposerView: View {
                     .padding(.trailing, ControlHeight.lg)
                     .padding(.vertical, Spacing.md)
                     .frame(minHeight: ControlHeight.lg)
-                    .overlay(alignment: .bottomTrailing) { expressionButton }
+                    .overlay(alignment: .bottomTrailing) {
+                        if !recorder.machine.isActive { expressionButton }
+                    }
                     // Радиус — половина высоты одной строки: в одну строку поле — капсула,
                     // в несколько — скруглённый прямоугольник, как в Telegram.
                     .composerGlass(

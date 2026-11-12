@@ -47,6 +47,21 @@ final class MessageTimelineLayout: UICollectionViewLayout {
         invalidateLayout()
     }
 
+    /// Сменились отступы ленты (клавиатура, плашка закреплённого) — прилипшая дата
+    /// встаёт к новому верху. Без этого она оставалась на прежнем месте посреди экрана,
+    /// поверх пузырей.
+    func invalidatePinnedHeaders() {
+        guard let collectionView else { return }
+        let headers = (layoutAttributesForElements(in: collectionView.bounds) ?? [])
+            .filter { $0.representedElementCategory == .supplementaryView }
+            .map(\.indexPath)
+        guard !headers.isEmpty else { return }
+        let context = Invalidation()
+        context.keepsGeometry = true
+        context.invalidateSupplementaryElements(ofKind: Self.headerKind, at: headers)
+        invalidateLayout(with: context)
+    }
+
     override func prepare() {
         super.prepare()
         guard let collectionView else { return }
@@ -196,6 +211,8 @@ final class MessageTimelineLayout: UICollectionViewLayout {
         forPreferredLayoutAttributes preferred: UICollectionViewLayoutAttributes,
         withOriginalAttributes original: UICollectionViewLayoutAttributes
     ) -> Bool {
+        // Ленту ещё не разложили по ширине — замер по нулевой ширине бессмыслен.
+        guard width > 1 else { return false }
         if original.representedElementCategory == .cell,
             let id = source?.itemID(original.indexPath)
         {
