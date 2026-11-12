@@ -86,6 +86,9 @@ model File {
   variants                FileVariant[]
   // Исходный DOCX версии шаблона документов: привязка, как documentId у страницы документа.
   documentTemplateVersion DocumentTemplateVersion?
+  // Картинка стикера каталога (06-chats.prisma, Sticker.fileId). Строка File без сообщения в
+  // бакете чатов законна, пока на неё ссылается стикер, — cleanDetachedFiles её не трогает.
+  sticker                 Sticker?
 
   // Пара (bucket, key) НЕ уникальна: несколько записей могут ссылаться на один объект
   // хранилища (общий пул медиа у сида, см. prisma/seed/steps/10-media.mjs). Следствие для
