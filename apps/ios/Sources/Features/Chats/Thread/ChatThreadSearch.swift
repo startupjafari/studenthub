@@ -400,6 +400,15 @@ struct ChatSearchResultsList: View {
     }
 
     private func row(_ message: ChatMessageDTO) -> some View {
+        HStack(alignment: .top, spacing: Spacing.lg) {
+            AvatarView(url: message.sender?.avatarUrl, name: author(message), size: 40)
+                .accessibilityHidden(true)
+            texts(message)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func texts(_ message: ChatMessageDTO) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline) {
                 Text(author(message))
@@ -427,18 +436,31 @@ struct ChatSearchResultsList: View {
         return name.isEmpty ? String(localized: "home.someone", defaultValue: "Кто-то") : name
     }
 
-    /// Найденное слово — жирным и цветом: из двух строк видно, то ли это сообщение.
+    /// Найденное слово — жирным и подложкой: из двух строк видно, то ли это сообщение.
     private func highlighted(_ text: String) -> AttributedString {
         var result = AttributedString(text)
-        let term = search.term
-        guard !term.isEmpty else { return result }
-        var searchRange = result.startIndex..<result.endIndex
-        while let found = result[searchRange].range(of: term, options: [.caseInsensitive, .diacriticInsensitive]) {
-            result[found].foregroundColor = Palette.foreground
-            result[found].font = .subheadline.weight(.semibold)
-            searchRange = found.upperBound..<result.endIndex
-        }
+        SearchHighlight.apply(search.term, to: &result, background: SearchHighlight.incoming, bold: .subheadline.weight(.semibold))
         return result
+    }
+}
+
+/// Подсветка найденного — в списке совпадений и прямо в пузырях ленты, как в Telegram.
+enum SearchHighlight {
+    /// Подложка совпадения на светлом (чужом) пузыре и в списке.
+    static let incoming = Palette.warning.opacity(0.35)
+    /// На своём синем пузыре — светлая подложка: оранжевая на синем читается плохо.
+    static let outgoing = Color.white.opacity(0.32)
+
+    /// Все вхождения без учёта регистра и диакритики (ё/е, казахские буквы).
+    static func apply(_ term: String, to text: inout AttributedString, background: Color, bold: Font? = nil) {
+        guard term.count >= 2 else { return }
+        var searchRange = text.startIndex..<text.endIndex
+        while let found = text[searchRange].range(of: term, options: [.caseInsensitive, .diacriticInsensitive]) {
+            text[found].backgroundColor = background
+            if let bold { text[found].font = bold }
+            guard found.upperBound < text.endIndex else { break }
+            searchRange = found.upperBound..<text.endIndex
+        }
     }
 }
 

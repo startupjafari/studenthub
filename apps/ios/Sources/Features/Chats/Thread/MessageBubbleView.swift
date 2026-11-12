@@ -12,6 +12,8 @@ struct BubbleContext: Hashable {
     /// По ним — число прочитавших у своего сообщения.
     var readMarks: [Date] = []
     var viewerID = ""
+    /// Поиск в переписке: найденное подсвечивается в тексте пузырей.
+    var highlight: String?
 
     /// Сколько других участников группы дочитали до этого момента.
     func readCount(at date: Date) -> Int {
@@ -389,7 +391,7 @@ struct MessageBubbleView: View {
     }
 
     private var textBlock: some View {
-        let body = Text(isDeleted ? AttributedString(deletedText) : RichText.attributed(message.content))
+        let body = Text(isDeleted ? AttributedString(deletedText) : highlightedContent)
             .font(Typography.body)
         let line = textCarriesMeta ? body + metaPlaceholder : body
         return line
@@ -399,6 +401,15 @@ struct MessageBubbleView: View {
             .fixedSize(horizontal: false, vertical: true)
             // Невидимую копию времени VoiceOver прочитал бы второй раз.
             .accessibilityLabel(Text(isDeleted ? deletedText : message.content))
+    }
+
+    /// Текст с разметкой и — в режиме поиска — с подсвеченными совпадениями.
+    private var highlightedContent: AttributedString {
+        var text = RichText.attributed(message.content)
+        if let term = context.highlight {
+            SearchHighlight.apply(term, to: &text, background: item.isOwn ? SearchHighlight.outgoing : SearchHighlight.incoming)
+        }
+        return text
     }
 
     private var time: String {

@@ -148,11 +148,31 @@ enum ChatPlural {
         let number = count.formatted()
         switch form(count) {
         case .one:
-            return String(localized: "chats.selection.delete.one", defaultValue: "Удалить \(number) сообщение у всех?")
+            return String(localized: "chats.selection.delete.one", defaultValue: "Удалить \(number) сообщение?")
         case .few:
-            return String(localized: "chats.selection.delete.few", defaultValue: "Удалить \(number) сообщения у всех?")
+            return String(localized: "chats.selection.delete.few", defaultValue: "Удалить \(number) сообщения?")
         case .many:
-            return String(localized: "chats.selection.delete.many", defaultValue: "Удалить \(number) сообщений у всех?")
+            return String(localized: "chats.selection.delete.many", defaultValue: "Удалить \(number) сообщений?")
+        }
+    }
+
+    /// «Переслано в 1 чат», «…в 3 чата», «…в 12 чатов» — итог пересылки.
+    static func forwardedTo(_ count: Int) -> String {
+        let number = count.formatted()
+        switch form(count) {
+        case .one: return String(localized: "chats.forwarded.one", defaultValue: "Переслано в \(number) чат")
+        case .few: return String(localized: "chats.forwarded.few", defaultValue: "Переслано в \(number) чата")
+        case .many: return String(localized: "chats.forwarded.many", defaultValue: "Переслано в \(number) чатов")
+        }
+    }
+
+    /// «1 сообщение», «3 сообщения», «12 сообщений» — что пересылаем.
+    static func forwardMessages(_ count: Int) -> String {
+        let number = count.formatted()
+        switch form(count) {
+        case .one: return String(localized: "chats.forward.count.one", defaultValue: "\(number) сообщение")
+        case .few: return String(localized: "chats.forward.count.few", defaultValue: "\(number) сообщения")
+        case .many: return String(localized: "chats.forward.count.many", defaultValue: "\(number) сообщений")
         }
     }
 

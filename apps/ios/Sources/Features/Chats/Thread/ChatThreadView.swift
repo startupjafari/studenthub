@@ -25,6 +25,9 @@ struct ChatThreadView: View {
     /// полноэкранного слоя не откроется.
     @State private var pendingMenuAction: (MessageMenuAction, MessageRecord)?
     @State private var copiedTick = 0
+    /// Короткое уведомление сверху: «Переслано», «Скопировано».
+    @State private var toast: String?
+    @State private var toastTask: Task<Void, Never>?
     @State private var reported = false
     @State private var pinnedIndex = 0
     /// Лента у нижнего края — кнопка «вниз» не нужна.
@@ -83,6 +86,19 @@ struct ChatThreadView: View {
         // переписку с половиной выбора не выйдет.
         .navigationBarBackButtonHidden(model?.isSelecting == true)
         .toolbar(.hidden, for: .tabBar)
+        .overlay(alignment: .top) {
+            if let toast {
+                Text(toast)
+                    .font(Typography.meta.weight(.semibold))
+                    .foregroundStyle(Palette.foreground)
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.vertical, Spacing.sm)
+                    .floatingGlass(in: Capsule())
+                    .padding(.top, Spacing.md)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
+        }
         .sensoryFeedback(.selection, trigger: model?.selection?.count ?? 0)
         .sensoryFeedback(.success, trigger: copiedTick)
     }
@@ -104,6 +120,17 @@ struct ChatThreadView: View {
             .foregroundStyle(Palette.foreground)
             .contentTransition(.numericText())
             .accessibilityAddTraits(.isHeader)
+        }
+    }
+
+    private func showToast(_ text: String) {
+        toastTask?.cancel()
+        withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) { toast = text }
+        UIAccessibility.post(notification: .announcement, argument: text)
+        toastTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            withAnimation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion)) { toast = nil }
         }
     }
 
@@ -331,7 +358,8 @@ struct ChatThreadView: View {
             isGroup: isGroup,
             othersReadAt: model.chat?.othersReadAt,
             readMarks: isGroup ? model.readMarks : [],
-            viewerID: viewerID
+            viewerID: viewerID,
+            highlight: search?.isActive == true ? search?.term : nil
         )
     }
 
@@ -455,11 +483,14 @@ struct ChatThreadView: View {
             }
         }
         .sheet(item: $forwarding) { batch in
-            ForwardPickerView(excludedChatID: chatID) { targets in
-                guard let model else { return false }
-                let sent = await model.forward(batch.messages, to: targets)
-                if sent, batch.fromSelection { endSelection(model) }
-                return sent
+            ForwardPickerView(messages: batch.messages) { targets, comment, requestID in
+                guard let model else { return ForwardOutcome() }
+                let outcome = await model.forward(batch.messages, to: targets, comment: comment, requestID: requestID)
+                if outcome.isComplete {
+                    if batch.fromSelection { endSelection(model) }
+                    showToast(ChatPlural.forwardedTo(outcome.delivered.count))
+                }
+                return outcome
             }
         }
         .alert(
@@ -620,6 +651,7 @@ struct ChatThreadView: View {
         case .copy:
             handle(.copy, message: message, model: model)
             copiedTick += 1
+            showToast(String(localized: "chats.copied", defaultValue: "Текст скопирован"))
         case .edit: handle(.edit, message: message, model: model)
         case .pin: handle(.pin, message: message, model: model)
         case .forward: handle(.forward, message: message, model: model)

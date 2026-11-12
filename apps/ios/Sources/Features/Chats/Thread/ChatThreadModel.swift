@@ -735,19 +735,26 @@ final class ChatThreadModel {
     /// ленты: сервер ставит пересланному своё время, и порядок отправки станет порядком
     /// в чате получателя.
     @MainActor
-    func forward(_ messages: [MessageRecord], to chatIDs: [String]) async -> Bool {
-        let remoteIDs = messages.filter(Self.canForward).compactMap(\.remoteId)
-        guard !remoteIDs.isEmpty else { return false }
+    func forward(_ messages: [MessageRecord], to chatIDs: [String], comment: String?, requestID: UUID) async -> ForwardOutcome {
+        // По времени, а не по порядку касаний: у получателя они встанут так же, как здесь.
+        let remoteIDs = messages
+            .filter(Self.canForward)
+            .sorted { $0.createdAt < $1.createdAt }
+            .compactMap(\.remoteId)
+        guard !remoteIDs.isEmpty, !chatIDs.isEmpty else { return ForwardOutcome() }
         do {
-            for target in chatIDs {
-                for remoteID in remoteIDs {
-                    try await actions.forward(messageID: remoteID, to: target)
-                }
-            }
-            return true
+            let result = try await actions.forward(
+                messageIDs: Array(remoteIDs.prefix(100)),
+                to: chatIDs,
+                comment: comment,
+                requestID: requestID
+            )
+            return ForwardOutcome(
+                delivered: result.results.filter(\.ok).map(\.chatId),
+                failed: result.results.filter { !$0.ok }.map(\.chatId)
+            )
         } catch {
-            actionFailure = self.message(for: error)
-            return false
+            return ForwardOutcome(failure: self.message(for: error))
         }
     }
 

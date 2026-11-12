@@ -92003,13 +92003,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Удалить %@ сообщение у всех?"
+            "value": "Удалить %@ сообщение?"
           }
         },
         "kk": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ хабарламаны барлығында жою керек пе?"
+            "value": "%@ хабарламаны жою керек пе?"
           }
         }
       }
@@ -92020,13 +92020,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Удалить %@ сообщения у всех?"
+            "value": "Удалить %@ сообщения?"
           }
         },
         "kk": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ хабарламаны барлығында жою керек пе?"
+            "value": "%@ хабарламаны жою керек пе?"
           }
         }
       }
@@ -92037,13 +92037,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Удалить %@ сообщений у всех?"
+            "value": "Удалить %@ сообщений?"
           }
         },
         "kk": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ хабарламаны барлығында жою керек пе?"
+            "value": "%@ хабарламаны жою керек пе?"
           }
         }
       }
@@ -94526,6 +94526,227 @@
           "stringUnit": {
             "state": "translated",
             "value": "Саяхат және орындар"
+          }
+        }
+      }
+    },
+    "chats.copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Текст скопирован"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мәтін көшірілді"
+          }
+        }
+      }
+    },
+    "chats.forward.comment": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить комментарий"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пікір қосу"
+          }
+        }
+      }
+    },
+    "chats.forward.count.few": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ сообщения"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ хабарлама"
+          }
+        }
+      }
+    },
+    "chats.forward.count.many": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ сообщений"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ хабарлама"
+          }
+        }
+      }
+    },
+    "chats.forward.count.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ сообщение"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ хабарлама"
+          }
+        }
+      }
+    },
+    "chats.forward.multiple": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Несколько получателей"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бірнеше алушы"
+          }
+        }
+      }
+    },
+    "chats.forward.partial": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось переслать в некоторые чаты — они остались отмеченными"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кейбір чаттарға жіберу мүмкін болмады — олар белгіленген күйде қалды"
+          }
+        }
+      }
+    },
+    "chats.forwarded.few": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переслано в %@ чата"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ чатқа жіберілді"
+          }
+        }
+      }
+    },
+    "chats.forwarded.many": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переслано в %@ чатов"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ чатқа жіберілді"
+          }
+        }
+      }
+    },
+    "chats.forwarded.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переслано в %@ чат"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ чатқа жіберілді"
+          }
+        }
+      }
+    },
+    "chats.tabs.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Барлығы"
+          }
+        }
+      }
+    },
+    "chats.tabs.groups": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Группы"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Топтар"
+          }
+        }
+      }
+    },
+    "chats.tabs.personal": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Личные"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жеке"
           }
         }
       }
