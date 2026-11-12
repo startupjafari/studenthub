@@ -45,8 +45,12 @@ final class UnreadNotificationsCounter {
     func refresh(maxAge: TimeInterval = 15) async -> Int? {
         if let fetchedAt, let count, now().timeIntervalSince(fetchedAt) < maxAge { return count }
         if let inFlight {
-            _ = await inFlight.value
-            return count
+            // Присоединились к идущему запросу. Ждущие просыпаются в любом порядке —
+            // число могло ещё не попасть в `count`; берём ответ, если с начала ожидания
+            // число не правили и не сбрасывали.
+            let joined = generation
+            let value = await inFlight.value
+            return joined == generation ? (value ?? count) : count
         }
         let started = generation
         requestID += 1

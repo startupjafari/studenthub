@@ -278,6 +278,17 @@ final class ScreenCacheClientTests: XCTestCase {
         XCTAssertNil(cached)
     }
 
+    /// Загрузка, которая не ходит через клиент API (заглушка, локальные данные), не
+    /// «сохранённое»: попаданием её не считаем.
+    func testLoadBypassingClientIsNotAHit() async {
+        let store = ScreenCacheStore(root: root, build: "1", isLocked: { false })
+        store.claim(owner: "u-1")
+
+        let value = await ScreenCache.cached(store: store) { Thing(value: 1) }
+
+        XCTAssertNil(value)
+    }
+
     /// Никто не вошёл — кеш не читается и не пишется вовсе.
     func testNoOwnerNoCache() async throws {
         let store = ScreenCacheStore(root: root, build: "1", isLocked: { false })

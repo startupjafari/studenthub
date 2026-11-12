@@ -128,13 +128,14 @@ final class OptimisticFeedActionsTests: XCTestCase {
         api.notifications = [notification(id: "n-1", read: false), notification(id: "n-2", read: false)]
         let model = NotificationsModel(api: api, pacing: .immediate, counter: Self.quietCounter())
         await model.refresh()
+        let loadsBefore = api.notificationLoads
 
         await model.markRead("n-1")
 
         XCTAssertEqual(model.items.first { $0.id == "n-1" }?.isRead, true)
         XCTAssertEqual(model.unreadCount, 1)
         XCTAssertEqual(api.markedRead, ["n-1"])
-        XCTAssertEqual(api.notificationLoads, 1, "после «прочитано» список не перечитывается")
+        XCTAssertEqual(api.notificationLoads, loadsBefore, "после «прочитано» список не перечитывается")
     }
 
     func testMarkAllReadIsImmediateAndRollsBackOnRejection() async {

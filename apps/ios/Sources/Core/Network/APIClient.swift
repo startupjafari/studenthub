@@ -115,6 +115,7 @@ actor APIClient {
                 scope.misses.record()
                 throw ScreenCacheMiss()
             }
+            scope.misses.recordHit()
             return data
         case .refresh:
             let data = try await performNetwork(endpoint)

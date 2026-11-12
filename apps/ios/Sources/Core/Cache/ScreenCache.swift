@@ -37,11 +37,19 @@ enum ScreenCache {
     final class MissLog: @unchecked Sendable {
         private let lock = NSLock()
         private var missed = false
+        private var hits = 0
 
         var hasMisses: Bool { lock.withLock { missed } }
+        /// Сколько ответов взято из сохранённого. Ноль — загрузка вообще не ходила через
+        /// клиент API, и её результат — не «сохранённое».
+        var hitCount: Int { lock.withLock { hits } }
 
         func record() {
             lock.withLock { missed = true }
+        }
+
+        func recordHit() {
+            lock.withLock { hits += 1 }
         }
     }
 
@@ -64,7 +72,9 @@ enum ScreenCache {
         }
         // Хоть один запрос не нашёлся — значение неполное: лучше ждать сеть, чем показать
         // пустые блоки или ошибку «не нашлось в сохранённом».
-        if misses.hasMisses { value = nil }
+        // Ни одного ответа из сохранённого — значение пришло мимо кеша (не через клиент
+        // API): это не попадание.
+        if misses.hasMisses || misses.hitCount == 0 { value = nil }
         signposter.endInterval("ScreenCacheRead", signpost, "\(value == nil ? "miss" : "hit", privacy: .public)")
         return value
     }
