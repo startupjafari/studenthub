@@ -18,10 +18,9 @@ struct LaunchLoadingView: View {
         ZStack {
             LaunchPalette.background
                 .ignoresSafeArea()
-            // С «уменьшением движения» знак сразу стоит на месте: ни прорисовки, ни
+            // С «уменьшением движения» плитка сразу стоит на месте: ни прорисовки, ни
             // приближения — только конечный кадр.
-            DrawnGlyph(progress: reduceMotion ? 1 : progress, size: LaunchMetrics.glyph)
-                .frame(width: LaunchMetrics.glyph, height: LaunchMetrics.glyph)
+            LaunchTile(progress: reduceMotion ? 1 : progress, size: LaunchMetrics.tile)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: "StudentHub"))
@@ -37,7 +36,7 @@ struct LaunchLoadingView: View {
     /// Уход экрана: знак чуть приближается и растворяется, как у Threads. С
     /// «уменьшением движения» — только растворение: смена прозрачности не движение.
     static func exitTransition(reduceMotion: Bool) -> AnyTransition {
-        reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 1.06))
+        reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 1.08))
     }
 
     static func exitAnimation(reduceMotion: Bool) -> Animation {
@@ -52,14 +51,64 @@ enum LaunchPalette {
     static let background = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark ? .black : .white
     })
-    /// Фирменный синий плашки знака: на чисто чёрном и чисто белом читается одинаково.
+    /// Фирменный синий плитки: на чисто чёрном и чисто белом читается одинаково.
     static let mark = AuthPalette.brandBlue
+    /// Светлый край градиента плитки — тот же синий, приподнятый к свету.
+    static let markLight = Color(red: 92 / 255, green: 156 / 255, blue: 1)
+    /// Тёмный край — синий, уведённый в глубину.
+    static let markDeep = Color(red: 28 / 255, green: 88 / 255, blue: 204 / 255)
 }
 
 private enum LaunchMetrics {
-    /// Знак — без плашки, как в Threads: на пустом экране плашка лишняя.
-    static let glyph: CGFloat = 84
-    static let duration: TimeInterval = 0.7
+    /// Плитка как иконка на рабочем столе: человек узнаёт её с первого кадра.
+    static let tile: CGFloat = 112
+    static let duration: TimeInterval = 0.9
+}
+
+/// Плитка знака, как иконка приложения: скругление в пропорции иконок iOS с плавными
+/// (continuous) углами, синий градиент от света к глубине, мягкий блик сверху, тонкая
+/// светлая кромка и синее свечение под плиткой. Сначала проявляется плитка, затем
+/// внутри прорисовывается белый знак.
+private struct LaunchTile: View, Animatable {
+    var progress: CGFloat
+    var size: CGFloat
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    /// Доля скругления у иконок iOS.
+    private static let cornerRatio: CGFloat = 0.2237
+
+    var body: some View {
+        let appear = Easing.out(DrawnGlyph.segment(progress, 0, 0.4))
+        let shape = RoundedRectangle(cornerRadius: size * Self.cornerRatio, style: .continuous)
+        ZStack {
+            shape.fill(
+                LinearGradient(
+                    colors: [LaunchPalette.markLight, LaunchPalette.mark, LaunchPalette.markDeep],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            // Блик сверху — свет падает на плитку, как на стекло иконки.
+            shape.fill(
+                LinearGradient(
+                    colors: [.white.opacity(0.22), .white.opacity(0)],
+                    startPoint: .top,
+                    endPoint: .center
+                )
+            )
+            shape.strokeBorder(.white.opacity(0.16), lineWidth: 1)
+            DrawnGlyph(progress: DrawnGlyph.segment(progress, 0.15, 1), size: size * 0.6)
+                .frame(width: size * 0.6, height: size * 0.6)
+        }
+        .frame(width: size, height: size)
+        .shadow(color: LaunchPalette.mark.opacity(0.35 * appear), radius: size * 0.22, y: size * 0.09)
+        .scaleEffect(0.86 + 0.14 * appear)
+        .opacity(appear)
+    }
 }
 
 /// Знак, который прорисовывается: штрих обводит ромб, тулью и кисточку, затем
@@ -81,11 +130,11 @@ private struct DrawnGlyph: View, Animatable {
                 let window = Self.strokeWindow(part)
                 StudentHubGlyph(part)
                     .trim(from: 0, to: Easing.inOut(Self.segment(progress, window.start, window.end)))
-                    .stroke(LaunchPalette.mark, style: StrokeStyle(lineWidth: size / 24 * 0.6, lineCap: .round, lineJoin: .round))
+                    .stroke(.white, style: StrokeStyle(lineWidth: size / 24 * 0.7, lineCap: .round, lineJoin: .round))
             }
             .opacity(1 - fill)
             StudentHubGlyph()
-                .fill(LaunchPalette.mark)
+                .fill(.white)
                 .opacity(fill)
         }
         .scaleEffect(0.94 + 0.06 * Easing.out(progress))
@@ -102,7 +151,7 @@ private struct DrawnGlyph: View, Animatable {
     }
 
     /// Доля отрезка `[start, end]`, пройденная к моменту `t`, — от 0 до 1.
-    private static func segment(_ t: CGFloat, _ start: CGFloat, _ end: CGFloat) -> CGFloat {
+    static func segment(_ t: CGFloat, _ start: CGFloat, _ end: CGFloat) -> CGFloat {
         min(max((t - start) / (end - start), 0), 1)
     }
 }
