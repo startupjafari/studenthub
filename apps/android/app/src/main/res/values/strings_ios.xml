@@ -1188,11 +1188,14 @@
     <string name="chats_attach_asFilesHint">Без сжатия: собеседник увидит файлы, а не превью.</string>
     <string name="chats_attach_assetUnavailable">Не удалось прочитать файл из «Фото»</string>
     <string name="chats_attach_audio">Звук</string>
+    <string name="chats_attach_audioFromFiles">Выбрать из файлов</string>
+    <string name="chats_attach_audioHint">Музыка и записи из «Файлов» — в чате с плеером</string>
     <string name="chats_attach_caption">Подпись</string>
     <string name="chats_attach_checklist">Список</string>
     <string name="chats_attach_clearSelection">Сбросить</string>
     <string name="chats_attach_fromFiles">Выбрать в «Файлах»</string>
     <string name="chats_attach_fromFilesHint">PDF, документы Office, архивы, видео — до 500 МБ</string>
+    <string name="chats_attach_fromGallery">Выбрать из Галереи</string>
     <string name="chats_attach_gallery">Галерея</string>
     <string name="chats_attach_limitedHint">Приложению видны только фото, которые вы выбрали</string>
     <string name="chats_attach_location">Геопозиция</string>
@@ -1270,6 +1273,9 @@
     <string name="chats_contact_mail">Написать на %1$s</string>
     <string name="chats_contact_phones">Телефон</string>
     <string name="chats_contact_title">Контакт</string>
+    <string name="chats_contacts_denied">Нет доступа к контактам. Можно выбрать контакт в системном окне или разрешить доступ в настройках.</string>
+    <string name="chats_contacts_prompt">Разрешите доступ к контактам, чтобы выбрать, чей контакт отправить</string>
+    <string name="chats_contacts_systemPicker">Выбрать в «Контактах»</string>
     <string name="chats_copied">Текст скопирован</string>
     <string name="chats_count_few">%1$s чата</string>
     <string name="chats_count_many">%1$s чатов</string>

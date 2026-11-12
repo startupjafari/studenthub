@@ -27,6 +27,8 @@ struct ChatThreadView: View {
     /// Где на экране панели над перепиской (поиск, закреплённое, трансляция): лента
     /// уходит под них, её отступ сверху — до их низа.
     @State private var topBars: CGRect = .zero
+    /// Открыта панель emoji и стикеров — экран не отступает от клавиатуры.
+    @State private var composerPanelShown = false
     /// Фото и видео сообщения — в своём просмотре, как в Telegram.
     @State private var viewer: ChatMediaViewerRequest?
     /// Что сделать, когда просмотр закроется: лист пересылки поверх него не открыть.
@@ -77,9 +79,22 @@ struct ChatThreadView: View {
             }
         }
         .background { ChatWallpaper().ignoresSafeArea() }
+        // Панель emoji стоит на месте клавиатуры: пока она открыта, уход и приход
+        // клавиатуры не двигает поле ввода.
+        .onPreferenceChange(ComposerPanelShown.self) { composerPanelShown = $0 }
+        .ignoresSafeArea(.keyboard, edges: composerPanelShown ? .bottom : [])
         .navigationBarTitleDisplayMode(.inline)
         // В режиме поиска место шапки занимает поле, как в Telegram; выход — «Отмена».
         .toolbar(search == nil ? .automatic : .hidden, for: .navigationBar)
+        // Пока набирают запрос, кнопки поиска стоят над клавиатурой, как в Telegram:
+        // нижняя панель в это время под ней.
+        .toolbar {
+            if let model, let search {
+                ToolbarItemGroup(placement: .keyboard) {
+                    searchPanel(search, model: model, overKeyboard: true)
+                }
+            }
+        }
         .toolbar {
             if let model, model.isSelecting {
                 selectionToolbar(model)
@@ -283,29 +298,7 @@ struct ChatThreadView: View {
                 if let search {
                     // Писать во время поиска некуда: поле ввода уступает место панели
                     // со счётчиком и стрелками.
-                    ChatSearchPanel(
-                        search: search,
-                        isGroup: bubbleContext(model).isGroup,
-                        showsList: showsSearchList,
-                        onCalendar: {
-                            calendarDay = search.current?.createdAt ?? Date()
-                            showsCalendar = true
-                        },
-                        onSender: { pickingSearchSender = true },
-                        onList: { showsSearchList.toggle() },
-                        onOlder: {
-                            showsSearchList = false
-                            Task {
-                                if let found = await search.older() { await model.jump(to: found.id) }
-                            }
-                        },
-                        onNewer: {
-                            showsSearchList = false
-                            if let found = search.newer() {
-                                Task { await model.jump(to: found.id) }
-                            }
-                        }
-                    )
+                    searchPanel(search, model: model, overKeyboard: false)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else if model.isSelecting {
                     // Поле ввода на время выбора уступает место панели действий.
@@ -502,6 +495,35 @@ struct ChatThreadView: View {
         withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) {
             search = ChatThreadSearch(chatID: chatID)
         }
+    }
+
+    /// Кнопки поиска: календарь, автор, список, счётчик и стрелки. `overKeyboard` — над
+    /// клавиатурой, без своей подложки и отступов панели.
+    private func searchPanel(_ search: ChatThreadSearch, model: ChatThreadModel, overKeyboard: Bool) -> ChatSearchPanel {
+        ChatSearchPanel(
+            search: search,
+            isGroup: bubbleContext(model).isGroup,
+            showsList: showsSearchList,
+            overKeyboard: overKeyboard,
+            onCalendar: {
+                calendarDay = search.current?.createdAt ?? Date()
+                showsCalendar = true
+            },
+            onSender: { pickingSearchSender = true },
+            onList: { showsSearchList.toggle() },
+            onOlder: {
+                showsSearchList = false
+                Task {
+                    if let found = await search.older() { await model.jump(to: found.id) }
+                }
+            },
+            onNewer: {
+                showsSearchList = false
+                if let found = search.newer() {
+                    Task { await model.jump(to: found.id) }
+                }
+            }
+        )
     }
 
     private func closeSearch() {

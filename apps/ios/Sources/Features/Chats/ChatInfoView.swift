@@ -111,6 +111,12 @@ struct ChatInfoView: View {
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: Spacing.sm, trailing: 0))
                         .id(Self.tabsAnchor)
+                    }
+                    // Вкладки отдельно от материалов: иначе скругление верхних углов
+                    // доставалось прозрачной строке вкладок, и карточка файлов начиналась
+                    // квадратной. Как в Telegram — карточка со скруглением под вкладками.
+                    .listSectionSpacing(Spacing.sm)
+                    Section {
                         ChatContentList(shared: shared, tab: section, showInChat: showInChat)
                     }
                     // Своей секцией, а не строкой под содержимым: иначе последняя строка

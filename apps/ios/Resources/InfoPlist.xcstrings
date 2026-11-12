@@ -102,6 +102,23 @@
           }
         }
       }
+    },
+    "NSContactsUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чтобы выбрать контакт и отправить его карточку в чат."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контактіні таңдап, оның карточкасын чатқа жіберу үшін."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

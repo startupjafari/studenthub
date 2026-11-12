@@ -10,11 +10,16 @@ enum AttachmentPick {
     case photos([PhotosPickerItem])
     case camera
     case files
+    /// Снимки из «Фото» — файлами, без сжатия («Выбрать из Галереи» во вкладке «Файл»).
+    case photosAsFiles
     case scan
     case audio
     case poll
     case checklist
+    /// Системный выбор контакта — когда доступа к контактам нет.
     case contact
+    /// Контакт из списка в листе — сразу на подтверждение.
+    case contactCard(ContactCardDraft)
 }
 
 /// Лист вложений как в Telegram: сверху — крестик и название раздела, ниже — его
@@ -140,8 +145,35 @@ struct AttachmentMenuSheet: View {
                     return ok
                 }
             )
+        case .audio:
+            audioOptions
+        case .contact:
+            ContactsListView(
+                onPick: { pick(.contactCard($0)) },
+                onSystemPicker: { pick(.contact) }
+            )
         default:
             Color.clear
+        }
+    }
+
+    /// «Звук» как в Telegram: выбор из «Файлов» карточкой, под ней — что можно отправить.
+    private var audioOptions: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                optionRow(
+                    String(localized: "chats.attach.audioFromFiles", defaultValue: "Выбрать из файлов"),
+                    symbol: "folder"
+                ) { pick(.audio) }
+                .background(Palette.secondary, in: RoundedRectangle(cornerRadius: Radius.xxl, style: .continuous))
+
+                Text(String(localized: "chats.attach.audioHint", defaultValue: "Музыка и записи из «Файлов» — в чате с плеером"))
+                    .font(Typography.meta)
+                    .foregroundStyle(Palette.mutedForeground)
+                    .padding(.horizontal, Spacing.xl)
+            }
+            .padding(.horizontal, Spacing.lg)
+            .padding(.top, Spacing.sm)
         }
     }
 
@@ -151,6 +183,12 @@ struct AttachmentMenuSheet: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.sm) {
                 VStack(spacing: 0) {
+                    // Как в Telegram: снимки отсюда уходят файлами — без сжатия.
+                    optionRow(
+                        String(localized: "chats.attach.fromGallery", defaultValue: "Выбрать из Галереи"),
+                        symbol: "photo"
+                    ) { pick(.photosAsFiles) }
+                    Divider().padding(.leading, Spacing.xl + 28 + Spacing.lg)
                     optionRow(
                         String(localized: "chats.attach.fromFiles", defaultValue: "Выбрать в «Файлах»"),
                         symbol: "folder"
@@ -265,8 +303,6 @@ struct AttachmentMenuSheet: View {
         switch item {
         case .poll: pick(.poll)
         case .checklist: pick(.checklist)
-        case .audio: pick(.audio)
-        case .contact: pick(.contact)
         default:
             withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) {
                 section = item

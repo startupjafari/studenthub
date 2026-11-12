@@ -96406,6 +96406,108 @@
           }
         }
       }
+    },
+    "chats.attach.fromGallery": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбрать из Галереи"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Галереядан таңдау"
+          }
+        }
+      }
+    },
+    "chats.attach.audioFromFiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбрать из файлов"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файлдардан таңдау"
+          }
+        }
+      }
+    },
+    "chats.attach.audioHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Музыка и записи из «Файлов» — в чате с плеером"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Файлдар» ішіндегі музыка мен жазбалар — чатта ойнатқышпен"
+          }
+        }
+      }
+    },
+    "chats.contacts.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешите доступ к контактам, чтобы выбрать, чей контакт отправить"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кімнің контактісін жіберу керегін таңдау үшін контактілерге рұқсат беріңіз"
+          }
+        }
+      }
+    },
+    "chats.contacts.denied": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет доступа к контактам. Можно выбрать контакт в системном окне или разрешить доступ в настройках."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контактілерге рұқсат жоқ. Контактіні жүйелік терезеде таңдауға немесе баптауларда рұқсат беруге болады."
+          }
+        }
+      }
+    },
+    "chats.contacts.systemPicker": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбрать в «Контактах»"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Контактілер» ішінен таңдау"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

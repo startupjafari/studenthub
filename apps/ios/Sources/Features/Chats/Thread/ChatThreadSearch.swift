@@ -153,7 +153,7 @@ final class ChatThreadSearch {
 
 // MARK: - Поле поиска
 
-/// Поле поиска на месте шапки переписки: капсула со стеклом и «Отмена» справа. Под
+/// Поле поиска на месте шапки переписки: капсула со стеклом и крестик справа. Под
 /// полем — выбранный автор, его можно снять.
 struct ChatSearchBar: View {
     @Bindable var search: ChatThreadSearch
@@ -194,9 +194,8 @@ struct ChatSearchBar: View {
                 .frame(minHeight: ControlHeight.lg)
                 .composerGlass(in: Capsule())
 
-                Button(String(localized: "common.cancel", defaultValue: "Отмена"), action: onCancel)
-                    .font(Typography.body)
-                    .foregroundStyle(Palette.primary)
+                // Как в Telegram: крестик в стеклянном круге, а не слово «Отмена».
+                GlassCloseButton(action: onCancel)
             }
 
             if let sender = search.sender {
@@ -258,6 +257,8 @@ struct ChatSearchPanel: View {
     let search: ChatThreadSearch
     let isGroup: Bool
     let showsList: Bool
+    /// Над клавиатурой (панель клавиатуры): без своей подложки и отступов.
+    var overKeyboard = false
     let onCalendar: () -> Void
     let onSender: () -> Void
     let onList: () -> Void
@@ -265,7 +266,20 @@ struct ChatSearchPanel: View {
     let onNewer: () -> Void
 
     var body: some View {
-        GlassGroup(spacing: Spacing.md) {
+        if overKeyboard {
+            controls
+        } else {
+            GlassGroup(spacing: Spacing.md) {
+                controls
+                    .padding(.horizontal, Spacing.xl)
+                    .padding(.vertical, Spacing.md)
+                    .frame(minHeight: ControlHeight.chatInput)
+            }
+            .modifier(ComposerBarBackground())
+        }
+    }
+
+    private var controls: some View {
             HStack(spacing: Spacing.md) {
                 button(
                     String(localized: "chats.calendar.title", defaultValue: "Перейти к дате"),
@@ -303,11 +317,6 @@ struct ChatSearchPanel: View {
                     action: onNewer
                 )
             }
-            .padding(.horizontal, Spacing.xl)
-            .padding(.vertical, Spacing.md)
-            .frame(minHeight: ControlHeight.chatInput)
-        }
-        .modifier(ComposerBarBackground())
     }
 
     @ViewBuilder

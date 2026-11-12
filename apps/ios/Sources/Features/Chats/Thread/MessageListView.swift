@@ -251,9 +251,17 @@ final class MessageListViewController: UIViewController {
                 self.positionInitiallyIfPossible()
                 return
             }
-            if self.sticksToBottom || (wasAtBottom && self.followsBottom) {
+            // Палец на ленте или она ещё катится по инерции — сама она никуда не едет:
+            // иначе каждая страница, синхронизация и отметка о прочтении утягивали ленту
+            // к низу из-под пальца, как только человек оказывался рядом с ним.
+            let interacting = self.collectionView.isTracking || self.collectionView.isDecelerating
+            if !interacting, self.sticksToBottom || (wasAtBottom && self.followsBottom) {
                 self.sticksToBottom = true
-                self.scrollToBottom(animated: !replaced && !self.reduceMotion)
+                // Плавно — только когда в хвост пришло новое сообщение. Остальное (правка,
+                // прочтение, реакция, догрузка) держит низ без анимации: лента не плывёт
+                // на глазах.
+                let tailGrew = snapshot.itemIdentifiers.last != previousOrder.last
+                self.scrollToBottom(animated: tailGrew && !replaced && !self.reduceMotion)
                 return
             }
             if let pinned, self.restore(pinned) { return }
