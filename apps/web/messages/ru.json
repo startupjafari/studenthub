@@ -5,6 +5,7 @@
     "scaffoldReady": "Каркас приложения готов"
   },
   "Nav": {
+    "stickers": "Стикеры",
     "feed": "Лента",
     "schedule": "Расписание",
     "applications": "Заявки",
@@ -1738,7 +1739,9 @@
     "VACANCY_NOT_DELETABLE": "Удалить можно только черновик. Закройте вакансию — история откликов сохранится",
     "COMPANY_INVITE_EMAIL_TAKEN": "На этот адрес уже есть аккаунт StudentHub. Попросите приглашение на другой адрес",
     "POLL_CLOSED": "Опрос завершён — голосовать больше нельзя",
-    "REQUEST_IN_PROGRESS": "Запрос уже выполняется — подождите"
+    "REQUEST_IN_PROGRESS": "Запрос уже выполняется — подождите",
+    "FEATURE_DISABLED": "Функция сейчас недоступна",
+    "LIVE_LOCATION_ENDED": "Трансляция геопозиции уже завершена"
   },
   "Notifications": {
     "title": "Уведомления",
@@ -2442,6 +2445,20 @@
     "uploadingPercent": "Загружаем медиа… {percent}%"
   },
   "Chats": {
+    "tabMusic": "Музыка",
+    "tabGif": "GIF",
+    "tabPolls": "Опросы",
+    "sharedLoadError": "Не удалось загрузить материалы",
+    "checklistAddItem": "Добавить пункт",
+    "checklistNewItem": "Новый пункт",
+    "checklistAddCancel": "Отменить добавление",
+    "checklistRemoveItem": "Убрать пункт «{text}»",
+    "checklistItemEmpty": "Введите текст пункта",
+    "liveLocationTitle": "Геопозиция в реальном времени",
+    "liveLocationUntil": "Трансляция до {time}",
+    "liveLocationUpdatedMin": "{count, plural, =0 {Обновлено только что} one {Обновлено # мин назад} few {Обновлено # мин назад} many {Обновлено # мин назад} other {Обновлено # мин назад}}",
+    "liveLocationUpdatedHour": "{count, plural, one {Обновлено # ч назад} few {Обновлено # ч назад} many {Обновлено # ч назад} other {Обновлено # ч назад}}",
+    "liveLocationStop": "Остановить трансляцию",
     "storyReplyLabel": "Ответ на сторис",
     "storySharedLabel": "Сторис",
     "storyUnavailable": "Сторис недоступна",
@@ -6797,7 +6814,8 @@
       "scheduleTooFar": "Отложить можно не больше чем на год",
       "reactionEmoji": "Реакция — один эмодзи",
       "contactEmpty": "Укажите хотя бы один телефон или адрес почты",
-      "stickerSlug": "Короткое имя: латиница, цифры, «-» и «_», от 2 до 64 знаков"
+      "stickerSlug": "Короткое имя: латиница, цифры, «-» и «_», от 2 до 64 знаков",
+      "livePeriod": "Трансляция: 15 минут, 1 час или 8 часов"
     },
     "documents": {
       "typeCode": "Код: заглавные латинские, цифры, подчёркивание"
@@ -6838,5 +6856,52 @@
       "newStartRequired": "Нужно новое время начала",
       "newEndRequired": "Нужно новое время окончания"
     }
+  },
+  "StickerAdmin": {
+    "title": "Стикеры",
+    "subtitle": "Наборы стикеров для чатов всех вузов. Новый набор не виден пользователям, пока его не опубликуют.",
+    "add": "Новый набор",
+    "empty": "Наборов пока нет",
+    "emptyHint": "Создайте первый набор и загрузите в него стикеры.",
+    "loadError": "Не удалось загрузить наборы стикеров",
+    "formCreateTitle": "Новый набор стикеров",
+    "formEditTitle": "Переименовать набор",
+    "fieldTitle": "Название",
+    "fieldSlug": "Короткое имя",
+    "slugHint": "Латиница, цифры, «-» и «_», от 2 до 64 знаков. После создания не меняется.",
+    "titleRequired": "Введите название",
+    "slugTaken": "Это короткое имя уже занято",
+    "create": "Создать",
+    "save": "Сохранить",
+    "created": "Набор создан",
+    "renamed": "Набор переименован",
+    "published": "Опубликован",
+    "draft": "Черновик",
+    "publish": "Опубликовать",
+    "unpublish": "Снять с публикации",
+    "publishedToast": "Набор опубликован",
+    "unpublishedToast": "Набор снят с публикации",
+    "moveUp": "Поднять набор «{title}» выше",
+    "moveDown": "Опустить набор «{title}» ниже",
+    "rename": "Переименовать набор «{title}»",
+    "delete": "Удалить набор «{title}»",
+    "deleteConfirmTitle": "Удалить набор?",
+    "deleteConfirmDesc": "Набор «{title}» и все его стикеры будут удалены. В отправленных сообщениях эти стикеры станут недоступны.",
+    "deleteConfirm": "Удалить",
+    "deleted": "Набор удалён",
+    "stickerCount": "{count, plural, =0 {нет стикеров} one {# стикер} few {# стикера} many {# стикеров} other {# стикера}}",
+    "noStickers": "В наборе пока нет стикеров",
+    "emojiLabel": "Эмодзи (необязательно)",
+    "emojiInvalid": "Укажите один эмодзи",
+    "upload": "Загрузить стикер",
+    "uploadHint": "PNG, WebP или GIF, не больше 512 КБ",
+    "uploaded": "Стикер добавлен",
+    "fileType": "Подходят только PNG, WebP и GIF",
+    "fileSize": "Файл больше 512 КБ",
+    "stickerAlt": "Стикер {emoji}",
+    "stickerAltPlain": "Стикер",
+    "deleteSticker": "Удалить стикер",
+    "stickerDeleted": "Стикер удалён",
+    "stickerLimit": "В наборе уже {max} стикеров — больше добавить нельзя"
   }
 }

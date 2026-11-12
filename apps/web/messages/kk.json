@@ -5,6 +5,7 @@
     "scaffoldReady": "Қосымша қаңқасы дайын"
   },
   "Nav": {
+    "stickers": "Стикерлер",
     "feed": "Лента",
     "schedule": "Кесте",
     "applications": "Өтініштер",
@@ -1738,7 +1739,9 @@
     "VACANCY_NOT_DELETABLE": "Тек жобаны жоюға болады. Бос орынды жабыңыз — өтінімдер тарихы сақталады",
     "COMPANY_INVITE_EMAIL_TAKEN": "Бұл мекенжайда StudentHub тіркелгісі бар. Басқа мекенжайға шақыру сұраңыз",
     "POLL_CLOSED": "Сауалнама аяқталды — енді дауыс беруге болмайды",
-    "REQUEST_IN_PROGRESS": "Сұрау орындалып жатыр — күте тұрыңыз"
+    "REQUEST_IN_PROGRESS": "Сұрау орындалып жатыр — күте тұрыңыз",
+    "FEATURE_DISABLED": "Бұл функция қазір қолжетімсіз",
+    "LIVE_LOCATION_ENDED": "Геопозиция трансляциясы аяқталды"
   },
   "Notifications": {
     "title": "Хабарламалар",
@@ -2442,6 +2445,20 @@
     "uploadingPercent": "Медиа жүктелуде… {percent}%"
   },
   "Chats": {
+    "tabMusic": "Музыка",
+    "tabGif": "GIF",
+    "tabPolls": "Сауалнамалар",
+    "sharedLoadError": "Материалдарды жүктеу мүмкін болмады",
+    "checklistAddItem": "Тармақ қосу",
+    "checklistNewItem": "Жаңа тармақ",
+    "checklistAddCancel": "Қосудан бас тарту",
+    "checklistRemoveItem": "«{text}» тармағын алып тастау",
+    "checklistItemEmpty": "Тармақ мәтінін енгізіңіз",
+    "liveLocationTitle": "Нақты уақыттағы геолокация",
+    "liveLocationUntil": "Трансляция {time} дейін",
+    "liveLocationUpdatedMin": "{count, plural, =0 {Жаңа ғана жаңартылды} one {# мин бұрын жаңартылды} other {# мин бұрын жаңартылды}}",
+    "liveLocationUpdatedHour": "{count, plural, one {# сағ бұрын жаңартылды} other {# сағ бұрын жаңартылды}}",
+    "liveLocationStop": "Трансляцияны тоқтату",
     "storyReplyLabel": "Сториске жауап",
     "storySharedLabel": "Сторис",
     "storyUnavailable": "Сторис қолжетімсіз",
@@ -6797,7 +6814,8 @@
       "scheduleTooFar": "Бір жылдан артық кейінге қалдыруға болмайды",
       "reactionEmoji": "Реакция — бір эмодзи",
       "contactEmpty": "Кемінде бір телефон немесе пошта мекенжайын көрсетіңіз",
-      "stickerSlug": "Қысқа атау: латын әріптері, сандар, «-» және «_», 2–64 таңба"
+      "stickerSlug": "Қысқа атау: латын әріптері, сандар, «-» және «_», 2–64 таңба",
+      "livePeriod": "Трансляция: 15 минут, 1 сағат немесе 8 сағат"
     },
     "documents": {
       "typeCode": "Код: бас латын әріптері, сандар, астын сызу"
@@ -6838,5 +6856,52 @@
       "newStartRequired": "Жаңа басталу уақыты керек",
       "newEndRequired": "Жаңа аяқталу уақыты керек"
     }
+  },
+  "StickerAdmin": {
+    "title": "Стикерлер",
+    "subtitle": "Барлық ЖОО чаттарына арналған стикерлер жинақтары. Жаңа жинақ жарияланғанға дейін пайдаланушыларға көрінбейді.",
+    "add": "Жаңа жинақ",
+    "empty": "Әзірге жинақтар жоқ",
+    "emptyHint": "Алғашқы жинақты жасап, оған стикерлер жүктеңіз.",
+    "loadError": "Стикерлер жинақтарын жүктеу мүмкін болмады",
+    "formCreateTitle": "Жаңа стикерлер жинағы",
+    "formEditTitle": "Жинақтың атын өзгерту",
+    "fieldTitle": "Атауы",
+    "fieldSlug": "Қысқа атауы",
+    "slugHint": "Латын әріптері, сандар, «-» және «_», 2-ден 64 таңбаға дейін. Жасалғаннан кейін өзгермейді.",
+    "titleRequired": "Атауын енгізіңіз",
+    "slugTaken": "Бұл қысқа атау бос емес",
+    "create": "Жасау",
+    "save": "Сақтау",
+    "created": "Жинақ жасалды",
+    "renamed": "Жинақтың аты өзгертілді",
+    "published": "Жарияланған",
+    "draft": "Жоба",
+    "publish": "Жариялау",
+    "unpublish": "Жариялаудан алу",
+    "publishedToast": "Жинақ жарияланды",
+    "unpublishedToast": "Жинақ жариялаудан алынды",
+    "moveUp": "«{title}» жинағын жоғары көтеру",
+    "moveDown": "«{title}» жинағын төмен түсіру",
+    "rename": "«{title}» жинағының атын өзгерту",
+    "delete": "«{title}» жинағын жою",
+    "deleteConfirmTitle": "Жинақты жою керек пе?",
+    "deleteConfirmDesc": "«{title}» жинағы және оның барлық стикерлері жойылады. Жіберілген хабарламаларда бұл стикерлер қолжетімсіз болады.",
+    "deleteConfirm": "Жою",
+    "deleted": "Жинақ жойылды",
+    "stickerCount": "{count, plural, =0 {стикер жоқ} one {# стикер} other {# стикер}}",
+    "noStickers": "Жинақта әзірге стикерлер жоқ",
+    "emojiLabel": "Эмодзи (міндетті емес)",
+    "emojiInvalid": "Бір эмодзи көрсетіңіз",
+    "upload": "Стикер жүктеу",
+    "uploadHint": "PNG, WebP немесе GIF, 512 КБ-тан аспайтын",
+    "uploaded": "Стикер қосылды",
+    "fileType": "Тек PNG, WebP және GIF жарайды",
+    "fileSize": "Файл 512 КБ-тан үлкен",
+    "stickerAlt": "Стикер {emoji}",
+    "stickerAltPlain": "Стикер",
+    "deleteSticker": "Стикерді жою",
+    "stickerDeleted": "Стикер жойылды",
+    "stickerLimit": "Жинақта {max} стикер бар — бұдан артық қосуға болмайды"
   }
 }

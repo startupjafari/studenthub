@@ -35,6 +35,7 @@ import {
   Send,
   Table2,
   ShieldAlert,
+  Sticker,
   FileUser,
   TrendingUp,
   Users,
@@ -385,6 +386,8 @@ export const PLATFORM_ADMIN_NAV: NavItem[] = [
   // Шаблоны услуг для всех вузов: вуз видит их сразу и может настроить под себя.
   { key: 'serviceCatalog', href: '/platform-admin/services', icon: ClipboardList },
   { key: 'chats', href: '/platform-admin/chats', icon: MessagesSquare },
+  // Каталог стикеров чатов: наборы видят все пользователи всех вузов, ведёт их платформа.
+  { key: 'stickers', href: '/platform-admin/stickers', icon: Sticker },
 ]
 
 export const PLATFORM_MODERATOR_NAV: NavItem[] = [

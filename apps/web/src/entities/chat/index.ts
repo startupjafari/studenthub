@@ -55,6 +55,10 @@ export {
   fetchPollResults,
   votePollRequest,
   toggleChecklistItemRequest,
+  addChecklistItemRequest,
+  removeChecklistItemRequest,
+  stopLiveLocationRequest,
+  fetchChatPolls,
   fetchStickerUrl,
   fetchChatUpdates,
   fetchChatFolders,
@@ -64,6 +68,8 @@ export {
   type ChatUpdates,
   type MessagesPage,
   type ChatMediaPage,
+  type ChatMediaType,
+  type ChatPollsPage,
   type ChatLinksPage,
 } from './api/chat-api'
 export { sendMessageWithDirectUpload, type DirectSendFields } from './api/send-direct'
@@ -130,4 +136,10 @@ export { sortChats } from './lib/sort-chats'
 export { useChatsUnread, scheduleChatsUnreadRefresh } from './lib/use-chats-unread'
 export { createRefreshCoalescer, type RefreshCoalescer } from './lib/refresh-coalescer'
 export { VoiceRateButton } from './ui/voice-rate-button'
+export {
+  applyLocationUpdate,
+  isLiveLocation,
+  liveUpdatedMinutesAgo,
+  LIVE_LOCATION_TICK_MS,
+} from './lib/live-location'
 export { VOICE_RATES, cycleVoiceRate, getVoiceRate, useVoiceRate } from './lib/voice-rate'

@@ -23,6 +23,7 @@ import type {
   ChatMessage,
   ChatReadReceipt,
   MessageChecklist,
+  MessageLocation,
   PollResults,
   PresenceEntry,
 } from '../model/types'
@@ -41,6 +42,8 @@ export const chatKeys = {
   // перезапрашиваться. Подписанные URL живут дольше сеанса листания.
   mediaCalendar: (id: string, month: string) => ['chats', id, 'media-calendar', month] as const,
   links: (id: string) => ['chats', id, 'links'] as const,
+  // Опросы чата для вкладки общих материалов (полные сообщения, свежие первыми).
+  polls: (id: string) => ['chats', id, 'polls'] as const,
   poll: (pollId: string) => ['chats', 'poll', pollId] as const,
   stickerUrl: (stickerId: string) => ['chats', 'sticker-url', stickerId] as const,
   blocked: () => ['chats', 'blocked'] as const,
@@ -313,6 +316,37 @@ export async function toggleChecklistItemRequest(
   return data
 }
 
+// Добавить пункт в конец (автор списка, остальные — при othersCanAdd; не больше 50 пунктов).
+export async function addChecklistItemRequest(
+  checklistId: string,
+  text: string,
+): Promise<MessageChecklist> {
+  const { data } = await api.post<MessageChecklist>(`/chats/checklists/${checklistId}/items`, {
+    text,
+  })
+  return data
+}
+
+// Убрать пункт (автор списка или добавивший пункт). Ответ — чек-лист целиком.
+export async function removeChecklistItemRequest(
+  checklistId: string,
+  itemId: string,
+): Promise<MessageChecklist> {
+  const { data } = await api.delete<MessageChecklist>(
+    `/chats/checklists/${checklistId}/items/${itemId}`,
+  )
+  return data
+}
+
+// Остановить свою трансляцию геопозиции: сервер ставит liveUntil = now и шлёт
+// location:updated в комнату. Ответ — геопозиция после остановки.
+export async function stopLiveLocationRequest(messageId: string): Promise<MessageLocation> {
+  const { data } = await api.post<MessageLocation>(
+    `/chats/messages/${messageId}/live-location/stop`,
+  )
+  return data
+}
+
 // Подписанная ссылка на картинку стикера каталога (срок — expiresAt).
 export async function fetchStickerUrl(
   stickerId: string,
@@ -329,9 +363,15 @@ export interface ChatMediaPage {
   cursor?: string
   hasNext: boolean
 }
+/**
+ * Вид общих материалов: `voice` — всё аудио, `voice_note` — только голосовые, `music` — аудио
+ * кроме голосовых, `gif` — анимации (`image/gif`).
+ */
+export type ChatMediaType = 'media' | 'file' | 'voice' | 'voice_note' | 'music' | 'gif'
+
 export async function fetchChatMedia(
   chatId: string,
-  type: 'media' | 'file' | 'voice',
+  type: ChatMediaType,
   cursor?: string,
 ): Promise<ChatMediaPage> {
   const params: Record<string, string | number> = { type, limit: 30 }
@@ -339,6 +379,21 @@ export async function fetchChatMedia(
   const res = (await api.get<ChatMediaItem[]>(`/chats/${chatId}/media`, {
     params,
   })) as ResponseWithMeta & { data: ChatMediaItem[] }
+  return { items: res.data, cursor: res.meta?.cursor, hasNext: res.meta?.hasNext ?? false }
+}
+
+// Опросы чата (§38): сообщения с опросом, свежие первыми; курсор — id сообщения.
+export interface ChatPollsPage {
+  items: ChatMessage[]
+  cursor?: string
+  hasNext: boolean
+}
+export async function fetchChatPolls(chatId: string, cursor?: string): Promise<ChatPollsPage> {
+  const params: Record<string, string | number> = { limit: 30 }
+  if (cursor) params.cursor = cursor
+  const res = (await api.get<ChatMessage[]>(`/chats/${chatId}/polls`, {
+    params,
+  })) as ResponseWithMeta & { data: ChatMessage[] }
   return { items: res.data, cursor: res.meta?.cursor, hasNext: res.meta?.hasNext ?? false }
 }
 

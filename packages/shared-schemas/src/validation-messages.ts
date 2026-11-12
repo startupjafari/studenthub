@@ -77,6 +77,7 @@ export const VALIDATION_MESSAGE_KEYS = [
   'validation.chats.reactionEmoji',
   'validation.chats.contactEmpty',
   'validation.chats.stickerSlug',
+  'validation.chats.livePeriod',
   // Документы, библиотека
   'validation.documents.typeCode',
   'validation.library.isbn',

@@ -170,6 +170,15 @@ export interface MessageLocation {
   lng: number
   title: string | null
   address: string | null
+  // Трансляция геопозиции: до `liveUntil` точку двигает отправитель (`location:updated`).
+  // null — обычная точка или трансляция, закончившаяся остановкой. Поля необязательны —
+  // их нет у старого сервера и у оптимистичных пузырей.
+  liveUntil?: string | null
+  // Когда точка в последний раз сдвинулась.
+  liveUpdatedAt?: string | null
+  // Направление движения (градусы от севера) и точность (м) последней точки.
+  heading?: number | null
+  accuracy?: number | null
 }
 
 export interface MessageContact {

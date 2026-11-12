@@ -1700,6 +1700,8 @@ describe('ChatsService.listChats — последнее сообщение', () 
     )
     // Непрочитанное считается только там, где последнее сообщение есть.
     expect(messageGroupBy.mock.calls[0]?.[0].where.OR).toEqual([{ chatId: 'c1' }])
+    // Скрытое «у себя» в счётчик списка не идёт.
+    expect(messageGroupBy.mock.calls[0]?.[0].where.hiddenBy).toEqual({ none: { userId: 'u1' } })
     expect(page.items).toEqual([
       expect.objectContaining({ id: 'c1', lastMessage: expect.objectContaining({ id: 'm1' }) }),
       expect.objectContaining({ id: 'c2', lastMessage: null, unreadCount: 0 }),
@@ -1933,6 +1935,16 @@ describe('ChatsService.getUnreadSummary', () => {
         ],
       },
     ])
+  })
+
+  it('скрытые «у себя» сообщения непрочитанными не считаются', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findMany.mockResolvedValue([member('c1')])
+    const groupBy = withGroupBy(prisma, [])
+
+    await service.getUnreadSummary(user('u1'))
+
+    expect(groupBy.mock.calls[0]?.[0].where.hiddenBy).toEqual({ none: { userId: 'u1' } })
   })
 
   it('без чатов для подсчёта в базу за сообщениями не ходит', async () => {

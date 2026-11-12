@@ -17,6 +17,8 @@ import { ChatChecklistsController } from './chat-checklists.controller'
 import { ChatStickersService } from './chat-stickers.service'
 import { ChatStickersController } from './chat-stickers.controller'
 import { StickerSetsAdminController } from './sticker-sets-admin.controller'
+import { ChatGifsService } from './chat-gifs.service'
+import { ChatGifsController } from './chat-gifs.controller'
 
 // Чаты (docs/PROJECT.md §3.6, задачи Ф9). Владеет Chat/ChatMember/Message.
 // ChatGateway навешивает WS-события на общий socket.io-сервер (handshake — в RealtimeGateway).
@@ -24,11 +26,12 @@ import { StickerSetsAdminController } from './sticker-sets-admin.controller'
 @Module({
   imports: [FilesModule, PostsModule, NotificationsModule, StoriesModule],
   // Контроллеры со статическим префиксом (`chats/folders`, `chats/checklists`,
-  // `chats/stickers`) — первыми: их пути не должны попасть в `chats/:id`.
+  // `chats/stickers`, `chats/gifs`) — первыми: их пути не должны попасть в `chats/:id`.
   controllers: [
     ChatFoldersController,
     ChatChecklistsController,
     ChatStickersController,
+    ChatGifsController,
     ChatsController,
     SupportController,
     StickerSetsAdminController,
@@ -42,6 +45,7 @@ import { StickerSetsAdminController } from './sticker-sets-admin.controller'
     SupportService,
     ChatChecklistsService,
     ChatStickersService,
+    ChatGifsService,
   ],
   exports: [ChatsService, SupportService],
 })

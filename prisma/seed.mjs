@@ -19,6 +19,7 @@ import { seedMedia } from './seed/steps/10-media.mjs'
 import { seedCompanies } from './seed/steps/15-companies.mjs'
 import { seedUserMedia } from './seed/steps/57-user-media.mjs'
 import { seedDemoExtras } from './seed/steps/90-demo-extras.mjs'
+import { seedStickers } from './seed/steps/95-stickers.mjs'
 import { recordRun } from './seed/lib/marker.mjs'
 import { runCleanup } from './seed/cleanup.mjs'
 import { loadEnv } from './seed/lib/env.mjs'
@@ -242,6 +243,20 @@ async function main() {
   let mediaPool = null
   if (config.media && config.runs('media')) {
     mediaPool = await seedMedia(prisma, config)
+  }
+
+  // ── Стикеры: собственный набор StudentHub ───────────────────────────────────
+  // Справочник платформы, а не демо-данные: идёт в любом полном прогоне. Нужен MinIO —
+  // без него (обычный `pnpm db:seed` в demo) шаг пропускается, набор потом заливает
+  // `pnpm db:seed:stickers`. Идемпотентен: недостающее докладывает, решения админа о
+  // публикации и названии не трогает.
+  if (config.only === null) {
+    const stickers = await seedStickers(prisma, createStorage())
+    console.log(
+      stickers.skipped
+        ? `  стикеры: пропущено (${stickers.reason}) — потом pnpm db:seed:stickers`
+        : `  стикеры: набор «studenthub», новых ${stickers.created} из ${stickers.total}`,
+    )
   }
 
   // ── Работодатели (общие для всех вузов) ─────────────────────────────────────

@@ -53,6 +53,10 @@ function setup() {
       update: jest.fn().mockResolvedValue({}),
     },
     chatPoll: { findUnique: jest.fn(), update: jest.fn().mockResolvedValue({}) },
+    chatLocation: {
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findUniqueOrThrow: jest.fn(),
+    },
     chatPollVote: { findMany: jest.fn().mockResolvedValue([]) },
     notification: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     userBlock: { findFirst: jest.fn().mockResolvedValue(null) },
@@ -712,5 +716,176 @@ describe('Стикеры', () => {
       code: 'NOT_FOUND',
     })
     expect(chats.sendRichMessage).not.toHaveBeenCalled()
+  })
+})
+
+describe('Трансляция геопозиции', () => {
+  const future = () => new Date(Date.now() + 10 * 60_000)
+  const location = (over: Record<string, unknown> = {}) => ({
+    lat: 43.2,
+    lng: 76.9,
+    title: null,
+    address: null,
+    liveUntil: future(),
+    liveUpdatedAt: new Date(),
+    heading: 90,
+    accuracy: 5,
+    ...over,
+  })
+
+  it('livePeriod задаёт liveUntil = сейчас + срок и liveUpdatedAt = сейчас', async () => {
+    const { service, prisma } = setup()
+    prisma.message.create.mockResolvedValue({ id: 'm1' })
+    prisma.message.findUniqueOrThrow.mockResolvedValue(row('m1'))
+    const before = Date.now()
+    await service.sendLocation('u1', 'c1', { lat: 43.2, lng: 76.9, livePeriod: 900, heading: 45 })
+    const created = prisma.message.create.mock.calls[0][0].data.location.create
+    expect(created.liveUntil.getTime() - created.liveUpdatedAt.getTime()).toBe(900_000)
+    expect(created.liveUpdatedAt.getTime()).toBeGreaterThanOrEqual(before)
+    expect(created).toMatchObject({ heading: 45, accuracy: null })
+  })
+
+  it('без livePeriod — статичная точка', async () => {
+    const { service, prisma } = setup()
+    prisma.message.create.mockResolvedValue({ id: 'm1' })
+    prisma.message.findUniqueOrThrow.mockResolvedValue(row('m1'))
+    await service.sendLocation('u1', 'c1', { lat: 1, lng: 2 })
+    const created = prisma.message.create.mock.calls[0][0].data.location.create
+    expect(created).not.toHaveProperty('liveUntil')
+    expect(created).not.toHaveProperty('liveUpdatedAt')
+  })
+
+  it('автор двигает точку — запись условная (идёт и не чаще 3 с), location:updated в чат', async () => {
+    const { service, prisma, realtime } = setup()
+    prisma.message.findFirst.mockResolvedValue({ chatId: 'c1', senderId: 'u1' })
+    const updated = location({ lat: 43.3 })
+    prisma.chatLocation.findUniqueOrThrow.mockResolvedValue(updated)
+
+    const res = await service.updateLiveLocation('u1', 'm1', { lat: 43.3, lng: 76.9 })
+
+    expect(res).toBe(updated)
+    const where = prisma.chatLocation.updateMany.mock.calls[0][0].where
+    expect(where.messageId).toBe('m1')
+    expect(where.liveUntil.gt).toBeInstanceOf(Date)
+    expect(where.OR[1].liveUpdatedAt.lte.getTime()).toBeLessThanOrEqual(Date.now() - 3000)
+    expect(realtime.emitToRoom).toHaveBeenCalledWith('chat:c1', 'location:updated', {
+      chatId: 'c1',
+      messageId: 'm1',
+      location: updated,
+    })
+  })
+
+  it('чаще раза в 3 с — текущее состояние без события', async () => {
+    const { service, prisma, realtime } = setup()
+    prisma.message.findFirst.mockResolvedValue({ chatId: 'c1', senderId: 'u1' })
+    prisma.chatLocation.updateMany.mockResolvedValue({ count: 0 })
+    const current = location()
+    prisma.chatLocation.findUniqueOrThrow.mockResolvedValue(current)
+
+    await expect(service.updateLiveLocation('u1', 'm1', { lat: 1, lng: 2 })).resolves.toBe(current)
+    expect(realtime.emitToRoom).not.toHaveBeenCalled()
+  })
+
+  it('закончившаяся трансляция — LIVE_LOCATION_ENDED', async () => {
+    const { service, prisma, realtime } = setup()
+    prisma.message.findFirst.mockResolvedValue({ chatId: 'c1', senderId: 'u1' })
+    prisma.chatLocation.updateMany.mockResolvedValue({ count: 0 })
+    prisma.chatLocation.findUniqueOrThrow.mockResolvedValue(
+      location({ liveUntil: new Date(Date.now() - 1000) }),
+    )
+    await expect(service.updateLiveLocation('u1', 'm1', { lat: 1, lng: 2 })).rejects.toMatchObject({
+      code: 'LIVE_LOCATION_ENDED',
+    })
+    expect(realtime.emitToRoom).not.toHaveBeenCalled()
+  })
+
+  it('чужая трансляция — FORBIDDEN, без записи', async () => {
+    const { service, prisma } = setup()
+    prisma.message.findFirst.mockResolvedValue({ chatId: 'c1', senderId: 'u2' })
+    await expect(service.updateLiveLocation('u1', 'm1', { lat: 1, lng: 2 })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    await expect(service.stopLiveLocation('u1', 'm1')).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(prisma.chatLocation.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('статичная точка или удалённое сообщение — NOT_FOUND', async () => {
+    const { service, prisma } = setup()
+    prisma.message.findFirst.mockResolvedValue(null)
+    await expect(service.updateLiveLocation('u1', 'm1', { lat: 1, lng: 2 })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    expect(prisma.message.findFirst.mock.calls[0][0].where).toEqual({
+      id: 'm1',
+      deletedAt: null,
+      location: { liveUntil: { not: null } },
+    })
+  })
+
+  it('не участник — WRONG_SCOPE, без записи', async () => {
+    const { service, prisma } = setup()
+    prisma.message.findFirst.mockResolvedValue({ chatId: 'c1', senderId: 'u1' })
+    prisma.chatMember.findUnique.mockResolvedValueOnce(null)
+    await expect(service.updateLiveLocation('u1', 'm1', { lat: 1, lng: 2 })).rejects.toMatchObject({
+      code: 'WRONG_SCOPE',
+    })
+    expect(prisma.chatLocation.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('остановка ставит liveUntil = сейчас и шлёт location:updated; повтор — тихо', async () => {
+    const { service, prisma, realtime } = setup()
+    prisma.message.findFirst.mockResolvedValue({ chatId: 'c1', senderId: 'u1' })
+    const stopped = location({ liveUntil: new Date() })
+    prisma.chatLocation.findUniqueOrThrow.mockResolvedValue(stopped)
+
+    await expect(service.stopLiveLocation('u1', 'm1')).resolves.toBe(stopped)
+    const call = prisma.chatLocation.updateMany.mock.calls[0][0]
+    expect(call.data.liveUntil).toBeInstanceOf(Date)
+    expect(call.data.liveUpdatedAt).toBe(call.data.liveUntil)
+    expect(realtime.emitToRoom).toHaveBeenCalledWith('chat:c1', 'location:updated', {
+      chatId: 'c1',
+      messageId: 'm1',
+      location: stopped,
+    })
+
+    realtime.emitToRoom.mockClear()
+    prisma.chatLocation.updateMany.mockResolvedValue({ count: 0 })
+    await service.stopLiveLocation('u1', 'm1')
+    expect(realtime.emitToRoom).not.toHaveBeenCalled()
+  })
+
+  it('пересылка трансляции — статичный снимок: в копию уходят только координаты и подпись', async () => {
+    const ctx = setup()
+    ctx.prisma.message.findMany.mockResolvedValue([
+      {
+        id: 's1',
+        chatId: 'c0',
+        seq: 1,
+        createdAt: new Date('2026-11-01T10:01:00Z'),
+        content: '',
+        linkPreview: null,
+        sharedPostId: null,
+        stickerId: null,
+        poll: null,
+        location: { lat: 43.2, lng: 76.9, title: null, address: null },
+        contact: null,
+        checklist: null,
+        media: [],
+      },
+    ])
+    ctx.prisma.message.create.mockResolvedValue(row('new-1'))
+    ctx.prisma.message.findUniqueOrThrow.mockResolvedValue(row('new-1'))
+    await ctx.service.forwardBatch(viewer('u1'), {
+      messageIds: ['s1'],
+      chatIds: ['c1'],
+      requestId: '22222222-2222-4222-8222-222222222222',
+    })
+    const select = ctx.prisma.message.findMany.mock.calls[0][0].select
+    expect(select.location).toEqual({
+      select: { lat: true, lng: true, title: true, address: true },
+    })
+    expect(ctx.prisma.message.create.mock.calls[0][0].data.location).toEqual({
+      create: { lat: 43.2, lng: 76.9, title: null, address: null },
+    })
   })
 })

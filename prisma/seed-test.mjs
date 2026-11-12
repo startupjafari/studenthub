@@ -35,6 +35,7 @@ import { seedKato } from './seed/steps/00-kato.mjs'
 import { seedServiceCatalog } from './seed/steps/05-service-catalog.mjs'
 import { seedLibrary } from './seed/steps/45-library.mjs'
 import { assignAvatars, seedMedia } from './seed/steps/10-media.mjs'
+import { seedStickers } from './seed/steps/95-stickers.mjs'
 import { seedCompanies } from './seed/steps/15-companies.mjs'
 import { seedUserMedia } from './seed/steps/57-user-media.mjs'
 
@@ -221,6 +222,15 @@ async function main() {
   // ── Медиа-пул ───────────────────────────────────────────────────────────────
   // До вузов: аватары и обложки раздаются всем, включая уже созданных платформенных.
   const mediaPool = config.media ? await seedMedia(prisma, config) : null
+
+  // ── Стикеры ─────────────────────────────────────────────────────────────────
+  // Набор StudentHub — справочник платформы; без MinIO шаг пропускается (см. seed.mjs).
+  const stickers = await seedStickers(prisma, createStorage())
+  console.log(
+    stickers.skipped
+      ? `  стикеры: пропущено (${stickers.reason}) — потом pnpm db:seed:stickers`
+      : `  стикеры: набор «studenthub», новых ${stickers.created} из ${stickers.total}`,
+  )
 
   // ── Работодатели ────────────────────────────────────────────────────────────
   // До вуза: допуски и решения по вакансиям создаёт шаг карьеры внутри вуза.

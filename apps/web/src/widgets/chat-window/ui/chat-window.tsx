@@ -88,6 +88,7 @@ import {
   useVoiceRecorder,
   createRefreshCoalescer,
   scheduleChatsUnreadRefresh,
+  applyLocationUpdate,
   type ChatFolder,
   type ChatListItem,
   type ChatMemberInfo,
@@ -96,6 +97,7 @@ import {
   type AttachmentSendOptions,
   type MessageAttachment,
   type MessageChecklist,
+  type MessageLocation,
   type MessageMenuAnchor,
 } from '../../../entities/chat'
 import { needsDirectUpload } from '../../../shared/api'
@@ -1724,6 +1726,16 @@ export function ChatWindow() {
     ({ checklistId, chatId, checklist }) => {
       qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) =>
         old?.map((m) => (m.checklist?.id === checklistId ? { ...m, checklist } : m)),
+      )
+    },
+  )
+  // Трансляция геопозиции: новая точка или остановка — в сообщение ленты этого чата.
+  // Сообщение другого чата хелпер не тронет: сверяет и chatId, и id сообщения.
+  useRealtimeEvent<{ chatId: string; messageId: string; location: MessageLocation }>(
+    'location:updated',
+    (update) => {
+      qc.setQueryData<ChatMessage[]>(chatKeys.messages(update.chatId), (old) =>
+        applyLocationUpdate(old, update),
       )
     },
   )
