@@ -567,6 +567,14 @@ final class GifPanelCache: @unchecked Sendable {
     var trending: [ExternalGifDTO]?
     var trendingNext: Int?
     var searchDisabled = false
+
+    /// Выход из аккаунта: недавние GIF — чужие для следующего человека.
+    func clear() {
+        recent = nil
+        trending = nil
+        trendingNext = nil
+        searchDisabled = false
+    }
 }
 
 private struct GifThumbnail: View {
