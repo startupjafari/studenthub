@@ -329,6 +329,9 @@ struct AttachmentSendSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var more: [PhotosPickerItem] = []
+    /// Окно «Фото» открывает лист, а не строка формы: строка перерисовывается, пока окно
+    /// открыто, и оно зависало на «Загрузке».
+    @State private var pickingMore = false
 
     private var media: [StagedAttachment] { draft.items.filter(\.isMedia) }
     private var rows: [StagedAttachment] { draft.showsAsFiles ? draft.items : draft.items.filter { !$0.isMedia } }
@@ -370,11 +373,9 @@ struct AttachmentSendSheet: View {
                                 .foregroundStyle(Palette.mutedForeground)
                         }
                     }
-                    PhotosPicker(
-                        selection: $more,
-                        maxSelectionCount: AttachmentUploader.albumLimit,
-                        matching: .any(of: [.images, .videos])
-                    ) {
+                    Button {
+                        pickingMore = true
+                    } label: {
                         Label(
                             String(localized: "chats.attach.addMore", defaultValue: "Добавить фото или видео"),
                             systemImage: "plus"
@@ -428,6 +429,12 @@ struct AttachmentSendSheet: View {
                 Text(draft.failure ?? "")
             }
         }
+        .photosPicker(
+            isPresented: $pickingMore,
+            selection: $more,
+            maxSelectionCount: AttachmentUploader.albumLimit,
+            matching: .any(of: [.images, .videos])
+        )
         .onChange(of: more) {
             let picked = more
             guard !picked.isEmpty else { return }
