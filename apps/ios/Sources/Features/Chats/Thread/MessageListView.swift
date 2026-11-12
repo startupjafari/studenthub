@@ -87,19 +87,9 @@ final class MessageListViewController: UIViewController {
     private var followedBottom = true
 
     private var collectionView: UICollectionView!
-    private let layout = MessageTimelineLayout()
     private var dataSource: UICollectionViewDiffableDataSource<Date, String>!
     private var itemsByID: [String: MessageTimeline.Item] = [:]
-    /// Отпечатки содержимого для кэша высот (`MessageHeightCache`): считаются один раз на
-    /// новое или изменившееся сообщение, а не на каждую пересборку раскладки.
-    private var fingerprints: [String: UInt64] = [:]
-    private let heights = MessageHeightCache.shared
     private var lastPageRequest: CFTimeInterval = 0
-    /// Уже найденные высоты по id — быстрый путь пересборки раскладки: без ключа-строки,
-    /// блокировки и словаря кэша на каждое из тысяч сообщений при каждом срезе базы.
-    /// Сбрасывается вместе с отпечатком сообщения, шириной и размером шрифта.
-    private var resolved: [String: CGFloat] = [:]
-    private var resolvedFor: (width: CGFloat, category: UIContentSizeCategory)?
     private var hasContent = false
     private var lastBoundsHeight: CGFloat = 0
 
@@ -149,74 +139,6 @@ final class MessageListViewController: UIViewController {
         super.viewDidLoad()
         configureCollectionView()
         configureDataSource()
-        layout.source = MessageTimelineLayout.Source(
-            itemID: { [weak self] indexPath in self?.dataSource.itemIdentifier(for: indexPath) },
-            height: { [weak self] id in self?.height(for: id) ?? 60 },
-            didMeasure: { [weak self] id, height in self?.remember(height, for: id) }
-        )
-        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) {
-            (controller: MessageListViewController, _: UITraitCollection) in
-            // Другой размер шрифта — другие высоты: раскладка заново по своим замерам.
-            controller.layout.rebuildAll()
-        }
-    }
-
-    deinit {
-        MessageHeightCache.shared.save()
-    }
-
-    // MARK: - Высоты
-
-    private func heightKey(_ id: String) -> String {
-        MessageHeightCache.key(
-            id: id,
-            width: collectionView.bounds.width,
-            category: traitCollection.preferredContentSizeCategory
-        )
-    }
-
-    /// Высота сообщения для раскладки: точная из кэша, иначе прошлая, иначе оценка.
-    private func height(for id: String) -> CGFloat {
-        let width = collectionView.bounds.width
-        let category = traitCollection.preferredContentSizeCategory
-        if resolvedFor?.width != width || resolvedFor?.category != category {
-            resolved = [:]
-            resolvedFor = (width, category)
-        }
-        if let known = resolved[id] { return known }
-        guard let item = itemsByID[id] else { return 60 }
-        let key = heightKey(id)
-        let height: CGFloat
-        if let fingerprint = fingerprints[id], let exact = heights.height(for: key, fingerprint: fingerprint) {
-            height = exact
-        } else if let last = heights.lastHeight(for: key) {
-            height = last
-        } else {
-            height = item.estimatedHeight(width: width, isGroup: bubbleContext.isGroup)
-        }
-        resolved[id] = height
-        return height
-    }
-
-    private func remember(_ height: CGFloat, for id: String) {
-        guard collectionView.bounds.width > 1, let fingerprint = fingerprints[id] else { return }
-        resolved[id] = height
-        heights.store(height, for: heightKey(id), fingerprint: fingerprint)
-    }
-
-    /// Ячейки на экране, чьё содержимое сменилось (правка, реакция, прочтение), меряются
-    /// заново: раскладка узнаёт новую высоту сразу, а не при следующем показе.
-    private func remeasure(_ ids: [String]) {
-        let width = collectionView.bounds.width
-        for id in ids {
-            guard let indexPath = dataSource.indexPath(for: id),
-                let cell = collectionView.cellForItem(at: indexPath) as? SelfSizingTimelineCell
-            else { continue }
-            cell.layoutIfNeeded()
-            let height = cell.fittingHeight(width: width)
-            remember(height, for: id)
-            layout.resize(indexPath, to: height)
-        }
     }
 
     /// Высота ленты меняется под клавиатуру, растущее поле ввода, полосы ответа и
@@ -276,7 +198,6 @@ final class MessageListViewController: UIViewController {
         collectionView.contentInset.top = inset
         collectionView.verticalScrollIndicatorInsets.top = inset
         if keepsBottom { scrollToBottom(animated: false) }
-        layout.invalidatePinnedHeaders()
     }
 
     func setBottomInset(_ inset: CGFloat) {
@@ -286,7 +207,6 @@ final class MessageListViewController: UIViewController {
         collectionView.contentInset.bottom = inset
         collectionView.verticalScrollIndicatorInsets.bottom = inset
         if keepsBottom { scrollToBottom(animated: false) }
-        layout.invalidatePinnedHeaders()
     }
 
     /// Применить срез.
@@ -303,7 +223,6 @@ final class MessageListViewController: UIViewController {
         let previousOrder = previousSnapshot.itemIdentifiers
         let previousDays = Set(previousSnapshot.sectionIdentifiers)
         let contextChanged = context != bubbleContext
-        let previousIsGroup = bubbleContext.isGroup
         bubbleContext = context
         // Вход в режим выбора и выход перерисовывают все ячейки (кружки слева), а
         // касание в режиме — только те, чья отметка сменилась.
@@ -313,18 +232,6 @@ final class MessageListViewController: UIViewController {
         itemsByID = Dictionary(
             uniqueKeysWithValues: days.flatMap(\.items).map { ($0.id, $0) }
         )
-        // Все отпечатки — только когда меняется то, что входит в каждый из них (группа,
-        // режим выбора), а не на каждую отметку о прочтении внутри контекста.
-        let recomputesAll = context.isGroup != previousIsGroup || selectionModeChanged
-        if recomputesAll || fingerprints.count > itemsByID.count * 2 {
-            fingerprints = fingerprints.filter { itemsByID[$0.key] != nil }
-        }
-        for (id, item) in itemsByID where recomputesAll || fingerprints[id] == nil || previous[id] != item {
-            let fingerprint = item.heightFingerprint(isGroup: context.isGroup, selecting: selection != nil)
-            // Содержимое сменилось — найденная высота больше не точная.
-            if fingerprints[id] != fingerprint { resolved[id] = nil }
-            fingerprints[id] = fingerprint
-        }
 
         var snapshot = NSDiffableDataSourceSnapshot<Date, String>()
         snapshot.appendSections(days.map(\.id))
@@ -365,7 +272,6 @@ final class MessageListViewController: UIViewController {
 
         dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
             guard let self else { return }
-            if !changed.isEmpty { self.remeasure(changed) }
             defer {
                 // Срез мог дописать ленту снизу без прокрутки — «у низа» пересчитываем.
                 self.reportBottom()
@@ -471,7 +377,22 @@ final class MessageListViewController: UIViewController {
     // MARK: - Сборка
 
     private func configureCollectionView() {
-        // Своя раскладка с кэшем высот вместо системного списка: см. `MessageTimelineLayout`.
+        var configuration = UICollectionLayoutListConfiguration(appearance: .plain)
+        configuration.showsSeparators = false
+        configuration.backgroundColor = .clear
+        configuration.headerMode = .supplementary
+        configuration.headerTopPadding = 0
+
+        // Дата дня прилипает к верху, пока листаешь этот день, — как в Telegram.
+        let layout = UICollectionViewCompositionalLayout { _, environment in
+            let section = NSCollectionLayoutSection.list(using: configuration, layoutEnvironment: environment)
+            for header in section.boundarySupplementaryItems {
+                header.pinToVisibleBounds = true
+                header.zIndex = 2
+            }
+            return section
+        }
+
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         collectionView.backgroundColor = .clear
         collectionView.keyboardDismissMode = .interactive
@@ -509,10 +430,9 @@ final class MessageListViewController: UIViewController {
     }
 
     private func configureDataSource() {
-        let cell = UICollectionView.CellRegistration<MessageTimelineCell, String> {
+        let cell = UICollectionView.CellRegistration<UICollectionViewListCell, String> {
             [weak self] cell, _, id in
             guard let item = self?.itemsByID[id] else { return }
-            cell.invalidateMeasurement()
             cell.contentConfiguration = UIHostingConfiguration {
                 MessageBubbleView(
                     item: item,
@@ -536,7 +456,7 @@ final class MessageListViewController: UIViewController {
 
         // Обычная ячейка, не строка списка: у прилипшего заголовка списка система рисует
         // подложку во всю ширину — полосу под датой. Здесь видна только капсула даты.
-        let header = UICollectionView.SupplementaryRegistration<DayHeaderCell>(
+        let header = UICollectionView.SupplementaryRegistration<UICollectionViewCell>(
             elementKind: UICollectionView.elementKindSectionHeader
         ) { [weak self] view, _, indexPath in
             guard let day = self?.dataSource.sectionIdentifier(for: indexPath.section) else { return }
