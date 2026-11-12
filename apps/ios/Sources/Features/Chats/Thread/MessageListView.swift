@@ -572,7 +572,14 @@ final class MessageListViewController: UIViewController {
         let recentlyReplaced = replacedAt.map { Date().timeIntervalSince($0) < 0.5 } ?? false
         // Далеко от низа — не катимся через всю историю, а встаём к низу сразу.
         if !recentlyReplaced, distanceToBottom > collectionView.bounds.height * Self.nearScreens {
-            crossfade { self.scrollToBottom(animated: false) }
+            crossfade {
+                // Два прохода: первый ставит ленту по оценочным высотам, второй — по
+                // настоящим высотам ячеек, оказавшихся на экране.
+                for _ in 0..<2 {
+                    self.scrollToBottom(animated: false)
+                    self.collectionView.layoutIfNeeded()
+                }
+            }
             reportBottom()
             return
         }
