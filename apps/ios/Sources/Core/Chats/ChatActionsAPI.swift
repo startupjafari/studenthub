@@ -136,18 +136,19 @@ struct ChatCalendarDayDTO: Decodable, Equatable {
 
 /// Вид раздела вложений в информации о чате.
 enum ChatMediaKind: String {
-    case media, file, voice
+    /// `voice` — всё аудио (так его понимает веб), `voiceNote` — только голосовые,
+    /// `music` — аудиофайлы без голосовых, `gif` — анимации.
+    case media, file, voice, music, gif
+    case voiceNote = "voice_note"
 }
 
-/// Реакции на сообщения — белый список сервера (`CHAT_REACTION_EMOJIS`). Любая
-/// другая отвечает 400, поэтому полного набора эмодзи здесь нет.
+/// Реакции: сервер принимает любой emoji, одну реакцию на человека.
 enum ChatReactions {
-    static let all = ["👍", "❤️", "😂", "🎉", "😮", "😢", "🔥", "👀"]
     /// Двойное нажатие на пузырь — как в вебе.
     static let doubleTap = "🔥"
 }
 
-protocol ChatActing: Sendable {
+protocol ChatActing: ChatMessaging {
     // Сообщения
     func react(messageID: String, emoji: String) async throws -> ChatMessageDTO
     func setPinned(_ pinned: Bool, messageID: String) async throws

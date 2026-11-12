@@ -47,7 +47,8 @@ final class ChatSharedContent {
         switch kind {
         case .media: return media
         case .file: return files
-        case .voice: return voice
+        case .voice, .voiceNote: return voice
+        case .music, .gif: return media
         }
     }
 
