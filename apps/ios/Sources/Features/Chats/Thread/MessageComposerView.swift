@@ -23,7 +23,6 @@ struct MessageComposerView: View {
     @State private var showsScanner = false
     /// Вместо клавиатуры открыта панель emoji, стикеров и GIF.
     @State private var showsPanel = false
-    @State private var creatingChecklist = false
     @State private var pickingContact = false
     /// «Выбрать из Галереи» во вкладке «Файл»: снимки уходят файлами.
     @State private var pickingPhotoFiles = false
@@ -36,7 +35,6 @@ struct MessageComposerView: View {
     @State private var openedDraft: AttachmentDraft?
     /// Снимок камеры ждёт, пока она закроется: лист поверх уходящей камеры не откроется.
     @State private var captured: UIImage?
-    @State private var creatingPoll = false
     /// Каждая отправка — лёгкий отклик под пальцем, как в Telegram.
     @State private var sentTick = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -243,22 +241,16 @@ struct MessageComposerView: View {
                 },
                 onSendLiveLocation: { location, period in
                     await model.sendLiveLocation(location, period: period)
+                },
+                onCreatePoll: { question, description, options, multiple, anonymous in
+                    await model.createPoll(
+                        question: question, description: description, options: options, multiple: multiple, anonymous: anonymous
+                    )
+                },
+                onCreateChecklist: { title, items, othersCanAdd, othersCanMark in
+                    await model.sendChecklist(title: title, items: items, othersCanAdd: othersCanAdd, othersCanMark: othersCanMark)
                 }
             )
-        }
-        .sheet(isPresented: $creatingPoll) {
-            ChatPollCreatorView { question, description, options, multiple, anonymous in
-                await model.createPoll(
-                    question: question, description: description, options: options, multiple: multiple, anonymous: anonymous
-                )
-            }
-        }
-        .sheet(isPresented: $creatingChecklist) {
-            ChecklistComposerView { title, items, othersCanAdd, othersCanMark in
-                await model.sendChecklist(title: title, items: items, othersCanAdd: othersCanAdd, othersCanMark: othersCanMark)
-            }
-            // Компактно, как разделы листа вложений; выше — потянув за ручку.
-            .presentationDetents([.medium, .large])
         }
         .photosPicker(
             isPresented: $pickingPhotoFiles,
@@ -400,10 +392,6 @@ struct MessageComposerView: View {
             showsFileImporter = true
         case .scan:
             showsScanner = true
-        case .poll:
-            creatingPoll = true
-        case .checklist:
-            creatingChecklist = true
         case .contact:
             pickingContact = true
         case .contactCard(let contact):

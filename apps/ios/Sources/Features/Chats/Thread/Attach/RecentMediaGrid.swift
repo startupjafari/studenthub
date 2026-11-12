@@ -3,12 +3,14 @@ import PhotosUI
 import SwiftUI
 
 /// Сетка недавних снимков и роликов, как в листе вложений Telegram: первая плитка —
-/// камера, на плитке — кружок с номером выбора, у ролика — длительность.
+/// живая камера, на плитке — кружок с номером выбора, у ролика — длительность. Альбом
+/// выбирают в шапке листа (`albums`).
 ///
 /// Миниатюры — через `PHCachingImageManager` по размеру плитки: полный кадр ради
 /// плитки в сотню точек не раскодируем.
 struct RecentMediaGrid: View {
     @Binding var selection: [PHAsset]
+    let albums: PhotoAlbumsModel
     let limit: Int
     let onCamera: () -> Void
     let onPicked: ([PhotosPickerItem]) -> Void
@@ -55,6 +57,7 @@ struct RecentMediaGrid: View {
             }
         }
         .onAppear(perform: reload)
+        .onChange(of: albums.selected) { reloadAssets() }
         .photosPicker(isPresented: $pickingAll, selection: $picked, maxSelectionCount: limit, matching: .any(of: [.images, .videos]))
         .onChange(of: picked) {
             guard !picked.isEmpty else { return }
@@ -70,11 +73,14 @@ struct RecentMediaGrid: View {
                 if CameraPicker.isAvailable {
                     Button(action: onCamera) {
                         tile {
-                            Image(systemName: "camera.fill")
-                                .font(.title2)
-                                .foregroundStyle(Palette.primaryForeground)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .background(Palette.overlay.opacity(0.85))
+                            ZStack {
+                                Palette.overlay.opacity(0.85)
+                                LiveCameraTile()
+                                Image(systemName: "camera.fill")
+                                    .font(.title2)
+                                    .foregroundStyle(.white)
+                                    .shadow(color: .black.opacity(0.4), radius: 4)
+                            }
                         }
                     }
                     .buttonStyle(.plain)
@@ -201,7 +207,13 @@ struct RecentMediaGrid: View {
 
     private func reload() {
         guard status == .authorized || status == .limited else { return }
-        assets = PhotoAssets.recent()
+        albums.load()
+        reloadAssets()
+    }
+
+    private func reloadAssets() {
+        guard status == .authorized || status == .limited else { return }
+        assets = albums.selected.map { PhotoAssets.assets(in: $0) } ?? PhotoAssets.recent()
     }
 }
 

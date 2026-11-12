@@ -257,8 +257,6 @@ struct ChatSearchPanel: View {
     let search: ChatThreadSearch
     let isGroup: Bool
     let showsList: Bool
-    /// Над клавиатурой (панель клавиатуры): без своей подложки и отступов.
-    var overKeyboard = false
     let onCalendar: () -> Void
     let onSender: () -> Void
     let onList: () -> Void
@@ -266,17 +264,13 @@ struct ChatSearchPanel: View {
     let onNewer: () -> Void
 
     var body: some View {
-        if overKeyboard {
+        GlassGroup(spacing: Spacing.md) {
             controls
-        } else {
-            GlassGroup(spacing: Spacing.md) {
-                controls
-                    .padding(.horizontal, Spacing.xl)
-                    .padding(.vertical, Spacing.md)
-                    .frame(minHeight: ControlHeight.chatInput)
-            }
-            .modifier(ComposerBarBackground())
+                .padding(.horizontal, Spacing.xl)
+                .padding(.vertical, Spacing.md)
+                .frame(minHeight: ControlHeight.chatInput)
         }
+        .modifier(ComposerBarBackground())
     }
 
     private var controls: some View {
