@@ -104,6 +104,17 @@ struct MessageStore: Sendable {
         }
     }
 
+    /// Убрать сообщения, удалённые «у меня» (своим действием или с другого устройства).
+    func removeHidden(remoteIDs: [String], chatID: String) async throws {
+        guard !remoteIDs.isEmpty else { return }
+        try await database.writer.write { db in
+            _ = try MessageRecord
+                .filter(MessageRecord.Columns.chatId == chatID)
+                .filter(remoteIDs.contains(MessageRecord.Columns.remoteId))
+                .deleteAll(db)
+        }
+    }
+
     /// Убрать очищенный у себя период: границы включительно, как на сервере.
     /// Неотправленное не трогаем — сервер о нём ещё не знает, и очищать там нечего.
     func clearHistory(chatID: String, from: Date, to: Date) async throws {

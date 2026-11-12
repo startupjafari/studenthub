@@ -33,6 +33,8 @@ struct MessageListView: UIViewControllerRepresentable {
     /// Лента подъехала к низу загруженного — догрузка из окна истории.
     var onReachBottom: () -> Void = {}
     let onAction: (MessageAction, MessageRecord) -> Void
+    /// Долгое нажатие на пузырь — меню с реакциями.
+    var onMenu: (MessageTimeline.Item) -> Void = { _ in }
 
     func makeUIViewController(context: Context) -> MessageListViewController {
         let controller = MessageListViewController()
@@ -52,6 +54,7 @@ struct MessageListView: UIViewControllerRepresentable {
         controller.onReachTop = onReachTop
         controller.onReachBottom = onReachBottom
         controller.onAction = onAction
+        controller.onMenu = onMenu
         controller.capabilities = capabilities
         controller.onBottomChange = onBottomChange
         controller.onDayTap = onDayTap
@@ -65,6 +68,7 @@ final class MessageListViewController: UIViewController {
     var onDayTap: ((Date) -> Void)?
     var followsBottom = true
     var onAction: ((MessageAction, MessageRecord) -> Void)?
+    var onMenu: ((MessageTimeline.Item) -> Void)?
     var capabilities: ((MessageRecord) -> MessageCapabilities)?
     var onBottomChange: ((Bool) -> Void)?
     private var bubbleContext = BubbleContext()
@@ -350,7 +354,11 @@ final class MessageListViewController: UIViewController {
                     selecting: self?.selection != nil,
                     isSelected: self?.selection?.contains(id) ?? false
                 ) { [weak self] action in
-                    self?.onAction?(action, item.message)
+                    if case .menu = action {
+                        self?.onMenu?(item)
+                    } else {
+                        self?.onAction?(action, item.message)
+                    }
                 }
             }
             // Как в Telegram: пузыри почти у краёв экрана, внутри группы — вплотную.

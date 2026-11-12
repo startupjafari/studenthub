@@ -168,6 +168,13 @@ struct MessageComposerView: View {
         .keepsKeyboardOnTap()
         .sensoryFeedback(.impact(weight: .light), trigger: sentTick)
         .voiceRecordingAlerts(recorder)
+        // «Ответить» и «Редактировать» из меню сразу открывают клавиатуру.
+        .onChange(of: model.replyTo?.id) { _, id in
+            if id != nil { isFocused = true }
+        }
+        .onChange(of: model.editing?.id) { _, id in
+            if id != nil { isFocused = true }
+        }
         .onAppear {
             recorder.onSend = { [model] voice in await model.attach(voice) }
             recorder.onAnnounce = { [model] on in model.announceVoice(on) }

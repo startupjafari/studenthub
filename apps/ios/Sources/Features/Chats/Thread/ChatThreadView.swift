@@ -17,9 +17,13 @@ struct ChatThreadView: View {
     @State private var reporting: MessageRecord?
     /// Своё сообщение в группе, чьих прочитавших показываем.
     @State private var readersOf: MessageRecord?
-    @State private var deleting: MessageRecord?
-    /// Подтверждение удаления выбранного: сколько сообщений уйдёт.
-    @State private var deletingSelection: Int?
+    /// Подтверждение удаления: у меня или у всех.
+    @State private var deleting: DeleteRequest?
+    /// Меню сообщения по долгому нажатию.
+    @State private var menu: MessageMenuRequest?
+    /// Действие из меню ждёт, пока меню закроется: лист поверх закрывающегося
+    /// полноэкранного слоя не откроется.
+    @State private var pendingMenuAction: (MessageMenuAction, MessageRecord)?
     @State private var copiedTick = 0
     @State private var reported = false
     @State private var pinnedIndex = 0
@@ -160,7 +164,8 @@ struct ChatThreadView: View {
                     },
                     onReachTop: { Task { await model.loadOlder() } },
                     onReachBottom: { Task { await model.loadNewer() } },
-                    onAction: { action, message in handle(action, message: message, model: model) }
+                    onAction: { action, message in handle(action, message: message, model: model) },
+                    onMenu: { item in openMenu(item, model: model) }
                 )
                 .overlay {
                     if let search, showsSearchList {
@@ -242,7 +247,11 @@ struct ChatThreadView: View {
                             forwarding = ForwardBatch(messages: model.selectedMessages, fromSelection: true)
                         },
                         onDelete: {
-                            deletingSelection = model.selectedMessages.count
+                            deleting = DeleteRequest(
+                                messages: model.selectedMessages,
+                                forEveryoneAllowed: model.canDeleteSelectionForEveryone,
+                                fromSelection: true
+                            )
                         }
                     )
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -330,6 +339,7 @@ struct ChatThreadView: View {
         view
         .task {
             guard model == nil else { return }
+            KeyboardFrame.shared.start()
             let created = ChatThreadModel(chatID: chatID, viewerID: viewerID)
             model = created
             created.start()
@@ -464,24 +474,34 @@ struct ChatThreadView: View {
             }
             Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
-        .alert(
-            String(localized: "chats.delete.title", defaultValue: "Удалить сообщение у всех?"),
+        .confirmationDialog(
+            deleting.map { ChatPlural.deleteMessagesQuestion($0.messages.count) } ?? "",
             isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+            titleVisibility: .visible,
             presenting: deleting
-        ) { message in
-            Button(String(localized: "feed.delete", defaultValue: "Удалить"), role: .destructive) {
-                Task { await model?.delete(message) }
+        ) { request in
+            if request.forEveryoneAllowed {
+                Button(String(localized: "chats.delete.forEveryone", defaultValue: "Удалить у всех"), role: .destructive) {
+                    perform(request, forEveryone: true)
+                }
+            }
+            Button(String(localized: "chats.delete.forMe", defaultValue: "Удалить у меня"), role: .destructive) {
+                perform(request, forEveryone: false)
             }
             Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
-        .alert(
-            ChatPlural.deleteMessagesQuestion(deletingSelection ?? 0),
-            isPresented: Binding(get: { deletingSelection != nil }, set: { if !$0 { deletingSelection = nil } })
-        ) {
-            Button(String(localized: "feed.delete", defaultValue: "Удалить"), role: .destructive) {
-                Task { await model?.deleteSelected() }
-            }
-            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
+        .fullScreenCover(item: $menu, onDismiss: runPendingMenuAction) { request in
+            MessageMenuOverlay(
+                request: request,
+                onReact: { emoji in
+                    Task { await model?.react(request.item.message, emoji: emoji) }
+                },
+                onAction: { action in
+                    pendingMenuAction = (action, request.item.message)
+                },
+                onDismiss: { closeMenu() }
+            )
+            .presentationBackground(.clear)
         }
         .alert(String(localized: "feed.report.sent", defaultValue: "Жалоба отправлена"), isPresented: $reported) {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}
@@ -506,7 +526,11 @@ struct ChatThreadView: View {
         case .edit:
             model.beginEdit(message)
         case .delete:
-            deleting = message
+            deleting = DeleteRequest(
+                messages: [message],
+                forEveryoneAllowed: model.canDelete(message),
+                fromSelection: false
+            )
         case .pin:
             Task { await model.togglePin(message) }
         case .copy:
@@ -540,6 +564,82 @@ struct ChatThreadView: View {
             AppServices.router.stacks[.chats, default: []].append(.post(id: id))
         case .openAttachment(let file):
             open(file)
+        case .menu:
+            break
+        }
+    }
+
+    // MARK: Меню сообщения
+
+    /// Долгое нажатие: меню открывается без системной анимации — у него своя, от пузыря.
+    private func openMenu(_ item: MessageTimeline.Item, model: ChatThreadModel) {
+        guard menu == nil, !model.isSelecting,
+            let row = BubbleAnchors.shared.rect(for: item.id, part: .row),
+            let bubble = BubbleAnchors.shared.rect(for: item.id, part: .bubble)
+        else { return }
+        let context = bubbleContext(model)
+        let message = item.message
+        let capabilities = MessageCapabilities(
+            canEdit: model.canEdit(message),
+            canDelete: model.canDelete(message),
+            canReport: message.senderId != viewerID,
+            myReaction: model.myReaction(on: message)
+        )
+        let readCount = context.isGroup && item.isOwn ? context.readCount(at: message.createdAt) : 0
+        let request = MessageMenuRequest(
+            item: item,
+            rowRect: row,
+            bubbleRect: bubble,
+            context: context,
+            capabilities: capabilities,
+            actions: MessageMenuAction.available(
+                for: message,
+                isOwn: item.isOwn,
+                isGroup: context.isGroup,
+                capabilities: capabilities,
+                readCount: readCount
+            ),
+            canReact: message.remoteId != nil && message.deletedAt == nil && message.systemType == nil
+        )
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { menu = request }
+    }
+
+    private func closeMenu() {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { menu = nil }
+    }
+
+    private func runPendingMenuAction() {
+        guard let (action, message) = pendingMenuAction, let model else { return }
+        pendingMenuAction = nil
+        switch action {
+        case .reply: handle(.reply, message: message, model: model)
+        case .copy:
+            handle(.copy, message: message, model: model)
+            copiedTick += 1
+        case .edit: handle(.edit, message: message, model: model)
+        case .pin: handle(.pin, message: message, model: model)
+        case .forward: handle(.forward, message: message, model: model)
+        case .readers: handle(.readers, message: message, model: model)
+        case .report: handle(.report, message: message, model: model)
+        case .delete: handle(.delete, message: message, model: model)
+        case .select: handle(.select, message: message, model: model)
+        }
+    }
+
+    private func perform(_ request: DeleteRequest, forEveryone: Bool) {
+        guard let model else { return }
+        Task {
+            if request.fromSelection {
+                await model.deleteSelected(forEveryone: forEveryone)
+            } else if forEveryone, let message = request.messages.first {
+                await model.delete(message)
+            } else {
+                await model.hide(request.messages)
+            }
         }
     }
 
@@ -559,6 +659,14 @@ struct ChatThreadView: View {
             }
         }
     }
+}
+
+/// Что удаляем: одно сообщение из меню или выбранные разом. «У всех» — только своё.
+private struct DeleteRequest: Identifiable {
+    let id = UUID()
+    let messages: [MessageRecord]
+    let forEveryoneAllowed: Bool
+    let fromSelection: Bool
 }
 
 /// Что пересылаем: одно сообщение из меню или выбранные разом. После пересылки

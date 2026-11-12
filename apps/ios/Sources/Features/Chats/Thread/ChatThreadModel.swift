@@ -822,21 +822,52 @@ final class ChatThreadModel {
         selectedMessages.contains(where: Self.canForward)
     }
 
-    /// Удалить выбранное можно, только если всё оно своё и ещё не удалено: чужое
-    /// сервер отклонит, и часть выбора молча осталась бы на месте.
+    /// Удалить выбранное у себя можно всегда, у всех — только если всё оно своё: чужое
+    /// сервер не удалит, и часть выбора молча осталась бы на месте.
     var canDeleteSelection: Bool {
+        selectedMessages.contains { $0.deletedAt == nil && $0.systemType == nil }
+    }
+
+    var canDeleteSelectionForEveryone: Bool {
         let chosen = selectedMessages
         return !chosen.isEmpty && chosen.allSatisfy(canDelete)
     }
 
-    /// Удаление выбранного — тем же путём, что и одиночное, по одному сообщению.
+    /// Удаление выбранного: у всех — тем же путём, что и одиночное; у себя — одним
+    /// запросом.
     @MainActor
-    func deleteSelected() async {
-        let chosen = selectedMessages
-        guard !chosen.isEmpty, chosen.allSatisfy(canDelete) else { return }
+    func deleteSelected(forEveryone: Bool) async {
+        let chosen = selectedMessages.filter { $0.deletedAt == nil && $0.systemType == nil }
+        guard !chosen.isEmpty else { return }
+        if forEveryone, !chosen.allSatisfy(canDelete) { return }
         selection = nil
-        for message in chosen {
-            await delete(message)
+        if forEveryone {
+            for message in chosen { await delete(message) }
+        } else {
+            await hide(chosen)
+        }
+    }
+
+    /// «Удалить у меня»: сервер прячет сообщения только для меня, у собеседников они
+    /// остаются. Неотправленное просто стирается локально — серверу о нём нечего знать.
+    @MainActor
+    func hide(_ chosen: [MessageRecord]) async {
+        let local = chosen.filter { $0.remoteId == nil }.map(\.id)
+        if !local.isEmpty {
+            _ = try? await database.writer.write { db in try MessageRecord.deleteAll(db, keys: local) }
+        }
+        let remote = chosen.compactMap(\.remoteId)
+        guard !remote.isEmpty else { return }
+        do {
+            var hidden: [String] = []
+            // Сервер принимает до сотни за раз.
+            for start in stride(from: 0, to: remote.count, by: 100) {
+                let chunk = Array(remote[start..<min(start + 100, remote.count)])
+                hidden += try await actions.hide(messageIDs: chunk, chatID: chatID).hiddenIds
+            }
+            try await store.removeHidden(remoteIDs: hidden, chatID: chatID)
+        } catch {
+            actionFailure = self.message(for: error)
         }
     }
 
