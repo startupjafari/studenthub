@@ -367,14 +367,18 @@ final class MessageListViewController: UIViewController {
             cell.backgroundConfiguration = .clear()
         }
 
-        let header = UICollectionView.SupplementaryRegistration<UICollectionViewListCell>(
+        // Обычная ячейка, не строка списка: у прилипшего заголовка списка система рисует
+        // подложку во всю ширину — полосу под датой. Здесь видна только капсула даты.
+        let header = UICollectionView.SupplementaryRegistration<UICollectionViewCell>(
             elementKind: UICollectionView.elementKindSectionHeader
         ) { [weak self] view, _, indexPath in
             guard let day = self?.dataSource.sectionIdentifier(for: indexPath.section) else { return }
             view.contentConfiguration = UIHostingConfiguration {
                 DaySeparatorView(day: day) { [weak self] in self?.onDayTap?(day) }
             }
+            view.automaticallyUpdatesBackgroundConfiguration = false
             view.backgroundConfiguration = .clear()
+            view.backgroundColor = .clear
         }
 
         dataSource = UICollectionViewDiffableDataSource<Date, String>(collectionView: collectionView) {
@@ -587,7 +591,7 @@ final class MessageListViewController: UIViewController {
         else { return }
         let kind = UICollectionView.elementKindSectionHeader
         for indexPath in collectionView.indexPathsForVisibleSupplementaryElements(ofKind: kind) {
-            guard let header = collectionView.supplementaryView(forElementKind: kind, at: indexPath) as? UICollectionViewListCell,
+            guard let header = collectionView.supplementaryView(forElementKind: kind, at: indexPath) as? UICollectionViewCell,
                 isFloating(header, section: indexPath.section)
             else { continue }
             headersHidden = true
@@ -611,7 +615,7 @@ final class MessageListViewController: UIViewController {
         headersHidden = false
         let kind = UICollectionView.elementKindSectionHeader
         for indexPath in collectionView.indexPathsForVisibleSupplementaryElements(ofKind: kind) {
-            guard let header = collectionView.supplementaryView(forElementKind: kind, at: indexPath) as? UICollectionViewListCell
+            guard let header = collectionView.supplementaryView(forElementKind: kind, at: indexPath) as? UICollectionViewCell
             else { continue }
             header.isUserInteractionEnabled = true
             let content = header.contentView
@@ -704,7 +708,7 @@ extension MessageListViewController: UICollectionViewDelegate {
         forElementKind elementKind: String,
         at indexPath: IndexPath
     ) {
-        guard let header = view as? UICollectionViewListCell else { return }
+        guard let header = view as? UICollectionViewCell else { return }
         // Заголовок мог прийти из переиспользования погашенным.
         header.isUserInteractionEnabled = true
         header.contentView.alpha = 1

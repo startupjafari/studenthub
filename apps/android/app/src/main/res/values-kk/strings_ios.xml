@@ -1205,7 +1205,6 @@
     <string name="chats_attach_preparing">Файлдар дайындалуда…</string>
     <string name="chats_attach_remove">Алып тастау</string>
     <string name="chats_attach_scan">Құжатты сканерлеу</string>
-    <string name="chats_attach_scanHint">Беттер бір PDF-ке жиналады</string>
     <string name="chats_attach_selected">Таңдалды: %1$s</string>
     <string name="chats_attach_sendFiles_few">%1$s файл жіберу</string>
     <string name="chats_attach_sendFiles_many">%1$s файл жіберу</string>
@@ -1385,6 +1384,7 @@
     <string name="chats_location_a11y">Геолокация: %1$s</string>
     <string name="chats_location_accuracy">Дәлдігі %1$s м</string>
     <string name="chats_location_denied">Геолокацияға рұқсат жоқ — нүктені картадан қолмен таңдауға болады.</string>
+    <string name="chats_location_locating">Геопозиция анықталуда…</string>
     <string name="chats_location_mine">Менің орнымды жіберу</string>
     <string name="chats_location_open">«Карталар»-да ашу</string>
     <string name="chats_location_point">Осы нүктені жіберу</string>
@@ -1422,13 +1422,12 @@
     <string name="chats_official">Ресми чат</string>
     <string name="chats_online">желіде</string>
     <string name="chats_panel_backspace">Өшіру</string>
-    <string name="chats_panel_emoji">Emoji</string>
+    <string name="chats_panel_emoji">Эмодзи</string>
     <string name="chats_panel_gif">GIF</string>
     <string name="chats_panel_keyboard">Пернетақта</string>
     <string name="chats_panel_open">Emoji, стикерлер және GIF</string>
-    <string name="chats_panel_searchEmoji">Emoji іздеу</string>
+    <string name="chats_panel_search">Іздеу</string>
     <string name="chats_panel_searchGif">GIF іздеу</string>
-    <string name="chats_panel_searchStickers">Жинақ немесе emoji бойынша іздеу</string>
     <string name="chats_panel_stickers">Стикерлер</string>
     <string name="chats_photo">Фотосурет</string>
     <string name="chats_pin">Бекіту</string>
@@ -2418,6 +2417,7 @@
     <string name="emoji_nature">Жануарлар мен табиғат</string>
     <string name="emoji_objects">Заттар</string>
     <string name="emoji_recent">Соңғылар</string>
+    <string name="emoji_recent_clear">Соңғыларды тазалау</string>
     <string name="emoji_smileys">Смайликтер мен адамдар</string>
     <string name="emoji_symbols">Таңбалар</string>
     <string name="emoji_travel">Саяхат және орындар</string>

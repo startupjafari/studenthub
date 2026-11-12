@@ -95064,23 +95064,6 @@
         }
       }
     },
-    "chats.attach.scanHint": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Страницы соберутся в один PDF"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Беттер бір PDF-ке жиналады"
-          }
-        }
-      }
-    },
     "chats.attach.selected": {
       "extractionState": "manual",
       "localizations": {
@@ -95733,13 +95716,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Emoji"
+            "value": "Эмодзи"
           }
         },
         "kk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Emoji"
+            "value": "Эмодзи"
           }
         }
       }
@@ -95791,40 +95774,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Emoji, стикерлер және GIF"
-          }
-        }
-      }
-    },
-    "chats.panel.searchEmoji": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Поиск emoji"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Emoji іздеу"
-          }
-        }
-      }
-    },
-    "chats.panel.searchStickers": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Поиск по набору или emoji"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Жинақ немесе emoji бойынша іздеу"
           }
         }
       }
@@ -96284,6 +96233,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "GIF іздеу"
+          }
+        }
+      }
+    },
+    "chats.panel.search": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Іздеу"
+          }
+        }
+      }
+    },
+    "emoji.recent.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистить недавние"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Соңғыларды тазалау"
+          }
+        }
+      }
+    },
+    "chats.location.locating": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Определение геопозиции…"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Геопозиция анықталуда…"
           }
         }
       }

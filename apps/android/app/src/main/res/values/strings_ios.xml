@@ -1205,7 +1205,6 @@
     <string name="chats_attach_preparing">Подготовка файлов…</string>
     <string name="chats_attach_remove">Убрать</string>
     <string name="chats_attach_scan">Сканировать документ</string>
-    <string name="chats_attach_scanHint">Страницы соберутся в один PDF</string>
     <string name="chats_attach_selected">Выбрано: %1$s</string>
     <string name="chats_attach_sendFiles_few">Отправить %1$s файла</string>
     <string name="chats_attach_sendFiles_many">Отправить %1$s файлов</string>
@@ -1385,6 +1384,7 @@
     <string name="chats_location_a11y">Геопозиция: %1$s</string>
     <string name="chats_location_accuracy">Точность %1$s м</string>
     <string name="chats_location_denied">Нет доступа к геопозиции — можно выбрать точку на карте вручную.</string>
+    <string name="chats_location_locating">Определение геопозиции…</string>
     <string name="chats_location_mine">Отправить моё местоположение</string>
     <string name="chats_location_open">Открыть в «Картах»</string>
     <string name="chats_location_point">Отправить эту точку</string>
@@ -1422,13 +1422,12 @@
     <string name="chats_official">Официальный чат</string>
     <string name="chats_online">в сети</string>
     <string name="chats_panel_backspace">Стереть</string>
-    <string name="chats_panel_emoji">Emoji</string>
+    <string name="chats_panel_emoji">Эмодзи</string>
     <string name="chats_panel_gif">GIF</string>
     <string name="chats_panel_keyboard">Клавиатура</string>
     <string name="chats_panel_open">Emoji, стикеры и GIF</string>
-    <string name="chats_panel_searchEmoji">Поиск emoji</string>
+    <string name="chats_panel_search">Поиск</string>
     <string name="chats_panel_searchGif">Поиск GIF</string>
-    <string name="chats_panel_searchStickers">Поиск по набору или emoji</string>
     <string name="chats_panel_stickers">Стикеры</string>
     <string name="chats_photo">Фотография</string>
     <string name="chats_pin">Закрепить</string>
@@ -2418,6 +2417,7 @@
     <string name="emoji_nature">Животные и природа</string>
     <string name="emoji_objects">Предметы</string>
     <string name="emoji_recent">Недавние</string>
+    <string name="emoji_recent_clear">Очистить недавние</string>
     <string name="emoji_smileys">Смайлы и люди</string>
     <string name="emoji_symbols">Символы</string>
     <string name="emoji_travel">Путешествия и места</string>
