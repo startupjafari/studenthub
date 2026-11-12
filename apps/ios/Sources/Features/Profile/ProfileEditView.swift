@@ -103,7 +103,7 @@ struct ProfileEditView: View {
         .listSectionSpacing(.compact)
         .contentMargins(.top, Spacing.sm, for: .scrollContent)
         .scrollDismissesKeyboard(.interactively)
-        .hardTopEdge()
+        .softTopEdge()
         .navigationTitle(Text(String(localized: "profile.editTitle.short", defaultValue: "Редактирование")))
         .navigationBarTitleDisplayMode(.inline)
         // Свайп назад и системная «Назад» уходят молча — пока есть что терять, их

@@ -96,9 +96,8 @@ struct ChatListView: View {
         // перещёлкивает цифры. Ревизия растёт только на изменениях после первого среза
         // (`ChatListModel.liveRevision`): открытие экрана и смена вкладки не анимируются.
         .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: model.liveRevision)
-        // Результаты поиска уезжают под поле поиска с плотным краем: на мягком строки
-        // просвечивали сквозь поле и спорили с ним.
-        .chatListTopEdge(hard: isSearching)
+        // Край под панелью мягкий и в поиске: резкая граница смотрелась обрывом.
+        .softTopEdge()
         .environment(\.editMode, $editMode)
         .overlay { emptyState }
         .searchable(
@@ -691,25 +690,6 @@ private struct ChatRowBackground: View {
             Palette.plainBackground
             Palette.muted.opacity(isPinned ? 0.55 : 0)
         }
-    }
-}
-
-private extension View {
-    /// Верхний край списка чатов: в поиске плотный (`hardTopEdge`), иначе мягкий. Стиль
-    /// меняется значением, а не ветвлением: `if` пересоздал бы список вместе с полем
-    /// поиска на первой же набранной букве.
-    @ViewBuilder
-    func chatListTopEdge(hard: Bool) -> some View {
-        #if compiler(>=6.2)
-            if #available(iOS 26, *) {
-                let style: ScrollEdgeEffectStyle = hard ? .hard : .soft
-                scrollEdgeEffectStyle(style, for: .top)
-            } else {
-                self
-            }
-        #else
-            self
-        #endif
     }
 }
 

@@ -335,8 +335,8 @@ struct ChatThreadView: View {
                     .font(Typography.meta)
                     .foregroundStyle(Palette.mutedForeground)
                     .frame(maxWidth: .infinity)
-                    .padding(Spacing.xl)
-                    .background(.bar)
+                    .padding(Spacing.lg)
+                    .chatPanelSurface()
                 } else if model.chat?.blocked == true || model.chat?.blockedBy == true {
                     Text(model.chat?.blocked == true
                         ? String(localized: "chats.blockedByMe", defaultValue: "Вы заблокировали этого пользователя")
@@ -344,8 +344,8 @@ struct ChatThreadView: View {
                         .font(Typography.meta)
                         .foregroundStyle(Palette.mutedForeground)
                         .frame(maxWidth: .infinity)
-                        .padding(Spacing.xl)
-                        .background(.bar)
+                        .padding(Spacing.lg)
+                        .chatPanelSurface()
                 } else {
                     MessageComposerView(model: model)
                 }
@@ -1097,8 +1097,8 @@ private struct ChatRequestBar: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(Spacing.xl)
-        .background(.bar)
+        .padding(Spacing.lg)
+        .chatPanelSurface()
     }
 }
 

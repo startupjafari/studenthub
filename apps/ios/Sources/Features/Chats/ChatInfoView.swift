@@ -137,9 +137,8 @@ struct ChatInfoView: View {
             }
             .listStyle(.insetGrouped)
             .listSectionSpacing(.compact)
-            // Строки уезжают под заголовок «Информация» с плотным краем, как в профиле:
-            // на мягком «Открыть профиль», файлы и плитки просвечивали сквозь заголовок.
-            .hardTopEdge()
+            // Строки плавно тают под заголовком «Информация», без резкой границы.
+            .softTopEdge()
             .onGeometryChange(for: CGFloat.self) { proxy in
                 proxy.frame(in: .global).minY + proxy.safeAreaInsets.top
             } action: { visibleTop = $0 }
