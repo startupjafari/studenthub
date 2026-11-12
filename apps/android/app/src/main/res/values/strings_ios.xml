@@ -1183,6 +1183,7 @@
     <string name="chats_attach">Вложение</string>
     <string name="chats_attach_addMore">Добавить фото или видео</string>
     <string name="chats_attach_allPhotos">Все фото и видео</string>
+    <string name="chats_attach_allowAll">Разрешить доступ ко всем фото</string>
     <string name="chats_attach_asFiles">Отправить как файл</string>
     <string name="chats_attach_asFilesHint">Без сжатия: собеседник увидит файлы, а не превью.</string>
     <string name="chats_attach_assetUnavailable">Не удалось прочитать файл из «Фото»</string>
@@ -1193,10 +1194,12 @@
     <string name="chats_attach_fromFiles">Выбрать в «Файлах»</string>
     <string name="chats_attach_fromFilesHint">PDF, документы Office, архивы, видео — до 500 МБ</string>
     <string name="chats_attach_gallery">Галерея</string>
+    <string name="chats_attach_limitedHint">Приложению видны только фото, которые вы выбрали</string>
     <string name="chats_attach_location">Геопозиция</string>
     <string name="chats_attach_messages_few">Уйдут %1$s сообщения</string>
     <string name="chats_attach_messages_many">Уйдут %1$s сообщений</string>
     <string name="chats_attach_messages_one">Уйдёт %1$s сообщение</string>
+    <string name="chats_attach_morePhotos">Выбрать ещё фото</string>
     <string name="chats_attach_next">Далее · %1$s</string>
     <string name="chats_attach_photo">Фото</string>
     <string name="chats_attach_photosAllow">Разрешить доступ</string>

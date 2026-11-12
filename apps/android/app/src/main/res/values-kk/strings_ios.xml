@@ -1183,6 +1183,7 @@
     <string name="chats_attach">Тіркеме</string>
     <string name="chats_attach_addMore">Фото немесе бейне қосу</string>
     <string name="chats_attach_allPhotos">Барлық фото мен бейне</string>
+    <string name="chats_attach_allowAll">Барлық фотоға рұқсат беру</string>
     <string name="chats_attach_asFiles">Файл ретінде жіберу</string>
     <string name="chats_attach_asFilesHint">Сығусыз: әңгімелесуші алдын ала көріністі емес, файлдарды көреді.</string>
     <string name="chats_attach_assetUnavailable">«Фото» ішіндегі файлды оқу мүмкін болмады</string>
@@ -1193,10 +1194,12 @@
     <string name="chats_attach_fromFiles">«Файлдар» ішінен таңдау</string>
     <string name="chats_attach_fromFilesHint">PDF, Office құжаттары, архивтер, бейне — 500 МБ-қа дейін</string>
     <string name="chats_attach_gallery">Галерея</string>
+    <string name="chats_attach_limitedHint">Қолданбаға тек өзіңіз таңдаған фотолар көрінеді</string>
     <string name="chats_attach_location">Геолокация</string>
     <string name="chats_attach_messages_few">%1$s хабарлама жіберіледі</string>
     <string name="chats_attach_messages_many">%1$s хабарлама жіберіледі</string>
     <string name="chats_attach_messages_one">%1$s хабарлама жіберіледі</string>
+    <string name="chats_attach_morePhotos">Тағы фото таңдау</string>
     <string name="chats_attach_next">Әрі қарай · %1$s</string>
     <string name="chats_attach_photo">Фото</string>
     <string name="chats_attach_photosAllow">Рұқсат беру</string>

@@ -263,7 +263,9 @@ struct AttachmentMenuSheet: View {
         default:
             withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) {
                 section = item
-                if item == .location { detent = .large }
+                // Любой раздел открывается компактным листом, как в Telegram; выше —
+                // потянув за ручку.
+                detent = .medium
             }
         }
     }
