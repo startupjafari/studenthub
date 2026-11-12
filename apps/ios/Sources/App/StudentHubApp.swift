@@ -11,6 +11,8 @@ struct StudentHubApp: App {
         WindowGroup {
             RootView()
                 .appearanceTheme(theme)
+                // Незакончившаяся трансляция геопозиции продолжается после перезапуска.
+                .task { LiveLocationSharing.shared.resume() }
         }
     }
 }

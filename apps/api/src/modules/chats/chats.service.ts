@@ -18,9 +18,20 @@ import type {
   MessageSearchQueryInput,
   MessageSendInput,
   PollVoteInput,
+  MessageForwardBatchInput,
+  ChatPollsQueryInput,
+  ChatLocationInput,
+  LiveLocationUpdateInput,
+  ChatContactInput,
+  ChatChecklistCreateInput,
+  ChatGifRecentQueryInput,
 } from '@studenthub/shared-schemas'
-import { CLEARED_RANGES_MAX } from '@studenthub/shared-schemas'
-import { CHAT_REACTION_EMOJIS, MESSAGE_EDIT_WINDOW_MS } from '@studenthub/shared-config'
+import {
+  CHAT_CHECKLIST_LIMITS,
+  CLEARED_RANGES_MAX,
+  isSingleEmoji,
+} from '@studenthub/shared-schemas'
+import { MESSAGE_EDIT_WINDOW_MS } from '@studenthub/shared-config'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import { buildPublicObjectUrl } from '../../common/minio/public-url'
@@ -43,6 +54,7 @@ import { ExportRegistryService } from '../../common/export/export-registry.servi
 import type { ExportContext } from '../../common/export/export-branding.types'
 import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import { lastMessagesOf } from './last-message'
+import { CHECKLIST_SELECT, toChecklistDto, type ChecklistDto } from './checklist-dto'
 
 /** Проголосовавший в неанонимном опросе (§39). */
 interface PollVoter {
@@ -152,6 +164,15 @@ function clearedWhere(mem: ClearedState | null): Prisma.MessageWhereInput {
   return conditions.length > 0 ? { AND: conditions } : {}
 }
 
+/**
+ * Что смотрящему не показываем: очищенное «у себя» (clearedWhere) и сообщения, скрытые им по
+ * одному («Удалить у себя», HiddenMessage). Скрытое проверяется по первичному ключу
+ * (user_id, message_id) — антиджойн по индексу, а не скан.
+ */
+function viewerWhere(mem: ClearedState | null, userId: string): Prisma.MessageWhereInput {
+  return { ...clearedWhere(mem), hiddenBy: { none: { userId } } }
+}
+
 /** Попадает ли момент в очищенное «у себя» — та же граница, что у clearedWhere. */
 function isCleared(at: Date, mem: ClearedState): boolean {
   if (mem.clearedAt && at <= mem.clearedAt) return true
@@ -244,9 +265,26 @@ function isMemberMuted(m: { mutedAt: Date | null; mutedUntil: Date | null }): bo
   return m.mutedAt != null || (m.mutedUntil != null && m.mutedUntil.getTime() > Date.now())
 }
 
+/**
+ * Голосовые клиенты называют `voice-<время>.<ext>` — по префиксу имени их и отличаем от
+ * музыки: MIME у них общий (audio/*), а отдельного признака у записи File нет.
+ */
+const VOICE_NOTE_PREFIX = 'voice-'
+
 // Общие материалы (§23): фильтр MIME по типу вкладки правой панели.
-function mediaMimeWhere(type: 'media' | 'file' | 'voice'): Prisma.FileWhereInput {
+function mediaMimeWhere(type: ChatMediaQueryInput['type']): Prisma.FileWhereInput {
+  // voice — всё аудио: так вкладку читает веб, выпущенный до разделения на голосовые и музыку.
   if (type === 'voice') return { mime: { startsWith: 'audio/' } }
+  if (type === 'voice_note') {
+    return { mime: { startsWith: 'audio/' }, name: { startsWith: VOICE_NOTE_PREFIX } }
+  }
+  if (type === 'music') {
+    return {
+      mime: { startsWith: 'audio/' },
+      OR: [{ name: null }, { NOT: { name: { startsWith: VOICE_NOTE_PREFIX } } }],
+    }
+  }
+  if (type === 'gif') return { mime: 'image/gif' }
   if (type === 'media')
     return { OR: [{ mime: { startsWith: 'image/' } }, { mime: { startsWith: 'video/' } }] }
   return {
@@ -279,6 +317,26 @@ type ChatLinkRow = {
   sender: MediaSenderRow | null
   linkPreview: Prisma.JsonValue
 }
+
+/**
+ * Геопозиция в клиентской форме. У статичной `liveUntil`/`liveUpdatedAt` — null; трансляция
+ * идёт, пока `liveUntil` в будущем (точку двигает `updateLiveLocation`).
+ */
+export const LOCATION_SELECT = {
+  lat: true,
+  lng: true,
+  title: true,
+  address: true,
+  liveUntil: true,
+  liveUpdatedAt: true,
+  heading: true,
+  accuracy: true,
+} satisfies Prisma.ChatLocationSelect
+
+export type LocationDto = Prisma.ChatLocationGetPayload<{ select: typeof LOCATION_SELECT }>
+
+/** Как часто сервер принимает новую точку трансляции (чаще — ответ без изменений). */
+const LIVE_LOCATION_MIN_INTERVAL_MS = 3000
 
 const MESSAGE_SELECT = {
   id: true,
@@ -358,6 +416,7 @@ const MESSAGE_SELECT = {
     select: {
       id: true,
       question: true,
+      description: true,
       multiple: true,
       anonymous: true,
       allowRevote: true,
@@ -366,14 +425,24 @@ const MESSAGE_SELECT = {
       options: { select: { id: true, text: true, order: true }, orderBy: { order: 'asc' } },
     },
   },
+  // Особые сообщения: геопозиция, карточка контакта, чек-лист, стикер каталога. У таких
+  // сообщений `content` пустой, и клиент рисует пузырь по этим полям.
+  location: { select: LOCATION_SELECT },
+  contact: { select: { name: true, phones: true, emails: true, userId: true } },
+  checklist: { select: CHECKLIST_SELECT },
+  sticker: { select: { id: true, setId: true, emoji: true, width: true, height: true } },
 } satisfies Prisma.MessageSelect
 
 type MessageDbRow = Prisma.MessageGetPayload<{ select: typeof MESSAGE_SELECT }>
 type SharedPostRow = NonNullable<MessageDbRow['sharedPost']>
 
-/** Сообщение в клиентской форме: у карточки снятого поста автора нет (см. toClientMessage). */
-type MessageRow = Omit<MessageDbRow, 'sharedPost'> & {
+/**
+ * Сообщение в клиентской форме: у карточки снятого поста автора нет, у пунктов чек-листа
+ * есть явный `done` (см. toClientMessage).
+ */
+export type MessageRow = Omit<MessageDbRow, 'sharedPost' | 'checklist'> & {
   sharedPost: (Omit<SharedPostRow, 'author'> & { author: SharedPostRow['author'] | null }) | null
+  checklist: ChecklistDto | null
 }
 
 /**
@@ -387,7 +456,10 @@ type MessageRow = Omit<MessageDbRow, 'sharedPost'> & {
  * недоступна» — так же, как у оригиналов репостов в ленте.
  */
 function toClientMessage(row: MessageDbRow | MessageRow): MessageRow {
-  let out: MessageRow = row
+  // Строка из базы отличается от клиентской формы только пунктами чек-листа (`done`) — их
+  // достраиваем здесь же; без чек-листа строка уже в клиентской форме.
+  let out = row as MessageRow
+  if (row.checklist) out = { ...out, checklist: toChecklistDto(row.checklist) }
   if (row.replyTo?.deletedAt) {
     out = { ...out, replyQuote: null, replyTo: { ...row.replyTo, content: '' } }
   }
@@ -410,6 +482,138 @@ function toClientMessage(row: MessageDbRow | MessageRow): MessageRow {
     }
   }
   return out
+}
+
+/**
+ * Что читается у сообщения-источника пересылки. Карточка поста, опрос, геопозиция, контакт,
+ * чек-лист и стикер — содержимое сообщения наравне с текстом: без них пересылка поста
+ * приходила пустым пузырём, а опрос — голым вопросом.
+ */
+const FORWARD_SOURCE_SELECT = {
+  id: true,
+  chatId: true,
+  seq: true,
+  createdAt: true,
+  content: true,
+  linkPreview: true,
+  sharedPostId: true,
+  stickerId: true,
+  poll: {
+    select: {
+      question: true,
+      description: true,
+      multiple: true,
+      anonymous: true,
+      allowRevote: true,
+      randomOrder: true,
+      options: { select: { text: true, order: true }, orderBy: { order: 'asc' } },
+    },
+  },
+  location: { select: { lat: true, lng: true, title: true, address: true } },
+  contact: { select: { name: true, phones: true, emails: true, userId: true } },
+  checklist: {
+    select: {
+      title: true,
+      othersCanAdd: true,
+      othersCanMark: true,
+      items: {
+        select: { text: true, order: true },
+        orderBy: { order: 'asc' },
+        take: CHAT_CHECKLIST_LIMITS.ITEMS_MAX,
+      },
+    },
+  },
+  media: {
+    select: {
+      // id — чтобы копия забрала готовые варианты медиа, а не готовила их заново.
+      id: true,
+      bucket: true,
+      key: true,
+      mime: true,
+      size: true,
+      name: true,
+      width: true,
+      height: true,
+      spoiler: true,
+      asDocument: true,
+    },
+  },
+} satisfies Prisma.MessageSelect
+
+type ForwardSource = Prisma.MessageGetPayload<{ select: typeof FORWARD_SOURCE_SELECT }>
+
+/**
+ * Связанные записи пересланной копии. Опрос и чек-лист пересылаются новыми — со своими голосами
+ * и отметками: они привязаны к одному сообщению, а чужие голоса и галочки из другого чата здесь
+ * ничего не значат. Пункты чек-листа в копии заводит пересылающий.
+ */
+function forwardedContent(
+  source: ForwardSource,
+  userId: string,
+): Pick<Prisma.MessageUncheckedCreateInput, 'poll' | 'location' | 'contact' | 'checklist'> {
+  return {
+    ...(source.poll
+      ? {
+          poll: {
+            create: {
+              question: source.poll.question,
+              description: source.poll.description,
+              multiple: source.poll.multiple,
+              anonymous: source.poll.anonymous,
+              allowRevote: source.poll.allowRevote,
+              randomOrder: source.poll.randomOrder,
+              options: {
+                create: source.poll.options.map((o) => ({ text: o.text, order: o.order })),
+              },
+            },
+          },
+        }
+      : {}),
+    ...(source.location ? { location: { create: source.location } } : {}),
+    ...(source.contact ? { contact: { create: source.contact } } : {}),
+    ...(source.checklist
+      ? {
+          checklist: {
+            create: {
+              title: source.checklist.title,
+              othersCanAdd: source.checklist.othersCanAdd,
+              othersCanMark: source.checklist.othersCanMark,
+              items: {
+                create: source.checklist.items.map((item) => ({
+                  text: item.text,
+                  order: item.order,
+                  createdById: userId,
+                })),
+              },
+            },
+          },
+        }
+      : {}),
+  }
+}
+
+/** Связанные записи особого сообщения (sendRichMessage). */
+type RichMessageData = Pick<
+  Prisma.MessageUncheckedCreateInput,
+  'location' | 'contact' | 'checklist' | 'stickerId'
+>
+
+/**
+ * Во сколько раз больше строк читают недавние GIF, чем отдают: повторы одного GIF (копии с
+ * новым ключом) склеиваются после выборки, и страница не должна от этого пустеть.
+ */
+const GIF_RECENT_SCAN_FACTOR = 4
+
+/** Итог пересылки пачкой по одному чату-получателю. */
+export interface ForwardBatchResult {
+  chatId: string
+  ok: boolean
+  messageIds: string[]
+  code?: string
+}
+
+export interface ForwardBatchResponse {
+  results: ForwardBatchResult[]
 }
 
 /** Вложение, принятое до создания сообщения: запись File есть, к сообщению ещё не привязана. */
@@ -528,6 +732,13 @@ const AUTO_CHATS_BY_ROLE: Record<Role, readonly AutoChat[]> = {
 // Антифлуд отправки: не больше FLOOD_MAX сообщений за окно (см. assertNotFlooding).
 const FLOOD_MAX = 20
 const FLOOD_WINDOW_SECONDS = 10
+
+// Сколько помнится ключ повтора отправки (nonce): дольше клиент не переотправляет.
+const NONCE_TTL_SECONDS = 10 * 60
+// Сколько помнится ответ пересылки пачкой по requestId.
+const FORWARD_IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60
+// Метка «первый запрос с этим ключом ещё выполняется» (nonce и requestId).
+const IDEMPOTENCY_PENDING = 'pending'
 
 // §50: сколько сообщений инициатор может отправить в ещё не принятый запрос на переписку.
 const REQUEST_MESSAGE_QUOTA = 5
@@ -761,7 +972,8 @@ export class ChatsService implements OnModuleInit {
               take: ids.length,
             })
             .then((rows) => rows.map(toClientMessage)),
-        { by: 'createdAt' },
+        // Скрытое «у себя» превью не становится: показывается предыдущее сообщение.
+        { by: 'createdAt', hiddenFor: viewer.sub },
       ),
       // Watermark прочтения другими участниками — для статусов доставки своих сообщений (Ф9+).
       chatIds.length > 0
@@ -847,7 +1059,13 @@ export class ChatsService implements OnModuleInit {
       countBranches.length > 0
         ? await this.prisma.message.groupBy({
             by: ['chatId'],
-            where: { deletedAt: null, senderId: { not: viewer.sub }, OR: countBranches },
+            where: {
+              deletedAt: null,
+              senderId: { not: viewer.sub },
+              // Скрытое «у себя» в ленте не показывается — и непрочитанным числиться не должно.
+              hiddenBy: { none: { userId: viewer.sub } },
+              OR: countBranches,
+            },
             _count: { _all: true },
           })
         : []
@@ -971,6 +1189,7 @@ export class ChatsService implements OnModuleInit {
       where: {
         deletedAt: null,
         senderId: { not: viewer.sub },
+        hiddenBy: { none: { userId: viewer.sub } },
         OR: counted.map((m) => unreadBranch(m.chatId, m)),
       },
       _count: { _all: true },
@@ -1352,7 +1571,7 @@ export class ChatsService implements OnModuleInit {
     const baseWhere: Prisma.MessageWhereInput = {
       chatId,
       deletedAt: null,
-      ...clearedWhere(mem),
+      ...viewerWhere(mem, viewer.sub),
     }
     const limit = query.limit
     // Курсор снаружи — по-прежнему id сообщения, но внутри ходим по `seq`: монотонному
@@ -1480,13 +1699,13 @@ export class ChatsService implements OnModuleInit {
       where: { chatId_userId: { chatId, userId: viewer.sub } },
       select: CLEARED_SELECT,
     })
-    const baseWhere: Prisma.MessageWhereInput = { chatId, ...clearedWhere(mem) }
+    const baseWhere: Prisma.MessageWhereInput = { chatId, ...viewerWhere(mem, viewer.sub) }
     const sinceTs = query.sinceTs ? new Date(query.sinceTs) : undefined
 
     // Уже известные клиенту сообщения — только они могут «мутировать» с его точки зрения.
     const knownWhere: Prisma.MessageWhereInput = { ...baseWhere, seq: { lte: query.since } }
 
-    const [createdRows, mutated, deleted, chat] = await Promise.all([
+    const [createdRows, mutated, deleted, hidden, chat] = await Promise.all([
       this.prisma.message.findMany({
         where: { ...baseWhere, deletedAt: null, seq: { gt: query.since } },
         select: MESSAGE_SELECT,
@@ -1502,6 +1721,10 @@ export class ChatsService implements OnModuleInit {
                 { editedAt: { gt: sinceTs } },
                 { pinnedAt: { gt: sinceTs } },
                 { unpinnedAt: { gt: sinceTs } },
+                // Пункты чек-листа: добавили, убрали или отметили.
+                { checklist: { updatedAt: { gt: sinceTs } } },
+                // Трансляция геопозиции: новая точка или остановка.
+                { location: { liveUpdatedAt: { gt: sinceTs } } },
               ],
             },
             select: MESSAGE_SELECT,
@@ -1517,6 +1740,19 @@ export class ChatsService implements OnModuleInit {
             take: CHAT_UPDATES_LIMIT,
           })
         : Promise.resolve([]),
+      // Скрытые «у себя» с другого устройства: для этого человека они всё равно что удалены.
+      // knownWhere тут не годится — он сам отсекает скрытое, поэтому граница по seq отдельно.
+      sinceTs
+        ? this.prisma.hiddenMessage.findMany({
+            where: {
+              userId: viewer.sub,
+              createdAt: { gt: sinceTs },
+              message: { chatId, seq: { lte: query.since } },
+            },
+            select: { messageId: true },
+            take: CHAT_UPDATES_LIMIT,
+          })
+        : Promise.resolve([]),
       this.prisma.chat.findUnique({ where: { id: chatId }, select: { lastSeq: true } }),
     ])
 
@@ -1526,7 +1762,7 @@ export class ChatsService implements OnModuleInit {
     return {
       created: overflow ? [] : createdRows.map(toClientMessage),
       mutated: mutated.map(toClientMessage),
-      deletedIds: deleted.map((m) => m.id),
+      deletedIds: [...new Set([...deleted.map((m) => m.id), ...hidden.map((h) => h.messageId)])],
       latestSeq: chat?.lastSeq ?? query.since,
       overflow,
       syncedAt,
@@ -1593,7 +1829,7 @@ export class ChatsService implements OnModuleInit {
     const messageWhere: Prisma.MessageWhereInput = {
       chatId,
       deletedAt: null,
-      ...clearedWhere(mem),
+      ...viewerWhere(mem, viewer.sub),
     }
     const rows = await this.prisma.file.findMany({
       where: { message: messageWhere, ...mediaMimeWhere(query.type) },
@@ -1655,7 +1891,7 @@ export class ChatsService implements OnModuleInit {
         chatId,
         deletedAt: null,
         linkPreview: { not: Prisma.DbNull },
-        ...clearedWhere(mem),
+        ...viewerWhere(mem, viewer.sub),
       },
       select: {
         id: true,
@@ -1706,6 +1942,8 @@ export class ChatsService implements OnModuleInit {
         data: {
           messageId: message.id,
           question: input.question,
+          // Пустое пояснение не храним: «без пояснения» — это NULL, а не пустая строка.
+          description: input.description || null,
           multiple: input.multiple ?? false,
           anonymous: input.anonymous ?? false,
           allowRevote: input.allowRevote ?? true,
@@ -1735,6 +1973,8 @@ export class ChatsService implements OnModuleInit {
       where: { id: pollId },
       select: {
         id: true,
+        question: true,
+        description: true,
         anonymous: true,
         multiple: true,
         allowRevote: true,
@@ -1784,6 +2024,8 @@ export class ChatsService implements OnModuleInit {
 
     return {
       id: poll.id,
+      question: poll.question,
+      description: poll.description,
       anonymous: poll.anonymous,
       multiple: poll.multiple,
       allowRevote: poll.allowRevote,
@@ -1819,7 +2061,7 @@ export class ChatsService implements OnModuleInit {
     // уходил всей комнате про сообщение, которого в ленте уже нет.
     if (!poll || poll.message.deletedAt) throw new AppException('NOT_FOUND', 'Опрос не найден')
     await this.assertMembership(viewer.sub, poll.message.chatId)
-    if (poll.closed) throw new AppException('BAD_REQUEST', 'Опрос завершён')
+    if (poll.closed) throw new AppException('POLL_CLOSED', 'Опрос завершён')
 
     const optionIds = [...new Set(input.optionIds)]
     if (!poll.multiple && optionIds.length > 1) {
@@ -1850,6 +2092,81 @@ export class ChatsService implements OnModuleInit {
       chatId: poll.message.chatId,
     })
     return this.getPollResults(viewer, pollId)
+  }
+
+  /**
+   * Завершить опрос: голоса больше не принимаются (`POLL_CLOSED`), результаты остаются.
+   * Может автор сообщения-опроса либо админ или владелец группы — как в Telegram. Повторное
+   * закрытие ничего не меняет и не шлёт событие.
+   */
+  async closePoll(viewer: JwtPayload, pollId: string) {
+    const poll = await this.prisma.chatPoll.findUnique({
+      where: { id: pollId },
+      select: {
+        id: true,
+        closed: true,
+        message: { select: { chatId: true, senderId: true, deletedAt: true } },
+      },
+    })
+    if (!poll || poll.message.deletedAt) throw new AppException('NOT_FOUND', 'Опрос не найден')
+    const chatId = poll.message.chatId
+    await this.assertMembership(viewer.sub, chatId)
+    if (poll.message.senderId !== viewer.sub && !(await this.isChatAdmin(viewer.sub, chatId))) {
+      throw new AppException('FORBIDDEN', 'Завершить опрос может автор или админ группы')
+    }
+    if (!poll.closed) {
+      await this.prisma.chatPoll.update({ where: { id: pollId }, data: { closed: true } })
+      this.realtime.emitToRoom(`chat:${chatId}`, 'poll:updated', { pollId, chatId })
+    }
+    return this.getPollResults(viewer, pollId)
+  }
+
+  /** Админ или владелец группы — по строке участника и создателю чата. */
+  private async isChatAdmin(userId: string, chatId: string): Promise<boolean> {
+    const [member, chat] = await Promise.all([
+      this.prisma.chatMember.findUnique({
+        where: { chatId_userId: { chatId, userId } },
+        select: { isAdmin: true },
+      }),
+      this.prisma.chat.findUnique({ where: { id: chatId }, select: { createdById: true } }),
+    ])
+    return member?.isAdmin === true || (chat?.createdById != null && chat.createdById === userId)
+  }
+
+  /**
+   * Опросы чата (сообщения с опросом), свежие первыми, — вкладка «Опросы» панели информации.
+   * Курсор — id последнего сообщения страницы, внутри ходим по `seq`, как история.
+   */
+  async listPolls(
+    viewer: JwtPayload,
+    chatId: string,
+    query: ChatPollsQueryInput,
+  ): Promise<Paginated<MessageRow>> {
+    await this.assertMembership(viewer.sub, chatId)
+    const mem = await this.prisma.chatMember.findUnique({
+      where: { chatId_userId: { chatId, userId: viewer.sub } },
+      select: CLEARED_SELECT,
+    })
+    const cursorSeq = query.cursor ? await this.seqOfMessage(chatId, query.cursor) : null
+    if (query.cursor && cursorSeq === null) return new Paginated([], { hasNext: false })
+    const rows = await this.prisma.message.findMany({
+      where: {
+        chatId,
+        deletedAt: null,
+        poll: { isNot: null },
+        ...viewerWhere(mem, viewer.sub),
+        ...(cursorSeq === null ? {} : { seq: { lt: cursorSeq } }),
+      },
+      select: MESSAGE_SELECT,
+      orderBy: { seq: 'desc' },
+      take: query.limit + 1,
+    })
+    const hasNext = rows.length > query.limit
+    const items = (hasNext ? rows.slice(0, query.limit) : rows).map(toClientMessage)
+    return new Paginated(items, {
+      cursor: hasNext ? items[items.length - 1]?.id : undefined,
+      hasNext,
+    })
   }
 
   // ── Сохранённые (§15) ───────────────────────────────────────────────────────
@@ -2243,29 +2560,95 @@ export class ChatsService implements OnModuleInit {
     // Блокировка и потолок непринятого запроса проверяются и здесь: за время ожидания
     // собеседник мог заблокировать отправителя.
     opts: { skipFlood?: boolean } = {},
-  ): Promise<{ message: MessageRow; recipientIds: string[] }> {
-    await this.assertMembership(senderId, input.chatId)
-    await this.assertCanSend(input.chatId, senderId, opts)
-    await this.assertReplyInChat(input.chatId, input.replyToId, input.replyQuote)
-    const created = await this.prisma.$transaction(async (tx) =>
-      tx.message.create({
-        data: {
-          chatId: input.chatId,
-          seq: await this.allocateSeq(input.chatId, tx),
-          senderId,
-          content: input.content,
-          replyToId: input.replyToId,
-          replyQuote: input.replyQuote,
-          silent: input.silent ?? false,
-        },
-        select: MESSAGE_SELECT,
-      }),
+  ): Promise<{ message: MessageRow; recipientIds: string[]; duplicate: boolean }> {
+    let recipientIds: string[] = []
+    const { message, duplicate } = await this.withNonce(
+      senderId,
+      input.chatId,
+      input.nonce,
+      async () => {
+        await this.assertMembership(senderId, input.chatId)
+        await this.assertCanSend(input.chatId, senderId, opts)
+        await this.assertReplyInChat(input.chatId, input.replyToId, input.replyQuote)
+        const created = await this.prisma.$transaction(async (tx) =>
+          tx.message.create({
+            data: {
+              chatId: input.chatId,
+              seq: await this.allocateSeq(input.chatId, tx),
+              senderId,
+              content: input.content,
+              replyToId: input.replyToId,
+              replyQuote: input.replyQuote,
+              silent: input.silent ?? false,
+            },
+            select: MESSAGE_SELECT,
+          }),
+        )
+        const sent = toClientMessage(created)
+        await this.bumpChat(input.chatId)
+        await this.enqueueLinkPreview(sent.id, input.chatId, input.content)
+        recipientIds = await this.notifyNewMessage(input.chatId, senderId, sent)
+        return sent
+      },
     )
-    const message = toClientMessage(created)
-    await this.bumpChat(input.chatId)
-    await this.enqueueLinkPreview(message.id, input.chatId, input.content)
-    const recipientIds = await this.notifyNewMessage(input.chatId, senderId, message)
-    return { message, recipientIds }
+    return { message, recipientIds, duplicate }
+  }
+
+  /**
+   * Повтор отправки по ключу клиента (nonce). Клиент шлёт nonce с сообщением и повторяет ту
+   * же отправку после обрыва связи — не зная, дошла ли первая. Без ключа повтор становился
+   * вторым сообщением: у собеседника дубль, у отправителя — два пузыря.
+   *
+   * Ключ `chat:nonce:<userId>:<nonce>` живёт NONCE_TTL_SECONDS. Захват — SET NX с меткой
+   * «выполняется», после успеха в ключ пишется id сообщения. Повтор получает уже созданное
+   * сообщение (`duplicate: true`) и ничего не рассылает заново: рассылку решает вызывающий.
+   * Повтор, пока первая отправка ещё идёт, — `409 REQUEST_IN_PROGRESS`: её результат и так
+   * придёт `message:new`. Сбой первой отправки снимает ключ — повтор отправит заново.
+   *
+   * Redis недоступен — отправляем без проверки (fail-open, как антифлуд): онемевшие чаты
+   * хуже редкого дубля на время аварии.
+   */
+  private async withNonce(
+    senderId: string,
+    chatId: string,
+    nonce: string | undefined,
+    send: () => Promise<MessageRow>,
+    retry = true,
+  ): Promise<{ message: MessageRow; duplicate: boolean }> {
+    if (!nonce) return { message: await send(), duplicate: false }
+    const key = `chat:nonce:${senderId}:${nonce}`
+    let claimed: boolean
+    try {
+      claimed =
+        (await this.redis.set(key, IDEMPOTENCY_PENDING, 'EX', NONCE_TTL_SECONDS, 'NX')) === 'OK'
+    } catch (error) {
+      this.logger.warn(`Redis недоступен, проверка повтора отправки пропущена: ${String(error)}`)
+      return { message: await send(), duplicate: false }
+    }
+    if (!claimed) {
+      const existing = await this.redis.get(key).catch(() => IDEMPOTENCY_PENDING)
+      // Первая отправка упала и сняла ключ между нашими двумя запросами — пробуем захватить.
+      if (existing === null && retry) return this.withNonce(senderId, chatId, nonce, send, false)
+      if (existing === null || existing === IDEMPOTENCY_PENDING) {
+        throw new AppException('REQUEST_IN_PROGRESS', 'Сообщение уже отправляется')
+      }
+      const message = await this.findMessageForClient(existing)
+      if (!message || message.chatId !== chatId) {
+        throw new AppException('CONFLICT', 'Сообщение с этим nonce удалено или из другого чата')
+      }
+      return { message, duplicate: true }
+    }
+    let message: MessageRow
+    try {
+      message = await send()
+    } catch (error) {
+      await this.redis.del(key).catch(() => undefined)
+      throw error
+    }
+    await this.redis.set(key, message.id, 'EX', NONCE_TTL_SECONDS).catch((error: unknown) => {
+      this.logger.warn(`Не удалось запомнить nonce отправки: ${String(error)}`)
+    })
+    return { message, duplicate: false }
   }
 
   // Первая http(s)-ссылка в тексте → job на выборку OG-превью (карточка появится по message:updated).
@@ -2350,7 +2733,19 @@ export class ChatsService implements OnModuleInit {
         spoiler?: boolean
         parts?: { part: number; etag: string }[]
       }[]
+      nonce?: string
     },
+  ): Promise<MessageRow> {
+    const { message } = await this.withNonce(senderId, chatId, input.nonce, () =>
+      this.sendFromUploadsOnce(senderId, chatId, input),
+    )
+    return message
+  }
+
+  private async sendFromUploadsOnce(
+    senderId: string,
+    chatId: string,
+    input: Parameters<ChatsService['sendMessageFromUploads']>[2],
   ): Promise<MessageRow> {
     await this.assertMembership(senderId, chatId)
     await this.assertCanSend(chatId, senderId)
@@ -2415,8 +2810,13 @@ export class ChatsService implements OnModuleInit {
     await this.bumpChat(chatId)
     await this.enqueueLinkPreview(created.id, chatId, content)
     await this.notifyNewMessage(chatId, senderId, message)
-    // REST-путь не проходит через ChatGateway — эмитим сами, ровно один раз (§10).
-    this.realtime.emitToRoom(`chat:${chatId}`, 'message:new', { message, chatId })
+    // REST-путь не проходит через ChatGateway — эмитим сами, ровно один раз (§10). nonce —
+    // эхом, как у WS-отправки: клиент заменит им свой оптимистичный пузырь.
+    this.realtime.emitToRoom(`chat:${chatId}`, 'message:new', {
+      message,
+      chatId,
+      nonce: input.nonce,
+    })
     return message
   }
 
@@ -2437,7 +2837,19 @@ export class ChatsService implements OnModuleInit {
       spoilerIndexes?: string
       asFiles?: boolean
       silent?: boolean
+      nonce?: string
     },
+    files: { buffer: Buffer; name?: string }[],
+  ): Promise<MessageRow> {
+    const { message } = await this.withNonce(senderId, input.chatId, input.nonce, () =>
+      this.sendRestOnce(senderId, input, files),
+    )
+    return message
+  }
+
+  private async sendRestOnce(
+    senderId: string,
+    input: Parameters<ChatsService['sendMessageRest']>[1],
     files: { buffer: Buffer; name?: string }[],
   ): Promise<MessageRow> {
     await this.assertMembership(senderId, input.chatId)
@@ -2499,6 +2911,7 @@ export class ChatsService implements OnModuleInit {
     this.realtime.emitToRoom(`chat:${input.chatId}`, 'message:new', {
       message,
       chatId: input.chatId,
+      nonce: input.nonce,
     })
     return message
   }
@@ -2857,6 +3270,82 @@ export class ChatsService implements OnModuleInit {
   }
 
   /**
+   * Удалить своё сообщение через REST (`DELETE /chats/messages/:messageId`) — те же правила,
+   * что у WS `message:delete`; рассылку, которую там делает шлюз, здесь делаем сами.
+   */
+  async deleteMessageRest(
+    senderId: string,
+    messageId: string,
+  ): Promise<{ chatId: string; messageId: string }> {
+    const { chatId } = await this.deleteMessage(senderId, messageId)
+    this.realtime.emitToRoom(`chat:${chatId}`, 'message:deleted', { messageId, chatId })
+    return { chatId, messageId }
+  }
+
+  /**
+   * «Удалить у всех» пачкой (`POST /chats/:id/messages/delete`). Правило то же, что у
+   * одиночного удаления: только свои и только действующим участником. Чужие, уже удалённые и
+   * не из этого чата не удаляются — они в `skippedIds`, и пачка из-за них не падает.
+   */
+  async deleteMessages(
+    userId: string,
+    chatId: string,
+    messageIds: string[],
+  ): Promise<{ deletedIds: string[]; skippedIds: string[] }> {
+    await this.assertMembership(userId, chatId)
+    const ids = [...new Set(messageIds)]
+    const own = await this.prisma.message.findMany({
+      where: { id: { in: ids }, chatId, senderId: userId, deletedAt: null },
+      select: { id: true, seq: true },
+      take: ids.length,
+    })
+    const deletedIds = own.map((m) => m.id)
+    if (deletedIds.length > 0) {
+      await this.prisma.message.updateMany({
+        where: { id: { in: deletedIds }, deletedAt: null },
+        data: { deletedAt: new Date() },
+      })
+      for (const messageId of deletedIds) {
+        this.realtime.emitToRoom(`chat:${chatId}`, 'message:deleted', { messageId, chatId })
+      }
+      await this.pingListsIfLatest(chatId, Math.max(...own.map((m) => m.seq)))
+    }
+    const deleted = new Set(deletedIds)
+    return { deletedIds, skippedIds: ids.filter((id) => !deleted.has(id)) }
+  }
+
+  /**
+   * «Удалить у себя» (Telegram-стиль): сообщения пропадают только у этого пользователя — из
+   * истории, поиска, догона, закреплённых, общих материалов и превью в списке чатов. Скрыть
+   * можно любое сообщение чата, где ты участник, своё и чужое. Другие устройства узнают об
+   * этом по `message:hidden` в личной комнате.
+   */
+  async hideMessages(
+    userId: string,
+    chatId: string,
+    messageIds: string[],
+  ): Promise<{ hiddenIds: string[] }> {
+    await this.assertMembership(userId, chatId)
+    const ids = [...new Set(messageIds)]
+    const found = await this.prisma.message.findMany({
+      where: { id: { in: ids }, chatId, deletedAt: null },
+      select: { id: true },
+      take: ids.length,
+    })
+    const hiddenIds = found.map((m) => m.id)
+    if (hiddenIds.length > 0) {
+      await this.prisma.hiddenMessage.createMany({
+        data: hiddenIds.map((messageId) => ({ userId, messageId })),
+        skipDuplicates: true,
+      })
+      this.realtime.emitToUser(userId, 'message:hidden', { chatId, messageIds: hiddenIds })
+      // Скрыли последнее — превью в списке сменится; сигнал только себе.
+      this.realtime.emitToUser(userId, 'chat:activity', { chatId })
+    }
+    return { hiddenIds }
+  }
+
+  /**
    * Отметка «прочитано до этого сообщения».
    *
    * Отметка — время самого сообщения, а не «сейчас»: раньше любое прочтение ставило
@@ -2943,7 +3432,7 @@ export class ChatsService implements OnModuleInit {
       select: CLEARED_SELECT,
     })
     const rows = await this.prisma.message.findMany({
-      where: { chatId, deletedAt: null, pinnedAt: { not: null }, ...clearedWhere(mem) },
+      where: { chatId, deletedAt: null, pinnedAt: { not: null }, ...viewerWhere(mem, userId) },
       select: MESSAGE_SELECT,
       orderBy: { pinnedAt: 'desc' },
       take: 50,
@@ -3027,7 +3516,7 @@ export class ChatsService implements OnModuleInit {
           chatId,
           deletedAt: null,
           createdAt: { gte: new Date(query.from), lte: new Date(query.to) },
-          ...clearedWhere(mem),
+          ...viewerWhere(mem, viewer.sub),
         },
       },
       select: { id: true, createdAt: true },
@@ -3083,6 +3572,8 @@ export class ChatsService implements OnModuleInit {
         deletedAt: null,
         content: { contains: query.q, mode: 'insensitive' },
         ...chatFilter,
+        // Скрытое «у себя» поиск не находит, как и лента.
+        hiddenBy: { none: { userId: viewer.sub } },
         // Фильтры §4: по автору и по наличию вложений.
         ...(query.senderId ? { senderId: query.senderId } : {}),
         ...(query.hasFile ? { media: { some: {} } } : {}),
@@ -3150,7 +3641,7 @@ export class ChatsService implements OnModuleInit {
         ...(before !== undefined ? { seq: { lt: before } } : {}),
         ...(query.senderId ? { senderId: query.senderId } : {}),
         ...(query.hasFile ? { media: { some: {} } } : {}),
-        ...clearedWhere(mem),
+        ...viewerWhere(mem, viewer.sub),
       },
       select: MESSAGE_SELECT,
       orderBy: { seq: 'desc' },
@@ -3192,10 +3683,10 @@ export class ChatsService implements OnModuleInit {
         await tx.messageReaction.deleteMany({ where: { id: same.id } })
         return
       }
-      // Поставить можно только эмодзи из набора реакций: схема пропускала любую строку до
-      // 16 знаков, и под сообщением появлялись слова. Снять свою прежнюю (выше) — любую.
-      if (!(CHAT_REACTION_EMOJIS as readonly string[]).includes(emoji)) {
-        throw new AppException('BAD_REQUEST', 'Такой реакции нет')
+      // Поставить можно любой ОДИН эмодзи (Telegram-стиль), но не текст: схема это уже
+      // проверила, здесь — страховка для вызова мимо неё. Снять свою прежнюю (выше) — любую.
+      if (!isSingleEmoji(emoji)) {
+        throw new AppException('BAD_REQUEST', 'Реакция — один эмодзи')
       }
       // Заменить любую прежнюю реакцию этого пользователя на новую (одна на сообщение).
       if (existing.length > 0) {
@@ -3232,49 +3723,194 @@ export class ChatsService implements OnModuleInit {
     await this.assertCanSend(targetChatId, userId)
     const source = await this.prisma.message.findFirst({
       where: { id: sourceMessageId, deletedAt: null },
-      select: {
-        id: true,
-        chatId: true,
-        content: true,
-        linkPreview: true,
-        // Карточка поста и опрос — содержимое сообщения наравне с текстом: без них пересылка
-        // поста приходила пустым пузырём, а опрос — голым вопросом.
-        sharedPostId: true,
-        poll: {
-          select: {
-            question: true,
-            multiple: true,
-            anonymous: true,
-            allowRevote: true,
-            randomOrder: true,
-            options: { select: { text: true, order: true }, orderBy: { order: 'asc' } },
-          },
-        },
-        media: {
-          select: {
-            // id — чтобы копия забрала готовые варианты медиа, а не готовила их заново.
-            id: true,
-            bucket: true,
-            key: true,
-            mime: true,
-            size: true,
-            name: true,
-            width: true,
-            height: true,
-            spoiler: true,
-            asDocument: true,
-          },
-        },
-      },
+      select: FORWARD_SOURCE_SELECT,
     })
     if (!source) throw new AppException('NOT_FOUND', 'Исходное сообщение не найдено')
     await this.assertMembership(userId, source.chatId)
     // Пост пересылает дальше тот, кто его видит, — как и при «поделиться» (IDOR-защита):
     // иначе карточка уходила бы за пределы аудитории поста через цепочку пересылок.
     if (source.sharedPostId) await this.posts.assertVisibleToViewer(viewer, source.sharedPostId)
-    // Копируем каждое вложение на новый ключ — пересланное живёт своей жизнью. Копии
-    // делаются ДО сообщения: сбой копирования не должен оставлять в чате пересылку без
-    // вложений с занятым seq (см. createWithAttachments).
+    const message = await this.copyForward(userId, targetChatId, source)
+    await this.bumpChat(targetChatId)
+    await this.notifyNewMessage(targetChatId, userId, message)
+    this.realtime.emitToRoom(`chat:${targetChatId}`, 'message:new', {
+      message,
+      chatId: targetChatId,
+    })
+    return message
+  }
+
+  /**
+   * Пересылка пачкой (`POST /chats/forward`): сообщения в хронологическом порядке, в каждый чат
+   * по очереди, перед ними — комментарий обычным сообщением.
+   *
+   * Идемпотентность — по `requestId`: ответ лежит в Redis сутки (`chat:fwd:<userId>:<id>`), и
+   * повтор после обрыва связи отдаёт его, ничего не отправляя заново. Пока первый запрос
+   * идёт, повтор получает `409 REQUEST_IN_PROGRESS`. Упавший целиком запрос (источник не
+   * найден, лимит частоты) ключ снимает — повтор выполнится заново.
+   */
+  async forwardBatch(
+    viewer: JwtPayload,
+    input: MessageForwardBatchInput,
+  ): Promise<ForwardBatchResponse> {
+    const key = `chat:fwd:${viewer.sub}:${input.requestId}`
+    const claim = await this.claimIdempotency(key, FORWARD_IDEMPOTENCY_TTL_SECONDS)
+    if (claim.kind === 'done') return claim.value as ForwardBatchResponse
+    let response: ForwardBatchResponse
+    try {
+      response = await this.forwardBatchOnce(viewer, input)
+    } catch (error) {
+      if (claim.kind === 'claimed') await this.redis.del(key).catch(() => undefined)
+      throw error
+    }
+    if (claim.kind === 'claimed') {
+      await this.redis
+        .set(key, JSON.stringify(response), 'EX', FORWARD_IDEMPOTENCY_TTL_SECONDS)
+        .catch((error: unknown) => {
+          this.logger.warn(`Не удалось запомнить ответ пересылки: ${String(error)}`)
+        })
+    }
+    return response
+  }
+
+  /**
+   * Захват ключа идемпотентности: `claimed` — выполняем мы; `done` — ответ уже есть;
+   * `unavailable` — Redis лежит, выполняем без защиты от повтора (fail-open, как антифлуд).
+   */
+  private async claimIdempotency(
+    key: string,
+    ttlSeconds: number,
+  ): Promise<{ kind: 'claimed' } | { kind: 'unavailable' } | { kind: 'done'; value: unknown }> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        if ((await this.redis.set(key, IDEMPOTENCY_PENDING, 'EX', ttlSeconds, 'NX')) === 'OK') {
+          return { kind: 'claimed' }
+        }
+        const existing = await this.redis.get(key)
+        // Первый запрос упал и снял ключ между SET и GET — пробуем захватить ещё раз.
+        if (existing === null) continue
+        if (existing === IDEMPOTENCY_PENDING) break
+        return { kind: 'done', value: JSON.parse(existing) as unknown }
+      } catch (error) {
+        this.logger.warn(`Redis недоступен, идемпотентность пропущена: ${String(error)}`)
+        return { kind: 'unavailable' }
+      }
+    }
+    throw new AppException('REQUEST_IN_PROGRESS', 'Запрос с этим ключом уже выполняется')
+  }
+
+  private async forwardBatchOnce(
+    viewer: JwtPayload,
+    input: MessageForwardBatchInput,
+  ): Promise<ForwardBatchResponse> {
+    const userId = viewer.sub
+    const messageIds = [...new Set(input.messageIds)]
+    const chatIds = [...new Set(input.chatIds)]
+    // Антифлуд — одним шагом на всю пачку: пересылка десяти сообщений — одно действие
+    // человека, и посчитанная поштучно она упиралась бы в лимит 20/10с на втором же чате.
+    // Темп самих пачек держит этот же счётчик и throttle маршрута.
+    await this.assertNotFlooding(userId)
+    const sources = await this.prisma.message.findMany({
+      where: { id: { in: messageIds }, deletedAt: null },
+      select: FORWARD_SOURCE_SELECT,
+      take: messageIds.length,
+    })
+    if (sources.length !== messageIds.length) {
+      throw new AppException('NOT_FOUND', 'Исходное сообщение не найдено')
+    }
+    for (const chatId of new Set(sources.map((source) => source.chatId))) {
+      await this.assertMembership(userId, chatId)
+    }
+    const postIds = new Set(sources.flatMap((source) => source.sharedPostId ?? []))
+    for (const postId of postIds) await this.posts.assertVisibleToViewer(viewer, postId)
+    // Хронологический порядок, как в Telegram: выделение могло прийти в любом порядке.
+    sources.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.seq - b.seq)
+
+    const results: ForwardBatchResult[] = []
+    for (const chatId of chatIds) {
+      results.push(await this.forwardIntoChat(userId, chatId, sources, input.comment))
+    }
+    return { results }
+  }
+
+  /**
+   * Пачка в один чат. Отказ чата (не участник, блокировка, потолок запроса на переписку)
+   * не роняет остальные: в ответе у такого чата `ok: false` и код ошибки, а сообщения, что
+   * успели уйти до сбоя, — в `messageIds`.
+   *
+   * Рассылка `message:new` — на каждое сообщение, а уведомление адресатам и пинг списков —
+   * одно на чат, по последнему: строка колокольчика всё равно сворачивается по чату, и сто
+   * пересланных не должны ставить в очередь сто задач уведомлений.
+   */
+  private async forwardIntoChat(
+    userId: string,
+    chatId: string,
+    sources: ForwardSource[],
+    comment: string | undefined,
+  ): Promise<ForwardBatchResult> {
+    const created: MessageRow[] = []
+    let failure: string | undefined
+    try {
+      await this.assertMembership(userId, chatId)
+      await this.assertCanSend(chatId, userId, {
+        skipFlood: true,
+        count: sources.length + (comment ? 1 : 0),
+      })
+      if (comment) {
+        const message = await this.insertTextMessage(userId, chatId, comment)
+        created.push(message)
+        this.realtime.emitToRoom(`chat:${chatId}`, 'message:new', { message, chatId })
+      }
+      for (const source of sources) {
+        const message = await this.copyForward(userId, chatId, source)
+        created.push(message)
+        this.realtime.emitToRoom(`chat:${chatId}`, 'message:new', { message, chatId })
+      }
+    } catch (error) {
+      failure = error instanceof AppException ? error.code : 'INTERNAL_ERROR'
+      if (!(error instanceof AppException)) {
+        this.logger.error({ err: error, chatId }, 'Сбой пересылки пачкой в чат')
+      }
+    }
+    const last = created[created.length - 1]
+    if (last) {
+      await this.bumpChat(chatId)
+      await this.notifyNewMessage(chatId, userId, last)
+    }
+    const messageIds = created.map((message) => message.id)
+    return failure === undefined
+      ? { chatId, ok: true, messageIds }
+      : { chatId, ok: false, messageIds, code: failure }
+  }
+
+  /** Обычное текстовое сообщение без рассылки — комментарий к пересылке пачкой. */
+  private async insertTextMessage(
+    senderId: string,
+    chatId: string,
+    content: string,
+  ): Promise<MessageRow> {
+    const created = await this.prisma.$transaction(async (tx) =>
+      tx.message.create({
+        data: { chatId, seq: await this.allocateSeq(chatId, tx), senderId, content },
+        select: MESSAGE_SELECT,
+      }),
+    )
+    await this.enqueueLinkPreview(created.id, chatId, content)
+    return toClientMessage(created)
+  }
+
+  /**
+   * Копия сообщения-источника в целевой чат — без рассылки (её решает вызывающий).
+   *
+   * Вложения копируются на новые ключи — пересланное живёт своей жизнью. Копии делаются ДО
+   * сообщения: сбой копирования не должен оставлять в чате пересылку без вложений с занятым
+   * seq (см. createWithAttachments).
+   */
+  private async copyForward(
+    userId: string,
+    targetChatId: string,
+    source: ForwardSource,
+  ): Promise<MessageRow> {
     const copies: PendingAttachment[] = []
     let created: { id: string }
     try {
@@ -3294,24 +3930,9 @@ export class ChatsService implements OnModuleInit {
           linkPreview:
             source.linkPreview === null ? undefined : (source.linkPreview as Prisma.InputJsonValue),
           sharedPostId: source.sharedPostId,
-          // Опрос пересылается новым, со своими голосами: опрос привязан к одному сообщению,
-          // а чужие голоса из другого чата здесь ничего не значат.
-          ...(source.poll
-            ? {
-                poll: {
-                  create: {
-                    question: source.poll.question,
-                    multiple: source.poll.multiple,
-                    anonymous: source.poll.anonymous,
-                    allowRevote: source.poll.allowRevote,
-                    randomOrder: source.poll.randomOrder,
-                    options: {
-                      create: source.poll.options.map((o) => ({ text: o.text, order: o.order })),
-                    },
-                  },
-                },
-              }
-            : {}),
+          // Стикер — ссылка на каталог, копировать нечего.
+          stickerId: source.stickerId,
+          ...forwardedContent(source, userId),
         },
         copies,
         // «Без сжатия» выбирается на всё сообщение разом — переносим как было.
@@ -3327,18 +3948,319 @@ export class ChatsService implements OnModuleInit {
         select: MESSAGE_SELECT,
       }),
     )
-    await this.bumpChat(targetChatId)
     // У оригинала превью могло не быть (сообщение старше фичи, job не успел, ссылка была
     // недоступна) — тогда пробуем сами: пересланная ссылка ничем не хуже отправленной.
     if (source.linkPreview === null) {
       await this.enqueueLinkPreview(created.id, targetChatId, source.content ?? undefined)
     }
-    await this.notifyNewMessage(targetChatId, userId, message)
-    this.realtime.emitToRoom(`chat:${targetChatId}`, 'message:new', {
-      message,
-      chatId: targetChatId,
+    return message
+  }
+
+  // ── Особые сообщения: геопозиция, контакт, чек-лист, стикер, GIF ───────────
+
+  /**
+   * Сообщение особого вида — общий путь для REST: те же проверки, что у текста (членство,
+   * блокировка, антифлуд, потолок запроса на переписку, ответ в этом же чате), тот же повтор
+   * по nonce и та же доставка (`message:new` с nonce эхом). `content` у таких сообщений
+   * пустой: содержимое — в связанной записи или во вложении.
+   *
+   * `attachments` — вложения, которые принимаются до сообщения (копия GIF). Зовётся после
+   * проверок, чтобы отказ не оставлял копий; неотправленные копии убираются.
+   */
+  async sendRichMessage(
+    senderId: string,
+    chatId: string,
+    input: {
+      replyToId?: string
+      nonce?: string
+      data: RichMessageData
+      attachments?: () => Promise<PendingAttachment[]>
+    },
+  ): Promise<MessageRow> {
+    const { message } = await this.withNonce(senderId, chatId, input.nonce, async () => {
+      await this.assertMembership(senderId, chatId)
+      await this.assertCanSend(chatId, senderId)
+      await this.assertReplyInChat(chatId, input.replyToId)
+      const attachments: PendingAttachment[] = []
+      let created: { id: string }
+      try {
+        if (input.attachments) attachments.push(...(await input.attachments()))
+        created = await this.createWithAttachments(
+          { chatId, senderId, content: '', replyToId: input.replyToId, ...input.data },
+          attachments,
+          false,
+        )
+      } catch (error) {
+        await this.discardAttachments(attachments)
+        throw error
+      }
+      const sent = toClientMessage(
+        await this.prisma.message.findUniqueOrThrow({
+          where: { id: created.id },
+          select: MESSAGE_SELECT,
+        }),
+      )
+      await this.bumpChat(chatId)
+      await this.notifyNewMessage(chatId, senderId, sent)
+      this.realtime.emitToRoom(`chat:${chatId}`, 'message:new', {
+        message: sent,
+        chatId,
+        nonce: input.nonce,
+      })
+      return sent
     })
     return message
+  }
+
+  /**
+   * Геопозиция (`POST /chats/:id/location`). С `livePeriod` — трансляция: `liveUntil` через
+   * заданный срок, точку дальше двигает `updateLiveLocation`.
+   */
+  async sendLocation(senderId: string, chatId: string, input: ChatLocationInput) {
+    const now = new Date()
+    const live = input.livePeriod
+      ? { liveUntil: new Date(now.getTime() + input.livePeriod * 1000), liveUpdatedAt: now }
+      : {}
+    return this.sendRichMessage(senderId, chatId, {
+      replyToId: input.replyToId,
+      nonce: input.nonce,
+      data: {
+        location: {
+          create: {
+            lat: input.lat,
+            lng: input.lng,
+            title: input.title ?? null,
+            address: input.address ?? null,
+            heading: input.heading ?? null,
+            accuracy: input.accuracy ?? null,
+            ...live,
+          },
+        },
+      },
+    })
+  }
+
+  /**
+   * Новая точка трансляции (`POST /chats/messages/:messageId/live-location`): только
+   * отправитель, только действующим участником и пока трансляция идёт.
+   *
+   * Частота — не чаще раза в 3 секунды на сообщение. Лишняя точка не ошибка: клиент шлёт их
+   * по мере прихода от GPS, и 429 на каждую вторую только шумел бы. Ответ тогда — текущее
+   * состояние без изменений и без события. Проверка и запись — одним условным UPDATE: две
+   * точки, пришедшие одновременно, не пройдут обе.
+   */
+  async updateLiveLocation(
+    userId: string,
+    messageId: string,
+    input: LiveLocationUpdateInput,
+  ): Promise<LocationDto> {
+    const msg = await this.liveLocationOf(userId, messageId)
+    await this.assertMembership(userId, msg.chatId)
+    // Блокировка в личном чате останавливает и трансляцию; антифлуд не трогаем — у точек
+    // своя частота, а потолок запроса — про новые сообщения.
+    await this.assertCanSend(msg.chatId, userId, { skipFlood: true, skipQuota: true })
+    const now = new Date()
+    const { count } = await this.prisma.chatLocation.updateMany({
+      where: {
+        messageId,
+        liveUntil: { gt: now },
+        OR: [
+          { liveUpdatedAt: null },
+          { liveUpdatedAt: { lte: new Date(now.getTime() - LIVE_LOCATION_MIN_INTERVAL_MS) } },
+        ],
+      },
+      data: {
+        lat: input.lat,
+        lng: input.lng,
+        heading: input.heading ?? null,
+        accuracy: input.accuracy ?? null,
+        liveUpdatedAt: now,
+      },
+    })
+    const location = await this.prisma.chatLocation.findUniqueOrThrow({
+      where: { messageId },
+      select: LOCATION_SELECT,
+    })
+    if (count === 0) {
+      if (!location.liveUntil || location.liveUntil.getTime() <= now.getTime()) {
+        throw new AppException('LIVE_LOCATION_ENDED', 'Трансляция геопозиции уже закончилась')
+      }
+      // Слишком часто — отдаём то, что есть.
+      return location
+    }
+    this.emitLocationUpdated(msg.chatId, messageId, location)
+    return location
+  }
+
+  /**
+   * Остановить трансляцию (`POST /chats/messages/:messageId/live-location/stop`): только
+   * отправитель. Уже закончившаяся — ответ текущим состоянием, без события. Членство не
+   * требуется: вышедший из чата должен мочь погасить свою трансляцию.
+   */
+  async stopLiveLocation(userId: string, messageId: string): Promise<LocationDto> {
+    const msg = await this.liveLocationOf(userId, messageId)
+    const now = new Date()
+    const { count } = await this.prisma.chatLocation.updateMany({
+      where: { messageId, liveUntil: { gt: now } },
+      data: { liveUntil: now, liveUpdatedAt: now },
+    })
+    const location = await this.prisma.chatLocation.findUniqueOrThrow({
+      where: { messageId },
+      select: LOCATION_SELECT,
+    })
+    if (count > 0) this.emitLocationUpdated(msg.chatId, messageId, location)
+    return location
+  }
+
+  /** Сообщение-трансляция и его автор: нет такого — 404, чужое — 403. */
+  private async liveLocationOf(
+    userId: string,
+    messageId: string,
+  ): Promise<{ chatId: string; senderId: string | null }> {
+    const msg = await this.prisma.message.findFirst({
+      where: { id: messageId, deletedAt: null, location: { liveUntil: { not: null } } },
+      select: { chatId: true, senderId: true },
+    })
+    if (!msg) throw new AppException('NOT_FOUND', 'Трансляция геопозиции не найдена')
+    if (msg.senderId !== userId) {
+      throw new AppException('FORBIDDEN', 'Трансляцией управляет только её автор')
+    }
+    return msg
+  }
+
+  private emitLocationUpdated(chatId: string, messageId: string, location: LocationDto): void {
+    this.realtime.emitToRoom(`chat:${chatId}`, 'location:updated', { chatId, messageId, location })
+  }
+
+  /**
+   * Карточка контакта (`POST /chats/:id/contact`). `userId` сервер не заполняет: поиск
+   * пользователя по телефону или почте раскрывал бы, кто зарегистрирован на платформе.
+   */
+  async sendContact(senderId: string, chatId: string, input: ChatContactInput) {
+    return this.sendRichMessage(senderId, chatId, {
+      replyToId: input.replyToId,
+      nonce: input.nonce,
+      data: {
+        contact: {
+          create: { name: input.name, phones: input.phones ?? [], emails: input.emails ?? [] },
+        },
+      },
+    })
+  }
+
+  /** Чек-лист (`POST /chats/:id/checklist`): пункты в заданном порядке, автор — отправитель. */
+  async sendChecklist(senderId: string, chatId: string, input: ChatChecklistCreateInput) {
+    return this.sendRichMessage(senderId, chatId, {
+      replyToId: input.replyToId,
+      nonce: input.nonce,
+      data: {
+        checklist: {
+          create: {
+            title: input.title,
+            othersCanAdd: input.othersCanAdd ?? true,
+            othersCanMark: input.othersCanMark ?? true,
+            items: {
+              create: input.items.map((text, order) => ({ text, order, createdById: senderId })),
+            },
+          },
+        },
+      },
+    })
+  }
+
+  /**
+   * Действие над уже отправленным в чате (пункты чек-листа): действующий участник, личная
+   * блокировка и антифлуд — как у правки сообщения. Потолок непринятого запроса не трогаем:
+   * нового сообщения действие не добавляет.
+   */
+  async assertCanAct(userId: string, chatId: string): Promise<void> {
+    await this.assertMembership(userId, chatId)
+    await this.assertCanSend(chatId, userId, { skipQuota: true })
+  }
+
+  /**
+   * Недавние GIF, которые человек сам отправлял (`GET /chats/gifs/recent`), — свежие первыми.
+   *
+   * Повторная отправка GIF заводит копию файла с новым ключом, поэтому «тот же» GIF лежит
+   * несколькими записями. Склеиваем их по размеру в байтах и сторонам кадра — у одинаковых
+   * байтов они совпадают, а у разных GIF совпасть всем трём почти невозможно. Только из чатов,
+   * где человек ещё участник: из остальных повторить GIF ему не дадут (`sendGif`).
+   */
+  async recentGifs(
+    userId: string,
+    query: ChatGifRecentQueryInput,
+  ): Promise<
+    {
+      fileId: string
+      width: number | null
+      height: number | null
+      url: string
+      expiresAt: string
+    }[]
+  > {
+    const rows = await this.prisma.file.findMany({
+      where: {
+        mime: 'image/gif',
+        message: {
+          senderId: userId,
+          deletedAt: null,
+          chat: { members: { some: { userId, bannedAt: null } } },
+        },
+      },
+      select: { id: true, size: true, width: true, height: true },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: query.limit * GIF_RECENT_SCAN_FACTOR,
+    })
+    const seen = new Set<string>()
+    const picked = rows.filter((row) => {
+      const fingerprint = `${row.size}:${row.width ?? ''}:${row.height ?? ''}`
+      if (seen.has(fingerprint)) return false
+      seen.add(fingerprint)
+      return true
+    })
+    picked.length = Math.min(picked.length, query.limit)
+    const urls = await this.files.getPresignedUrls(picked.map((row) => row.id))
+    const expiresAt = signingWindow(Date.now()).expiresAt.toISOString()
+    return picked.flatMap((row) => {
+      const url = urls.get(row.id)
+      return url ? [{ fileId: row.id, width: row.width, height: row.height, url, expiresAt }] : []
+    })
+  }
+
+  /**
+   * Повторить GIF (`POST /chats/:id/gif`): файл должен быть вложением живого сообщения в чате,
+   * где отправитель участник, — по тому же правилу, что ссылка на вложение. Копия — новая
+   * запись File на новый ключ, как при пересылке.
+   */
+  async sendGif(
+    senderId: string,
+    chatId: string,
+    input: { fileId: string; replyToId?: string; nonce?: string },
+  ): Promise<MessageRow> {
+    const file = await this.prisma.file.findUnique({
+      where: { id: input.fileId },
+      select: {
+        id: true,
+        bucket: true,
+        key: true,
+        mime: true,
+        size: true,
+        name: true,
+        width: true,
+        height: true,
+        message: { select: { chatId: true, deletedAt: true } },
+      },
+    })
+    if (!file || file.mime !== 'image/gif' || !file.message || file.message.deletedAt) {
+      throw new AppException('NOT_FOUND', 'GIF не найден')
+    }
+    await this.assertMembership(senderId, file.message.chatId)
+    return this.sendRichMessage(senderId, chatId, {
+      replyToId: input.replyToId,
+      nonce: input.nonce,
+      data: {},
+      attachments: async () => [{ id: (await this.files.copyToMessage(file, senderId)).id }],
+    })
   }
 
   // ── Поделиться постом (Ф9+ share-to-chat) ──────────────────────────────────
@@ -3493,7 +4415,7 @@ export class ChatsService implements OnModuleInit {
       select: CLEARED_SELECT,
     })
     const newestFirst = await this.prisma.message.findMany({
-      where: { chatId, deletedAt: null, ...clearedWhere(mem) },
+      where: { chatId, deletedAt: null, ...viewerWhere(mem, userId) },
       select: MESSAGE_SELECT,
       orderBy: { seq: 'desc' },
       take: EXPORT_CAP + 1,
@@ -3888,7 +4810,9 @@ export class ChatsService implements OnModuleInit {
     senderId: string,
     // skipQuota — действие над уже отправленным (правка, снятие закрепа): нового сообщения
     // оно не добавляет, и упёршийся в потолок запроса инициатор должен мочь поправить своё.
-    opts: { skipFlood?: boolean; skipQuota?: boolean } = {},
+    // count — сколько сообщений действие добавит разом (пересылка пачкой): потолок
+    // непринятого запроса сверяется со всей пачкой, а не с первым сообщением.
+    opts: { skipFlood?: boolean; skipQuota?: boolean; count?: number } = {},
   ): Promise<void> {
     if (!opts.skipFlood) await this.assertNotFlooding(senderId)
     const chat = await this.prisma.chat.findUnique({
@@ -3917,7 +4841,7 @@ export class ChatsService implements OnModuleInit {
       // Считаются и удалённые (F-F24): иначе потолок обходился удалением — стёр свои пять
       // и пишешь снова, без конца. Удалённое адресат всё равно успел получить.
       const sent = await this.prisma.message.count({ where: { chatId, senderId } })
-      if (sent >= REQUEST_MESSAGE_QUOTA) {
+      if (sent + (opts.count ?? 1) > REQUEST_MESSAGE_QUOTA) {
         throw new AppException(
           'FORBIDDEN',
           `Дождитесь ответа: до принятия запроса можно отправить не больше ${REQUEST_MESSAGE_QUOTA} сообщений`,

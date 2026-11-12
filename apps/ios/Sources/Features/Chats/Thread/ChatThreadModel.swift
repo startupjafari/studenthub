@@ -1,3 +1,4 @@
+import CoreLocation
 import Foundation
 import GRDB
 import Observation
@@ -73,6 +74,7 @@ final class ChatThreadModel {
     private var lastReadSent: String?
     private var lastReadAt: Date?
     private var lastActionAt: Date?
+    private var voiceAnnouncer: Task<Void, Never>?
     private var messages: [MessageRecord] = []
     /// Последний срез базы целиком — из него лента пересобирается, когда сдвигается
     /// граница окна истории, а сама база не менялась.
@@ -131,6 +133,7 @@ final class ChatThreadModel {
         draftTask?.cancel()
         markReadRetry?.cancel()
         preparingTimeout?.cancel()
+        voiceAnnouncer?.cancel()
     }
 
     /// Лента показывает окно истории, а не свежие сообщения: кнопка «вниз» ведёт к
@@ -498,14 +501,107 @@ final class ChatThreadModel {
 
     /// Новый опрос в чате. Сообщение с ним приходит сокетом, как любое другое.
     @MainActor
-    func createPoll(question: String, options: [String], multiple: Bool, anonymous: Bool) async -> Bool {
+    func createPoll(question: String, description: String?, options: [String], multiple: Bool, anonymous: Bool) async -> Bool {
         do {
-            try await actions.createPoll(chatID: chatID, question: question, options: options, multiple: multiple, anonymous: anonymous)
+            try await actions.createPoll(
+                chatID: chatID, question: question, description: description,
+                options: options, multiple: multiple, anonymous: anonymous
+            )
             return true
         } catch {
             actionFailure = message(for: error)
             return false
         }
+    }
+
+    // MARK: - Геопозиция, контакт, список, стикер, GIF
+
+    /// Отправка особого сообщения (не текст и не файл): сервер отвечает готовым
+    /// сообщением, оно сразу ложится в базу — сокет потом принесёт его же, без дубля.
+    /// `nonce` защищает от повтора: второй такой же запрос сервер не превратит во второе
+    /// сообщение.
+    @MainActor
+    @discardableResult
+    private func sendSpecial(_ request: (_ replyToID: String?, _ nonce: String) async throws -> ChatMessageDTO) async -> ChatMessageDTO? {
+        let answering = replyTo?.remoteId
+        let nonce = UUID().uuidString.lowercased()
+        do {
+            let sent = try await request(answering, nonce)
+            replyTo = nil
+            await returnToLatest()
+            bottomRequests += 1
+            try? await store.save(messages: [sent], chatID: chatID)
+            return sent
+        } catch {
+            actionFailure = message(for: error)
+            return nil
+        }
+    }
+
+    @MainActor
+    func sendLocation(latitude: Double, longitude: Double, title: String?, address: String?) async -> Bool {
+        await sendSpecial { [actions, chatID] reply, nonce in
+            try await actions.sendLocation(
+                chatID: chatID, latitude: latitude, longitude: longitude, title: title, address: address,
+                livePeriod: nil, accuracy: nil, replyToID: reply, nonce: nonce
+            )
+        } != nil
+    }
+
+    /// Живая геопозиция на `period` секунд: сообщение уходит сразу, дальше точку двигает
+    /// `LiveLocationSharing` (и в фоне — с синим индикатором системы).
+    @MainActor
+    func sendLiveLocation(_ location: CLLocation, period: Int) async -> Bool {
+        let sent = await sendSpecial { [actions, chatID] reply, nonce in
+            try await actions.sendLocation(
+                chatID: chatID, latitude: location.coordinate.latitude, longitude: location.coordinate.longitude,
+                title: nil, address: nil, livePeriod: period,
+                accuracy: location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : nil,
+                replyToID: reply, nonce: nonce
+            )
+        }
+        guard let sent else { return false }
+        let until = sent.location?.liveUntil ?? Date().addingTimeInterval(TimeInterval(period))
+        LiveLocationSharing.shared.start(messageID: sent.id, chatID: chatID, until: until)
+        return true
+    }
+
+    @MainActor
+    func sendContact(_ contact: ContactCardDraft) async -> Bool {
+        await sendSpecial { [actions, chatID] reply, nonce in
+            try await actions.sendContact(chatID: chatID, contact: contact, replyToID: reply, nonce: nonce)
+        } != nil
+    }
+
+    @MainActor
+    func sendChecklist(title: String, items: [String], othersCanAdd: Bool, othersCanMark: Bool) async -> Bool {
+        await sendSpecial { [actions, chatID] reply, nonce in
+            try await actions.sendChecklist(
+                chatID: chatID, title: title, items: items, othersCanAdd: othersCanAdd,
+                othersCanMark: othersCanMark, replyToID: reply, nonce: nonce
+            )
+        } != nil
+    }
+
+    @MainActor
+    func sendSticker(id: String) async -> Bool {
+        await sendSpecial { [actions, chatID] reply, nonce in
+            try await actions.sendSticker(chatID: chatID, stickerID: id, replyToID: reply, nonce: nonce)
+        } != nil
+    }
+
+    @MainActor
+    func sendExternalGif(id: String) async -> Bool {
+        await sendSpecial { [actions, chatID] reply, nonce in
+            try await actions.sendExternalGif(chatID: chatID, gifID: id, replyToID: reply, nonce: nonce)
+        } != nil
+    }
+
+    @MainActor
+    func sendGif(fileID: String) async -> Bool {
+        await sendSpecial { [actions, chatID] reply, nonce in
+            try await actions.sendGif(chatID: chatID, fileID: fileID, replyToID: reply, nonce: nonce)
+        } != nil
     }
 
     @MainActor
@@ -733,19 +829,26 @@ final class ChatThreadModel {
     /// ленты: сервер ставит пересланному своё время, и порядок отправки станет порядком
     /// в чате получателя.
     @MainActor
-    func forward(_ messages: [MessageRecord], to chatIDs: [String]) async -> Bool {
-        let remoteIDs = messages.filter(Self.canForward).compactMap(\.remoteId)
-        guard !remoteIDs.isEmpty else { return false }
+    func forward(_ messages: [MessageRecord], to chatIDs: [String], comment: String?, requestID: UUID) async -> ForwardOutcome {
+        // По времени, а не по порядку касаний: у получателя они встанут так же, как здесь.
+        let remoteIDs = messages
+            .filter(Self.canForward)
+            .sorted { $0.createdAt < $1.createdAt }
+            .compactMap(\.remoteId)
+        guard !remoteIDs.isEmpty, !chatIDs.isEmpty else { return ForwardOutcome() }
         do {
-            for target in chatIDs {
-                for remoteID in remoteIDs {
-                    try await actions.forward(messageID: remoteID, to: target)
-                }
-            }
-            return true
+            let result = try await actions.forward(
+                messageIDs: Array(remoteIDs.prefix(100)),
+                to: chatIDs,
+                comment: comment,
+                requestID: requestID
+            )
+            return ForwardOutcome(
+                delivered: result.results.filter(\.ok).map(\.chatId),
+                failed: result.results.filter { !$0.ok }.map(\.chatId)
+            )
         } catch {
-            actionFailure = self.message(for: error)
-            return false
+            return ForwardOutcome(failure: self.message(for: error))
         }
     }
 
@@ -820,21 +923,52 @@ final class ChatThreadModel {
         selectedMessages.contains(where: Self.canForward)
     }
 
-    /// Удалить выбранное можно, только если всё оно своё и ещё не удалено: чужое
-    /// сервер отклонит, и часть выбора молча осталась бы на месте.
+    /// Удалить выбранное у себя можно всегда, у всех — только если всё оно своё: чужое
+    /// сервер не удалит, и часть выбора молча осталась бы на месте.
     var canDeleteSelection: Bool {
+        selectedMessages.contains { $0.deletedAt == nil && $0.systemType == nil }
+    }
+
+    var canDeleteSelectionForEveryone: Bool {
         let chosen = selectedMessages
         return !chosen.isEmpty && chosen.allSatisfy(canDelete)
     }
 
-    /// Удаление выбранного — тем же путём, что и одиночное, по одному сообщению.
+    /// Удаление выбранного: у всех — тем же путём, что и одиночное; у себя — одним
+    /// запросом.
     @MainActor
-    func deleteSelected() async {
-        let chosen = selectedMessages
-        guard !chosen.isEmpty, chosen.allSatisfy(canDelete) else { return }
+    func deleteSelected(forEveryone: Bool) async {
+        let chosen = selectedMessages.filter { $0.deletedAt == nil && $0.systemType == nil }
+        guard !chosen.isEmpty else { return }
+        if forEveryone, !chosen.allSatisfy(canDelete) { return }
         selection = nil
-        for message in chosen {
-            await delete(message)
+        if forEveryone {
+            for message in chosen { await delete(message) }
+        } else {
+            await hide(chosen)
+        }
+    }
+
+    /// «Удалить у меня»: сервер прячет сообщения только для меня, у собеседников они
+    /// остаются. Неотправленное просто стирается локально — серверу о нём нечего знать.
+    @MainActor
+    func hide(_ chosen: [MessageRecord]) async {
+        let local = chosen.filter { $0.remoteId == nil }.map(\.id)
+        if !local.isEmpty {
+            _ = try? await database.writer.write { db in try MessageRecord.deleteAll(db, keys: local) }
+        }
+        let remote = chosen.compactMap(\.remoteId)
+        guard !remote.isEmpty else { return }
+        do {
+            var hidden: [String] = []
+            // Сервер принимает до сотни за раз.
+            for start in stride(from: 0, to: remote.count, by: 100) {
+                let chunk = Array(remote[start..<min(start + 100, remote.count)])
+                hidden += try await actions.hide(messageIDs: chunk, chatID: chatID).hiddenIds
+            }
+            try await store.removeHidden(remoteIDs: hidden, chatID: chatID)
+        } catch {
+            actionFailure = self.message(for: error)
         }
     }
 
@@ -1033,6 +1167,24 @@ final class ChatThreadModel {
         if let sentAt = lastActionAt, Date().timeIntervalSince(sentAt) < 3 { return }
         lastActionAt = Date()
         Task { [realtime, chatID] in await realtime.send(action: "TYPING", chatID: chatID) }
+    }
+
+    /// «Записывает голосовое…» у собеседников. Получатель гасит подпись через четыре
+    /// секунды, поэтому, пока идёт запись, подтверждение повторяется каждые три.
+    @MainActor
+    func announceVoice(_ recording: Bool) {
+        voiceAnnouncer?.cancel()
+        voiceAnnouncer = nil
+        guard recording else {
+            Task { [realtime, chatID] in await realtime.send(action: nil, chatID: chatID) }
+            return
+        }
+        voiceAnnouncer = Task { [realtime, chatID] in
+            while !Task.isCancelled {
+                await realtime.send(action: "RECORDING_VOICE", chatID: chatID)
+                try? await Task.sleep(for: .seconds(3))
+            }
+        }
     }
 
     @MainActor

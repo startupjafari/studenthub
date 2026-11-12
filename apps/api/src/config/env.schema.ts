@@ -246,6 +246,13 @@ export const envSchema = z.object({
   TELEGRAM_BOT_TOKEN: optionalEnv(z.string().min(1)),
 
   /**
+   * Ключ GIPHY для поиска GIF в чатах (`/chats/gifs/trending|search`, `/chats/:id/gif/external`).
+   * Ключ живёт только на сервере: клиенты ходят в каталог через API-прокси. Не задан —
+   * поиск выключен, эндпоинты отвечают `503 FEATURE_DISABLED`.
+   */
+  GIPHY_API_KEY: optionalEnv(z.string().min(1)),
+
+  /**
    * Секрет вебхука Telegram. Бот присылает его в заголовке `x-telegram-bot-api-secret-token`
    * при каждом обновлении; адрес вебхука публичен, и без сверки секрета кто угодно смог бы
    * прислать «нажатие кнопки» от чужого имени. Не задан — вебхук отвечает 404, то есть

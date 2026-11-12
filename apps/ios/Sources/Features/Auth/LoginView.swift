@@ -162,6 +162,7 @@ private struct CredentialsStepView: View {
             .autocorrectionDisabled()
             .submitLabel(.next)
             .focused($focus, equals: .identifier)
+            .accessibilityIdentifier("auth.identifier")
             .onSubmit { focus = .password }
             .disabled(model.isBusy)
             .onChange(of: model.identifier) { model.clearError(for: .identifier) }
@@ -235,6 +236,7 @@ private struct CredentialsStepView: View {
         .textContentType(.password)
         .submitLabel(.go)
         .focused($focus, equals: .password)
+        .accessibilityIdentifier("auth.password")
         .onSubmit(submit)
         .disabled(model.isBusy)
         .onChange(of: model.password) { model.clearError(for: .password) }

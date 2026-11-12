@@ -17,12 +17,22 @@ struct ChatThreadView: View {
     @State private var reporting: MessageRecord?
     /// Своё сообщение в группе, чьих прочитавших показываем.
     @State private var readersOf: MessageRecord?
-    @State private var deleting: MessageRecord?
-    /// Подтверждение удаления выбранного: сколько сообщений уйдёт.
-    @State private var deletingSelection: Int?
+    /// Подтверждение удаления: у меня или у всех.
+    @State private var deleting: DeleteRequest?
+    /// Меню сообщения по долгому нажатию.
+    @State private var menu: MessageMenuRequest?
+    /// Действие из меню ждёт, пока меню закроется: лист поверх закрывающегося
+    /// полноэкранного слоя не откроется.
+    @State private var pendingMenuAction: (MessageMenuAction, MessageRecord)?
     @State private var copiedTick = 0
+    /// Короткое уведомление сверху: «Переслано», «Скопировано».
+    @State private var toast: String?
+    @State private var toastTask: Task<Void, Never>?
     @State private var reported = false
     @State private var pinnedIndex = 0
+    /// Плашку закреплённого закрыли крестиком — до нового закрепления (id самого
+    /// свежего закреплённого на момент закрытия).
+    @State private var hiddenPinned: String?
     /// Лента у нижнего края — кнопка «вниз» не нужна.
     @State private var atBottom = true
     /// С какого момента человек не у низа: всё чужое позже — непрочитанное на кнопке.
@@ -79,6 +89,19 @@ struct ChatThreadView: View {
         // переписку с половиной выбора не выйдет.
         .navigationBarBackButtonHidden(model?.isSelecting == true)
         .toolbar(.hidden, for: .tabBar)
+        .overlay(alignment: .top) {
+            if let toast {
+                Text(toast)
+                    .font(Typography.meta.weight(.semibold))
+                    .foregroundStyle(Palette.foreground)
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.vertical, Spacing.sm)
+                    .floatingGlass(in: Capsule())
+                    .padding(.top, Spacing.md)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
+        }
         .sensoryFeedback(.selection, trigger: model?.selection?.count ?? 0)
         .sensoryFeedback(.success, trigger: copiedTick)
     }
@@ -103,6 +126,26 @@ struct ChatThreadView: View {
         }
     }
 
+    private static func hiddenPinnedKey(_ chatID: String) -> String { "chats.pinnedHidden.\(chatID)" }
+
+    /// Крестик на плашке: прячем, пока не закрепят что-то новое, — как в Telegram.
+    private func hidePinned(_ model: ChatThreadModel) {
+        guard let newest = model.pinned.first?.id else { return }
+        withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) { hiddenPinned = newest }
+        UserDefaults.standard.set(newest, forKey: Self.hiddenPinnedKey(chatID))
+    }
+
+    private func showToast(_ text: String) {
+        toastTask?.cancel()
+        withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) { toast = text }
+        UIAccessibility.post(notification: .announcement, argument: text)
+        toastTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            withAnimation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion)) { toast = nil }
+        }
+    }
+
     private func endSelection(_ model: ChatThreadModel) {
         withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) {
             model.endSelection()
@@ -123,17 +166,22 @@ struct ChatThreadView: View {
                         .padding(.top, Spacing.md)
                 }
 
-                if !model.pinned.isEmpty, search == nil {
+                if !model.pinned.isEmpty, search == nil, model.pinned.first?.id != hiddenPinned {
                     PinnedBar(
                         message: model.pinned[min(pinnedIndex, model.pinned.count - 1)],
                         index: min(pinnedIndex, model.pinned.count - 1),
-                        count: model.pinned.count
+                        count: model.pinned.count,
+                        onClose: { hidePinned(model) }
                     ) {
                         let current = model.pinned[min(pinnedIndex, model.pinned.count - 1)]
                         Task { await model.jump(to: current.id) }
                         // Каждое нажатие ведёт к следующему, более старому закреплённому.
                         pinnedIndex = (pinnedIndex + 1) % model.pinned.count
                     }
+                }
+
+                if search == nil, let live = LiveLocationSharing.shared.session(inChat: chatID) {
+                    LiveLocationBar(session: live)
                 }
 
                 MessageListView(
@@ -160,7 +208,8 @@ struct ChatThreadView: View {
                     },
                     onReachTop: { Task { await model.loadOlder() } },
                     onReachBottom: { Task { await model.loadNewer() } },
-                    onAction: { action, message in handle(action, message: message, model: model) }
+                    onAction: { action, message in handle(action, message: message, model: model) },
+                    onMenu: { item in openMenu(item, model: model) }
                 )
                 .overlay {
                     if let search, showsSearchList {
@@ -242,7 +291,11 @@ struct ChatThreadView: View {
                             forwarding = ForwardBatch(messages: model.selectedMessages, fromSelection: true)
                         },
                         onDelete: {
-                            deletingSelection = model.selectedMessages.count
+                            deleting = DeleteRequest(
+                                messages: model.selectedMessages,
+                                forEveryoneAllowed: model.canDeleteSelectionForEveryone,
+                                fromSelection: true
+                            )
                         }
                     )
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -322,7 +375,8 @@ struct ChatThreadView: View {
             isGroup: isGroup,
             othersReadAt: model.chat?.othersReadAt,
             readMarks: isGroup ? model.readMarks : [],
-            viewerID: viewerID
+            viewerID: viewerID,
+            highlight: search?.isActive == true ? search?.term : nil
         )
     }
 
@@ -330,6 +384,8 @@ struct ChatThreadView: View {
         view
         .task {
             guard model == nil else { return }
+            KeyboardFrame.shared.start()
+            hiddenPinned = UserDefaults.standard.string(forKey: Self.hiddenPinnedKey(chatID))
             let created = ChatThreadModel(chatID: chatID, viewerID: viewerID)
             model = created
             created.start()
@@ -445,11 +501,14 @@ struct ChatThreadView: View {
             }
         }
         .sheet(item: $forwarding) { batch in
-            ForwardPickerView(excludedChatID: chatID) { targets in
-                guard let model else { return false }
-                let sent = await model.forward(batch.messages, to: targets)
-                if sent, batch.fromSelection { endSelection(model) }
-                return sent
+            ForwardPickerView(messages: batch.messages) { targets, comment, requestID in
+                guard let model else { return ForwardOutcome() }
+                let outcome = await model.forward(batch.messages, to: targets, comment: comment, requestID: requestID)
+                if outcome.isComplete {
+                    if batch.fromSelection { endSelection(model) }
+                    showToast(ChatPlural.forwardedTo(outcome.delivered.count))
+                }
+                return outcome
             }
         }
         .alert(
@@ -464,24 +523,34 @@ struct ChatThreadView: View {
             }
             Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
-        .alert(
-            String(localized: "chats.delete.title", defaultValue: "Удалить сообщение у всех?"),
+        .confirmationDialog(
+            deleting.map { ChatPlural.deleteMessagesQuestion($0.messages.count) } ?? "",
             isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+            titleVisibility: .visible,
             presenting: deleting
-        ) { message in
-            Button(String(localized: "feed.delete", defaultValue: "Удалить"), role: .destructive) {
-                Task { await model?.delete(message) }
+        ) { request in
+            if request.forEveryoneAllowed {
+                Button(String(localized: "chats.delete.forEveryone", defaultValue: "Удалить у всех"), role: .destructive) {
+                    perform(request, forEveryone: true)
+                }
+            }
+            Button(String(localized: "chats.delete.forMe", defaultValue: "Удалить у меня"), role: .destructive) {
+                perform(request, forEveryone: false)
             }
             Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
-        .alert(
-            ChatPlural.deleteMessagesQuestion(deletingSelection ?? 0),
-            isPresented: Binding(get: { deletingSelection != nil }, set: { if !$0 { deletingSelection = nil } })
-        ) {
-            Button(String(localized: "feed.delete", defaultValue: "Удалить"), role: .destructive) {
-                Task { await model?.deleteSelected() }
-            }
-            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
+        .fullScreenCover(item: $menu, onDismiss: runPendingMenuAction) { request in
+            MessageMenuOverlay(
+                request: request,
+                onReact: { emoji in
+                    Task { await model?.react(request.item.message, emoji: emoji) }
+                },
+                onAction: { action in
+                    pendingMenuAction = (action, request.item.message)
+                },
+                onDismiss: { closeMenu() }
+            )
+            .presentationBackground(.clear)
         }
         .alert(String(localized: "feed.report.sent", defaultValue: "Жалоба отправлена"), isPresented: $reported) {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}
@@ -506,7 +575,11 @@ struct ChatThreadView: View {
         case .edit:
             model.beginEdit(message)
         case .delete:
-            deleting = message
+            deleting = DeleteRequest(
+                messages: [message],
+                forEveryoneAllowed: model.canDelete(message),
+                fromSelection: false
+            )
         case .pin:
             Task { await model.togglePin(message) }
         case .copy:
@@ -540,6 +613,83 @@ struct ChatThreadView: View {
             AppServices.router.stacks[.chats, default: []].append(.post(id: id))
         case .openAttachment(let file):
             open(file)
+        case .menu:
+            break
+        }
+    }
+
+    // MARK: Меню сообщения
+
+    /// Долгое нажатие: меню открывается без системной анимации — у него своя, от пузыря.
+    private func openMenu(_ item: MessageTimeline.Item, model: ChatThreadModel) {
+        guard menu == nil, !model.isSelecting,
+            let row = BubbleAnchors.shared.rect(for: item.id, part: .row),
+            let bubble = BubbleAnchors.shared.rect(for: item.id, part: .bubble)
+        else { return }
+        let context = bubbleContext(model)
+        let message = item.message
+        let capabilities = MessageCapabilities(
+            canEdit: model.canEdit(message),
+            canDelete: model.canDelete(message),
+            canReport: message.senderId != viewerID,
+            myReaction: model.myReaction(on: message)
+        )
+        let readCount = context.isGroup && item.isOwn ? context.readCount(at: message.createdAt) : 0
+        let request = MessageMenuRequest(
+            item: item,
+            rowRect: row,
+            bubbleRect: bubble,
+            context: context,
+            capabilities: capabilities,
+            actions: MessageMenuAction.available(
+                for: message,
+                isOwn: item.isOwn,
+                isGroup: context.isGroup,
+                capabilities: capabilities,
+                readCount: readCount
+            ),
+            canReact: message.remoteId != nil && message.deletedAt == nil && message.systemType == nil
+        )
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { menu = request }
+    }
+
+    private func closeMenu() {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { menu = nil }
+    }
+
+    private func runPendingMenuAction() {
+        guard let (action, message) = pendingMenuAction, let model else { return }
+        pendingMenuAction = nil
+        switch action {
+        case .reply: handle(.reply, message: message, model: model)
+        case .copy:
+            handle(.copy, message: message, model: model)
+            copiedTick += 1
+            showToast(String(localized: "chats.copied", defaultValue: "Текст скопирован"))
+        case .edit: handle(.edit, message: message, model: model)
+        case .pin: handle(.pin, message: message, model: model)
+        case .forward: handle(.forward, message: message, model: model)
+        case .readers: handle(.readers, message: message, model: model)
+        case .report: handle(.report, message: message, model: model)
+        case .delete: handle(.delete, message: message, model: model)
+        case .select: handle(.select, message: message, model: model)
+        }
+    }
+
+    private func perform(_ request: DeleteRequest, forEveryone: Bool) {
+        guard let model else { return }
+        Task {
+            if request.fromSelection {
+                await model.deleteSelected(forEveryone: forEveryone)
+            } else if forEveryone, let message = request.messages.first {
+                await model.delete(message)
+            } else {
+                await model.hide(request.messages)
+            }
         }
     }
 
@@ -559,6 +709,14 @@ struct ChatThreadView: View {
             }
         }
     }
+}
+
+/// Что удаляем: одно сообщение из меню или выбранные разом. «У всех» — только своё.
+private struct DeleteRequest: Identifiable {
+    let id = UUID()
+    let messages: [MessageRecord]
+    let forEveryoneAllowed: Bool
+    let fromSelection: Bool
 }
 
 /// Что пересылаем: одно сообщение из меню или выбранные разом. После пересылки
@@ -633,6 +791,7 @@ private struct PinnedBar: View {
     let message: ChatMessageDTO
     let index: Int
     let count: Int
+    let onClose: () -> Void
     let action: () -> Void
 
     var body: some View {
@@ -660,8 +819,15 @@ private struct PinnedBar: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                Image(systemName: "pin")
-                    .foregroundStyle(Palette.mutedForeground)
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Palette.mutedForeground)
+                        .frame(width: ControlHeight.sm, height: ControlHeight.sm)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(String(localized: "chats.pinned.hide", defaultValue: "Скрыть закреплённое")))
             }
             .padding(.horizontal, Spacing.lg)
             .padding(.vertical, Spacing.sm)
@@ -670,6 +836,38 @@ private struct PinnedBar: View {
             .padding(.top, Spacing.xs)
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Плашка «Вы транслируете геопозицию» под шапкой — как в Telegram: видно, что точка
+/// уходит, и остановить можно одним касанием.
+private struct LiveLocationBar: View {
+    let session: LiveLocationSharing.Session
+
+    var body: some View {
+        HStack(spacing: Spacing.md) {
+            Image(systemName: "location.fill")
+                .foregroundStyle(Palette.primary)
+                .symbolEffect(.pulse)
+                .accessibilityHidden(true)
+            Text(String(
+                localized: "chats.live.banner",
+                defaultValue: "Вы транслируете геопозицию до \(session.until.formatted(date: .omitted, time: .shortened))"
+            ))
+            .font(Typography.meta)
+            .foregroundStyle(Palette.foreground)
+            .lineLimit(1)
+            Spacer(minLength: Spacing.sm)
+            Button(String(localized: "chats.live.stop", defaultValue: "Остановить")) {
+                Task { await LiveLocationSharing.shared.stop(messageID: session.messageID) }
+            }
+            .font(Typography.meta.weight(.semibold))
+            .foregroundStyle(Palette.destructive)
+        }
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.sm)
+        .chatPanelSurface()
+        .padding(.top, Spacing.xs)
     }
 }
 

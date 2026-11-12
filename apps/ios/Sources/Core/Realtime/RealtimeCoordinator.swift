@@ -34,6 +34,9 @@ final class RealtimeCoordinator {
     /// сообщения или результаты опроса, когда оно выросло.
     private(set) var pinnedVersions: [String: Int] = [:]
     private(set) var pollVersions: [String: Int] = [:]
+    /// Свежее состояние общих списков из `checklist:updated`: пузырь берёт его поверх
+    /// того, что пришло с сообщением.
+    private(set) var checklists: [String: MessageExtras.Checklist] = [:]
 
     private let transport: RealtimeTransport
     private let session: SessionStore
@@ -115,6 +118,7 @@ final class RealtimeCoordinator {
         listRefresh = nil
         pinnedVersions = [:]
         pollVersions = [:]
+        checklists = [:]
         for task in expiry.values { task.cancel() }
         expiry = [:]
         await transport.disconnect()
@@ -156,6 +160,12 @@ final class RealtimeCoordinator {
     @MainActor
     func delete(messageID: String) async {
         await transport.delete(messageID: messageID)
+    }
+
+    /// Свой ответ сервера на правку списка — сразу всем пузырям с этим списком.
+    @MainActor
+    func remember(_ checklist: MessageExtras.Checklist) {
+        checklists[checklist.id] = checklist
     }
 
     // MARK: - События
@@ -246,6 +256,15 @@ final class RealtimeCoordinator {
 
         case .pollUpdated(let pollID, _):
             pollVersions[pollID, default: 0] += 1
+
+        case .checklistUpdated(let checklist, _):
+            checklists[checklist.id] = checklist
+
+        case .locationUpdated(let location, let messageID, _):
+            await LiveLocations.apply(location, messageID: messageID)
+
+        case .messagesHidden(let chatID, let ids):
+            try? await MessageStore(database: database).removeHidden(remoteIDs: ids, chatID: chatID)
 
         case .applicationStatusChanged(let id, let status):
             applicationStatus = ApplicationStatusChange(id: id, status: status, at: Date())

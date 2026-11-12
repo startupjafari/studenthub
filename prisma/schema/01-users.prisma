@@ -170,13 +170,22 @@ model User {
   storyHighlights StoryHighlight[] @relation("StoryHighlightOwner")
 
   // Чаты (Ф9): членство в чатах, отправленные сообщения, закрепления, реакции.
-  chatMemberships   ChatMember[]
-  messages          Message[]
-  messagesScheduled ScheduledMessage[]
-  messagesPinned    Message[]          @relation("MessagePinnedBy")
-  messageReactions  MessageReaction[]
-  chatPollVotes     ChatPollVote[]
-  chatFolders       ChatFolder[]
+  chatMemberships    ChatMember[]
+  messages           Message[]
+  messagesScheduled  ScheduledMessage[]
+  messagesPinned     Message[]           @relation("MessagePinnedBy")
+  messageReactions   MessageReaction[]
+  chatPollVotes      ChatPollVote[]
+  chatFolders        ChatFolder[]
+  // «Удалить у себя»: сообщения, скрытые этим пользователем (06-chats.prisma, HiddenMessage).
+  hiddenMessages     HiddenMessage[]
+  // Карточки контакта в чатах, указывающие на этого пользователя (ChatContact.userId).
+  chatContactsOf     ChatContact[]       @relation("ChatContactUser")
+  // Пункты чек-листов: кто добавил и кто отметил выполненным (ChatChecklistItem).
+  checklistItems     ChatChecklistItem[] @relation("ChecklistItemCreatedBy")
+  checklistItemsDone ChatChecklistItem[] @relation("ChecklistItemDoneBy")
+  // Наборы стикеров, заведённые платформенным администратором (StickerSet.createdById).
+  stickerSets        StickerSet[]
 
   // События (Ф10): организованные события и участия.
   eventsOrganized       Event[]                @relation("EventOrganizer")

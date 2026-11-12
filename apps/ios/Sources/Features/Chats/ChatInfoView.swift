@@ -192,8 +192,17 @@ struct ChatInfoView: View {
             return shared.files.items.isEmpty ? 120 : CGFloat(shared.files.items.count) * rowHeight
         case .voice:
             return shared.voice.items.isEmpty ? 120 : CGFloat(shared.voice.items.count) * rowHeight
+        case .music:
+            return shared.music.items.isEmpty ? 120 : CGFloat(shared.music.items.count) * rowHeight
         case .links:
             return shared.links.items.isEmpty ? 120 : CGFloat(shared.links.items.count) * rowHeight
+        case .polls:
+            return shared.polls.items.isEmpty ? 120 : CGFloat(shared.polls.items.count) * rowHeight
+        case .gifs:
+            let count = shared.gifs.items.count
+            guard count > 0 else { return 120 }
+            let tile = max(0, (viewport.width - 48) / 3)
+            return CGFloat((count + 2) / 3) * (tile + 2)
         }
     }
 
@@ -260,12 +269,16 @@ struct ChatInfoView: View {
                 ) {
                     openSearch()
                 }
-                if canManageGroup {
+                // Как в Telegram: «Покинуть» — прямо в ряду; добавить участника — над
+                // списком участников.
+                if chat.kind == .group {
                     ChatInfoActionButton(
-                        title: String(localized: "chats.info.add", defaultValue: "Добавить"),
-                        symbol: "person.badge.plus"
+                        title: chat.isOwner
+                            ? String(localized: "feed.delete", defaultValue: "Удалить")
+                            : String(localized: "chats.info.leave", defaultValue: "Покинуть"),
+                        symbol: "rectangle.portrait.and.arrow.right"
                     ) {
-                        addingMember = true
+                        confirmingLeave = true
                     }
                 }
                 HeroMoreButton(menu: moreMenu(chat))
@@ -948,15 +961,18 @@ private struct MemberRow: View {
 
 /// Разделы содержимого чата.
 enum ChatMediaKindTab: String, CaseIterable, Identifiable {
-    case media, files, voice, links
+    case media, files, music, voice, links, gifs, polls
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .media: return String(localized: "chats.info.media", defaultValue: "Медиа")
         case .files: return String(localized: "chats.info.files", defaultValue: "Файлы")
+        case .music: return String(localized: "chats.info.music", defaultValue: "Музыка")
         case .voice: return String(localized: "chats.info.voice", defaultValue: "Голосовые")
         case .links: return String(localized: "chats.info.links", defaultValue: "Ссылки")
+        case .gifs: return String(localized: "chats.preview.gif", defaultValue: "GIF")
+        case .polls: return String(localized: "chats.info.polls", defaultValue: "Опросы")
         }
     }
 
@@ -964,8 +980,10 @@ enum ChatMediaKindTab: String, CaseIterable, Identifiable {
         switch self {
         case .media: return .media
         case .files: return .file
-        case .voice: return .voice
-        case .links: return nil
+        case .music: return .music
+        case .voice: return .voiceNote
+        case .gifs: return .gif
+        case .links, .polls: return nil
         }
     }
 }

@@ -12,6 +12,8 @@ struct BubbleContext: Hashable {
     /// По ним — число прочитавших у своего сообщения.
     var readMarks: [Date] = []
     var viewerID = ""
+    /// Поиск в переписке: найденное подсвечивается в тексте пузырей.
+    var highlight: String?
 
     /// Сколько других участников группы дочитали до этого момента.
     func readCount(at date: Date) -> Int {
@@ -45,6 +47,8 @@ enum MessageAction {
     /// Войти в режим выбора с этим сообщением и переключить его отметку в режиме.
     case select, toggleSelection
     case react(String)
+    /// Долгое нажатие: меню с реакциями поверх размытой переписки.
+    case menu
     case jump(String)
     case openPost(String)
     case openAttachment(AttachmentRecord)
@@ -65,6 +69,8 @@ struct MessageBubbleView: View {
     /// Режим выбора нескольких: слева кружок-отметка, касание переключает её.
     var selecting = false
     var isSelected = false
+    /// Копия пузыря в меню по долгому нажатию: без жестов и без якорей положения.
+    var isMenuPreview = false
     var onAction: (MessageAction) -> Void = { _ in }
 
     @State private var reactionTick = 0
@@ -132,17 +138,30 @@ struct MessageBubbleView: View {
                 .frame(width: min(avatarSize, 44), height: min(avatarSize, 44))
                 .accessibilityHidden(true)
             }
-            bubble
-                .contentShape(.contextMenuPreview, shape)
-                .contextMenu { menu }
+            Group {
+                if let sticker = extras.sticker, !isDeleted {
+                    stickerBubble(sticker)
+                } else {
+                    bubble
+                }
+            }
+                .bubbleAnchor(message.id, part: .bubble, enabled: !isMenuPreview)
                 .onTapGesture(count: 2) {
-                    guard !isDeleted, message.remoteId != nil else { return }
+                    guard !isMenuPreview, !isDeleted, message.remoteId != nil else { return }
                     reactionTick += 1
                     onAction(.react(ChatReactions.doubleTap))
                 }
+                .onLongPressGesture(minimumDuration: 0.3) {
+                    guard !isMenuPreview, !selecting else { return }
+                    onAction(.menu)
+                }
                 .sensoryFeedback(.impact(weight: .light), trigger: reactionTick)
+                .accessibilityAction(named: Text(String(localized: "chats.menu.actions", defaultValue: "Действия"))) {
+                    onAction(.menu)
+                }
             if !item.isOwn { Spacer(minLength: Spacing.xxl * 2) }
         }
+        .bubbleAnchor(message.id, part: .row, enabled: !isMenuPreview)
         .accessibilityHidden(selecting)
     }
 
@@ -241,6 +260,17 @@ struct MessageBubbleView: View {
                 if let poll = extras.poll {
                     ChatPollView(poll: poll, isOwn: item.isOwn)
                 }
+                if let location = extras.location {
+                    LocationMessageView(location: location, isOwn: item.isOwn, messageID: message.remoteId)
+                }
+                if let contact = extras.contact {
+                    ContactMessageView(contact: contact, isOwn: item.isOwn)
+                }
+                if let checklist = extras.checklist {
+                    ChecklistMessageView(
+                        checklist: checklist, isOwn: item.isOwn, isAuthor: item.isOwn, viewerID: context.viewerID
+                    )
+                }
             }
 
             if hasText {
@@ -316,6 +346,40 @@ struct MessageBubbleView: View {
         .accessibilityElement(children: .combine)
     }
 
+    /// Стикер — без пузыря: над ним ответ, под ним реакции, время — в капсуле на углу.
+    private func stickerBubble(_ sticker: MessageExtras.Sticker) -> some View {
+        VStack(alignment: item.isOwn ? .trailing : .leading, spacing: Spacing.xs) {
+            if let replyID = message.replyToId {
+                Button {
+                    onAction(.jump(replyID))
+                } label: {
+                    ReplyQuoteView(
+                        author: extras.replySenderName,
+                        text: message.replyQuote ?? extras.replyContent,
+                        isOwn: false
+                    )
+                    .padding(.horizontal, Spacing.md)
+                    .padding(.vertical, Spacing.xs)
+                    .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+            StickerMessageView(sticker: sticker)
+                .overlay(alignment: .bottomTrailing) {
+                    meta(Palette.primaryForeground)
+                        .padding(.horizontal, Spacing.sm)
+                        .padding(.vertical, 2)
+                        .background(Palette.overlay.opacity(0.45), in: Capsule())
+                }
+            if showsReactions {
+                reactions
+                    .padding(Spacing.xs)
+                    .background(item.isOwn ? Palette.primary : Palette.card, in: Capsule())
+            }
+        }
+        .contentShape(Rectangle())
+    }
+
     /// Своё сообщение с файлами в пути: доля отправленного — из общего реестра загрузок.
     private var upload: AttachmentUploadState? {
         guard item.isOwn, message.remoteId == nil, message.sendState == .pending, !item.attachments.isEmpty else {
@@ -343,7 +407,8 @@ struct MessageBubbleView: View {
         if isDeleted { return true }
         if profileShare != nil { return false }
         return !message.content.isEmpty
-            || (item.attachments.isEmpty && extras.poll == nil && extras.sharedPost == nil && extras.sharedStory == nil)
+            || (item.attachments.isEmpty && extras.poll == nil && extras.sharedPost == nil && extras.sharedStory == nil
+                && !hasSpecialContent)
     }
 
     /// «Имя\nссылка на профиль» — так уходит «Поделиться профилем»; рисуем карточкой.
@@ -363,6 +428,11 @@ struct MessageBubbleView: View {
 
     private var showsReactions: Bool { !extras.reactions.isEmpty && !isDeleted }
 
+    /// Геопозиция, контакт, список или стикер — сообщение без текста, но не пустое.
+    private var hasSpecialContent: Bool {
+        extras.location != nil || extras.contact != nil || extras.checklist != nil || extras.sticker != nil
+    }
+
     /// Время встаёт в последнюю строку текста, если текст — последний в пузыре.
     private var textCarriesMeta: Bool {
         hasText && !showsReactions && (extras.linkPreview == nil || isDeleted)
@@ -372,13 +442,13 @@ struct MessageBubbleView: View {
     private var isMediaOnly: Bool {
         !isDeleted && !hasText && !showsReactions && !item.attachments.isEmpty
             && item.attachments.allSatisfy(\.showsAsMedia)
-            && extras.poll == nil && extras.sharedPost == nil && extras.sharedStory == nil
+            && extras.poll == nil && extras.sharedPost == nil && extras.sharedStory == nil && !hasSpecialContent
             && extras.linkPreview == nil && message.replyToId == nil && !extras.isForwarded
             && !(context.isGroup && !item.isOwn && item.isFirstInGroup)
     }
 
     private var textBlock: some View {
-        let body = Text(isDeleted ? AttributedString(deletedText) : RichText.attributed(message.content))
+        let body = Text(isDeleted ? AttributedString(deletedText) : highlightedContent)
             .font(Typography.body)
         let line = textCarriesMeta ? body + metaPlaceholder : body
         return line
@@ -388,6 +458,15 @@ struct MessageBubbleView: View {
             .fixedSize(horizontal: false, vertical: true)
             // Невидимую копию времени VoiceOver прочитал бы второй раз.
             .accessibilityLabel(Text(isDeleted ? deletedText : message.content))
+    }
+
+    /// Текст с разметкой и — в режиме поиска — с подсвеченными совпадениями.
+    private var highlightedContent: AttributedString {
+        var text = RichText.attributed(message.content)
+        if let term = context.highlight {
+            SearchHighlight.apply(term, to: &text, background: item.isOwn ? SearchHighlight.outgoing : SearchHighlight.incoming)
+        }
+        return text
     }
 
     private var time: String {
@@ -434,95 +513,6 @@ struct MessageBubbleView: View {
         return text
             .font(Typography.tabular(.caption2))
             .foregroundStyle(Color.clear)
-    }
-
-    // MARK: Меню
-
-    @ViewBuilder
-    private var menu: some View {
-        if !isDeleted, message.remoteId != nil {
-            ControlGroup {
-                ForEach(ChatReactions.all, id: \.self) { emoji in
-                    Button {
-                        onAction(.react(emoji))
-                    } label: {
-                        Text(verbatim: emoji)
-                    }
-                    .accessibilityLabel(Text(verbatim: emoji))
-                }
-            }
-            .controlGroupStyle(.palette)
-
-            Button {
-                onAction(.reply)
-            } label: {
-                Label(String(localized: "chats.reply", defaultValue: "Ответить"), systemImage: "arrowshape.turn.up.left")
-            }
-        }
-        if showsReaders {
-            // Как в Telegram: кто прочитал — прямо в меню своего сообщения в группе.
-            Button {
-                onAction(.readers)
-            } label: {
-                Label(
-                    readCount > 0
-                        ? ChatPlural.readBy(readCount)
-                        : String(localized: "chats.readBy.none", defaultValue: "Пока никто не прочитал"),
-                    systemImage: "checkmark.message"
-                )
-            }
-            .disabled(readCount == 0)
-        }
-        if !isDeleted, !message.content.isEmpty {
-            Button {
-                onAction(.copy)
-            } label: {
-                Label(String(localized: "feed.copyText", defaultValue: "Копировать текст"), systemImage: "doc.on.doc")
-            }
-        }
-        if capabilities.canEdit {
-            Button {
-                onAction(.edit)
-            } label: {
-                Label(String(localized: "feed.edit", defaultValue: "Редактировать"), systemImage: "pencil")
-            }
-        }
-        if !isDeleted, message.remoteId != nil {
-            Button {
-                onAction(.pin)
-            } label: {
-                Label(
-                    message.pinnedAt == nil
-                        ? String(localized: "chats.pin", defaultValue: "Закрепить")
-                        : String(localized: "chats.unpin", defaultValue: "Открепить"),
-                    systemImage: message.pinnedAt == nil ? "pin" : "pin.slash"
-                )
-            }
-            Button {
-                onAction(.forward)
-            } label: {
-                Label(String(localized: "chats.forward", defaultValue: "Переслать"), systemImage: "arrowshape.turn.up.right")
-            }
-        }
-        if capabilities.canReport, !isDeleted, message.remoteId != nil {
-            Button {
-                onAction(.report)
-            } label: {
-                Label(String(localized: "feed.report", defaultValue: "Пожаловаться"), systemImage: "exclamationmark.bubble")
-            }
-        }
-        Button {
-            onAction(.select)
-        } label: {
-            Label(String(localized: "chats.selection.select", defaultValue: "Выбрать"), systemImage: "checkmark.circle")
-        }
-        if capabilities.canDelete {
-            Button(role: .destructive) {
-                onAction(.delete)
-            } label: {
-                Label(String(localized: "feed.delete", defaultValue: "Удалить"), systemImage: "trash")
-            }
-        }
     }
 
     // MARK: Реакции
@@ -589,11 +579,6 @@ struct MessageBubbleView: View {
 
     private var deletedText: String {
         String(localized: "chats.deletedMessage", defaultValue: "Сообщение удалено")
-    }
-
-    /// Своё отправленное сообщение в группе: в меню — кто его прочитал.
-    private var showsReaders: Bool {
-        context.isGroup && item.isOwn && !isDeleted && message.remoteId != nil && message.sendState == .sent
     }
 
     /// Сколько участников группы прочитали своё сообщение; в личном чате — 0.

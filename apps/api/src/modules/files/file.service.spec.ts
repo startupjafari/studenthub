@@ -547,6 +547,7 @@ describe('FileService.deleteDetached', () => {
     universityPageId: null,
     highlightItem: null,
     documentTemplateVersion: null,
+    sticker: null,
     _count: { stories: 0, albumsCovered: 0 },
   }
 
@@ -594,6 +595,7 @@ describe('FileService.deleteDetached', () => {
     ['фото альбома', { albumId: 'al-1' }],
     ['страница документа', { documentId: 'd1' }],
     ['исходник шаблона документа', { documentTemplateVersion: { id: 'v1' } }],
+    ['картинка стикера каталога', { sticker: { id: 'st-1' } }],
     ['файл сданной работы', { submissionId: 's1' }],
     ['медиа сториса', { _count: { stories: 1, albumsCovered: 0 } }],
     ['обложка альбома', { _count: { stories: 0, albumsCovered: 1 } }],

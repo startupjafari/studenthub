@@ -12,6 +12,11 @@ interface LastMessageOptions {
   by?: 'seq' | 'createdAt'
   /** Учитывать удалённые сообщения. По умолчанию нет: удалённое не превью. */
   includeDeleted?: boolean
+  /**
+   * Пропускать сообщения, скрытые этим пользователем «у себя» (HiddenMessage). Проверка по
+   * первичному ключу скрытых — `NOT EXISTS` на каждую строку-кандидата, а не скан.
+   */
+  hiddenFor?: string
 }
 
 /**
@@ -30,6 +35,11 @@ export async function lastMessageIds(
 ): Promise<Map<string, string>> {
   if (chatIds.length === 0) return new Map()
   const notDeleted = opts.includeDeleted ? Prisma.empty : Prisma.sql`AND m.deleted_at IS NULL`
+  const notHidden = opts.hiddenFor
+    ? Prisma.sql`AND NOT EXISTS (
+        SELECT 1 FROM hidden_messages h WHERE h.user_id = ${opts.hiddenFor} AND h.message_id = m.id
+      )`
+    : Prisma.empty
   const order =
     opts.by === 'createdAt' ? Prisma.sql`m.created_at DESC, m.seq DESC` : Prisma.sql`m.seq DESC`
   const rows = await prisma.$queryRaw<{ chatId: string; id: string }[]>`
@@ -38,7 +48,7 @@ export async function lastMessageIds(
     CROSS JOIN LATERAL (
       SELECT m.id
       FROM messages m
-      WHERE m.chat_id = c.id ${notDeleted}
+      WHERE m.chat_id = c.id ${notDeleted} ${notHidden}
       ORDER BY ${order}
       LIMIT 1
     ) lm

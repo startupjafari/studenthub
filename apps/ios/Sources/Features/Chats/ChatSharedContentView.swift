@@ -20,7 +20,11 @@ final class ChatSharedContent {
     let media: PagedLoader<ChatMediaItemDTO>
     let files: PagedLoader<ChatMediaItemDTO>
     let voice: PagedLoader<ChatMediaItemDTO>
+    let music: PagedLoader<ChatMediaItemDTO>
+    let gifs: PagedLoader<ChatMediaItemDTO>
     let links: PagedLoader<ChatLinkItemDTO>
+    /// Опросы — сами сообщения: вопрос, варианты, закрыт ли.
+    let polls: PagedLoader<ChatMessageDTO>
 
     /// Один на весь список: запуск другой записи останавливает прежнюю.
     let player = VoicePlayer()
@@ -38,8 +42,11 @@ final class ChatSharedContent {
     init(chatID: String, api: ChatActing = ChatsAPI()) {
         media = PagedLoader(limit: Self.pageSize) { try await api.media(chatID: chatID, kind: .media, page: $0) }
         files = PagedLoader(limit: Self.pageSize) { try await api.media(chatID: chatID, kind: .file, page: $0) }
-        voice = PagedLoader(limit: Self.pageSize) { try await api.media(chatID: chatID, kind: .voice, page: $0) }
+        voice = PagedLoader(limit: Self.pageSize) { try await api.media(chatID: chatID, kind: .voiceNote, page: $0) }
+        music = PagedLoader(limit: Self.pageSize) { try await api.media(chatID: chatID, kind: .music, page: $0) }
+        gifs = PagedLoader(limit: Self.pageSize) { try await api.media(chatID: chatID, kind: .gif, page: $0) }
         links = PagedLoader(limit: Self.pageSize) { try await api.links(chatID: chatID, page: $0) }
+        polls = PagedLoader(limit: Self.pageSize) { try await api.polls(chatID: chatID, page: $0) }
         player.onFinish = { [weak self] in self?.playNext() }
     }
 
@@ -47,7 +54,9 @@ final class ChatSharedContent {
         switch kind {
         case .media: return media
         case .file: return files
-        case .voice: return voice
+        case .voice, .voiceNote: return voice
+        case .music: return music
+        case .gif: return gifs
         }
     }
 
@@ -55,6 +64,8 @@ final class ChatSharedContent {
     func load(_ tab: ChatMediaKindTab) async {
         if let kind = tab.kind {
             await loader(for: kind).loadIfNeeded()
+        } else if tab == .polls {
+            await polls.loadIfNeeded()
         } else {
             await links.loadIfNeeded()
         }
@@ -154,7 +165,8 @@ final class ChatSharedContent {
 
     /// Доиграла — следующая по списку, как в вебе; после последней проигрыватель молчит.
     private func playNext() {
-        let items = voice.items
+        // Следующая — в том же списке, где играла: голосовые или музыка.
+        let items = music.items.contains { $0.id == playingID } ? music.items : voice.items
         guard
             let current = playingID,
             let index = items.firstIndex(where: { $0.id == current }),
@@ -254,8 +266,11 @@ struct ChatContentList: View {
         switch tab {
         case .media: mediaGrid
         case .files: fileRows
-        case .voice: voiceRows
+        case .music: audioRows(shared.music, isMusic: true)
+        case .voice: audioRows(shared.voice, isMusic: false)
         case .links: linkRows
+        case .gifs: gifGrid
+        case .polls: pollRows
         }
     }
 
@@ -341,16 +356,15 @@ struct ChatContentList: View {
         return "doc.fill"
     }
 
-    // MARK: Голосовые
+    // MARK: Голосовые и музыка
 
     @ViewBuilder
-    private var voiceRows: some View {
-        let loader = shared.voice
+    private func audioRows(_ loader: PagedLoader<ChatMediaItemDTO>, isMusic: Bool) -> some View {
         if loader.items.isEmpty {
             placeholder(loader)
         } else {
             ForEach(loader.items) { item in
-                ChatVoiceRow(item: item, player: shared.player, isCurrent: shared.playingID == item.id) {
+                ChatVoiceRow(item: item, player: shared.player, isCurrent: shared.playingID == item.id, isMusic: isMusic) {
                     Task { await shared.toggleVoice(item) }
                 }
                 .contextMenu { showInChatButton(item.messageId) }
@@ -358,6 +372,81 @@ struct ChatContentList: View {
             }
             footer(loader)
         }
+    }
+
+    // MARK: GIF
+
+    @ViewBuilder
+    private var gifGrid: some View {
+        let loader = shared.gifs
+        if loader.items.isEmpty {
+            placeholder(loader)
+        } else {
+            ForEach(MediaGridRow.rows(loader.items)) { row in
+                HStack(spacing: MediaGridRow.gap) {
+                    ForEach(row.items) { item in
+                        ChatGifThumb(item: item)
+                            .onTapGesture { Task { await shared.open(item) } }
+                            .contextMenu { showInChatButton(item.messageId) }
+                            .accessibilityAddTraits(.isButton)
+                    }
+                    ForEach(row.items.count..<MediaGridRow.columns, id: \.self) { _ in
+                        Color.clear.aspectRatio(1, contentMode: .fit)
+                    }
+                }
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: MediaGridRow.gap, trailing: 0))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+                .task(id: row.items.last?.id) {
+                    if let last = row.items.last { await loader.loadMore(after: last) }
+                }
+            }
+            footer(loader)
+        }
+    }
+
+    // MARK: Опросы
+
+    @ViewBuilder
+    private var pollRows: some View {
+        let loader = shared.polls
+        if loader.items.isEmpty {
+            placeholder(loader)
+        } else {
+            ForEach(loader.items, id: \.id) { message in
+                if let poll = message.poll {
+                    Button {
+                        showInChat(message.id)
+                    } label: {
+                        HStack(spacing: Spacing.lg) {
+                            IconTile(symbol: "chart.bar.fill", size: 40)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(poll.question)
+                                    .font(Typography.body)
+                                    .foregroundStyle(Palette.foreground)
+                                    .lineLimit(2)
+                                Text(verbatim: Self.pollCaption(poll, message: message))
+                                    .font(Typography.meta)
+                                    .foregroundStyle(Palette.mutedForeground)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .task { await loader.loadMore(after: message) }
+                }
+            }
+            footer(loader)
+        }
+    }
+
+    /// «Закрыт · 4 варианта · 12 нояб.» — состояние, размер и дата.
+    private static func pollCaption(_ poll: MessageExtras.Poll, message: ChatMessageDTO) -> String {
+        var parts: [String] = []
+        if poll.closed == true { parts.append(String(localized: "chats.poll.closed", defaultValue: "Опрос завершён")) }
+        parts.append(String(localized: "chats.poll.optionsCount", defaultValue: "Вариантов: \(poll.options.count)"))
+        parts.append(message.createdAt.formatted(date: .abbreviated, time: .omitted))
+        return parts.joined(separator: " · ")
     }
 
     // MARK: Ссылки
@@ -427,6 +516,41 @@ struct ChatContentList: View {
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
         }
+    }
+}
+
+/// Плитка вкладки GIF — анимированная, из оригинала (уменьшенные копии анимацию теряют).
+private struct ChatGifThumb: View {
+    let item: ChatMediaItemDTO
+
+    @State private var image: UIImage?
+
+    var body: some View {
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)
+            .overlay {
+                if let image {
+                    AnimatedImageView(image: image)
+                } else {
+                    Palette.muted
+                }
+            }
+            .clipped()
+            .accessibilityLabel(Text(String(localized: "chats.preview.gif", defaultValue: "GIF")))
+            .task(id: item.id) {
+                let key = "gif-tab:\(item.id)"
+                if let cached = AnimatedGIF.cached(key) {
+                    image = cached
+                    return
+                }
+                guard
+                    let url = try? await AppServices.attachmentURLs.media(for: item.id).url,
+                    let (data, _) = try? await URLSession.shared.data(from: url)
+                else { return }
+                image = await Task.detached(priority: .utility) {
+                    AnimatedGIF.decode(data, maxPixelSize: 300, key: key)
+                }.value
+            }
     }
 }
 
@@ -726,9 +850,13 @@ private struct ChatVoiceRow: View {
     let isCurrent: Bool
     let toggle: () -> Void
 
+    /// Музыка — по названию файла, голосовое — по автору.
+    var isMusic = false
+
     private var isPlaying: Bool { isCurrent && player.isPlaying }
 
     private var title: String {
+        if isMusic, let file = item.name, !file.isEmpty { return file }
         if let name = item.sender?.name, !name.isEmpty { return name }
         return String(localized: "chats.preview.voice", defaultValue: "Голосовое сообщение")
     }

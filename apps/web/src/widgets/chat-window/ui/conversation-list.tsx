@@ -22,7 +22,9 @@ import {
   FileText,
   FolderPlus,
   ImageIcon,
+  ListChecks,
   Loader2,
+  MapPin,
   Mic,
   MessagesSquare,
   Newspaper,
@@ -202,6 +204,10 @@ function MessagePreview({
     sharedStory?: unknown
     sharedStoryReply?: boolean
     poll?: unknown
+    location?: { title: string | null } | null
+    contact?: { name: string } | null
+    checklist?: { title: string } | null
+    sticker?: { emoji: string | null } | null
     sender?: { firstName: string } | null
   } | null
   t: ReturnType<typeof useTranslations<'Chats'>>
@@ -233,6 +239,36 @@ function MessagePreview({
       <PreviewWithIcon icon={BarChart3}>
         {t('previewPoll', { question: plainPreview(message.content ?? '') })}
       </PreviewWithIcon>
+    )
+  }
+  // Особые сообщения: текста у них нет, превью строится по содержимому.
+  if (message.location) {
+    return (
+      <PreviewWithIcon icon={MapPin}>
+        {message.location.title || t('previewLocation')}
+      </PreviewWithIcon>
+    )
+  }
+  if (message.contact) {
+    return (
+      <PreviewWithIcon icon={UserRound}>
+        {t('previewContact', { name: message.contact.name })}
+      </PreviewWithIcon>
+    )
+  }
+  if (message.checklist) {
+    return (
+      <PreviewWithIcon icon={ListChecks}>
+        {t('previewChecklist', { title: message.checklist.title })}
+      </PreviewWithIcon>
+    )
+  }
+  if (message.sticker) {
+    return (
+      <>
+        {message.sticker.emoji ? `${message.sticker.emoji} ` : ''}
+        {t('previewSticker')}
+      </>
     )
   }
   if (message.sharedPost) {

@@ -1,0 +1,114 @@
+[
+  {
+    "file": "privet.png",
+    "emoji": "👋",
+    "order": 0,
+    "width": 512,
+    "height": 512
+  },
+  {
+    "file": "spasibo.png",
+    "emoji": "🙏",
+    "order": 1,
+    "width": 512,
+    "height": 512
+  },
+  {
+    "file": "ok.png",
+    "emoji": "👌",
+    "order": 2,
+    "width": 512,
+    "height": 512
+  },
+  {
+    "file": "gotovo.png",
+    "emoji": "✅",
+    "order": 3,
+    "width": 512,
+    "height": 512
+  },
+  {
+    "file": "sdal.png",
+    "emoji": "🎉",
+    "order": 4,
+    "width": 512,
+    "height": 512
+  },
+  {
+    "file": "sessiya.png",
+    "emoji": "😱",
+    "order": 5,
+    "width": 512,
+    "height": 512
+  },
+  {
+    "file": "skoro-budu.png",
+    "emoji": "🏃",
+    "order": 6,
+    "width": 512,
+    "height": 512
+  },
+  {
+    "file": "gde-para.png",
+    "emoji": "🤔",
+    "order": 7,
+    "width": 512,
+    "height": 512
+  },
+  {
+    "file": "konspekt.png",
+    "emoji": "📒",
+    "order": 8,
+    "width": 512,
+    "height": 512
+  },
+  {
+    "file": "udachi.png",
+    "emoji": "🍀",
+    "order": 9,
+    "width": 512,
+    "height": 512
+  },
+  {
+    "file": "ura.png",
+    "emoji": "🥳",
+    "order": 10,
+    "width": 512,
+    "height": 512
+  },
+  {
+    "file": "ne-ponyal.png",
+    "emoji": "😕",
+    "order": 11,
+    "width": 512,
+    "height": 512
+  },
+  {
+    "file": "pereryv.png",
+    "emoji": "☕",
+    "order": 12,
+    "width": 512,
+    "height": 512
+  },
+  {
+    "file": "dedlayn.png",
+    "emoji": "⏰",
+    "order": 13,
+    "width": 512,
+    "height": 512
+  },
+  {
+    "file": "pyaterka.png",
+    "emoji": "⭐",
+    "order": 14,
+    "width": 512,
+    "height": 512
+  },
+  {
+    "file": "poka.png",
+    "emoji": "👋",
+    "order": 15,
+    "width": 512,
+    "height": 512
+  }
+]

@@ -12,8 +12,20 @@ struct MessageComposerView: View {
 
     @FocusState private var isFocused: Bool
     @State private var recorder = VoiceRecorder()
-    @State private var photos: [PhotosPickerItem] = []
+    /// Смещение пальца на микрофоне во время записи.
+    @State private var micOffset: CGSize = .zero
     @State private var showsFileImporter = false
+    /// Какие файлы выбирает `fileImporter`: любые или только аудио («Звук»).
+    @State private var importTypes: [UTType] = [.item]
+    @State private var showsAttachMenu = false
+    /// Выбор в листе вложений ждёт, пока лист закроется.
+    @State private var pendingPick: AttachmentPick?
+    @State private var showsScanner = false
+    /// Вместо клавиатуры открыта панель emoji, стикеров и GIF.
+    @State private var showsPanel = false
+    @State private var creatingChecklist = false
+    @State private var pickingContact = false
+    @State private var contactToSend: ContactCardDraft?
     @State private var showsCamera = false
     /// Выбранное к отправке — открыт лист вложений.
     @State private var sending: AttachmentDraft?
@@ -54,121 +66,130 @@ struct MessageComposerView: View {
                     .transition(barTransition)
                 }
 
-                if recorder.isRecording {
-                    RecordingBar(
-                        levels: recorder.levels,
-                        duration: recorder.duration,
-                        onCancel: { recorder.cancel() },
-                        onSend: {
-                            guard let voice = recorder.stop() else { return }
-                            sentTick += 1
-                            Task { await model.attach(voice) }
-                        }
-                    )
-                    .transition(barTransition)
-                }
             }
             .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: barKey)
 
             GlassGroup(spacing: Spacing.md) {
             HStack(alignment: .bottom, spacing: Spacing.md) {
-                Menu {
-                    // До десяти за раз — столько несёт одно сообщение-альбом, как в вебе.
-                    PhotosPicker(
-                        selection: $photos,
-                        maxSelectionCount: AttachmentUploader.albumLimit,
-                        matching: .any(of: [.images, .videos])
-                    ) {
-                        Label(
-                            String(localized: "chats.attachMedia", defaultValue: "Фото или видео"),
-                            systemImage: "photo"
-                        )
-                    }
-                    if CameraPicker.isAvailable {
-                        Button {
-                            showsCamera = true
-                        } label: {
-                            Label(
-                                String(localized: "chats.attachCamera", defaultValue: "Камера"),
-                                systemImage: "camera"
-                            )
-                        }
-                    }
+                HStack(alignment: .bottom, spacing: Spacing.md) {
                     Button {
-                        showsFileImporter = true
+                        showsAttachMenu = true
                     } label: {
-                        Label(
-                            String(localized: "chats.attachFile", defaultValue: "Файл"),
-                            systemImage: "doc"
-                        )
+                        Image(systemName: "paperclip")
+                            .font(.title3)
+                            .foregroundStyle(Palette.mutedForeground)
+                            .frame(width: ControlHeight.lg, height: ControlHeight.lg)
+                            .composerGlass(in: Circle())
                     }
-                    // Опрос — в группах и официальных чатах, не в личных и не в
-                    // «Избранном» (как в вебе: голосовать там некому).
-                    if let kind = model.chat?.kind, kind != .private, kind != .saved {
-                        Button {
-                            creatingPoll = true
-                        } label: {
-                            Label(String(localized: "chats.poll.new", defaultValue: "Опрос"), systemImage: "chart.bar.xaxis")
-                        }
-                    }
-                } label: {
-                    Image(systemName: "paperclip")
-                        .font(.title3)
-                        .foregroundStyle(Palette.mutedForeground)
-                        .frame(width: ControlHeight.lg, height: ControlHeight.lg)
-                        .composerGlass(in: Circle())
-                }
-                .accessibilityLabel(Text(String(localized: "chats.attach", defaultValue: "Вложение")))
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("chat.attach")
+                    .accessibilityLabel(Text(String(localized: "chats.attach", defaultValue: "Вложение")))
 
-                TextField(
-                    text: $model.draft,
-                    prompt: Text(verbatim: String(localized: "chats.placeholder", defaultValue: "Сообщение")),
-                    axis: .vertical
-                ) {
-                    Text(verbatim: String(localized: "chats.placeholder", defaultValue: "Сообщение"))
+                    TextField(
+                        text: $model.draft,
+                        prompt: Text(verbatim: String(localized: "chats.placeholder", defaultValue: "Сообщение")),
+                        axis: .vertical
+                    ) {
+                        Text(verbatim: String(localized: "chats.placeholder", defaultValue: "Сообщение"))
+                    }
+                    .labelsHidden()
+                    .lineLimit(1...6)
+                    .font(Typography.body)
+                    .foregroundStyle(Palette.foreground)
+                    .focused($isFocused)
+                    .accessibilityIdentifier("chat.composer")
+                    .padding(.leading, Spacing.lg)
+                    // Справа — место под кнопку emoji внутри поля.
+                    .padding(.trailing, ControlHeight.lg)
+                    .padding(.vertical, Spacing.md)
+                    .frame(minHeight: ControlHeight.lg)
+                    .overlay(alignment: .bottomTrailing) { expressionButton }
+                    // Радиус — половина высоты одной строки: в одну строку поле — капсула,
+                    // в несколько — скруглённый прямоугольник, как в Telegram.
+                    .composerGlass(in: RoundedRectangle(cornerRadius: ControlHeight.lg / 2, style: .continuous))
+                    .onChange(of: model.draft) {
+                        model.draftChanged()
+                    }
                 }
-                .labelsHidden()
-                .lineLimit(1...6)
-                .font(Typography.body)
-                .foregroundStyle(Palette.foreground)
-                .focused($isFocused)
-                .padding(.horizontal, Spacing.lg)
-                .padding(.vertical, Spacing.md)
-                .frame(minHeight: ControlHeight.lg)
-                // Радиус — половина высоты одной строки: в одну строку поле — капсула,
-                // в несколько — скруглённый прямоугольник, как в Telegram.
-                .composerGlass(in: RoundedRectangle(cornerRadius: ControlHeight.lg / 2, style: .continuous))
-                .onChange(of: model.draft) {
-                    model.draftChanged()
+                // Во время записи место скрепки и поля занимает полоса записи. Поле
+                // остаётся в иерархии (прозрачным): клавиатура и черновик не сбрасываются,
+                // а микрофон под пальцем не перестраивается.
+                .opacity(recorder.machine.isActive ? 0 : 1)
+                .allowsHitTesting(!recorder.machine.isActive)
+                .overlay {
+                    if recorder.machine.isActive {
+                        VoiceRecordingStrip(recorder: recorder, offset: micOffset)
+                            .transition(.opacity)
+                    }
                 }
 
                 // Микрофон и «отправить» занимают одно место и перетекают друг в друга:
                 // одна кнопка сжимается и гаснет, другая вырастает поверх. В стопке, а
                 // не в ряду — иначе на время перехода ряд раздвигался бы под обе.
                 ZStack {
-                    if canSend {
+                    if canSend, !recorder.machine.isActive {
                         sendButton
                     } else {
-                        micButton
+                        VoiceMicButton(recorder: recorder, offset: $micOffset)
+                            .transition(buttonTransition)
                     }
                 }
                 .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: canSend)
             }
+            .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: recorder.phase)
             .padding(.horizontal, Spacing.xl)
             .padding(.vertical, Spacing.md)
             .frame(minHeight: ControlHeight.chatInput)
             }
+
+            // Панель emoji, стикеров и GIF — на месте клавиатуры и той же высоты.
+            if showsPanel {
+                ExpressionPanel(
+                    onEmoji: { model.draft += $0 },
+                    onBackspace: {
+                        guard !model.draft.isEmpty else { return }
+                        model.draft.removeLast()
+                    },
+                    onSticker: { sticker in
+                        sentTick += 1
+                        Task { await model.sendSticker(id: sticker.id) }
+                    },
+                    onGif: { choice in
+                        sentTick += 1
+                        switch choice {
+                        case .recent(let gif): Task { await model.sendGif(fileID: gif.fileId) }
+                        case .external(let gif): Task { await model.sendExternalGif(id: gif.id) }
+                        }
+                    }
+                )
+                .frame(height: panelHeight)
+                .transition(.move(edge: .bottom))
+            }
         }
+        .animation(Motion.respecting(.spring(duration: 0.3, bounce: 0), reduceMotion: reduceMotion), value: showsPanel)
         .modifier(ComposerBarBackground())
         // «Отправить», вложение, микрофон — клавиатура остаётся, как в мессенджерах.
         .keepsKeyboardOnTap()
         .sensoryFeedback(.impact(weight: .light), trigger: sentTick)
-        .onChange(of: photos) {
-            let picked = photos
-            guard !picked.isEmpty else { return }
-            photos = []
-            let draft = openDraft()
-            Task { await draft.add(photos: picked) }
+        .voiceRecordingAlerts(recorder)
+        // Касание поля возвращает клавиатуру — панель уступает ей место.
+        .onChange(of: isFocused) { _, focused in
+            if focused, showsPanel { showsPanel = false }
+        }
+        // «Ответить» и «Редактировать» из меню сразу открывают клавиатуру.
+        .onChange(of: model.replyTo?.id) { _, id in
+            if id != nil { isFocused = true }
+        }
+        .onChange(of: model.editing?.id) { _, id in
+            if id != nil { isFocused = true }
+        }
+        .onAppear {
+            recorder.onSend = { [model] voice in await model.attach(voice) }
+            recorder.onAnnounce = { [model] on in model.announceVoice(on) }
+        }
+        .onDisappear {
+            // Ушли из чата посреди записи — недописанное не уходит само.
+            if recorder.machine.isRecording { recorder.delete() }
         }
         .fullScreenCover(isPresented: $showsCamera, onDismiss: {
             guard let image = captured else { return }
@@ -184,20 +205,102 @@ struct MessageComposerView: View {
                 send(draft)
             }
         }
+        .sheet(isPresented: $showsAttachMenu, onDismiss: runPendingPick) {
+            AttachmentMenuSheet(
+                allowsPoll: allowsPoll,
+                albumLimit: AttachmentUploader.albumLimit,
+                onPick: { pendingPick = $0 },
+                onSendLocation: { coordinate, title, address in
+                    await model.sendLocation(
+                        latitude: coordinate.latitude, longitude: coordinate.longitude, title: title, address: address
+                    )
+                },
+                onSendLiveLocation: { location, period in
+                    await model.sendLiveLocation(location, period: period)
+                }
+            )
+        }
         .sheet(isPresented: $creatingPoll) {
-            ChatPollCreatorView { question, options, multiple, anonymous in
-                await model.createPoll(question: question, options: options, multiple: multiple, anonymous: anonymous)
+            ChatPollCreatorView { question, description, options, multiple, anonymous in
+                await model.createPoll(
+                    question: question, description: description, options: options, multiple: multiple, anonymous: anonymous
+                )
             }
+        }
+        .sheet(isPresented: $creatingChecklist) {
+            ChecklistComposerView { title, items, othersCanAdd, othersCanMark in
+                await model.sendChecklist(title: title, items: items, othersCanAdd: othersCanAdd, othersCanMark: othersCanMark)
+            }
+        }
+        .sheet(isPresented: $pickingContact) {
+            ContactPicker(
+                onPick: { contact in
+                    pickingContact = false
+                    contactToSend = ContactCardDraft(contact)
+                },
+                onCancel: { pickingContact = false }
+            )
+            .ignoresSafeArea()
+        }
+        .sheet(item: $contactToSend) { contact in
+            ContactConfirmSheet(contact: contact) {
+                await model.sendContact(contact)
+            }
+        }
+        .fullScreenCover(isPresented: $showsScanner) {
+            DocumentScanner(
+                onScan: { url in
+                    showsScanner = false
+                    let draft = openDraft()
+                    Task { await draft.add(files: [url]) }
+                },
+                onCancel: { showsScanner = false }
+            )
+            .ignoresSafeArea()
         }
         .fileImporter(
             isPresented: $showsFileImporter,
-            allowedContentTypes: [.item],
+            allowedContentTypes: importTypes,
             allowsMultipleSelection: true
         ) { result in
             guard case .success(let urls) = result, !urls.isEmpty else { return }
             let draft = openDraft()
             Task { await draft.add(files: urls) }
         }
+    }
+
+    /// Смайлик внутри поля: открыть панель emoji; на открытой панели — клавиатура.
+    private var expressionButton: some View {
+        Button {
+            if showsPanel {
+                isFocused = true
+            } else {
+                // Сначала панель, потом уход клавиатуры: высота под полем не меняется.
+                showsPanel = true
+                isFocused = false
+            }
+        } label: {
+            Image(systemName: showsPanel ? "keyboard" : "face.smiling")
+                .font(.title3)
+                .foregroundStyle(Palette.mutedForeground)
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: ControlHeight.lg, height: ControlHeight.lg)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("chat.expressions")
+        .accessibilityLabel(Text(showsPanel
+            ? String(localized: "chats.panel.keyboard", defaultValue: "Клавиатура")
+            : String(localized: "chats.panel.open", defaultValue: "Emoji, стикеры и GIF")))
+    }
+
+    /// Высота панели — как у последней клавиатуры за вычетом нижнего отступа экрана
+    /// (панель стоит над ним, клавиатура — нет).
+    private var panelHeight: CGFloat {
+        let bottom = UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets.bottom }
+            .first ?? 0
+        return max(260, (KeyboardFrame.shared.lastHeight ?? 336) - bottom)
     }
 
     private var sendButton: some View {
@@ -213,36 +316,47 @@ struct MessageComposerView: View {
         }
         .buttonStyle(.plain)
         .transition(buttonTransition)
+        .accessibilityIdentifier("chat.send")
         .accessibilityLabel(Text(model.editing == nil
             ? String(localized: "chats.send", defaultValue: "Отправить")
             : String(localized: "common.save", defaultValue: "Сохранить")))
     }
 
-    /// Пустое поле — вместо «отправить» микрофон: та же кнопка, что и во всех
-    /// мессенджерах, и место под неё одно.
-    private var micButton: some View {
-        Button {
-            Task {
-                if recorder.isRecording {
-                    guard let voice = recorder.stop() else { return }
-                    sentTick += 1
-                    await model.attach(voice)
-                } else {
-                    _ = await recorder.start()
-                }
-            }
-        } label: {
-            Image(systemName: recorder.isRecording ? "stop.fill" : "mic")
-                .font(.title3)
-                .foregroundStyle(recorder.isRecording ? Palette.primaryForeground : Palette.mutedForeground)
-                .frame(width: ControlHeight.lg, height: ControlHeight.lg)
-                .glassSurface(tint: recorder.isRecording ? Palette.destructive : nil, in: Circle())
+    /// Опрос — в группах и официальных чатах, не в личных и не в «Избранном» (как в
+    /// вебе: голосовать там некому).
+    private var allowsPoll: Bool {
+        guard let kind = model.chat?.kind else { return false }
+        return kind != .private && kind != .saved
+    }
+
+    /// Выбор в листе вложений: системные окна открываются, когда лист уже закрылся.
+    private func runPendingPick() {
+        guard let pick = pendingPick else { return }
+        pendingPick = nil
+        switch pick {
+        case .assets(let assets):
+            let draft = openDraft()
+            Task { await draft.add(assets: assets) }
+        case .photos(let items):
+            let draft = openDraft()
+            Task { await draft.add(photos: items) }
+        case .camera:
+            showsCamera = true
+        case .files:
+            importTypes = [.item]
+            showsFileImporter = true
+        case .audio:
+            importTypes = [.audio]
+            showsFileImporter = true
+        case .scan:
+            showsScanner = true
+        case .poll:
+            creatingPoll = true
+        case .checklist:
+            creatingChecklist = true
+        case .contact:
+            pickingContact = true
         }
-        .buttonStyle(.plain)
-        .transition(buttonTransition)
-        .accessibilityLabel(Text(recorder.isRecording
-            ? String(localized: "chats.voice.stop", defaultValue: "Остановить запись")
-            : String(localized: "chats.voice.record", defaultValue: "Записать голосовое")))
     }
 
     /// Лист вложений: уже открытый (выбранное добавляется к нему) или новый. Начатый в
@@ -283,7 +397,7 @@ struct MessageComposerView: View {
     /// Что сейчас над полем: правка, ответ (на какое сообщение), запись. Смена — повод
     /// анимировать полосы.
     private var barKey: String {
-        "\(model.editing?.id ?? "")|\(model.replyTo?.id ?? "")|\(recorder.isRecording)"
+        "\(model.editing?.id ?? "")|\(model.replyTo?.id ?? "")"
     }
 
     /// Полоса над полем выезжает снизу; без движения — только проявляется.
@@ -373,75 +487,6 @@ struct ChatActionCaption: View {
         }
     }
 }
-
-/// Полоса записи: настоящая волна по показаниям микрофона, время и две кнопки.
-///
-/// Волна здесь не украшение — по ней видно, что микрофон действительно слышит
-/// голос, а не записывает тишину из-за занятого другим приложением входа.
-struct RecordingBar: View {
-    let levels: [Float]
-    let duration: TimeInterval
-    let onCancel: () -> Void
-    let onSend: () -> Void
-
-    var body: some View {
-        HStack(spacing: Spacing.lg) {
-            Button(action: onCancel) {
-                Image(systemName: "trash")
-                    .foregroundStyle(Palette.destructive)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Text(String(localized: "chats.cancelAction", defaultValue: "Отменить")))
-
-            WaveformView(levels: levels)
-                .frame(maxWidth: .infinity)
-                .frame(height: ControlHeight.sm)
-
-            Text(verbatim: time)
-                .font(Typography.tabular(Typography.meta))
-                .foregroundStyle(Palette.mutedForeground)
-
-            Button(action: onSend) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(Palette.primary)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Text(String(localized: "chats.send", defaultValue: "Отправить")))
-        }
-        .padding(.horizontal, Spacing.lg)
-        .padding(.vertical, Spacing.sm)
-        .chatPanelSurface()
-        .padding(.top, Spacing.sm)
-    }
-
-    private var time: String {
-        let whole = Int(duration)
-        return String(format: "%d:%02d", whole / 60, whole % 60)
-    }
-}
-
-/// Столбики уровня сигнала.
-struct WaveformView: View {
-    let levels: [Float]
-
-    var body: some View {
-        GeometryReader { proxy in
-            HStack(alignment: .center, spacing: 2) {
-                ForEach(Array(levels.enumerated()), id: \.offset) { _, level in
-                    Capsule()
-                        .fill(Palette.primary)
-                        // Минимум в пару точек: нулевая высота читается как обрыв
-                        // записи, хотя это просто тишина между словами.
-                        .frame(height: max(2, proxy.size.height * CGFloat(level)))
-                }
-            }
-            .frame(maxHeight: .infinity, alignment: .center)
-        }
-        .accessibilityHidden(true)
-    }
-}
-
 
 /// Подложка панели ввода. На iOS 26 её нет: поле и кнопки — стекло над перепиской, как
 /// в «Сообщениях», и лента видна под ними. Раньше — непрозрачная полоса с линией сверху.

@@ -82,6 +82,9 @@ targets:
         # Тихие пуши: без этого режима система не будит приложение ради догона.
         UIBackgroundModes:
           - remote-notification
+          # Живая геопозиция в чате: обновления идут и в фоне — только пока человек сам
+          # включил трансляцию, с синим индикатором системы.
+          - location
         # Своя схема для пушей и ссылок из веба: `studenthub://chats?c=…`.
         # Универсальные ссылки (https) появятся вместе с apple-app-site-association
         # на домене — до этого адрес веба открывает браузер, как и раньше.
@@ -89,14 +92,20 @@ targets:
           - CFBundleURLName: kz.studenthub.app
             CFBundleURLSchemes:
               - studenthub
-        # Камера нужна ровно для одного — отсканировать QR входа на компьютере.
+        # Камера: снимок или скан документа в чат, фото профиля и QR входа на компьютере.
         # Текст видит человек в системном запросе, поэтому в нём сказано зачем,
         # а не «приложению нужен доступ к камере».
-        NSCameraUsageDescription: Чтобы сфотографироваться для профиля и отсканировать QR-код входа на компьютере.
+        NSCameraUsageDescription: Чтобы сфотографировать или отсканировать документ для чата, сфотографироваться для профиля и отсканировать QR-код входа на компьютере.
         # Микрофон — только для голосовых сообщений в чате.
         NSMicrophoneUsageDescription: Чтобы записать голосовое сообщение.
         # «Фото» — только запись: сохранить снимок или ролик из просмотрщика.
         NSPhotoLibraryAddUsageDescription: Чтобы сохранить фото и видео из приложения в «Фото».
+        # Чтение «Фото» — сетка недавних снимков в листе вложений чата. Без доступа
+        # (или с частичным) работает системный выбор фото, которому разрешение не нужно.
+        NSPhotoLibraryUsageDescription: Чтобы показать недавние фото и видео при отправке в чат.
+        # Геопозиция — только по нажатию «Геопозиция» в листе вложений. Трансляцию человек
+        # включает сам на выбранный срок; в фоне она идёт с синим индикатором системы.
+        NSLocationWhenInUseUsageDescription: Чтобы отправить своё местоположение в чат или транслировать его, пока вы сами не остановите трансляцию.
         # Системный экран запуска — только цвет (чисто белый / чисто чёрный), без знака:
         # знак прорисовывает уже SwiftUI (`LaunchLoadingView`), и её первый кадр
         # совпадает с этим экраном. Цвет менять вместе с `LaunchPalette.background`.
@@ -124,7 +133,17 @@ targets:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - path: Tests
+      - path: Tests/StudentHubTests
+    dependencies:
+      - target: StudentHub
+
+  # Сценарии переписки на живом сервере (XCUITest). Учётка — из окружения схемы
+  # SH_UITEST_LOGIN / SH_UITEST_PASSWORD; без неё тесты пропускаются (CI без учётки).
+  StudentHubUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests/StudentHubUITests
     dependencies:
       - target: StudentHub
 
@@ -134,11 +153,15 @@ schemes:
       targets:
         StudentHub: all
         StudentHubTests: [test]
+        StudentHubUITests: [test]
     run:
       config: Debug
     test:
       config: Debug
       targets:
         - StudentHubTests
+        # Без SH_UITEST_LOGIN/SH_UITEST_PASSWORD (xcodebuild передаёт их раннеру как
+        # TEST_RUNNER_SH_UITEST_LOGIN=…) сценарии пропускаются.
+        - StudentHubUITests
     archive:
       config: Release

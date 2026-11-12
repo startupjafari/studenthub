@@ -24,6 +24,8 @@ import sys
 
 IOS = pathlib.Path(__file__).resolve().parents[1]
 CATALOG = IOS / "Resources/Localizable.xcstrings"
+# Тексты системных запросов доступа (камера, микрофон, «Фото», геопозиция) по языкам.
+INFO_CATALOG = IOS / "Resources/InfoPlist.xcstrings"
 PROJECT = IOS / "project.yml"
 OUT = IOS / ".device"
 # Иконка для сборки без Mac: исходник — AppIcon.svg, 1024 — в каталоге ассетов.
@@ -53,15 +55,19 @@ def info_plist(api_base_url: str, web_base_url: str) -> dict:
         "CFBundleDevelopmentRegion": "ru",
         "CFBundleDisplayName": "StudentHub",
         "CFBundleLocalizations": LANGUAGES,
+        # Живая геопозиция в чате продолжается в фоне (синий индикатор системы).
+        "UIBackgroundModes": ["location"],
         "CFBundleShortVersionString": project_setting("MARKETING_VERSION"),
         "CFBundleVersion": project_setting("CURRENT_PROJECT_VERSION"),
         "ITSAppUsesNonExemptEncryption": False,
         "CFBundleURLTypes": [
             {"CFBundleURLName": "kz.studenthub.app", "CFBundleURLSchemes": ["studenthub"]},
         ],
-        "NSCameraUsageDescription": "Чтобы сфотографироваться для профиля и отсканировать QR-код входа на компьютере.",
+        "NSCameraUsageDescription": "Чтобы сфотографировать или отсканировать документ для чата, сфотографироваться для профиля и отсканировать QR-код входа на компьютере.",
         "NSMicrophoneUsageDescription": "Чтобы записать голосовое сообщение.",
         "NSPhotoLibraryAddUsageDescription": "Чтобы сохранить фото и видео из приложения в «Фото».",
+        "NSPhotoLibraryUsageDescription": "Чтобы показать недавние фото и видео при отправке в чат.",
+        "NSLocationWhenInUseUsageDescription": "Чтобы отправить своё местоположение в чат или транслировать его, пока вы сами не остановите трансляцию.",
         # Запрос «Разрешить доступ к локальной сети» iOS показывает при первом обращении
         # к серверу на компьютере. Без «Разрешить» запросы к API не дойдут.
         "NSLocalNetworkUsageDescription": "Чтобы подключиться к серверу разработки на компьютере.",
@@ -96,6 +102,18 @@ def string_tables() -> dict[str, dict[str, str]]:
     return tables
 
 
+def info_strings(language: str) -> dict:
+    """InfoPlist.strings: переводы текстов запросов доступа; нет перевода — русский."""
+    catalog = json.loads(INFO_CATALOG.read_text(encoding="utf-8"))
+    table = {}
+    for key, entry in catalog["strings"].items():
+        localizations = entry.get("localizations", {})
+        value = unit(localizations, language) or unit(localizations, "ru")
+        if value:
+            table[key] = value
+    return table
+
+
 def unit(localizations: dict, language: str) -> str | None:
     """Каталог сейчас хранит только простые строки. Множественные формы (`variations`)
     в .strings не переносятся — встретится такая строка, скрипт остановится, а не
@@ -122,6 +140,8 @@ def main() -> None:
         directory.mkdir()
         with open(directory / "Localizable.strings", "wb") as file:
             plistlib.dump(table, file, fmt=plistlib.FMT_BINARY)
+        with open(directory / "InfoPlist.strings", "wb") as file:
+            plistlib.dump(info_strings(language), file, fmt=plistlib.FMT_BINARY)
         print(f"{language}.lproj: {len(table)} строк")
     print(f"Info.plist: SHAPIBaseURL = {api_base_url}, SHWebBaseURL = {web_base_url}")
 

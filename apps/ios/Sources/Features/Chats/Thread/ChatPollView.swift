@@ -13,6 +13,8 @@ struct ChatPollView: View {
     @State private var selection: Set<String> = []
     @State private var isVoting = false
     @State private var voteTick = 0
+    @State private var confirmingClose = false
+    @State private var failure: String?
 
     private let api: ChatActing = ChatsAPI()
     private var realtime: RealtimeCoordinator { AppServices.realtime }
@@ -28,6 +30,12 @@ struct ChatPollView: View {
                 Text(poll.question)
                     .font(Typography.body.weight(.semibold))
                     .fixedSize(horizontal: false, vertical: true)
+                if let note = poll.description, !note.isEmpty {
+                    Text(note)
+                        .font(Typography.meta)
+                        .opacity(0.85)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Text(caption)
                     .font(.caption)
                     .opacity(0.75)
@@ -58,6 +66,28 @@ struct ChatPollView: View {
                     .disabled(isVoting)
                 }
             }
+            if isOwn, !closed {
+                Button(String(localized: "chats.poll.close", defaultValue: "Закрыть опрос")) {
+                    confirmingClose = true
+                }
+                .font(Typography.meta.weight(.semibold))
+                .disabled(isVoting)
+            }
+            if let failure {
+                Text(failure)
+                    .font(.caption)
+                    .foregroundStyle(isOwn ? Palette.primaryForeground : Palette.destructive)
+            }
+        }
+        .confirmationDialog(
+            String(localized: "chats.poll.closeQuestion", defaultValue: "Закрыть опрос? Голосовать больше будет нельзя."),
+            isPresented: $confirmingClose,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "chats.poll.close", defaultValue: "Закрыть опрос"), role: .destructive) {
+                Task { await close() }
+            }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
         .foregroundStyle(isOwn ? Palette.primaryForeground : Palette.foreground)
         .frame(minWidth: 220, alignment: .leading)
@@ -129,6 +159,18 @@ struct ChatPollView: View {
         if let loaded = try? await api.poll(id: poll.id) { results = loaded }
     }
 
+    private func close() async {
+        isVoting = true
+        defer { isVoting = false }
+        do {
+            try await api.closePoll(id: poll.id)
+            failure = nil
+            await load()
+        } catch {
+            failure = error.userMessage
+        }
+    }
+
     private func vote(_ options: [String]) async {
         isVoting = true
         defer { isVoting = false }
@@ -136,9 +178,12 @@ struct ChatPollView: View {
             try await api.vote(pollID: poll.id, optionIDs: options)
             selection = []
             voteTick += 1
+            failure = nil
             await load()
         } catch {
-            // Голос не принят — результаты остаются прежними, кнопки снова доступны.
+            // Голос не принят (опрос закрыли, нет сети) — результаты прежние, причина видна.
+            failure = error.userMessage
+            await load()
         }
     }
 }

@@ -218,10 +218,15 @@ struct ChatMediaTile: View {
             ZStack {
                 placeholder
                 if let image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .transition(.opacity)
+                    if image.images != nil {
+                        AnimatedImageView(image: image)
+                            .transition(.opacity)
+                    } else {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .transition(.opacity)
+                    }
                 }
             }
         }
@@ -501,6 +506,9 @@ enum ChatMediaImages {
 
     static func load(_ attachment: AttachmentRecord, points: CGFloat, scale: CGFloat, key: String) async -> UIImage? {
         let pixels = points * scale
+        if attachment.mime == "image/gif" {
+            return await gif(attachment, maxPixelSize: pixels, key: key)
+        }
         let isVideo = attachment.mime.hasPrefix("video/")
         if let path = attachment.localPath, FileManager.default.fileExists(atPath: path) {
             let file = URL(filePath: path)
@@ -520,6 +528,25 @@ enum ChatMediaImages {
         }
         let variant = media.sources.best(forPoints: points, scale: scale).flatMap { URL.apiRooted($0.url) }
         return await ImageMemoryCache.shared.load(variant ?? media.url, key: key, maxPixelSize: pixels)
+    }
+}
+
+extension ChatMediaImages {
+    /// GIF — оригинал целиком (уменьшенные копии медиа-системы анимацию теряют).
+    static func gif(_ attachment: AttachmentRecord, maxPixelSize: CGFloat, key: String) async -> UIImage? {
+        if let cached = AnimatedGIF.cached(key) { return cached }
+        let data: Data?
+        if let path = attachment.localPath, FileManager.default.fileExists(atPath: path) {
+            data = try? Data(contentsOf: URL(filePath: path))
+        } else if let media = try? await AppServices.attachmentURLs.media(for: attachment.id) {
+            data = try? await URLSession.shared.data(from: media.url).0
+        } else {
+            data = nil
+        }
+        guard let data else { return nil }
+        return await Task.detached(priority: .utility) {
+            AnimatedGIF.decode(data, maxPixelSize: maxPixelSize, key: key)
+        }.value
     }
 }
 

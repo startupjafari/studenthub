@@ -381,7 +381,13 @@ describe('CleanupService', () => {
       await expect(service.cleanDetachedFiles()).resolves.toBe(3)
       const wheres = prisma.file.findMany.mock.calls.map((c: [{ where: unknown }]) => c[0].where)
       expect(wheres.slice(0, 2)).toEqual([
-        { bucket: 'MINIO_BUCKET_CHAT', messageId: null, createdAt: { lt: expect.any(Date) } },
+        {
+          bucket: 'MINIO_BUCKET_CHAT',
+          messageId: null,
+          // Картинки стикеров каталога живут без сообщения — их не трогаем.
+          sticker: { is: null },
+          createdAt: { lt: expect.any(Date) },
+        },
         { bucket: 'MINIO_BUCKET_MATERIALS', materialId: null },
       ])
       // Условие цели стоит и в удалении: строку могли привязать между выборкой и DELETE.

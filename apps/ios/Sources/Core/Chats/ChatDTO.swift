@@ -89,6 +89,10 @@ struct ChatMessageDTO: Decodable, Equatable {
     var sharedStory: SharedStory? = nil
     var sharedStoryReply: Bool? = nil
     var poll: MessageExtras.Poll? = nil
+    var location: MessageExtras.Location? = nil
+    var contact: MessageExtras.Contact? = nil
+    var checklist: MessageExtras.Checklist? = nil
+    var sticker: MessageExtras.Sticker? = nil
 
     struct Reaction: Decodable, Equatable {
         let emoji: String
@@ -154,7 +158,11 @@ struct ChatMessageDTO: Decodable, Equatable {
                     isReply: sharedStoryReply == true
                 )
             },
-            poll: poll
+            poll: poll,
+            location: location,
+            contact: contact,
+            checklist: checklist,
+            sticker: sticker
         )
     }
 }
@@ -211,6 +219,63 @@ struct MessageExtras: Codable, Hashable {
         let allowRevote: Bool?
         let closed: Bool?
         let options: [Option]
+        /// Пояснение под вопросом (необязательное).
+        var description: String? = nil
+    }
+
+    /// Точка на карте.
+    struct Location: Codable, Hashable {
+        let lat: Double
+        let lng: Double
+        var title: String? = nil
+        var address: String? = nil
+        /// Живая геопозиция: до какого момента транслируется (у статичной — `nil`).
+        var liveUntil: Date? = nil
+        var liveUpdatedAt: Date? = nil
+        var heading: Double? = nil
+        var accuracy: Double? = nil
+
+        func isLive(at now: Date = Date()) -> Bool {
+            liveUntil.map { $0 > now } ?? false
+        }
+    }
+
+    /// Карточка контакта из телефонной книги.
+    struct Contact: Codable, Hashable {
+        let name: String
+        var phones: [String] = []
+        var emails: [String] = []
+        var userId: String? = nil
+    }
+
+    /// Общий список дел: пункты отмечают участники, изменения приходят событием
+    /// `checklist:updated`.
+    struct Checklist: Codable, Hashable, Identifiable {
+        struct Item: Codable, Hashable, Identifiable {
+            let id: String
+            let text: String
+            var order: Int? = nil
+            let done: Bool
+            var doneAt: Date? = nil
+            var doneBy: ChatPersonDTO? = nil
+            /// Кто добавил пункт: убрать его может он и автор списка.
+            var createdById: String? = nil
+        }
+
+        let id: String
+        let title: String
+        var othersCanAdd: Bool? = nil
+        var othersCanMark: Bool? = nil
+        let items: [Item]
+    }
+
+    /// Стикер из каталога: картинку отдаёт `GET /chats/stickers/:id/url`.
+    struct Sticker: Codable, Hashable {
+        let id: String
+        var setId: String? = nil
+        var emoji: String? = nil
+        var width: Int? = nil
+        var height: Int? = nil
     }
 
     var reactions: [ReactionGroup] = []
@@ -223,6 +288,10 @@ struct MessageExtras: Codable, Hashable {
     var sharedPost: SharedPostCard?
     var sharedStory: SharedStoryCard?
     var poll: Poll?
+    var location: Location?
+    var contact: Contact?
+    var checklist: Checklist?
+    var sticker: Sticker?
 }
 
 /// Папка чатов (§2 эпика «Чаты»): имя, позиция вкладки и состав.

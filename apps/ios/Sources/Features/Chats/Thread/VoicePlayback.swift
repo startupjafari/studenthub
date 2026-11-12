@@ -699,8 +699,29 @@ final class VoicePlayer {
         if active?.isPlaying == true { player.rate = rate }
     }
 
+    /// Звонок, будильник, Siri или выдернутые наушники ставят голосовое на паузу — с
+    /// того же места оно и продолжится.
+    @MainActor private static let interruptions: [NSObjectProtocol] = {
+        let center = NotificationCenter.default
+        return [
+            center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { note in
+                guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                    AVAudioSession.InterruptionType(rawValue: raw) == .began
+                else { return }
+                MainActor.assumeIsolated { VoicePlayer.pauseActive() }
+            },
+            center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { note in
+                guard let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+                    AVAudioSession.RouteChangeReason(rawValue: raw) == .oldDeviceUnavailable
+                else { return }
+                MainActor.assumeIsolated { VoicePlayer.pauseActive() }
+            },
+        ]
+    }()
+
     @MainActor
     func play(url: URL, knownDuration: Double? = nil, from fraction: Double? = nil) {
+        _ = Self.interruptions
         if player == nil {
             player = AVPlayer(url: url)
             duration = knownDuration
