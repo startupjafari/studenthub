@@ -17,6 +17,10 @@ final class RealtimeCoordinator {
     private(set) var connectionEpoch = 0
     /// Кто что делает: чат → (пользователь → действие).
     private(set) var actions: [String: [String: String]] = [:]
+    /// То же по чату отдельными наблюдаемыми объектами — для строк списка чатов: строка
+    /// следит только за своим чатом, и «печатает…» в одном чате не пересчитывает
+    /// остальные строки и весь список.
+    @ObservationIgnored private var activities: [String: ChatActivity] = [:]
     private(set) var onlineUsers: Set<String> = []
     /// Последняя смена статуса «в сети» по каждому, о ком приходили события, с
     /// моментом прихода. `onlineUsers` не отличает «ушёл» от «не знаем»; счётчику
@@ -110,6 +114,7 @@ final class RealtimeCoordinator {
         connectedAt = nil
         isConnected = false
         actions = [:]
+        for activity in activities.values { activity.action = nil }
         onlineUsers = []
         presenceMarks = [:]
         memberReads = [:]
@@ -324,15 +329,34 @@ final class RealtimeCoordinator {
         guard let action else {
             actions[chatID]?.removeValue(forKey: userID)
             if actions[chatID]?.isEmpty == true { actions[chatID] = nil }
+            syncActivity(of: chatID)
             return
         }
 
         actions[chatID, default: [:]][userID] = action
+        syncActivity(of: chatID)
         expiry[key] = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(4))
             guard !Task.isCancelled else { return }
             self?.apply(action: nil, chatID: chatID, userID: userID)
         }
+    }
+
+    /// Наблюдаемое «что делают» одного чата. Создаётся по первому запросу строки.
+    @MainActor
+    func activity(for chatID: String) -> ChatActivity {
+        if let known = activities[chatID] { return known }
+        let made = ChatActivity()
+        made.action = actions[chatID]?.values.first
+        activities[chatID] = made
+        return made
+    }
+
+    @MainActor
+    private func syncActivity(of chatID: String) {
+        guard let activity = activities[chatID] else { return }
+        let current = actions[chatID]?.values.first
+        if activity.action != current { activity.action = current }
     }
 
     @MainActor
@@ -388,4 +412,10 @@ struct ApplicationStatusChange: Equatable {
     let id: String
     let status: String
     let at: Date
+}
+
+/// «Печатает…», «записывает голосовое» одного чата (`RealtimeCoordinator.activity(for:)`).
+@Observable
+final class ChatActivity {
+    var action: String?
 }

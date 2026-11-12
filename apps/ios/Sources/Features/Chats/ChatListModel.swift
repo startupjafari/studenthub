@@ -258,6 +258,9 @@ final class ChatListModel {
             Signposts.chats.endInterval("ChatListRead", signpost, "rows: \(rows.count)")
             return rows
         }
+        // Запись, не меняющая строк (страница истории, прочтение в открытом чате), не
+        // будит список и не запускает анимацию перестановки.
+        .removeDuplicates()
         rowsTask = Task { @MainActor [weak self, database] in
             var isFirst = true
             for await rows in AsyncValues.stream(of: observation, in: database.reader) {
@@ -277,6 +280,7 @@ final class ChatListModel {
         archiveTask?.cancel()
         let request = ChatListQuery.rows(for: .archive)
         let observation = ValueObservation.tracking { db in try request.fetchAll(db) }
+            .removeDuplicates()
         archiveTask = Task { @MainActor [weak self, database] in
             var isFirst = true
             for await rows in AsyncValues.stream(of: observation, in: database.reader) {
@@ -295,6 +299,7 @@ final class ChatListModel {
     private func observeTabs() {
         tabsTask?.cancel()
         let observation = ValueObservation.tracking { db in try ChatListQuery.tabs(in: db) }
+            .removeDuplicates()
         tabsTask = Task { @MainActor [weak self, database] in
             for await tabs in AsyncValues.stream(of: observation, in: database.reader) {
                 self?.tabs = tabs

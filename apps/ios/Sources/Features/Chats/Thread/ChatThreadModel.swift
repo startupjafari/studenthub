@@ -14,6 +14,12 @@ final class ChatThreadModel {
     let chatID: String
 
     private(set) var days: [MessageTimeline.Day] = []
+    /// Растёт с каждой новой лентой: экран сравнивает число, а не тысячи сообщений, и не
+    /// пересобирает снапшот, когда сама лента не менялась (`MessageListView`).
+    private(set) var daysRevision = 0
+    /// Последняя запрошенная сборка ленты: запоздавшая фоновая сборка старого среза не
+    /// перезапишет новую.
+    @ObservationIgnored private var buildGeneration = 0
     private(set) var title: String?
     private(set) var isLoadingOlder = false
     private(set) var failure: String?
@@ -1313,9 +1319,12 @@ final class ChatThreadModel {
         let id = chatID
         // Сообщения и вложения читаем одним наблюдением: раздельные дали бы кадр,
         // где картинка уже пришла, а сообщения под неё ещё нет.
+        // Наблюдение будит любая запись в `message`/`attachment`, в том числе в чужом
+        // чате: одинаковый срез отсеивается вне главного потока и до ленты не доходит.
         let observation = ValueObservation.tracking { db -> ThreadSnapshot in
             try ChatThreadModel.readSnapshot(request, chatID: id, in: db)
         }
+        .removeDuplicates()
         // Сильная ссылка живёт только на шаг цикла: держи её задача весь бесконечный
         // поток, модель (и её наблюдения) не освободились бы и после ухода из чата.
         messagesTask = Task { @MainActor [weak self, database] in
@@ -1370,10 +1379,24 @@ final class ChatThreadModel {
         }
         messages = visible
         pruneSelection()
-        let signpost = Signposts.chats.beginInterval("TimelineBuild")
-        days = MessageTimeline.build(from: visible, attachments: snapshot.attachments, viewerID: viewerID)
-        Signposts.chats.endInterval("TimelineBuild", signpost, "messages: \(visible.count)")
         pickAnchorIfNeeded()
+        // Лента собирается вне главного потока: на тысячах сообщений группировка по
+        // дням и авторам стоила кадров на каждое изменение базы. Порядок срезов
+        // сохраняется номером сборки — опоздавшая старая лента не встанет поверх новой.
+        buildGeneration &+= 1
+        let generation = buildGeneration
+        let attachments = snapshot.attachments
+        let viewer = viewerID
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let signpost = Signposts.chats.beginInterval("TimelineBuild")
+            let built = MessageTimeline.build(from: visible, attachments: attachments, viewerID: viewer)
+            Signposts.chats.endInterval("TimelineBuild", signpost, "messages: \(visible.count)")
+            await MainActor.run {
+                guard let self, self.buildGeneration == generation else { return }
+                self.days = built
+                self.daysRevision &+= 1
+            }
+        }
     }
 
     /// На открытии в базе меньше страницы, а сервер знает больше (`lastSeq` — номер
@@ -1390,7 +1413,9 @@ final class ChatThreadModel {
     private func observeChat() {
         chatTask?.cancel()
         let id = chatID
+        // Запись в строку другого чата (счётчик, прочтение) эту строку не меняет.
         let observation = ValueObservation.tracking { db in try ChatRecord.fetchOne(db, key: id) }
+            .removeDuplicates()
         chatTask = Task { @MainActor [weak self, database] in
             for await chat in AsyncValues.stream(of: observation, in: database.reader) {
                 guard let self else { return }
@@ -1478,10 +1503,10 @@ enum DetachedWindows {
 /// Общий для всех экранов: ошибка чтения локальной базы не повод падать — список и
 /// лента просто перестают обновляться, а показывают то, что уже прочитали.
 enum AsyncValues {
-    static func stream<T>(
-        of observation: ValueObservation<ValueReducers.Fetch<T>>,
+    static func stream<Reducer: ValueReducer>(
+        of observation: ValueObservation<Reducer>,
         in reader: any DatabaseReader
-    ) -> AsyncStream<T> {
+    ) -> AsyncStream<Reducer.Value> {
         AsyncStream { continuation in
             let cancellable = observation.start(
                 in: reader,

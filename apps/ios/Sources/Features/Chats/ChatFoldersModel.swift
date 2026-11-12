@@ -39,6 +39,7 @@ final class ChatFoldersModel {
     func start() {
         guard task == nil else { return }
         let observation = ValueObservation.tracking { db in try ChatListQuery.folders(in: db) }
+            .removeDuplicates()
         task = Task { @MainActor [weak self, database] in
             for await folders in AsyncValues.stream(of: observation, in: database.reader) {
                 self?.folders = folders

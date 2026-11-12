@@ -35,6 +35,8 @@ final class ChatBadgeModel {
                     """
             ) ?? 0
         }
+        // Число то же — оболочка с вкладками не пересчитывается.
+        .removeDuplicates()
         task = Task { @MainActor [weak self, database] in
             for await unread in AsyncValues.stream(of: observation, in: database.reader) {
                 self?.unread = unread

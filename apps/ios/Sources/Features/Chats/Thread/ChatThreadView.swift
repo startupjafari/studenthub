@@ -180,6 +180,7 @@ struct ChatThreadView: View {
             ZStack(alignment: .top) {
                 MessageListView(
                     days: model.days,
+                    revision: model.daysRevision,
                     anchor: model.openingAnchor,
                     bubbleContext: bubbleContext(model),
                     focus: model.focus,
