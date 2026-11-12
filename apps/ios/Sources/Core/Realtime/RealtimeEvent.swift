@@ -32,6 +32,8 @@ enum RealtimeEvent: Equatable {
     case pollUpdated(pollID: String, chatID: String)
     /// Общий список изменили (отметка, новый или убранный пункт) — состояние целиком.
     case checklistUpdated(MessageExtras.Checklist, chatID: String)
+    /// Живая геопозиция сдвинулась или трансляцию остановили.
+    case locationUpdated(MessageExtras.Location, messageID: String, chatID: String)
     /// Сообщения удалены «у меня» на другом моём устройстве.
     case messagesHidden(chatID: String, messageIDs: [String])
     /// Блокировка в одну из сторон — меняется доступность личного чата.
@@ -63,6 +65,7 @@ enum RealtimeEvent: Equatable {
         static let pollUpdated = "poll:updated"
         static let checklistUpdated = "checklist:updated"
         static let messageHidden = "message:hidden"
+        static let locationUpdated = "location:updated"
         static let edit = "message:edit"
         static let delete = "message:delete"
         /// Единый канал событий поверх именованных.

@@ -229,6 +229,15 @@ struct MessageExtras: Codable, Hashable {
         let lng: Double
         var title: String? = nil
         var address: String? = nil
+        /// Живая геопозиция: до какого момента транслируется (у статичной — `nil`).
+        var liveUntil: Date? = nil
+        var liveUpdatedAt: Date? = nil
+        var heading: Double? = nil
+        var accuracy: Double? = nil
+
+        func isLive(at now: Date = Date()) -> Bool {
+            liveUntil.map { $0 > now } ?? false
+        }
     }
 
     /// Карточка контакта из телефонной книги.

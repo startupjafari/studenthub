@@ -209,6 +209,9 @@ struct MessageComposerView: View {
                     await model.sendLocation(
                         latitude: coordinate.latitude, longitude: coordinate.longitude, title: title, address: address
                     )
+                },
+                onSendLiveLocation: { location, period in
+                    await model.sendLiveLocation(location, period: period)
                 }
             )
         }

@@ -213,6 +213,15 @@ actor SocketIORealtimeTransport: RealtimeTransport {
             else { return nil }
             return .checklistUpdated(checklist, chatID: chatID)
         }
+        on(RealtimeEvent.Name.locationUpdated) { payload in
+            guard
+                let chatID = payload["chatId"] as? String,
+                let messageID = payload["messageId"] as? String,
+                let raw = payload["location"],
+                let location: MessageExtras.Location = Self.decode(raw)
+            else { return nil }
+            return .locationUpdated(location, messageID: messageID, chatID: chatID)
+        }
         on(RealtimeEvent.Name.messageHidden) { payload in
             guard
                 let chatID = payload["chatId"] as? String,

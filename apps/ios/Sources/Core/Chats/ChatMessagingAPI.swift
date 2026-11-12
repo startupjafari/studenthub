@@ -73,7 +73,12 @@ protocol ChatMessaging: Sendable {
         chatID: String, question: String, description: String?, options: [String], multiple: Bool, anonymous: Bool
     ) async throws
     func polls(chatID: String, page: PageRequest) async throws -> Page<ChatMessageDTO>
-    func sendLocation(chatID: String, latitude: Double, longitude: Double, title: String?, address: String?, replyToID: String?, nonce: String) async throws -> ChatMessageDTO
+    func sendLocation(
+        chatID: String, latitude: Double, longitude: Double, title: String?, address: String?,
+        livePeriod: Int?, accuracy: Double?, replyToID: String?, nonce: String
+    ) async throws -> ChatMessageDTO
+    func updateLiveLocation(messageID: String, latitude: Double, longitude: Double, heading: Double?, accuracy: Double?) async throws -> MessageExtras.Location
+    func stopLiveLocation(messageID: String) async throws -> MessageExtras.Location
     func sendContact(chatID: String, contact: ContactCardDraft, replyToID: String?, nonce: String) async throws -> ChatMessageDTO
     func sendChecklist(chatID: String, title: String, items: [String], othersCanAdd: Bool, othersCanMark: Bool, replyToID: String?, nonce: String) async throws -> ChatMessageDTO
     func checklist(id: String) async throws -> MessageExtras.Checklist
@@ -145,22 +150,53 @@ extension ChatsAPI: ChatMessaging {
     }
 
     func sendLocation(
-        chatID: String, latitude: Double, longitude: Double, title: String?, address: String?, replyToID: String?, nonce: String
+        chatID: String, latitude: Double, longitude: Double, title: String?, address: String?,
+        livePeriod: Int?, accuracy: Double?, replyToID: String?, nonce: String
     ) async throws -> ChatMessageDTO {
         struct Body: Encodable {
             let lat: Double
             let lng: Double
             let title: String?
             let address: String?
+            let livePeriod: Int?
+            let accuracy: Double?
             let replyToId: String?
             let nonce: String
         }
         return try await client.send(
             try .post(
                 "chats/\(chatID)/location",
-                json: Body(lat: latitude, lng: longitude, title: title, address: address, replyToId: replyToID, nonce: nonce)
+                json: Body(
+                    lat: latitude, lng: longitude, title: title, address: address,
+                    livePeriod: livePeriod, accuracy: accuracy, replyToId: replyToID, nonce: nonce
+                )
             ),
             as: ChatMessageDTO.self
+        )
+    }
+
+    func updateLiveLocation(
+        messageID: String, latitude: Double, longitude: Double, heading: Double?, accuracy: Double?
+    ) async throws -> MessageExtras.Location {
+        struct Body: Encodable {
+            let lat: Double
+            let lng: Double
+            let heading: Double?
+            let accuracy: Double?
+        }
+        return try await client.send(
+            try .post(
+                "chats/messages/\(messageID)/live-location",
+                json: Body(lat: latitude, lng: longitude, heading: heading, accuracy: accuracy)
+            ),
+            as: MessageExtras.Location.self
+        )
+    }
+
+    func stopLiveLocation(messageID: String) async throws -> MessageExtras.Location {
+        try await client.send(
+            .post("chats/messages/\(messageID)/live-location/stop"),
+            as: MessageExtras.Location.self
         )
     }
 

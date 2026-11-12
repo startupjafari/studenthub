@@ -68,6 +68,7 @@ struct AttachmentMenuSheet: View {
     let albumLimit: Int
     let onPick: (AttachmentPick) -> Void
     let onSendLocation: (_ coordinate: CLLocationCoordinate2D, _ title: String?, _ address: String?) async -> Bool
+    let onSendLiveLocation: (_ location: CLLocation, _ period: Int) async -> Bool
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -128,11 +129,18 @@ struct AttachmentMenuSheet: View {
         case .file:
             fileOptions
         case .location:
-            LocationPickerView { coordinate, title, address in
-                let ok = await onSendLocation(coordinate, title, address)
-                if ok { dismiss() }
-                return ok
-            }
+            LocationPickerView(
+                onSend: { coordinate, title, address in
+                    let ok = await onSendLocation(coordinate, title, address)
+                    if ok { dismiss() }
+                    return ok
+                },
+                onSendLive: { location, period in
+                    let ok = await onSendLiveLocation(location, period)
+                    if ok { dismiss() }
+                    return ok
+                }
+            )
         default:
             Color.clear
         }

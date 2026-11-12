@@ -52,6 +52,8 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
 /// точка» — куда сдвинули карту; адрес подписывается по координатам.
 struct LocationPickerView: View {
     let onSend: (_ coordinate: CLLocationCoordinate2D, _ title: String?, _ address: String?) async -> Bool
+    /// Живая геопозиция на выбранный срок (секунды).
+    var onSendLive: ((_ location: CLLocation, _ period: Int) async -> Bool)?
 
     @State private var provider = LocationProvider()
     @State private var camera: MapCameraPosition = .userLocation(fallback: .automatic)
@@ -60,6 +62,7 @@ struct LocationPickerView: View {
     @State private var isMoving = false
     @State private var isSending = false
     @State private var geocodeTask: Task<Void, Never>?
+    @State private var choosingLivePeriod = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -114,6 +117,18 @@ struct LocationPickerView: View {
                         await send(location.coordinate, title: nil)
                     }
                 }
+                if provider.location != nil, onSendLive != nil {
+                    sendRow(
+                        title: String(localized: "chats.live.share", defaultValue: "Транслировать геопозицию"),
+                        subtitle: String(
+                            localized: "chats.live.shareHint",
+                            defaultValue: "Участники увидят, как вы перемещаетесь, пока трансляция идёт"
+                        ),
+                        symbol: "location.circle.fill"
+                    ) {
+                        choosingLivePeriod = true
+                    }
+                }
                 if let center {
                     sendRow(
                         title: String(localized: "chats.location.point", defaultValue: "Отправить эту точку"),
@@ -129,6 +144,28 @@ struct LocationPickerView: View {
         .disabled(isSending)
         .overlay {
             if isSending { ProgressView() }
+        }
+        .confirmationDialog(
+            String(localized: "chats.live.periodTitle", defaultValue: "Транслировать геопозицию"),
+            isPresented: $choosingLivePeriod,
+            titleVisibility: .visible
+        ) {
+            ForEach(LiveLocationSharing.periods, id: \.seconds) { period in
+                Button(period.title) {
+                    guard let location = provider.location else { return }
+                    Task {
+                        isSending = true
+                        _ = await onSendLive?(location, period.seconds)
+                        isSending = false
+                    }
+                }
+            }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
+        } message: {
+            Text(String(
+                localized: "chats.live.consent",
+                defaultValue: "Пока трансляция идёт, участники чата видят ваше местоположение — и когда приложение свёрнуто. Остановить можно в любой момент."
+            ))
         }
         .onAppear { provider.start() }
         .onDisappear {

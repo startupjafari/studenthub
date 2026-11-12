@@ -260,6 +260,9 @@ final class RealtimeCoordinator {
         case .checklistUpdated(let checklist, _):
             checklists[checklist.id] = checklist
 
+        case .locationUpdated(let location, let messageID, _):
+            await LiveLocations.apply(location, messageID: messageID)
+
         case .messagesHidden(let chatID, let ids):
             try? await MessageStore(database: database).removeHidden(remoteIDs: ids, chatID: chatID)
 

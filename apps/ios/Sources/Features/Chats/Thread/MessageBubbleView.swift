@@ -261,7 +261,7 @@ struct MessageBubbleView: View {
                     ChatPollView(poll: poll, isOwn: item.isOwn)
                 }
                 if let location = extras.location {
-                    LocationMessageView(location: location, isOwn: item.isOwn)
+                    LocationMessageView(location: location, isOwn: item.isOwn, messageID: message.remoteId)
                 }
                 if let contact = extras.contact {
                     ContactMessageView(contact: contact, isOwn: item.isOwn)

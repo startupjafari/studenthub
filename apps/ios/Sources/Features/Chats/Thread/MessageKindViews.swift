@@ -9,6 +9,8 @@ import UIKit
 struct LocationMessageView: View {
     let location: MessageExtras.Location
     let isOwn: Bool
+    /// Сообщение на сервере — для «Остановить» у своей живой геопозиции.
+    var messageID: String?
 
     @State private var snapshot: UIImage?
     @Environment(\.colorScheme) private var scheme
@@ -35,7 +37,9 @@ struct LocationMessageView: View {
                 .frame(width: Self.size.width, height: Self.size.height)
                 .clipShape(RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
 
-                if location.title != nil || location.address != nil {
+                if location.liveUntil != nil {
+                    liveStatus
+                } else if location.title != nil || location.address != nil {
                     VStack(alignment: .leading, spacing: 2) {
                         if let title = location.title {
                             Text(title)
@@ -64,6 +68,50 @@ struct LocationMessageView: View {
         .task(id: "\(location.lat),\(location.lng),\(scheme == .dark)") {
             snapshot = await MapSnapshots.image(for: coordinate, size: Self.size, scale: displayScale, dark: scheme == .dark)
         }
+    }
+
+    /// Живая геопозиция: «Трансляция до 14:30 · обновлено 2 мин назад», у своей —
+    /// «Остановить». Минутный таймер освежает «N мин назад» без событий.
+    private var liveStatus: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            let live = location.isLive(at: context.date)
+            HStack(spacing: Spacing.sm) {
+                Image(systemName: live ? "location.fill" : "location.slash")
+                    .symbolEffect(.pulse, isActive: live)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(live
+                        ? String(localized: "chats.live.title", defaultValue: "Живая геопозиция")
+                        : String(localized: "chats.live.ended", defaultValue: "Трансляция завершена"))
+                        .font(Typography.meta.weight(.semibold))
+                    if live, let until = location.liveUntil {
+                        Text(Self.caption(until: until, updated: location.liveUpdatedAt, now: context.date))
+                            .font(.caption)
+                            .opacity(0.75)
+                    }
+                }
+                Spacer(minLength: Spacing.sm)
+                if live, isOwn, let messageID {
+                    Button(String(localized: "chats.live.stop", defaultValue: "Остановить")) {
+                        Task { await LiveLocationSharing.shared.stop(messageID: messageID) }
+                    }
+                    .font(Typography.meta.weight(.semibold))
+                }
+            }
+            .foregroundStyle(isOwn ? Palette.primaryForeground : Palette.foreground)
+            .frame(maxWidth: Self.size.width, alignment: .leading)
+        }
+    }
+
+    static func caption(until: Date, updated: Date?, now: Date) -> String {
+        let end = until.formatted(date: .omitted, time: .shortened)
+        guard let updated else {
+            return String(localized: "chats.live.until", defaultValue: "до \(end)")
+        }
+        let minutes = max(0, Int(now.timeIntervalSince(updated) / 60))
+        if minutes == 0 {
+            return String(localized: "chats.live.untilNow", defaultValue: "до \(end) · обновлено только что")
+        }
+        return String(localized: "chats.live.untilAgo", defaultValue: "до \(end) · обновлено \(minutes) мин назад")
     }
 
     private var coordinate: CLLocationCoordinate2D {

@@ -1,3 +1,4 @@
+import CoreLocation
 import Foundation
 import GRDB
 import Observation
@@ -520,7 +521,8 @@ final class ChatThreadModel {
     /// `nonce` защищает от повтора: второй такой же запрос сервер не превратит во второе
     /// сообщение.
     @MainActor
-    private func sendSpecial(_ request: (_ replyToID: String?, _ nonce: String) async throws -> ChatMessageDTO) async -> Bool {
+    @discardableResult
+    private func sendSpecial(_ request: (_ replyToID: String?, _ nonce: String) async throws -> ChatMessageDTO) async -> ChatMessageDTO? {
         let answering = replyTo?.remoteId
         let nonce = UUID().uuidString.lowercased()
         do {
@@ -529,10 +531,10 @@ final class ChatThreadModel {
             await returnToLatest()
             bottomRequests += 1
             try? await store.save(messages: [sent], chatID: chatID)
-            return true
+            return sent
         } catch {
             actionFailure = message(for: error)
-            return false
+            return nil
         }
     }
 
@@ -540,17 +542,35 @@ final class ChatThreadModel {
     func sendLocation(latitude: Double, longitude: Double, title: String?, address: String?) async -> Bool {
         await sendSpecial { [actions, chatID] reply, nonce in
             try await actions.sendLocation(
-                chatID: chatID, latitude: latitude, longitude: longitude,
-                title: title, address: address, replyToID: reply, nonce: nonce
+                chatID: chatID, latitude: latitude, longitude: longitude, title: title, address: address,
+                livePeriod: nil, accuracy: nil, replyToID: reply, nonce: nonce
+            )
+        } != nil
+    }
+
+    /// Живая геопозиция на `period` секунд: сообщение уходит сразу, дальше точку двигает
+    /// `LiveLocationSharing` (и в фоне — с синим индикатором системы).
+    @MainActor
+    func sendLiveLocation(_ location: CLLocation, period: Int) async -> Bool {
+        let sent = await sendSpecial { [actions, chatID] reply, nonce in
+            try await actions.sendLocation(
+                chatID: chatID, latitude: location.coordinate.latitude, longitude: location.coordinate.longitude,
+                title: nil, address: nil, livePeriod: period,
+                accuracy: location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : nil,
+                replyToID: reply, nonce: nonce
             )
         }
+        guard let sent else { return false }
+        let until = sent.location?.liveUntil ?? Date().addingTimeInterval(TimeInterval(period))
+        LiveLocationSharing.shared.start(messageID: sent.id, chatID: chatID, until: until)
+        return true
     }
 
     @MainActor
     func sendContact(_ contact: ContactCardDraft) async -> Bool {
         await sendSpecial { [actions, chatID] reply, nonce in
             try await actions.sendContact(chatID: chatID, contact: contact, replyToID: reply, nonce: nonce)
-        }
+        } != nil
     }
 
     @MainActor
@@ -560,21 +580,21 @@ final class ChatThreadModel {
                 chatID: chatID, title: title, items: items, othersCanAdd: othersCanAdd,
                 othersCanMark: othersCanMark, replyToID: reply, nonce: nonce
             )
-        }
+        } != nil
     }
 
     @MainActor
     func sendSticker(id: String) async -> Bool {
         await sendSpecial { [actions, chatID] reply, nonce in
             try await actions.sendSticker(chatID: chatID, stickerID: id, replyToID: reply, nonce: nonce)
-        }
+        } != nil
     }
 
     @MainActor
     func sendGif(fileID: String) async -> Bool {
         await sendSpecial { [actions, chatID] reply, nonce in
             try await actions.sendGif(chatID: chatID, fileID: fileID, replyToID: reply, nonce: nonce)
-        }
+        } != nil
     }
 
     @MainActor

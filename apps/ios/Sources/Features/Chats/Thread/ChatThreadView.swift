@@ -180,6 +180,10 @@ struct ChatThreadView: View {
                     }
                 }
 
+                if search == nil, let live = LiveLocationSharing.shared.session(inChat: chatID) {
+                    LiveLocationBar(session: live)
+                }
+
                 MessageListView(
                     days: model.days,
                     anchor: model.openingAnchor,
@@ -832,6 +836,38 @@ private struct PinnedBar: View {
             .padding(.top, Spacing.xs)
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Плашка «Вы транслируете геопозицию» под шапкой — как в Telegram: видно, что точка
+/// уходит, и остановить можно одним касанием.
+private struct LiveLocationBar: View {
+    let session: LiveLocationSharing.Session
+
+    var body: some View {
+        HStack(spacing: Spacing.md) {
+            Image(systemName: "location.fill")
+                .foregroundStyle(Palette.primary)
+                .symbolEffect(.pulse)
+                .accessibilityHidden(true)
+            Text(String(
+                localized: "chats.live.banner",
+                defaultValue: "Вы транслируете геопозицию до \(session.until.formatted(date: .omitted, time: .shortened))"
+            ))
+            .font(Typography.meta)
+            .foregroundStyle(Palette.foreground)
+            .lineLimit(1)
+            Spacer(minLength: Spacing.sm)
+            Button(String(localized: "chats.live.stop", defaultValue: "Остановить")) {
+                Task { await LiveLocationSharing.shared.stop(messageID: session.messageID) }
+            }
+            .font(Typography.meta.weight(.semibold))
+            .foregroundStyle(Palette.destructive)
+        }
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.sm)
+        .chatPanelSurface()
+        .padding(.top, Spacing.xs)
     }
 }
 

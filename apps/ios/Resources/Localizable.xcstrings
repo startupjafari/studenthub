@@ -95889,6 +95889,261 @@
           }
         }
       }
+    },
+    "chats.live.15m": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "15 минут"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "15 минут"
+          }
+        }
+      }
+    },
+    "chats.live.1h": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 час"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 сағат"
+          }
+        }
+      }
+    },
+    "chats.live.8h": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "8 часов"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "8 сағат"
+          }
+        }
+      }
+    },
+    "chats.live.banner": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы транслируете геопозицию до %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сіз геолокацияны %@ дейін таратып жатырсыз"
+          }
+        }
+      }
+    },
+    "chats.live.consent": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пока трансляция идёт, участники чата видят ваше местоположение — и когда приложение свёрнуто. Остановить можно в любой момент."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Трансляция жүріп жатқанда чат қатысушылары сіздің орныңызды көреді — қолданба жиналып тұрса да. Кез келген сәтте тоқтатуға болады."
+          }
+        }
+      }
+    },
+    "chats.live.denied": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет доступа к геопозиции — трансляция остановлена"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Геолокацияға рұқсат жоқ — трансляция тоқтатылды"
+          }
+        }
+      }
+    },
+    "chats.live.ended": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Трансляция завершена"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Трансляция аяқталды"
+          }
+        }
+      }
+    },
+    "chats.live.periodTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Транслировать геопозицию"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Геолокацияны тарату"
+          }
+        }
+      }
+    },
+    "chats.live.share": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Транслировать геопозицию"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Геолокацияны тарату"
+          }
+        }
+      }
+    },
+    "chats.live.shareHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Участники увидят, как вы перемещаетесь, пока трансляция идёт"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Трансляция жүріп жатқанда қатысушылар сіздің қозғалысыңызды көреді"
+          }
+        }
+      }
+    },
+    "chats.live.stop": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Остановить"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тоқтату"
+          }
+        }
+      }
+    },
+    "chats.live.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Живая геопозиция"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тірі геолокация"
+          }
+        }
+      }
+    },
+    "chats.live.until": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "до %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ дейін"
+          }
+        }
+      }
+    },
+    "chats.live.untilAgo": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "до %@ · обновлено %lld мин назад"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ дейін · %2$lld мин бұрын жаңартылды"
+          }
+        }
+      }
+    },
+    "chats.live.untilNow": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "до %@ · обновлено только что"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ дейін · жаңа ғана жаңартылды"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

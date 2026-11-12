@@ -107,6 +107,30 @@ final class ChatTelegramFeaturesTests: XCTestCase {
         XCTAssertTrue(text.runs.allSatisfy { $0.backgroundColor == nil })
     }
 
+    // MARK: Живая геопозиция
+
+    func testLiveLocationState() throws {
+        let now = Date()
+        let live = MessageExtras.Location(lat: 1, lng: 2, liveUntil: now.addingTimeInterval(600), liveUpdatedAt: now)
+        XCTAssertTrue(live.isLive(at: now))
+        XCTAssertFalse(live.isLive(at: now.addingTimeInterval(601)))
+        XCTAssertFalse(MessageExtras.Location(lat: 1, lng: 2).isLive(at: now))
+
+        let caption = LocationMessageView.caption(
+            until: now.addingTimeInterval(600), updated: now.addingTimeInterval(-180), now: now
+        )
+        XCTAssertTrue(caption.contains("3"), caption)
+    }
+
+    func testLiveLocationDecodes() throws {
+        let json = Data(
+            #"{"lat":43.2,"lng":76.9,"title":null,"address":null,"liveUntil":"2026-11-12T10:00:00.000Z","liveUpdatedAt":"2026-11-12T09:55:00.000Z","heading":90,"accuracy":12.5}"#.utf8
+        )
+        let location = try JSONCoding.decoder.decode(MessageExtras.Location.self, from: json)
+        XCTAssertNotNil(location.liveUntil)
+        XCTAssertEqual(location.accuracy, 12.5)
+    }
+
     // MARK: Голосовые
 
     func testEnvelopeResamplesToWidth() {

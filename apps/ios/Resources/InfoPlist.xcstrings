@@ -1,0 +1,108 @@
+{
+  "sourceLanguage": "ru",
+  "strings": {
+    "NSCameraUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чтобы сфотографировать или отсканировать документ для чата, сфотографироваться для профиля и отсканировать QR-код входа на компьютере."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чатқа құжатты суретке түсіру не сканерлеу, профильге суретке түсу және компьютерге кіру QR-кодын сканерлеу үшін."
+          }
+        }
+      }
+    },
+    "NSMicrophoneUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чтобы записать голосовое сообщение."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дауыстық хабар жазу үшін."
+          }
+        }
+      }
+    },
+    "NSPhotoLibraryAddUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чтобы сохранить фото и видео из приложения в «Фото»."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қолданбадағы фото мен бейнені «Фото»-ға сақтау үшін."
+          }
+        }
+      }
+    },
+    "NSPhotoLibraryUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чтобы показать недавние фото и видео при отправке в чат."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чатқа жіберу кезінде соңғы фото мен бейнелерді көрсету үшін."
+          }
+        }
+      }
+    },
+    "NSLocationWhenInUseUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чтобы отправить своё местоположение в чат или транслировать его, пока вы сами не остановите трансляцию."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чатқа орныңызды жіберу немесе трансляцияны өзіңіз тоқтатқанша оны тарату үшін."
+          }
+        }
+      }
+    },
+    "NSLocalNetworkUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чтобы подключиться к серверу разработки на компьютере."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Компьютердегі әзірлеу серверіне қосылу үшін."
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}
