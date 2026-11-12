@@ -44,6 +44,7 @@ struct VoiceMicButton: View {
                 }
             }
             .accessibilityElement()
+            .accessibilityIdentifier("chat.mic")
             .accessibilityLabel(Text(accessibilityTitle))
             .accessibilityHint(Text(String(
                 localized: "chats.voice.holdHint",

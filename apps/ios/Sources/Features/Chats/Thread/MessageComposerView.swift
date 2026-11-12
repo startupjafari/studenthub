@@ -82,6 +82,7 @@ struct MessageComposerView: View {
                             .composerGlass(in: Circle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("chat.attach")
                     .accessibilityLabel(Text(String(localized: "chats.attach", defaultValue: "Вложение")))
 
                     TextField(
@@ -96,6 +97,7 @@ struct MessageComposerView: View {
                     .font(Typography.body)
                     .foregroundStyle(Palette.foreground)
                     .focused($isFocused)
+                    .accessibilityIdentifier("chat.composer")
                     .padding(.leading, Spacing.lg)
                     // Справа — место под кнопку emoji внутри поля.
                     .padding(.trailing, ControlHeight.lg)
@@ -286,6 +288,7 @@ struct MessageComposerView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("chat.expressions")
         .accessibilityLabel(Text(showsPanel
             ? String(localized: "chats.panel.keyboard", defaultValue: "Клавиатура")
             : String(localized: "chats.panel.open", defaultValue: "Emoji, стикеры и GIF")))
@@ -313,6 +316,7 @@ struct MessageComposerView: View {
         }
         .buttonStyle(.plain)
         .transition(buttonTransition)
+        .accessibilityIdentifier("chat.send")
         .accessibilityLabel(Text(model.editing == nil
             ? String(localized: "chats.send", defaultValue: "Отправить")
             : String(localized: "common.save", defaultValue: "Сохранить")))

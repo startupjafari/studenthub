@@ -293,6 +293,7 @@ struct MessageMenuOverlay: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(MenuRowStyle())
+                .accessibilityIdentifier("message.menu.\(action.id)")
                 .disabled(action == .readers(count: 0))
                 if index < request.actions.count - 1 {
                     Divider().padding(.leading, Spacing.xl)
@@ -352,6 +353,7 @@ struct ReactionPicker: View {
                             .background(emoji == mine ? Palette.primary.opacity(0.2) : Color.clear, in: Circle())
                     }
                     .buttonStyle(ReactionButtonStyle())
+                    .accessibilityIdentifier("message.react.\(emoji)")
                     .accessibilityLabel(Text(verbatim: emoji))
                     .accessibilityAddTraits(emoji == mine ? .isSelected : [])
                 }

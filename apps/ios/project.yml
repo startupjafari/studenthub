@@ -133,7 +133,17 @@ targets:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - path: Tests
+      - path: Tests/StudentHubTests
+    dependencies:
+      - target: StudentHub
+
+  # Сценарии переписки на живом сервере (XCUITest). Учётка — из окружения схемы
+  # SH_UITEST_LOGIN / SH_UITEST_PASSWORD; без неё тесты пропускаются (CI без учётки).
+  StudentHubUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests/StudentHubUITests
     dependencies:
       - target: StudentHub
 
@@ -143,11 +153,15 @@ schemes:
       targets:
         StudentHub: all
         StudentHubTests: [test]
+        StudentHubUITests: [test]
     run:
       config: Debug
     test:
       config: Debug
       targets:
         - StudentHubTests
+        # Без SH_UITEST_LOGIN/SH_UITEST_PASSWORD (xcodebuild передаёт их раннеру как
+        # TEST_RUNNER_SH_UITEST_LOGIN=…) сценарии пропускаются.
+        - StudentHubUITests
     archive:
       config: Release
