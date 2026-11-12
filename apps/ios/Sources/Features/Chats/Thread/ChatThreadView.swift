@@ -832,21 +832,15 @@ struct ChatThreadView: View {
         )
     }
 
-    /// Вложение — системным просмотром (PDF, Office, прочие файлы). Свой файл на диске
-    /// открывается сразу, чужой скачивается по свежей ссылке: подписанная живёт минуты.
+    /// Вложение — системным просмотром (PDF, Office, прочие файлы), как в Telegram: свой
+    /// или уже скачанный файл открывается сразу, чужой качается с кольцом прогресса в
+    /// самой строке файла (`ChatFileDownloads`), повторное касание отменяет скачивание.
     private func open(_ file: AttachmentRecord) {
-        if let path = file.localPath, FileManager.default.fileExists(atPath: path) {
-            opener.previewURL = URL(filePath: path)
-            return
-        }
-        Task {
-            await opener.open(name: AttachmentFileName.of(file)) {
-                guard let url = await AppServices.attachmentURLs.url(for: file.id) else {
-                    throw URLError(.fileDoesNotExist)
-                }
-                return url
-            }
-        }
+        ChatFileDownloads.shared.toggle(
+            file,
+            open: { url in opener.previewURL = url },
+            failed: { message in opener.failure = message }
+        )
     }
 }
 

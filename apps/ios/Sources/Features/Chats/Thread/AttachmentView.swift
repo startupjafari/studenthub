@@ -584,57 +584,126 @@ actor ChatVideoFrames {
 
 // MARK: - Строка файла
 
+/// Строка файла как в Telegram: слева круг со значком — стрелка «скачать», пока файла
+/// нет на устройстве, кольцо прогресса во время скачивания (касание отменяет), значок
+/// типа — когда файл скачан и открывается сразу. Под именем — размер и тип, во время
+/// скачивания — «1,2 / 3,4 МБ».
 private struct FileAttachmentView: View {
     let attachment: AttachmentRecord
     let isOwn: Bool
     let upload: AttachmentUploadState?
     let open: () -> Void
 
+    private var downloads: ChatFileDownloads { ChatFileDownloads.shared }
+    private static let circle: CGFloat = 44
+
     var body: some View {
-        // Пока файл грузится, вместо значка — кольцо с крестиком (как в Telegram), а
-        // строка не открывается: отдельной кнопкой внутри кнопки касания путались бы.
+        // Пока свой файл отправляется, вместо значка — кольцо с крестиком (как в
+        // Telegram), а строка не открывается: отдельной кнопкой внутри кнопки касания
+        // путались бы.
         if let upload {
             HStack(spacing: Spacing.md) {
                 UploadRing(
                     fraction: upload.fraction,
-                    tint: isOwn ? Palette.primaryForeground : Palette.primary,
-                    backdrop: nil,
-                    diameter: ControlHeight.md,
+                    tint: circleGlyph,
+                    backdrop: circleFill,
+                    diameter: Self.circle,
                     cancel: upload.cancel
                 )
-                caption
+                caption(state: nil)
             }
             .padding(.vertical, Spacing.xs)
         } else {
+            let state = downloads.state(for: attachment)
             Button(action: open) {
                 HStack(spacing: Spacing.md) {
-                    Image(systemName: symbol)
-                        .foregroundStyle(isOwn ? Palette.primaryForeground : Palette.primary)
-                    caption
+                    badge(state)
+                    caption(state: state)
                 }
                 .padding(.vertical, Spacing.xs)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityHint(Text(hint(state)))
         }
     }
 
-    private var caption: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(attachment.name ?? String(localized: "chats.file", defaultValue: "Файл"))
-                .font(Typography.body)
-                .lineLimit(1)
-                .foregroundStyle(isOwn ? Palette.primaryForeground : Palette.foreground)
-            if let size = attachment.size {
-                Text(verbatim: ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
-                    .font(Typography.meta)
-                    .foregroundStyle(isOwn ? Palette.primaryForeground.opacity(0.8) : Palette.mutedForeground)
+    private var circleFill: Color { isOwn ? Palette.primaryForeground : Palette.primary }
+    private var circleGlyph: Color { isOwn ? Palette.primary : Palette.primaryForeground }
+
+    @ViewBuilder
+    private func badge(_ state: ChatFileDownloads.State?) -> some View {
+        ZStack {
+            Circle().fill(circleFill)
+            switch state {
+            case .downloading(let fraction):
+                Circle()
+                    .stroke(circleGlyph.opacity(0.3), lineWidth: 2.5)
+                    .padding(Spacing.xs)
+                Circle()
+                    .trim(from: 0, to: max(0.03, fraction))
+                    .stroke(circleGlyph, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .padding(Spacing.xs)
+                    .animation(.linear(duration: 0.2), value: fraction)
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(circleGlyph)
+            case .done:
+                Image(systemName: symbol)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(circleGlyph)
+            case nil:
+                Image(systemName: "arrow.down")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(circleGlyph)
             }
+        }
+        .frame(width: Self.circle, height: Self.circle)
+        .contentTransition(.symbolEffect(.replace))
+        .animation(.easeOut(duration: 0.2), value: state)
+        .accessibilityHidden(true)
+    }
+
+    private func caption(state: ChatFileDownloads.State?) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(attachment.name ?? String(localized: "chats.file", defaultValue: "Файл"))
+                .font(Typography.body.weight(.medium))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .foregroundStyle(isOwn ? Palette.primaryForeground : Palette.foreground)
+            Text(verbatim: details(state))
+                .font(Typography.tabular(Typography.meta))
+                .foregroundStyle(isOwn ? Palette.primaryForeground.opacity(0.8) : Palette.mutedForeground)
+                .contentTransition(.numericText())
+        }
+    }
+
+    /// «3,4 МБ · PDF»; во время скачивания — «1,2 МБ / 3,4 МБ».
+    private func details(_ state: ChatFileDownloads.State?) -> String {
+        let total = attachment.size.map { Int64($0) }
+        if case .downloading(let fraction) = state, let total {
+            let done = Int64(Double(total) * fraction)
+            return "\(Self.bytes(done)) / \(Self.bytes(total))"
+        }
+        let ext = ((attachment.name ?? "") as NSString).pathExtension.uppercased()
+        return [total.map(Self.bytes), ext.isEmpty ? nil : ext].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private static func bytes(_ count: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: count, countStyle: .file)
+    }
+
+    private func hint(_ state: ChatFileDownloads.State?) -> String {
+        switch state {
+        case .downloading: String(localized: "chats.file.cancelDownload", defaultValue: "Отменить скачивание")
+        case .done: String(localized: "chats.file.open", defaultValue: "Открыть")
+        case nil: String(localized: "chats.file.download", defaultValue: "Скачать и открыть")
         }
     }
 
     private var symbol: String {
-        if attachment.mime.hasPrefix("video/") { return "play.rectangle.fill" }
+        if attachment.mime.hasPrefix("video/") { return "play.fill" }
         if attachment.mime.hasPrefix("audio/") { return "music.note" }
         if attachment.isImage { return "photo.fill" }
         return "doc.fill"
