@@ -1565,23 +1565,6 @@
         }
       }
     },
-    "chats.attachMedia": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Фото или видео"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Фото немесе бейне"
-          }
-        }
-      }
-    },
     "chats.attachmentPreview": {
       "extractionState": "manual",
       "localizations": {
@@ -94747,6 +94730,890 @@
           "stringUnit": {
             "state": "translated",
             "value": "Жеке"
+          }
+        }
+      }
+    },
+    "chats.attach.allPhotos": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все фото и видео"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Барлық фото мен бейне"
+          }
+        }
+      }
+    },
+    "chats.attach.assetUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось прочитать файл из «Фото»"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Фото» ішіндегі файлды оқу мүмкін болмады"
+          }
+        }
+      }
+    },
+    "chats.attach.audio": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звук"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дыбыс"
+          }
+        }
+      }
+    },
+    "chats.attach.checklist": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Список"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тізім"
+          }
+        }
+      }
+    },
+    "chats.attach.clearSelection": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сбросить"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тазалау"
+          }
+        }
+      }
+    },
+    "chats.attach.fromFiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбрать в «Файлах»"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Файлдар» ішінен таңдау"
+          }
+        }
+      }
+    },
+    "chats.attach.fromFilesHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF, документы Office, архивы, видео — до 500 МБ"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF, Office құжаттары, архивтер, бейне — 500 МБ-қа дейін"
+          }
+        }
+      }
+    },
+    "chats.attach.gallery": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Галерея"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Галерея"
+          }
+        }
+      }
+    },
+    "chats.attach.location": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Геопозиция"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Геолокация"
+          }
+        }
+      }
+    },
+    "chats.attach.next": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Далее · %lld"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Әрі қарай · %lld"
+          }
+        }
+      }
+    },
+    "chats.attach.photo": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фото"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фото"
+          }
+        }
+      }
+    },
+    "chats.attach.photosAllow": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить доступ"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рұқсат беру"
+          }
+        }
+      }
+    },
+    "chats.attach.photosDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет доступа к «Фото». Можно выбрать снимки в системном окне или разрешить доступ в настройках."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Фото»-ға рұқсат жоқ. Суреттерді жүйелік терезеден таңдауға немесе баптауларда рұқсат беруге болады."
+          }
+        }
+      }
+    },
+    "chats.attach.photosPrompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешите доступ к «Фото», чтобы выбирать недавние снимки прямо здесь"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Соңғы суреттерді осы жерден таңдау үшін «Фото»-ға рұқсат беріңіз"
+          }
+        }
+      }
+    },
+    "chats.attach.scan": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сканировать документ"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Құжатты сканерлеу"
+          }
+        }
+      }
+    },
+    "chats.attach.scanHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Страницы соберутся в один PDF"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Беттер бір PDF-ке жиналады"
+          }
+        }
+      }
+    },
+    "chats.attach.selected": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбрано: %lld"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Таңдалды: %lld"
+          }
+        }
+      }
+    },
+    "chats.checklist.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить пункт"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тармақ қосу"
+          }
+        }
+      }
+    },
+    "chats.checklist.addShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қосу"
+          }
+        }
+      }
+    },
+    "chats.checklist.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выполнено"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Орындалды"
+          }
+        }
+      }
+    },
+    "chats.checklist.item": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пункт %lld"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld-тармақ"
+          }
+        }
+      }
+    },
+    "chats.checklist.itemPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что сделать"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не істеу керек"
+          }
+        }
+      }
+    },
+    "chats.checklist.items": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пункты"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тармақтар"
+          }
+        }
+      }
+    },
+    "chats.checklist.new": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Список"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тізім"
+          }
+        }
+      }
+    },
+    "chats.checklist.notDone": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не выполнено"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Орындалмаған"
+          }
+        }
+      }
+    },
+    "chats.checklist.othersCanAdd": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Другие могут добавлять пункты"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Басқалар тармақ қоса алады"
+          }
+        }
+      }
+    },
+    "chats.checklist.othersCanMark": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Другие могут отмечать выполненное"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Басқалар орындалғанын белгілей алады"
+          }
+        }
+      }
+    },
+    "chats.checklist.progress": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выполнено %lld из %lld"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Орындалды: %2$lld ішінен %1$lld"
+          }
+        }
+      }
+    },
+    "chats.checklist.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убрать пункт"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тармақты алып тастау"
+          }
+        }
+      }
+    },
+    "chats.checklist.titlePlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Например, «Что взять на практику»"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мысалы, «Практикаға не алу керек»"
+          }
+        }
+      }
+    },
+    "chats.checklist.titleSection": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Название"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Атауы"
+          }
+        }
+      }
+    },
+    "chats.contact.call": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Позвонить %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ нөміріне қоңырау шалу"
+          }
+        }
+      }
+    },
+    "chats.contact.copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Көшіру"
+          }
+        }
+      }
+    },
+    "chats.contact.emails": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Почта"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пошта"
+          }
+        }
+      }
+    },
+    "chats.contact.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Позвонить, написать или скопировать"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қоңырау шалу, жазу немесе көшіру"
+          }
+        }
+      }
+    },
+    "chats.contact.mail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Написать на %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ адресіне жазу"
+          }
+        }
+      }
+    },
+    "chats.contact.phones": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Телефон"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Телефон"
+          }
+        }
+      }
+    },
+    "chats.contact.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контакт"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контакт"
+          }
+        }
+      }
+    },
+    "chats.location.a11y": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Геопозиция: %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Геолокация: %@"
+          }
+        }
+      }
+    },
+    "chats.location.accuracy": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Точность %lld м"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дәлдігі %lld м"
+          }
+        }
+      }
+    },
+    "chats.location.denied": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет доступа к геопозиции — можно выбрать точку на карте вручную."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Геолокацияға рұқсат жоқ — нүктені картадан қолмен таңдауға болады."
+          }
+        }
+      }
+    },
+    "chats.location.mine": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить моё местоположение"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Менің орнымды жіберу"
+          }
+        }
+      }
+    },
+    "chats.location.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть в «Картах»"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Карталар»-да ашу"
+          }
+        }
+      }
+    },
+    "chats.location.point": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить эту точку"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Осы нүктені жіберу"
+          }
+        }
+      }
+    },
+    "chats.poll.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пояснение (необязательно)"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Түсініктеме (міндетті емес)"
+          }
+        }
+      }
+    },
+    "chats.poll.duplicates": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Варианты не должны повторяться"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нұсқалар қайталанбауы керек"
+          }
+        }
+      }
+    },
+    "chats.poll.removeOption": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убрать вариант"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нұсқаны алып тастау"
+          }
+        }
+      }
+    },
+    "chats.preview.audio": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аудио"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аудио"
+          }
+        }
+      }
+    },
+    "chats.preview.gif": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GIF"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GIF"
+          }
+        }
+      }
+    },
+    "chats.preview.sticker": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стикер"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стикер"
+          }
+        }
+      }
+    },
+    "chats.scan.fileName": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скан %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скан %@"
+          }
+        }
+      }
+    },
+    "chats.sticker.a11y": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стикер %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стикер %@"
           }
         }
       }

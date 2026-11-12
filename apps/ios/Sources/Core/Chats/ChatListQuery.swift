@@ -29,6 +29,8 @@ struct ChatListRow: FetchableRecord, Decodable, Identifiable, Equatable {
     var lastDeletedAt: Date?
     var lastSenderName: String?
     var lastSystemType: String?
+    /// Опрос, геопозиция, контакт, список, стикер последнего сообщения — для превью.
+    var lastExtras: MessageExtras?
     /// Вложений в последнем сообщении — превью «Фото», «Голосовое» вместо пустоты.
     var lastAttachmentMime: String?
     var lastAttachmentName: String?
@@ -55,13 +57,35 @@ struct ChatListRow: FetchableRecord, Decodable, Identifiable, Equatable {
 
     /// Текст превью, когда в последнем сообщении нет текста: что именно пришло.
     var attachmentPreview: String? {
+        if let special = specialPreview { return special }
         guard let mime = lastAttachmentMime else { return nil }
-        if mime.hasPrefix("audio/") || lastAttachmentName?.hasPrefix("voice-") == true {
+        if lastAttachmentName?.hasPrefix("voice-") == true {
             return String(localized: "chats.preview.voice", defaultValue: "Голосовое сообщение")
         }
+        if mime.hasPrefix("audio/") {
+            return lastAttachmentName ?? String(localized: "chats.preview.audio", defaultValue: "Аудио")
+        }
+        if mime == "image/gif" { return String(localized: "chats.preview.gif", defaultValue: "GIF") }
         if mime.hasPrefix("image/") { return String(localized: "chats.preview.photo", defaultValue: "Фото") }
         if mime.hasPrefix("video/") { return String(localized: "chats.preview.video", defaultValue: "Видео") }
         return lastAttachmentName ?? String(localized: "chats.preview.file", defaultValue: "Файл")
+    }
+
+    /// Сообщение без текста и файлов: что именно в нём.
+    private var specialPreview: String? {
+        guard let extras = lastExtras else { return nil }
+        if let poll = extras.poll { return "📊 \(poll.question)" }
+        if let location = extras.location {
+            return "📍 " + (location.title ?? String(localized: "chats.attach.location", defaultValue: "Геопозиция"))
+        }
+        if let contact = extras.contact { return "👤 \(contact.name)" }
+        if let checklist = extras.checklist { return "☑️ \(checklist.title)" }
+        if let sticker = extras.sticker {
+            return [sticker.emoji, String(localized: "chats.preview.sticker", defaultValue: "Стикер")]
+                .compactMap { $0 }
+                .joined(separator: " ")
+        }
+        return nil
     }
 
     /// Что показать второй строкой.
@@ -142,6 +166,7 @@ enum ChatListQuery {
                 m.deletedAt AS lastDeletedAt,
                 m.senderName AS lastSenderName,
                 m.systemType AS lastSystemType,
+                m.extras AS lastExtras,
                 (SELECT a.mime FROM attachment a WHERE a.messageId = m.id LIMIT 1) AS lastAttachmentMime,
                 (SELECT a.name FROM attachment a WHERE a.messageId = m.id LIMIT 1) AS lastAttachmentName
             FROM chat c

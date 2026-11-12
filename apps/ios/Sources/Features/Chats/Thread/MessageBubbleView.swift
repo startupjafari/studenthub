@@ -138,7 +138,13 @@ struct MessageBubbleView: View {
                 .frame(width: min(avatarSize, 44), height: min(avatarSize, 44))
                 .accessibilityHidden(true)
             }
-            bubble
+            Group {
+                if let sticker = extras.sticker, !isDeleted {
+                    stickerBubble(sticker)
+                } else {
+                    bubble
+                }
+            }
                 .bubbleAnchor(message.id, part: .bubble, enabled: !isMenuPreview)
                 .onTapGesture(count: 2) {
                     guard !isMenuPreview, !isDeleted, message.remoteId != nil else { return }
@@ -254,6 +260,15 @@ struct MessageBubbleView: View {
                 if let poll = extras.poll {
                     ChatPollView(poll: poll, isOwn: item.isOwn)
                 }
+                if let location = extras.location {
+                    LocationMessageView(location: location, isOwn: item.isOwn)
+                }
+                if let contact = extras.contact {
+                    ContactMessageView(contact: contact, isOwn: item.isOwn)
+                }
+                if let checklist = extras.checklist {
+                    ChecklistMessageView(checklist: checklist, isOwn: item.isOwn, isAuthor: item.isOwn)
+                }
             }
 
             if hasText {
@@ -329,6 +344,40 @@ struct MessageBubbleView: View {
         .accessibilityElement(children: .combine)
     }
 
+    /// Стикер — без пузыря: над ним ответ, под ним реакции, время — в капсуле на углу.
+    private func stickerBubble(_ sticker: MessageExtras.Sticker) -> some View {
+        VStack(alignment: item.isOwn ? .trailing : .leading, spacing: Spacing.xs) {
+            if let replyID = message.replyToId {
+                Button {
+                    onAction(.jump(replyID))
+                } label: {
+                    ReplyQuoteView(
+                        author: extras.replySenderName,
+                        text: message.replyQuote ?? extras.replyContent,
+                        isOwn: false
+                    )
+                    .padding(.horizontal, Spacing.md)
+                    .padding(.vertical, Spacing.xs)
+                    .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+            StickerMessageView(sticker: sticker)
+                .overlay(alignment: .bottomTrailing) {
+                    meta(Palette.primaryForeground)
+                        .padding(.horizontal, Spacing.sm)
+                        .padding(.vertical, 2)
+                        .background(Palette.overlay.opacity(0.45), in: Capsule())
+                }
+            if showsReactions {
+                reactions
+                    .padding(Spacing.xs)
+                    .background(item.isOwn ? Palette.primary : Palette.card, in: Capsule())
+            }
+        }
+        .contentShape(Rectangle())
+    }
+
     /// Своё сообщение с файлами в пути: доля отправленного — из общего реестра загрузок.
     private var upload: AttachmentUploadState? {
         guard item.isOwn, message.remoteId == nil, message.sendState == .pending, !item.attachments.isEmpty else {
@@ -356,7 +405,8 @@ struct MessageBubbleView: View {
         if isDeleted { return true }
         if profileShare != nil { return false }
         return !message.content.isEmpty
-            || (item.attachments.isEmpty && extras.poll == nil && extras.sharedPost == nil && extras.sharedStory == nil)
+            || (item.attachments.isEmpty && extras.poll == nil && extras.sharedPost == nil && extras.sharedStory == nil
+                && !hasSpecialContent)
     }
 
     /// «Имя\nссылка на профиль» — так уходит «Поделиться профилем»; рисуем карточкой.
@@ -376,6 +426,11 @@ struct MessageBubbleView: View {
 
     private var showsReactions: Bool { !extras.reactions.isEmpty && !isDeleted }
 
+    /// Геопозиция, контакт, список или стикер — сообщение без текста, но не пустое.
+    private var hasSpecialContent: Bool {
+        extras.location != nil || extras.contact != nil || extras.checklist != nil || extras.sticker != nil
+    }
+
     /// Время встаёт в последнюю строку текста, если текст — последний в пузыре.
     private var textCarriesMeta: Bool {
         hasText && !showsReactions && (extras.linkPreview == nil || isDeleted)
@@ -385,7 +440,7 @@ struct MessageBubbleView: View {
     private var isMediaOnly: Bool {
         !isDeleted && !hasText && !showsReactions && !item.attachments.isEmpty
             && item.attachments.allSatisfy(\.showsAsMedia)
-            && extras.poll == nil && extras.sharedPost == nil && extras.sharedStory == nil
+            && extras.poll == nil && extras.sharedPost == nil && extras.sharedStory == nil && !hasSpecialContent
             && extras.linkPreview == nil && message.replyToId == nil && !extras.isForwarded
             && !(context.isGroup && !item.isOwn && item.isFirstInGroup)
     }
