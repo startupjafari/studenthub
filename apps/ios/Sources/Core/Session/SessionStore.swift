@@ -17,6 +17,13 @@ actor SessionStore: AuthorizationProvider {
     private var inFlightRefresh: Task<AccessToken?, Never>?
     /// Номер последнего заведённого продления: снимает с полёта только своё.
     private var refreshGeneration = 0
+
+    /// Сколько запрос экрана ждёт продления, прежде чем ответить «нет связи». Само
+    /// продление ждёт ответа дольше (`AuthAPI.refreshTimeout`) и продолжается фоном.
+    static let tokenWait: Duration = .seconds(10)
+    /// За сколько до истечения токен продлевается заранее, фоном: запросы не ждут
+    /// продления, а сбитые на минуту-другую часы устройства не дают 401.
+    static let earlyRefresh: TimeInterval = 5 * 60
     /// Последнее продление не дало ответа по существу: не было сети или сервер ответил
     /// 5xx. Сессия при этом жива — решить, что она кончилась, может только отказ сервера.
     private var refreshUndecided = false
@@ -67,6 +74,7 @@ actor SessionStore: AuthorizationProvider {
         if hasStoredSession, let raw = secrets.value(for: .lastAccessToken), let known = AccessToken(raw: raw) {
             if known.isUsable() {
                 token = known
+                refreshEarlyIfNeeded(known)
                 return .active(known)
             }
             // Продление заводится здесь же, синхронно: запрос экрана, пришедший следом,
@@ -81,13 +89,56 @@ actor SessionStore: AuthorizationProvider {
     // MARK: - AuthorizationProvider
 
     func accessToken() async -> String? {
-        if let token, token.isUsable() { return token.raw }
+        if let token, token.isUsable() {
+            refreshEarlyIfNeeded(token)
+            return token.raw
+        }
         guard token != nil || hasStoredSession else { return nil }
-        return await refreshedAccessToken()
+        return await Self.value(of: startRefresh(), waitingUpTo: Self.tokenWait)?.raw
     }
 
+    func refreshedAccessToken(replacing used: String?) async -> String? {
+        // 401 пришёл на старый токен, а сессию уже продлил кто-то другой — второе
+        // продление не нужно, и при ротации оно было бы лишним обменом токена.
+        if let token, token.isUsable(), let used, token.raw != used { return token.raw }
+        return await Self.value(of: startRefresh(), waitingUpTo: Self.tokenWait)?.raw
+    }
+
+    /// Продлить и дождаться — без предела ожидания (вход, тесты).
     func refreshedAccessToken() async -> String? {
         await startRefresh().value?.raw
+    }
+
+    var isSessionPending: Bool {
+        if secrets.isLocked { return true }
+        return hasStoredSession && (inFlightRefresh != nil || refreshUndecided)
+    }
+
+    /// Токен ещё действует, но скоро истечёт — продление уходит фоном, запрос идёт со
+    /// старым токеном и не ждёт.
+    private func refreshEarlyIfNeeded(_ current: AccessToken) {
+        guard !current.isUsable(at: Date().addingTimeInterval(Self.earlyRefresh)) else { return }
+        _ = startRefresh()
+    }
+
+    /// Результат продления, но ждать не дольше `limit`: продление при этом не
+    /// отменяется и доводится фоном.
+    private static func value(of task: Task<AccessToken?, Never>, waitingUpTo limit: Duration) async -> AccessToken? {
+        enum Outcome: Sendable {
+            case finished(AccessToken?)
+            case timedOut
+        }
+        return await withTaskGroup(of: Outcome.self) { group in
+            group.addTask { .finished(await task.value) }
+            group.addTask {
+                try? await Task.sleep(for: limit)
+                return .timedOut
+            }
+            let first = await group.next() ?? .timedOut
+            group.cancelAll()
+            if case .finished(let token) = first { return token }
+            return nil
+        }
     }
 
     /// Продление в полёте — одно на всех: новое заводится, только если прежнего нет.
@@ -196,7 +247,24 @@ actor SessionStore: AuthorizationProvider {
         secrets.set(raw, for: .pendingLogouts)
     }
 
+    /// Продление под фоновым заданием iOS: приложение, ушедшее в фон посреди обмена
+    /// токена, не замораживается до ответа — иначе ротированный сервером токен до нас
+    /// не дошёл бы.
     private func performRefresh() async -> AccessToken? {
+        let activity = await BackgroundActivity.begin("session.refresh")
+        let refreshed = await refreshNow()
+        await BackgroundActivity.end(activity)
+        return refreshed
+    }
+
+    private func refreshNow() async -> AccessToken? {
+        // Связка ключей заперта до первой разблокировки (запуск тихим пушем после
+        // перезагрузки): refresh-cookie не прочитать, а продление без неё сервер отклонит —
+        // и отказ выглядел бы концом сессии. Не продлеваем и ничего не стираем.
+        if secrets.isLocked {
+            refreshUndecided = true
+            return nil
+        }
         restoreRefreshCookieIfNeeded()
         // Только исход, без токена: токенам в логах и метках не место.
         let signpost = Signposts.launch.beginInterval("TokenRefresh")

@@ -7,6 +7,13 @@ protocol SecretStore: Sendable {
     func value(for key: SecretKey) -> String?
     func set(_ value: String, for key: SecretKey)
     func remove(_ key: SecretKey)
+    /// Хранилище заперто (связка ключей до первой разблокировки после включения):
+    /// `value` вернёт `nil`, хотя секрет есть. Отсутствие тогда — не «сессии нет».
+    var isLocked: Bool { get }
+}
+
+extension SecretStore {
+    var isLocked: Bool { false }
 }
 
 enum SecretKey: String {
@@ -81,6 +88,14 @@ struct Keychain: SecretStore {
 
     func remove(_ key: SecretKey) {
         SecItemDelete(baseQuery(for: key) as CFDictionary)
+    }
+
+    /// Запрос к связке ключей отклонён как недоступный в этом состоянии устройства —
+    /// значит, она заперта, а не пуста.
+    var isLocked: Bool {
+        var query = baseQuery(for: .sessionPresent)
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        return SecItemCopyMatching(query as CFDictionary, nil) == errSecInteractionNotAllowed
     }
 
     private func baseQuery(for key: SecretKey) -> [String: Any] {

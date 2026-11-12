@@ -38,6 +38,12 @@ enum AppServices {
         do {
             return try AppDatabase.onDisk()
         } catch {
+            // Заперта до первой разблокировки — не повреждена: стереть её значило бы
+            // потерять черновики и неотправленное. До перезапуска — база в памяти.
+            if AppDatabase.isStoreLocked() {
+                log.error("База чатов заперта до разблокировки, работаем в памяти")
+                if let memory = try? AppDatabase.inMemory() { return memory }
+            }
             log.error("Не открылась база чатов, пробуем завести заново: \(error.localizedDescription, privacy: .public)")
         }
         do {

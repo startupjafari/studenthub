@@ -6,10 +6,16 @@ import Foundation
 /// формирование запросов: иначе они ссылаются друг на друга, и ни один не
 /// тестируется в одиночку.
 protocol AuthorizationProvider: Sendable {
-    /// Действующий токен или `nil`, если пользователь не вошёл.
+    /// Действующий токен или `nil`, если пользователь не вошёл или токена пока нет.
     func accessToken() async -> String?
-    /// Сервер ответил 401. Вернуть новый токен, если сессию удалось продлить.
-    func refreshedAccessToken() async -> String?
+    /// Сервер ответил 401 на запрос с токеном `used`. Вернуть новый токен, если сессию
+    /// удалось продлить. Токен уже сменился (продлил кто-то другой) — вернуть его без
+    /// нового продления.
+    func refreshedAccessToken(replacing used: String?) async -> String?
+    /// Сессия есть, но токена сейчас нет: продление ещё идёт, не дало ответа по
+    /// существу (нет связи, 5xx) или связка ключей заперта до первой разблокировки.
+    /// Запрос тогда — «нет связи», а не анонимный запрос с ответом «Unauthorized».
+    var isSessionPending: Bool { get async }
 }
 
 /// Единственная дверь в API.
@@ -83,18 +89,29 @@ actor APIClient {
 
     private func perform(_ endpoint: Endpoint) async throws -> Data {
         let token = endpoint.requiresAuthorization ? await authorization?.accessToken() : nil
+        try await failIfSessionPending(endpoint, token: token)
 
         do {
             return try await attempt(endpoint, token: token)
         } catch let error as APIError {
             // Ровно одна попытка продлить сессию. Второй 401 после свежего токена
             // означает, что дело не в сроке жизни, и повторять бесполезно.
-            guard
-                endpoint.requiresAuthorization,
-                let code = error.code, code.meansSessionExpired,
-                let refreshed = await authorization?.refreshedAccessToken()
-            else { throw error }
+            guard endpoint.requiresAuthorization, let code = error.code, code.meansSessionExpired else { throw error }
+            guard let refreshed = await authorization?.refreshedAccessToken(replacing: token) else {
+                // Продление не дало ответа по существу — экрану «нет связи», а не 401.
+                try await failIfSessionPending(endpoint, token: nil)
+                throw error
+            }
             return try await attempt(endpoint, token: refreshed)
+        }
+    }
+
+    /// Токена нет, а сессия жива и ждёт продления (или связки ключей): запрос без
+    /// токена получил бы 401 и выглядел бы как конец сессии. Отвечаем «нет связи».
+    private func failIfSessionPending(_ endpoint: Endpoint, token: String?) async throws {
+        guard endpoint.requiresAuthorization, token == nil, let authorization else { return }
+        if await authorization.isSessionPending {
+            throw APIError.transport(URLError(.timedOut))
         }
     }
 

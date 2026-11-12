@@ -201,6 +201,64 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertFalse(hasSession)
     }
 
+    // MARK: - Продление: заранее, без повторов, без связки ключей
+
+    /// 401 пришёл на старый токен, а сессию уже продлил другой запрос — второго обмена
+    /// refresh-токена нет: при ротации он был бы лишним.
+    func testRefreshAfterStaleUnauthorizedReusesCurrentToken() async {
+        let auth = StubAuth(token: longLivedToken)
+        let store = makeStore(auth: auth)
+        await store.adopt(AuthSession(accessToken: longLivedToken))
+
+        let token = await store.refreshedAccessToken(replacing: expiredToken)
+
+        XCTAssertEqual(token, longLivedToken)
+        let calls = await auth.refreshCalls
+        XCTAssertEqual(calls, 0)
+    }
+
+    /// Токен скоро истечёт — запрос идёт с ним и не ждёт, а продление уходит фоном.
+    func testTokenCloseToExpiryIsRefreshedInBackground() async {
+        let auth = StubAuth(token: longLivedToken)
+        let store = makeStore(auth: auth)
+        let soon = makeToken(expiringIn: 120)
+        await store.adopt(AuthSession(accessToken: soon))
+
+        let token = await store.accessToken()
+
+        XCTAssertEqual(token, soon)
+        // Фоновое продление — то же единственное в полёте: дожидаемся его.
+        let refreshed = await store.refreshedAccessToken()
+        XCTAssertEqual(refreshed, longLivedToken)
+        let calls = await auth.refreshCalls
+        XCTAssertEqual(calls, 1)
+    }
+
+    /// Связка ключей заперта до первой разблокировки: секреты «не читаются», но сессию
+    /// это не гасит — продления без cookie нет, ничего не стирается, запросы — «нет связи».
+    func testLockedKeychainNeitherRefreshesNorEndsSession() async {
+        let secrets = MemorySecrets()
+        secrets.set("rt-1", for: .refreshToken)
+        secrets.set("1", for: .sessionPresent)
+        secrets.set(expiredToken, for: .lastAccessToken)
+        secrets.locked = true
+        let auth = StubAuth(token: longLivedToken)
+        let store = makeStore(auth: auth, secrets: secrets)
+        let ended = Flag()
+        await store.onSessionEnded { ended.raise() }
+
+        let token = await store.refreshedAccessToken()
+        let pending = await store.isSessionPending
+
+        XCTAssertNil(token)
+        XCTAssertTrue(pending)
+        XCTAssertFalse(ended.isRaised)
+        let calls = await auth.refreshCalls
+        XCTAssertEqual(calls, 0)
+        secrets.locked = false
+        XCTAssertEqual(secrets.value(for: .refreshToken), "rt-1")
+    }
+
     // MARK: - Выход без сети
 
     /// Выход не дошёл до сервера — он откладывается вместе с refresh-токеном и токеном
@@ -245,6 +303,22 @@ final class SessionStoreTests: XCTestCase {
 
         let pending = await store.hasPendingLogouts
         XCTAssertFalse(pending)
+    }
+
+    /// Токен с заданным сроком — для проверок «скоро истечёт».
+    private func makeToken(expiringIn seconds: TimeInterval) -> String {
+        func encode(_ json: String) -> String {
+            Data(json.utf8).base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-")
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: "=", with: "")
+        }
+        let exp = Int(Date().addingTimeInterval(seconds).timeIntervalSince1970)
+        let header = encode(#"{"alg":"HS256","typ":"JWT"}"#)
+        let payload = encode(
+            #"{"sub":"user-soon","role":"TEACHER","universityId":"u-9","facultyId":null,"groupId":null,"tfa":true,"exp":"# + "\(exp)}"
+        )
+        return "\(header).\(payload).signature"
     }
 
     private func makeStore(
@@ -303,9 +377,18 @@ private final class Flag: @unchecked Sendable {
 private final class MemorySecrets: SecretStore, @unchecked Sendable {
     private let lock = NSLock()
     private var storage: [String: String] = [:]
+    private var isLockedValue = false
+
+    /// Как связка ключей до первой разблокировки: секреты есть, но не читаются.
+    var locked: Bool {
+        get { lock.withLock { isLockedValue } }
+        set { lock.withLock { isLockedValue = newValue } }
+    }
+
+    var isLocked: Bool { locked }
 
     func value(for key: SecretKey) -> String? {
-        lock.withLock { storage[key.rawValue] }
+        lock.withLock { isLockedValue ? nil : storage[key.rawValue] }
     }
 
     func set(_ value: String, for key: SecretKey) {

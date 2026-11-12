@@ -43,6 +43,15 @@ final class AppDatabase: Sendable {
         return try AppDatabase(pool)
     }
 
+    /// Файл базы есть, но не читается: данные устройства заперты до первой разблокировки
+    /// (запуск тихим пушем после перезагрузки). Это не повреждение — сносить нельзя.
+    static func isStoreLocked(fileManager: FileManager = .default) -> Bool {
+        guard let folder = try? storeFolder(fileManager: fileManager) else { return false }
+        let path = folder.appendingPathComponent(storeName).path
+        guard fileManager.fileExists(atPath: path) else { return false }
+        return FileHandle(forReadingAtPath: path) == nil
+    }
+
     /// Снести хранилище целиком — путь для повреждённого файла.
     ///
     /// Удаляем каталог, а не один файл: рядом с базой лежат `-wal` и `-shm`, и
