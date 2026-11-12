@@ -14,8 +14,6 @@ enum AttachmentPick {
     case photosAsFiles
     case scan
     case audio
-    case poll
-    case checklist
     /// Системный выбор контакта — когда доступа к контактам нет.
     case contact
     /// Контакт из списка в листе — сразу на подтверждение.
@@ -25,8 +23,8 @@ enum AttachmentPick {
 /// Лист вложений как в Telegram: сверху — крестик и название раздела, ниже — его
 /// содержимое (сетка «Фото», файлы, карта), внизу плавает стеклянная капсула разделов:
 /// Галерея, Файл, Геопозиция, Опрос, Список, Звук, Контакт. Выбранный раздел — в
-/// подсвеченной капсуле фирменного цвета. Опрос, список, звук и контакт открывают свои
-/// окна сразу.
+/// подсвеченной капсуле фирменного цвета. Опрос и список — такие же разделы листа, а не
+/// отдельные окна: между ними и остальными переключаются капсулой, набранное остаётся.
 struct AttachmentMenuSheet: View {
     enum Section: String, CaseIterable, Identifiable {
         case gallery, file, location, poll, checklist, audio, contact
@@ -64,6 +62,8 @@ struct AttachmentMenuSheet: View {
     let onPick: (AttachmentPick) -> Void
     let onSendLocation: (_ coordinate: CLLocationCoordinate2D, _ title: String?, _ address: String?) async -> Bool
     let onSendLiveLocation: (_ location: CLLocation, _ period: Int) async -> Bool
+    let onCreatePoll: (_ question: String, _ description: String?, _ options: [String], _ multiple: Bool, _ anonymous: Bool) async -> Bool
+    let onCreateChecklist: (_ title: String, _ items: [String], _ othersCanAdd: Bool, _ othersCanMark: Bool) async -> Bool
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -73,6 +73,11 @@ struct AttachmentMenuSheet: View {
     @Namespace private var sectionSelection
     /// Раздел под пальцем, пока его ведут по капсуле.
     @State private var hoveredSection: Int?
+    @State private var poll = PollDraft()
+    @State private var checklist = ChecklistDraft()
+    /// Клавиатура поднята (печатают опрос или список) — капсула разделов уходит, как в
+    /// Telegram: над клавиатурой она закрывала бы поля.
+    @State private var keyboardShown = false
 
     private var sections: [Section] {
         Section.allCases.filter { $0 != .poll || allowsPoll }
@@ -90,13 +95,20 @@ struct AttachmentMenuSheet: View {
                 if section == .gallery, !selection.isEmpty {
                     sendSelectionBar
                         .transition(.move(edge: .bottom).combined(with: .opacity))
-                } else {
+                } else if !keyboardShown {
                     sectionBar
                         .transition(.opacity)
                 }
             }
         }
         .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: selection.isEmpty)
+        .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: keyboardShown)
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            keyboardShown = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            keyboardShown = false
+        }
         .presentationDetents([.medium, .large], selection: $detent)
         .presentationDragIndicator(.visible)
         .presentationContentInteraction(.scrolls)
@@ -112,12 +124,47 @@ struct AttachmentMenuSheet: View {
                 .font(.headline)
                 .contentTransition(.numericText())
             Spacer()
-            // Место под кнопку слева, чтобы заголовок стоял по центру.
-            Color.clear.frame(width: ControlHeight.xl, height: ControlHeight.xl)
+            trailingAction
         }
         .padding(.horizontal, Spacing.lg)
         .padding(.top, Spacing.lg)
         .padding(.bottom, Spacing.sm)
+    }
+
+    /// Справа в шапке: «Отправить» у опроса и списка, у остальных — место под кнопку,
+    /// чтобы заголовок стоял по центру.
+    @ViewBuilder
+    private var trailingAction: some View {
+        switch section {
+        case .poll:
+            sendButton(canSend: poll.canCreate, isSending: poll.isSending) {
+                if await poll.submit(onCreatePoll) { dismiss() }
+            }
+        case .checklist:
+            sendButton(canSend: checklist.canCreate, isSending: checklist.isSending) {
+                if await checklist.submit(onCreateChecklist) { dismiss() }
+            }
+        default:
+            Color.clear.frame(width: ControlHeight.xl, height: ControlHeight.xl)
+        }
+    }
+
+    private func sendButton(canSend: Bool, isSending: Bool, action: @escaping () async -> Void) -> some View {
+        Button {
+            Task { await action() }
+        } label: {
+            ZStack {
+                Text(String(localized: "chats.send", defaultValue: "Отправить"))
+                    .opacity(isSending ? 0 : 1)
+                if isSending { ProgressView() }
+            }
+            .font(Typography.body.weight(.semibold))
+            .frame(minHeight: ControlHeight.xl)
+            .padding(.horizontal, Spacing.lg)
+        }
+        .glassButton()
+        .buttonBorderShape(.capsule)
+        .disabled(!canSend)
     }
 
     @ViewBuilder
@@ -152,8 +199,10 @@ struct AttachmentMenuSheet: View {
                 onPick: { pick(.contactCard($0)) },
                 onSystemPicker: { pick(.contact) }
             )
-        default:
-            Color.clear
+        case .poll:
+            PollForm(draft: poll)
+        case .checklist:
+            ChecklistForm(draft: checklist)
         }
     }
 
@@ -300,16 +349,11 @@ struct AttachmentMenuSheet: View {
     }
 
     private func select(_ item: Section) {
-        switch item {
-        case .poll: pick(.poll)
-        case .checklist: pick(.checklist)
-        default:
-            withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) {
-                section = item
-                // Любой раздел открывается компактным листом, как в Telegram; выше —
-                // потянув за ручку.
-                detent = .medium
-            }
+        withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) {
+            section = item
+            // Любой раздел открывается компактным листом, как в Telegram; выше —
+            // потянув за ручку.
+            detent = .medium
         }
     }
 
