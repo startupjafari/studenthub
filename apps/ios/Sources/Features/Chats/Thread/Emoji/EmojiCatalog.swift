@@ -18,7 +18,7 @@ enum EmojiCatalog {
     /// Быстрые реакции над пузырём — как в Telegram.
     static let quickReactions = ["👍", "❤️", "😂", "🔥", "👎", "🙏"]
 
-    static let categories: [Category] = build()
+    static let categories: [Category] = unique(build())
 
     static var all: [String] { categories.flatMap(\.emoji) }
 
@@ -77,6 +77,21 @@ enum EmojiCatalog {
                 emoji: flags()
             ),
         ]
+    }
+
+    /// Диапазоны разделов местами пересекаются (💪 и 🖐 лежат в блоке предметов):
+    /// emoji остаётся в первом разделе, где встретился, — иначе одна картинка
+    /// стоит в панели дважды, и поиск находит её два раза.
+    private static func unique(_ categories: [Category]) -> [Category] {
+        var seen = Set<String>()
+        return categories.map { category in
+            Category(
+                id: category.id,
+                title: category.title,
+                symbol: category.symbol,
+                emoji: category.emoji.filter { seen.insert($0).inserted }
+            )
+        }
     }
 
     /// Emoji из диапазонов в порядке Unicode, без повторов. Символы, которые по

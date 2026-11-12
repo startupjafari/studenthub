@@ -13115,6 +13115,98 @@
         }
       }
     },
+    "validation.chats.reactionEmoji": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Реакция — один эмодзи"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Реакция — бір эмодзи"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A reaction must be a single emoji"
+          }
+        }
+      }
+    },
+    "validation.chats.contactEmpty": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите хотя бы один телефон или адрес почты"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кемінде бір телефон немесе пошта мекенжайын көрсетіңіз"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add at least one phone number or email address"
+          }
+        }
+      }
+    },
+    "validation.chats.stickerSlug": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Короткое имя: латиница, цифры, «-» и «_», от 2 до 64 знаков"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қысқа атау: латын әріптері, сандар, «-» және «_», 2–64 таңба"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Short name: Latin letters, digits, “-” and “_”, 2 to 64 characters"
+          }
+        }
+      }
+    },
+    "validation.chats.livePeriod": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Трансляция: 15 минут, 1 час или 8 часов"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Трансляция: 15 минут, 1 сағат немесе 8 сағат"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live location: 15 minutes, 1 hour or 8 hours"
+          }
+        }
+      }
+    },
     "validation.chats.spoilerIndexes": {
       "extractionState": "manual",
       "localizations": {

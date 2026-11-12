@@ -85,7 +85,9 @@ export function DatePicker({
         <PopoverPrimitive.Trigger asChild disabled={disabled}>
           <button
             type="button"
-            aria-label={ariaLabel}
+            // Подпись поля впереди, видимое значение следом: имя кнопки обязано содержать
+            // видимый текст (WCAG 2.5.3) — иначе голосовое «нажми 12 ноября» её не найдёт.
+            aria-label={ariaLabel ? `${ariaLabel}: ${label}` : undefined}
             aria-invalid={ariaInvalid}
             className={cn(
               'flex w-full items-center gap-2 rounded-xl border border-input bg-background pr-9 pl-3 text-left outline-none transition-[color,box-shadow,border-color] hover:border-ring/50 focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-4 aria-invalid:ring-destructive/15 dark:bg-input/30',
