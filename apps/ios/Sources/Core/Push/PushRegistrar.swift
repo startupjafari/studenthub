@@ -20,6 +20,8 @@ struct PushRegistrar: Sendable {
     /// работает дальше без них.
     @MainActor
     func requestAuthorization() async {
+        // UI-тесты: системный запрос перекрыл бы экран в каждом сценарии.
+        guard !UITestHooks.suppressesPushPrompt else { return }
         let center = UNUserNotificationCenter.current()
         let granted = (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) ?? false
         guard granted else { return }
