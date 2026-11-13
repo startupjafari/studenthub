@@ -371,7 +371,9 @@ struct StatGrid<Content: View>: View {
     var body: some View {
         let count = typeSize.isAccessibilitySize ? 1 : 2
         LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(), spacing: Spacing.md), count: count),
+            // По верху, как `DashboardTileGrid`: плитка без пояснения ниже соседней, и по
+            // центру она «плавала» относительно неё.
+            columns: Array(repeating: GridItem(.flexible(), spacing: Spacing.md, alignment: .top), count: count),
             spacing: Spacing.md,
             content: content
         )
