@@ -31,6 +31,9 @@ class MockUITestCase: XCTestCase {
     var scenario: Scenario { .student }
     /// Уменьшение движения — для набора `ReduceMotionUITests`.
     var reduceMotion: Bool { false }
+    /// Дополнительное окружение приложения — для наборов с особыми условиями (флаги
+    /// второй волны, медленная сеть).
+    var extraEnvironment: [String: String] { [:] }
 
     /// Ожидание по умолчанию: симулятор на раннере CI бывает медленным.
     let timeout: TimeInterval = 15
@@ -41,6 +44,12 @@ class MockUITestCase: XCTestCase {
         app.launchEnvironment["SH_UITEST_MOCK"] = "1"
         app.launchEnvironment["SH_UITEST_SCENARIO"] = scenario.rawValue
         if reduceMotion { app.launchEnvironment["SH_UITEST_REDUCE_MOTION"] = "1" }
+        // Положение флагов второй волны для всего прогона (`SH_PERF_FLAGS=all=0` у
+        // scripts/test.sh) — сценарии проверяются в обоих положениях.
+        if let flags = ProcessInfo.processInfo.environment["SH_PERF_FLAGS"], !flags.isEmpty {
+            app.launchEnvironment["SH_PERF_FLAGS"] = flags
+        }
+        for (key, value) in extraEnvironment { app.launchEnvironment[key] = value }
         app.launchArguments += ["-AppleLanguages", "(ru)", "-AppleLocale", "ru_RU"]
         // Системные запросы (фото, микрофон) — разрешаем, чтобы не перекрыли экран.
         addUIInterruptionMonitor(withDescription: "Системный запрос") { alert in
@@ -61,6 +70,13 @@ class MockUITestCase: XCTestCase {
             attachScreenshot("конец теста")
         }
         app?.terminate()
+    }
+
+    /// Перезапустить приложение с другим окружением (чистое состояние, как на старте).
+    func relaunch(environment: [String: String]) {
+        app.terminate()
+        for (key, value) in environment { app.launchEnvironment[key] = value }
+        app.launch()
     }
 
     // MARK: - Оболочка

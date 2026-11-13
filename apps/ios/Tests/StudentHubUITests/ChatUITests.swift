@@ -42,6 +42,46 @@ final class ChatUITests: MockUITestCase {
         XCTAssertTrue(waitForHittable(tab("Чаты")), "панель вкладок не вернулась")
     }
 
+    /// Клавиатура поднимает поле ввода ровно над собой, а лента уезжает вместе с ним:
+    /// последнее сообщение остаётся видно над полем.
+    func testComposerRidesAboveKeyboard() throws {
+        openChat()
+        let last = app.descendants(matching: .any)["message.bubble.chat-1-m\(Self.firstChatMessages)"].firstMatch
+        XCTAssertTrue(waitForHittable(last))
+        composer.tap()
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: timeout), "клавиатура не появилась")
+        XCTAssertTrue(waitForHittable(composer))
+        settle()
+
+        let keyboardTop = keyboard.frame.minY
+        XCTAssertLessThanOrEqual(composer.frame.maxY, keyboardTop + 1, "поле ввода под клавиатурой")
+        XCTAssertGreaterThan(composer.frame.maxY, keyboardTop - 80, "поле ввода оторвалось от клавиатуры")
+        XCTAssertTrue(last.isHittable, "последнее сообщение спряталось за клавиатурой")
+        XCTAssertLessThanOrEqual(last.frame.maxY, composer.frame.minY + 1, "последнее сообщение под полем ввода")
+    }
+
+    /// Ленту тянут вниз через клавиатуру — клавиатура уходит (интерактивное скрытие), поле
+    /// ввода возвращается к низу экрана.
+    func testDraggingMessagesDownHidesKeyboard() throws {
+        openChat()
+        composer.tap()
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: timeout), "клавиатура не появилась")
+        let raised = composer.frame.minY
+
+        let messages = app.descendants(matching: .any)["chat.messages"].firstMatch
+        let start = messages.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+        let end = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.98))
+        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .default, thenHoldForDuration: 0)
+
+        XCTAssertTrue(waitForDisappearance(keyboard), "клавиатура не ушла за пальцем")
+        XCTAssertTrue(waitForHittable(composer))
+        settle()
+        XCTAssertGreaterThan(composer.frame.minY, raised + 100, "поле ввода не вернулось к низу")
+        assertOnScreen(composer, "поле ввода после скрытия клавиатуры")
+    }
+
     func testBackButtonReturnsToList() throws {
         openChat()
         backButton.tap()
