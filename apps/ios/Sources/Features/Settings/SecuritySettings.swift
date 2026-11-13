@@ -390,9 +390,7 @@ private struct TwoFactorView: View {
 
     /// `qr` приходит картинкой в `data:` URL — показываем как есть, без своей генерации.
     static func image(fromDataURL string: String?) -> UIImage? {
-        guard let string, let comma = string.firstIndex(of: ",") else { return nil }
-        guard let data = Data(base64Encoded: String(string[string.index(after: comma)...])) else { return nil }
-        return UIImage(data: data)
+        DataURLImage.image(from: string)
     }
 }
 

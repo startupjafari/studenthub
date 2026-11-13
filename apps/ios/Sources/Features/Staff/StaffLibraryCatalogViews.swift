@@ -939,10 +939,7 @@ enum StaffLabelSheet {
 
     /// QR приходит PNG в data-URL.
     private static func qrImage(_ dataURL: String) -> UIImage? {
-        guard let comma = dataURL.firstIndex(of: ",") else { return nil }
-        let base64 = String(dataURL[dataURL.index(after: comma)...])
-        guard let data = Data(base64Encoded: base64) else { return nil }
-        return UIImage(data: data)
+        DataURLImage.image(from: dataURL)
     }
 
     /// Обложка: обрезка по центру до 2:3 и уменьшение до 600 пикселей по ширине.

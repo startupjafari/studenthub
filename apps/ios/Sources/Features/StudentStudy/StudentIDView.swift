@@ -356,8 +356,6 @@ private struct StudentQRImage: View {
     }
 
     private static func decodeDataURL(_ raw: String?) -> UIImage? {
-        guard let raw, let comma = raw.firstIndex(of: ",") else { return nil }
-        guard let data = Data(base64Encoded: String(raw[raw.index(after: comma)...])) else { return nil }
-        return UIImage(data: data)
+        DataURLImage.image(from: raw)
     }
 }
