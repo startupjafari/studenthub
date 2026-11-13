@@ -41,6 +41,8 @@ struct MessageListView: UIViewControllerRepresentable {
     let onAction: (MessageAction, MessageRecord) -> Void
     /// Долгое нажатие на пузырь — меню с реакциями.
     var onMenu: (MessageTimeline.Item) -> Void = { _ in }
+    /// Лента впервые показана человеку (конец замера `ChatOpen`).
+    var onFirstShown: () -> Void = {}
 
     func makeUIViewController(context: Context) -> MessageListViewController {
         let controller = MessageListViewController()
@@ -66,6 +68,7 @@ struct MessageListView: UIViewControllerRepresentable {
         controller.onBottomChange = onBottomChange
         controller.onDayTap = onDayTap
         controller.followsBottom = followsBottom
+        controller.onFirstShown = onFirstShown
     }
 }
 
@@ -78,6 +81,7 @@ final class MessageListViewController: UIViewController {
     var onMenu: ((MessageTimeline.Item) -> Void)?
     var capabilities: ((MessageRecord) -> MessageCapabilities)?
     var onBottomChange: ((Bool) -> Void)?
+    var onFirstShown: (() -> Void)?
     private var bubbleContext = BubbleContext()
     private var selection: Set<String>?
     private var appliedBottomToken = 0
@@ -433,6 +437,7 @@ final class MessageListViewController: UIViewController {
     /// Показать ленту после первой расстановки.
     private func reveal() {
         guard collectionView.alpha < 1 else { return }
+        onFirstShown?()
         guard !reduceMotion else {
             collectionView.alpha = 1
             return
@@ -1274,6 +1279,9 @@ final class MessageListLayout: UICollectionViewCompositionalLayout {
         else { return context }
         let delta = preferred.frame.height - original.frame.height
         guard abs(delta) > 0.5 else { return context }
+        // Ячейка пересчитала высоту после показа: оценка разошлась с настоящей. Сколько
+        // таких событий на прокрутку — главный счётчик кеша высот (план, шаг 2.5).
+        Signposts.chats.emitEvent("CellRemeasure")
         let inset = collectionView.adjustedContentInset
         let offset = collectionView.contentOffset.y
         guard original.frame.minY < offset + inset.top - 0.5 else { return context }

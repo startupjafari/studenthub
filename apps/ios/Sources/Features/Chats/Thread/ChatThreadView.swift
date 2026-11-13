@@ -205,7 +205,8 @@ struct ChatThreadView: View {
                     onReachTop: { Task { await model.loadOlder() } },
                     onReachBottom: { Task { await model.loadNewer() } },
                     onAction: { action, message in handle(action, message: message, model: model) },
-                    onMenu: { item in openMenu(item, model: model) }
+                    onMenu: { item in openMenu(item, model: model) },
+                    onFirstShown: { ChatOpenSignpost.end(chatID: chatID) }
                 )
                 .overlay {
                     // Открытие ждёт первую страницу: вместо одинокого превью — индикатор.
@@ -399,13 +400,23 @@ struct ChatThreadView: View {
         )
     }
 
+    /// История чата из сети. Тестовый чат для замеров (только Debug) сервер не знает —
+    /// его история целиком в локальной базе.
+    private static func messagesAPI(for chatID: String) -> ChatMessagesFetching {
+        #if DEBUG
+            if PerfFixture.isFixture(chatID) { return PerfFixture.OfflineMessages() }
+        #endif
+        return ChatsAPI()
+    }
+
     private func withLifecycle<V: View>(_ view: V) -> some View {
         view
         .task {
             guard model == nil else { return }
+            ChatOpenSignpost.begin(chatID: chatID)
             KeyboardFrame.shared.start()
             hiddenPinned = UserDefaults.standard.string(forKey: Self.hiddenPinnedKey(chatID))
-            let created = ChatThreadModel(chatID: chatID, viewerID: viewerID)
+            let created = ChatThreadModel(chatID: chatID, viewerID: viewerID, api: Self.messagesAPI(for: chatID))
             model = created
             created.start()
             await created.enter()

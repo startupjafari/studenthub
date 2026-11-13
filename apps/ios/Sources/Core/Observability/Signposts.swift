@@ -22,3 +22,21 @@ enum Signposts {
     /// Кеш экранов: чтение сохранённого, попадание или промах.
     static let screenCache = OSSignposter(subsystem: subsystem, category: "ScreenCache")
 }
+
+/// Открытие чата (`ChatOpen`): от появления экрана переписки до первого показанного кадра
+/// ленты. Интервал на чат один: повторное появление того же экрана, пока лента ещё не
+/// показалась, нового не открывает.
+@MainActor
+enum ChatOpenSignpost {
+    private static var open: [String: OSSignpostIntervalState] = [:]
+
+    static func begin(chatID: String) {
+        guard open[chatID] == nil else { return }
+        open[chatID] = Signposts.chats.beginInterval("ChatOpen")
+    }
+
+    static func end(chatID: String) {
+        guard let state = open.removeValue(forKey: chatID) else { return }
+        Signposts.chats.endInterval("ChatOpen", state)
+    }
+}
