@@ -119,6 +119,29 @@ final class RealtimeCoordinatorTests: XCTestCase {
         XCTAssertNotNil(stored)
     }
 
+    /// Эхо своего сообщения с ключом повтора подтверждает неотправленную строку, а не
+    /// вставляет вторую (P0-1 аудита).
+    func testEchoWithNonceConfirmsPendingRow() async throws {
+        let (database, coordinator, transport) = try await make()
+        let own = MessageRecord(
+            id: "local-1", remoteId: nil, chatId: "c-1", seq: nil, senderId: "u-me", content: "текст",
+            replyToId: nil, replyQuote: nil, systemType: nil, editedAt: nil, deletedAt: nil,
+            pinnedAt: nil, createdAt: Date(timeIntervalSince1970: 1_800_000_400), sendState: .pending
+        )
+        try await database.writer.write { db in try own.insert(db) }
+
+        await transport.emit(.messageNew(message(id: "m-2", seq: 2, sender: "u-me"), nonce: "local-1"))
+        await settle()
+
+        try await database.reader.read { db in
+            let rows = try MessageRecord.fetchAll(db)
+            XCTAssertEqual(rows.map(\.id), ["local-1"])
+            XCTAssertEqual(rows.first?.remoteId, "m-2")
+            XCTAssertEqual(rows.first?.sendState, .sent)
+        }
+        _ = coordinator
+    }
+
     // MARK: - Помощники
 
     private func make(unread: Int = 0) async throws -> (AppDatabase, RealtimeCoordinator, StubTransport) {
