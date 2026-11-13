@@ -277,7 +277,10 @@ struct ChatThreadView: View {
                 }
                 }
                 .frame(maxWidth: .infinity)
-                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { topBars = $0 }
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+                    ScrollProbe.note("topBars maxY \(Int(topBars.maxY)) -> \(Int(frame.maxY)) failure=\(model.failure != nil)")
+                    topBars = frame
+                }
 
                 if let search, showsSearchList {
                     ChatSearchResultsList(search: search, viewerID: viewerID) { position in

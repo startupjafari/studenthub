@@ -98,6 +98,14 @@ final class MessageListViewController: UIViewController {
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Date, String>!
     private var itemsByID: [String: MessageTimeline.Item] = [:]
+    /// Порядок строк по дням — для ожидаемых высот в раскладке (её замыкание секции
+    /// получает только номер секции).
+    private var sectionItemIDs: [[String]] = []
+    /// Датчик скачков (только Debug): прошлое смещение ленты.
+    private var probeLastOffset: CGFloat = 0
+    /// Замеренные высоты строк — общие для всех открытий переписки: второй раз та же
+    /// история листается с точными высотами.
+    private static let measuredHeights = MessageHeightCache()
     private var lastPageRequest: CFTimeInterval = 0
     private var hasContent = false
     private var lastBoundsHeight: CGFloat = 0
@@ -228,11 +236,16 @@ final class MessageListViewController: UIViewController {
     /// Отступ сверху — от верха ленты до низа панелей над ней. Считается в окне: где
     /// стоит сама лента, знает только UIKit.
     private func applyTopInset() {
-        guard collectionView.window != nil else { return }
-        let top = collectionView.convert(CGPoint.zero, to: nil).y
+        guard collectionView.window != nil, let host = collectionView.superview else { return }
+        // Верх ленты на экране — по её рамке в родителе. Не `collectionView.convert(.zero)`:
+        // у прокручиваемого списка точка (0, 0) — начало содержимого, она едет вместе с
+        // прокруткой, и отступ сверху пересчитывался в тысячи точек посреди взмаха —
+        // лента скакала (замер датчиком на устройстве: 98 → 2206, 29 445 → 29 466 pt).
+        let top = host.convert(collectionView.frame.origin, to: nil).y
         let inset = max(0, topObstruction - top)
         guard abs(collectionView.contentInset.top - inset) > 0.5 else { return }
         let keepsBottom = hasContent && !needsInitialPosition && (isNearBottom || sticksToBottom)
+        ScrollProbe.note("inset.top \(Int(collectionView.contentInset.top)) -> \(Int(inset)) keepsBottom=\(keepsBottom) offset=\(Int(collectionView.contentOffset.y))")
         collectionView.contentInset.top = inset
         collectionView.verticalScrollIndicatorInsets.top = inset
         if keepsBottom { scrollToBottom(animated: animatingToBottom && !reduceMotion) }
@@ -243,6 +256,7 @@ final class MessageListViewController: UIViewController {
         loadViewIfNeeded()
         guard abs(collectionView.contentInset.bottom - inset) > 0.5 else { return }
         let keepsBottom = hasContent && !needsInitialPosition && (isNearBottom || sticksToBottom)
+        ScrollProbe.note("inset.bottom \(Int(collectionView.contentInset.bottom)) -> \(Int(inset)) keepsBottom=\(keepsBottom)")
         collectionView.contentInset.bottom = inset
         collectionView.verticalScrollIndicatorInsets.bottom = inset
         if keepsBottom { scrollToBottom(animated: animatingToBottom && !reduceMotion) }
@@ -293,6 +307,7 @@ final class MessageListViewController: UIViewController {
         itemsByID = Dictionary(
             uniqueKeysWithValues: days.flatMap(\.items).map { ($0.id, $0) }
         )
+        sectionItemIDs = days.map { $0.items.map(\.id) }
 
         var snapshot = NSDiffableDataSourceSnapshot<Date, String>()
         snapshot.appendSections(days.map(\.id))
@@ -339,6 +354,7 @@ final class MessageListViewController: UIViewController {
         let inPlace = !changed.isEmpty && snapshot.itemIdentifiers == previousOrder
 
         let itemCount = snapshot.numberOfItems
+        ScrollProbe.note("apply items \(previousOrder.count) -> \(itemCount) firstChanged=\(previousOrder.first != snapshot.itemIdentifiers.first) lastChanged=\(previousOrder.last != snapshot.itemIdentifiers.last) reconfigured=\(changed.count) tracking=\(collectionView.isTracking) decelerating=\(collectionView.isDecelerating)")
         applyingSnapshot = true
         dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
             Signposts.chats.endInterval("SnapshotApply", signpost, "items: \(itemCount)")
@@ -380,6 +396,7 @@ final class MessageListViewController: UIViewController {
             let grown = self.collectionView.contentSize.height - oldHeight
             if grown > 0, oldOffset < grown {
                 // Выросло сверху — компенсируем, иначе лента прыгнет под пальцем.
+                ScrollProbe.note("grown compensation +\(Int(grown))")
                 self.collectionView.contentOffset.y = oldOffset + grown
             }
         }
@@ -468,6 +485,7 @@ final class MessageListViewController: UIViewController {
         let highest = max(lowest, collectionView.contentSize.height - collectionView.bounds.height + inset.bottom)
         let target = min(max(frame.minY - pinned.distance, lowest), highest)
         if abs(target - collectionView.contentOffset.y) > 0.5 {
+            ScrollProbe.note("restore pinned \(Int(collectionView.contentOffset.y)) -> \(Int(target)) decelerating=\(collectionView.isDecelerating)")
             collectionView.contentOffset.y = target
         }
         return true
@@ -485,8 +503,9 @@ final class MessageListViewController: UIViewController {
         // заголовки с замером SwiftUI на устройстве вставали мимо: дата висела у нижнего
         // края или посреди чужого дня поверх пузырей, между датой и сообщениями зияли
         // пустоты. Дату у верха при прокрутке рисует `floatingDate` поверх ленты.
-        let compositional = MessageListLayout { _, environment in
-            let section = NSCollectionLayoutSection.list(using: configuration, layoutEnvironment: environment)
+        let compositional = MessageListLayout { [weak self] sectionIndex, environment in
+            let section = self?.estimatedSection(sectionIndex)
+                ?? NSCollectionLayoutSection.list(using: configuration, layoutEnvironment: environment)
             let header = NSCollectionLayoutBoundarySupplementaryItem(
                 layoutSize: NSCollectionLayoutSize(
                     widthDimension: .fractionalWidth(1),
@@ -499,6 +518,7 @@ final class MessageListViewController: UIViewController {
             return section
         }
 
+        compositional.onMeasured = { [weak self] indexPath, height in self?.recordHeight(height, at: indexPath) }
         let layout: UICollectionViewLayout = PerformanceFlags.chatHeightCache ? makeStackLayout() : compositional
         let list = MessageCollectionView(frame: .zero, collectionViewLayout: layout)
         list.onContentHeightChange = { [weak self] old in self?.contentHeightChanged(from: old) }
@@ -543,6 +563,62 @@ final class MessageListViewController: UIViewController {
         floatingDate.isHidden = true
         floatingDate.onTap = { [weak self] day in self?.onDayTap?(day) }
         view.addSubview(floatingDate)
+    }
+
+    // MARK: - Ожидаемые высоты
+
+    /// Секция дня, где у каждой строки своя ожидаемая высота: точная из кеша замеров или
+    /// оценка по содержимому. Список (`.list`) считает все строки по 44 pt, и при быстрой
+    /// прокрутке через ни разу не показанные строки каждая домеривалась (44 → 200) прямо
+    /// на экране — лента скакала. `nil` — флаг выключен или секции нет.
+    private func estimatedSection(_ index: Int) -> NSCollectionLayoutSection? {
+        guard PerformanceFlags.chatEstimatedHeights, sectionItemIDs.indices.contains(index) else { return nil }
+        let ids = sectionItemIDs[index]
+        guard !ids.isEmpty else { return nil }
+        let width = collectionView?.bounds.width ?? 0
+        var total: CGFloat = 0
+        let items = ids.map { id -> NSCollectionLayoutItem in
+            let height = expectedHeight(id: id, width: width)
+            total += height
+            return NSCollectionLayoutItem(
+                layoutSize: NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .estimated(height))
+            )
+        }
+        let group = NSCollectionLayoutGroup.vertical(
+            layoutSize: NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .estimated(total)),
+            subitems: items
+        )
+        return NSCollectionLayoutSection(group: group)
+    }
+
+    private func heightKey(id: String, width: CGFloat) -> MessageHeightKey? {
+        guard let item = itemsByID[id] else { return nil }
+        var hasher = Hasher()
+        hasher.combine(item)
+        hasher.combine(selection != nil)
+        hasher.combine(bubbleContext.isGroup)
+        return MessageHeightKey(
+            id: id,
+            revision: hasher.finalize(),
+            width: Int(width),
+            category: traitCollection.preferredContentSizeCategory.rawValue
+        )
+    }
+
+    private func expectedHeight(id: String, width: CGFloat) -> CGFloat {
+        if let key = heightKey(id: id, width: width), let known = Self.measuredHeights.height(for: key) {
+            return CGFloat(known)
+        }
+        guard let item = itemsByID[id] else { return 44 }
+        return CGFloat(MessageHeightEstimate.estimate(estimateInput(for: item), metrics: Self.estimateMetrics(width: width)))
+    }
+
+    /// Ячейка измерила себя — запоминаем: в следующий раз строка встанет сразу своей высоты.
+    private func recordHeight(_ height: CGFloat, at indexPath: IndexPath) {
+        guard let id = dataSource?.itemIdentifier(for: indexPath),
+            let key = heightKey(id: id, width: collectionView.bounds.width)
+        else { return }
+        Self.measuredHeights.store(Double(height), for: key)
     }
 
     /// Своя раскладка с кешем высот (шаг 2.5, флаг `chatHeightCache`).
@@ -830,6 +906,7 @@ final class MessageListViewController: UIViewController {
     /// Плавно — пружиной с живой целью (`MessageListGlide`), мгновенная установка
     /// обрывает идущую пружину.
     private func scrollToBottom(animated: Bool) {
+        ScrollProbe.note("scrollToBottom animated=\(animated) offset=\(Int(collectionView.contentOffset.y))")
         if animated {
             glide.start()
             return
@@ -1124,6 +1201,13 @@ extension MessageListViewController: UICollectionViewDataSourcePrefetching {
 
 extension MessageListViewController: UICollectionViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        #if DEBUG
+            let jump = scrollView.contentOffset.y - probeLastOffset
+            if abs(jump) > 200 {
+                ScrollProbe.note("JUMP \(Int(probeLastOffset)) -> \(Int(scrollView.contentOffset.y)) (\(Int(jump))) tracking=\(scrollView.isTracking) decelerating=\(scrollView.isDecelerating) contentHeight=\(Int(scrollView.contentSize.height))")
+            }
+            probeLastOffset = scrollView.contentOffset.y
+        #endif
         guard hasContent else { return }
         reportBottom()
         // Дата возвращается, когда ленту листает человек. Сдвиг самой программой (досчёт
@@ -1350,6 +1434,19 @@ final class FloatingDateView: UIView {
 /// реакции и отправке, пока сам пузырь рос плавно. Низ держит лента пружиной
 /// (`MessageListViewController.contentHeightChanged`).
 final class MessageListLayout: UICollectionViewCompositionalLayout {
+    /// Ячейка измерила себя (высота — её настоящая). Для кеша ожидаемых высот.
+    var onMeasured: ((IndexPath, CGFloat) -> Void)?
+
+    override func shouldInvalidateLayout(
+        forPreferredLayoutAttributes preferred: UICollectionViewLayoutAttributes,
+        withOriginalAttributes original: UICollectionViewLayoutAttributes
+    ) -> Bool {
+        if original.representedElementCategory == .cell {
+            onMeasured?(original.indexPath, preferred.frame.height)
+        }
+        return super.shouldInvalidateLayout(forPreferredLayoutAttributes: preferred, withOriginalAttributes: original)
+    }
+
     override func invalidationContext(
         forPreferredLayoutAttributes preferred: UICollectionViewLayoutAttributes,
         withOriginalAttributes original: UICollectionViewLayoutAttributes
@@ -1372,6 +1469,7 @@ final class MessageListLayout: UICollectionViewCompositionalLayout {
         guard original.frame.minY < offset + inset.top - 0.5 else { return context }
         // Не выше начала ленты.
         context.contentOffsetAdjustment = CGPoint(x: 0, y: max(delta, -(offset + inset.top)))
+        ScrollProbe.note("remeasure above top \(Int(original.frame.height)) -> \(Int(preferred.frame.height)) adjust=\(Int(context.contentOffsetAdjustment.y))")
         return context
     }
 }

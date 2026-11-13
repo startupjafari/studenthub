@@ -1336,6 +1336,7 @@ final class ChatThreadModel {
     @MainActor
     private func setFloor(_ newFloor: Int?) {
         guard newFloor != floor else { return }
+        ScrollProbe.note("floor \(floor.map(String.init) ?? "nil") -> \(newFloor.map(String.init) ?? "nil")")
         floor = newFloor
         observeMessages()
     }
