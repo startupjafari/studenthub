@@ -130,10 +130,14 @@ final class MessageListViewController: UIViewController {
     /// День, чья собственная строка даты спрятана под плавающей: иначе на подъезде к
     /// верху их было бы видно две, со сдвигом.
     private var coveredDay: Date?
-    /// Идёт анимированная прокрутка к низу. Смена высоты ленты на её ходу (поле ввода
-    /// вернулось после записи, ушла клавиатура) перенацеливает её, а не обрывает
-    /// мгновенным прыжком.
-    private var animatingToBottom = false
+    /// Плавная прокрутка к низу с живой целью: смена высоты ленты или содержимого на её
+    /// ходу (новое сообщение досчитало высоту, вернулось поле ввода, выросла строка
+    /// реакций) уводит её к новому низу без остановки и второго рывка.
+    private let glide = MessageListGlide()
+    private var animatingToBottom: Bool { glide.isRunning }
+    /// Идёт применение среза: смену высоты содержимого в это время разбирает сам срез —
+    /// догрузка снизу в окне истории не должна утаскивать ленту за собой.
+    private var applyingSnapshot = false
     /// Ответ свайпом пузыря влево, как в Telegram.
     private let swipeToReply = SwipeToReply()
     /// Долгое нажатие на пузырь — меню; то же касание дальше выбирает в нём пункт.
@@ -155,6 +159,17 @@ final class MessageListViewController: UIViewController {
         super.viewDidLoad()
         configureCollectionView()
         configureDataSource()
+        glide.scrollView = collectionView
+        glide.target = { [weak self] in self?.bottomOffset ?? 0 }
+        glide.onFinish = { [weak self] in
+            self?.reportBottom()
+            self?.scheduleHeaderHide()
+        }
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        glide.stop()
     }
 
     /// Высота ленты меняется под клавиатуру, растущее поле ввода, полосы ответа и
@@ -313,10 +328,16 @@ final class MessageListViewController: UIViewController {
             needsInitialPosition = true
         }
 
+        // Лента та же, сменилось содержимое пузырей (реакция, правка, подтверждение
+        // отправки): высота может смениться только у них.
+        let inPlace = !changed.isEmpty && snapshot.itemIdentifiers == previousOrder
+
         let itemCount = snapshot.numberOfItems
+        applyingSnapshot = true
         dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
             Signposts.chats.endInterval("SnapshotApply", signpost, "items: \(itemCount)")
             guard let self else { return }
+            self.applyingSnapshot = false
             defer {
                 // Срез мог дописать ленту снизу без прокрутки — «у низа» пересчитываем.
                 self.reportBottom()
@@ -332,14 +353,20 @@ final class MessageListViewController: UIViewController {
             // иначе каждая страница, синхронизация и отметка о прочтении утягивали ленту
             // к низу из-под пальца, как только человек оказывался рядом с ним.
             let interacting = self.collectionView.isTracking || self.collectionView.isDecelerating
-            if !interacting, self.sticksToBottom || (wasAtBottom && followed) {
-                self.sticksToBottom = true
-                // Плавно — только когда в хвост пришло новое сообщение. Остальное (правка,
-                // прочтение, реакция, догрузка) держит низ без анимации: лента не плывёт
-                // на глазах. Идущую к низу анимацию (своя отправка) срез не обрывает
-                // мгновенной установкой — она перенацеливается на новый низ.
+            // Пузырь сменил высоту на месте (строка реакций, правка) — соседи под ним
+            // доезжают пружиной вместе с ним, а не прыгают на всю разницу разом.
+            if inPlace, !interacting, !self.reduceMotion { self.animateLayout() }
+            // Сменилась высота пузыря у низа — низ держим и в окне истории: новых
+            // сообщений этот срез не принёс, уезжать некуда.
+            let keepsBottom = wasAtBottom && (followed || inPlace)
+            if !interacting, self.sticksToBottom || keepsBottom {
+                if followed { self.sticksToBottom = self.sticksToBottom || wasAtBottom }
+                // Плавно — новое сообщение в хвосте и смена высоты пузыря (реакция): строка
+                // реакций растёт в пузыре пружиной, и лента поднимается вместе с ней, а не
+                // прыгает. Остальное (прочтение, догрузка) держит низ без анимации. Идущую
+                // к низу прокрутку (своя отправка) срез не обрывает — она едет к новому низу.
                 let tailGrew = snapshot.itemIdentifiers.last != previousOrder.last
-                let animated = (tailGrew && !replaced) || self.animatingToBottom
+                let animated = (tailGrew && !replaced) || inPlace || self.animatingToBottom
                 self.scrollToBottom(animated: animated && !self.reduceMotion)
                 return
             }
@@ -390,6 +417,9 @@ final class MessageListViewController: UIViewController {
                 scrollToBottom(animated: false)
             }
         }
+        // Досчёт высот на расстановке мог тронуть пружину к низу — первая позиция у
+        // непрочитанного должна остаться на месте.
+        glide.stop()
         sticksToBottom = target == nil
         reportBottom()
         reveal()
@@ -462,7 +492,9 @@ final class MessageListViewController: UIViewController {
             return section
         }
 
-        collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        let list = MessageCollectionView(frame: .zero, collectionViewLayout: layout)
+        list.onContentHeightChange = { [weak self] old in self?.contentHeightChanged(from: old) }
+        collectionView = list
         collectionView.backgroundColor = .clear
         collectionView.keyboardDismissMode = .interactive
         // Короткая переписка тоже тянется: жест к началу ленты есть всегда.
@@ -571,7 +603,7 @@ final class MessageListViewController: UIViewController {
             scheduleFocusFinish(for: request, after: .milliseconds(300))
             return
         }
-        animatingToBottom = false
+        glide.stop()
         // Окно только что сменилось целиком или цель далеко — к ней сразу, без пробега
         // по ленте: так переход и выглядит в Telegram. Пробег через недели переписки
         // шёл по оценочным высотам — с пустыми кадрами, наложением пузырей и промахом.
@@ -719,17 +751,57 @@ final class MessageListViewController: UIViewController {
             - collectionView.contentOffset.y
     }
 
-    private func scrollToBottom(animated: Bool) {
-        let bottom = max(
+    /// Смещение, при котором лента стоит на самом низу.
+    private var bottomOffset: CGFloat {
+        max(
             -collectionView.adjustedContentInset.top,
             collectionView.contentSize.height
                 - collectionView.bounds.height
                 + collectionView.adjustedContentInset.bottom
         )
-        let moves = abs(collectionView.contentOffset.y - bottom) > 0.5
-        // Мгновенная установка обрывает идущую анимацию — её конца уже не будет.
-        animatingToBottom = animated && moves
-        collectionView.setContentOffset(CGPoint(x: 0, y: bottom), animated: animated && moves)
+    }
+
+    /// Плавно — пружиной с живой целью (`MessageListGlide`), мгновенная установка
+    /// обрывает идущую пружину.
+    private func scrollToBottom(animated: Bool) {
+        if animated {
+            glide.start()
+            return
+        }
+        glide.stop()
+        let bottom = bottomOffset
+        guard abs(collectionView.contentOffset.y - bottom) > 0.5 else { return }
+        collectionView.setContentOffset(CGPoint(x: 0, y: bottom), animated: false)
+    }
+
+    /// Досчитать высоты сменившихся пузырей в анимации: строки под пузырём едут вслед за
+    /// ним той же пружиной, что растёт его содержимое (`Motion.lively`). Если досчёт уже
+    /// случился при применении среза, анимировать нечего — лента просто остаётся как есть.
+    private func animateLayout() {
+        UIView.animate(
+            springDuration: 0.3,
+            bounce: 0.2,
+            options: [.allowUserInteraction, .beginFromCurrentState]
+        ) {
+            self.collectionView.layoutIfNeeded()
+        }
+    }
+
+    /// Высота содержимого сменилась без прокрутки: пузырь досчитал себя, догрузилась
+    /// картинка, выросла или пропала строка реакций. Стояла лента на низу — едет к новому
+    /// низу пружиной. Раньше низ держала раскладка мгновенным сдвигом на всю разницу: всё
+    /// над пузырём прыгало вверх, пока сам он рос плавно.
+    private func contentHeightChanged(from oldHeight: CGFloat) {
+        guard hasContent, !needsInitialPosition, !applyingSnapshot, pendingFocus == nil,
+            !glide.isRunning, !collectionView.isTracking, !collectionView.isDecelerating
+        else { return }
+        let inset = collectionView.adjustedContentInset
+        let height = collectionView.bounds.height
+        let oldBottom = oldHeight - height + inset.bottom
+        let wasAtBottom = oldHeight + inset.top + inset.bottom > height
+            && collectionView.contentOffset.y >= oldBottom - 1
+        guard sticksToBottom || wasAtBottom else { return }
+        scrollToBottom(animated: !reduceMotion)
     }
 
     // MARK: - Появление нового
@@ -991,7 +1063,7 @@ extension MessageListViewController: UICollectionViewDelegate {
     /// Человек взял ленту пальцем — программа больше не ведёт её к низу и к цели.
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         sticksToBottom = false
-        animatingToBottom = false
+        glide.stop()
         pendingFocus = nil
         headerHideTask?.cancel()
         showHeaders()
@@ -1009,6 +1081,7 @@ extension MessageListViewController: UICollectionViewDelegate {
     /// системного пробега через всю загруженную историю (пустые кадры по пути), сразу.
     func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
         sticksToBottom = false
+        glide.stop()
         pendingFocus = nil
         let top = -scrollView.adjustedContentInset.top
         guard scrollView.contentOffset.y - top > scrollView.bounds.height * Self.nearScreens else { return true }
@@ -1020,16 +1093,12 @@ extension MessageListViewController: UICollectionViewDelegate {
         return false
     }
 
+    /// Конец системной прокрутки — к сообщению (переход, ответ). К низу лента едет своей
+    /// пружиной (`MessageListGlide`): досаживать её на настоящий низ второй анимацией
+    /// больше не нужно.
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
-        animatingToBottom = false
         if pendingFocus != nil {
             finishFocus()
-        } else if sticksToBottom, distanceToBottom > 1 {
-            // Анимация ехала к низу по оценочным высотам, а ячейки по пути посчитали
-            // настоящие — досаживаем ленту на настоящий низ. Заметный остаток (новое
-            // сообщение оказалось выше оценки) — доезжаем плавно: мгновенная досадка
-            // была рывком ленты в конце каждой своей отправки.
-            scrollToBottom(animated: distanceToBottom > 8 && !reduceMotion)
         }
         reportBottom()
         scheduleHeaderHide()
@@ -1185,8 +1254,11 @@ final class FloatingDateView: UIView {
 /// Список ставит ещё не виденные ячейки по оценке (44 точки), а настоящая высота пузыря —
 /// от строки до экрана картинки. Листаешь вверх — ячейка входит сверху, меряет себя, и без
 /// поправки всё под ней (то, что под пальцем) уезжало на разницу: лента прыгала на каждом
-/// сообщении, а на свежей странице истории — на каждом втором. У самого низа поправка
-/// держит низ: догрузившаяся картинка не уводит последнее сообщение под поле ввода.
+/// сообщении, а на свежей странице истории — на каждом втором.
+///
+/// Низ раскладка не держит: мгновенный сдвиг на всю разницу был прыжком ленты при каждой
+/// реакции и отправке, пока сам пузырь рос плавно. Низ держит лента пружиной
+/// (`MessageListViewController.contentHeightChanged`).
 final class MessageListLayout: UICollectionViewCompositionalLayout {
     override func invalidationContext(
         forPreferredLayoutAttributes preferred: UICollectionViewLayoutAttributes,
@@ -1204,11 +1276,7 @@ final class MessageListLayout: UICollectionViewCompositionalLayout {
         guard abs(delta) > 0.5 else { return context }
         let inset = collectionView.adjustedContentInset
         let offset = collectionView.contentOffset.y
-        let contentHeight = collectionView.contentSize.height
-        let bottom = contentHeight - collectionView.bounds.height + inset.bottom
-        let atBottom = offset >= bottom - 1 && contentHeight + inset.top + inset.bottom > collectionView.bounds.height
-        let above = original.frame.minY < offset + inset.top - 0.5
-        guard above || atBottom else { return context }
+        guard original.frame.minY < offset + inset.top - 0.5 else { return context }
         // Не выше начала ленты.
         context.contentOffsetAdjustment = CGPoint(x: 0, y: max(delta, -(offset + inset.top)))
         return context
