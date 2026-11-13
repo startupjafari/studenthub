@@ -7,32 +7,36 @@ final class AuthUITests: MockUITestCase {
 
     private var identifier: XCUIElement { app.textFields["auth.identifier"] }
 
-    private var password: XCUIElement {
-        app.secureTextFields["auth.password"].exists ? app.secureTextFields["auth.password"] : app.textFields["auth.password"]
-    }
-
     private func signIn(login: String, password secret: String) {
         XCTAssertTrue(identifier.waitForExistence(timeout: timeout), "нет экрана входа")
         identifier.tap()
         identifier.typeText(login)
-        type(secret, into: password)
+        type(secret)
         app.buttons["auth.signIn"].tap()
     }
 
-    /// Ввод в `SecureField` теряет первые символы, если фокус и автозаполнение пароля
-    /// ещё не встали, когда раннер начал печатать. Проверяем, сколько символов реально
-    /// в поле (у защищённого поля `value` — точки по числу символов), и при расхождении
-    /// стираем и печатаем заново.
-    private func type(_ secret: String, into field: XCUIElement) {
+    /// Пароль печатается в открытое поле («Показать пароль»). Синтетический ввод XCUITest
+    /// в `SecureField` на симуляторе iOS 26 не доходит: поле в фокусе, клавиатура открыта,
+    /// а в поле пусто — `value` отдаёт плейсхолдер «Пароль». Открытое поле — тот же
+    /// `model.password` и тот же вход, проверяется сценарий, а не системная клавиатура.
+    ///
+    /// Число символов сверяется с `value` и при расхождении ввод повторяется: первые
+    /// символы теряются, если фокус ещё не встал, когда раннер начал печатать.
+    private func type(_ secret: String) {
+        let toggle = app.buttons["auth.passwordVisibility"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: timeout), "нет кнопки «Показать пароль»")
+        toggle.tap()
+        let field = app.textFields["auth.password"]
+        XCTAssertTrue(field.waitForExistence(timeout: timeout), "поле пароля не открылось")
         for _ in 0..<3 {
             field.tap()
-            XCTAssertTrue(field.waitForExistence(timeout: timeout))
             field.typeText(secret)
             let typed = (field.value as? String) ?? ""
-            if typed.count == secret.count { return }
-            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: typed.count + 2))
+            if typed == secret { return }
+            let length = typed == field.placeholderValue ? 0 : typed.count
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: length + 2))
         }
-        XCTFail("пароль не вводится в поле: в нём \((field.value as? String)?.count ?? 0) символов вместо \(secret.count)")
+        XCTFail("пароль не вводится в поле: «\((field.value as? String) ?? "")» вместо \(secret.count) символов")
     }
 
     func testLoginScreenLooksRight() throws {

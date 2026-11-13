@@ -177,6 +177,7 @@ private struct CredentialsStepView: View {
             passwordField
         } accessory: {
             PasswordVisibilityToggle(isVisible: $showsPassword)
+                .accessibilityIdentifier("auth.passwordVisibility")
         }
 
         // Приглашение — в одной строке с «Забыли пароль?»: ссылка нужна раз в жизни, и

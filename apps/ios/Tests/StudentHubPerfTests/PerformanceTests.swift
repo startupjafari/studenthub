@@ -32,16 +32,10 @@ final class PerformanceTests: XCTestCase {
         return options
     }
 
-    /// Панель Liquid Glass отдаёт по два элемента на вкладку — берём нажимаемый
-    /// (как `MockUITestCase.tab`).
+    /// Панель Liquid Glass во время анимации отдаёт по два элемента на вкладку — см.
+    /// `TabBarButtons`.
     private func tab(_ title: String, in app: XCUIApplication) -> XCUIElement {
-        let matches = app.tabBars.buttons.matching(NSPredicate(format: "label == %@", title))
-        if matches.count > 1 {
-            for index in 0..<matches.count where matches.element(boundBy: index).isHittable {
-                return matches.element(boundBy: index)
-            }
-        }
-        return matches.firstMatch
+        TabBarButtons.button(title, in: app)
     }
 
     // MARK: - Запуск

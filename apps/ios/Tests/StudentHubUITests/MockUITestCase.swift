@@ -65,17 +65,10 @@ class MockUITestCase: XCTestCase {
 
     // MARK: - Оболочка
 
-    /// Кнопка вкладки. Панель Liquid Glass (iOS 26) отдаёт в дерево доступности два
-    /// элемента с одной подписью — саму кнопку и её копию под «линзой» выбора, — и
-    /// `buttons[title]` падает на «Multiple matching elements». Берём нажимаемую.
+    /// Кнопка вкладки. Панель Liquid Glass (iOS 26) во время анимации отдаёт по два
+    /// элемента с одной подписью — см. `TabBarButtons`.
     func tab(_ title: String) -> XCUIElement {
-        let matches = app.tabBars.buttons.matching(NSPredicate(format: "label == %@", title))
-        if matches.count > 1 {
-            for index in 0..<matches.count where matches.element(boundBy: index).isHittable {
-                return matches.element(boundBy: index)
-            }
-        }
-        return matches.firstMatch
+        TabBarButtons.button(title, in: app)
     }
 
     /// Дождаться оболочки с вкладками (сценарий `student` или после входа).
