@@ -19,9 +19,22 @@ final class PerformanceFlagUITests: MockUITestCase {
 
     // MARK: - Одна и та же лента
 
-    func testChatLooksTheSameWithFlagsOnAndOff() throws {
-        let off = captureChat(flags: "all=0")
-        let on = captureChat(flags: "all=1")
+    /// Каждый флаг — отдельно: расхождение сразу показывает, какой из них виноват.
+    func testHeightCacheKeepsChatTheSame() throws {
+        assertChatLooksTheSame(flag: "chatHeightCache")
+    }
+
+    func testBubbleLayoutCacheKeepsChatTheSame() throws {
+        assertChatLooksTheSame(flag: "chatBubbleLayoutCache")
+    }
+
+    func testFlatShadowKeepsChatTheSame() throws {
+        assertChatLooksTheSame(flag: "chatBubbleFlatShadow")
+    }
+
+    private func assertChatLooksTheSame(flag: String, file: StaticString = #filePath, line: UInt = #line) {
+        let off = captureChat(flags: "all=0", file: file, line: line)
+        let on = captureChat(flags: "all=0,\(flag)=1", file: file, line: line)
 
         for (name, before, after) in [
             ("внизу", off.bottom, on.bottom),
@@ -29,10 +42,10 @@ final class PerformanceFlagUITests: MockUITestCase {
             ("снова внизу", off.back, on.back),
         ] {
             if let mismatch = SnapshotComparison.compare(reference: before, actual: after, tolerance: .screen) {
-                attach(before, "\(name) — флаги выключены")
-                attach(after, "\(name) — флаги включены")
-                if let diff = mismatch.diff { attach(diff, "\(name) — разница") }
-                XCTFail("лента \(name) отличается с флагами второй волны: \(mismatch)")
+                attach(before, "\(flag): \(name) — выключен")
+                attach(after, "\(flag): \(name) — включён")
+                if let diff = mismatch.diff { attach(diff, "\(flag): \(name) — разница") }
+                XCTFail("лента \(name) отличается с флагом \(flag): \(mismatch)", file: file, line: line)
             }
         }
     }
