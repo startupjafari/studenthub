@@ -43,8 +43,56 @@ xcodebuild -project StudentHub.xcodeproj -scheme StudentHub -destination 'platfo
 попадает в `Info.plist` как `SHAPIBaseURL` и читается на старте. Так же приходит
 `SENTRY_DSN` (`SHSentryDSN`): пусто — трекер не инициализируется.
 
-CI: `.github/workflows/ios.yml` — сборка и тесты на симуляторе; `ios-release.yml` —
-архив и загрузка в TestFlight вручную. Выпуск — `docs/RELEASE_IOS.md`.
+CI: `.github/workflows/ios.yml` — сборка и тесты на симуляторе (раздел «Тесты»);
+`ios-nightly.yml` — расширенный ночной прогон; `ios-release.yml` — архив и загрузка в
+TestFlight вручную. Выпуск — `docs/RELEASE_IOS.md`.
+
+## Тесты
+
+Одна команда на любом Mac с Xcode 26 и `xcodegen` — та же, что гоняет CI:
+
+```sh
+scripts/test.sh            # как PR: unit + snapshot + ui
+scripts/test.sh full       # + все UI-сценарии и замеры производительности
+scripts/test.sh snapshot --record   # переснять эталоны снимков
+```
+
+| Набор | Таргет | Что проверяет |
+|---|---|---|
+| `unit` | `StudentHubTests` | логика и модели; `MotionTests` — физика анимаций покадрово (60/120 Гц), перелёт, успокоение, перехват на лету, правила жестов |
+| `snapshot` | `StudentHubSnapshotTests` | снимки компонентов: светлая/тёмная тема, узкий/обычный/широкий экран, крупный шрифт |
+| `ui` | `StudentHubUITests` | сценарии на mock API: вход, вкладки, чат и отправка, клавиатура, свайп назад, листы, лента, уменьшение движения |
+| `perf` | `StudentHubPerfTests` | запуск, прокрутка длинных списков, переходы, CPU и память против `Tests/perf-baseline.json` |
+
+Результаты — в `build/test-output/`: `*.xcresult`, `summary.md`, вложения тестов и видео
+прогона (`artifacts/<набор>/`), расхождения снимков (`snapshot-diffs/…/reference.png`,
+`actual.png`, `diff.png`).
+
+**Mock API.** UI- и perf-тесты не ходят в сеть: приложение запускается с
+`SH_UITEST_MOCK=1` и берёт ответы из фикстур (`Sources/App/UITesting`, только в Debug).
+`SH_UITEST_SCENARIO=student` — сразу вошедший студент, `SH_UITEST_LARGE=1` — большие
+данные для замеров, `SH_UITEST_REDUCE_MOTION=1` — уменьшение движения. Учётка mock:
+`student@test.local` / `Test1234!`. Прод-секретов в тестах нет.
+
+**Эталоны снимков** лежат в `Tests/**/__Snapshots__/<среда>/` (`ios26@3x`) и сравнимы
+только в той же среде: Xcode 26.6, iPhone 17 Pro, iOS 26.5 — как в CI. Переснимать —
+прогоном workflow iOS с `record_snapshots`, затем смотреть картинки и коммитить. Эталон
+не обновляют, чтобы «позеленить» тест, не посмотрев, что поменялось.
+
+**Без Mac (Linux/WSL).** Симулятор здесь не запускается. Ветка пушится, CI гоняет
+проверки, а результаты смотрятся так:
+
+```sh
+GH_TOKEN=$(gh auth token --user startupjafari) scripts/ci-results.sh --wait
+```
+
+Скрипт печатает сводку (сколько тестов выполнено и что упало) и скачивает артефакты в
+`build/ci/<id прогона>/`: снимки, видео, `.xcresult`.
+
+**Что тесты не заменяют.** Симулятор на раннере не говорит, сколько кадров в секунду
+будет на iPhone: частота 120 Гц (ProMotion), подвисания на устройстве, тактильный
+отклик, ощущение жестов под пальцем и нагрев проверяются только на телефоне
+(Instruments → Animation Hitches).
 
 ## Сборка на iPhone без Mac
 

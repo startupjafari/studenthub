@@ -1,24 +1,29 @@
 name: iOS
 
-# Минута macOS-раннера стоит в десять раз дороже обычной, поэтому прогон привязан к
-# путям: правки бэкенда и веба его не запускают вовсе. Условия те же, что у
-# codeChecks, — интеграционные ветки, а не каждая фича-ветка.
+# Проверки iOS-клиента на каждом PR: сборка, unit, снимки, UI-сценарии на mock API.
+# Всё запускает одна команда — apps/ios/scripts/test.sh, та же, что на любом Mac.
 #
-# PR в develop тоже проверяется: без этого Swift впервые собирался бы уже после
-# вливания, то есть ревью шло бы без компилятора. Репозиторий публичный, и минуты
-# macOS-раннеров для него бесплатны.
+# Фильтр путей — не в `on:`, а в задаче `changes`: обязательная проверка «iOS — итог»
+# должна приходить в каждый PR. С фильтром в `on:` PR без правок iOS ждал бы её вечно.
+# Без правок iOS macOS-задача пропускается, а «итог» сразу зелёный.
+#
+# Репозиторий публичный, минуты macOS-раннеров для него бесплатны. Расширенные UI и
+# замеры производительности — ночью, ios-nightly.yml.
 on:
   push:
     branches: [develop, main]
-    paths:
-      - 'apps/ios/**'
-      - '.github/workflows/ios.yml'
   pull_request:
     branches: [develop, main]
-    paths:
-      - 'apps/ios/**'
-      - '.github/workflows/ios.yml'
   workflow_dispatch:
+    inputs:
+      suites:
+        description: 'Наборы scripts/test.sh (pr, unit, snapshot, ui, ui-extended, perf, full)'
+        default: pr
+        type: string
+      record_snapshots:
+        description: 'Переснять эталоны снимков (артефакт ios-snapshot-references; посмотреть и закоммитить)'
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -27,14 +32,56 @@ concurrency:
   group: ios-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
-defaults:
-  run:
-    working-directory: apps/ios
-
 jobs:
-  build-and-test:
+  changes:
+    name: Есть ли правки iOS
+    runs-on: ubuntu-latest
+    outputs:
+      ios: ${{ steps.diff.outputs.ios }}
+    steps:
+      - name: Забрать код
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Сравнить с базой
+        id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [[ "$EVENT" == workflow_dispatch ]]; then
+            echo "ios=true" >>"$GITHUB_OUTPUT"; exit 0
+          fi
+          base="$BASE_SHA"
+          [[ "$EVENT" == push ]] && base="$BEFORE_SHA"
+          # Новая ветка или переписанная история — базы нет, проверяем всё.
+          if [[ -z "$base" || "$base" =~ ^0+$ ]] || ! git cat-file -e "$base" 2>/dev/null; then
+            echo "ios=true" >>"$GITHUB_OUTPUT"; exit 0
+          fi
+          if git diff --name-only "$base" HEAD | grep -qE '^(apps/ios/|\.github/workflows/ios(-nightly)?\.yml$)'; then
+            echo "ios=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "ios=false" >>"$GITHUB_OUTPUT"
+          fi
+
+  tests:
     name: Сборка и тесты
-    runs-on: macos-15
+    needs: changes
+    if: needs.changes.outputs.ios == 'true'
+    runs-on: macos-26
+    timeout-minutes: 75
+    env:
+      # Xcode и симулятор закреплены: эталоны снимков и baseline замеров сравнимы
+      # только в одной и той же среде. Меняются вместе с переснятием эталонов.
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      SH_TEST_DEVICE: iPhone 17 Pro
+      SH_TEST_OS: '26.5'
+    defaults:
+      run:
+        working-directory: apps/ios
     steps:
       - name: Забрать код
         uses: actions/checkout@v7
@@ -44,23 +91,56 @@ jobs:
       - name: Поставить XcodeGen
         run: brew install xcodegen
 
-      # .xcodeproj в репозитории нет — он собирается из project.yml.
-      - name: Сгенерировать проект
-        run: xcodegen generate
+      # Пакеты Swift (GRDB, Socket.IO, Sentry) — из кеша: без него каждый прогон
+      # клонирует их заново.
+      - name: Кеш пакетов Swift
+        uses: actions/cache@v6
+        with:
+          path: apps/ios/build/DerivedData/SourcePackages
+          key: ios-spm-${{ hashFiles('apps/ios/project.yml') }}
+          restore-keys: ios-spm-
 
-      - name: Тесты на симуляторе
-        run: |
-          set -o pipefail
-          xcodebuild test \
-            -project StudentHub.xcodeproj \
-            -scheme StudentHub \
-            -destination 'platform=iOS Simulator,name=iPhone 16' \
-            -resultBundlePath TestResults.xcresult \
-            CODE_SIGNING_ALLOWED=NO
+      - name: Тесты (${{ inputs.suites || 'pr' }})
+        env:
+          SUITES: ${{ inputs.suites || 'pr' }}
+          RECORD: ${{ inputs.record_snapshots && '--record' || '' }}
+        # shellcheck disable=SC2086 — наборы через пробел.
+        run: scripts/test.sh $SUITES $RECORD
 
-      - name: Сохранить отчёт прогона
-        if: failure()
+      - name: Сохранить результаты
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: ios-test-results
-          path: apps/ios/TestResults.xcresult
+          path: |
+            apps/ios/build/test-output
+            !apps/ios/build/test-output/**/*.xcresult/**/Staging/**
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Сохранить переснятые эталоны
+        if: always() && inputs.record_snapshots
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-snapshot-references
+          path: apps/ios/Tests/**/__Snapshots__/**
+          retention-days: 7
+
+  # Единственная обязательная проверка для защиты веток: стабильное имя, приходит в
+  # каждый PR, красная — если тесты были нужны и не прошли.
+  gate:
+    name: iOS — итог
+    needs: [changes, tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Итог
+        env:
+          IOS: ${{ needs.changes.outputs.ios }}
+          CHANGES: ${{ needs.changes.result }}
+          TESTS: ${{ needs.tests.result }}
+        run: |
+          if [[ "$CHANGES" != success ]]; then echo "Не определились правки: $CHANGES"; exit 1; fi
+          if [[ "$IOS" != true ]]; then echo "Правок iOS нет — проверки не нужны"; exit 0; fi
+          echo "Сборка и тесты: $TESTS"
+          [[ "$TESTS" == success ]]
