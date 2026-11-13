@@ -91,7 +91,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     /// Уведомление пришло, пока приложение открыто. Показываем плашку, но без
     /// звука: человек и так смотрит в экран.
-    func userNotificationCenter(
+    ///
+    /// `nonisolated`: система зовёт делегата уведомлений не с главного потока, и в Swift 6
+    /// неявная изоляция класса к нему приводила бы к падению. На главный — только там,
+    /// где трогаем экранное состояние.
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
@@ -107,7 +111,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 
     /// Нажатие на уведомление: ведём туда, о чём оно.
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
@@ -118,11 +122,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // пуш мог прийти на устройство, где уже вошёл кто-то другой.
         let session = AppServices.session
         if let role = await session.currentToken?.role {
-            AppServices.router.open(link, for: role)
+            _ = await MainActor.run { AppServices.router.open(link, for: role) }
         } else if await session.hasStoredSession {
             // Холодный старт: сессия ещё поднимается, роли пока нет. Откроем, когда
             // оболочка её узнает, — иначе разделы «Ещё» отказали бы как чужие.
-            AppServices.router.postpone(link)
+            await MainActor.run { AppServices.router.postpone(link) }
         }
         // Иначе на экране входа: никто не вошёл, и маршрут достался бы следующему.
     }

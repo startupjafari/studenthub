@@ -16,7 +16,7 @@ enum AppServices {
 
     /// Навигация. Общая, а не у каждого экрана своя: по нажатию на уведомление
     /// переход делает делегат приложения, у которого своего состояния нет.
-    static let router = AppRouter()
+    @MainActor static let router = AppRouter()
 
     /// Что делать по тихому пушу.
     static let pushSync = PushSync()

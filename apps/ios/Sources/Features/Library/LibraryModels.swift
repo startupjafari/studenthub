@@ -112,6 +112,7 @@ struct MyBooks: Equatable {
 // MARK: - Каталог
 
 /// Каталог библиотеки: поиск, фильтры и подгрузка страниц.
+@MainActor
 @Observable
 final class LibraryCatalogModel {
     var query = BookQuery()
@@ -217,6 +218,7 @@ final class LibraryCatalogModel {
 // MARK: - Книга
 
 /// Карточка книги с бронью.
+@MainActor
 @Observable
 final class LibraryBookModel {
     private(set) var book: BookCardDTO?
@@ -314,6 +316,7 @@ final class LibraryBookModel {
 }
 
 /// Экземпляр по коду с QR-наклейки: найти книгу, чтобы открыть её карточку.
+@MainActor
 @Observable
 final class LibraryCopyModel {
     private(set) var bookID: String?
@@ -362,6 +365,7 @@ final class LibraryCopyModel {
 
 // MARK: - Мои книги
 
+@MainActor
 @Observable
 final class MyBooksModel {
     private(set) var books: MyBooks?
@@ -478,6 +482,7 @@ struct ClearanceSummary: Equatable {
     }
 }
 
+@MainActor
 @Observable
 final class LibraryClearanceModel {
     private(set) var summary: ClearanceSummary?

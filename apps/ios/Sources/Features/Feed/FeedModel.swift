@@ -14,6 +14,7 @@ struct PostReactionKey: Hashable, Sendable {
 /// сливаются, и на сервер уходит только итоговое состояние. Отказ сервера откатываем,
 /// иначе человек уверен, что поставил лайк, а его нет; без связи — тоже откат с
 /// сообщением (`CHANGELOG-PERF.md`, итерация 3).
+@MainActor
 @Observable
 final class FeedModel {
     private(set) var posts: [PostDTO] = []
@@ -393,6 +394,7 @@ final class FeedModel {
 ///
 /// Сервер отдаёт их от новых к старым, а читают сверху вниз — от старых к новым.
 /// Поэтому страница разворачивается, а «показать предыдущие» дописывает в начало.
+@MainActor
 @Observable
 final class PostCommentsModel {
     /// Сам пост: карточка из пуша или колокольчика показывала одни комментарии.
@@ -551,6 +553,7 @@ private struct FeedReadStamp {
 }
 
 /// События и запись на них.
+@MainActor
 @Observable
 final class EventsModel {
     private(set) var events: [EventDTO] = []
@@ -626,6 +629,7 @@ enum NotificationReadKey: Hashable, Sendable {
 /// (`OptimisticRetryPolicy.retry`); не вышло и с повторами — откат и плашка.
 /// Настройки каналов здесь больше не грузятся: экран их не показывал, а сбой их запроса
 /// ломал весь список (каналы — `NotificationPreferencesModel`).
+@MainActor
 @Observable
 final class NotificationsModel {
     private(set) var items: [NotificationDTO] = []

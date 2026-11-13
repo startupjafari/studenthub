@@ -3,6 +3,7 @@ import Observation
 
 /// Боковая колонка веба: ближайшие события — для «Главной»,
 /// заявки в друзья — для ленты (свой профиль — у оболочки, `ViewerProfileModel`).
+@MainActor
 @Observable
 final class HomeModel {
     private(set) var events: [EventDTO] = []
