@@ -21,6 +21,13 @@ final class RealtimeCoordinator {
     /// следит только за своим чатом, и «печатает…» в одном чате не пересчитывает
     /// остальные строки и весь список.
     @ObservationIgnored private var activities: [String: ChatActivity] = [:]
+    /// Тот же приём для остального, что меняется часто (P1-4 аудита): словари ниже
+    /// остаются, но экраны читают объекты по ключу — прочтение в одном чате, голос в
+    /// одном опросе или «в сети» одного человека пересчитывают только своих зрителей.
+    @ObservationIgnored private var chatSignals: [String: ChatSignals] = [:]
+    @ObservationIgnored private var presenceSignals: [String: PresenceSignal] = [:]
+    @ObservationIgnored private var pollSignals: [String: PollSignal] = [:]
+    @ObservationIgnored private var checklistSignals: [String: ChecklistSignal] = [:]
     private(set) var onlineUsers: Set<String> = []
     /// Последняя смена статуса «в сети» по каждому, о ком приходили события, с
     /// моментом прихода. `onlineUsers` не отличает «ушёл» от «не знаем»; счётчику
@@ -118,6 +125,15 @@ final class RealtimeCoordinator {
         // нужны следующему. Погашены — на случай, если чей-то вид ещё держит ссылку.
         for activity in activities.values { activity.action = nil }
         activities = [:]
+        for signal in chatSignals.values {
+            signal.memberReads = [:]
+        }
+        chatSignals = [:]
+        for signal in presenceSignals.values { signal.mark = nil }
+        presenceSignals = [:]
+        pollSignals = [:]
+        for signal in checklistSignals.values { signal.checklist = nil }
+        checklistSignals = [:]
         onlineUsers = []
         presenceMarks = [:]
         memberReads = [:]
@@ -175,6 +191,7 @@ final class RealtimeCoordinator {
     @MainActor
     func remember(_ checklist: MessageExtras.Checklist) {
         checklists[checklist.id] = checklist
+        checklistSignals[checklist.id]?.checklist = checklist
     }
 
     // MARK: - События
@@ -243,6 +260,7 @@ final class RealtimeCoordinator {
             guard userID != viewerID else { return }
             if (memberReads[chatID]?[userID] ?? .distantPast) < readAt {
                 memberReads[chatID, default: [:]][userID] = readAt
+                chatSignals[chatID]?.memberReads[userID] = readAt
             }
             try? await database.writer.write { db in
                 guard var chat = try ChatRecord.fetchOne(db, key: chatID) else { return }
@@ -257,7 +275,9 @@ final class RealtimeCoordinator {
 
         case .presence(let userID, let online):
             if online { onlineUsers.insert(userID) } else { onlineUsers.remove(userID) }
-            presenceMarks[userID] = PresenceMark(online: online, at: Date())
+            let mark = PresenceMark(online: online, at: Date())
+            presenceMarks[userID] = mark
+            presenceSignals[userID]?.mark = mark
 
         case .chatUpdated(let chatID, let title, let avatar):
             try? await database.writer.write { db in
@@ -272,12 +292,14 @@ final class RealtimeCoordinator {
 
         case .chatPinned(let chatID):
             pinnedVersions[chatID, default: 0] += 1
+            chatSignals[chatID]?.pinnedVersion += 1
 
         case .pollUpdated(let pollID, _):
             pollVersions[pollID, default: 0] += 1
+            pollSignals[pollID]?.version += 1
 
         case .checklistUpdated(let checklist, _):
-            checklists[checklist.id] = checklist
+            remember(checklist)
 
         case .locationUpdated(let location, let messageID, _):
             await LiveLocations.apply(location, messageID: messageID)
@@ -360,6 +382,47 @@ final class RealtimeCoordinator {
         return made
     }
 
+    /// Сигналы одного чата: закрепление и прочтения участников.
+    @MainActor
+    func signals(for chatID: String) -> ChatSignals {
+        if let known = chatSignals[chatID] { return known }
+        let made = ChatSignals()
+        made.pinnedVersion = pinnedVersions[chatID] ?? 0
+        made.memberReads = memberReads[chatID] ?? [:]
+        chatSignals[chatID] = made
+        return made
+    }
+
+    /// «В сети» одного человека по событиям; `mark == nil` — событий о нём не было.
+    @MainActor
+    func presence(of userID: String) -> PresenceSignal {
+        if let known = presenceSignals[userID] { return known }
+        let made = PresenceSignal()
+        made.mark = presenceMarks[userID]
+        presenceSignals[userID] = made
+        return made
+    }
+
+    /// Счётчик перемен одного опроса.
+    @MainActor
+    func pollSignal(_ pollID: String) -> PollSignal {
+        if let known = pollSignals[pollID] { return known }
+        let made = PollSignal()
+        made.version = pollVersions[pollID] ?? 0
+        pollSignals[pollID] = made
+        return made
+    }
+
+    /// Свежее состояние одного общего списка.
+    @MainActor
+    func checklistSignal(_ checklistID: String) -> ChecklistSignal {
+        if let known = checklistSignals[checklistID] { return known }
+        let made = ChecklistSignal()
+        made.checklist = checklists[checklistID]
+        checklistSignals[checklistID] = made
+        return made
+    }
+
     @MainActor
     private func syncActivity(of chatID: String) {
         guard let activity = activities[chatID] else { return }
@@ -426,4 +489,30 @@ struct ApplicationStatusChange: Equatable {
 @Observable
 final class ChatActivity {
     var action: String?
+}
+
+/// Закрепление и прочтения участников одного чата (`RealtimeCoordinator.signals(for:)`).
+@Observable
+final class ChatSignals {
+    var pinnedVersion = 0
+    var memberReads: [String: Date] = [:]
+}
+
+/// «В сети» одного человека (`RealtimeCoordinator.presence(of:)`).
+@Observable
+final class PresenceSignal {
+    var mark: PresenceMark?
+    var isOnline: Bool { mark?.online == true }
+}
+
+/// Счётчик перемен одного опроса (`RealtimeCoordinator.pollSignal(_:)`).
+@Observable
+final class PollSignal {
+    var version = 0
+}
+
+/// Свежее состояние одного общего списка (`RealtimeCoordinator.checklistSignal(_:)`).
+@Observable
+final class ChecklistSignal {
+    var checklist: MessageExtras.Checklist?
 }

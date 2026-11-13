@@ -352,7 +352,7 @@ struct ChatInfoView: View {
 
     private var peerOnline: Bool {
         guard let peer else { return chat?.online == true }
-        return realtime.onlineUsers.contains(peer.id) || peer.online == true
+        return realtime.presence(of: peer.id).isOnline || peer.online == true
     }
 
     private var status: String? {
@@ -368,7 +368,7 @@ struct ChatInfoView: View {
             let count = max(chat.memberCount, activeMembers.count)
             return ChatPresence.groupCaption(
                 members: count,
-                online: membersPresence.othersOnline(excluding: viewerID, live: realtime.presenceMarks)
+                online: membersPresence.othersOnline(excluding: viewerID) { [realtime] in realtime.presence(of: $0).mark }
             )
         }
     }
@@ -453,7 +453,7 @@ struct ChatInfoView: View {
             }
             ForEach(activeMembers) { member in
                 NavigationLink(value: AppRoute.profile(id: member.id)) {
-                    MemberRow(member: member, isOnline: presence.isOnline(member.id, live: realtime.presenceMarks))
+                    MemberRow(member: member, isOnline: presence.isOnline(member.id) { [realtime] in realtime.presence(of: $0).mark })
                 }
                 .swipeActions(edge: .trailing) {
                     // Без `role: .destructive`: с ним список убирает строку сразу, ещё до

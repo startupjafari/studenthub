@@ -267,12 +267,22 @@ struct ChatPresenceSnapshot: Equatable {
     var memberCount: Int { online.count }
 
     func isOnline(_ userID: String, live: [String: PresenceMark]) -> Bool {
-        if let mark = live[userID], mark.at >= takenAt { return mark.online }
+        isOnline(userID) { live[$0] }
+    }
+
+    /// `live` — отметка по событиям для одного человека. Замыкание, а не словарь: экран
+    /// следит только за участниками этого чата (`RealtimeCoordinator.presence(of:)`).
+    func isOnline(_ userID: String, live: (String) -> PresenceMark?) -> Bool {
+        if let mark = live(userID), mark.at >= takenAt { return mark.online }
         return online[userID] ?? false
     }
 
     /// Сколько участников, кроме смотрящего, сейчас в сети — как «N в сети» в вебе.
     func othersOnline(excluding viewerID: String, live: [String: PresenceMark]) -> Int {
+        othersOnline(excluding: viewerID) { live[$0] }
+    }
+
+    func othersOnline(excluding viewerID: String, live: (String) -> PresenceMark?) -> Int {
         online.keys.reduce(0) { count, id in
             count + (id != viewerID && isOnline(id, live: live) ? 1 : 0)
         }

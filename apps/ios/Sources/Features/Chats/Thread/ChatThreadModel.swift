@@ -205,8 +205,9 @@ final class ChatThreadModel {
     }
 
     /// Кто сейчас печатает или записывает голосовое в этом чате.
+    @MainActor
     var othersAction: String? {
-        realtime.actions[chatID]?.values.first
+        realtime.activity(for: chatID).action
     }
 
     /// Открытие чата: догнать разницу, а если истории толком нет — скачать последнюю
@@ -1077,24 +1078,27 @@ final class ChatThreadModel {
 
     /// До какого момента дочитал каждый другой участник группы: снимок с сервера,
     /// сдвинутый вперёд событиями прочтения.
+    @MainActor
     private var readTimes: [String: Date] {
         var times: [String: Date] = [:]
         for receipt in readReceipts where receipt.id != viewerID {
             if let at = receipt.lastReadAt { times[receipt.id] = at }
         }
-        for (user, at) in realtime.memberReads[chatID] ?? [:] where user != viewerID {
+        for (user, at) in realtime.signals(for: chatID).memberReads where user != viewerID {
             if (times[user] ?? .distantPast) < at { times[user] = at }
         }
         return times
     }
 
     /// Отметки прочтения других участников по возрастанию — для числа у галочек.
+    @MainActor
     var readMarks: [Date] {
         readTimes.values.sorted()
     }
 
     /// Кто прочитал сообщение — свежие сверху, как в Telegram. Только известные по
     /// списку с сервера: у того, о ком пришло лишь событие, нет ни имени, ни аватара.
+    @MainActor
     func readers(of message: MessageRecord) -> [MessageReader] {
         let times = readTimes
         return readReceipts.compactMap { receipt in
@@ -1105,8 +1109,9 @@ final class ChatThreadModel {
     }
 
     /// «N в сети» в группе: сколько участников, кроме меня, сейчас в сети.
+    @MainActor
     var othersOnline: Int? {
-        presence?.othersOnline(excluding: viewerID, live: realtime.presenceMarks)
+        presence?.othersOnline(excluding: viewerID) { [realtime] in realtime.presence(of: $0).mark }
     }
 
     /// Дата сообщения, к которому лента открылась (первое непрочитанное).
@@ -1124,8 +1129,9 @@ final class ChatThreadModel {
         }
     }
 
+    @MainActor
     var isPeerOnline: Bool {
-        if let peerID { return realtime.onlineUsers.contains(peerID) || chat?.online == true }
+        if let peerID { return realtime.presence(of: peerID).isOnline || chat?.online == true }
         return chat?.online == true
     }
 
