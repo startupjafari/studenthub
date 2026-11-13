@@ -64,10 +64,8 @@ struct TeachingGradebookListView: View {
 struct TeachingGradebookCourseView: View {
     let courseID: String
 
-    @State private var book: TeachingGradebookDTO?
-    @State private var courseTitle: String?
-    @State private var failure: String?
-    @State private var isOffline = false
+    /// Оценки студентов группы — без копии на телефоне (`caching: false`).
+    @State private var remote = RemoteValue<Loaded>(caching: false)
     @State private var actionFailure: String?
     @State private var addingColumn = false
     @State private var editingColumn: TeachingGradebookDTO.Column?
@@ -76,8 +74,24 @@ struct TeachingGradebookCourseView: View {
 
     private let api = TeachingAPI()
 
+    /// Журнал и название дисциплины — одним значением.
+    private struct Loaded {
+        let book: TeachingGradebookDTO
+        let courseTitle: String?
+    }
+
+    private var book: TeachingGradebookDTO? { remote.value?.book }
+    private var courseTitle: String? { remote.value?.courseTitle }
+    private var failure: String? { remote.failure }
+    private var isOffline: Bool { remote.isOffline }
+
     var body: some View {
         List {
+            if book != nil, let failure {
+                StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+            }
             if let book {
                 columnsSection(book)
                 totalsSection(book)
@@ -87,7 +101,7 @@ struct TeachingGradebookCourseView: View {
         .screenState(book == nil) {
             if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
+            } else if remote.checkedCache {
                 LoadingStateView()
             }
         }
@@ -113,7 +127,8 @@ struct TeachingGradebookCourseView: View {
         }
         .actionFailureAlert($actionFailure)
         .pullToRefresh { await load() }
-        .task { await load() }
+        // Возврат приложения из фона после долгой паузы — повод перечитать (`AppLifecycle`).
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await load() }
     }
 
     // MARK: Секции
@@ -302,22 +317,17 @@ struct TeachingGradebookCourseView: View {
         return Int((ratios.reduce(0, +) / Double(ratios.count) * 100).rounded())
     }
 
-    @MainActor
     private func load() async {
-        do {
+        let api = api
+        let courseID = courseID
+        // Название — подпись, не повод для ошибки: не пришло — остаётся прежнее.
+        let previousTitle = courseTitle
+        await remote.load {
             async let gradebook = api.gradebook(courseID: courseID)
             async let courses = try? CoursesAPI().courses(mine: true)
-            book = try await gradebook
-            let list = await courses
-            if let course = list?.first(where: { $0.id == courseID }) {
-                courseTitle = TeachingCoursePicker.label(course)
-            }
-            failure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
+            let book = try await gradebook
+            let course = await courses?.first(where: { $0.id == courseID })
+            return Loaded(book: book, courseTitle: course.map { TeachingCoursePicker.label($0) } ?? previousTitle)
         }
     }
 
