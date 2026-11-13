@@ -56,7 +56,55 @@ final class AppRouter {
     var selectedTab: AppTab = AppRouter.restoredTab() {
         didSet { UserDefaults.standard.set(selectedTab.rawValue, forKey: Self.selectedTabKey) }
     }
-    var stacks: [AppTab: [AppRoute]] = [:]
+    /// Путь каждой вкладки — свой наблюдаемый объект: переход в одной вкладке
+    /// пересчитывает только её `NavigationStack`, а не стеки всех вкладок (P1-7 аудита).
+    @ObservationIgnored private var paths: [AppTab: TabPath] = [:]
+
+    /// Путь вкладки. Создаётся по первому запросу.
+    @MainActor
+    func path(for tab: AppTab) -> TabPath {
+        if let known = paths[tab] { return known }
+        let made = TabPath()
+        paths[tab] = made
+        return made
+    }
+
+    /// Все пути разом — для совместимости и тестов. Экраны берут `path(for:)` и методы
+    /// ниже: чтение этого свойства подписывает на пути всех вкладок.
+    @MainActor
+    var stacks: [AppTab: [AppRoute]] {
+        get { paths.compactMapValues { $0.routes.isEmpty ? nil : $0.routes } }
+        set {
+            for tab in Set(paths.keys).union(newValue.keys) {
+                path(for: tab).routes = newValue[tab] ?? []
+            }
+        }
+    }
+
+    /// Открыть экран поверх текущей вкладки.
+    @MainActor
+    func push(_ route: AppRoute) {
+        path(for: selectedTab).routes.append(route)
+    }
+
+    /// Открыть экран поверх стека указанной вкладки, не переключаясь на неё.
+    @MainActor
+    func push(_ route: AppRoute, in tab: AppTab) {
+        path(for: tab).routes.append(route)
+    }
+
+    /// Вкладка чатов, сразу переписка — как «Написать» в профиле.
+    @MainActor
+    func openChat(id: String) {
+        select(.chats)
+        path(for: .chats).routes = [.chat(id: id)]
+    }
+
+    /// Вернуть вкладку к её корню.
+    @MainActor
+    func popToRoot(_ tab: AppTab) {
+        path(for: tab).routes = []
+    }
 
     /// Ссылка из уведомления, нажатого на холодном старте: роль ещё неизвестна (сессия
     /// поднимается), и открыть её сейчас значило бы отказать в разделах, которые у
@@ -83,7 +131,7 @@ final class AppRouter {
     @MainActor
     func reset() {
         selectedTab = .home
-        stacks = [:]
+        for path in paths.values { path.routes = [] }
         pending = nil
     }
 
@@ -166,12 +214,12 @@ final class AppRouter {
     @MainActor
     func select(_ tab: AppTab) {
         selectedTab = tab
-        stacks[tab] = []
+        path(for: tab).routes = []
     }
 
     @MainActor
     func stack(for tab: AppTab) -> [AppRoute] {
-        stacks[tab] ?? []
+        path(for: tab).routes
     }
 
     /// Роль, для которой открывалась последняя ссылка: вкладки у ролей разные, и пост
@@ -182,7 +230,7 @@ final class AppRouter {
     private func push(_ tab: AppTab, _ routes: [AppRoute]) {
         let target = AppTab.resolve(tab, for: currentRole)
         selectedTab = target
-        stacks[target] = routes
+        path(for: target).routes = routes
     }
 
     /// Первая вкладка роли — при входе и после выхода из аккаунта.
@@ -194,4 +242,10 @@ final class AppRouter {
             selectedTab = tabs.first ?? .home
         }
     }
+}
+
+/// Путь одной вкладки (`AppRouter.path(for:)`).
+@Observable
+final class TabPath {
+    var routes: [AppRoute] = []
 }

@@ -740,7 +740,7 @@ private struct StickerView: View {
     private func open(_ route: AppRoute) {
         dismiss()
         AppServices.router.selectedTab = .home
-        AppServices.router.stacks[.home, default: []].append(route)
+        AppServices.router.push(route, in: .home)
     }
 }
 

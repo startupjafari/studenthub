@@ -167,5 +167,5 @@ struct StarostaGroupView: View {
 @MainActor
 private func starostaPush(_ route: AppRoute) {
     let router = AppServices.router
-    router.stacks[router.selectedTab, default: []].append(route)
+    router.push(route)
 }

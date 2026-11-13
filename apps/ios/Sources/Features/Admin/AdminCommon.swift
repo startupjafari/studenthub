@@ -255,15 +255,14 @@ enum AdminNav {
     @MainActor
     static func push(_ route: AppRoute) {
         let router = AppServices.router
-        router.stacks[router.selectedTab, default: []].append(route)
+        router.push(route)
     }
 
     /// Личный чат с человеком — как «Написать» в профиле: вкладка чатов, сразу переписка.
     @MainActor
     static func openChat(with userID: String) async throws {
         let chatID = try await ChatsAPI().createPrivate(with: userID)
-        AppServices.router.select(.chats)
-        AppServices.router.stacks[.chats] = [.chat(id: chatID)]
+        AppServices.router.openChat(id: chatID)
     }
 
     /// Вкладка чатов есть не у всех ролей (охрана, библиотека): там кнопки «Написать» нет.

@@ -81,8 +81,7 @@ struct SupportView: View {
             text = ""
             failure = nil
             if AppTab.tabs(for: role).contains(.chats) {
-                AppServices.router.select(.chats)
-                AppServices.router.stacks[.chats] = [.chat(id: ticket.id)]
+                AppServices.router.openChat(id: ticket.id)
             } else {
                 sent = true
             }

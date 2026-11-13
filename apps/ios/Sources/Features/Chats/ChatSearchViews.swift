@@ -80,7 +80,7 @@ struct ChatSearchResults: View {
                     // прокрутить ставится до перехода, переписка заберёт её при показе.
                     Button {
                         ChatJumpRequests.shared.pending[message.chatId] = message.id
-                        AppServices.router.stacks[.chats, default: []].append(.chat(id: message.chatId))
+                        AppServices.router.push(.chat(id: message.chatId), in: .chats)
                     } label: {
                         ChatSearchMessageRow(message: message, chat: messageChats[message.chatId], query: trimmed)
                     }
@@ -311,7 +311,7 @@ enum PrivateChatOpener {
         if let page = try? await ChatsAPI().chats(cursor: nil, limit: 50) {
             try? await ChatStore().save(chats: page.items)
         }
-        AppServices.router.stacks[.chats, default: []].append(.chat(id: id))
+        AppServices.router.push(.chat(id: id), in: .chats)
     }
 }
 

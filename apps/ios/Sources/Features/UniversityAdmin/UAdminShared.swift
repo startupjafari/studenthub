@@ -398,7 +398,7 @@ enum UAdminNav {
     @MainActor
     static func push(_ route: AppRoute) {
         let router = AppServices.router
-        router.stacks[router.selectedTab, default: []].append(route)
+        router.push(route)
     }
 }
 

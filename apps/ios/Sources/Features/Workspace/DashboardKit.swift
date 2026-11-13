@@ -225,7 +225,7 @@ struct DashboardRouteButton<Content: View>: View {
     var body: some View {
         Button {
             let router = AppServices.router
-            router.stacks[router.selectedTab, default: []].append(route)
+            router.push(route)
         } label: {
             label()
         }
