@@ -914,6 +914,10 @@ struct CareerCandidateView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
+    private func load() async {
+        await remote.load(fetch)
+    }
+
     private func fetch() async throws -> Loaded {
         do {
             return .card(try await CareerAPI().candidate(studentID: id))
