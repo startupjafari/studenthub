@@ -53,6 +53,27 @@ final class RemoteValueTests: XCTestCase {
         XCTAssertEqual(remote.value, 2)
     }
 
+    /// Сменился запрос: показанное снято, загрузка старого запроса после сброса не пишет.
+    func testResetDropsValueAndInFlightLoad() async {
+        let remote = RemoteValue<Int>(caching: false)
+        await remote.load { 1 }
+        let (gate, open) = AsyncStream<Void>.makeStream()
+
+        async let old: Void = remote.load {
+            for await _ in gate { break }
+            return 2
+        }
+        await Task.yield()
+        remote.reset()
+        XCTAssertNil(remote.value)
+        XCTAssertFalse(remote.checkedCache)
+        open.yield()
+        open.finish()
+        await old
+
+        XCTAssertNil(remote.value)
+    }
+
     /// Отменённая загрузка ничего не пишет: загрузка, гасящая ошибки частей, вернула бы
     /// пустые блоки вместо отмены.
     func testCancelledLoadDoesNotWrite() async {
