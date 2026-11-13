@@ -147,6 +147,35 @@ targets:
     platform: iOS
     sources:
       - path: Tests/StudentHubUITests
+        excludes:
+          - "**/__Snapshots__/**"
+      # Сравнение полноэкранных снимков с эталоном — общее со снимочными тестами.
+      - path: Tests/Shared
+    dependencies:
+      - target: StudentHub
+
+  # Снимки компонентов и экранов: темы, размеры экрана, крупный шрифт. Эталоны —
+  # PNG в __Snapshots__ рядом с тестами; в бандл они не копируются, тест читает их
+  # по пути исходника (scripts/test.sh, README «Тесты»).
+  StudentHubSnapshotTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/StudentHubSnapshotTests
+        excludes:
+          - "**/__Snapshots__/**"
+      - path: Tests/Shared
+    dependencies:
+      - target: StudentHub
+
+  # Производительность: запуск, прокрутка длинных списков, переходы — на mock API.
+  # Без SH_PERF=1 пропускаются (обычный `xcodebuild test` их не ждёт); scripts/test.sh
+  # perf включает и сверяет метрики с Tests/perf-baseline.json.
+  StudentHubPerfTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests/StudentHubPerfTests
     dependencies:
       - target: StudentHub
 
@@ -156,15 +185,20 @@ schemes:
       targets:
         StudentHub: all
         StudentHubTests: [test]
+        StudentHubSnapshotTests: [test]
         StudentHubUITests: [test]
+        StudentHubPerfTests: [test]
     run:
       config: Debug
     test:
       config: Debug
       targets:
         - StudentHubTests
-        # Без SH_UITEST_LOGIN/SH_UITEST_PASSWORD (xcodebuild передаёт их раннеру как
-        # TEST_RUNNER_SH_UITEST_LOGIN=…) сценарии пропускаются.
+        - StudentHubSnapshotTests
+        # Сценарии на mock API идут всегда; ChatFlowsUITests без
+        # SH_UITEST_LOGIN/SH_UITEST_PASSWORD (xcodebuild передаёт их раннеру как
+        # TEST_RUNNER_SH_UITEST_LOGIN=…) пропускаются.
         - StudentHubUITests
+        - StudentHubPerfTests
     archive:
       config: Release
