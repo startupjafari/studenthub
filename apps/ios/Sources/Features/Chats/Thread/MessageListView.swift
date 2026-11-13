@@ -680,7 +680,7 @@ final class MessageListViewController: UIViewController {
     }
 
     private func configureDataSource() {
-        let cell = UICollectionView.CellRegistration<UICollectionViewListCell, String> {
+        let cell = UICollectionView.CellRegistration<MessageCell, String> {
             [weak self] cell, _, id in
             guard let item = self?.itemsByID[id] else { return }
             cell.contentConfiguration = UIHostingConfiguration {
@@ -1476,5 +1476,26 @@ final class MessageListLayout: UICollectionViewCompositionalLayout {
         context.contentOffsetAdjustment = CGPoint(x: 0, y: max(delta, -(offset + inset.top)))
         ScrollProbe.note("remeasure above top \(Int(original.frame.height)) -> \(Int(preferred.frame.height)) adjust=\(Int(context.contentOffsetAdjustment.y))")
         return context
+    }
+}
+
+/// Ячейка сообщения. С кешем высот (`MessageStackLayout`, флаг `chatHeightCache`) она
+/// меряет себя сама от минимальной высоты: стандартный замер ячейки отталкивается от
+/// предложенной раскладкой высоты — оценки, — и содержимое SwiftUI, способное
+/// растянуться, возвращало её обратно. Завышенная оценка так и оставалась дырой под
+/// пузырём (`PerformanceFlagUITests` ловит это сравнением ленты с флагом и без).
+final class MessageCell: UICollectionViewListCell {
+    override func preferredLayoutAttributesFitting(
+        _ layoutAttributes: UICollectionViewLayoutAttributes
+    ) -> UICollectionViewLayoutAttributes {
+        let attributes = super.preferredLayoutAttributesFitting(layoutAttributes)
+        guard PerformanceFlags.chatHeightCache else { return attributes }
+        let fitted = contentView.systemLayoutSizeFitting(
+            CGSize(width: layoutAttributes.size.width, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+        attributes.frame.size = CGSize(width: layoutAttributes.size.width, height: ceil(fitted.height))
+        return attributes
     }
 }
