@@ -125,6 +125,9 @@ struct SecurityCamerasView: View {
         .task {
             // Состояние камер меняет агент — список не должен застывать, пока охрана на посту.
             while !Task.isCancelled {
+                // В фоне не опрашиваем: вернётся приложение — список обновится сразу.
+                await AppLifecycle.shared.waitUntilActive()
+                if Task.isCancelled { break }
                 await load()
                 try? await Task.sleep(for: .seconds(30))
             }

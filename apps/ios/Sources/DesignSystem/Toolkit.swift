@@ -90,6 +90,11 @@ struct PagedList<Item: Decodable & Identifiable, Row: View, Header: View>: View 
         }
         .pullToRefresh { await loader.reload() }
         .task { await loader.loadIfNeeded() }
+        // Вернулись из фона после долгой паузы — первая страница перечитывается фоном,
+        // показанное остаётся на месте (`AppLifecycle`).
+        .onChange(of: AppLifecycle.shared.foregroundEpoch) {
+            Task { await loader.reload() }
+        }
     }
 }
 
@@ -165,7 +170,8 @@ struct RemoteContent<Value, Content: View>: View {
                 Color.clear
             }
         }
-        .task(id: reloadToken) { await run() }
+        // Возврат из фона после долгой паузы — тоже повод перечитать (`AppLifecycle`).
+        .task(id: RemoteContentRefresh(token: reloadToken, epoch: AppLifecycle.shared.foregroundEpoch)) { await run() }
     }
 
     private var usesCache: Bool { caching && PerformanceFlags.screenCache }
@@ -190,6 +196,12 @@ struct RemoteContent<Value, Content: View>: View {
             isOffline = error.isOffline
         }
     }
+}
+
+/// Повод перечитать `RemoteContent`: просьба экрана или возврат приложения из фона.
+private struct RemoteContentRefresh: Hashable {
+    let token: Int
+    let epoch: Int
 }
 
 // MARK: - Лист с формой

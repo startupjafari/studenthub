@@ -202,6 +202,8 @@ struct SecurityRoomStatusView: View {
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))
+                // В фоне не опрашиваем: обновление — после возвращения приложения.
+                await AppLifecycle.shared.waitUntilActive()
                 if Task.isCancelled { break }
                 token += 1
             }
