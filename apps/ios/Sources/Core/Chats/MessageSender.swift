@@ -8,19 +8,23 @@ import GRDB
 /// строки (`sendState`). Поэтому обрыв связи не стирает написанное и не требует
 /// «повторите ввод».
 protocol ChatMessageSending: Sendable {
-    func send(text: String, chatID: String, replyToID: String?) async throws -> ChatMessageDTO
+    /// `nonce` — ключ повтора отправки: сервер помнит его 10 минут, и повтор с тем же
+    /// ключом возвращает уже созданное сообщение, а не второе. Он же приходит эхом в
+    /// `message:new` — по нему сокет узнаёт своё неподтверждённое сообщение.
+    func send(text: String, chatID: String, replyToID: String?, nonce: String) async throws -> ChatMessageDTO
 }
 
 extension ChatsAPI: ChatMessageSending {
     /// Маршрут multipart: на сервере текст и вложения приходят одним запросом.
     /// Когда появится сокет (задача 1.5), отправка уйдёт туда, а этот путь останется
     /// запасным — он работает и там, где сокет не поднялся.
-    func send(text: String, chatID: String, replyToID: String?) async throws -> ChatMessageDTO {
+    func send(text: String, chatID: String, replyToID: String?, nonce: String) async throws -> ChatMessageDTO {
         var form = MultipartForm()
         form.append(text, name: "content")
         if let replyToID {
             form.append(replyToID, name: "replyToId")
         }
+        form.append(nonce, name: "nonce")
         return try await client.send(.multipart("chats/\(chatID)/messages", form: form), as: ChatMessageDTO.self)
     }
 }
@@ -90,41 +94,63 @@ struct MessageOutbox: Sendable {
     /// одна подпись без файла. И только то, что не едет прямо сейчас: свежее «в пути»
     /// ещё ждёт ответа, повтор дал бы дубль. Зависшее дольше минуты (приложение
     /// закрыли посреди отправки) — уже не в пути.
-    func flush(chatID: String? = nil) async {
+    ///
+    /// `true` — застрявшего не осталось (или его и не было), `false` — что-то не ушло.
+    @discardableResult
+    func flush(chatID: String? = nil) async -> Bool {
         let stuck: [MessageRecord]
-        let stale = Date().addingTimeInterval(-60)
         do {
             stuck = try await database.reader.read { db in
-                var request = MessageRecord
-                    .filter(MessageRecord.Columns.remoteId == nil)
-                    .filter(MessageRecord.Columns.sendState == MessageSendState.failed.rawValue
-                        || MessageRecord.Columns.createdAt < stale)
-                    .filter(sql: "NOT EXISTS (SELECT 1 FROM attachment WHERE attachment.messageId = message.id)")
-                    .order(MessageRecord.Columns.createdAt.asc)
+                var request = Self.stuck(now: Date())
                 if let chatID {
                     request = request.filter(MessageRecord.Columns.chatId == chatID)
                 }
                 return try request.fetchAll(db)
             }
         } catch {
-            return
+            return false
         }
 
         for message in stuck {
             // Останавливаемся на первой же неудаче: дальше почти наверняка та же
             // сеть, а порядок сообщений важнее попытки протолкнуть следующее.
-            guard await deliver(message) else { return }
+            guard await deliver(message) else { return false }
         }
+        return true
+    }
+
+    /// Чаты, где есть что досылать, — для `OutboxService`.
+    func stuckChatIDs() async -> [String] {
+        (try? await database.reader.read { db in
+            try Self.stuck(now: Date())
+                .unordered()
+                .select(MessageRecord.Columns.chatId)
+                .distinct()
+                .asRequest(of: String.self)
+                .fetchAll(db)
+        }) ?? []
+    }
+
+    private static func stuck(now: Date) -> QueryInterfaceRequest<MessageRecord> {
+        MessageRecord
+            .filter(MessageRecord.Columns.remoteId == nil)
+            .filter(MessageRecord.Columns.sendState == MessageSendState.failed.rawValue
+                || MessageRecord.Columns.createdAt < now.addingTimeInterval(-60))
+            .filter(sql: "NOT EXISTS (SELECT 1 FROM attachment WHERE attachment.messageId = message.id)")
+            .order(MessageRecord.Columns.createdAt.asc)
     }
 
     // MARK: - Внутреннее
 
     private func deliver(_ message: MessageRecord) async -> Bool {
         do {
+            // Ключ повтора — локальный id строки: один на сообщение и переживает
+            // перезапуск приложения, поэтому повтор после таймаута не создаст дубль.
             let sent = try await api.send(
                 text: message.content,
                 chatID: message.chatId,
-                replyToID: message.replyToId
+                replyToID: message.replyToId,
+                nonce: message.id
             )
             try await database.writer.write { db in
                 try MessageStore.confirm(localID: message.id, with: sent, in: db)
@@ -138,7 +164,9 @@ struct MessageOutbox: Sendable {
 
     private func mark(_ id: String, as state: MessageSendState) async {
         try? await database.writer.write { db in
-            guard var message = try MessageRecord.fetchOne(db, key: id) else { return }
+            // Уже подтверждённое не трогаем: ту же строку мог дослать параллельный проход
+            // (экран чата и `OutboxService`), и неудача второго не делает её неотправленной.
+            guard var message = try MessageRecord.fetchOne(db, key: id), message.remoteId == nil else { return }
             message.sendState = state
             try message.update(db)
         }

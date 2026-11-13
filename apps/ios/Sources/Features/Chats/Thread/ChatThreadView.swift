@@ -205,7 +205,8 @@ struct ChatThreadView: View {
                     onReachTop: { Task { await model.loadOlder() } },
                     onReachBottom: { Task { await model.loadNewer() } },
                     onAction: { action, message in handle(action, message: message, model: model) },
-                    onMenu: { item in openMenu(item, model: model) }
+                    onMenu: { item in openMenu(item, model: model) },
+                    onFirstShown: { ChatOpenSignpost.end(chatID: chatID) }
                 )
                 .overlay {
                     // Открытие ждёт первую страницу: вместо одинокого превью — индикатор.
@@ -399,20 +400,34 @@ struct ChatThreadView: View {
         )
     }
 
+    /// История чата из сети. Тестовый чат для замеров (только Debug) сервер не знает —
+    /// его история целиком в локальной базе.
+    private static func messagesAPI(for chatID: String) -> ChatMessagesFetching {
+        #if DEBUG
+            if PerfFixture.isFixture(chatID) { return PerfFixture.OfflineMessages() }
+        #endif
+        return ChatsAPI()
+    }
+
     private func withLifecycle<V: View>(_ view: V) -> some View {
         view
         .task {
             guard model == nil else { return }
+            ChatOpenSignpost.begin(chatID: chatID)
             KeyboardFrame.shared.start()
             hiddenPinned = UserDefaults.standard.string(forKey: Self.hiddenPinnedKey(chatID))
-            let created = ChatThreadModel(chatID: chatID, viewerID: viewerID)
+            let created = ChatThreadModel(chatID: chatID, viewerID: viewerID, api: Self.messagesAPI(for: chatID))
             model = created
             created.start()
-            await created.enter()
-            await created.markRead()
-            await created.loadPinned()
-            await created.loadPeer()
-            await created.loadGroupStatus()
+            // История с отметкой о прочтении и шапка — параллельно: раньше пять запросов
+            // шли цепочкой, и шапка заполнялась последней.
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { @MainActor in
+                    await created.enter()
+                    await created.markRead()
+                }
+                group.addTask { @MainActor in await created.loadHeader() }
+            }
         }
         .onChange(of: jumps.pending[chatID]) {
             consumeJump()
@@ -444,7 +459,7 @@ struct ChatThreadView: View {
                 await model?.loadGroupStatus()
             }
         }
-        .onChange(of: realtime.pinnedVersions[chatID] ?? 0) {
+        .onChange(of: realtime.signals(for: chatID).pinnedVersion) {
             Task { await model?.loadPinned() }
         }
         .onChange(of: model?.newestIncomingID) {
@@ -660,7 +675,7 @@ struct ChatThreadView: View {
         case .jump(let id):
             Task { await model.jump(to: id) }
         case .openPost(let id):
-            AppServices.router.stacks[.chats, default: []].append(.post(id: id))
+            AppServices.router.push(.post(id: id), in: .chats)
         case .openAttachment(let file):
             open(file, in: message)
         case .menu:

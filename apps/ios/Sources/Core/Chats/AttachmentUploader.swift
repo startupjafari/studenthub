@@ -24,12 +24,14 @@ protocol AttachmentSending: Sendable {
     func partURLs(chatID: String, key: String, uploadID: String, from: Int, to: Int) async throws -> [MultipartPartURL]
     /// PUT одной части; ответ — её ETag, без него сервер объект не соберёт.
     func uploadPart(_ data: Data, to url: URL, progress: @escaping @Sendable (Int64) -> Void) async throws -> String
+    /// `nonce` — ключ повтора отправки, как у текста (`ChatMessageSending`).
     func sendUploaded(
         chatID: String,
         content: String?,
         replyToID: String?,
         asFiles: Bool,
-        attachments: [AttachmentUpload]
+        attachments: [AttachmentUpload],
+        nonce: String
     ) async throws -> ChatMessageDTO
 }
 
@@ -140,7 +142,8 @@ extension ChatsAPI: AttachmentSending {
         content: String?,
         replyToID: String?,
         asFiles: Bool,
-        attachments: [AttachmentUpload]
+        attachments: [AttachmentUpload],
+        nonce: String
     ) async throws -> ChatMessageDTO {
         struct Body: Encodable {
             let content: String?
@@ -148,11 +151,18 @@ extension ChatsAPI: AttachmentSending {
             // Схема сервера строгая: флаг уходит только включённым, иначе поля нет вовсе.
             let asFiles: Bool?
             let attachments: [AttachmentUpload]
+            let nonce: String
         }
         return try await client.send(
             try .post(
                 "chats/\(chatID)/messages/uploaded",
-                json: Body(content: content, replyToId: replyToID, asFiles: asFiles ? true : nil, attachments: attachments)
+                json: Body(
+                    content: content,
+                    replyToId: replyToID,
+                    asFiles: asFiles ? true : nil,
+                    attachments: attachments,
+                    nonce: nonce
+                )
             ),
             as: ChatMessageDTO.self
         )
@@ -434,7 +444,8 @@ struct AttachmentUploader: Sendable {
                     content: caption,
                     replyToID: message.replyToId,
                     asFiles: asFiles,
-                    attachments: uploads
+                    attachments: uploads,
+                    nonce: message.id
                 )
                 // Разобранная волна своего голосового переезжает на серверный id вложения
                 // до подтверждения в базе: иначе пузырь, получив новый id, на миг рисовал

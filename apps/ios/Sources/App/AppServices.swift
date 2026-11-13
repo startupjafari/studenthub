@@ -31,6 +31,9 @@ enum AppServices {
     /// Реальное время. Транспорт — единственное место, знающее про socket.io.
     static let realtime = RealtimeCoordinator(transport: SocketIORealtimeTransport())
 
+    /// Досылка неотправленных сообщений, не привязанная к открытому чату.
+    static let outbox = OutboxService.live()
+
     /// Локальная база чатов — через явного держателя (`DatabaseHolder`): база не
     /// открывается, пока данные устройства заперты до первой разблокировки, и
     /// открывается по разблокировке (`AppDelegate`).

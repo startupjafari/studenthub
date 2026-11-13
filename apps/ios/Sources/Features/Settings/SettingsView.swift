@@ -184,6 +184,25 @@ struct SettingsView: View {
                 .accessibilityIdentifier("settings.signOut")
             }
 
+            #if DEBUG
+                // Только отладочная сборка: тестовый чат для замеров производительности
+                // (`PerfFixture`). Строки не переводятся — пользователь их не увидит.
+                Section {
+                    Button {
+                        Task { try? await PerfFixture.seed(viewerID: viewerID) }
+                    } label: {
+                        Text(verbatim: "Засеять чат для замеров (\(PerfFixture.defaultCount))")
+                    }
+                    Button(role: .destructive) {
+                        Task { try? await PerfFixture.remove() }
+                    } label: {
+                        Text(verbatim: "Удалить чат для замеров")
+                    }
+                } header: {
+                    Text(verbatim: "Разработка")
+                }
+            #endif
+
             // Опасная зона — отдельно и в самом низу: удаление аккаунта не должно
             // оказаться под пальцем рядом с переключателем темы. Предупреждение — в
             // подписи, подтверждение — на экране удаления.
@@ -268,7 +287,7 @@ struct SettingsView: View {
     private func openOwnProfile() {
         let router = AppServices.router
         let tab = router.selectedTab
-        var stack = router.stacks[tab] ?? []
+        var stack = router.path(for: tab).routes
         let isOwnProfile: (AppRoute) -> Bool = { route in
             route == .section(.profile) || (!viewerID.isEmpty && route == .profile(id: viewerID))
         }
@@ -277,7 +296,7 @@ struct SettingsView: View {
         } else {
             stack.append(.section(.profile))
         }
-        router.stacks[tab] = stack
+        router.path(for: tab).routes = stack
     }
 
     /// Шапка как в «Настройках» Telegram: аватар по центру, имя, ниже — почта и имя

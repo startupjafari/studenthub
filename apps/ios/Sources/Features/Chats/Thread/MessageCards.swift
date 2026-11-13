@@ -124,7 +124,7 @@ struct ProfileShareCard: View {
     /// Профиль открывается в стеке текущей вкладки — там, где открыта переписка.
     private func open() {
         let router = AppServices.router
-        router.stacks[router.selectedTab, default: []].append(.profile(id: share.userID))
+        router.push(.profile(id: share.userID))
     }
 }
 

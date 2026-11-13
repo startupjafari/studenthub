@@ -145,7 +145,13 @@ struct ChatStore: Sendable {
             blocked: item.blocked ?? false,
             blockedBy: item.blockedBy ?? false
         )
-        try chat.upsert(db)
+        // Только изменённые столбцы: страница списка приходит целиком на каждое обновление,
+        // и запись без перемен будила бы все наблюдения за таблицей чатов.
+        if let known {
+            try chat.updateChanges(db, from: known)
+        } else {
+            try chat.insert(db)
+        }
 
         // Превью пишем ПОСЛЕ чата: у сообщения внешний ключ на него, и при первой
         // синхронизации нового чата запись сорвалась бы на ограничении целиком.
@@ -174,15 +180,17 @@ struct ChatStore: Sendable {
         if let local, !local.isSynced { return }
 
         guard let text, !text.isEmpty else {
-            try DraftRecord.deleteOne(db, key: chatID)
+            if local != nil { try DraftRecord.deleteOne(db, key: chatID) }
             return
         }
-        try DraftRecord(
+        let mirrored = DraftRecord(
             chatId: chatID,
             text: text,
             replyToId: local?.replyToId,
             updatedAt: local?.updatedAt ?? Date(),
             isSynced: true
-        ).upsert(db)
+        )
+        guard mirrored != local else { return }
+        try mirrored.upsert(db)
     }
 }

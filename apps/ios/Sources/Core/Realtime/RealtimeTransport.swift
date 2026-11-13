@@ -115,7 +115,7 @@ actor SocketIORealtimeTransport: RealtimeTransport {
         }
 
         on(RealtimeEvent.Name.messageNew) { payload in
-            Self.message(from: payload).map { RealtimeEvent.messageNew($0) }
+            Self.message(from: payload).map { RealtimeEvent.messageNew($0, nonce: payload["nonce"] as? String) }
         }
         on(RealtimeEvent.Name.messageUpdated) { payload in
             Self.message(from: payload).map { RealtimeEvent.messageUpdated($0) }

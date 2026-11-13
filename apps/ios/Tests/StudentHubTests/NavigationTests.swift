@@ -111,6 +111,39 @@ final class AppRouterTests: XCTestCase {
     }
 
     /// Расписание декана — раздел «Разделов»: ссылка на него открывается в приложении.
+    /// У каждой вкладки свой путь: переход в одной не трогает объект пути другой (P1-7).
+    func testTabsHaveIndependentPaths() {
+        let router = AppRouter()
+        let chats = router.path(for: .chats)
+        let feed = router.path(for: .feed)
+
+        router.push(.post(id: "p-1"), in: .feed)
+        router.openChat(id: "c-1")
+        router.push(.chatInfo(id: "c-1"))
+
+        XCTAssertTrue(router.path(for: .chats) === chats)
+        XCTAssertEqual(router.selectedTab, .chats)
+        XCTAssertEqual(chats.routes, [.chat(id: "c-1"), .chatInfo(id: "c-1")])
+        XCTAssertEqual(feed.routes, [.post(id: "p-1")])
+
+        router.popToRoot(.chats)
+
+        XCTAssertTrue(chats.routes.isEmpty)
+        XCTAssertEqual(router.stacks, [.feed: [.post(id: "p-1")]])
+    }
+
+    /// Выход из аккаунта очищает пути всех вкладок.
+    func testResetClearsEveryPath() {
+        let router = AppRouter()
+        router.push(.post(id: "p-1"), in: .feed)
+        router.openChat(id: "c-1")
+
+        router.reset()
+
+        XCTAssertEqual(router.selectedTab, .home)
+        XCTAssertTrue(router.stacks.isEmpty)
+    }
+
     func testDeanOpensScheduleSection() {
         XCTAssertTrue(AppRouter().open(.section(.schedule), for: .dean))
         XCTAssertFalse(AppRouter().open(.section(.schedule), for: .platformAdmin))

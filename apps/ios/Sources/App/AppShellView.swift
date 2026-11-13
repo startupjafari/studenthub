@@ -55,6 +55,10 @@ struct AppShellView: View {
             // Соединение живёт, пока человек внутри приложения: вход в него делает
             // сессия, выход — её конец.
             AppServices.realtime.start()
+            // Неотправленное с прошлого запуска уходит само, не дожидаясь, пока человек
+            // откроет тот чат; дальше — на каждую смену сети.
+            await AppServices.outbox.start()
+            Task { await AppServices.outbox.kick() }
             // Пуш, нажатый на холодном старте, ждал роли — теперь она есть.
             router.openPending(for: role)
             // Разрешение спрашиваем здесь, а не на экране входа: до входа уведомлять
@@ -70,11 +74,21 @@ struct AppShellView: View {
         // Вернулись в приложение: сокет, порванный в фоне, поднимаем сразу, а
         // пропущенное за это время догоняем — пуши могли прийти не все.
         .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .background: AppLifecycle.shared.enterBackground()
+            case .active: AppLifecycle.shared.becomeActive()
+            default: break
+            }
             guard phase == .active else { return }
             Task {
                 await AppServices.realtime.resume()
                 await AppServices.pushSync.catchUp()
+                await AppServices.outbox.kick()
             }
+        }
+        // Сокет поднялся заново — связь есть: досылаем то, что не ушло без неё.
+        .onChange(of: AppServices.realtime.connectionEpoch) {
+            Task { await AppServices.outbox.kick() }
         }
     }
 
@@ -111,7 +125,7 @@ struct AppShellView: View {
 
     /// Стек вкладки: у каждой свой путь, профиль в верхней панели корня.
     private func stack(for tab: AppTab) -> some View {
-        NavigationStack(path: $router.stacks.stack(for: tab)) {
+        NavigationStack(path: Bindable(router.path(for: tab)).routes) {
             root(for: tab)
                 // В чатах левый край занят «Изм.», как в Telegram: профиль — с других вкладок.
                 .profileToolbarItem(isHidden: tab == .chats)
@@ -256,17 +270,6 @@ struct AppShellView: View {
         case .librarian(let screen):
             screen.destination
         }
-    }
-}
-
-/// Путь внутри вкладки хранится в словаре, а `NavigationStack` просит привязку к
-/// массиву. Этот переходник и есть вся разница между ними.
-extension Binding where Value == [AppTab: [AppRoute]] {
-    func stack(for tab: AppTab) -> Binding<[AppRoute]> {
-        Binding<[AppRoute]>(
-            get: { wrappedValue[tab] ?? [] },
-            set: { wrappedValue[tab] = $0 }
-        )
     }
 }
 

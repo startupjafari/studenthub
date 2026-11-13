@@ -272,5 +272,5 @@ struct LessonDetailView: View {
 @MainActor
 private func lessonPush(_ route: AppRoute) {
     let router = AppServices.router
-    router.stacks[router.selectedTab, default: []].append(route)
+    router.push(route)
 }

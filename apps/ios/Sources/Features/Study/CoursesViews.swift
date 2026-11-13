@@ -298,7 +298,7 @@ struct CourseDetailView: View {
 @MainActor
 private func coursesPush(_ route: AppRoute) {
     let router = AppServices.router
-    router.stacks[router.selectedTab, default: []].append(route)
+    router.push(route)
 }
 
 /// Участники группы: одногруппники старосты, группа преподавателя.

@@ -119,9 +119,87 @@ final class RealtimeCoordinatorTests: XCTestCase {
         XCTAssertNotNil(stored)
     }
 
+    /// Эхо своего сообщения с ключом повтора подтверждает неотправленную строку, а не
+    /// вставляет вторую (P0-1 аудита).
+    func testEchoWithNonceConfirmsPendingRow() async throws {
+        let (database, coordinator, transport) = try await make()
+        let own = MessageRecord(
+            id: "local-1", remoteId: nil, chatId: "c-1", seq: nil, senderId: "u-me", content: "текст",
+            replyToId: nil, replyQuote: nil, systemType: nil, editedAt: nil, deletedAt: nil,
+            pinnedAt: nil, createdAt: Date(timeIntervalSince1970: 1_800_000_400), sendState: .pending
+        )
+        try await database.writer.write { db in try own.insert(db) }
+
+        await transport.emit(.messageNew(message(id: "m-2", seq: 2, sender: "u-me"), nonce: "local-1"))
+        await settle()
+
+        try await database.reader.read { db in
+            let rows = try MessageRecord.fetchAll(db)
+            XCTAssertEqual(rows.map(\.id), ["local-1"])
+            XCTAssertEqual(rows.first?.remoteId, "m-2")
+            XCTAssertEqual(rows.first?.sendState, .sent)
+        }
+        _ = coordinator
+    }
+
+    /// Переподключение догоняет список чатов (события за время обрыва никто не
+    /// переприсылает), а первое подключение — нет: список и так грузится при входе.
+    func testReconnectRefreshesChatListOnce() async throws {
+        let api = CountingChats()
+        let (_, coordinator, transport) = try await make(api: api)
+
+        await transport.emit(.connected)
+        await transport.emit(.disconnected)
+        await transport.emit(.connected)
+        // Обновление списка ждёт пачку событий 0,7 с.
+        try? await Task.sleep(for: .milliseconds(1_000))
+
+        let calls = await api.calls
+        XCTAssertEqual(calls, 1)
+        _ = coordinator
+    }
+
+    /// События пишутся в объекты своего ключа: прочтение в одном чате и «в сети» одного
+    /// человека не трогают сигналы других (P1-4 аудита).
+    func testKeyedSignalsChangeOnlyForTheirKey() async throws {
+        let (_, coordinator, transport) = try await make()
+        let mine = coordinator.signals(for: "c-1")
+        let other = coordinator.signals(for: "c-2")
+        let alice = coordinator.presence(of: "u-alice")
+        let bob = coordinator.presence(of: "u-bob")
+        let readAt = Date(timeIntervalSince1970: 1_800_000_900)
+
+        await transport.emit(.messageRead(chatID: "c-1", userID: "u-alice", readAt: readAt))
+        await transport.emit(.presence(userID: "u-alice", online: true))
+        await transport.emit(.chatPinned(chatID: "c-1"))
+        await settle()
+
+        XCTAssertEqual(mine.memberReads["u-alice"], readAt)
+        XCTAssertEqual(mine.pinnedVersion, 1)
+        XCTAssertTrue(other.memberReads.isEmpty)
+        XCTAssertEqual(other.pinnedVersion, 0)
+        XCTAssertTrue(alice.isOnline)
+        XCTAssertNil(bob.mark)
+    }
+
+    /// Объект, созданный после событий, начинает с уже известного.
+    func testLateSignalStartsFromKnownState() async throws {
+        let (_, coordinator, transport) = try await make()
+
+        await transport.emit(.presence(userID: "u-alice", online: true))
+        await transport.emit(.pollUpdated(pollID: "p-1", chatID: "c-1"))
+        await settle()
+
+        XCTAssertTrue(coordinator.presence(of: "u-alice").isOnline)
+        XCTAssertEqual(coordinator.pollSignal("p-1").version, 1)
+    }
+
     // MARK: - Помощники
 
-    private func make(unread: Int = 0) async throws -> (AppDatabase, RealtimeCoordinator, StubTransport) {
+    private func make(
+        unread: Int = 0,
+        api: ChatsFetching? = nil
+    ) async throws -> (AppDatabase, RealtimeCoordinator, StubTransport) {
         let database = try AppDatabase.inMemory()
         try await database.writer.write { db in
             try ChatRecord(
@@ -136,7 +214,8 @@ final class RealtimeCoordinatorTests: XCTestCase {
         let coordinator = RealtimeCoordinator(
             transport: transport,
             session: SessionStore(auth: SilentAuth(), secrets: MemoryKeys(), cookies: MemoryJar()),
-            database: database
+            database: database,
+            api: api
         )
         coordinator.start()
         return (database, coordinator, transport)
@@ -184,6 +263,21 @@ private actor StubTransport: RealtimeTransport {
     func send(action: String?, chatID: String) async { actions.append(action) }
     func edit(messageID: String, content: String) async {}
     func delete(messageID: String) async {}
+}
+
+/// Список чатов, который только считает обращения.
+private actor CountingChats: ChatsFetching {
+    private(set) var calls = 0
+
+    func chats(cursor: String?, limit: Int) async throws -> Page<ChatListItemDTO> {
+        calls += 1
+        return Page(items: [], meta: nil)
+    }
+
+    func folders() async throws -> [ChatFolderDTO] { [] }
+    func setPinned(_ pinned: Bool, chatID: String) async throws {}
+    func setArchived(_ archived: Bool, chatID: String) async throws {}
+    func setMuted(_ muted: Bool, chatID: String) async throws {}
 }
 
 private struct SilentAuth: SessionRefreshing {

@@ -47,10 +47,30 @@ struct MessageStore: Sendable {
     ///
     /// Сортируем по времени, а не по номеру: номер есть только у подтверждённых, а
     /// неотправленное должно стоять там, где человек его написал, — последним.
-    func messages(chatID: String) -> QueryInterfaceRequest<MessageRecord> {
-        MessageRecord
-            .filter(MessageRecord.Columns.chatId == chatID)
-            .order(MessageRecord.Columns.createdAt.asc, MessageRecord.Columns.seq.asc)
+    /// `floor` — нижняя граница окна (`seq`): старее неё не читается. Неотправленные
+    /// (без номера) входят всегда. `nil` — весь чат.
+    func messages(chatID: String, from floor: Int? = nil) -> QueryInterfaceRequest<MessageRecord> {
+        var request = MessageRecord.filter(MessageRecord.Columns.chatId == chatID)
+        if let floor {
+            request = request.filter(MessageRecord.Columns.seq >= floor || MessageRecord.Columns.seq == nil)
+        }
+        return request.order(MessageRecord.Columns.createdAt.asc, MessageRecord.Columns.seq.asc)
+    }
+
+    /// Новая нижняя граница окна на страницу старее `floor` — из того, что уже лежит в
+    /// базе. `nil` — старее границы в базе ничего нет, нужна сеть.
+    func lowerFloor(chatID: String, below floor: Int, by count: Int) async throws -> Int? {
+        try await database.reader.read { db in
+            let older = MessageRecord
+                .filter(MessageRecord.Columns.chatId == chatID)
+                .filter(MessageRecord.Columns.seq < floor)
+            let paged = try Int.fetchOne(
+                db,
+                older.select(MessageRecord.Columns.seq).order(MessageRecord.Columns.seq.desc).limit(1, offset: count - 1)
+            )
+            if let paged { return paged }
+            return try Int.fetchOne(db, older.select(min(MessageRecord.Columns.seq)))
+        }
     }
 
     /// Известная позиция догона: с неё запрашивается разница после обрыва.
@@ -152,13 +172,14 @@ struct MessageStore: Sendable {
         try local.update(db)
     }
 
-    static func upsert(_ message: ChatMessageDTO, in db: Database) throws {
+    static func upsert(_ message: ChatMessageDTO, nonce: String? = nil, in db: Database) throws {
         // Своё отправленное сообщение уже лежит в базе под локальным ключом —
         // подтверждение находим по `remoteId`, иначе в ленте появился бы дубль.
         if var local = try MessageRecord
             .filter(MessageRecord.Columns.remoteId == message.id)
             .fetchOne(db)
         {
+            let before = local
             local.seq = message.seq ?? local.seq
             local.content = message.content
             local.editedAt = message.editedAt
@@ -166,7 +187,9 @@ struct MessageStore: Sendable {
             local.pinnedAt = message.pinnedAt
             local.sendState = .sent
             local.absorb(message)
-            try local.update(db)
+            // Только изменённые столбцы и только если они есть: страница списка и догон
+            // приносят те же сообщения снова, и пустая запись будила бы ленту и список.
+            try local.updateChanges(db, from: before)
             try saveAttachments(of: message, messageID: local.id, in: db)
             return
         }
@@ -175,16 +198,8 @@ struct MessageStore: Sendable {
         // id у локальной строки ещё нет. Без сверки здесь вставлялась вторая строка, а
         // потом подтверждение отправки упиралось в UNIQUE(remoteId) — сообщение
         // раздваивалось и помечалось «Не отправлено» (§9.1a: терпимость к порядку).
-        // nonce HTTP-отправка не несёт, поэтому узнаём строку по автору и тексту —
-        // самую раннюю из неподтверждённых.
         if try MessageRecord.fetchOne(db, key: message.id) == nil,
-           var pending = try MessageRecord
-               .filter(MessageRecord.Columns.chatId == message.chatId)
-               .filter(MessageRecord.Columns.remoteId == nil)
-               .filter(MessageRecord.Columns.senderId == message.senderId)
-               .filter(MessageRecord.Columns.content == message.content)
-               .order(MessageRecord.Columns.createdAt.asc)
-               .fetchOne(db)
+           var pending = try ownPending(for: message, nonce: nonce, in: db)
         {
             pending.remoteId = message.id
             pending.seq = message.seq
@@ -196,12 +211,44 @@ struct MessageStore: Sendable {
             return
         }
 
-        try MessageRecord(server: message).upsert(db)
+        let arrived = MessageRecord(server: message)
+        if let known = try MessageRecord.fetchOne(db, key: message.id) {
+            try arrived.updateChanges(db, from: known)
+        } else {
+            try arrived.insert(db)
+        }
         try saveAttachments(of: message, messageID: message.id, in: db)
     }
 
     /// Вложения переписываем целиком: сервер присылает их полным списком, а
     /// дельта по ним не приходит вовсе.
+    /// Своё неподтверждённое сообщение, которому соответствует пришедшее.
+    ///
+    /// Ключ повтора (`nonce`) — это локальный id строки: по нему сверка точная. Ключ есть,
+    /// а строки с ним нет — сообщение отправлено с другого устройства, и подбирать ему
+    /// «пару» по тексту нельзя: два одинаковых «ок» склеились бы не с теми строками.
+    /// Без ключа (эхо сообщения, отправленного прежней версией приложения) — по автору и
+    /// тексту, самую раннюю из неподтверждённых.
+    private static func ownPending(
+        for message: ChatMessageDTO,
+        nonce: String?,
+        in db: Database
+    ) throws -> MessageRecord? {
+        if let nonce {
+            guard let row = try MessageRecord.fetchOne(db, key: nonce),
+                row.remoteId == nil, row.chatId == message.chatId
+            else { return nil }
+            return row
+        }
+        return try MessageRecord
+            .filter(MessageRecord.Columns.chatId == message.chatId)
+            .filter(MessageRecord.Columns.remoteId == nil)
+            .filter(MessageRecord.Columns.senderId == message.senderId)
+            .filter(MessageRecord.Columns.content == message.content)
+            .order(MessageRecord.Columns.createdAt.asc)
+            .fetchOne(db)
+    }
+
     private static func saveAttachments(
         of message: ChatMessageDTO,
         messageID: String,
@@ -216,12 +263,8 @@ struct MessageStore: Sendable {
         // без них пузырь на миг перескакивал к пропорции «по умолчанию» — лента прыгала.
         let sizes = Dictionary(known.map { ($0.id, ($0.width, $0.height)) }, uniquingKeysWith: { first, _ in first })
 
-        try AttachmentRecord
-            .filter(AttachmentRecord.Columns.messageId == messageID)
-            .deleteAll(db)
-
-        for item in media {
-            try AttachmentRecord(
+        let arrived = media.map { item in
+            AttachmentRecord(
                 id: item.id,
                 messageId: messageID,
                 mime: item.mime,
@@ -236,7 +279,17 @@ struct MessageStore: Sendable {
                 durationMs: item.durationMs,
                 spoiler: item.spoiler ?? false,
                 asDocument: item.asDocument ?? false
-            ).insert(db)
+            )
+        }
+        // Те же вложения в том же порядке — ничего не пишем: удаление и вставка заново
+        // будили наблюдения ленты и списка на каждый повтор того же сообщения.
+        guard arrived != known else { return }
+
+        try AttachmentRecord
+            .filter(AttachmentRecord.Columns.messageId == messageID)
+            .deleteAll(db)
+        for record in arrived {
+            try record.insert(db)
         }
     }
 

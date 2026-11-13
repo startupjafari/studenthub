@@ -118,6 +118,14 @@ final class ChatThreadModel {
     private var snapshotHolds = 0
     /// Сеть на открытии молчит дольше разумного — показываем то, что есть в базе.
     private var preparingTimeout: Task<Void, Never>?
+    /// Нижняя граница наблюдаемого окна (`seq`), `nil` — весь чат (шаг 2.2 плана аудита).
+    /// Раньше наблюдение читало всю историю чата, сохранённую в базе, на каждое её
+    /// изменение — и лента дорожала с каждой когда-либо пролистанной страницей. Теперь
+    /// окно начинается у свежего края и опускается, когда лента подъезжает к его верху.
+    /// После замены переписки окном истории граница снимается: в базе тогда только оно.
+    @ObservationIgnored private var floor: Int?
+    /// Сколько свежих сообщений наблюдать при открытии (плюс всё непрочитанное).
+    private static let liveWindow = 150
 
     init(
         chatID: String,
@@ -158,6 +166,7 @@ final class ChatThreadModel {
     @MainActor
     func start() {
         pendingWindowReset = DetachedWindows.mark(for: chatID)
+        if pendingWindowReset == nil { floor = initialFloor() }
         observeMessages()
         observeChat()
         loadDraft()
@@ -196,8 +205,9 @@ final class ChatThreadModel {
     }
 
     /// Кто сейчас печатает или записывает голосовое в этом чате.
+    @MainActor
     var othersAction: String? {
-        realtime.actions[chatID]?.values.first
+        realtime.activity(for: chatID).action
     }
 
     /// Открытие чата: догнать разницу, а если истории толком нет — скачать последнюю
@@ -699,6 +709,8 @@ final class ChatThreadModel {
             releaseSnapshot()
             throw error
         }
+        // В базе теперь только окно — граница не нужна.
+        setFloor(nil)
         olderCursor = page.meta?.cursor
         reachedBeginning = page.meta?.hasNext != true
         if page.meta?.hasPrev == true, let cursor = page.meta?.prevCursor,
@@ -719,10 +731,11 @@ final class ChatThreadModel {
     /// и сразу после неё последний срез в модели ещё старый.
     @MainActor
     private func freshSnapshot() async -> ThreadSnapshot? {
-        let request = store.messages(chatID: chatID)
+        let request = store.messages(chatID: chatID, from: floor)
         let id = chatID
+        let floor = floor
         return try? await database.reader.read { db in
-            try ChatThreadModel.readSnapshot(request, chatID: id, in: db)
+            try ChatThreadModel.readSnapshot(request, chatID: id, floor: floor, in: db)
         }
     }
 
@@ -810,6 +823,7 @@ final class ChatThreadModel {
                 releaseSnapshot()
                 throw error
             }
+            setFloor(nil)
             olderCursor = page.meta?.cursor
             reachedBeginning = page.meta?.hasNext != true
             attach()
@@ -1064,24 +1078,27 @@ final class ChatThreadModel {
 
     /// До какого момента дочитал каждый другой участник группы: снимок с сервера,
     /// сдвинутый вперёд событиями прочтения.
+    @MainActor
     private var readTimes: [String: Date] {
         var times: [String: Date] = [:]
         for receipt in readReceipts where receipt.id != viewerID {
             if let at = receipt.lastReadAt { times[receipt.id] = at }
         }
-        for (user, at) in realtime.memberReads[chatID] ?? [:] where user != viewerID {
+        for (user, at) in realtime.signals(for: chatID).memberReads where user != viewerID {
             if (times[user] ?? .distantPast) < at { times[user] = at }
         }
         return times
     }
 
     /// Отметки прочтения других участников по возрастанию — для числа у галочек.
+    @MainActor
     var readMarks: [Date] {
         readTimes.values.sorted()
     }
 
     /// Кто прочитал сообщение — свежие сверху, как в Telegram. Только известные по
     /// списку с сервера: у того, о ком пришло лишь событие, нет ни имени, ни аватара.
+    @MainActor
     func readers(of message: MessageRecord) -> [MessageReader] {
         let times = readTimes
         return readReceipts.compactMap { receipt in
@@ -1092,8 +1109,9 @@ final class ChatThreadModel {
     }
 
     /// «N в сети» в группе: сколько участников, кроме меня, сейчас в сети.
+    @MainActor
     var othersOnline: Int? {
-        presence?.othersOnline(excluding: viewerID, live: realtime.presenceMarks)
+        presence?.othersOnline(excluding: viewerID) { [realtime] in realtime.presence(of: $0).mark }
     }
 
     /// Дата сообщения, к которому лента открылась (первое непрочитанное).
@@ -1111,8 +1129,9 @@ final class ChatThreadModel {
         }
     }
 
+    @MainActor
     var isPeerOnline: Bool {
-        if let peerID { return realtime.onlineUsers.contains(peerID) || chat?.online == true }
+        if let peerID { return realtime.presence(of: peerID).isOnline || chat?.online == true }
         return chat?.online == true
     }
 
@@ -1157,10 +1176,26 @@ final class ChatThreadModel {
     @MainActor
     func rejoin() async {
         await realtime.open(chatID: chatID)
-        await catchUpAfterReconnect()
-        await markRead()
-        // Пока экрана не было, комната была отпущена: прочтения и входы мимо прошли.
-        await loadGroupStatus()
+        // Догон с отметкой и статус группы друг от друга не зависят — параллельно.
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor in
+                await self.catchUpAfterReconnect()
+                await self.markRead()
+            }
+            // Пока экрана не было, комната была отпущена: прочтения и входы мимо прошли.
+            group.addTask { @MainActor in await self.loadGroupStatus() }
+        }
+    }
+
+    /// Шапка чата: закреплённое, собеседник, статус группы. Друг от друга и от истории
+    /// не зависят — грузятся разом, а не цепочкой из запросов (P1-5 аудита).
+    @MainActor
+    func loadHeader() async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor in await self.loadPinned() }
+            group.addTask { @MainActor in await self.loadPeer() }
+            group.addTask { @MainActor in await self.loadGroupStatus() }
+        }
     }
 
     @MainActor
@@ -1245,9 +1280,12 @@ final class ChatThreadModel {
     /// Подгрузка вверх. Вызывается, когда лента подъехала к началу загруженного.
     @MainActor
     func loadOlder() async {
-        guard !isLoadingOlder, !reachedBeginning, pendingWindowReset == nil else { return }
+        guard !isLoadingOlder, pendingWindowReset == nil else { return }
         isLoadingOlder = true
         defer { isLoadingOlder = false }
+        // Старые сообщения уже в базе (прошлые открытия) — окно опускается без сети.
+        if await lowerFloorFromDatabase() { return }
+        guard !reachedBeginning else { return }
         let generation = windowGeneration
 
         do {
@@ -1261,6 +1299,10 @@ final class ChatThreadModel {
             try await store.save(messages: page.items, chatID: chatID)
             olderCursor = page.meta?.cursor
             reachedBeginning = page.meta?.hasNext != true
+            // Страница легла ниже окна — окно опускается до неё, иначе её не было бы видно.
+            if let floor, let oldest = page.items.compactMap(\.seq).min(), oldest < floor {
+                setFloor(oldest)
+            }
             failure = nil
         } catch is CancellationError {
             // Экран ушёл, и запрос отменили — это не сбой: не пугаем красной строкой.
@@ -1268,6 +1310,41 @@ final class ChatThreadModel {
         } catch {
             failure = message(for: error)
         }
+    }
+
+    // MARK: - Окно наблюдения
+
+    /// Граница окна на открытии: ≈150 свежих и всё непрочитанное с запасом — первое
+    /// непрочитанное должно попасть в ленту, к нему она и откроется. Чтение строки чата
+    /// синхронное: одна строка по ключу, а граница нужна до первого среза.
+    @MainActor
+    private func initialFloor() -> Int? {
+        guard PerformanceFlags.chatWindowedObservation else { return nil }
+        let id = chatID
+        guard let chat = try? database.reader.read({ db in try ChatRecord.fetchOne(db, key: id) }) else { return nil }
+        let span = max(Self.liveWindow, chat.unreadCount + 20)
+        guard chat.lastSeq > span else { return nil }
+        return chat.lastSeq - span
+    }
+
+    /// Опустить границу окна. Наблюдение перезапускается с новым запросом; лента
+    /// прирастает сверху, и её позицию держит `MessageListView` (верхнее видимое сообщение).
+    @MainActor
+    private func setFloor(_ newFloor: Int?) {
+        guard newFloor != floor else { return }
+        floor = newFloor
+        observeMessages()
+    }
+
+    /// Старее окна в базе что-то есть — опустить границу на страницу без сети.
+    @MainActor
+    private func lowerFloorFromDatabase() async -> Bool {
+        guard let floor else { return false }
+        guard let lower = try? await store.lowerFloor(chatID: chatID, below: floor, by: ChatsAPI.messagePageLimit) else {
+            return false
+        }
+        setFloor(lower)
+        return true
     }
 
     // MARK: - Синхронизация
@@ -1320,14 +1397,15 @@ final class ChatThreadModel {
     @MainActor
     private func observeMessages() {
         messagesTask?.cancel()
-        let request = store.messages(chatID: chatID)
+        let request = store.messages(chatID: chatID, from: floor)
         let id = chatID
+        let floor = floor
         // Сообщения и вложения читаем одним наблюдением: раздельные дали бы кадр,
         // где картинка уже пришла, а сообщения под неё ещё нет.
         // Наблюдение будит любая запись в `message`/`attachment`, в том числе в чужом
         // чате: одинаковый срез отсеивается вне главного потока и до ленты не доходит.
         let observation = ValueObservation.tracking { db -> ThreadSnapshot in
-            try ChatThreadModel.readSnapshot(request, chatID: id, in: db)
+            try ChatThreadModel.readSnapshot(request, chatID: id, floor: floor, in: db)
         }
         .removeDuplicates()
         // Сильная ссылка живёт только на шаг цикла: держи её задача весь бесконечный
@@ -1345,18 +1423,20 @@ final class ChatThreadModel {
     private static func readSnapshot(
         _ request: QueryInterfaceRequest<MessageRecord>,
         chatID: String,
+        floor: Int?,
         in db: Database
     ) throws -> ThreadSnapshot {
         let signpost = Signposts.chats.beginInterval("ThreadSnapshotRead")
         let messages = try request.fetchAll(db)
+        // Вложения — только сообщений окна, та же граница, что у запроса сообщений.
         let attachments = try AttachmentRecord.fetchAll(
             db,
             sql: """
                 SELECT a.* FROM attachment a
                 JOIN message m ON m.id = a.messageId
-                WHERE m.chatId = ?
+                WHERE m.chatId = ? AND (? IS NULL OR m.seq >= ? OR m.seq IS NULL)
                 """,
-            arguments: [chatID]
+            arguments: [chatID, floor, floor]
         )
         Signposts.chats.endInterval(
             "ThreadSnapshotRead", signpost,
