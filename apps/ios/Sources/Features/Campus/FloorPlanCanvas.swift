@@ -10,7 +10,7 @@ struct FloorPlanCanvas: View {
     let selectedRoomID: String?
     let select: (String?) -> Void
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     @State private var scale: CGFloat = 1
     @State private var offset: CGSize = .zero
     @GestureState private var pinch: CGFloat = 1

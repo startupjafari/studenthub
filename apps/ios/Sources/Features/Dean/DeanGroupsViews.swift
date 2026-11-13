@@ -214,7 +214,7 @@ struct DeanGroupView: View {
                     title: String(localized: "dean.group.attendanceShort", defaultValue: "Посещаемость"),
                     symbol: "chart.bar"
                 ) {
-                    withAnimation { proxy.scrollTo(Anchor.attendance, anchor: .top) }
+                    withMotion { proxy.scrollTo(Anchor.attendance, anchor: .top) }
                 },
             ],
             badges: { headerBadges(data) },

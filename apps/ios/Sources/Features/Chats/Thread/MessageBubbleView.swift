@@ -75,7 +75,7 @@ struct MessageBubbleView: View {
 
     @State private var reactionTick = 0
     @Environment(\.colorScheme) private var scheme
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     @ScaledMetric(relativeTo: .body) private var avatarSize: CGFloat = 32
 
     private var message: MessageRecord { item.message }
@@ -160,6 +160,7 @@ struct MessageBubbleView: View {
             if !item.isOwn { Spacer(minLength: Spacing.xxl * 2) }
         }
         .bubbleAnchor(message.id, part: .row, enabled: !isMenuPreview)
+        .accessibilityIdentifier("message.bubble.\(message.remoteId ?? message.id)")
         .accessibilityHidden(selecting)
     }
 

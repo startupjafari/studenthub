@@ -30,10 +30,15 @@ final class FeedModel {
     private(set) var pageFailure: String?
     /// Сообщение о неудавшемся действии над постом (реакция, закладка, удаление).
     private(set) var actionFailure: String?
-    /// Локальные поправки к реакциям: id поста → эмодзи → моё состояние.
-    private(set) var myReactions: [String: Set<String>] = [:]
-    private(set) var counts: [String: [String: Int]] = [:]
-    private(set) var bookmarks: Set<String> = []
+    /// Реакции и закладка — у каждого поста свой наблюдаемый объект (`PostInteraction`).
+    /// Раньше это были три общих словаря модели, и карточка, читая из них, подписывалась
+    /// на весь словарь: одна реакция перерисовывала все видимые карточки ленты. Теперь
+    /// карточка зависит только от своего поста.
+    ///
+    /// Сам словарь не наблюдается: объект поста создаётся при первом чтении (в том числе
+    /// из `body`) и дальше живёт, пока жива лента, — подменять его нельзя, иначе карточка
+    /// осталась бы подписана на старый.
+    @ObservationIgnored private var interactions: [String: PostInteraction] = [:]
 
     private let api: FeedFetching
     private var cursor: String?
@@ -65,9 +70,7 @@ final class FeedModel {
             let page = try await ScreenCache.refreshing { try await api.posts(cursor: nil) }
             posts = page.items.map { resolvePin($0, readAt: stamp) }
             cursor = page.meta?.hasNext == true ? page.meta?.cursor : nil
-            myReactions = [:]
-            counts = [:]
-            bookmarks = []
+            for interaction in interactions.values { interaction.reset() }
             remember(page.items, readAt: stamp)
             // Тексты страницы — разобрать фоном, пока лента встаёт на экран: карточки
             // возьмут готовое (п. 34).
@@ -125,21 +128,21 @@ final class FeedModel {
     // MARK: - Реакции
 
     func isMine(_ emoji: String, in postID: String) -> Bool {
-        myReactions[postID]?.contains(emoji) ?? false
+        interaction(postID).mine.contains(emoji)
     }
 
     func count(_ emoji: String, in postID: String) -> Int {
-        counts[postID]?[emoji] ?? 0
+        interaction(postID).counts[emoji] ?? 0
     }
 
     /// Все реакции поста — для счётчика рядом с кнопкой.
     func totalReactions(in postID: String) -> Int {
-        counts[postID]?.values.reduce(0, +) ?? 0
+        interaction(postID).counts.values.reduce(0, +)
     }
 
     /// Поставленные на пост эмодзи по убыванию: их показываем стопкой у счётчика.
     func topReactions(in postID: String, limit: Int = 3) -> [String] {
-        (counts[postID] ?? [:])
+        interaction(postID).counts
             .filter { $0.value > 0 }
             .sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }
             .prefix(limit)
@@ -171,7 +174,14 @@ final class FeedModel {
 
     // MARK: - Действия над постом
 
-    func isBookmarked(_ postID: String) -> Bool { bookmarks.contains(postID) }
+    func isBookmarked(_ postID: String) -> Bool { interaction(postID).bookmarked }
+
+    private func interaction(_ postID: String) -> PostInteraction {
+        if let existing = interactions[postID] { return existing }
+        let created = PostInteraction()
+        interactions[postID] = created
+        return created
+    }
 
     /// Закладка. Сервер — переключатель: запрос уходит, только когда показанное
     /// расходится с подтверждённым, и ответ сервера (его положение) — правда, которую
@@ -330,8 +340,9 @@ final class FeedModel {
                     map[key.emoji] = max(0, (map[key.emoji] ?? 0) - 1)
                 }
             }
-            myReactions[post.id] = mine
-            counts[post.id] = map
+            let interaction = self.interaction(post.id)
+            if interaction.mine != mine { interaction.mine = mine }
+            if interaction.counts != map { interaction.counts = map }
             let bookmarked = bookmarkSync.resolve(post.id, server: post.bookmarked == true, readAt: stamp.bookmarks)
             setBookmark(post.id, bookmarked)
         }
@@ -356,7 +367,8 @@ final class FeedModel {
 
     @MainActor
     private func setBookmark(_ postID: String, _ on: Bool) {
-        if on { bookmarks.insert(postID) } else { bookmarks.remove(postID) }
+        let interaction = self.interaction(postID)
+        if interaction.bookmarked != on { interaction.bookmarked = on }
     }
 
     @MainActor
@@ -376,8 +388,9 @@ final class FeedModel {
     @MainActor
     private func apply(emoji: String, postID: String, mine: Bool) {
         guard isMine(emoji, in: postID) != mine else { return }
-        var set = myReactions[postID] ?? []
-        var map = counts[postID] ?? [:]
+        let interaction = self.interaction(postID)
+        var set = interaction.mine
+        var map = interaction.counts
         if mine {
             set.insert(emoji)
             map[emoji] = (map[emoji] ?? 0) + 1
@@ -385,8 +398,24 @@ final class FeedModel {
             set.remove(emoji)
             map[emoji] = max(0, (map[emoji] ?? 0) - 1)
         }
-        myReactions[postID] = set
-        counts[postID] = map
+        interaction.mine = set
+        interaction.counts = map
+    }
+}
+
+/// Реакции и закладка одного поста — отдельный наблюдаемый объект, чтобы правка одного
+/// поста перерисовывала только его карточку (`FeedModel.interactions`).
+@MainActor
+@Observable
+final class PostInteraction {
+    var mine: Set<String> = []
+    var counts: [String: Int] = [:]
+    var bookmarked = false
+
+    func reset() {
+        if !mine.isEmpty { mine = [] }
+        if !counts.isEmpty { counts = [:] }
+        if bookmarked { bookmarked = false }
     }
 }
 

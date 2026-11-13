@@ -88,7 +88,8 @@ struct LocationPickerView: View {
                     .font(.system(size: 34, weight: .semibold))
                     .foregroundStyle(Palette.destructive)
                     .offset(y: isMoving ? -24 : -17)
-                    .animation(.spring(duration: 0.25, bounce: 0.4), value: isMoving)
+                    // Булавка подпрыгивает — игриво, поэтому с перелётом; без движения — сразу на месте.
+                    .animation(Motion.isReducedNow ? nil : .spring(duration: 0.25, bounce: 0.4), value: isMoving)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }

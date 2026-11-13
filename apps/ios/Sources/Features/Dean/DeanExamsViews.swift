@@ -80,7 +80,7 @@ struct DeanExamsView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    withAnimation { periodOn.toggle() }
+                    withMotion { periodOn.toggle() }
                 } label: {
                     Image(systemName: periodOn ? "calendar.badge.minus" : "calendar.badge.plus")
                 }

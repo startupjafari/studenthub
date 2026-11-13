@@ -424,8 +424,14 @@ struct CommunityHighlightPlayer: View {
     @State private var holding = false
     @State private var muted = false
     @State private var editing = false
+    /// Кадр идёт за пальцем вниз, как у историй; отпускание решает `GesturePhysics`.
+    @State private var dragOffset: CGFloat = 0
+    @State private var viewHeight: CGFloat = 852
+    @Environment(\.motionReduced) private var reduceMotion
 
     private static let frameSeconds = 6.0
+    /// Сдвиг, после которого касание — уже оттяжка, а не нажатие на зону кадра.
+    private static let dragSlop: CGFloat = 10
 
     var body: some View {
         ZStack {
@@ -436,6 +442,8 @@ struct CommunityHighlightPlayer: View {
                     .ignoresSafeArea()
                     .overlay(tapZones(count: detail.items.count))
                     .overlay(alignment: .top) { header(detail) }
+                    .offset(y: dragOffset)
+                    .scaleEffect(1 - min(abs(dragOffset) / 2000, 0.1))
                     .id(story.id)
                     .task(id: story.id) { await run(story, count: detail.items.count) }
             } else if let failure {
@@ -450,6 +458,7 @@ struct CommunityHighlightPlayer: View {
                 ProgressView().tint(.white)
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewHeight = $0 }
         .statusBarHidden()
         .preferredColorScheme(.dark)
         .task { await load() }
@@ -519,10 +528,22 @@ struct CommunityHighlightPlayer: View {
         }
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
-                .onChanged { _ in holding = true }
+                .onChanged { value in
+                    holding = true
+                    let dy = value.translation.height
+                    guard abs(dy) > Self.dragSlop, abs(dy) > abs(value.translation.width) else { return }
+                    // Вниз — 1:1 от точки признания, вверх — с сопротивлением.
+                    let shifted = dy > 0 ? dy - Self.dragSlop : dy + Self.dragSlop
+                    dragOffset = shifted > 0 ? shifted : GesturePhysics.rubberBand(shifted, limit: 40)
+                }
                 .onEnded { value in
                     holding = false
-                    if value.translation.height > 120 { dismiss() }
+                    if GesturePhysics.shouldComplete(translation: dragOffset, velocity: value.velocity.height, extent: viewHeight) {
+                        dismiss()
+                    } else if dragOffset != 0 {
+                        let animation = Motion.release(from: dragOffset, to: 0, velocity: value.velocity.height)
+                        withAnimation(Motion.respecting(animation, reduceMotion: reduceMotion)) { dragOffset = 0 }
+                    }
                 }
         )
     }
@@ -538,7 +559,7 @@ struct CommunityHighlightPlayer: View {
         while clock.progress < 1 {
             try? await Task.sleep(for: .milliseconds(Int(step * 1000)))
             if Task.isCancelled { return }
-            if !holding && !editing { clock.progress += step / max(seconds, 1) }
+            if !holding && !editing { clock.advance(by: step / max(seconds, 1), over: step) }
         }
         advance(count: count)
     }

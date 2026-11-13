@@ -13,7 +13,7 @@ import SwiftUI
 /// Запуск вид не задерживает: он держится, пока корневому экрану нечего показать
 /// (`RootView`).
 struct LaunchLoadingView: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     @State private var markShown = false
     @State private var haloShown = false
 

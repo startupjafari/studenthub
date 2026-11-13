@@ -56,7 +56,7 @@ struct PostCommentsView: View {
                 .pullToRefresh { await reload() }
                 .onChange(of: model?.comments.last?.id) { _, last in
                     guard let last, didLoad else { return }
-                    withAnimation(Motion.calm) { proxy.scrollTo(last, anchor: .bottom) }
+                    withMotion(Motion.calm) { proxy.scrollTo(last, anchor: .bottom) }
                 }
             }
         }

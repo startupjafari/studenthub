@@ -1,0 +1,63 @@
+name: iOS nightly
+
+# Расширенный прогон по расписанию: все UI-сценарии (включая живой сервер, если в
+# секретах есть учётка) и замеры производительности против Tests/perf-baseline.json.
+# На PR не идёт: замеры шумные и долгие, а регрессию между двумя соседними ночами
+# видно по сводке и артефакту metrics.json.
+on:
+  schedule:
+    # 02:30 по Алматы (UTC+5).
+    - cron: '30 21 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-nightly
+  cancel-in-progress: true
+
+jobs:
+  full:
+    name: UI и производительность
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      SH_TEST_DEVICE: iPhone 17 Pro
+      SH_TEST_OS: '26.5'
+    defaults:
+      run:
+        working-directory: apps/ios
+    steps:
+      - name: Забрать код
+        uses: actions/checkout@v7
+        with:
+          ref: develop
+          persist-credentials: false
+
+      - name: Поставить XcodeGen
+        run: brew install xcodegen
+
+      - name: Кеш пакетов Swift
+        uses: actions/cache@v6
+        with:
+          path: apps/ios/build/DerivedData/SourcePackages
+          key: ios-spm-${{ hashFiles('apps/ios/project.yml') }}
+          restore-keys: ios-spm-
+
+      # Учётка тестового вуза (не прод) — для ChatFlowsUITests на живом сервере. Нет
+      # секретов — эти сценарии пропускаются, остальное идёт на mock API.
+      - name: Полный прогон
+        env:
+          TEST_RUNNER_SH_UITEST_LOGIN: ${{ secrets.IOS_UITEST_LOGIN }}
+          TEST_RUNNER_SH_UITEST_PASSWORD: ${{ secrets.IOS_UITEST_PASSWORD }}
+        run: scripts/test.sh full
+
+      - name: Сохранить результаты
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-nightly-results
+          path: apps/ios/build/test-output
+          retention-days: 30

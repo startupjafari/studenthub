@@ -9,7 +9,7 @@ struct CampusMapView: View {
 
     @State private var model = CampusMapModel()
     @State private var query = ""
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
 
     var body: some View {
         Group {
@@ -97,7 +97,7 @@ struct CampusMapView: View {
         }
         .overlay(alignment: .top) { controls }
         .frame(maxHeight: .infinity)
-        .animation(Motion.respecting(.snappy, reduceMotion: reduceMotion), value: model.selectedRoomID)
+        .animation(Motion.respecting(Motion.snappy, reduceMotion: reduceMotion), value: model.selectedRoomID)
     }
 
     // MARK: Корпус и этаж

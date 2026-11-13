@@ -54,6 +54,8 @@ actor APIClient {
         configuration.httpCookieStorage = nil
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
+        // Режим UI-тестов: ответы из фикстур (`MockAPIProtocol`). В Release список пуст.
+        configuration.protocolClasses = UITestHooks.protocolClasses + (configuration.protocolClasses ?? [])
         return URLSession(configuration: configuration)
     }()
 

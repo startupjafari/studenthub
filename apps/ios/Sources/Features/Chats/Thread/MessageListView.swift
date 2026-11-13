@@ -167,7 +167,7 @@ final class MessageListViewController: UIViewController {
     /// низа) потом въезжать не должно — это уже не «только что пришло».
     private static let entranceLifetime: TimeInterval = 1
 
-    private var reduceMotion: Bool { UIAccessibility.isReduceMotionEnabled }
+    private var reduceMotion: Bool { Motion.isReducedNow }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -523,6 +523,7 @@ final class MessageListViewController: UIViewController {
         let list = MessageCollectionView(frame: .zero, collectionViewLayout: layout)
         list.onContentHeightChange = { [weak self] old in self?.contentHeightChanged(from: old) }
         collectionView = list
+        collectionView.accessibilityIdentifier = "chat.messages"
         collectionView.backgroundColor = .clear
         collectionView.keyboardDismissMode = .interactive
         // Короткая переписка тоже тянется: жест к началу ленты есть всегда.
@@ -921,6 +922,10 @@ final class MessageListViewController: UIViewController {
     /// ним той же пружиной, что растёт его содержимое (`Motion.lively`). Если досчёт уже
     /// случился при применении среза, анимировать нечего — лента просто остаётся как есть.
     private func animateLayout() {
+        guard !reduceMotion else {
+            collectionView.layoutIfNeeded()
+            return
+        }
         UIView.animate(
             springDuration: 0.3,
             bounce: 0.2,

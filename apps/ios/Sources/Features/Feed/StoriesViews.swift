@@ -45,6 +45,7 @@ struct StoriesRail: View {
                         state: ring.hasUnseen ? .unseen : .seen,
                         action: { open(ring.id) }
                     )
+                    .accessibilityIdentifier("stories.ring.\(ring.id)")
                 }
             }
             .padding(.horizontal, Spacing.xl)
@@ -116,7 +117,7 @@ struct StoryAvatar: View {
                     .frame(width: size + 8)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressableIcon)
         .accessibilityLabel(Text(name))
         .accessibilityValue(Text(state == .unseen
             ? String(localized: "stories.unseen", defaultValue: "Есть новые истории")
@@ -143,7 +144,7 @@ struct StoryViewer: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.viewerID) private var viewerID
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
 
     @State private var ringIndex = 0
     @State private var storyIndex = 0
@@ -160,6 +161,13 @@ struct StoryViewer: View {
     @State private var showingViewers = false
     @State private var addingToHighlight = false
     @State private var dragOffset: CGSize = .zero
+    /// Ось жеста решается один раз, в момент признания, и точка отсчёта — оттуда же:
+    /// иначе кадр прыгал бы на `minimumDistance` и переключался между осями под пальцем.
+    @State private var dragStart: (origin: CGSize, axis: Axis)?
+    /// Жест идёт — история стоит на паузе (как в Telegram) и сбрасывается при отмене
+    /// жеста системой, когда `onEnded` не приходит.
+    @GestureState private var dragging = false
+    @State private var viewSize = CGSize(width: 393, height: 852)
     /// Автор на экране — по нему просмотр находит своё место, когда кольца меняются
     /// под ним: удалили историю, скрыли автора.
     @State private var shownRingID: String?
@@ -182,7 +190,7 @@ struct StoryViewer: View {
     private var isOwn: Bool { ring?.author.id == viewerID }
 
     private var paused: Bool {
-        holding || pollExpanded || replyFocused || reporting || confirmingDelete || showingViewers || addingToHighlight
+        holding || dragging || pollExpanded || replyFocused || reporting || confirmingDelete || showingViewers || addingToHighlight
     }
 
     var body: some View {
@@ -200,6 +208,13 @@ struct StoryViewer: View {
                     .gesture(dismissDrag)
                     .id(story.id)
                     .transition(.opacity)
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { viewSize = $0 }
+                    .onChange(of: dragging) { _, active in
+                        // Жест отменён системой: `onEnded` не было — кадр на место.
+                        guard !active, dragStart != nil else { return }
+                        dragStart = nil
+                        withAnimation(Motion.respecting(Motion.interactive, reduceMotion: reduceMotion)) { dragOffset = .zero }
+                    }
             } else {
                 // Кадра нет (кольца поменялись под просмотром) — выход всё равно на месте:
                 // чёрный экран без крестика был бы ловушкой.
@@ -287,7 +302,7 @@ struct StoryViewer: View {
         while clock.progress < 1 {
             try? await Task.sleep(for: .milliseconds(Int(step * 1000)))
             if Task.isCancelled { return }
-            if !paused { clock.progress += step / max(seconds, 1) }
+            if !paused { clock.advance(by: step / max(seconds, 1), over: step) }
         }
         advance()
     }
@@ -383,24 +398,59 @@ struct StoryViewer: View {
         }
     }
 
+    /// Вниз — закрыть, вбок — соседний автор. Кадр идёт за пальцем 1:1; за краем (нет
+    /// соседа) — с сопротивлением. Решение на отпускании — `GesturePhysics`: положение
+    /// плюс скорость, так что короткий бросок срабатывает, а медленная оттяжка — нет.
     private var dismissDrag: some Gesture {
         DragGesture(minimumDistance: 24)
+            .updating($dragging) { _, state, _ in state = true }
             .onChanged { value in
                 guard !replyFocused else { return }
-                dragOffset = abs(value.translation.height) > abs(value.translation.width)
-                    ? CGSize(width: 0, height: max(value.translation.height, 0))
-                    : CGSize(width: value.translation.width, height: 0)
+                if dragStart == nil {
+                    let axis: Axis = abs(value.translation.height) > abs(value.translation.width) ? .vertical : .horizontal
+                    dragStart = (value.translation, axis)
+                }
+                guard let start = dragStart else { return }
+                let dx = value.translation.width - start.origin.width
+                let dy = value.translation.height - start.origin.height
+                switch start.axis {
+                case .vertical:
+                    dragOffset = CGSize(width: 0, height: dy > 0 ? dy : GesturePhysics.rubberBand(dy, limit: 40))
+                case .horizontal:
+                    let hasNeighbor = dx < 0 ? ringIndex + 1 < rings.count : ringIndex > 0
+                    dragOffset = CGSize(width: hasNeighbor ? dx : GesturePhysics.rubberBand(dx, limit: 60), height: 0)
+                }
             }
             .onEnded { value in
-                defer {
-                    withAnimation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion)) { dragOffset = .zero }
+                guard let start = dragStart else { return }
+                dragStart = nil
+                let offset = dragOffset
+                switch start.axis {
+                case .vertical:
+                    if GesturePhysics.shouldComplete(translation: offset.height, velocity: value.velocity.height, extent: viewSize.height) {
+                        dismiss()
+                        return
+                    }
+                case .horizontal:
+                    let forward = -offset.width
+                    if ringIndex + 1 < rings.count,
+                       GesturePhysics.shouldComplete(translation: forward, velocity: -value.velocity.width, extent: viewSize.width) {
+                        switchRing(to: ringIndex + 1)
+                        dragOffset = .zero
+                        return
+                    }
+                    if ringIndex > 0,
+                       GesturePhysics.shouldComplete(translation: -forward, velocity: value.velocity.width, extent: viewSize.width) {
+                        switchRing(to: ringIndex - 1)
+                        dragOffset = .zero
+                        return
+                    }
                 }
-                if value.translation.height > 140 {
-                    dismiss()
-                } else if value.translation.width < -80, ringIndex + 1 < rings.count {
-                    switchRing(to: ringIndex + 1)
-                } else if value.translation.width > 80, ringIndex > 0 {
-                    switchRing(to: ringIndex - 1)
+                // Возврат на место — с той скоростью, с какой палец отпустил.
+                let velocity = start.axis == .vertical ? value.velocity.height : value.velocity.width
+                let distance = start.axis == .vertical ? offset.height : offset.width
+                withAnimation(Motion.respecting(Motion.release(from: distance, to: 0, velocity: velocity), reduceMotion: reduceMotion)) {
+                    dragOffset = .zero
                 }
             }
     }
@@ -760,13 +810,14 @@ private struct StoryPollView: View {
     let poll: StoryDTO.Poll
     @Binding var expanded: Bool
     let vote: (String) -> Void
+    @Environment(\.motionReduced) private var reduceMotion
 
     private var voted: Bool { poll.myOptionId != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             Button {
-                withAnimation(Motion.calm) { expanded.toggle() }
+                withAnimation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion)) { expanded.toggle() }
             } label: {
                 HStack(spacing: Spacing.md) {
                     Image(systemName: "chart.bar.fill")
@@ -1213,6 +1264,15 @@ private struct PollDraftOption: Identifiable {
 @Observable
 final class StoryClock {
     var progress: Double = 0
+
+    /// Шаг таймера. Полоска между тиками доезжает линейной анимацией длиной в шаг: без
+    /// неё она двигалась ступеньками по 20 раз в секунду, заметными на экране 120 Гц.
+    /// Тело полосок при этом считается по-прежнему раз в тик — кадры между тиками
+    /// рисует анимация, а не пересчёт. Сброс (`progress = 0`) — без анимации: полоска
+    /// нового кадра не должна «отъезжать» назад.
+    func advance(by delta: Double, over duration: TimeInterval) {
+        withAnimation(.linear(duration: duration)) { progress += delta }
+    }
 }
 
 /// Полоски кадров над историей: пройденные — полные, текущая — по таймеру.

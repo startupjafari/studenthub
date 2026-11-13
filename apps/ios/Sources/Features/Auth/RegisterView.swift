@@ -230,7 +230,7 @@ struct RegisterView: View {
     let session: AppSessionModel
     let backToLogin: () -> Void
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     @State private var model: RegisterModel
     @State private var showsPassword = false
     @State private var picksBirthDate = false

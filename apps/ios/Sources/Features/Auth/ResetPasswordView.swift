@@ -76,7 +76,7 @@ struct ResetPasswordView: View {
     /// Ссылка не работает — на экран «Восстановление пароля».
     let requestNewLink: () -> Void
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     @State private var model: ResetPasswordModel
     @State private var showsPassword = false
     @FocusState private var isPasswordFocused: Bool

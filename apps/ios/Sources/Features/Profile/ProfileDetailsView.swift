@@ -65,6 +65,7 @@ struct ProfileDetailsView: View {
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button(String(localized: "common.done", defaultValue: "Готово")) { dismiss() }
+                    .accessibilityIdentifier("profile.details.done")
             }
         }
     }

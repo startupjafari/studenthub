@@ -12,7 +12,7 @@ struct ChatInfoView: View {
 
     @Environment(\.viewerID) private var viewerID
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     @State private var chat: ChatRecord?
     @State private var members: [ChatMemberDTO] = []
     @State private var membersLoaded = false

@@ -62,7 +62,7 @@ struct AnimatedImageView: UIViewRepresentable {
     let image: UIImage
     var contentMode: UIView.ContentMode = .scaleAspectFill
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
 
     func makeUIView(context: Context) -> UIImageView {
         let view = UIImageView()

@@ -10,7 +10,7 @@ struct UAdminSetupView: View {
     @State private var open: String?
     @State private var busy: String?
     @State private var launched = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
 
     /// Состояние мастера и город вуза по КАТО — одним значением.
     private struct Loaded {

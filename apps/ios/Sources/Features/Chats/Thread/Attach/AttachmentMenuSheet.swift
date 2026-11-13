@@ -66,7 +66,7 @@ struct AttachmentMenuSheet: View {
     let onCreateChecklist: (_ title: String, _ items: [String], _ othersCanAdd: Bool, _ othersCanMark: Bool) async -> Bool
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     @State private var section: Section = .gallery
     @State private var selection: [PHAsset] = []
     @State private var detent: PresentationDetent = .medium

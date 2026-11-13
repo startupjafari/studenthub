@@ -32,7 +32,7 @@ struct ChatListView: View {
     /// посреди прокрутки дёргала строки под пальцем.
     @State private var isScrolling = false
     @Environment(\.viewerID) private var viewerID
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     private var realtime: RealtimeCoordinator { AppServices.realtime }
 
     private var isEditing: Bool { editMode.isEditing }
@@ -291,6 +291,7 @@ struct ChatListView: View {
         .buttonBorderShape(.circle)
         .tint(Palette.primary)
         .accessibilityLabel(Text(String(localized: "chats.new", defaultValue: "Новый чат")))
+        .accessibilityIdentifier("chatlist.compose")
     }
 
     /// Нижняя панель режима правки: то, что API умеет делать с чатом.
@@ -426,6 +427,7 @@ struct ChatListView: View {
             activity: realtime.activity(for: row.id),
             isGroup: row.kind != .private && row.kind != .saved
         )
+        .accessibilityIdentifier("chatlist.row.\(row.id)")
         .background {
             NavigationLink(value: AppRoute.chat(id: row.id)) { EmptyView() }
                 .opacity(0)
