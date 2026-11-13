@@ -485,7 +485,7 @@ final class MessageListViewController: UIViewController {
         // заголовки с замером SwiftUI на устройстве вставали мимо: дата висела у нижнего
         // края или посреди чужого дня поверх пузырей, между датой и сообщениями зияли
         // пустоты. Дату у верха при прокрутке рисует `floatingDate` поверх ленты.
-        let layout = MessageListLayout { _, environment in
+        let compositional = MessageListLayout { _, environment in
             let section = NSCollectionLayoutSection.list(using: configuration, layoutEnvironment: environment)
             let header = NSCollectionLayoutBoundarySupplementaryItem(
                 layoutSize: NSCollectionLayoutSize(
@@ -499,6 +499,7 @@ final class MessageListViewController: UIViewController {
             return section
         }
 
+        let layout: UICollectionViewLayout = PerformanceFlags.chatHeightCache ? makeStackLayout() : compositional
         let list = MessageCollectionView(frame: .zero, collectionViewLayout: layout)
         list.onContentHeightChange = { [weak self] old in self?.contentHeightChanged(from: old) }
         collectionView = list
@@ -542,6 +543,63 @@ final class MessageListViewController: UIViewController {
         floatingDate.isHidden = true
         floatingDate.onTap = { [weak self] day in self?.onDayTap?(day) }
         view.addSubview(floatingDate)
+    }
+
+    /// Своя раскладка с кешем высот (шаг 2.5, флаг `chatHeightCache`).
+    private func makeStackLayout() -> MessageStackLayout {
+        let layout = MessageStackLayout()
+        layout.headerHeight = { DaySeparatorMetrics.height() }
+        layout.key = { [weak self] indexPath, width in
+            guard let self, let id = self.dataSource?.itemIdentifier(for: indexPath), let item = self.itemsByID[id] else {
+                return nil
+            }
+            var hasher = Hasher()
+            hasher.combine(item)
+            hasher.combine(self.selection != nil)
+            hasher.combine(self.bubbleContext.isGroup)
+            return MessageHeightKey(
+                id: id,
+                revision: hasher.finalize(),
+                width: Int(width),
+                category: self.traitCollection.preferredContentSizeCategory.rawValue
+            )
+        }
+        layout.estimate = { [weak self] indexPath, width in
+            guard let self, let id = self.dataSource?.itemIdentifier(for: indexPath), let item = self.itemsByID[id] else {
+                return 44
+            }
+            return CGFloat(MessageHeightEstimate.estimate(self.estimateInput(for: item), metrics: Self.estimateMetrics(width: width)))
+        }
+        return layout
+    }
+
+    private func estimateInput(for item: MessageTimeline.Item) -> MessageHeightEstimate.Input {
+        let message = item.message
+        let media = item.attachments.filter(\.showsAsMedia)
+        var input = MessageHeightEstimate.Input()
+        input.textLength = message.content.count
+        input.lineBreaks = message.content.reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
+        if media.count == 1, let only = media.first {
+            let size = ChatMediaTile.singleSize(for: only)
+            input.media = (Double(size.width), Double(size.height))
+        } else if media.count > 1 {
+            input.media = (Double(ChatMediaTile.singleWidth), Double(ChatMediaTile.singleWidth))
+        }
+        input.otherAttachments = item.attachments.count - media.count
+        input.hasReply = message.replyToId != nil
+        input.showsName = bubbleContext.isGroup && !item.isOwn && item.isFirstInGroup
+        input.hasReactions = message.extras?.reactions.isEmpty == false
+        input.isLastInGroup = item.isLastInGroup
+        return input
+    }
+
+    private static func estimateMetrics(width: CGFloat) -> MessageHeightEstimate.Metrics {
+        let body = UIFont.preferredFont(forTextStyle: .body)
+        return MessageHeightEstimate.Metrics(
+            textWidth: Double(min(width * 0.78, 360) - 24),
+            lineHeight: Double(body.lineHeight),
+            charWidth: Double(body.pointSize * 0.52)
+        )
     }
 
     private func configureDataSource() {
