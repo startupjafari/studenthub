@@ -173,9 +173,14 @@ struct ProfileView: View {
                             details: { showsDetails = true },
                             open: { select($0, revealing: true, with: scroller) },
                             viewPhoto: { url in
+                                // Фото профиля и обложка — одним просмотром: открывается
+                                // тот снимок, которого коснулись, соседний — листанием.
+                                let urls = [profile.avatarUrl, profile.coverUrl].compactMap { $0 }.filter { !$0.isEmpty }
                                 viewing = MediaTarget(
-                                    media: [PostDTO.Media(id: "profile-photo", url: url, mime: "image/jpeg", sources: nil, poster: nil, hls: nil)],
-                                    start: 0
+                                    media: urls.enumerated().map { index, url in
+                                        PostDTO.Media(id: "profile-photo-\(index)", url: url, mime: "image/jpeg", sources: nil, poster: nil, hls: nil)
+                                    },
+                                    start: urls.firstIndex(of: url) ?? 0
                                 )
                             }
                         )
@@ -1228,22 +1233,19 @@ private extension View {
             }
     }
 
-    /// Фото или обложка открываются целиком — касанием и долгим нажатием. Без снимка
-    /// (инициалы, пустая обложка) открывать нечего, и жесты не вешаются.
+    /// Фото или обложка открываются целиком касанием — кнопкой, а не жестом: касание
+    /// в паре с долгим нажатием внутри прокрутки не срабатывало, открывалось только
+    /// удержанием. Без снимка (инициалы, пустая обложка) открывать нечего.
     @ViewBuilder
     func photoViewing(_ url: String?, label: String, open: @escaping (String) -> Void) -> some View {
         if let url, !url.isEmpty {
-            self
-                .onTapGesture { open(url) }
-                .onLongPressGesture(minimumDuration: 0.35) {
-                    // Долгое нажатие сработало — толчок, как в Telegram.
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    open(url)
-                }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text(label))
-                .accessibilityAddTraits(.isButton)
-                .accessibilityAction { open(url) }
+            Button {
+                open(url)
+            } label: {
+                self
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text(label))
         } else {
             self.accessibilityHidden(true)
         }
