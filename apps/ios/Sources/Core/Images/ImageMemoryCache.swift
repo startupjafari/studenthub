@@ -95,17 +95,27 @@ final class ImageMemoryCache: @unchecked Sendable {
     }
 
     /// Загрузка под размер `maxPixelSize` (длинная сторона в пикселях); `nil` — полный кадр.
-    func load(_ url: URL, key: String, maxPixelSize: CGFloat? = nil) async -> UIImage? {
-        await load(url, key: key, target: maxPixelSize.map { ImageTarget.longSide($0) })
+    func load(
+        _ url: URL,
+        key: String,
+        maxPixelSize: CGFloat? = nil,
+        progress: ImageDownloads.Progress? = nil
+    ) async -> UIImage? {
+        await load(url, key: key, target: maxPixelSize.map { ImageTarget.longSide($0) }, progress: progress)
     }
 
     /// Загрузка с декодированием вне главного потока под цель `target` (`nil` — полный
     /// кадр). Крупный JPEG, распакованный при первом показе, дёргает прокрутку; копия
     /// под размер вида делается прямо при декодировании (`ImageDownsampler`).
-    func load(_ url: URL, key: String, target: ImageTarget?) async -> UIImage? {
+    func load(
+        _ url: URL,
+        key: String,
+        target: ImageTarget?,
+        progress: ImageDownloads.Progress? = nil
+    ) async -> UIImage? {
         if let cached = image(for: key, satisfying: target) { return cached }
         let generation = currentGeneration
-        guard let data = await bytes(for: url) else { return nil }
+        guard let data = await bytes(for: url, progress: progress) else { return nil }
         // Ячейка ушла с экрана, пока шла сеть: декодировать уже незачем.
         guard !Task.isCancelled else { return nil }
         guard let decoded = await Self.decode(data, target: target) else { return nil }
@@ -118,13 +128,13 @@ final class ImageMemoryCache: @unchecked Sendable {
 
     /// Исходные байты: свой файл — прямо с диска, по сети — через общий загрузчик
     /// (диск кеша, затем сеть, одна загрузка на картинку).
-    private func bytes(for url: URL) async -> Data? {
+    private func bytes(for url: URL, progress: ImageDownloads.Progress?) async -> Data? {
         if url.isFileURL {
             return await Task.detached(priority: Task.currentPriority) {
                 try? Data(contentsOf: url, options: .mappedIfSafe)
             }.value
         }
-        return await downloads.data(for: url)
+        return await downloads.data(for: url, progress: progress)
     }
 
     /// Декодирование в отдельной задаче — явно не на главном потоке, кто бы ни звал.

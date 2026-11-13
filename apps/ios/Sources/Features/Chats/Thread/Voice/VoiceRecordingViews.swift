@@ -19,6 +19,9 @@ struct VoiceMicButton: View {
     /// это «отправить», а не новая запись.
     @State private var touchStartPhase: VoiceRecordingMachine.Phase?
     @State private var touchEnded = false
+    /// Номер касания: сброс оборванного касания на следующем витке не должен задеть
+    /// уже начавшееся новое.
+    @State private var touchSerial = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .body) private var bigCircle: CGFloat = 84
 
@@ -28,21 +31,32 @@ struct VoiceMicButton: View {
         icon
             .frame(width: ControlHeight.lg, height: ControlHeight.lg)
             .contentShape(Circle())
-            .overlay { bigCircleView.allowsHitTesting(false) }
-            .overlay(alignment: .bottom) { lockView }
-            .overlay(alignment: .bottomTrailing) { hintView }
+            // Жест — только на самой кнопке, накладки (круг, замок, «стоп», подсказка) —
+            // после него. Раньше он висел и на них: касание «стоп» могло достаться заодно
+            // жесту микрофона, а тот в закреплённой записи понимает касание как
+            // «отправить».
             .gesture(press)
             .onChange(of: isTouching) { _, touching in
                 guard !touching else { return }
-                // Система забрала касание (звонок, уведомление): `onEnded` не придёт.
-                // Проверяем на следующем витке — обычное отпускание успеет отметиться.
+                // Система забрала касание (звонок, уведомление, перестройка панели):
+                // `onEnded` не придёт. Проверяем на следующем витке — обычное отпускание
+                // успеет отметиться.
+                let serial = touchSerial
                 DispatchQueue.main.async {
-                    if !touchEnded, recorder.phase == .recording {
-                        recorder.touchCancelled()
+                    guard serial == touchSerial else { return }
+                    if !touchEnded {
+                        if recorder.phase == .recording { recorder.touchCancelled() }
+                        // Без `onEnded` начало касания так и оставалось записанным, и
+                        // следующее нажатие не начинало запись: «не с первого раза».
+                        touchStartPhase = nil
+                        touchEnded = true
                     }
                     offset = .zero
                 }
             }
+            .overlay { bigCircleView.allowsHitTesting(false) }
+            .overlay(alignment: .bottom) { lockView }
+            .overlay(alignment: .bottomTrailing) { hintView }
             .accessibilityElement()
             .accessibilityIdentifier("chat.mic")
             .accessibilityLabel(Text(accessibilityTitle))
@@ -71,6 +85,9 @@ struct VoiceMicButton: View {
                 if touchStartPhase == nil {
                     touchStartPhase = phase
                     touchEnded = false
+                    touchSerial &+= 1
+                    // Запись начинается сразу, сессию звука включает очередь — экран
+                    // под пальцем не замирает (`VoiceRecorder.startRecording`).
                     if phase.startsRecordingOnPress { recorder.press() }
                 }
                 guard recorder.phase == .recording else { return }
@@ -103,11 +120,14 @@ struct VoiceMicButton: View {
                 .frame(width: ControlHeight.lg, height: ControlHeight.lg)
                 .glassSurface(tint: Palette.primary, in: Circle())
         default:
+            // Стекло без отклика на касание: на iOS 26 интерактивное стекло само
+            // раздувалось под пальцем — кнопка «увеличилась», а записи ещё нет. Отклик
+            // удержания — большой синий круг записи.
             Image(systemName: "mic")
                 .font(.title3)
                 .foregroundStyle(Palette.mutedForeground)
                 .frame(width: ControlHeight.lg, height: ControlHeight.lg)
-                .composerGlass(in: Circle())
+                .composerGlass(in: Circle(), interactive: false)
                 .opacity(phase == .recording ? 0 : 1)
         }
     }
@@ -157,6 +177,8 @@ struct VoiceMicButton: View {
             .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             .accessibilityHidden(true)
         case .lockedRecording:
+            // «Стоп» закреплённой записи — над микрофоном, на месте замка, как в
+            // Telegram: поверх ленты, но в колонке кнопки, а не в пузыре.
             Button {
                 recorder.stop()
             } label: {
@@ -167,6 +189,8 @@ struct VoiceMicButton: View {
                     .floatingGlass(in: Circle())
             }
             .buttonStyle(.plain)
+            // Касание «стоп» не прячет клавиатуру — как и вся панель ввода.
+            .keepsKeyboardOnTap()
             .offset(y: -(ControlHeight.lg + Spacing.lg))
             .transition(reduceMotion ? .opacity : .scale(scale: 0.6).combined(with: .opacity))
             .accessibilityLabel(Text(String(localized: "chats.voice.stop", defaultValue: "Остановить запись")))
@@ -205,6 +229,7 @@ struct VoiceMicButton: View {
 }
 
 private extension VoiceRecordingMachine.Phase {
+    /// Как `VoiceRecordingMachine.canStart`: касание в этих фазах — новая запись.
     var startsRecordingOnPress: Bool {
         switch self {
         case .idle, .uploading, .failed: true

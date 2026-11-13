@@ -13,7 +13,8 @@ struct VoiceRecordingMachine: Equatable {
         /// Спросили разрешение на микрофон. Палец к этому моменту уже снят системным
         /// окном — после «Разрешить» запись начинается следующим нажатием, как в Telegram.
         case requestingPermission
-        /// Палец держит микрофон.
+        /// Палец держит микрофон. Сессия звука может ещё включаться — жест уже ведёт
+        /// запись, звук пойдёт в файл, как только она будет готова.
         case recording
         /// Свайп вверх: запись идёт без пальца.
         case lockedRecording
@@ -64,8 +65,9 @@ struct VoiceRecordingMachine: Equatable {
         case recordingFailed
         /// Смещение пальца от точки нажатия (вверх и влево — отрицательные).
         case drag(CGSize)
-        /// Палец отпущен; `duration` — сколько уже записано.
-        case release(duration: TimeInterval)
+        /// Палец отпущен; `duration` — сколько уже записано, `held` — сколько палец
+        /// держал микрофон. Они расходятся, когда сессия звука включалась долго.
+        case release(duration: TimeInterval, held: TimeInterval = 0)
         /// Система забрала касание (звонок, уведомление поверх).
         case touchCancelled(duration: TimeInterval)
         case tapStop(duration: TimeInterval)
@@ -76,6 +78,8 @@ struct VoiceRecordingMachine: Equatable {
         case prepared(ok: Bool)
         case uploadFinished
         case dismissFailure
+        /// Панель ввода ушла с экрана (выход из чата, режим выбора).
+        case abandon
     }
 
     /// Насколько увести палец влево, чтобы отменить.
@@ -141,10 +145,14 @@ struct VoiceRecordingMachine: Equatable {
             }
             return []
 
-        case (.recording, .release(let duration)):
+        case (.recording, .release(let duration, let held)):
             guard duration >= Self.minimumDuration else {
                 phase = .idle
-                return [.discardRecording, .showHint(.holdToRecord), .announce(false)]
+                // Подсказка — только на короткое касание. Палец держал, а звука почти
+                // нет (сессия включалась дольше удержания) — «удерживайте» было бы
+                // неправдой: человек как раз держал.
+                let hint: [Effect] = held < Self.minimumDuration ? [.showHint(.holdToRecord)] : []
+                return [.discardRecording] + hint + [.announce(false)]
             }
             phase = .preparing
             return [.finishRecording(send: true), .haptic(.send), .announce(false)]
@@ -187,6 +195,20 @@ struct VoiceRecordingMachine: Equatable {
         case (.preparing, .prepared(let ok)):
             phase = ok ? .uploading : .failed(.emptyRecording)
             return []
+
+        case (.stopped, .prepared(ok: false)):
+            // Остановленная запись не дописалась — говорим об этом, а не молча
+            // возвращаем пустое поле.
+            phase = .failed(.emptyRecording)
+            return [.discardRecording]
+
+        case (.recording, .abandon), (.lockedRecording, .abandon):
+            phase = .idle
+            return [.discardRecording, .announce(false)]
+
+        case (.stopped, .abandon):
+            phase = .idle
+            return [.discardRecording]
 
         case (.uploading, .uploadFinished):
             phase = .idle

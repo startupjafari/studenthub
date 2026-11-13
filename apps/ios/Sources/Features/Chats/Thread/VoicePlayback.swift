@@ -790,14 +790,20 @@ final class VoicePlayer {
         }
         if let other = Self.active, other !== self { other.pause() }
         Self.active = self
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
-        try? AVAudioSession.sharedInstance().setActive(true)
         if let fraction { seek(to: fraction) }
-        // `play()` берёт скорость из `defaultRate`.
-        player?.defaultRate = VoicePlaybackRate.shared.value
-        player?.play()
         isPlaying = true
-        startTicking()
+        // Сессию на проигрывание переключает очередь звука (`VoiceAudio`): после записи
+        // голосового смена категории на главной очереди подвешивала экран на касании
+        // «играть». Пауза до переключения отменяет запуск — флаг уже снят.
+        let current = player
+        Task { @MainActor [weak self] in
+            await VoiceAudio.shared.activatePlayback()
+            guard let self, self.isPlaying, let current, self.player === current else { return }
+            // `play()` берёт скорость из `defaultRate`.
+            current.defaultRate = VoicePlaybackRate.shared.value
+            current.play()
+            self.startTicking()
+        }
     }
 
     @MainActor

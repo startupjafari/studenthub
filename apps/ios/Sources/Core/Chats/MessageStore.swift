@@ -212,6 +212,9 @@ struct MessageStore: Sendable {
             .filter(AttachmentRecord.Columns.messageId == messageID)
             .fetchAll(db)
         let paths = Dictionary(known.map { ($0.id, $0.localPath) }, uniquingKeysWith: { first, _ in first })
+        // Размеры снимка, известные с отправки: сервер узнаёт их позже (медиа-система), и
+        // без них пузырь на миг перескакивал к пропорции «по умолчанию» — лента прыгала.
+        let sizes = Dictionary(known.map { ($0.id, ($0.width, $0.height)) }, uniquingKeysWith: { first, _ in first })
 
         try AttachmentRecord
             .filter(AttachmentRecord.Columns.messageId == messageID)
@@ -224,8 +227,8 @@ struct MessageStore: Sendable {
                 mime: item.mime,
                 name: item.name,
                 size: item.size,
-                width: item.width,
-                height: item.height,
+                width: item.width ?? sizes[item.id]?.0,
+                height: item.height ?? sizes[item.id]?.1,
                 // Уже скачанный файл не теряем: ключ кэша — id, и ссылка на диск
                 // переживает обновление самой записи.
                 localPath: paths[item.id] ?? nil,

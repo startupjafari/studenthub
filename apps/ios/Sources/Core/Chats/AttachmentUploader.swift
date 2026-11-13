@@ -436,6 +436,14 @@ struct AttachmentUploader: Sendable {
                     asFiles: asFiles,
                     attachments: uploads
                 )
+                // Разобранная волна своего голосового переезжает на серверный id вложения
+                // до подтверждения в базе: иначе пузырь, получив новый id, на миг рисовал
+                // запасную волну другой ширины без длительности — и прыгал.
+                for (local, serverFile) in zip(locals, sent.media ?? []) where local.mime.hasPrefix("audio/") {
+                    if let profile = VoiceProfileCache.shared.profile(for: local.id) {
+                        VoiceProfileCache.shared.store(profile, for: serverFile.id)
+                    }
+                }
                 try await database.writer.write { db in
                     try MessageStore.confirm(localID: message.id, with: sent, in: db)
                     // Серверные вложения заменяют локальные записи, но файлы на диске

@@ -122,7 +122,18 @@ final class MessageListViewController: UIViewController {
     private var enteringDays: [Date: Date] = [:]
     /// Плавающая дата у верха ленты прячется, когда лента стоит, — как в Telegram.
     private var headerHideTask: Task<Void, Never>?
-    private var headersHidden = false
+    /// Плавающая дата погашена. На открытии — тоже: она появляется с первым движением.
+    private var headersHidden = true
+    /// Дата дня, чьё начало уже ушло за верх ленты: висит у верха, пока листаешь этот
+    /// день, и уступает место дате следующего, когда та подъезжает снизу.
+    private let floatingDate = FloatingDateView()
+    /// День, чья собственная строка даты спрятана под плавающей: иначе на подъезде к
+    /// верху их было бы видно две, со сдвигом.
+    private var coveredDay: Date?
+    /// Идёт анимированная прокрутка к низу. Смена высоты ленты на её ходу (поле ввода
+    /// вернулось после записи, ушла клавиатура) перенацеливает её, а не обрывает
+    /// мгновенным прыжком.
+    private var animatingToBottom = false
     /// Ответ свайпом пузыря влево, как в Telegram.
     private let swipeToReply = SwipeToReply()
     /// Долгое нажатие на пузырь — меню; то же касание дальше выбирает в нём пункт.
@@ -167,10 +178,11 @@ final class MessageListViewController: UIViewController {
         // Не по `reportedAtBottom`: он обновляется только прокруткой, и после догрузки
         // снизу без прокрутки оставался «у низа» — клавиатура уводила ленту в конец.
         if wasNearBottom || sticksToBottom {
-            scrollToBottom(animated: false)
+            scrollToBottom(animated: animatingToBottom && !reduceMotion)
         } else {
             shiftKeepingBottom(by: lastBoundsHeight - height)
         }
+        updateFloatingDate()
     }
 
     /// Сдвинуть ленту так, чтобы нижний край видимого остался на месте экрана.
@@ -202,7 +214,8 @@ final class MessageListViewController: UIViewController {
         let keepsBottom = hasContent && !needsInitialPosition && (isNearBottom || sticksToBottom)
         collectionView.contentInset.top = inset
         collectionView.verticalScrollIndicatorInsets.top = inset
-        if keepsBottom { scrollToBottom(animated: false) }
+        if keepsBottom { scrollToBottom(animated: animatingToBottom && !reduceMotion) }
+        updateFloatingDate()
     }
 
     func setBottomInset(_ inset: CGFloat) {
@@ -211,7 +224,7 @@ final class MessageListViewController: UIViewController {
         let keepsBottom = hasContent && !needsInitialPosition && (isNearBottom || sticksToBottom)
         collectionView.contentInset.bottom = inset
         collectionView.verticalScrollIndicatorInsets.bottom = inset
-        if keepsBottom { scrollToBottom(animated: false) }
+        if keepsBottom { scrollToBottom(animated: animatingToBottom && !reduceMotion) }
     }
 
     /// Применить срез.
@@ -308,6 +321,7 @@ final class MessageListViewController: UIViewController {
                 // Срез мог дописать ленту снизу без прокрутки — «у низа» пересчитываем.
                 self.reportBottom()
                 self.requestOlderIfScreenNotFilled()
+                self.updateFloatingDate()
             }
 
             if self.needsInitialPosition {
@@ -322,9 +336,11 @@ final class MessageListViewController: UIViewController {
                 self.sticksToBottom = true
                 // Плавно — только когда в хвост пришло новое сообщение. Остальное (правка,
                 // прочтение, реакция, догрузка) держит низ без анимации: лента не плывёт
-                // на глазах.
+                // на глазах. Идущую к низу анимацию (своя отправка) срез не обрывает
+                // мгновенной установкой — она перенацеливается на новый низ.
                 let tailGrew = snapshot.itemIdentifiers.last != previousOrder.last
-                self.scrollToBottom(animated: tailGrew && !replaced && !self.reduceMotion)
+                let animated = (tailGrew && !replaced) || self.animatingToBottom
+                self.scrollToBottom(animated: animated && !self.reduceMotion)
                 return
             }
             if let pinned, self.restore(pinned) { return }
@@ -426,16 +442,23 @@ final class MessageListViewController: UIViewController {
         var configuration = UICollectionLayoutListConfiguration(appearance: .plain)
         configuration.showsSeparators = false
         configuration.backgroundColor = .clear
-        configuration.headerMode = .supplementary
-        configuration.headerTopPadding = 0
+        configuration.headerMode = .none
 
-        // Дата дня прилипает к верху, пока листаешь этот день, — как в Telegram.
-        let layout = UICollectionViewCompositionalLayout { _, environment in
+        // Дата дня — своя строка заранее известной высоты и без прилипания. Прилипшие
+        // заголовки с замером SwiftUI на устройстве вставали мимо: дата висела у нижнего
+        // края или посреди чужого дня поверх пузырей, между датой и сообщениями зияли
+        // пустоты. Дату у верха при прокрутке рисует `floatingDate` поверх ленты.
+        let layout = MessageListLayout { _, environment in
             let section = NSCollectionLayoutSection.list(using: configuration, layoutEnvironment: environment)
-            for header in section.boundarySupplementaryItems {
-                header.pinToVisibleBounds = true
-                header.zIndex = 2
-            }
+            let header = NSCollectionLayoutBoundarySupplementaryItem(
+                layoutSize: NSCollectionLayoutSize(
+                    widthDimension: .fractionalWidth(1),
+                    heightDimension: .absolute(DaySeparatorMetrics.height())
+                ),
+                elementKind: UICollectionView.elementKindSectionHeader,
+                alignment: .top
+            )
+            section.boundarySupplementaryItems = [header]
             return section
         }
 
@@ -473,6 +496,12 @@ final class MessageListViewController: UIViewController {
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
+
+        // Плавающая дата — над лентой, не внутри неё: раскладка ленты её не касается.
+        floatingDate.alpha = 0
+        floatingDate.isHidden = true
+        floatingDate.onTap = { [weak self] day in self?.onDayTap?(day) }
+        view.addSubview(floatingDate)
     }
 
     private func configureDataSource() {
@@ -506,9 +535,12 @@ final class MessageListViewController: UIViewController {
             elementKind: UICollectionView.elementKindSectionHeader
         ) { [weak self] view, _, indexPath in
             guard let day = self?.dataSource.sectionIdentifier(for: indexPath.section) else { return }
+            // Без полей: высота строки задана раскладкой (`DaySeparatorMetrics.height`), и
+            // поля по умолчанию не уместились бы в неё.
             view.contentConfiguration = UIHostingConfiguration {
                 DaySeparatorView(day: day) { [weak self] in self?.onDayTap?(day) }
             }
+            .margins(.all, 0)
             view.automaticallyUpdatesBackgroundConfiguration = false
             view.backgroundConfiguration = .clear()
             view.backgroundColor = .clear
@@ -539,6 +571,7 @@ final class MessageListViewController: UIViewController {
             scheduleFocusFinish(for: request, after: .milliseconds(300))
             return
         }
+        animatingToBottom = false
         // Окно только что сменилось целиком или цель далеко — к ней сразу, без пробега
         // по ленте: так переход и выглядит в Telegram. Пробег через недели переписки
         // шёл по оценочным высотам — с пустыми кадрами, наложением пузырей и промахом.
@@ -693,7 +726,10 @@ final class MessageListViewController: UIViewController {
                 - collectionView.bounds.height
                 + collectionView.adjustedContentInset.bottom
         )
-        collectionView.setContentOffset(CGPoint(x: 0, y: bottom), animated: animated)
+        let moves = abs(collectionView.contentOffset.y - bottom) > 0.5
+        // Мгновенная установка обрывает идущую анимацию — её конца уже не будет.
+        animatingToBottom = animated && moves
+        collectionView.setContentOffset(CGPoint(x: 0, y: bottom), animated: animated && moves)
     }
 
     // MARK: - Появление нового
@@ -803,8 +839,11 @@ final class MessageListViewController: UIViewController {
 
     // MARK: - Плавающая дата
 
-    /// Дата, прилипшая к верху, гаснет через полторы секунды покоя и возвращается с
-    /// первым движением ленты — как в Telegram. Даты на своих местах не трогаем.
+    /// Плавающая дата гаснет через полторы секунды покоя и возвращается с первым
+    /// движением ленты — как в Telegram. Даты на своих местах в ленте не гаснут: раньше
+    /// гасилась «прилипшая», и дата, прилипшая на пару точек у самого верха, пропадала со
+    /// своего места — над днём зияла дыра, а со следующей прокруткой (своя отправка)
+    /// дата выскакивала обратно вместе с прыжком ленты.
     private func scheduleHeaderHide() {
         headerHideTask?.cancel()
         headerHideTask = Task { @MainActor [weak self] in
@@ -815,61 +854,102 @@ final class MessageListViewController: UIViewController {
     }
 
     private func hideFloatingHeaders() {
-        // VoiceOver читает дату по заголовку: прятать его незачем.
-        guard !UIAccessibility.isVoiceOverRunning,
+        guard !headersHidden,
             !collectionView.isTracking, !collectionView.isDragging, !collectionView.isDecelerating
         else { return }
-        let kind = UICollectionView.elementKindSectionHeader
-        for indexPath in collectionView.indexPathsForVisibleSupplementaryElements(ofKind: kind) {
-            guard let header = collectionView.supplementaryView(forElementKind: kind, at: indexPath) as? UICollectionViewCell,
-                isFloating(header, section: indexPath.section)
-            else { continue }
-            headersHidden = true
-            // Погасшая дата не ловит касания: под ней — пузыри.
-            header.isUserInteractionEnabled = false
-            let content = header.contentView
-            let scales = !reduceMotion
-            UIView.animate(
-                withDuration: Motion.Duration.surface,
-                delay: 0,
-                options: [.allowUserInteraction, .beginFromCurrentState]
-            ) {
-                content.alpha = 0
-                if scales { content.transform = CGAffineTransform(scaleX: 0.85, y: 0.85) }
-            }
+        headersHidden = true
+        let floating = floatingDate
+        let scales = !reduceMotion
+        UIView.animate(
+            withDuration: Motion.Duration.surface,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState]
+        ) {
+            floating.alpha = 0
+            if scales { floating.transform = CGAffineTransform(scaleX: 0.85, y: 0.85) }
+        } completion: { [weak self] _ in
+            // Плавающей больше нет — своя строка дня снова на месте.
+            self?.updateFloatingDate()
         }
     }
 
     private func showHeaders() {
         guard headersHidden else { return }
         headersHidden = false
-        let kind = UICollectionView.elementKindSectionHeader
-        for indexPath in collectionView.indexPathsForVisibleSupplementaryElements(ofKind: kind) {
-            guard let header = collectionView.supplementaryView(forElementKind: kind, at: indexPath) as? UICollectionViewCell
-            else { continue }
-            header.isUserInteractionEnabled = true
-            let content = header.contentView
-            UIView.animate(
-                withDuration: Motion.Duration.layer,
-                delay: 0,
-                options: [.allowUserInteraction, .beginFromCurrentState]
-            ) {
-                content.alpha = 1
-                content.transform = .identity
-            }
+        updateFloatingDate()
+        let floating = floatingDate
+        UIView.animate(
+            withDuration: Motion.Duration.layer,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState]
+        ) {
+            floating.alpha = 1
+            floating.transform = .identity
         }
         // Лента сдвинулась не пальцем (подмотка, догрузка) — конца движения не будет,
         // и погасить дату снова должен таймер.
         scheduleHeaderHide()
     }
 
-    /// Прилипшая дата висит поверх сообщений своего дня; на своём месте она стоит
-    /// ровно над первым из них.
-    private func isFloating(_ header: UICollectionReusableView, section: Int) -> Bool {
-        guard section < collectionView.numberOfSections, collectionView.numberOfItems(inSection: section) > 0,
-            let first = collectionView.layoutAttributesForItem(at: IndexPath(item: 0, section: section))
-        else { return false }
-        return header.frame.maxY > first.frame.minY + 1
+    /// Поставить плавающую дату по текущей прокрутке. Зовётся на каждом кадре
+    /// прокрутки: только чтение готовой раскладки, без замеров.
+    private func updateFloatingDate() {
+        guard isViewLoaded else { return }
+        let placement = hasContent && !needsInitialPosition ? floatingPlacement() : nil
+        if let placement {
+            let height = DaySeparatorMetrics.height()
+            floatingDate.day = placement.day
+            // Через `bounds` и `center`, не `frame`: у гаснущей даты сжатие.
+            floatingDate.bounds = CGRect(x: 0, y: 0, width: view.bounds.width, height: height)
+            floatingDate.center = CGPoint(x: view.bounds.midX, y: placement.top + height / 2)
+            floatingDate.isHidden = false
+        } else {
+            floatingDate.isHidden = true
+        }
+        // Своя строка дня прячется, только пока плавающая на виду. VoiceOver читает
+        // даты по строкам ленты — для него плавающей нет, и прятать нечего.
+        let covered = headersHidden || UIAccessibility.isVoiceOverRunning ? nil : placement?.day
+        guard covered != coveredDay else { return }
+        coveredDay = covered
+        let kind = UICollectionView.elementKindSectionHeader
+        for indexPath in collectionView.indexPathsForVisibleSupplementaryElements(ofKind: kind) {
+            guard let header = collectionView.supplementaryView(forElementKind: kind, at: indexPath) as? UICollectionViewCell
+            else { continue }
+            header.contentView.isHidden = covered != nil && dataSource.sectionIdentifier(for: indexPath.section) == covered
+        }
+    }
+
+    /// День сообщения у верха ленты и где стоит его плавающая дата (в координатах
+    /// экрана ленты); `nil` — своя строка этого дня ещё на месте или ниже, вторая не нужна.
+    /// Дата следующего дня, подъезжая снизу, выталкивает плавающую вверх — как прилипшие
+    /// заголовки, только без их раскладки.
+    private func floatingPlacement() -> (day: Date, top: CGFloat)? {
+        let kind = UICollectionView.elementKindSectionHeader
+        let height = DaySeparatorMetrics.height()
+        let offset = collectionView.contentOffset.y
+        let slot = collectionView.contentInset.top
+        // Сообщение сразу под местом плавающей даты.
+        let line = offset + slot + height
+        let current = collectionView.indexPathsForVisibleItems.sorted().first { indexPath in
+            (collectionView.layoutAttributesForItem(at: indexPath)?.frame.maxY ?? -.greatestFiniteMagnitude) > line
+        }
+        guard let section = current?.section,
+            let day = dataSource.sectionIdentifier(for: section),
+            let own = collectionView.layoutAttributesForSupplementaryElement(
+                ofKind: kind, at: IndexPath(item: 0, section: section)
+            ),
+            own.frame.minY - offset < slot - 0.5
+        else { return nil }
+        var top = slot
+        let next = section + 1
+        if next < collectionView.numberOfSections,
+            let following = collectionView.layoutAttributesForSupplementaryElement(
+                ofKind: kind, at: IndexPath(item: 0, section: next)
+            )
+        {
+            top = min(top, following.frame.minY - offset - height)
+        }
+        return (day, top)
     }
 }
 
@@ -884,7 +964,11 @@ extension MessageListViewController: UICollectionViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard hasContent else { return }
         reportBottom()
-        if headersHidden { showHeaders() }
+        // Дата возвращается, когда ленту листает человек. Сдвиг самой программой (досчёт
+        // высоты картинки у низа, удержание места при догрузке) её не будит: иначе она
+        // вспыхивала бы у верха посреди чтения.
+        if headersHidden, scrollView.isDragging || scrollView.isDecelerating { showHeaders() }
+        updateFloatingDate()
         // Подгружаем заранее, как Telegram: за три экрана до края. С запасом в один экран
         // быстрая прокрутка упиралась в край раньше, чем приходила страница, — лента
         // вставала, а потом прыгала, когда страница всё же доезжала.
@@ -907,6 +991,7 @@ extension MessageListViewController: UICollectionViewDelegate {
     /// Человек взял ленту пальцем — программа больше не ведёт её к низу и к цели.
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         sticksToBottom = false
+        animatingToBottom = false
         pendingFocus = nil
         headerHideTask?.cancel()
         showHeaders()
@@ -936,12 +1021,15 @@ extension MessageListViewController: UICollectionViewDelegate {
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        animatingToBottom = false
         if pendingFocus != nil {
             finishFocus()
         } else if sticksToBottom, distanceToBottom > 1 {
             // Анимация ехала к низу по оценочным высотам, а ячейки по пути посчитали
-            // настоящие — досаживаем ленту на настоящий низ.
-            scrollToBottom(animated: false)
+            // настоящие — досаживаем ленту на настоящий низ. Заметный остаток (новое
+            // сообщение оказалось выше оценки) — доезжаем плавно: мгновенная досадка
+            // была рывком ленты в конце каждой своей отправки.
+            scrollToBottom(animated: distanceToBottom > 8 && !reduceMotion)
         }
         reportBottom()
         scheduleHeaderHide()
@@ -964,11 +1052,13 @@ extension MessageListViewController: UICollectionViewDelegate {
         at indexPath: IndexPath
     ) {
         guard let header = view as? UICollectionViewCell else { return }
-        // Заголовок мог прийти из переиспользования погашенным.
-        header.isUserInteractionEnabled = true
+        // Заголовок мог прийти из переиспользования посреди появления или спрятанным
+        // под плавающей датой другого дня.
         header.contentView.alpha = 1
         header.contentView.transform = .identity
-        guard let day = dataSource.sectionIdentifier(for: indexPath.section),
+        let day = dataSource.sectionIdentifier(for: indexPath.section)
+        header.contentView.isHidden = coveredDay != nil && day == coveredDay
+        guard let day,
             let noticed = enteringDays.removeValue(forKey: day),
             Date().timeIntervalSince(noticed) < Self.entranceLifetime
         else { return }
@@ -989,15 +1079,16 @@ extension MessageListViewController: UICollectionViewDelegate {
     }
 }
 
-/// Разделитель дня — капсула по центру, на iOS 26 в стекле. Прилипает к верху ленты.
-/// Нажатие открывает календарь, как в Telegram.
+/// Разделитель дня — капсула по центру, на iOS 26 в стекле. Строка ленты над первым
+/// сообщением дня и она же — плавающая дата у верха. Нажатие открывает календарь, как в
+/// Telegram.
 private struct DaySeparatorView: View {
     let day: Date
     let onTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
-            Text(title)
+            Text(DaySeparatorMetrics.title(for: day))
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(Palette.foreground)
                 .padding(.horizontal, Spacing.lg)
@@ -1011,8 +1102,27 @@ private struct DaySeparatorView: View {
         .accessibilityAddTraits(.isHeader)
         .accessibilityHint(Text(String(localized: "chats.calendar.title", defaultValue: "Перейти к дате")))
     }
+}
 
-    private var title: String {
+/// Размеры даты дня без замера SwiftUI: строка даты в раскладке ленты — заранее
+/// известной высоты, а плавающая дата ловит касания только по капсуле.
+enum DaySeparatorMetrics {
+    /// Строка `footnote`, поля капсулы 4 + 4 и вокруг неё по 6 сверху и снизу — как
+    /// в `DaySeparatorView`.
+    static func height() -> CGFloat {
+        let line = UIFont.preferredFont(forTextStyle: .footnote).lineHeight
+        return (line + Spacing.xs * 2 + Spacing.sm * 2).rounded(.up)
+    }
+
+    /// Ширина капсулы с датой этого дня.
+    static func capsuleWidth(for day: Date) -> CGFloat {
+        let size = UIFont.preferredFont(forTextStyle: .footnote).pointSize
+        let font = UIFont.systemFont(ofSize: size, weight: .semibold)
+        let text = (title(for: day) as NSString).size(withAttributes: [.font: font]).width
+        return text.rounded(.up) + Spacing.lg * 2
+    }
+
+    static func title(for day: Date) -> String {
         let calendar = Calendar.current
         if calendar.isDateInToday(day) {
             return String(localized: "chats.today", defaultValue: "Сегодня")
@@ -1024,5 +1134,83 @@ private struct DaySeparatorView: View {
             return day.formatted(.dateTime.day().month(.wide))
         }
         return day.formatted(.dateTime.day().month(.wide).year())
+    }
+}
+
+/// Плавающая дата над лентой. Полоса во всю ширину, но касания ловит только капсула:
+/// вокруг неё — пузыри, и пустая полоса не должна их перекрывать.
+final class FloatingDateView: UIView {
+    var onTap: ((Date) -> Void)?
+    private var content: (UIView & UIContentView)?
+
+    /// День на капсуле; содержимое пересобирается только при смене дня.
+    var day: Date? {
+        didSet {
+            guard let day, day != oldValue else { return }
+            let configuration = UIHostingConfiguration {
+                DaySeparatorView(day: day) { [weak self] in self?.onTap?(day) }
+            }
+            .margins(.all, 0)
+            if let content {
+                content.configuration = configuration
+            } else {
+                let view = configuration.makeContentView()
+                view.frame = bounds
+                view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                addSubview(view)
+                content = view
+            }
+        }
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        // Повтор даты из ленты: VoiceOver читает её по строкам дней.
+        accessibilityElementsHidden = true
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        guard alpha > 0.01, let day else { return false }
+        let width = DaySeparatorMetrics.capsuleWidth(for: day)
+        return CGRect(x: bounds.midX - width / 2, y: 0, width: width, height: bounds.height).contains(point)
+    }
+}
+
+/// Системный список ленты с одной поправкой: ячейка, досчитавшая свою высоту выше
+/// видимого, не сдвигает то, что на экране.
+///
+/// Список ставит ещё не виденные ячейки по оценке (44 точки), а настоящая высота пузыря —
+/// от строки до экрана картинки. Листаешь вверх — ячейка входит сверху, меряет себя, и без
+/// поправки всё под ней (то, что под пальцем) уезжало на разницу: лента прыгала на каждом
+/// сообщении, а на свежей странице истории — на каждом втором. У самого низа поправка
+/// держит низ: догрузившаяся картинка не уводит последнее сообщение под поле ввода.
+final class MessageListLayout: UICollectionViewCompositionalLayout {
+    override func invalidationContext(
+        forPreferredLayoutAttributes preferred: UICollectionViewLayoutAttributes,
+        withOriginalAttributes original: UICollectionViewLayoutAttributes
+    ) -> UICollectionViewLayoutInvalidationContext {
+        let context = super.invalidationContext(
+            forPreferredLayoutAttributes: preferred,
+            withOriginalAttributes: original
+        )
+        // Сдвиг уже назначила сама система — второй раз не двигаем.
+        guard let collectionView, original.representedElementCategory == .cell,
+            context.contentOffsetAdjustment == .zero
+        else { return context }
+        let delta = preferred.frame.height - original.frame.height
+        guard abs(delta) > 0.5 else { return context }
+        let inset = collectionView.adjustedContentInset
+        let offset = collectionView.contentOffset.y
+        let contentHeight = collectionView.contentSize.height
+        let bottom = contentHeight - collectionView.bounds.height + inset.bottom
+        let atBottom = offset >= bottom - 1 && contentHeight + inset.top + inset.bottom > collectionView.bounds.height
+        let above = original.frame.minY < offset + inset.top - 0.5
+        guard above || atBottom else { return context }
+        // Не выше начала ленты.
+        context.contentOffsetAdjustment = CGPoint(x: 0, y: max(delta, -(offset + inset.top)))
+        return context
     }
 }

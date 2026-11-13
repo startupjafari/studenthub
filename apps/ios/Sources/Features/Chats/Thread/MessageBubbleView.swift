@@ -229,14 +229,18 @@ struct MessageBubbleView: View {
             if !isDeleted {
                 // Снимки и ролики — альбомом-мозаикой, если их несколько; голосовые,
                 // аудио и файлы — строками под ним, как в вебе (`MessageAttachments`).
+                // Снимок без подписи повторяет углы пузыря; своя неудачная отправка — круг
+                // «повторить» прямо на снимке, как в Telegram.
                 if mediaAttachments.count > 1 {
-                    ChatMediaMosaic(items: mediaAttachments, upload: upload) { attachment in
+                    ChatMediaMosaic(items: mediaAttachments, upload: mediaUpload) { attachment in
                         onAction(.openAttachment(attachment))
                     }
+                    .environment(\.chatMediaCorners, isMediaOnly ? mediaCorners : nil)
                 } else if let single = mediaAttachments.first {
-                    AttachmentView(attachment: single, isOwn: item.isOwn, upload: upload) {
+                    AttachmentView(attachment: single, isOwn: item.isOwn, upload: mediaUpload) {
                         onAction(.openAttachment(single))
                     }
+                    .environment(\.chatMediaCorners, isMediaOnly ? mediaCorners : nil)
                 }
                 ForEach(otherAttachments, id: \.id) { attachment in
                     AttachmentView(attachment: attachment, isOwn: item.isOwn, upload: upload) {
@@ -386,6 +390,33 @@ struct MessageBubbleView: View {
         return AttachmentUploadState(fraction: AttachmentUploads.shared.progress[message.id] ?? 0) {
             onAction(.cancelUpload)
         }
+    }
+
+    /// Состояние отправки для снимков: к кольцу загрузки добавляется неудача — круг
+    /// «повторить» на самом снимке. Строкам файлов и аудио — только кольцо (`upload`).
+    private var mediaUpload: AttachmentUploadState? {
+        if let upload { return upload }
+        guard item.isOwn, message.remoteId == nil, message.sendState == .failed, !item.attachments.isEmpty else {
+            return nil
+        }
+        return AttachmentUploadState(
+            fraction: 0,
+            cancel: { onAction(.cancelUpload) },
+            retry: { onAction(.retry) }
+        )
+    }
+
+    /// Углы снимка без подписи: форма пузыря, сжатая на его внутренний отступ (3 pt).
+    /// Со стороны автора нижний угол — у хвостика или стыка с соседним сообщением —
+    /// малый, верхний малый, если сверху сообщение той же группы.
+    private var mediaCorners: RectangleCornerRadii {
+        let inset: CGFloat = 3
+        let large = ChatBubbleShape.radius - inset
+        let small = max(ChatBubbleShape.joinedRadius - inset, 2)
+        let authorTop = item.isFirstInGroup ? large : small
+        return item.isOwn
+            ? RectangleCornerRadii(topLeading: large, bottomLeading: large, bottomTrailing: small, topTrailing: authorTop)
+            : RectangleCornerRadii(topLeading: authorTop, bottomLeading: small, bottomTrailing: large, topTrailing: large)
     }
 
     /// Отступ содержимого: со стороны хвостика — плюс его ширина. Хвостик рисуется
