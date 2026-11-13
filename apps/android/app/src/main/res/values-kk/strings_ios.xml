@@ -1182,6 +1182,7 @@
     <string name="chats_archive_empty">Мұрағат бос</string>
     <string name="chats_attach">Тіркеме</string>
     <string name="chats_attach_addMore">Фото немесе бейне қосу</string>
+    <string name="chats_attach_album">Альбом: %1$s</string>
     <string name="chats_attach_allPhotos">Барлық фото мен бейне</string>
     <string name="chats_attach_allowAll">Барлық фотоға рұқсат беру</string>
     <string name="chats_attach_asFiles">Файл ретінде жіберу</string>
@@ -1209,6 +1210,7 @@
     <string name="chats_attach_photosDenied">«Фото»-ға рұқсат жоқ. Суреттерді жүйелік терезеден таңдауға немесе баптауларда рұқсат беруге болады.</string>
     <string name="chats_attach_photosPrompt">Соңғы суреттерді осы жерден таңдау үшін «Фото»-ға рұқсат беріңіз</string>
     <string name="chats_attach_preparing">Файлдар дайындалуда…</string>
+    <string name="chats_attach_recents">Соңғылар</string>
     <string name="chats_attach_remove">Алып тастау</string>
     <string name="chats_attach_scan">Құжатты сканерлеу</string>
     <string name="chats_attach_selected">Таңдалды: %1$s</string>
@@ -1247,7 +1249,6 @@
     <string name="chats_checklist_item">%1$s-тармақ</string>
     <string name="chats_checklist_itemPlaceholder">Не істеу керек</string>
     <string name="chats_checklist_items">Тармақтар</string>
-    <string name="chats_checklist_new">Тізім</string>
     <string name="chats_checklist_notDone">Орындалмаған</string>
     <string name="chats_checklist_othersCanAdd">Басқалар тармақ қоса алады</string>
     <string name="chats_checklist_othersCanMark">Басқалар орындалғанын белгілей алады</string>
@@ -1299,6 +1300,9 @@
     <string name="chats_empty_hint">Курстасыңызға немесе оқытушыға жазыңыз</string>
     <string name="chats_error_local">Өзгерісті сақтау мүмкін болмады</string>
     <string name="chats_file">Файл</string>
+    <string name="chats_file_cancelDownload">Жүктеп алуды болдырмау</string>
+    <string name="chats_file_download">Жүктеп алып, ашу</string>
+    <string name="chats_file_open">Ашу</string>
     <string name="chats_folders_addChats">Чаттарды қосу</string>
     <string name="chats_folders_addTo">Қалтаға қосу</string>
     <string name="chats_folders_chats">Қалтадағы чаттар</string>
@@ -1512,6 +1516,7 @@
     <string name="chats_spoiler">Спойлер</string>
     <string name="chats_sticker_a11y">Стикер %1$s</string>
     <string name="chats_stickers_empty">Стикер жинақтары әлі жоқ — оларды платформа әкімшісі қосады</string>
+    <string name="chats_stickers_filter">Стикерлер %1$s</string>
     <string name="chats_storyExpired">Сторис енді қолжетімсіз</string>
     <string name="chats_storyReply">Сториске жауап</string>
     <string name="chats_storyShared">Сторис</string>

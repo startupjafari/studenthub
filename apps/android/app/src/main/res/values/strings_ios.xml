@@ -1182,6 +1182,7 @@
     <string name="chats_archive_empty">В архиве пусто</string>
     <string name="chats_attach">Вложение</string>
     <string name="chats_attach_addMore">Добавить фото или видео</string>
+    <string name="chats_attach_album">Альбом: %1$s</string>
     <string name="chats_attach_allPhotos">Все фото и видео</string>
     <string name="chats_attach_allowAll">Разрешить доступ ко всем фото</string>
     <string name="chats_attach_asFiles">Отправить как файл</string>
@@ -1209,6 +1210,7 @@
     <string name="chats_attach_photosDenied">Нет доступа к «Фото». Можно выбрать снимки в системном окне или разрешить доступ в настройках.</string>
     <string name="chats_attach_photosPrompt">Разрешите доступ к «Фото», чтобы выбирать недавние снимки прямо здесь</string>
     <string name="chats_attach_preparing">Подготовка файлов…</string>
+    <string name="chats_attach_recents">Недавние</string>
     <string name="chats_attach_remove">Убрать</string>
     <string name="chats_attach_scan">Сканировать документ</string>
     <string name="chats_attach_selected">Выбрано: %1$s</string>
@@ -1247,7 +1249,6 @@
     <string name="chats_checklist_item">Пункт %1$s</string>
     <string name="chats_checklist_itemPlaceholder">Что сделать</string>
     <string name="chats_checklist_items">Пункты</string>
-    <string name="chats_checklist_new">Список</string>
     <string name="chats_checklist_notDone">Не выполнено</string>
     <string name="chats_checklist_othersCanAdd">Другие могут добавлять пункты</string>
     <string name="chats_checklist_othersCanMark">Другие могут отмечать выполненное</string>
@@ -1299,6 +1300,9 @@
     <string name="chats_empty_hint">Напишите однокурснику или преподавателю</string>
     <string name="chats_error_local">Не удалось сохранить изменение</string>
     <string name="chats_file">Файл</string>
+    <string name="chats_file_cancelDownload">Отменить скачивание</string>
+    <string name="chats_file_download">Скачать и открыть</string>
+    <string name="chats_file_open">Открыть</string>
     <string name="chats_folders_addChats">Добавить чаты</string>
     <string name="chats_folders_addTo">Добавить в папку</string>
     <string name="chats_folders_chats">Чаты в папке</string>
@@ -1512,6 +1516,7 @@
     <string name="chats_spoiler">Спойлер</string>
     <string name="chats_sticker_a11y">Стикер %1$s</string>
     <string name="chats_stickers_empty">Наборов стикеров пока нет — их добавляет администратор платформы</string>
+    <string name="chats_stickers_filter">Стикеры %1$s</string>
     <string name="chats_storyExpired">История больше недоступна</string>
     <string name="chats_storyReply">Ответ на историю</string>
     <string name="chats_storyShared">История</string>
