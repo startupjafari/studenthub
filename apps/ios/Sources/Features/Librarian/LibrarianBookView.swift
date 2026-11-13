@@ -9,9 +9,7 @@ struct LibrarianBookView: View {
     /// Экземпляр, открытый по наклейке, — подсвечивается в списке.
     var highlightCopyID: String?
 
-    @State private var book: LibrarianBookDetailDTO?
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var remote = RemoteValue<LibrarianBookDetailDTO>()
     @State private var editing = false
     @State private var adding = false
     @State private var confirmArchive = false
@@ -29,16 +27,10 @@ struct LibrarianBookView: View {
 
     private let api = LibrarianAPI()
 
+    private var book: LibrarianBookDetailDTO? { remote.value }
+
     var body: some View {
-        Group {
-            if let book {
-                content(book)
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
-                LoadingStateView()
-            }
-        }
+        RemoteValueContent(remote: remote, load: fetch) { book in content(book) }
         .navigationTitle(Text(book?.title ?? LibrarianScreen.book(id: bookID).title))
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $editing) {
@@ -91,7 +83,6 @@ struct LibrarianBookView: View {
             }
         }
         .pullToRefresh { await load() }
-        .task { await load() }
     }
 
     /// Редкое и опасное — в «Ещё» под шапкой: выбор наклеек и архив.
@@ -290,19 +281,15 @@ struct LibrarianBookView: View {
         }
     }
 
-    @MainActor
     private func load() async {
+        await remote.load(fetch)
+    }
+
+    private func fetch() async throws -> LibrarianBookDetailDTO {
         do {
-            book = try await api.book(id: bookID)
-            failure = nil
-            isOffline = false
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = (error as? APIError)?.code == .notFound
-                ? String(localized: "librarian.book.notFound", defaultValue: "Книга не найдена")
-                : error.userMessage
-            isOffline = error.isOffline
+            return try await api.book(id: bookID)
+        } catch let error as APIError where error.code == .notFound {
+            throw LibrarianText.messageError(String(localized: "librarian.book.notFound", defaultValue: "Книга не найдена"))
         }
     }
 

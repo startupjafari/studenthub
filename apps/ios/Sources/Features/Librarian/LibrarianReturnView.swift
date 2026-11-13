@@ -9,12 +9,15 @@ struct LibrarianReturnView: View {
     @State private var failure: String?
     @State private var isSaving = false
     @State private var returned: [LibrarianReturnResultDTO] = []
-    @State private var overdue: [LibrarianLoanDTO]?
-    /// Список просрочек не загрузился — не «просрочек нет»: иначе сбой выглядел бы хорошей новостью.
-    @State private var overdueFailure: String?
+    /// Просрочки (`RemoteValue`): сохранённые встают сразу, сеть обновляет фоном.
+    @State private var overdueRemote = RemoteValue<[LibrarianLoanDTO]>()
     @State private var action: LibrarianLoanAction?
 
     private let api = LibrarianAPI()
+
+    private var overdue: [LibrarianLoanDTO]? { overdueRemote.value }
+    /// Список просрочек не загрузился — не «просрочек нет»: иначе сбой выглядел бы хорошей новостью.
+    private var overdueFailure: String? { overdueRemote.failure }
 
     var body: some View {
         List {
@@ -130,7 +133,7 @@ struct LibrarianReturnView: View {
 
             Section {
                 if let overdueFailure, overdue != nil {
-                    StaleDataBanner(message: overdueFailure) { await loadOverdue() }
+                    StaleDataBanner(message: overdueFailure, isOffline: overdueRemote.isOffline) { await loadOverdue() }
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets())
                 }
@@ -170,7 +173,8 @@ struct LibrarianReturnView: View {
             await loadOverdue()
         }
         .pullToRefresh { await loadOverdue() }
-        .task { await loadOverdue() }
+        // Показ и возврат приложения из фона — сохранённое на месте, сеть обновляет фоном.
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await loadOverdue() }
         .sensoryFeedback(trigger: returned.count) { _, _ in
             returned.first?.heldFor == nil ? .success : .warning
         }
@@ -198,16 +202,11 @@ struct LibrarianReturnView: View {
         }
     }
 
-    @MainActor
+    /// Прошлый список при сбое не стирается: он лучше пустоты, а полоса скажет, что он
+    /// несвежий.
     private func loadOverdue() async {
-        do {
-            overdue = try await api.loans(PageRequest(cursor: nil, page: 1, limit: 6), filter: "overdue").items
-            overdueFailure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            // Прошлый список не стираем: он лучше пустоты, а полоса скажет, что он несвежий.
-            overdueFailure = error.userMessage
+        await overdueRemote.load {
+            try await api.loans(PageRequest(cursor: nil, page: 1, limit: 6), filter: "overdue").items
         }
     }
 }
