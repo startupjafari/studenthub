@@ -419,11 +419,15 @@ struct ChatThreadView: View {
             let created = ChatThreadModel(chatID: chatID, viewerID: viewerID, api: Self.messagesAPI(for: chatID))
             model = created
             created.start()
-            await created.enter()
-            await created.markRead()
-            await created.loadPinned()
-            await created.loadPeer()
-            await created.loadGroupStatus()
+            // История с отметкой о прочтении и шапка — параллельно: раньше пять запросов
+            // шли цепочкой, и шапка заполнялась последней.
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { @MainActor in
+                    await created.enter()
+                    await created.markRead()
+                }
+                group.addTask { @MainActor in await created.loadHeader() }
+            }
         }
         .onChange(of: jumps.pending[chatID]) {
             consumeJump()
