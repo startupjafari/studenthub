@@ -400,17 +400,45 @@ struct ChatStretches: LayoutValueKey {
 struct ChatBubbleStack: Layout {
     var spacing: CGFloat = Spacing.xs
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = contentWidth(limit: proposal.width ?? .infinity, subviews: subviews)
-        let heights = subviews.map { $0.sizeThatFits(ProposedViewSize(width: width, height: nil)).height }
+    /// Замеры детей при последнем предложенном размере (шаг 2.6, флаг
+    /// `chatBubbleLayoutCache`): `placeSubviews` берёт высоты отсюда, а не меряет заново.
+    struct Cache {
+        var limit: CGFloat?
+        var width: CGFloat = 0
+        var heights: [CGFloat] = []
+    }
+
+    func makeCache(subviews: Subviews) -> Cache {
+        Cache()
+    }
+
+    func updateCache(_ cache: inout Cache, subviews: Subviews) {
+        // Дети сменились — прежние замеры недействительны.
+        cache = Cache()
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        let limit = proposal.width ?? .infinity
         let gaps = spacing * CGFloat(max(subviews.count - 1, 0))
+        if PerformanceFlags.chatBubbleLayoutCache, cache.limit == limit, cache.heights.count == subviews.count {
+            return CGSize(width: cache.width, height: cache.heights.reduce(0, +) + gaps)
+        }
+        let width = contentWidth(limit: limit, subviews: subviews)
+        let heights = subviews.map { $0.sizeThatFits(ProposedViewSize(width: width, height: nil)).height }
+        if PerformanceFlags.chatBubbleLayoutCache {
+            cache = Cache(limit: limit, width: width, heights: heights)
+        }
         return CGSize(width: width, height: heights.reduce(0, +) + gaps)
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        let cached = PerformanceFlags.chatBubbleLayoutCache
+            && abs(cache.width - bounds.width) < 0.5 && cache.heights.count == subviews.count
         var y = bounds.minY
-        for subview in subviews {
-            let size = subview.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
+        for (index, subview) in subviews.enumerated() {
+            let size = cached
+                ? CGSize(width: bounds.width, height: cache.heights[index])
+                : subview.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
             subview.place(
                 at: CGPoint(x: bounds.minX, y: y),
                 anchor: .topLeading,
