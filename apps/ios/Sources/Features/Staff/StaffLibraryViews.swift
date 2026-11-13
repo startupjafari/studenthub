@@ -220,28 +220,38 @@ struct StaffLibrarySettingsView: View {
 // MARK: - Отчёты
 
 struct StaffLibraryReportsView: View {
-    @State private var summary: StaffLibrarySummary?
-    @State private var failure: String?
-    @State private var isOffline = false
-    @State private var debts: [StaffLoan]?
-    /// Должники или популярное не загрузились — не «долгов нет» и не «выдач не было»:
-    /// иначе сбой выглядел бы хорошей новостью.
-    @State private var debtsFailure: String?
-    @State private var popular: [StaffPopularBook]?
-    @State private var popularFailure: String?
+    /// Сводка, должники и популярное — три независимых значения (`RemoteValue`):
+    /// падение одного не прячет остальные.
+    @State private var summaryRemote = RemoteValue<StaffLibrarySummary>()
+    @State private var debtsRemote = RemoteValue<[StaffLoan]>()
+    @State private var popularRemote = RemoteValue<[StaffPopularBook]>()
+    /// Период, на который отвечает показанное популярное.
+    @State private var popularDays: Int?
     @State private var days = 90
 
     private let api = StaffAPI()
     private static let periods = [30, 90, 365]
 
+    private var summary: StaffLibrarySummary? { summaryRemote.value }
+    private var failure: String? { summaryRemote.failure }
+    private var debts: [StaffLoan]? { debtsRemote.value }
+    /// Должники или популярное не загрузились — не «долгов нет» и не «выдач не было»:
+    /// иначе сбой выглядел бы хорошей новостью.
+    private var debtsFailure: String? { debtsRemote.failure }
+    private var popular: [StaffPopularBook]? { popularRemote.value }
+    private var popularFailure: String? { popularRemote.failure }
+
     var body: some View {
         List {
             Section {
                 if let summary {
+                    if let failure {
+                        StaleDataBanner(message: failure, isOffline: summaryRemote.isOffline) { await loadOverview() }
+                    }
                     StatGrid { tiles(summary) }
                 } else if let failure {
-                    ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                } else {
+                    ErrorStateView(message: failure, isOffline: summaryRemote.isOffline) { await loadOverview() }
+                } else if summaryRemote.checkedCache {
                     LoadingStateView()
                 }
             } footer: {
@@ -252,7 +262,7 @@ struct StaffLibraryReportsView: View {
 
             Section {
                 if let debtsFailure, debts != nil {
-                    StaleDataBanner(message: debtsFailure) { await loadDebts() }
+                    StaleDataBanner(message: debtsFailure, isOffline: debtsRemote.isOffline) { await loadDebts() }
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets())
                 }
@@ -283,6 +293,11 @@ struct StaffLibraryReportsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                if let popularFailure, popular != nil {
+                    StaleDataBanner(message: popularFailure, isOffline: popularRemote.isOffline) { await loadPopular() }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
                 if let popular {
                     if popular.isEmpty {
                         Text(String(localized: "staff.lib.noPopular", defaultValue: "За этот период выдач не было"))
@@ -325,8 +340,10 @@ struct StaffLibraryReportsView: View {
         .listSectionSpacing(.compact)
         .navigationTitle(Text(StaffScreen.libraryReports.title))
         .pullToRefresh { await load() }
-        .task { await load() }
-        .onChange(of: days) { Task { await loadPopular() } }
+        // Показ, смена периода и возврат приложения из фона — сохранённое на месте,
+        // сеть обновляет фоном (`AppLifecycle`).
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await loadOverview() }
+        .task(id: [days, AppLifecycle.shared.foregroundEpoch]) { await loadPopular() }
     }
 
     @ViewBuilder
@@ -382,51 +399,38 @@ struct StaffLibraryReportsView: View {
         )
     }
 
-    @MainActor
     private func load() async {
-        async let summaryTask = api.librarySummary()
-        await loadDebts()
-        do {
-            summary = try await summaryTask
-            failure = nil
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
-        await loadPopular()
+        async let overview: Void = loadOverview()
+        async let popular: Void = loadPopular()
+        _ = await (overview, popular)
+    }
+
+    /// Сводка и должники — не зависят от периода.
+    private func loadOverview() async {
+        async let summary: Void = summaryRemote.load(api.librarySummary)
+        async let debts: Void = loadDebts()
+        _ = await (summary, debts)
     }
 
     /// Должники: утерянные и просроченные. Половина списка выдавала бы себя за весь,
     /// поэтому при сбое любой части прошлый список остаётся, а сверху — полоса.
-    @MainActor
     private func loadDebts() async {
-        // Утерянная книга с непогашенным долгом — такой же долг, как просрочка.
-        async let lostTask = api.loans(filter: "lost", limit: 10)
-        async let overdueTask = api.loans(filter: "overdue", limit: 10)
-        do {
-            let lost = try await lostTask
-            let overdue = try await overdueTask
-            debts = lost + overdue
-            debtsFailure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            debtsFailure = error.userMessage
+        await debtsRemote.load {
+            // Утерянная книга с непогашенным долгом — такой же долг, как просрочка.
+            async let lost = api.loans(filter: "lost", limit: 10)
+            async let overdue = api.loans(filter: "overdue", limit: 10)
+            return try await lost + overdue
         }
     }
 
-    @MainActor
     private func loadPopular() async {
         // Новый период — пока ответа нет, крутилка, а не топ прошлого периода.
-        popular = nil
-        popularFailure = nil
-        do {
-            popular = try await api.popularBooks(days: days)
-        } catch is CancellationError {
-            return
-        } catch {
-            popularFailure = error.userMessage
+        if popularDays != days {
+            popularRemote.reset()
+            popularDays = days
         }
+        let days = days
+        await popularRemote.load { try await api.popularBooks(days: days) }
     }
 }
 

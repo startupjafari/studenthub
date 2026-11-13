@@ -8,15 +8,16 @@ import SwiftUI
 /// Каталог гибридный: статические типы вуз включает и выключает и задаёт им срок
 /// хранения, собственные — заводит и удаляет.
 struct StaffDocumentTypesView: View {
-    @State private var types: [StaffDocumentType]?
-    @State private var failure: String?
-    @State private var isOffline = false
+    /// Каталог типов (`RemoteValue`): сохранённый встаёт сразу, сеть обновляет фоном.
+    @State private var remote = RemoteValue<[StaffDocumentType]>()
     @State private var actionFailure: String?
     @State private var adding = false
     @State private var removing: StaffDocumentType?
     @State private var prompt: StaffTextPrompt?
 
     private let api = StaffAPI()
+
+    private var types: [StaffDocumentType]? { remote.value }
 
     var body: some View {
         List {
@@ -26,6 +27,12 @@ struct StaffDocumentTypesView: View {
             }
 
             if let types {
+                // Обновление не удалось, а каталог на экране — полоса, а не алерт.
+                if let failure = remote.failure {
+                    StaleDataBanner(message: failure, isOffline: remote.isOffline) { await load() }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
                 ForEach(grouped(types), id: \.0) { category, rows in
                     Section(StaffDocText.category(category)) {
                         ForEach(rows) { row in
@@ -45,9 +52,9 @@ struct StaffDocumentTypesView: View {
                 ) {
                     adding = true
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
+            } else if let failure = remote.failure {
+                ErrorStateView(message: failure, isOffline: remote.isOffline) { await load() }
+            } else if remote.checkedCache {
                 LoadingStateView()
             }
         }
@@ -74,7 +81,8 @@ struct StaffDocumentTypesView: View {
         }
         .actionFailureAlert($actionFailure)
         .pullToRefresh { await load() }
-        .task { await load() }
+        // Показ и возврат приложения из фона — сохранённое на месте, сеть обновляет фоном.
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await load() }
     }
 
     private func typeRow(_ row: StaffDocumentType) -> some View {
@@ -197,20 +205,8 @@ struct StaffDocumentTypesView: View {
         }
     }
 
-    @MainActor
     private func load() async {
-        do {
-            types = try await api.documentTypes()
-            failure = nil
-            isOffline = false
-        } catch {
-            if types == nil {
-                failure = error.userMessage
-                isOffline = error.isOffline
-            } else {
-                actionFailure = error.userMessage
-            }
-        }
+        await remote.load(api.documentTypes)
     }
 
     @MainActor
