@@ -38,10 +38,7 @@ final class StudentSubmissionFilesModel {
 
     func attachFile(_ result: Result<URL, Error>) async {
         guard case .success(let url) = result else { return }
-        // Файл из чужого каталога читается только так: иначе чтение запрещает песочница.
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        guard let data = try? Data(contentsOf: url) else {
+        guard let data = try? await PickedFile.read(url) else {
             failure = String(localized: "student.files.readFailed", defaultValue: "Не удалось прочитать файл")
             return
         }
