@@ -61,7 +61,7 @@ jobs:
           if [[ -z "$base" || "$base" =~ ^0+$ ]] || ! git cat-file -e "$base" 2>/dev/null; then
             echo "ios=true" >>"$GITHUB_OUTPUT"; exit 0
           fi
-          if git diff --name-only "$base" HEAD | grep -qE '^(apps/ios/|\.github/workflows/ios(-nightly)?\.yml$)'; then
+          if git diff --name-only "$base" HEAD | grep -qE '^(apps/ios/|\.github/workflows/ios(-[a-z]+)?\.yml$)'; then
             echo "ios=true" >>"$GITHUB_OUTPUT"
           else
             echo "ios=false" >>"$GITHUB_OUTPUT"
