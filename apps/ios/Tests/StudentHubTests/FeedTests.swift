@@ -1,3 +1,4 @@
+import Observation
 import XCTest
 
 @testable import StudentHub
@@ -16,6 +17,32 @@ final class FeedModelTests: XCTestCase {
 
         XCTAssertTrue(model.isMine("👍", in: "p-1"))
         XCTAssertEqual(model.count("👍", in: "p-1"), 3)
+    }
+
+    /// Реакция на один пост не трогает наблюдателей другого: карточка ленты зависит
+    /// только от своего поста, и лайк не перерисовывает все видимые карточки.
+    func testReactionNotifiesOnlyItsOwnPost() async {
+        let api = StubFeed()
+        api.posts = [post(id: "p-1", reactions: ["👍": 2], mine: []), post(id: "p-2", reactions: ["👍": 5], mine: [])]
+        let model = FeedModel(api: api)
+        await model.refresh()
+
+        let otherChanged = ChangeFlag()
+        let ownChanged = ChangeFlag()
+        withObservationTracking {
+            _ = model.isMine("👍", in: "p-2")
+            _ = model.count("👍", in: "p-2")
+            _ = model.isBookmarked("p-2")
+        } onChange: { otherChanged.raise() }
+        withObservationTracking {
+            _ = model.count("👍", in: "p-1")
+        } onChange: { ownChanged.raise() }
+
+        await model.toggle("👍", on: "p-1")
+
+        XCTAssertTrue(ownChanged.raised, "карточка поста не узнала о своей реакции")
+        XCTAssertFalse(otherChanged.raised, "реакция на p-1 перерисовала бы карточку p-2")
+        XCTAssertEqual(model.count("👍", in: "p-2"), 5)
     }
 
     /// Отказ сервера откатывает: иначе человек уверен, что поставил лайк, а его нет.
@@ -506,4 +533,12 @@ private final class StubFeed: FeedFetching, @unchecked Sendable {
     func user(id: String) async throws -> UserProfileDTO { try await me() }
     func updateProfile(firstName: String, lastName: String, bio: String?) async throws {}
     func uploadAvatar(_ data: Data, mime: String) async throws {}
+}
+
+/// Флаг «наблюдатель сработал» для `withObservationTracking` (замыкание `@Sendable`).
+private final class ChangeFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    var raised: Bool { lock.withLock { value } }
+    func raise() { lock.withLock { value = true } }
 }
