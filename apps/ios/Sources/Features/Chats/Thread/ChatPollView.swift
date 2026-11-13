@@ -92,7 +92,7 @@ struct ChatPollView: View {
         .foregroundStyle(isOwn ? Palette.primaryForeground : Palette.foreground)
         .frame(minWidth: 220, alignment: .leading)
         .sensoryFeedback(.selection, trigger: voteTick)
-        .task(id: realtime.pollVersions[poll.id] ?? 0) { await load() }
+        .task(id: realtime.pollSignal(poll.id).version) { await load() }
     }
 
     private var caption: String {

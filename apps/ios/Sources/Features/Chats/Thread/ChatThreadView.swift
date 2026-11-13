@@ -459,7 +459,7 @@ struct ChatThreadView: View {
                 await model?.loadGroupStatus()
             }
         }
-        .onChange(of: realtime.pinnedVersions[chatID] ?? 0) {
+        .onChange(of: realtime.signals(for: chatID).pinnedVersion) {
             Task { await model?.loadPinned() }
         }
         .onChange(of: model?.newestIncomingID) {

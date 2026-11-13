@@ -244,7 +244,7 @@ struct ChecklistMessageView: View {
     private let api: ChatActing = ChatsAPI()
     private var realtime: RealtimeCoordinator { AppServices.realtime }
 
-    private var current: MessageExtras.Checklist { realtime.checklists[checklist.id] ?? checklist }
+    private var current: MessageExtras.Checklist { realtime.checklistSignal(checklist.id).checklist ?? checklist }
     private var canMark: Bool { isAuthor || current.othersCanMark != false }
     private var canAdd: Bool { isAuthor || current.othersCanAdd != false }
     private var doneCount: Int { current.items.filter(\.done).count }
