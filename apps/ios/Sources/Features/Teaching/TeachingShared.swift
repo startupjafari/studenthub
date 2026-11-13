@@ -357,5 +357,5 @@ func teachingAssignmentSymbol(_ type: String?) -> String {
 @MainActor
 func teachingPush(_ route: AppRoute) {
     let router = AppServices.router
-    router.stacks[router.selectedTab, default: []].append(route)
+    router.push(route)
 }

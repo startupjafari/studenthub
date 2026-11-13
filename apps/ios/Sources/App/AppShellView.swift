@@ -120,7 +120,7 @@ struct AppShellView: View {
 
     /// Стек вкладки: у каждой свой путь, профиль в верхней панели корня.
     private func stack(for tab: AppTab) -> some View {
-        NavigationStack(path: $router.stacks.stack(for: tab)) {
+        NavigationStack(path: Bindable(router.path(for: tab)).routes) {
             root(for: tab)
                 // В чатах левый край занят «Изм.», как в Telegram: профиль — с других вкладок.
                 .profileToolbarItem(isHidden: tab == .chats)
@@ -265,17 +265,6 @@ struct AppShellView: View {
         case .librarian(let screen):
             screen.destination
         }
-    }
-}
-
-/// Путь внутри вкладки хранится в словаре, а `NavigationStack` просит привязку к
-/// массиву. Этот переходник и есть вся разница между ними.
-extension Binding where Value == [AppTab: [AppRoute]] {
-    func stack(for tab: AppTab) -> Binding<[AppRoute]> {
-        Binding<[AppRoute]>(
-            get: { wrappedValue[tab] ?? [] },
-            set: { wrappedValue[tab] = $0 }
-        )
     }
 }
 

@@ -504,7 +504,7 @@ struct ChatInfoView: View {
                     }
                     .contextMenu {
                         Button {
-                            AppServices.router.stacks[.chats, default: []].append(.profile(id: member.id))
+                            AppServices.router.push(.profile(id: member.id), in: .chats)
                         } label: {
                             Label(String(localized: "home.profile.open", defaultValue: "Открыть профиль"), systemImage: "person.crop.circle")
                         }
@@ -538,7 +538,7 @@ struct ChatInfoView: View {
             }
         }
         Button {
-            AppServices.router.stacks[.chats, default: []].append(.profile(id: member.id))
+            AppServices.router.push(.profile(id: member.id), in: .chats)
         } label: {
             Label(String(localized: "home.profile.open", defaultValue: "Открыть профиль"), systemImage: "person.crop.circle")
         }
@@ -840,7 +840,7 @@ struct ChatInfoView: View {
         do {
             try await api.deleteChat(chatID: chatID)
             _ = try? await AppServices.database.writer.write { db in try ChatRecord.deleteOne(db, key: chatID) }
-            AppServices.router.stacks[.chats] = []
+            AppServices.router.popToRoot(.chats)
         } catch {
             failure = (error as? APIError)?.displayMessage
         }

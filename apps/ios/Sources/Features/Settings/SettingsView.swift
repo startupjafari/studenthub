@@ -287,7 +287,7 @@ struct SettingsView: View {
     private func openOwnProfile() {
         let router = AppServices.router
         let tab = router.selectedTab
-        var stack = router.stacks[tab] ?? []
+        var stack = router.path(for: tab).routes
         let isOwnProfile: (AppRoute) -> Bool = { route in
             route == .section(.profile) || (!viewerID.isEmpty && route == .profile(id: viewerID))
         }
@@ -296,7 +296,7 @@ struct SettingsView: View {
         } else {
             stack.append(.section(.profile))
         }
-        router.stacks[tab] = stack
+        router.path(for: tab).routes = stack
     }
 
     /// Шапка как в «Настройках» Telegram: аватар по центру, имя, ниже — почта и имя

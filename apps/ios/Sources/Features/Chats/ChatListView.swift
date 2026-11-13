@@ -369,7 +369,7 @@ struct ChatListView: View {
                     composing = nil
                     Task {
                         await model.refresh()
-                        AppServices.router.stacks[.chats, default: []].append(.chat(id: chatID))
+                        AppServices.router.push(.chat(id: chatID), in: .chats)
                     }
                 }
             }
@@ -591,7 +591,7 @@ struct ChatListView: View {
     private func openSaved() async {
         guard let id = try? await ChatsAPI().savedMessages() else { return }
         await model.refresh()
-        AppServices.router.stacks[.chats, default: []].append(.chat(id: id))
+        AppServices.router.push(.chat(id: id), in: .chats)
     }
 }
 

@@ -675,7 +675,7 @@ struct ChatThreadView: View {
         case .jump(let id):
             Task { await model.jump(to: id) }
         case .openPost(let id):
-            AppServices.router.stacks[.chats, default: []].append(.post(id: id))
+            AppServices.router.push(.post(id: id), in: .chats)
         case .openAttachment(let file):
             open(file, in: message)
         case .menu:

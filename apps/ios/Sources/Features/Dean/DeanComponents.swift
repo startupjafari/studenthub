@@ -454,15 +454,14 @@ enum DeanNav {
     @MainActor
     static func push(_ route: AppRoute) {
         let router = AppServices.router
-        router.stacks[router.selectedTab, default: []].append(route)
+        router.push(route)
     }
 
     /// Личный чат с человеком: сервер вернёт уже существующий, если он есть.
     @MainActor
     static func openChat(userID: String) async throws {
         let chatID = try await ChatsAPI().createPrivate(with: userID)
-        AppServices.router.select(.chats)
-        AppServices.router.stacks[.chats] = [.chat(id: chatID)]
+        AppServices.router.openChat(id: chatID)
     }
 
     static func mailURL(_ email: String?) -> URL? {

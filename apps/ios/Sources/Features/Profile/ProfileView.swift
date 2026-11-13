@@ -777,7 +777,7 @@ private struct ProfileHeaderView: View {
     private static func menuLink(_ title: String, symbol: String, route: AppRoute) -> UIAction {
         UIAction(title: title, image: UIImage(systemName: symbol)) { _ in
             let router = AppServices.router
-            router.stacks[router.selectedTab, default: []].append(route)
+            router.push(route)
         }
     }
 
@@ -1028,8 +1028,7 @@ private struct ProfileHeaderView: View {
         guard let id = model.userID else { return }
         do {
             let chatID = try await ChatsAPI().createPrivate(with: id)
-            AppServices.router.select(.chats)
-            AppServices.router.stacks[.chats] = [.chat(id: chatID)]
+            AppServices.router.openChat(id: chatID)
         } catch {
             model.report(error)
         }
