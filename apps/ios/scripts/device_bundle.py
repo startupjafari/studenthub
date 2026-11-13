@@ -73,6 +73,8 @@ def info_plist(api_base_url: str, web_base_url: str) -> dict:
         "NSLocalNetworkUsageDescription": "Чтобы подключиться к серверу разработки на компьютере.",
         "NSAppTransportSecurity": {"NSAllowsArbitraryLoads": True},
         "UILaunchScreen": {},
+        # ProMotion: анимации приложения на 120 Гц, как в сборке Xcode (project.yml).
+        "CADisableMinimumFrameDurationOnPhone": True,
         # Иконка без каталога ассетов: PNG 60 pt (@2x, @3x) лежат в корне бандла.
         # xtool сам добавляет и `CFBundleIconFile` из `iconPath` (xtool.yml).
         "CFBundleIcons": {
