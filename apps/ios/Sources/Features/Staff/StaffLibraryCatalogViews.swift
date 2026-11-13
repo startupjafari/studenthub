@@ -325,9 +325,7 @@ private struct StaffBookFormSheet: View {
 struct StaffBookDetailView: View {
     let bookID: String
 
-    @State private var book: StaffBook?
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var remote = RemoteValue<StaffBook>()
     @State private var actionFailure: String?
     @State private var notice: String?
     @State private var editing = false
@@ -344,16 +342,10 @@ struct StaffBookDetailView: View {
 
     private let api = StaffAPI()
 
+    private var book: StaffBook? { remote.value }
+
     var body: some View {
-        Group {
-            if let book {
-                content(book)
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
-                LoadingStateView()
-            }
-        }
+        RemoteValueContent(remote: remote, load: fetch) { book in content(book) }
         .navigationTitle(Text(StaffScreen.libraryBook(id: bookID).title))
         .navigationBarTitleDisplayMode(.inline)
         .photosPicker(isPresented: $pickingCover, selection: $coverPick, matching: .images)
@@ -410,7 +402,6 @@ struct StaffBookDetailView: View {
                     .glassSurface(interactive: false, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             }
         }
-        .task { await load() }
     }
 
     @ViewBuilder
@@ -620,20 +611,12 @@ struct StaffBookDetailView: View {
 
     // MARK: Действия
 
-    @MainActor
     private func load() async {
-        do {
-            book = try await api.book(id: bookID)
-            failure = nil
-            isOffline = false
-        } catch {
-            if book == nil {
-                failure = error.userMessage
-                isOffline = error.isOffline
-            } else {
-                actionFailure = error.userMessage
-            }
-        }
+        await remote.load(fetch)
+    }
+
+    private func fetch() async throws -> StaffBook {
+        try await api.book(id: bookID)
     }
 
     @MainActor

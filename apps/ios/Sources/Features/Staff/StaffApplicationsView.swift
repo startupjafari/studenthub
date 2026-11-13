@@ -324,8 +324,9 @@ struct StaffApplicationDetailView: View {
     let applicationID: String
 
     @Environment(\.viewerRole) private var viewerRole
-    @State private var app: StaffApplication?
-    @State private var failure: String?
+    /// Заявка (`RemoteValue`) — без кеша: анкета и документы студента не хранятся на
+    /// телефоне сотрудника.
+    @State private var remote = RemoteValue<StaffApplication>(caching: false)
     /// Действия над заявкой: «идёт работа» и отказ (`ActionRunner`).
     @State private var runner = ActionRunner()
     @State private var notice: String?
@@ -335,21 +336,14 @@ struct StaffApplicationDetailView: View {
     /// Список сотрудников не загрузился: без него ответственного не сменить, и строка
     /// говорит об этом прямо, с повтором, а не молча перестаёт быть меню.
     @State private var assigneesFailure: String?
-    @State private var isOffline = false
     @State private var opener = RemoteFileOpener()
 
     private let api = StaffAPI()
 
+    private var app: StaffApplication? { remote.value }
+
     var body: some View {
-        Group {
-            if let app {
-                content(app)
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
-                LoadingStateView()
-            }
-        }
+        RemoteValueContent(remote: remote, load: fetch) { app in content(app) }
         .navigationTitle(Text(StaffScreen.application(id: applicationID).title))
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $prompt) { prompt in
@@ -371,7 +365,8 @@ struct StaffApplicationDetailView: View {
             Text(notice ?? "")
         }
         .remoteFilePreview(opener)
-        .task { await load() }
+        // Сотрудники для смены ответственного — когда пришла открытая заявка.
+        .task(id: app.map { !$0.isClosed } ?? false) { await loadAssigneesIfNeeded() }
     }
 
     @ViewBuilder
@@ -922,23 +917,19 @@ struct StaffApplicationDetailView: View {
 
     // MARK: Загрузка
 
-    @MainActor
     private func load() async {
-        do {
-            let loaded = try await api.application(id: applicationID)
-            app = loaded
-            failure = nil
-            isOffline = false
-            if !loaded.isClosed, assignees == nil {
-                await loadAssignees()
-            }
-        } catch {
-            if app == nil {
-                failure = error.userMessage
-                isOffline = error.isOffline
-            } else {
-                runner.failure = error.userMessage
-            }
+        await remote.load(fetch)
+        await loadAssigneesIfNeeded()
+    }
+
+    private func fetch() async throws -> StaffApplication {
+        try await api.application(id: applicationID)
+    }
+
+    /// Открытой заявке нужен список сотрудников; уже загруженный не перечитывается.
+    private func loadAssigneesIfNeeded() async {
+        if let app, !app.isClosed, assignees == nil {
+            await loadAssignees()
         }
     }
 

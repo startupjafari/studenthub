@@ -201,9 +201,7 @@ struct StaffEventDetailView: View {
     @Environment(\.viewerID) private var viewerID
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
-    @State private var event: StaffEvent?
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var remote = RemoteValue<StaffEvent>()
     @State private var actionFailure: String?
     @State private var editing = false
     @State private var confirmDelete = false
@@ -232,16 +230,10 @@ struct StaffEventDetailView: View {
         })
     }
 
+    private var event: StaffEvent? { remote.value }
+
     var body: some View {
-        Group {
-            if let event {
-                content(event)
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
-                LoadingStateView()
-            }
-        }
+        RemoteValueContent(remote: remote, load: fetch) { event in content(event) }
         .navigationTitle(Text(StaffScreen.event(id: eventID).title))
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $editing) {
@@ -283,7 +275,6 @@ struct StaffEventDetailView: View {
                     .glassSurface(interactive: false, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             }
         }
-        .task { await load() }
     }
 
     /// Право решает сервер (`canManage`); роль — только запасной вариант для старого ответа.
@@ -592,25 +583,18 @@ struct StaffEventDetailView: View {
 
     // MARK: Действия
 
-    @MainActor
     private func load() async {
-        do {
-            event = try await api.event(id: eventID)
-            failure = nil
-            isOffline = false
-            // Блок, упавший в прошлый раз, тоже перечитываем: жест обновления — и его повтор.
-            if participants.isLoaded || (participants.failure != nil && participants.failure != StaffParticipantsHidden.message) {
-                await participants.reload()
-            }
-            if comments.isLoaded || comments.failure != nil { await comments.reload() }
-        } catch {
-            if event == nil {
-                failure = error.userMessage
-                isOffline = error.isOffline
-            } else {
-                actionFailure = error.userMessage
-            }
+        await remote.load(fetch)
+        guard remote.value != nil, remote.failure == nil else { return }
+        // Блок, упавший в прошлый раз, тоже перечитываем: жест обновления — и его повтор.
+        if participants.isLoaded || (participants.failure != nil && participants.failure != StaffParticipantsHidden.message) {
+            await participants.reload()
         }
+        if comments.isLoaded || comments.failure != nil { await comments.reload() }
+    }
+
+    private func fetch() async throws -> StaffEvent {
+        try await api.event(id: eventID)
     }
 
     @MainActor
