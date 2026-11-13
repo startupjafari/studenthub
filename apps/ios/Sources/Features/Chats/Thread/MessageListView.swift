@@ -85,7 +85,11 @@ final class MessageListViewController: UIViewController {
     private var bubbleContext = BubbleContext()
     private var selection: Set<String>?
     private var appliedBottomToken = 0
-    private var reportedAtBottom = true
+    /// Последнее сообщённое «у низа ли лента»; `nil` — ещё ни разу. Первое состояние
+    /// сообщается всегда (с первой расстановки): чат, открытый сразу у низа, — уже
+    /// увиденный до конца, и счётчик на кнопке «вниз» после прокрутки вверх не должен
+    /// вспоминать старое непрочитанное.
+    private var reportedAtBottom: Bool?
     private var appliedFocus: MessageFocus?
     /// Номер последней применённой ленты; `nil` — ещё ни одной.
     private var appliedRevision: Int?
@@ -871,6 +875,9 @@ final class MessageListViewController: UIViewController {
     /// Сообщить SwiftUI, у низа ли лента. Только при смене и вне текущего прохода
     /// обновления: прокрутка случается и внутри `updateUIViewController`.
     private func reportBottom() {
+        // До первой расстановки лента ещё не там, где её увидят (низ или первое
+        // непрочитанное): первое сообщённое состояние — уже с неё.
+        guard hasContent, !needsInitialPosition else { return }
         let atBottom = isNearBottom
         guard atBottom != reportedAtBottom else { return }
         reportedAtBottom = atBottom
