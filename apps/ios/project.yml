@@ -195,6 +195,10 @@ schemes:
       config: Debug
     test:
       config: Debug
+      # Язык и регион процесса тестов — как у пользователей: снимки с датами и временем
+      # («10 минут назад», «09:41») иначе выходят на английском.
+      language: ru
+      region: KZ
       targets:
         - StudentHubTests
         - StudentHubSnapshotTests

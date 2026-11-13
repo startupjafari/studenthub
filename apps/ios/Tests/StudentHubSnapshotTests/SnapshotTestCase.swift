@@ -49,6 +49,10 @@ class SnapshotTestCase: XCTestCase {
         ]
     }
 
+    /// Локаль снимков. Процесс тестов тоже запускается на ней (`language`/`region` у
+    /// схемы в `project.yml`) — для форматтеров, что берут `Locale.current`.
+    static let locale = Locale(identifier: "ru_KZ")
+
     /// Снять вид во всех вариантах и сравнить каждый с эталоном.
     ///
     /// `height` — `nil`: высота экрана устройства; число — компонент снимается в полосе
@@ -87,8 +91,17 @@ class SnapshotTestCase: XCTestCase {
                 $0.animation = nil
                 $0.disablesAnimations = true
             }
+            // Локаль — как у пользователей: русский язык, 24-часовое время. Иначе
+            // `Text(date, format:)` берёт локаль раннера («10 minutes ago», «9:41 AM»).
+            .environment(\.locale, Self.locale)
             .frame(width: size.width, height: size.height)
+            // Всё, что вид не закрасил сам (компонент ниже высоты полосы), — фон экрана,
+            // а не белый холст окна.
+            .background(Palette.background)
         let host = UIHostingController(rootView: root)
+        // Окно стоит в сцене симулятора и иначе получает её отступы (статус-бар, полоса
+        // «домой»): компонент уезжал вниз, а над ним оставалась полоса другого цвета.
+        host.safeAreaRegions = []
         host.traitOverrides.userInterfaceStyle = style
         host.traitOverrides.preferredContentSizeCategory = category
 

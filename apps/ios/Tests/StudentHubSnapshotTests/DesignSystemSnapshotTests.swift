@@ -8,18 +8,23 @@ import XCTest
 ///
 /// Данные — фиксированные строки; ни сети, ни дат «сейчас».
 final class DesignSystemSnapshotTests: SnapshotTestCase {
-    func testStateViews() {
-        let view = VStack(spacing: 32) {
-            EmptyStateView(
-                title: "Пока пусто", symbol: "tray",
-                hint: "Здесь появятся ваши заявки", actionTitle: "Создать", action: {})
-            ErrorStateView(message: "Не удалось загрузить расписание")
-            ErrorStateView(message: "Нет соединения", isOffline: true)
-        }
-        .padding()
-        .frame(maxHeight: .infinity, alignment: .top)
-        .background(Palette.background)
-        assertSnapshots(of: view, named: "states")
+    /// Каждое состояние — на своём экране, как в приложении. Втроём на одном экране при
+    /// крупном шрифте они не помещаются, и `ContentUnavailableView` сжимается: пропадает
+    /// значок, обрезается текст — снимок ловил бы дефект теста, а не вида.
+    func testEmptyState() {
+        let view = EmptyStateView(
+            title: "Пока пусто", symbol: "tray",
+            hint: "Здесь появятся ваши заявки", actionTitle: "Создать", action: {})
+            .padding()
+        assertSnapshots(of: view, named: "state-empty")
+    }
+
+    func testErrorState() {
+        assertSnapshots(of: ErrorStateView(message: "Не удалось загрузить расписание").padding(), named: "state-error")
+    }
+
+    func testOfflineState() {
+        assertSnapshots(of: ErrorStateView(message: "Нет соединения", isOffline: true).padding(), named: "state-offline")
     }
 
     func testRows() {
