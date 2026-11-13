@@ -185,7 +185,7 @@ struct ChatMediaTile: View {
     /// Размытое превью разбирается один раз на плитку, а не на каждый кадр.
     @State private var preview: UIImage?
     @Environment(\.displayScale) private var displayScale
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     /// Углы снимка без подписи — по форме пузыря (`MessageBubbleView`).
     @Environment(\.chatMediaCorners) private var bubbleCorners
 
@@ -639,7 +639,7 @@ struct MediaLoadControl: View {
     let cancel: () -> Void
 
     @State private var spinning = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
 
     var body: some View {
         Button(action: cancel) {
@@ -741,7 +741,7 @@ private struct MediaSizeCaption: View {
 /// «Пыль» спойлера, как в Telegram: мелкие светлые точки медленно плывут и мерцают
 /// поверх размытого снимка. Без движения — неподвижный узор.
 struct SpoilerDust: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { timeline in

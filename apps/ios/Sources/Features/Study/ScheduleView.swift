@@ -12,7 +12,7 @@ struct ScheduleView: View {
     @State private var mode: Mode = .day
     @State private var week: [(day: Int, date: Date, pairs: [SchedulePair])]?
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
 
     enum Mode: Hashable { case day, week }
 
@@ -30,7 +30,7 @@ struct ScheduleView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    withAnimation(Motion.respecting(.snappy(duration: 0.3), reduceMotion: reduceMotion)) {
+                    withAnimation(Motion.respecting(Motion.snappy, reduceMotion: reduceMotion)) {
                         mode = mode == .day ? .week : .day
                     }
                 } label: {
@@ -95,7 +95,7 @@ struct ScheduleView: View {
                     weekStart: model.weekStart,
                     busyDays: Set((week ?? []).map(\.day))
                 ) { day in
-                    withAnimation(Motion.respecting(.snappy(duration: 0.25), reduceMotion: reduceMotion)) {
+                    withAnimation(Motion.respecting(Motion.snappy, reduceMotion: reduceMotion)) {
                         model.select(day: day)
                     }
                 }
@@ -144,7 +144,7 @@ struct ScheduleView: View {
     }
 
     private func goToToday() {
-        withAnimation(Motion.respecting(.snappy(duration: 0.3), reduceMotion: reduceMotion)) {
+        withAnimation(Motion.respecting(Motion.snappy, reduceMotion: reduceMotion)) {
             if model.weekOffset != 0 { model.toggleParity() }
             model.select(day: ScheduleModel.isoDay(of: Date(), calendar: .current))
         }
@@ -351,7 +351,7 @@ struct ScheduleDateStrip: View {
     /// Дни с отметкой-точкой (например, есть занятия).
     var hasDot: (Date) -> Bool = { _ in false }
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
 
     private var calendar: Calendar { .current }
 
@@ -408,7 +408,7 @@ struct ScheduleDateStrip: View {
     }
 
     private func select(_ date: Date) {
-        withAnimation(Motion.respecting(.snappy(duration: 0.25), reduceMotion: reduceMotion)) {
+        withAnimation(Motion.respecting(Motion.snappy, reduceMotion: reduceMotion)) {
             selection = date
         }
     }

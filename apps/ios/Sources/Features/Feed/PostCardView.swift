@@ -343,7 +343,7 @@ struct PostActionsView: View {
 
     @State private var reactionTick = 0
     @State private var bookmarkTick = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
 
     var body: some View {
         HStack(spacing: Spacing.xs) {
@@ -355,6 +355,7 @@ struct PostActionsView: View {
             ) {
                 actions.comments(post)
             }
+            .accessibilityIdentifier("feed.post.comments")
             if canRepost {
                 counterButton(
                     symbol: "arrow.2.squarepath",
@@ -381,11 +382,13 @@ struct PostActionsView: View {
                 Task { await model.toggleBookmark(post.id) }
             } label: {
                 Image(systemName: model.isBookmarked(post.id) ? "bookmark.fill" : "bookmark")
+                    // Заливка меняется системным эффектом символа, а не подменой картинки.
+                    .contentTransition(.symbolEffect(.replace))
                     .foregroundStyle(model.isBookmarked(post.id) ? Palette.primary : Palette.mutedForeground)
                     .frame(width: ControlHeight.xl, height: ControlHeight.xl)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pressableIcon)
             .sensoryFeedback(.selection, trigger: bookmarkTick)
             .accessibilityLabel(Text(model.isBookmarked(post.id)
                 ? String(localized: "feed.unbookmark", defaultValue: "Убрать из сохранённого")
@@ -449,6 +452,7 @@ struct PostActionsView: View {
         }
         .sensoryFeedback(.impact(weight: .light), trigger: reactionTick)
         .accessibilityLabel(Text(String(localized: "feed.react", defaultValue: "Реакция")))
+        .accessibilityIdentifier("feed.post.like")
         .accessibilityValue(Text(verbatim: String(total)))
         .accessibilityHint(Text(String(
             localized: "feed.react.hint",
@@ -476,7 +480,7 @@ struct PostActionsView: View {
             .frame(minHeight: ControlHeight.xl)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressableIcon)
         .accessibilityLabel(Text(label))
         .accessibilityValue(Text(verbatim: count > 0 ? String(count) : ""))
     }

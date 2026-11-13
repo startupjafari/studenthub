@@ -579,7 +579,7 @@ private struct ChatMediaThumb: View {
     @State private var image: UIImage?
     @State private var failed = false
     @Environment(\.displayScale) private var displayScale
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
 
     init(item: ChatMediaItemDTO) {
         self.item = item

@@ -91,7 +91,7 @@ struct ForgotPasswordView: View {
     var prefill: String = ""
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     @State private var model = ForgotPasswordModel()
     @FocusState private var isEmailFocused: Bool
 

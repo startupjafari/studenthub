@@ -194,7 +194,7 @@ struct DeanScheduleManageView: View {
         .disabled(group == nil)
         if let detail, !detail.pairs.contains(where: { $0.dayOfWeek > 5 }) {
             Button {
-                withAnimation { showWeekend.toggle() }
+                withMotion { showWeekend.toggle() }
             } label: {
                 Label(
                     showWeekend

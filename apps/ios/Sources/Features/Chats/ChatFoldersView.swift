@@ -24,7 +24,7 @@ struct ChatFoldersView: View {
     @State private var editing: ChatFolderEditTarget?
     @State private var deleting: ChatFolderDTO?
     @State private var editMode: EditMode = .inactive
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
 
     var body: some View {
         List {

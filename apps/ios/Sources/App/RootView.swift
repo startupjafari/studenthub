@@ -7,7 +7,7 @@ import SwiftUI
 /// ответа сервера: решение о доступе всё равно принимает API, а приложению роль
 /// нужна только для того, чтобы не рисовать разделы, которых у человека нет.
 struct RootView: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var session = AppSessionModel()

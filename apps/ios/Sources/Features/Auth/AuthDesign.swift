@@ -173,7 +173,7 @@ struct StudentHubBrandHeader: View {
     @Environment(\.authIsCompact) private var isCompact
     @Environment(\.authKeyboardShown) private var keyboardShown
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
 
     /// Места мало: низкий экран или крупный шрифт специальных возможностей.
     private var isTight: Bool { isCompact || dynamicTypeSize.isAccessibilitySize }
@@ -267,7 +267,7 @@ struct AuthScaffold<Header: View, Panel: View>: View {
     @ViewBuilder var header: () -> Header
     @ViewBuilder var panel: () -> Panel
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     /// Высота экрана без клавиатуры. Видимая высота — у `GeometryReader`; разница
     /// между ними и есть клавиатура.
     @State private var fullHeight: CGFloat = 0
@@ -822,6 +822,7 @@ struct AuthFormError: View {
                     AuthNotice(kind: .error, title: message)
                 }
             }
+            .accessibilityIdentifier("auth.error")
             // Ошибка появляется над формой, часто вне взгляда: о ней говорят отклик и
             // VoiceOver, а не только красная карточка.
             .onAppear { Self.signal(message) }

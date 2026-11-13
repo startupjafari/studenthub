@@ -262,7 +262,7 @@ struct QRSignInView: View {
     let session: AppSessionModel
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     @State private var model = QRSignInModel()
     @State private var network = QRNetworkWatch()
     /// Смена значения перезапускает `.task` — так работает «Обновить».

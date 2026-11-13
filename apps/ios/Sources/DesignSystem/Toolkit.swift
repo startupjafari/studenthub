@@ -245,7 +245,7 @@ struct FormSheet<Content: View>: View {
                 // «Сохранить» выглядело бы как кнопка, которая ничего не делает.
                 .onChange(of: failure) { _, next in
                     guard next != nil else { return }
-                    withAnimation { proxy.scrollTo(FormSheetAnchor.failure, anchor: .top) }
+                    withMotion { proxy.scrollTo(FormSheetAnchor.failure, anchor: .top) }
                 }
             }
             .scrollDismissesKeyboard(.interactively)
@@ -477,7 +477,7 @@ struct FilterChips<Value: Hashable>: View {
     var menu: (Value?) -> [FilterChipAction] = { _ in [] }
 
     @Namespace private var pill
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
 
     // Как папки в Telegram: одна стеклянная капсула-дорожка, внутри — пункты, выбранный
     // подсвечен «таблеткой», которая переезжает к новому пункту. Не влезший в ширину
@@ -494,7 +494,7 @@ struct FilterChips<Value: Hashable>: View {
     private func reveal(_ value: Value?, with scroller: ScrollViewProxy, animated: Bool) {
         guard let index = options.firstIndex(where: { $0.value == value }) else { return }
         if animated, !reduceMotion {
-            withAnimation(.snappy(duration: 0.3)) { scroller.scrollTo(index, anchor: .center) }
+            withAnimation(Motion.snappy) { scroller.scrollTo(index, anchor: .center) }
         } else {
             scroller.scrollTo(index, anchor: .center)
         }
@@ -536,7 +536,7 @@ struct FilterChips<Value: Hashable>: View {
             ForEach(Array(options.enumerated()), id: \.offset) { index, option in
                 let isOn = option.value == selection
                 Button {
-                    withAnimation(Motion.respecting(.snappy(duration: 0.3), reduceMotion: reduceMotion)) {
+                    withAnimation(Motion.respecting(Motion.snappy, reduceMotion: reduceMotion)) {
                         selection = option.value
                     }
                 } label: {

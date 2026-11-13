@@ -23,7 +23,7 @@ struct ForwardPickerView: View {
     let send: (_ chatIDs: [String], _ comment: String?, _ requestID: UUID) async -> ForwardOutcome
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     @State private var rows: [ChatListRow] = []
     @State private var folders: [ChatFolderDTO] = []
     /// База прочитана — до этого пустой список не значит «чатов нет».

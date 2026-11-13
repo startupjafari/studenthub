@@ -157,7 +157,7 @@ struct CommunityArticleView: View {
 
     @Environment(\.viewerID) private var viewerID
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     @State private var article: CommunityArticleDTO?
     @State private var failure: String?
     @State private var isOffline = false
@@ -472,7 +472,7 @@ struct CommunityArticleView: View {
         .padding(.horizontal, Spacing.sm)
         .padding(.vertical, Spacing.xs)
         .background(Palette.card, in: Capsule())
-        .animation(Motion.respecting(.snappy(duration: Motion.Duration.surface), reduceMotion: reduceMotion), value: article)
+        .animation(Motion.respecting(Motion.snappy, reduceMotion: reduceMotion), value: article)
     }
 
     private func countLabel(symbol: String, count: Int, tint: Color) -> some View {
@@ -969,7 +969,7 @@ struct CommunityArticleEditor: View {
                 // «Опубликовать» выглядело бы как кнопка, которая ничего не делает.
                 .onChange(of: failure) { _, next in
                     guard next != nil else { return }
-                    withAnimation(Motion.calm) { scroller.scrollTo(Self.failureAnchor, anchor: .top) }
+                    withMotion(Motion.calm) { scroller.scrollTo(Self.failureAnchor, anchor: .top) }
                 }
             }
             .listSectionSpacing(.compact)

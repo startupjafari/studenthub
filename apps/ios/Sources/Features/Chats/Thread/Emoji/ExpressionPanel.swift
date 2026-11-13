@@ -19,7 +19,7 @@ struct ExpressionPanel: View {
     @Namespace private var tabSelection
     /// Вкладка под пальцем, пока его ведут по капсуле.
     @State private var hoveredTab: Int?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
 
     /// Запас под плавающей капсулой вкладок: последний ряд прокручивается из-под неё.
     private static let barClearance: CGFloat = ControlHeight.xl + Spacing.md * 2
@@ -348,7 +348,7 @@ private struct StickerBrowser: View {
             }
             .onChange(of: selectedSet) { _, id in
                 guard let id else { return }
-                withAnimation { strip.scrollTo(id) }
+                withMotion { strip.scrollTo(id) }
             }
         }
     }
@@ -362,7 +362,7 @@ private struct StickerBrowser: View {
         return Button {
             // Набор из полосы выходит и из поиска: лента возвращается к нему.
             query = ""
-            withAnimation { selectedSet = id }
+            withMotion { selectedSet = id }
         } label: {
             icon()
                 .frame(width: 30, height: 30)
@@ -402,7 +402,8 @@ private struct StickerPressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.88 : 1)
-            .animation(.spring(duration: 0.2, bounce: 0.4), value: configuration.isPressed)
+            // Под пальцем — быстро, на отпускании — с перелётом (`Motion.press`/`release`).
+            .animation(Motion.isReducedNow ? nil : (configuration.isPressed ? Motion.press : Motion.release), value: configuration.isPressed)
     }
 }
 
