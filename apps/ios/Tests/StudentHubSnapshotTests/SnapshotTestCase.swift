@@ -2,6 +2,8 @@ import SwiftUI
 import UIKit
 import XCTest
 
+@testable import StudentHub
+
 /// Основа снимочных тестов: рисует SwiftUI-вид в настоящем окне и сравнивает с эталоном
 /// (`SnapshotComparison`).
 ///
