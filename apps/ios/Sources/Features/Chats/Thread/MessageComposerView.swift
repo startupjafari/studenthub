@@ -220,8 +220,10 @@ struct MessageComposerView: View {
             recorder.onAnnounce = { [model] on in model.announceVoice(on) }
         }
         .onDisappear {
-            // Ушли из чата посреди записи — недописанное не уходит само.
-            if recorder.machine.isRecording { recorder.delete() }
+            // Ушли из чата посреди записи — недописанное не уходит само. Не `delete()`:
+            // его машина в фазе «палец держит» не принимает, и у собеседников так и висело
+            // «записывает голосовое…», а кнопка «вниз» в ленте пропадала.
+            recorder.abandon()
         }
         .fullScreenCover(isPresented: $showsCamera, onDismiss: {
             guard let image = captured else { return }
@@ -637,12 +639,14 @@ extension View {
     /// Элемент панели ввода: на iOS 26 — стекло, раньше — серая заливка.
     ///
     /// `isVisible: false` убирает стекло, не меняя устройства вида (`Glass.identity`):
-    /// поле под полосой записи не теряет фокус и черновик.
+    /// поле под полосой записи не теряет фокус и черновик. `interactive: false` — стекло
+    /// не раздувается под пальцем (микрофон: отклик удержания — круг записи).
     @ViewBuilder
-    func composerGlass<S: Shape>(in shape: S, isVisible: Bool = true) -> some View {
+    func composerGlass<S: Shape>(in shape: S, isVisible: Bool = true, interactive: Bool = true) -> some View {
         #if compiler(>=6.2)
             if #available(iOS 26, *) {
-                glassEffect(isVisible ? Glass.regular.interactive() : Glass.identity, in: shape)
+                let glass = interactive ? Glass.regular.interactive() : Glass.regular
+                glassEffect(isVisible ? glass : Glass.identity, in: shape)
                     .contentShape(shape)
             } else {
                 background(isVisible ? Palette.muted : Color.clear, in: shape)

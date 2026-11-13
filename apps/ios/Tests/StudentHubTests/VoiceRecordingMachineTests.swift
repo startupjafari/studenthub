@@ -68,6 +68,26 @@ final class VoiceRecordingMachineTests: XCTestCase {
         XCTAssertEqual(effects, [.discardRecording, .showHint(.holdToRecord), .announce(false)])
     }
 
+    /// Палец держал, а звука почти нет — сессия включалась дольше удержания. Это не
+    /// короткое касание: «удерживайте» не показываем, запись просто не начата.
+    func testLongHoldWithoutSoundDiscardsWithoutHint() {
+        var machine = recording()
+        let effects = machine.handle(.release(duration: 0.1, held: 1.5))
+        XCTAssertEqual(machine.phase, .idle)
+        XCTAssertEqual(effects, [.discardRecording, .announce(false)])
+    }
+
+    /// Короткое касание не ломает следующее удержание: оно сразу начинает запись.
+    func testTapThenHoldStartsRecording() {
+        var machine = recording()
+        machine.handle(.release(duration: 0.1, held: 0.1))
+        XCTAssertEqual(machine.phase, .idle)
+        XCTAssertEqual(machine.handle(.press(.granted)), [.startRecording, .haptic(.start), .announce(true)])
+        XCTAssertEqual(machine.phase, .recording)
+        machine.handle(.release(duration: 1.2, held: 1.3))
+        XCTAssertEqual(machine.phase, .preparing)
+    }
+
     /// Влево за порог — отмена сразу, ещё до отпускания; отпускание потом ничего не шлёт.
     func testSwipeLeftCancels() {
         var machine = recording()
@@ -146,6 +166,29 @@ final class VoiceRecordingMachineTests: XCTestCase {
         var machine = recording()
         machine.handle(.recordingFailed)
         XCTAssertEqual(machine.phase, .failed(.couldNotStart))
+    }
+
+    /// Остановленная запись не дописалась — ошибка, а не молча пустое поле.
+    func testStoppedEmptyFileFails() {
+        var machine = recording()
+        machine.handle(.drag(CGSize(width: 0, height: -200)))
+        machine.handle(.tapStop(duration: 3))
+        XCTAssertEqual(machine.handle(.prepared(ok: false)), [.discardRecording])
+        XCTAssertEqual(machine.phase, .failed(.emptyRecording))
+    }
+
+    /// Панель ввода ушла посреди записи: запись удаляется, подпись у собеседников гаснет.
+    func testAbandonDiscards() {
+        var held = recording()
+        XCTAssertEqual(held.handle(.abandon), [.discardRecording, .announce(false)])
+        XCTAssertEqual(held.phase, .idle)
+
+        var locked = recording()
+        locked.handle(.drag(CGSize(width: 0, height: -200)))
+        XCTAssertEqual(locked.handle(.abandon), [.discardRecording, .announce(false)])
+
+        var idle = Machine()
+        XCTAssertEqual(idle.handle(.abandon), [])
     }
 
     func testEmptyFileFails() {
