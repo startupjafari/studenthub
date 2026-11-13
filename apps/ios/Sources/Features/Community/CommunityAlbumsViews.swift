@@ -78,9 +78,7 @@ struct CommunityAlbumsView: View {
     let userID: String?
 
     @Environment(\.viewerID) private var viewerID
-    @State private var albums: [CommunityAlbumDTO]?
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var remote = RemoteValue<[CommunityAlbumDTO]>()
     @State private var creating = false
     @State private var newTitle = ""
     @State private var renaming: CommunityAlbumDTO?
@@ -91,12 +89,20 @@ struct CommunityAlbumsView: View {
     private let api = CommunityAPI()
     private var ownerID: String { userID ?? viewerID }
     private var isMine: Bool { userID == nil || userID == viewerID }
+    private var albums: [CommunityAlbumDTO]? { remote.value }
+    private var failure: String? { remote.failure }
+    private var isOffline: Bool { remote.isOffline }
 
     var body: some View {
         // Загрузка фото — «+» на вкладке «Фото» профиля; здесь только альбомы, без
         // полосы загрузки над списком.
         List {
             if let albums, !albums.isEmpty {
+                if let failure {
+                    StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
                 Section {
                     ForEach(albums) { album in
                         NavigationLink(value: AppRoute.community(.album(id: album.id, userID: ownerID))) {
@@ -157,7 +163,9 @@ struct CommunityAlbumsView: View {
             creating = true
         }
         .pullToRefresh { await load() }
-        .task { await load() }
+        // Показ, возврат на экран и возврат приложения из фона — сохранённое на месте,
+        // сеть обновляет фоном (`RemoteValue`).
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await load() }
         .reasonPrompt(
             $creating,
             title: String(localized: "community.albums.new", defaultValue: "Новый альбом"),
@@ -198,7 +206,7 @@ struct CommunityAlbumsView: View {
         ) { album in
             do {
                 try await api.deleteAlbum(id: album.id)
-                albums?.removeAll { $0.id == album.id }
+                remote.value?.removeAll { $0.id == album.id }
             } catch {
                 actionFailure = error.userMessage
             }
@@ -206,18 +214,11 @@ struct CommunityAlbumsView: View {
         .actionFailureAlert($actionFailure)
     }
 
-    @MainActor
     private func load() async {
         guard !ownerID.isEmpty else { return }
-        do {
-            albums = try await api.albums(userID: ownerID)
-            failure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
+        let api = api
+        let ownerID = ownerID
+        await remote.load { try await api.albums(userID: ownerID) }
     }
 }
 
@@ -256,10 +257,8 @@ struct CommunityAlbumView: View {
     let userID: String
 
     @Environment(\.viewerID) private var viewerID
-    @State private var all: [ProfileMediaDTO]?
-    @State private var album: CommunityAlbumDTO?
-    @State private var failure: String?
-    @State private var isOffline = false
+    /// Снимки владельца и сам альбом (название, обложка) — одним значением.
+    @State private var remote = RemoteValue<Loaded>()
     @State private var viewing: CommunityMediaTarget?
     @State private var choosing = false
     @State private var actionFailure: String?
@@ -268,6 +267,17 @@ struct CommunityAlbumView: View {
     private let api = CommunityAPI()
     private var isMine: Bool { userID == viewerID }
     private var items: [ProfileMediaDTO] { (all ?? []).filter { $0.albumId == albumID } }
+
+    private struct Loaded {
+        var all: [ProfileMediaDTO]
+        /// Альбом не нашёлся или список альбомов не пришёл — заголовок по умолчанию.
+        var album: CommunityAlbumDTO?
+    }
+
+    private var all: [ProfileMediaDTO]? { remote.value?.all }
+    private var album: CommunityAlbumDTO? { remote.value?.album }
+    private var failure: String? { remote.failure }
+    private var isOffline: Bool { remote.isOffline }
 
     var body: some View {
         ScrollView {
@@ -293,6 +303,10 @@ struct CommunityAlbumView: View {
                     .padding(.horizontal, Spacing.xl)
                 }
                 if let all {
+                    if let failure {
+                        StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
+                            .padding(.horizontal, Spacing.xl)
+                    }
                     if items.isEmpty {
                         EmptyStateView(title: String(localized: "community.albums.noMedia", defaultValue: "В альбоме пока пусто"), symbol: "photo")
                     } else {
@@ -313,7 +327,9 @@ struct CommunityAlbumView: View {
         .navigationTitle(Text(album?.title ?? CommunityScreen.album(id: albumID, userID: userID).title))
         .navigationBarTitleDisplayMode(.inline)
         .pullToRefresh { await load() }
-        .task { await load() }
+        // Показ, возврат на экран и возврат приложения из фона — сохранённое на месте,
+        // сеть обновляет фоном (`RemoteValue`).
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await load() }
         .fullScreenCover(item: $viewing) { target in
             MediaViewer(media: target.media, start: target.start)
         }
@@ -334,7 +350,7 @@ struct CommunityAlbumView: View {
         ) { item in
             do {
                 try await api.deleteProfileMedia(fileID: item.id)
-                all?.removeAll { $0.id == item.id }
+                remote.value?.all.removeAll { $0.id == item.id }
             } catch {
                 actionFailure = error.userMessage
             }
@@ -347,7 +363,8 @@ struct CommunityAlbumView: View {
         Button {
             Task {
                 do {
-                    album = try await api.setAlbumCover(id: albumID, fileID: item.id)
+                    let cover = try await api.setAlbumCover(id: albumID, fileID: item.id)
+                    remote.value?.album = cover
                 } catch {
                     actionFailure = error.userMessage
                 }
@@ -374,20 +391,17 @@ struct CommunityAlbumView: View {
         }
     }
 
-    @MainActor
     private func load() async {
-        do {
-            async let media = ProfileContentAPI().media(userID: userID)
-            async let albums = api.albums(userID: userID)
-            all = try await media
-            album = (try? await albums)?.first { $0.id == albumID }
-            failure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
+        await remote.load(fetch)
+    }
+
+    private func fetch() async throws -> Loaded {
+        async let media = ProfileContentAPI().media(userID: userID)
+        async let albums = api.albums(userID: userID)
+        let all = try await media
+        // Альбом — заголовок и обложка, не повод для ошибки экрана.
+        let album = (try? await albums)?.first { $0.id == albumID }
+        return Loaded(all: all, album: album)
     }
 }
 

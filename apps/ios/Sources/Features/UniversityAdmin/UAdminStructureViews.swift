@@ -88,14 +88,14 @@ private struct NameCatalogView: View {
     /// Факультет открывает свои группы.
     let facultyLinks: Bool
 
-    @State private var items: [NameItem]?
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var remote = RemoteValue<[NameItem]>()
     @State private var actionFailure: String?
     @State private var creating = false
     @State private var renaming: NameItem?
     @State private var deleting: NameItem?
     @State private var query = ""
+
+    private var items: [NameItem]? { remote.value }
 
     private var visible: [NameItem] {
         let needle = query.trimmingCharacters(in: .whitespaces)
@@ -106,6 +106,12 @@ private struct NameCatalogView: View {
     var body: some View {
         List {
             if let items, !visible.isEmpty {
+                // Обновление не удалось, а прежний список на экране — полоса над ним.
+                if let failure = remote.failure {
+                    StaleDataBanner(message: failure, isOffline: remote.isOffline) { await load() }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
                 Section {
                     ForEach(visible) { item in
                         row(item)
@@ -155,8 +161,8 @@ private struct NameCatalogView: View {
                     title: String(localized: "uadmin.picker.nothing", defaultValue: "Ничего не найдено"),
                     symbol: "magnifyingglass"
                 )
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else if let failure = remote.failure {
+                ErrorStateView(message: failure, isOffline: remote.isOffline) { await load() }
             } else {
                 LoadingStateView()
             }
@@ -187,7 +193,9 @@ private struct NameCatalogView: View {
         }
         .actionFailureAlert($actionFailure)
         .pullToRefresh { await load() }
-        .task { await load() }
+        // Показ, возврат на экран и возврат приложения из фона — сохранённое на месте,
+        // сеть обновляет фоном (`AppLifecycle`).
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await load() }
     }
 
     @ViewBuilder
@@ -208,16 +216,10 @@ private struct NameCatalogView: View {
         }
     }
 
-    @MainActor
     private func load() async {
-        do {
-            items = try await kind.load().sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
-            failure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
+        let load = kind.load
+        await remote.load {
+            try await load().sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
         }
     }
 
@@ -225,7 +227,7 @@ private struct NameCatalogView: View {
     private func remove(_ item: NameItem) async {
         do {
             try await kind.delete(item.id)
-            items?.removeAll { $0.id == item.id }
+            remote.value?.removeAll { $0.id == item.id }
         } catch {
             actionFailure = UAdminFailure.blocked(error, title: kind.blockedTitle, labels: kind.blockers)
         }
@@ -568,27 +570,29 @@ struct UAdminGroupDetailView: View {
     let groupID: String
 
     @Environment(\.dismiss) private var dismiss
-    @State private var group: UAdminGroupDTO?
-    @State private var members: [UAdminGroupMemberDTO] = []
-    @State private var facultyName: String?
-    @State private var faculties: [UAdminFacultyDTO] = []
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var remote = RemoteValue<Loaded>()
     @State private var actionFailure: String?
     @State private var editing = false
     @State private var deleting = false
     @State private var starostaChange: StarostaChange?
 
+    /// Группа, её состав и факультеты вуза (подпись и форма правки) — одним значением.
+    private struct Loaded {
+        let group: UAdminGroupDTO
+        let members: [UAdminGroupMemberDTO]
+        let faculties: [UAdminFacultyDTO]
+    }
+
+    private var group: UAdminGroupDTO? { remote.value?.group }
+    private var members: [UAdminGroupMemberDTO] { remote.value?.members ?? [] }
+    private var faculties: [UAdminFacultyDTO] { remote.value?.faculties ?? [] }
+    private var facultyName: String? {
+        guard let group else { return nil }
+        return faculties.first(where: { $0.id == group.facultyId })?.name
+    }
+
     var body: some View {
-        Group {
-            if let group {
-                content(group)
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
-                LoadingStateView()
-            }
-        }
+        RemoteValueContent(remote: remote, load: fetch) { loaded in content(loaded.group) }
         .navigationTitle(Text(UniAdminScreen.group(id: groupID).title))
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $editing) {
@@ -619,7 +623,6 @@ struct UAdminGroupDetailView: View {
         }
         .actionFailureAlert($actionFailure)
         .pullToRefresh { await load() }
-        .task { await load() }
     }
 
     private func content(_ group: UAdminGroupDTO) -> some View {
@@ -753,24 +756,19 @@ struct UAdminGroupDetailView: View {
         .listSectionSpacing(.compact)
     }
 
-    @MainActor
     private func load() async {
+        await remote.load(fetch)
+    }
+
+    private func fetch() async throws -> Loaded {
         let api = UAdminAPI()
-        do {
-            async let groupTask = api.group(id: groupID)
-            async let membersTask = api.groupMembers(id: groupID)
-            let loaded = try await groupTask
-            members = try await membersTask.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
-            if faculties.isEmpty { faculties = (try? await api.faculties()) ?? [] }
-            facultyName = faculties.first(where: { $0.id == loaded.facultyId })?.name
-            group = loaded
-            failure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
+        async let groupTask = api.group(id: groupID)
+        async let membersTask = api.groupMembers(id: groupID)
+        // Факультеты — подпись и выбор в форме, не повод для ошибки: не пришли — без них.
+        async let facultiesTask = try? api.faculties()
+        let group = try await groupTask
+        let members = try await membersTask.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+        return await Loaded(group: group, members: members, faculties: facultiesTask ?? [])
     }
 
     /// «ФИТ · набор 2024».

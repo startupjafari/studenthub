@@ -102,9 +102,7 @@ struct CommunityEventView: View {
 
     @Environment(\.viewerID) private var viewerID
     @Environment(\.dismiss) private var dismiss
-    @State private var event: CommunityEventDTO?
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var remote = RemoteValue<CommunityEventDTO>()
     @State private var isBusy = false
     @State private var actionFailure: String?
     @State private var editing = false
@@ -126,23 +124,21 @@ struct CommunityEventView: View {
 
     private let api = CommunityAPI()
 
+    private var event: CommunityEventDTO? { remote.value }
+
     var body: some View {
-        Group {
-            if let event {
-                content(event)
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
-                LoadingStateView()
-            }
+        RemoteValueContent(remote: remote, load: fetch) { event in
+            content(event)
+                // Комментарии и записавшиеся — когда событие на экране (из сохранённого
+                // или из сети) и после возврата приложения из фона.
+                .task(id: AppLifecycle.shared.foregroundEpoch) { await loadExtras(event) }
         }
         .background(Palette.background)
         .navigationTitle(Text(CommunityScreen.event(id: eventID).title))
         .navigationBarTitleDisplayMode(.inline)
-        .task { await load() }
         .sheet(isPresented: $editing) {
             if let event {
-                CommunityEventEditor(event: event) { updated in self.event = updated }
+                CommunityEventEditor(event: event) { updated in remote.value = updated }
             }
         }
         .alert(
@@ -411,33 +407,38 @@ struct CommunityEventView: View {
         return event.isRegistered == true || event.organizerId == viewerID || event.canManage == true
     }
 
-    @MainActor
+    /// Жест обновления: событие, затем комментарии и записавшиеся.
     private func load() async {
+        await remote.load(fetch)
+        guard !Task.isCancelled, let event else { return }
+        await loadExtras(event)
+    }
+
+    /// Сохранённое читается только при первом показе, когда записей в полёте ещё нет:
+    /// `resolve` над ним ничего не сдвигает.
+    @MainActor
+    private func fetch() async throws -> CommunityEventDTO {
         let stamp = registration.beginRead()
-        do {
-            var loaded = try await api.event(id: eventID)
-            // Запись, ещё не решённая сервером, поверх ответа: обновление посреди
-            // запроса не должно на миг вернуть «Записаться».
-            let server = loaded.isRegistered == true
-            let shown = registration.resolve(eventID, server: server, readAt: stamp)
-            if shown != server {
-                loaded.isRegistered = shown
-                let count = loaded.counts?.participants ?? 0
-                loaded.counts = CommunityEventDTO.Counts(participants: max(0, count + (shown ? 1 : -1)))
-            }
-            event = loaded
-            failure = nil
-            await comments.replace { [api, eventID] request in
-                try await api.eventComments(id: eventID, cursor: request.cursor)
-            }
-            if loaded.canManage == true {
-                await loadParticipants()
-            }
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
+        var loaded = try await api.event(id: eventID)
+        // Запись, ещё не решённая сервером, поверх ответа: обновление посреди
+        // запроса не должно на миг вернуть «Записаться».
+        let server = loaded.isRegistered == true
+        let shown = registration.resolve(eventID, server: server, readAt: stamp)
+        if shown != server {
+            loaded.isRegistered = shown
+            let count = loaded.counts?.participants ?? 0
+            loaded.counts = CommunityEventDTO.Counts(participants: max(0, count + (shown ? 1 : -1)))
+        }
+        return loaded
+    }
+
+    /// Комментарии (со своей ошибкой) и, организатору, кто записался.
+    private func loadExtras(_ event: CommunityEventDTO) async {
+        await comments.replace { [api, eventID] request in
+            try await api.eventComments(id: eventID, cursor: request.cursor)
+        }
+        if event.canManage == true {
+            await loadParticipants()
         }
     }
 
@@ -477,8 +478,8 @@ struct CommunityEventView: View {
     private func applyRegistration(_ on: Bool) {
         guard let current = event, (current.isRegistered == true) != on else { return }
         let count = current.counts?.participants ?? 0
-        event?.isRegistered = on
-        event?.counts = CommunityEventDTO.Counts(participants: max(0, count + (on ? 1 : -1)))
+        remote.value?.isRegistered = on
+        remote.value?.counts = CommunityEventDTO.Counts(participants: max(0, count + (on ? 1 : -1)))
     }
 
     /// Ссылка на встречу выдаётся только в окне подключения (за 15 минут до начала).

@@ -6,10 +6,7 @@ struct CommunityUniversityView: View {
     let universityID: String
 
     @Environment(\.viewerID) private var viewerID
-    @State private var page: CommunityUniversityPageDTO?
-    @State private var counts: ProfileCountsDTO?
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var remote = RemoteValue<Loaded>()
     @State private var tab: Tab = .posts
     @State private var posts: FeedModel
     @State private var media: [ProfileMediaDTO]?
@@ -23,6 +20,17 @@ struct CommunityUniversityView: View {
     @ScaledMetric(relativeTo: .largeTitle) private var logoSize: CGFloat = 96
 
     private let api = CommunityAPI()
+
+    /// Страница и итоги под шапкой — одним значением: из сохранённого шапка встаёт сразу
+    /// с итогами.
+    private struct Loaded {
+        let page: CommunityUniversityPageDTO
+        /// Итоги — подпись, не повод для ошибки экрана: не пришли — шапка без них.
+        let counts: ProfileCountsDTO?
+    }
+
+    private var page: CommunityUniversityPageDTO? { remote.value?.page }
+    private var counts: ProfileCountsDTO? { remote.value?.counts }
 
     enum Tab: Hashable, CaseIterable {
         case posts, photos, albums, articles
@@ -43,21 +51,12 @@ struct CommunityUniversityView: View {
     }
 
     var body: some View {
-        Group {
-            if let page {
-                content(page)
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load(refreshTabs: false) }
-            } else {
-                LoadingStateView()
-            }
-        }
+        // Шапка — по общей политике (`RemoteValue`): возврат с поста и из фона обновляют
+        // её фоном, без спиннера.
+        RemoteValueContent(remote: remote, load: fetch) { loaded in content(loaded.page) }
         .background(Palette.background)
         .navigationTitle(Text(page?.shortName ?? page?.name ?? CommunityScreen.university(id: universityID).title))
         .navigationBarTitleDisplayMode(.inline)
-        // Экран возвращается после каждого «назад» с поста: страницу грузим один раз,
-        // обновление — жестом.
-        .task { if page == nil { await load(refreshTabs: false) } }
         .fullScreenCover(item: $viewing) { target in
             MediaViewer(media: target.media, start: target.start)
         }
@@ -84,8 +83,11 @@ struct CommunityUniversityView: View {
                 }
                 .padding(.bottom, Spacing.xxl)
             }
-            .pullToRefresh { await load(refreshTabs: true) }
+            .pullToRefresh { await refresh() }
         }
+        // Экран возвращается после каждого «назад» с поста: публикации грузим один раз
+        // за показ страницы, обновление — жестом.
+        .task { if !posts.hasLoaded { await posts.refresh() } }
         .task(id: tab) { await loadTab() }
     }
 
@@ -328,27 +330,24 @@ struct CommunityUniversityView: View {
         }
     }
 
-    @MainActor
-    private func load(refreshTabs: Bool) async {
-        do {
-            page = try await api.universityPage(id: universityID)
-            failure = nil
-            counts = try? await api.universityCounts(id: universityID)
-            // Обновление жестом — и вкладок: прочие перечитаются при открытии, текущая
-            // обновляется на месте (сбой оставит прежнее).
-            if refreshTabs {
-                if tab != .photos { media = nil }
-                if tab != .albums { albums = nil }
-                if tab != .articles { articles = nil }
-                await loadTab(force: true)
-            }
-            await posts.refresh()
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
+    private func fetch() async throws -> Loaded {
+        let page = try await api.universityPage(id: universityID)
+        let counts = try? await api.universityCounts(id: universityID)
+        return Loaded(page: page, counts: counts)
+    }
+
+    /// Обновление жестом: страница, затем вкладки и публикации. Страница не обновилась —
+    /// остальное не трогаем.
+    private func refresh() async {
+        await remote.load(fetch)
+        guard remote.failure == nil, !Task.isCancelled else { return }
+        // Прочие вкладки перечитаются при открытии, текущая обновляется на месте (сбой
+        // оставит прежнее).
+        if tab != .photos { media = nil }
+        if tab != .albums { albums = nil }
+        if tab != .articles { articles = nil }
+        await loadTab(force: true)
+        await posts.refresh()
     }
 
     /// Вкладка грузится один раз за показ страницы; `force` — при обновлении страницы.

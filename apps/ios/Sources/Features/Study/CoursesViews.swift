@@ -5,16 +5,22 @@ import SwiftUI
 struct CoursesView: View {
     let role: Role
 
-    @State private var courses: [CourseDTO]?
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var remote = RemoteValue<[CourseDTO]>()
     @State private var query = ""
 
     private var isTeacher: Bool { role == .teacher }
+    private var courses: [CourseDTO]? { remote.value }
+    private var failure: String? { remote.failure }
+    private var isOffline: Bool { remote.isOffline }
 
     var body: some View {
         List {
             if let courses {
+                if !Self.grouped(filtered(courses)).isEmpty, let failure {
+                    StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
                 ForEach(Self.grouped(filtered(courses)), id: \.title) { term in
                     Section {
                         ForEach(term.courses) { course in
@@ -41,7 +47,7 @@ struct CoursesView: View {
                 )
             } else if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
+            } else if remote.checkedCache {
                 LoadingStateView()
             }
         }
@@ -51,7 +57,8 @@ struct CoursesView: View {
             prompt: Text(String(localized: "courses.search", defaultValue: "Найти дисциплину"))
         )
         .pullToRefresh { await load() }
-        .task { await load() }
+        // Возврат приложения из фона после долгой паузы — повод перечитать (`AppLifecycle`).
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await load() }
     }
 
     private func filtered(_ courses: [CourseDTO]) -> [CourseDTO] {
@@ -82,15 +89,9 @@ struct CoursesView: View {
             }
     }
 
-    @MainActor
     private func load() async {
-        do {
-            courses = try await CoursesAPI().courses(mine: isTeacher)
-            failure = nil
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
+        let mine = isTeacher
+        await remote.load { try await CoursesAPI().courses(mine: mine) }
     }
 }
 
@@ -119,17 +120,36 @@ struct CourseDetailView: View {
     let course: CourseDTO
     let role: Role
 
-    @State private var assignments: [AssignmentDTO]?
-    @State private var materials: [MaterialDTO]?
-    /// Задания или материалы не пришли — сбой блока, а не «нет».
-    @State private var assignmentsFailed = false
-    @State private var materialsFailed = false
+    /// Задания и материалы — независимо (`RemoteValue`): сбой одного не прячет другой.
+    @State private var assignmentsRemote = RemoteValue<[AssignmentDTO]>()
+    @State private var materialsRemote = RemoteValue<[MaterialDTO]>()
     @State private var showsGroup = false
 
     private var isTeacher: Bool { role == .teacher }
+    private var assignments: [AssignmentDTO]? { assignmentsRemote.value }
+    private var materials: [MaterialDTO]? { materialsRemote.value }
+    /// Задания или материалы не пришли и показать нечего — сбой блока, а не «нет».
+    private var assignmentsFailed: Bool { assignments == nil && assignmentsRemote.failure != nil }
+    private var materialsFailed: Bool { materials == nil && materialsRemote.failure != nil }
+
+    /// Обновление показанного блока не удалось — полосой над экраном.
+    private var staleFailure: (message: String, isOffline: Bool)? {
+        if assignments != nil, let failure = assignmentsRemote.failure {
+            return (failure, assignmentsRemote.isOffline)
+        }
+        if materials != nil, let failure = materialsRemote.failure {
+            return (failure, materialsRemote.isOffline)
+        }
+        return nil
+    }
 
     var body: some View {
         List {
+            if let staleFailure {
+                StaleDataBanner(message: staleFailure.message, isOffline: staleFailure.isOffline) { await loadRelated() }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+            }
             Section {
                 HeroHeader(
                     visual: HeroVisual.symbol("book.closed.fill", tint: ScheduleSubjectTint.color(for: course.subject.name)),
@@ -245,29 +265,21 @@ struct CourseDetailView: View {
                 GroupMembersView(groupID: group.id, title: group.name)
             }
         }
-        .task { await loadRelated() }
+        // Возврат приложения из фона после долгой паузы — повод перечитать (`AppLifecycle`).
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await loadRelated() }
     }
 
     /// Задания и материалы дисциплины. Каждый блок падает отдельно: сбой одного не
     /// прячет другой.
-    @MainActor
     private func loadRelated() async {
-        let api = StudyAPI()
         let name = course.subject.name.lowercased()
-        async let tasks = try? api.assignments().items
-        async let files = try? api.materials().items
-        let fetchedTasks = await tasks
-        let fetchedFiles = await files
-        // Ушли с экрана посреди загрузки — это не сбой.
-        guard !Task.isCancelled else { return }
-        assignmentsFailed = fetchedTasks == nil
-        materialsFailed = fetchedFiles == nil
-        if let fetchedTasks {
-            assignments = fetchedTasks.filter { $0.subject?.lowercased() == name }
+        async let tasks: Void = assignmentsRemote.load {
+            try await StudyAPI().assignments().items.filter { $0.subject?.lowercased() == name }
         }
-        if let fetchedFiles {
-            materials = fetchedFiles.filter { $0.subject?.lowercased() == name }
+        async let files: Void = materialsRemote.load {
+            try await StudyAPI().materials().items.filter { $0.subject?.lowercased() == name }
         }
+        _ = await (tasks, files)
     }
 
     private static func filesText(_ count: Int) -> String? {
@@ -306,16 +318,23 @@ struct GroupMembersView: View {
     let groupID: String?
     let title: String
 
-    @State private var members: [GroupMemberDTO]?
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var remote = RemoteValue<[GroupMemberDTO]>()
     @State private var query = ""
+
+    private var members: [GroupMemberDTO]? { remote.value }
+    private var failure: String? { remote.failure }
+    private var isOffline: Bool { remote.isOffline }
 
     var body: some View {
         List {
             if groupID != nil, let members {
                 let visible = filtered(members)
                 if !visible.isEmpty {
+                    if let failure {
+                        StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets())
+                    }
                     Section {
                         ForEach(visible) { member in
                             NavigationLink(value: AppRoute.profile(id: member.id)) {
@@ -349,7 +368,7 @@ struct GroupMembersView: View {
                 )
             } else if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
+            } else if remote.checkedCache {
                 LoadingStateView()
             }
         }
@@ -359,7 +378,8 @@ struct GroupMembersView: View {
             prompt: Text(String(localized: "group.search", defaultValue: "Найти по имени"))
         )
         .pullToRefresh { await load() }
-        .task { await load() }
+        // Возврат приложения из фона после долгой паузы — повод перечитать (`AppLifecycle`).
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await load() }
     }
 
     private func filtered(_ members: [GroupMemberDTO]) -> [GroupMemberDTO] {
@@ -367,16 +387,9 @@ struct GroupMembersView: View {
         return needle.isEmpty ? members : members.filter { $0.name.lowercased().contains(needle) }
     }
 
-    @MainActor
     private func load() async {
         guard let groupID else { return }
-        do {
-            members = try await CoursesAPI().members(groupID: groupID)
-            failure = nil
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
+        await remote.load { try await CoursesAPI().members(groupID: groupID) }
     }
 }
 

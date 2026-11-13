@@ -465,9 +465,7 @@ struct StaffTemplateDetailView: View {
 
     @Environment(\.viewerRole) private var role
     @Environment(\.dismiss) private var dismiss
-    @State private var template: StaffTemplate?
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var remote = RemoteValue<StaffTemplate>()
     @State private var actionFailure: String?
     @State private var notice: String?
     @State private var editing = false
@@ -481,16 +479,10 @@ struct StaffTemplateDetailView: View {
 
     private let api = StaffAPI()
 
+    private var template: StaffTemplate? { remote.value }
+
     var body: some View {
-        Group {
-            if let template {
-                content(template)
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
-                LoadingStateView()
-            }
-        }
+        RemoteValueContent(remote: remote, load: fetch) { template in content(template) }
         .navigationTitle(Text(StaffScreen.documentTemplate(id: templateID).title))
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $editing) {
@@ -549,7 +541,6 @@ struct StaffTemplateDetailView: View {
                     .glassSurface(interactive: false, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             }
         }
-        .task { await load() }
     }
 
     private var canManage: Bool { role == .universityAdmin }
@@ -838,20 +829,12 @@ struct StaffTemplateDetailView: View {
 
     // MARK: Действия
 
-    @MainActor
     private func load() async {
-        do {
-            template = try await api.template(id: templateID)
-            failure = nil
-            isOffline = false
-        } catch {
-            if template == nil {
-                failure = error.userMessage
-                isOffline = error.isOffline
-            } else {
-                actionFailure = error.userMessage
-            }
-        }
+        await remote.load(fetch)
+    }
+
+    private func fetch() async throws -> StaffTemplate {
+        try await api.template(id: templateID)
     }
 
     @MainActor

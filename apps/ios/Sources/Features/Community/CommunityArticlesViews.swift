@@ -158,9 +158,7 @@ struct CommunityArticleView: View {
     @Environment(\.viewerID) private var viewerID
     @Environment(\.dismiss) private var dismiss
     @Environment(\.motionReduced) private var reduceMotion
-    @State private var article: CommunityArticleDTO?
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var remote = RemoteValue<CommunityArticleDTO>()
     @State private var related: [CommunityArticleDTO] = []
     @State private var comments = PagedLoader<CommunityArticleCommentDTO>(limit: 30) { _ in Page(items: [], meta: nil) }
     @State private var draft = ""
@@ -191,15 +189,14 @@ struct CommunityArticleView: View {
     /// Аватар в строке комментария (`CommunityCommentRow`): от него отступает разделитель.
     private static let commentAvatar: CGFloat = 32
 
+    private var article: CommunityArticleDTO? { remote.value }
+
     var body: some View {
-        Group {
-            if let article {
-                content(article)
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
-                LoadingStateView()
-            }
+        RemoteValueContent(remote: remote, load: fetch) { article in
+            content(article)
+                // Комментарии, похожие и отметка просмотра — когда статья на экране (из
+                // сохранённого или из сети) и после возврата приложения из фона.
+                .task(id: AppLifecycle.shared.foregroundEpoch) { await loadExtras(article) }
         }
         .background(Palette.background)
         // Текст статьи плавно тает под панелью, без резкой границы.
@@ -220,10 +217,9 @@ struct CommunityArticleView: View {
                     .accessibilityHidden(!shows)
             }
         }
-        .task { await load() }
         .sheet(isPresented: $editing) {
             if let article {
-                CommunityArticleEditor(article: article) { updated in self.article = updated }
+                CommunityArticleEditor(article: article) { updated in remote.value = updated }
             }
         }
         .fullScreenCover(isPresented: $viewingCover) {
@@ -687,34 +683,36 @@ struct CommunityArticleView: View {
         article.userId == viewerID && article.company == nil && article.universityPage == nil
     }
 
-    @MainActor
+    /// Жест обновления: статья, затем комментарии и похожие.
     private func load() async {
-        do {
-            let loaded = try await api.article(id: articleID)
-            article = loaded
-            failure = nil
-            await comments.replace { [api, articleID] request in
-                try await api.articleComments(id: articleID, cursor: request.cursor)
-            }
-            related = (try? await api.relatedArticles(id: articleID)) ?? []
-            if !loaded.isDraft { try? await api.markArticleViewed(id: articleID) }
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
+        await remote.load(fetch)
+        guard !Task.isCancelled, let article else { return }
+        await loadExtras(article)
+    }
+
+    private func fetch() async throws -> CommunityArticleDTO {
+        try await api.article(id: articleID)
+    }
+
+    /// Комментарии, похожие статьи и отметка просмотра: у комментариев своя ошибка,
+    /// похожие и отметка — необязательные и экран не роняют.
+    private func loadExtras(_ article: CommunityArticleDTO) async {
+        await comments.replace { [api, articleID] request in
+            try await api.articleComments(id: articleID, cursor: request.cursor)
         }
+        related = (try? await api.relatedArticles(id: articleID)) ?? []
+        if !article.isDraft { try? await api.markArticleViewed(id: articleID) }
     }
 
     @MainActor
     private func toggleLike(_ current: CommunityArticleDTO) async {
         let liked = !(current.liked ?? false)
-        article?.liked = liked
-        article?.likesCount = max(0, (current.likesCount ?? 0) + (liked ? 1 : -1))
+        remote.value?.liked = liked
+        remote.value?.likesCount = max(0, (current.likesCount ?? 0) + (liked ? 1 : -1))
         do {
-            article?.likesCount = try await api.setArticleLiked(id: current.id, liked: liked)
+            remote.value?.likesCount = try await api.setArticleLiked(id: current.id, liked: liked)
         } catch {
-            article = current
+            remote.value = current
             actionFailure = error.userMessage
         }
     }
@@ -722,7 +720,7 @@ struct CommunityArticleView: View {
     @MainActor
     private func toggleBookmark(_ current: CommunityArticleDTO) async {
         do {
-            article?.bookmarked = try await api.toggleArticleBookmark(id: current.id)
+            remote.value?.bookmarked = try await api.toggleArticleBookmark(id: current.id)
         } catch {
             actionFailure = error.userMessage
         }
@@ -748,7 +746,7 @@ struct CommunityArticleView: View {
             _ = try await api.commentArticle(id: articleID, text: String(text.prefix(2000)))
             draft = ""
             sentTick += 1
-            article?.commentCount = (article?.commentCount ?? 0) + 1
+            remote.value?.commentCount = (article?.commentCount ?? 0) + 1
             await comments.reload()
         } catch {
             actionFailure = error.userMessage
@@ -758,7 +756,7 @@ struct CommunityArticleView: View {
     @MainActor
     private func publish(_ current: CommunityArticleDTO) async {
         do {
-            article = try await api.updateArticle(id: current.id, CommunityArticleText.input(from: current, status: "PUBLISHED"))
+            remote.value = try await api.updateArticle(id: current.id, CommunityArticleText.input(from: current, status: "PUBLISHED"))
         } catch {
             actionFailure = error.userMessage
         }

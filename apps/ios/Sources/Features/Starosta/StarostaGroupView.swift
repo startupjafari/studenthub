@@ -5,11 +5,18 @@ import SwiftUI
 struct StarostaGroupView: View {
     @Environment(ViewerProfileModel.self) private var viewer
 
-    @State private var members: [GroupMemberDTO]?
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var remote = RemoteValue<[GroupMemberDTO]>()
+    /// Группа, чей состав сейчас на экране: сменилась — прежний состав не показывается.
+    @State private var shownGroupID: String?
+    /// Профиль (а с ним и группа) не прочитался — экран не знает, чей состав грузить.
+    @State private var profileFailure: String?
+    @State private var profileOffline = false
     @State private var role: String?
     @State private var query = ""
+
+    private var members: [GroupMemberDTO]? { remote.value }
+    private var failure: String? { profileFailure ?? remote.failure }
+    private var isOffline: Bool { profileFailure != nil ? profileOffline : remote.isOffline }
 
     var body: some View {
         List {
@@ -78,7 +85,7 @@ struct StarostaGroupView: View {
                 emptyMembers
             } else if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
+            } else if remote.checkedCache || viewer.profile == nil {
                 LoadingStateView()
             }
         }
@@ -89,6 +96,11 @@ struct StarostaGroupView: View {
         )
         .pullToRefresh { await load() }
         .task(id: viewer.profile?.groupId) { await load() }
+        // Вернулись из фона после долгой паузы — состав перечитывается фоном
+        // (`AppLifecycle`), показанное остаётся на месте.
+        .onChange(of: AppLifecycle.shared.foregroundEpoch) {
+            Task { await load() }
+        }
     }
 
     private var hasNoGroup: Bool {
@@ -144,22 +156,18 @@ struct StarostaGroupView: View {
             } catch is CancellationError {
                 return
             } catch {
-                failure = error.userMessage
-                isOffline = error.isOffline
+                profileFailure = error.userMessage
+                profileOffline = error.isOffline
                 return
             }
         }
+        profileFailure = nil
         guard let groupID = viewer.profile?.groupId else { return }
-        do {
-            members = try await CoursesAPI().members(groupID: groupID)
-            failure = nil
-            isOffline = false
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
+        if shownGroupID != groupID {
+            remote.reset()
+            shownGroupID = groupID
         }
+        await remote.load { try await CoursesAPI().members(groupID: groupID) }
     }
 }
 

@@ -17,15 +17,28 @@ struct StudentCalendarView: View {
     @State private var mode: Mode = .month
     @State private var filter: StudentCalendarItem.Kind?
     @State private var selectedDay: String?
-    @State private var data: Loaded?
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var remote = RemoteValue<Loaded>()
+    /// Месяц, ответ на который сейчас на экране: при смене месяца старый не
+    /// показывается под новым.
+    @State private var shownAnchor: Date?
 
     private enum Mode: Hashable { case month, agenda }
 
     private struct Loaded {
         let anchor: Date
         let items: [StudentCalendarItem]
+        /// Пришли не только пары: без изменений, событий, заданий и экзаменов календарь
+        /// всё равно полезен, но пустой день не должен выглядеть свободным.
+        let isComplete: Bool
+    }
+
+    private var data: Loaded? { remote.value }
+    private var isOffline: Bool { remote.isOffline }
+    /// Сбой обновления или неполный месяц — полосой над показанным.
+    private var failure: String? {
+        if let failure = remote.failure { return failure }
+        guard let data, !data.isComplete else { return nil }
+        return String(localized: "student.partialFailure", defaultValue: "Часть данных не загрузилась")
     }
 
     var body: some View {
@@ -76,7 +89,7 @@ struct StudentCalendarView: View {
                 )
             } else if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
+            } else if remote.checkedCache {
                 LoadingStateView()
             }
         }
@@ -95,7 +108,20 @@ struct StudentCalendarView: View {
             }
         }
         .pullToRefresh { await load() }
-        .task(id: anchor) { await load() }
+        .task(id: anchor) {
+            // Другой месяц — прежний уже не ответ: загрузка с нуля. Возврат на экран с
+            // тем же месяцем обновляет его на месте.
+            if shownAnchor != anchor {
+                remote.reset()
+                shownAnchor = anchor
+            }
+            await load()
+        }
+        // Вернулись из фона после долгой паузы — месяц перечитывается фоном
+        // (`AppLifecycle`), показанное остаётся на месте.
+        .onChange(of: AppLifecycle.shared.foregroundEpoch) {
+            Task { await load() }
+        }
     }
 
     // MARK: Шапка
@@ -184,51 +210,45 @@ struct StudentCalendarView: View {
 
     // MARK: Загрузка
 
-    @MainActor
     private func load() async {
         let month = anchor
-        let cells = Self.cells(for: month)
-        guard let first = cells.first, let last = cells.last else { return }
-        let api = StudentStudyAPI()
         let role = role
+        guard !Self.cells(for: month).isEmpty else { return }
+        await remote.load { try await Self.fetch(month: month, role: role) }
+    }
+
+    /// Месяц целиком: пары обязательны, остальное — дополнение (`isComplete`).
+    private static func fetch(month: Date, role: Role) async throws -> Loaded {
+        let cells = Self.cells(for: month)
+        let api = StudentStudyAPI()
+        let first = cells.first ?? month
+        let last = cells.last ?? month
         let dueTo = Self.calendar.date(byAdding: .day, value: 1, to: last) ?? last
-        do {
-            let schedule = try await api.schedule()
-            async let changesValue = try? api.scheduleChanges(from: Self.dayKey(first), to: Self.dayKey(last))
-            async let eventsValue = try? api.upcomingEvents(limit: 50)
-            async let assignmentsValue = try? api.assignments(limit: 100, dueFrom: first, dueTo: dueTo).items
-            async let examsValue = try? api.exams(from: first, to: dueTo)
-            async let meValue = Self.substituteID(api: api, role: role)
-            let links = StudentCalendarLinks(role: role)
-            let changes = await changesValue
-            let events = await eventsValue
-            let assignments = await assignmentsValue
-            let exams = await examsValue
-            let items = StudentCalendarBuilder.build(
-                pairs: schedule.pairs,
-                changes: changes ?? [],
-                events: events ?? [],
-                assignments: assignments ?? [],
-                exams: exams ?? [],
-                dates: cells,
-                substituteID: await meValue,
-                links: links
-            )
-            guard month == anchor else { return }
-            data = Loaded(anchor: month, items: items)
-            // Остальное — дополнение к парам: без него календарь всё равно полезен, но
-            // пустой день из-за упавших заданий не должен выглядеть свободным.
-            let isComplete = changes != nil && events != nil && assignments != nil && exams != nil
-            failure = isComplete
-                ? nil
-                : String(localized: "student.partialFailure", defaultValue: "Часть данных не загрузилась")
-            isOffline = false
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
+        let schedule = try await api.schedule()
+        async let changesValue = try? api.scheduleChanges(from: Self.dayKey(first), to: Self.dayKey(last))
+        async let eventsValue = try? api.upcomingEvents(limit: 50)
+        async let assignmentsValue = try? api.assignments(limit: 100, dueFrom: first, dueTo: dueTo).items
+        async let examsValue = try? api.exams(from: first, to: dueTo)
+        async let meValue = Self.substituteID(api: api, role: role)
+        let links = StudentCalendarLinks(role: role)
+        let changes = await changesValue
+        let events = await eventsValue
+        let assignments = await assignmentsValue
+        let exams = await examsValue
+        let items = StudentCalendarBuilder.build(
+            pairs: schedule.pairs,
+            changes: changes ?? [],
+            events: events ?? [],
+            assignments: assignments ?? [],
+            exams: exams ?? [],
+            dates: cells,
+            substituteID: await meValue,
+            links: links
+        )
+        // Остальное — дополнение к парам: без него календарь всё равно полезен, но
+        // пустой день из-за упавших заданий не должен выглядеть свободным.
+        let isComplete = changes != nil && events != nil && assignments != nil && exams != nil
+        return Loaded(anchor: month, items: items, isComplete: isComplete)
     }
 
     /// Свой id — только преподавателю: по нему находятся пары, где он заменяющий.

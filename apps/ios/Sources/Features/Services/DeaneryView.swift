@@ -6,18 +6,25 @@ import SwiftUI
 /// Подача — как список чатов: значок вопроса, вид обращения, время справа, тема ниже,
 /// статус плашкой. Действующие записи — сверху, состоявшиеся и отменённые — архивом.
 struct DeaneryView: View {
-    @State private var items: [DeaneryAppointmentDTO]?
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var remote = RemoteValue<[DeaneryAppointmentDTO]>()
     @State private var actionFailure: String?
     @State private var creating = false
     @State private var cancelling: DeaneryAppointmentDTO?
 
     private let api: UniversityServicesFetching = UniversityServicesAPI()
 
+    private var items: [DeaneryAppointmentDTO]? { remote.value }
+    private var failure: String? { remote.failure }
+    private var isOffline: Bool { remote.isOffline }
+
     var body: some View {
         List {
             if let items {
+                if let failure, !items.isEmpty {
+                    StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
                 let active = items.filter(\.isCancellable)
                 let archive = items.filter { !$0.isCancellable }
                 if !active.isEmpty {
@@ -71,7 +78,9 @@ struct DeaneryView: View {
         }
         .actionFailureAlert($actionFailure)
         .pullToRefresh { await load() }
-        .task { await load() }
+        // Показ, возврат на экран и возврат приложения из фона — сохранённое на месте,
+        // сеть обновляет фоном (`RemoteValue`).
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await load() }
     }
 
     private func row(_ item: DeaneryAppointmentDTO) -> some View {
@@ -100,15 +109,8 @@ struct DeaneryView: View {
         }
     }
 
-    @MainActor
     private func load() async {
-        do {
-            items = try await api.myAppointments()
-            failure = nil
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
+        await remote.load { try await api.myAppointments() }
     }
 
     @MainActor

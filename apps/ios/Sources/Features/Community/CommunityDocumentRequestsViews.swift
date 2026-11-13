@@ -57,13 +57,11 @@ struct CommunityDocumentRequestsView: View {
 struct CommunityDocumentRequestView: View {
     let requestID: String
 
-    @State private var detail: CommunityDocumentRequestDetailDTO?
-    /// `nil` — свои документы ещё не пришли или не загрузились (`documentsFailure`).
-    @State private var documents: [CommunityDocumentDTO]?
-    @State private var documentsFailure: String?
-    @State private var documentsOffline = false
-    @State private var failure: String?
-    @State private var isOffline = false
+    /// Запрос и свои документы — независимо (`RemoteValue`): документы не пришли —
+    /// запрос всё равно на экране, а в выборе — ошибка с повтором.
+    @State private var remote = RemoteValue<CommunityDocumentRequestDetailDTO>()
+    // Личные документы — чувствительное: без копии на телефоне.
+    @State private var documentsRemote = RemoteValue<[CommunityDocumentDTO]>(caching: false)
     @State private var actionFailure: String?
     @State private var choosingFor: CommunityDocumentRequestDetailDTO.Item?
     @State private var isBusy = false
@@ -73,20 +71,20 @@ struct CommunityDocumentRequestView: View {
 
     private let api = CommunityAPI()
 
+    private var detail: CommunityDocumentRequestDetailDTO? { remote.value }
+    /// `nil` — свои документы ещё не пришли или не загрузились (`documentsFailure`).
+    private var documents: [CommunityDocumentDTO]? { documentsRemote.value }
+    private var documentsFailure: String? { documentsRemote.failure }
+    private var documentsOffline: Bool { documentsRemote.isOffline }
+
     var body: some View {
-        Group {
-            if let detail {
-                content(detail)
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
-                LoadingStateView()
-            }
-        }
+        RemoteValueContent(remote: remote, load: fetch) { detail in content(detail) }
         .background(Palette.background)
         .navigationTitle(Text(CommunityScreen.documentRequest(id: requestID).title))
         .navigationBarTitleDisplayMode(.inline)
-        .task { await load() }
+        // Сам запрос грузит `RemoteValueContent`; свои документы — рядом, тоже при показе
+        // и после возврата приложения из фона.
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await loadDocuments() }
         .sheet(item: $choosingFor) { item in
             CommunityDocumentChooser(
                 title: item.title,
@@ -218,42 +216,20 @@ struct CommunityDocumentRequestView: View {
         }
     }
 
-    @MainActor
+    /// Запрос и свои документы — вместе: жест обновления, возврат из загрузки документа.
     private func load() async {
-        do {
-            async let request = api.documentRequest(id: requestID)
-            async let mine = api.allDocuments()
-            detail = try await request
-            failure = nil
-            do {
-                documents = try await mine
-                documentsFailure = nil
-            } catch is CancellationError {
-                return
-            } catch {
-                documentsFailure = error.userMessage
-                documentsOffline = error.isOffline
-            }
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
+        async let request: Void = remote.load(fetch)
+        async let mine: Void = loadDocuments()
+        _ = await (request, mine)
+    }
+
+    private func fetch() async throws -> CommunityDocumentRequestDetailDTO {
+        try await api.documentRequest(id: requestID)
     }
 
     /// «Повторить» в выборе документа: только свои документы, без перезагрузки запроса.
-    @MainActor
     private func loadDocuments() async {
-        do {
-            documents = try await api.allDocuments()
-            documentsFailure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            documentsFailure = error.userMessage
-            documentsOffline = error.isOffline
-        }
+        await documentsRemote.load(api.allDocuments)
     }
 
     /// Сервер принимает весь набор привязок разом — собираем его из текущих плюс изменение.
@@ -266,7 +242,7 @@ struct CommunityDocumentRequestView: View {
         }
         links.append((item.id, documentID))
         do {
-            self.detail = try await api.saveSubmission(requestID: requestID, links: links)
+            remote.value = try await api.saveSubmission(requestID: requestID, links: links)
         } catch {
             actionFailure = error.userMessage
         }
@@ -277,7 +253,7 @@ struct CommunityDocumentRequestView: View {
         isBusy = true
         defer { isBusy = false }
         do {
-            detail = try await api.submitRequest(id: requestID)
+            remote.value = try await api.submitRequest(id: requestID)
             submitted += 1
         } catch {
             actionFailure = error.userMessage
