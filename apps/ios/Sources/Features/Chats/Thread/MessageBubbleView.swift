@@ -507,7 +507,7 @@ struct MessageBubbleView: View {
     }
 
     private var time: String {
-        message.createdAt.formatted(date: .omitted, time: .shortened)
+        item.time.isEmpty ? message.createdAt.formatted(date: .omitted, time: .shortened) : item.time
     }
 
     /// Время, «изм.», булавка и галочки.

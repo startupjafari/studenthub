@@ -17,6 +17,9 @@ enum MessageTimeline {
         /// Последнее в группе — у него хвостик пузыря и время.
         let isLastInGroup: Bool
         let isOwn: Bool
+        /// Время под пузырём, отформатированное при сборке ленты (вне главного потока),
+        /// а не в `body` на каждую перерисовку (шаг 2.4 плана аудита).
+        var time: String = ""
 
         var id: String { message.id }
     }
@@ -59,7 +62,8 @@ enum MessageTimeline {
                     attachments: attachments[message.id] ?? [],
                     isFirstInGroup: !continues(previous, before: message, calendar: calendar),
                     isLastInGroup: !continues(message, before: next, calendar: calendar),
-                    isOwn: message.senderId == viewerID
+                    isOwn: message.senderId == viewerID,
+                    time: message.createdAt.formatted(date: .omitted, time: .shortened)
                 )
             )
         }
