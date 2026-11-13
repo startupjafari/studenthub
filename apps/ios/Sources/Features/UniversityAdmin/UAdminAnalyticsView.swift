@@ -5,24 +5,46 @@ import SwiftUI
 // в посещаемость по студентам. Отчёт файлом — по выбранному факультету.
 
 struct UAdminAnalyticsView: View {
-    @State private var faculties: [UAdminFacultyDTO]?
-    @State private var facultyID: String?
-    @State private var overview: UAdminFacultyOverviewDTO?
-    @State private var risk: UAdminAtRiskStudentsDTO?
-    /// Сбой списка «в зоне риска» — со своим текстом и признаком «нет связи».
-    @State private var riskFailure: String?
-    @State private var riskOffline = false
-    @State private var failure: String?
-    @State private var isOffline = false
+    /// Факультеты, сводка факультета и «в зоне риска» — независимо (`RemoteValue`): список
+    /// риска не пришёл — сводка всё равно на экране, сбой обновления не стирает показанное.
+    @State private var facultiesRemote = RemoteValue<[UAdminFacultyDTO]>()
+    @State private var overviewRemote = RemoteValue<UAdminFacultyOverviewDTO>()
+    @State private var riskRemote = RemoteValue<UAdminAtRiskStudentsDTO>()
+    /// Выбранный капсулой факультет; пока не выбирали — первый из списка.
+    @State private var pickedFacultyID: String?
+    /// Факультет, сводка которого сейчас на экране: при смене факультета прежняя сводка
+    /// не показывается под новым.
+    @State private var shownFacultyID: String?
     @State private var tab: AnalyticsTab = .students
     @State private var sort: RiskSort = .risk
     @State private var exporting = false
+
+    private var faculties: [UAdminFacultyDTO]? { facultiesRemote.value }
+    /// Из сохранённого факультет выбирается сразу, не дожидаясь сети.
+    private var facultyID: String? { pickedFacultyID ?? faculties?.first?.id }
+    private var overview: UAdminFacultyOverviewDTO? { overviewRemote.value }
+    private var risk: UAdminAtRiskStudentsDTO? { riskRemote.value }
+    /// Сбой списка «в зоне риска» — со своим текстом и признаком «нет связи».
+    private var riskFailure: String? { riskRemote.failure }
+    private var riskOffline: Bool { riskRemote.isOffline }
+
+    /// Обновление не удалось, а прежнее на экране — полоса над ним.
+    private var staleFailure: (message: String, isOffline: Bool)? {
+        if hasOverview, let failure = overviewRemote.failure { return (failure, overviewRemote.isOffline) }
+        if faculties != nil, let failure = facultiesRemote.failure { return (failure, facultiesRemote.isOffline) }
+        return nil
+    }
 
     private var threshold: Double { risk?.thresholds?.attendance ?? 60 }
 
     var body: some View {
         List {
             if let faculties {
+                if let staleFailure {
+                    StaleDataBanner(message: staleFailure.message, isOffline: staleFailure.isOffline) { await load() }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
                 if faculties.isEmpty {
                     EmptyStateView(
                         title: String(localized: "uadmin.analytics.noFaculties", defaultValue: "Сначала заведите факультет"),
@@ -42,7 +64,7 @@ struct UAdminAnalyticsView: View {
                     if faculties.count > 1 {
                         FilterChipsRow(
                             options: faculties.map { (value: Optional($0.id), title: $0.name) },
-                            selection: Binding(get: { facultyID }, set: { if let id = $0 { facultyID = id } })
+                            selection: Binding(get: { facultyID }, set: { if let id = $0 { pickedFacultyID = id } })
                         )
                     }
                     content
@@ -51,11 +73,11 @@ struct UAdminAnalyticsView: View {
         }
         .dashboardListStyle()
         .screenState(faculties == nil || (faculties?.isEmpty == false && !hasOverview)) {
-            if faculties == nil, let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await loadFaculties() }
-            } else if let failure {
+            if faculties == nil, let failure = facultiesRemote.failure {
+                ErrorStateView(message: failure, isOffline: facultiesRemote.isOffline) { await loadFaculties() }
+            } else if faculties != nil, let failure = overviewRemote.failure {
                 // Факультеты пришли, сводка факультета — нет: ошибка с повтором, а не пустота.
-                ErrorStateView(message: failure, isOffline: isOffline) { await loadFaculty() }
+                ErrorStateView(message: failure, isOffline: overviewRemote.isOffline) { await loadFaculty() }
             } else {
                 LoadingStateView()
             }
@@ -88,9 +110,26 @@ struct UAdminAnalyticsView: View {
             UAdminReportExportSheet(facultyID: facultyID)
                 .presentationDetents([.medium, .large])
         }
-        .onChange(of: facultyID) { _, _ in Task { await loadFaculty() } }
-        .pullToRefresh { await loadFaculty() }
-        .task { if faculties == nil { await loadFaculties() } }
+        .pullToRefresh { await load() }
+        // Показ, возврат на экран и возврат приложения из фона — сохранённое на месте,
+        // сеть обновляет фоном (`AppLifecycle`).
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await loadFaculties() }
+        .task(id: FacultyQuery(facultyID: facultyID, epoch: AppLifecycle.shared.foregroundEpoch)) {
+            // Другой факультет — прежняя сводка уже не ответ: загрузка с нуля. Возврат на
+            // экран с тем же факультетом обновляет сводку на месте.
+            if shownFacultyID != facultyID {
+                overviewRemote.reset()
+                riskRemote.reset()
+                shownFacultyID = facultyID
+            }
+            await loadFaculty()
+        }
+    }
+
+    /// Повод перечитать сводку: выбран другой факультет или приложение вернулось из фона.
+    private struct FacultyQuery: Hashable {
+        let facultyID: String?
+        let epoch: Int
     }
 
     /// Сводка пришла и она — по выбранному факультету.
@@ -273,52 +312,21 @@ struct UAdminAnalyticsView: View {
         }
     }
 
-    @MainActor
-    private func loadFaculties() async {
-        do {
-            let list = try await UAdminAPI().faculties()
-            faculties = list
-            failure = nil
-            if facultyID == nil {
-                facultyID = list.first?.id
-            }
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
+    private func load() async {
+        await loadFaculties()
+        await loadFaculty()
     }
 
-    @MainActor
+    private func loadFaculties() async {
+        await facultiesRemote.load { try await UAdminAPI().faculties() }
+    }
+
     private func loadFaculty() async {
         guard let facultyID else { return }
         let api = UAdminAPI()
-        async let overviewTask = api.facultyOverview(facultyID: facultyID)
-        async let riskTask = api.atRiskStudents(facultyID: facultyID)
-        do {
-            let loaded = try await overviewTask
-            guard facultyID == self.facultyID else { return }
-            overview = loaded
-            failure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-            overview = nil
-        }
-        do {
-            let loaded = try await riskTask
-            guard facultyID == self.facultyID else { return }
-            risk = loaded
-            riskFailure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            riskFailure = error.userMessage
-            riskOffline = error.isOffline
-        }
+        async let overview: Void = overviewRemote.load { try await api.facultyOverview(facultyID: facultyID) }
+        async let risk: Void = riskRemote.load { try await api.atRiskStudents(facultyID: facultyID) }
+        _ = await (overview, risk)
     }
 }
 

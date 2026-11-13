@@ -7,14 +7,20 @@ import SwiftUI
 // MARK: - Список
 
 struct UAdminCampusListView: View {
-    @State private var items: [UAdminCampusSummaryDTO]?
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var remote = RemoteValue<[UAdminCampusSummaryDTO]>()
     @State private var creating = false
+
+    private var items: [UAdminCampusSummaryDTO]? { remote.value }
 
     var body: some View {
         List {
             if let items, !items.isEmpty {
+                // Обновление не удалось, а прежний список на экране — полоса над ним.
+                if let failure = remote.failure {
+                    StaleDataBanner(message: failure, isOffline: remote.isOffline) { await load() }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
                 Section {
                     ForEach(items) { campus in
                         NavigationLink(value: AppRoute.uniAdmin(.campus(id: campus.id))) {
@@ -53,8 +59,8 @@ struct UAdminCampusListView: View {
                     actionTitle: String(localized: "uadmin.campus.create", defaultValue: "Создать кампус"),
                     action: { creating = true }
                 )
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            } else if let failure = remote.failure {
+                ErrorStateView(message: failure, isOffline: remote.isOffline) { await load() }
             } else {
                 LoadingStateView()
             }
@@ -66,20 +72,13 @@ struct UAdminCampusListView: View {
                 .presentationDetents([.medium, .large])
         }
         .pullToRefresh { await load() }
-        .task { await load() }
+        // Показ, возврат на экран и возврат приложения из фона — сохранённое на месте,
+        // сеть обновляет фоном (`AppLifecycle`).
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await load() }
     }
 
-    @MainActor
     private func load() async {
-        do {
-            items = try await UAdminAPI().campuses()
-            failure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
+        await remote.load { try await UAdminAPI().campuses() }
     }
 }
 
@@ -132,12 +131,10 @@ struct UAdminCampusDetailView: View {
     let campusID: String
 
     @Environment(\.dismiss) private var dismiss
-    @State private var tree: UAdminCampusTreeDTO?
-    @State private var versions: [UAdminCampusVersionDTO] = []
-    /// Версии не пришли — это не «публикаций не было».
-    @State private var versionsFailed = false
-    @State private var failure: String?
-    @State private var isOffline = false
+    /// Кампус и версии карты — независимо (`RemoteValue`): версии не пришли — кампус всё
+    /// равно на экране.
+    @State private var remote = RemoteValue<UAdminCampusTreeDTO>()
+    @State private var versionsRemote = RemoteValue<[UAdminCampusVersionDTO]>()
     /// Действия экрана: «идёт работа» и отказ (`ActionRunner`).
     @State private var runner = ActionRunner()
     @State private var notice: String?
@@ -152,16 +149,13 @@ struct UAdminCampusDetailView: View {
     @State private var restoring: UAdminCampusVersionDTO?
     @State private var deletingCampus = false
 
+    private var tree: UAdminCampusTreeDTO? { remote.value }
+    private var versions: [UAdminCampusVersionDTO] { versionsRemote.value ?? [] }
+    /// Версии не пришли — это не «публикаций не было».
+    private var versionsFailed: Bool { versionsRemote.failure != nil }
+
     var body: some View {
-        Group {
-            if let tree {
-                content(tree)
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
-                LoadingStateView()
-            }
-        }
+        RemoteValueContent(remote: remote, load: fetch) { tree in content(tree) }
         .navigationTitle(Text(UniAdminScreen.campus(id: campusID).title))
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $editingProperties) {
@@ -230,7 +224,8 @@ struct UAdminCampusDetailView: View {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}
         }
         .pullToRefresh { await load() }
-        .task { await load() }
+        // Кампус перечитывает `RemoteValueContent`; версии — по тем же поводам.
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await loadVersions() }
     }
 
     private func content(_ tree: UAdminCampusTreeDTO) -> some View {
@@ -414,28 +409,19 @@ struct UAdminCampusDetailView: View {
         .listSectionSpacing(.compact)
     }
 
-    @MainActor
     private func load() async {
-        let api = UAdminAPI()
-        do {
-            async let treeTask = api.campus(id: campusID)
-            async let versionsTask = api.campusVersions(id: campusID)
-            tree = try await treeTask
-            if let fetched = try? await versionsTask {
-                versions = fetched
-                versionsFailed = false
-            } else {
-                // Отмена — не сбой: выходим тем же путём, что и при отмене карточки.
-                try Task.checkCancellation()
-                versionsFailed = true
-            }
-            failure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
+        async let tree: Void = remote.load(fetch)
+        async let versions: Void = loadVersions()
+        _ = await (tree, versions)
+    }
+
+    private func fetch() async throws -> UAdminCampusTreeDTO {
+        try await UAdminAPI().campus(id: campusID)
+    }
+
+    private func loadVersions() async {
+        let campusID = campusID
+        await versionsRemote.load { try await UAdminAPI().campusVersions(id: campusID) }
     }
 
     @MainActor

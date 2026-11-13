@@ -5,33 +5,35 @@ import SwiftUI
 // засчитать шаг. Пройденность считает сервер по самим данным.
 
 struct UAdminSetupView: View {
-    @State private var state: UAdminOnboardingDTO?
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var remote = RemoteValue<Loaded>()
     @State private var actionFailure: String?
     @State private var open: String?
-    @State private var cityName: String?
     @State private var busy: String?
     @State private var launched = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Состояние мастера и город вуза по КАТО — одним значением.
+    private struct Loaded {
+        var state: UAdminOnboardingDTO
+        var cityName: String?
+    }
+
+    private var state: UAdminOnboardingDTO? { remote.value?.state }
+    private var cityName: String? { remote.value?.cityName }
+
     var body: some View {
-        Group {
-            if let state {
-                content(state)
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
-                LoadingStateView()
-            }
-        }
+        RemoteValueContent(remote: remote, load: fetch) { loaded in content(loaded.state) }
         .navigationTitle(Text(UniAdminScreen.setup.title))
         .actionFailureAlert($actionFailure)
         .alert(String(localized: "uadmin.setup.launched", defaultValue: "Вуз запущен"), isPresented: $launched) {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}
         }
         .pullToRefresh { await load() }
-        .task { await load() }
+        // Открываем шаг, на котором человек остановился, — только при первом показе:
+        // иначе карточка уезжала бы из-под рук после каждого добавления.
+        .onChange(of: state != nil) { _, shown in
+            if shown, open == nil { open = state?.currentStep }
+        }
     }
 
     private func content(_ state: UAdminOnboardingDTO) -> some View {
@@ -195,24 +197,18 @@ struct UAdminSetupView: View {
         }
     }
 
-    @MainActor
     private func load() async {
-        do {
-            let loaded = try await UAdminAPI().onboarding()
-            // Открываем шаг, на котором человек остановился, — только при первой загрузке:
-            // иначе карточка уезжала бы из-под рук после каждого добавления.
-            if state == nil, open == nil { open = loaded.currentStep }
-            state = loaded
-            failure = nil
-            if cityName == nil, let code = loaded.university.city, !code.isEmpty {
-                cityName = try? await UAdminAPI().cityName(code: code)
-            }
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
+        await remote.load(fetch)
+    }
+
+    private func fetch() async throws -> Loaded {
+        let state = try await UAdminAPI().onboarding()
+        // Город — подпись, не повод для ошибки: не пришёл — показываем код.
+        var cityName: String?
+        if let code = state.university.city, !code.isEmpty {
+            cityName = try? await UAdminAPI().cityName(code: code)
         }
+        return Loaded(state: state, cityName: cityName)
     }
 
     @MainActor
@@ -220,7 +216,8 @@ struct UAdminSetupView: View {
         busy = "action"
         defer { busy = nil }
         do {
-            state = try await action()
+            let updated = try await action()
+            remote.value?.state = updated
         } catch {
             actionFailure = error.userMessage
         }

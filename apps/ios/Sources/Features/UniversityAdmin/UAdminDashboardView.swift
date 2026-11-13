@@ -13,17 +13,34 @@ struct UAdminDashboardView: View {
     private enum Topic: Hashable { case attendance, study, services }
 
     @State private var topic: Topic = .attendance
-    @State private var stats: UAdminUniversityStatsDTO?
-    @State private var overview: UAdminUniversityOverviewDTO?
-    @State private var overviewFailed = false
-    @State private var onboarding: UAdminOnboardingDTO?
+    /// Счётчики, сводка и состояние настройки — независимо (`RemoteValue`): сбой одного не
+    /// прячет остальные, а сбой обновления не стирает показанное.
+    @State private var statsRemote = RemoteValue<UAdminUniversityStatsDTO>()
+    @State private var overviewRemote = RemoteValue<UAdminUniversityOverviewDTO>()
+    @State private var onboardingRemote = RemoteValue<UAdminOnboardingDTO>()
     @State private var exporting = false
     @State private var reloadToken = 0
-    /// Первая загрузка завершилась: пустое значение после неё — «нет данных», а не загрузка.
-    @State private var loaded = false
+
+    private var stats: UAdminUniversityStatsDTO? { statsRemote.value }
+    private var overview: UAdminUniversityOverviewDTO? { overviewRemote.value }
+    private var onboarding: UAdminOnboardingDTO? { onboardingRemote.value }
+    /// Сводки нет и не будет без повтора: загрузка не удалась.
+    private var overviewFailed: Bool { overview == nil && overviewRemote.failure != nil }
+
+    /// Обновление не удалось, а прежние показатели на экране — полоса над ними.
+    private var staleFailure: (message: String, isOffline: Bool)? {
+        if overview != nil, let failure = overviewRemote.failure { return (failure, overviewRemote.isOffline) }
+        if stats != nil, let failure = statsRemote.failure { return (failure, statsRemote.isOffline) }
+        return nil
+    }
 
     var body: some View {
         List {
+            if let staleFailure {
+                StaleDataBanner(message: staleFailure.message, isOffline: staleFailure.isOffline) { await load() }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+            }
             if let onboarding, onboarding.university.status != "ACTIVE" {
                 setupBanner(onboarding)
             }
@@ -71,12 +88,15 @@ struct UAdminDashboardView: View {
             reloadToken += 1
             await load()
         }
-        .task { await load() }
+        // Показ, возврат на экран и возврат приложения из фона — сохранённое на месте,
+        // сеть обновляет фоном (`AppLifecycle`).
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await load() }
     }
 
     private var metrics: [DashboardMetric] {
-        let overviewPending = overview == nil && !overviewFailed && !loaded
-        let statsPending = stats == nil && !loaded
+        // Загрузка ответила (значением или ошибкой) — пустое значение уже «нет данных».
+        let overviewPending = overview == nil && overviewRemote.failure == nil
+        let statsPending = stats == nil && statsRemote.failure == nil
         return [
             DashboardMetric(
                 title: String(localized: "uadmin.dash.attendance", defaultValue: "Посещаемость"),
@@ -226,23 +246,12 @@ struct UAdminDashboardView: View {
         }
     }
 
-    @MainActor
     private func load() async {
         let api = UAdminAPI()
-        async let statsTask = api.universityStats()
-        async let overviewTask = api.overview()
-        async let onboardingTask = api.onboarding()
-        stats = (try? await statsTask) ?? stats
-        do {
-            overview = try await overviewTask
-            overviewFailed = false
-        } catch is CancellationError {
-            return
-        } catch {
-            overviewFailed = overview == nil
-        }
-        onboarding = (try? await onboardingTask) ?? onboarding
-        loaded = true
+        async let stats: Void = statsRemote.load(api.universityStats)
+        async let overview: Void = overviewRemote.load(api.overview)
+        async let onboarding: Void = onboardingRemote.load(api.onboarding)
+        _ = await (stats, overview, onboarding)
     }
 }
 
@@ -267,7 +276,8 @@ private struct PanelEmpty: View {
     }
 }
 
-/// Панель со своей загрузкой.
+/// Панель со своей загрузкой (`RemoteValue`): сохранённое сразу, сеть фоном; сбой
+/// обновления оставляет показанное.
 private struct LoadingPanel<Value, Content: View>: View {
     let title: String
     var hint: String?
@@ -275,32 +285,20 @@ private struct LoadingPanel<Value, Content: View>: View {
     let load: () async throws -> Value
     @ViewBuilder let content: (Value) -> Content
 
-    @State private var value: Value?
-    @State private var failed = false
+    @State private var remote = RemoteValue<Value>()
 
     var body: some View {
         DashPanel(title: title, hint: hint) {
-            if let value {
+            if let value = remote.value {
                 content(value)
-            } else if failed {
-                DashboardFailurePlaceholder { await run() }
+            } else if remote.failure != nil {
+                DashboardFailurePlaceholder { await remote.load(load) }
             } else {
                 DashboardLoadingPlaceholder()
             }
         }
-        .task(id: reloadToken) { await run() }
-    }
-
-    @MainActor
-    private func run() async {
-        do {
-            value = try await load()
-            failed = false
-        } catch is CancellationError {
-            return
-        } catch {
-            failed = value == nil
-        }
+        // Возврат приложения из фона — тоже повод перечитать (`AppLifecycle`).
+        .task(id: [reloadToken, AppLifecycle.shared.foregroundEpoch]) { await remote.load(load) }
     }
 }
 
