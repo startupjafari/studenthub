@@ -326,11 +326,11 @@ struct StaffApplicationDetailView: View {
     @Environment(\.viewerRole) private var viewerRole
     @State private var app: StaffApplication?
     @State private var failure: String?
-    @State private var actionFailure: String?
+    /// Действия над заявкой: «идёт работа» и отказ (`ActionRunner`).
+    @State private var actions = ActionRunner()
     @State private var notice: String?
     @State private var prompt: StaffTextPrompt?
     @State private var addingResult = false
-    @State private var isWorking = false
     @State private var assignees: [StaffApplicationAssignee]?
     /// Список сотрудников не загрузился: без него ответственного не сменить, и строка
     /// говорит об этом прямо, с повтором, а не молча перестаёт быть меню.
@@ -361,7 +361,7 @@ struct StaffApplicationDetailView: View {
                 await load()
             }
         }
-        .actionFailureAlert($actionFailure)
+        .actionFailureAlert(actions)
         .alert(
             String(localized: "staff.app.done", defaultValue: "Готово"),
             isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })
@@ -528,7 +528,7 @@ struct StaffApplicationDetailView: View {
             if AdminNav.canChat(viewerRole) {
                 actions.append(HeroAction(title: String(localized: "staff.app.write", defaultValue: "Написать"), symbol: "bubble.left.fill") {
                     Task {
-                        do { try await AdminNav.openChat(with: student.id) } catch { actionFailure = error.userMessage }
+                        do { try await AdminNav.openChat(with: student.id) } catch { actions.failure = error.userMessage }
                     }
                 })
             }
@@ -595,7 +595,7 @@ struct StaffApplicationDetailView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(isWorking)
+            .disabled(actions.isWorking)
         }
     }
 
@@ -750,7 +750,7 @@ struct StaffApplicationDetailView: View {
                     Button(role: primary.destructive ? .destructive : nil) {
                         primary.run()
                     } label: {
-                        if isWorking {
+                        if actions.isWorking {
                             ProgressView().frame(maxWidth: .infinity)
                         } else {
                             Label(primary.title, systemImage: primary.symbol).frame(maxWidth: .infinity)
@@ -758,7 +758,7 @@ struct StaffApplicationDetailView: View {
                     }
                     .glassProminentButton()
                     .controlSize(.large)
-                    .disabled(isWorking)
+                    .disabled(actions.isWorking)
                 }
             }
             .padding(.horizontal, Spacing.xl)
@@ -843,7 +843,7 @@ struct StaffApplicationDetailView: View {
         // Электронную выдачу без результата сервер не примет: студенту пришло бы «готово»,
         // а скачать нечего. Подсказываем до запроса.
         if app.deliveryType != "PAPER", !app.hasActiveResult {
-            actionFailure = String(
+            actions.failure = String(
                 localized: "staff.app.readyNeedsResult",
                 defaultValue: "Сначала добавьте результат — без него студенту нечего скачать"
             )
@@ -937,7 +937,7 @@ struct StaffApplicationDetailView: View {
                 failure = error.userMessage
                 isOffline = error.isOffline
             } else {
-                actionFailure = error.userMessage
+                actions.failure = error.userMessage
             }
         }
     }
@@ -958,14 +958,7 @@ struct StaffApplicationDetailView: View {
 
     @MainActor
     private func run(_ work: () async throws -> Void) async {
-        isWorking = true
-        defer { isWorking = false }
-        do {
-            try await work()
-            await load()
-        } catch {
-            actionFailure = error.userMessage
-        }
+        await actions.run(work, then: { await load() })
     }
 
     @MainActor
