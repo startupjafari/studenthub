@@ -127,73 +127,69 @@ extension PagedList where Header == EmptyView {
 // MARK: - Экран с одной загрузкой
 
 /// Экран, который грузит одно значение: карточка, сводка, настройки. `reloadToken` —
-/// повод перечитать (сохранили форму — увеличили счётчик).
+/// повод перечитать (сохранили форму — увеличили счётчик). Политика загрузки — у
+/// `RemoteValue`: сохранённое сразу, сеть фоном, полоса «данные не свежие» над
+/// показанным. `caching: false` — экран, который нельзя показывать из сохранённого.
 ///
-/// Кеш экранов (итерация 5, п. 27 аудита): на первом показе значение собирается из
-/// сохранённых ответов (`ScreenCache.cached`) и встаёт сразу, сеть обновляет его фоном
-/// (`ScreenCache.refreshing`); не обновилось — полоса «данные не свежие» над
-/// сохранённым. При возврате на экран показанное остаётся, а сеть обновляет его фоном,
-/// без спиннера: на вложенном экране могли что-то изменить. `caching: false` — экран,
-/// который нельзя показывать из
-/// сохранённого (маршруты-исключения `ScreenCache.allows` не кешируются и так).
+/// Экрану, который после действия правит значение на месте, нужна сама модель —
+/// `RemoteValueContent` над своим `RemoteValue`.
 struct RemoteContent<Value, Content: View>: View {
     var reloadToken: Int = 0
-    var caching = true
     let load: () async throws -> Value
     @ViewBuilder let content: (Value) -> Content
 
-    @State private var value: Value?
-    @State private var failure: String?
-    @State private var isOffline = false
-    /// Сохранённое уже проверено. До этого вместо спиннера — пусто: чтение с диска —
-    /// миллисекунды, и спиннер только мигнул бы перед содержимым.
-    @State private var checkedCache = false
+    @State private var remote: RemoteValue<Value>
+
+    init(
+        reloadToken: Int = 0,
+        caching: Bool = true,
+        load: @escaping () async throws -> Value,
+        @ViewBuilder content: @escaping (Value) -> Content
+    ) {
+        self.reloadToken = reloadToken
+        self.load = load
+        self.content = content
+        _remote = State(initialValue: RemoteValue(caching: caching))
+    }
+
+    var body: some View {
+        RemoteValueContent(remote: remote, reloadToken: reloadToken, load: load, content: content)
+    }
+}
+
+/// Состояния экрана над `RemoteValue`: значение (с полосой, если обновление не
+/// удалось), ошибка на весь экран, загрузка. Сам грузит при показе, по `reloadToken` и
+/// после возврата приложения из фона (`AppLifecycle`).
+struct RemoteValueContent<Value, Content: View>: View {
+    let remote: RemoteValue<Value>
+    var reloadToken: Int = 0
+    let load: () async throws -> Value
+    @ViewBuilder let content: (Value) -> Content
 
     var body: some View {
         Group {
-            if let value {
+            if let value = remote.value {
                 content(value)
                     // Обновление не удалось, а старое на экране: говорим об этом полосой,
                     // а не молча показываем несвежее (и не стираем его ошибкой).
                     .safeAreaInset(edge: .top, spacing: 0) {
-                        if let failure {
-                            StaleDataBanner(message: failure, isOffline: isOffline) { await run() }
+                        if let failure = remote.failure {
+                            StaleDataBanner(message: failure, isOffline: remote.isOffline) { await remote.load(load) }
                                 .padding(.horizontal, Spacing.xl)
                                 .padding(.vertical, Spacing.sm)
                         }
                     }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await run() }
-            } else if checkedCache || !usesCache {
+            } else if let failure = remote.failure {
+                ErrorStateView(message: failure, isOffline: remote.isOffline) { await remote.load(load) }
+            } else if remote.checkedCache {
                 LoadingStateView()
             } else {
                 Color.clear
             }
         }
         // Возврат из фона после долгой паузы — тоже повод перечитать (`AppLifecycle`).
-        .task(id: RemoteContentRefresh(token: reloadToken, epoch: AppLifecycle.shared.foregroundEpoch)) { await run() }
-    }
-
-    private var usesCache: Bool { caching && PerformanceFlags.screenCache }
-
-    @MainActor
-    private func run() async {
-        if value == nil, usesCache {
-            let cached = await ScreenCache.cached(load)
-            guard !Task.isCancelled else { return }
-            if let cached, value == nil { value = cached }
-            checkedCache = true
-        }
-        do {
-            let loaded = usesCache ? try await ScreenCache.refreshing(load) : try await load()
-            value = loaded
-            failure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            guard !Task.isCancelled else { return }
-            failure = error.userMessage
-            isOffline = error.isOffline
+        .task(id: RemoteContentRefresh(token: reloadToken, epoch: AppLifecycle.shared.foregroundEpoch)) {
+            await remote.load(load)
         }
     }
 }

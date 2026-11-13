@@ -165,9 +165,7 @@ struct AdminComplaintView: View {
     @Environment(\.viewerID) private var viewerID
     @Environment(\.dismiss) private var dismiss
 
-    @State private var complaint: AdminComplaintDTO?
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var remote = RemoteValue<AdminComplaintDTO>()
     @State private var actionFailure: String?
     @State private var isWorking = false
 
@@ -180,19 +178,12 @@ struct AdminComplaintView: View {
 
     private let api = AdminAPI()
 
+    private var complaint: AdminComplaintDTO? { remote.value }
+
     var body: some View {
-        Group {
-            if let complaint {
-                content(complaint)
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
-                LoadingStateView()
-            }
-        }
+        RemoteValueContent(remote: remote, load: fetch) { complaint in content(complaint) }
         .navigationTitle(Text(AdminScreen.complaint(id: id).title))
         .navigationBarTitleDisplayMode(.inline)
-        .task { await load() }
         .actionFailureAlert($actionFailure)
         .sheet(isPresented: $showingTranscript) {
             if let complaint {
@@ -595,17 +586,12 @@ struct AdminComplaintView: View {
 
     // MARK: Действия
 
-    @MainActor
     private func load() async {
-        do {
-            complaint = try await api.complaint(id: id)
-            failure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
+        await remote.load(fetch)
+    }
+
+    private func fetch() async throws -> AdminComplaintDTO {
+        try await api.complaint(id: id)
     }
 
     @MainActor
@@ -662,26 +648,18 @@ private struct AdminComplaintTranscriptSheet: View {
     let complaint: AdminComplaintDTO
 
     @Environment(\.dismiss) private var dismiss
-    @State private var messages: [AdminComplaintMessageDTO]?
-    @State private var failure: String?
-    @State private var isOffline = false
 
     var body: some View {
         NavigationStack {
-            Group {
-                if let messages {
-                    if messages.isEmpty {
-                        EmptyStateView(
-                            title: String(localized: "admin.complaint.chatEmpty", defaultValue: "Сообщений в переписке нет"),
-                            symbol: "bubble.left.and.bubble.right"
-                        )
-                    } else {
-                        transcript(messages)
-                    }
-                } else if let failure {
-                    ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+            // Чужие личные сообщения — без копии на телефоне модератора.
+            RemoteContent(caching: false, load: { try await AdminAPI().complaintMessages(id: complaint.id) }) { messages in
+                if messages.isEmpty {
+                    EmptyStateView(
+                        title: String(localized: "admin.complaint.chatEmpty", defaultValue: "Сообщений в переписке нет"),
+                        symbol: "bubble.left.and.bubble.right"
+                    )
                 } else {
-                    LoadingStateView()
+                    transcript(messages)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -695,7 +673,6 @@ private struct AdminComplaintTranscriptSheet: View {
                 }
             }
         }
-        .task { await load() }
     }
 
     private func transcript(_ messages: [AdminComplaintMessageDTO]) -> some View {
@@ -746,16 +723,4 @@ private struct AdminComplaintTranscriptSheet: View {
         return isReporter ? String(localized: "admin.complaint.reporterTag", defaultValue: "автор жалобы") : nil
     }
 
-    @MainActor
-    private func load() async {
-        do {
-            messages = try await AdminAPI().complaintMessages(id: complaint.id)
-            failure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
-    }
 }

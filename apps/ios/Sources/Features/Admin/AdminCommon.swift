@@ -247,6 +247,16 @@ struct AdminLinkRow: View {
     }
 }
 
+// MARK: - Город по КАТО
+
+/// Город по коду КАТО — подпись в карточках. Не пришёл — `nil`, не ошибка экрана.
+enum AdminKato {
+    static func cityName(_ code: String?) async -> String? {
+        guard let code else { return nil }
+        return try? await AdminAPI().katoResolve([code]).first?.nameRu
+    }
+}
+
 // MARK: - Переходы из кнопок шапки
 
 /// Круглые кнопки `HeroHeader` — замыкания, а не `NavigationLink`: экран кладёт маршрут

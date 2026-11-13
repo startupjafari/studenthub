@@ -176,13 +176,11 @@ struct AdminSupportTicketView: View {
     @Environment(\.viewerID) private var viewerID
     @Environment(\.dismiss) private var dismiss
 
-    @State private var thread: AdminSupportThreadDTO?
+    @State private var remote = RemoteValue<AdminSupportThreadDTO>()
     @State private var earlier: [AdminSupportMessageDTO] = []
     @State private var earlierCursor: String?
     /// История уже листалась: курсор берётся из неё, а не из первой порции обращения.
     @State private var earlierStarted = false
-    @State private var failure: String?
-    @State private var isOffline = false
     @State private var actionFailure: String?
     @State private var notice: String?
     @State private var reply = ""
@@ -198,16 +196,10 @@ struct AdminSupportTicketView: View {
 
     private let api = AdminAPI()
 
+    private var thread: AdminSupportThreadDTO? { remote.value }
+
     var body: some View {
-        Group {
-            if let thread {
-                content(thread)
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
-                LoadingStateView()
-            }
-        }
+        RemoteValueContent(remote: remote, load: fetch) { thread in content(thread) }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background { ChatWallpaper().ignoresSafeArea() }
         .navigationTitle(Text(thread?.ticket.author?.name ?? AdminScreen.supportTicket(id: id).title))
@@ -220,7 +212,6 @@ struct AdminSupportTicketView: View {
                 if let thread { actionsMenu(thread) }
             }
         }
-        .task { await load() }
         .actionFailureAlert($actionFailure)
         .alert(notice ?? "", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}
@@ -606,18 +597,12 @@ struct AdminSupportTicketView: View {
 
     // MARK: Загрузка и действия
 
-    @MainActor
     private func load() async {
-        do {
-            let value = try await api.supportThread(id: id)
-            thread = value
-            failure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
+        await remote.load(fetch)
+    }
+
+    private func fetch() async throws -> AdminSupportThreadDTO {
+        try await api.supportThread(id: id)
     }
 
     @MainActor
