@@ -255,7 +255,9 @@ struct ChatMediaTile: View {
 
     /// Ключ кэша. Свой снимок — по пути файла на устройстве: после отправки запись
     /// получает серверный id, картинка же та же, и плитка не должна мигнуть подложкой.
-    private static func cacheKey(_ attachment: AttachmentRecord, points: CGFloat) -> String {
+    /// Ключ кеша плитки. Открыт для предзагрузки (`ChatMediaPrefetcher`): она греет тот же
+    /// ключ, и плитка при появлении берёт снимок из памяти сразу.
+    static func cacheKey(_ attachment: AttachmentRecord, points: CGFloat) -> String {
         if let path = attachment.localPath { return "att-file:\(path):\(Int(points))" }
         return "att:\(attachment.id):\(Int(points))"
     }

@@ -142,6 +142,8 @@ final class MessageListViewController: UIViewController {
     /// Идёт применение среза: смену высоты содержимого в это время разбирает сам срез —
     /// догрузка снизу в окне истории не должна утаскивать ленту за собой.
     private var applyingSnapshot = false
+    /// Снимки сообщений, к которым подъезжает лента, грузятся заранее (шаг 2.8 плана).
+    private let mediaPrefetcher = ChatMediaPrefetcher()
     /// Ответ свайпом пузыря влево, как в Telegram.
     private let swipeToReply = SwipeToReply()
     /// Долгое нажатие на пузырь — меню; то же касание дальше выбирает в нём пункт.
@@ -522,6 +524,7 @@ final class MessageListViewController: UIViewController {
         menuPress.delegate = self
         collectionView.addGestureRecognizer(menuPress)
         collectionView.delegate = self
+        collectionView.prefetchDataSource = self
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         // До первой расстановки лента прозрачна (`needsInitialPosition`).
         collectionView.alpha = 0
@@ -1034,6 +1037,30 @@ extension MessageListViewController: UIGestureRecognizerDelegate {
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer === menuPress else { return true }
         return menuItem(at: gestureRecognizer.location(in: collectionView)) != nil
+    }
+}
+
+extension MessageListViewController: UICollectionViewDataSourcePrefetching {
+    func collectionView(_ collectionView: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
+        mediaPrefetcher.prefetch(prefetchable(at: indexPaths), scale: traitCollection.displayScale)
+    }
+
+    func collectionView(_ collectionView: UICollectionView, cancelPrefetchingForItemsAt indexPaths: [IndexPath]) {
+        mediaPrefetcher.cancel(prefetchable(at: indexPaths).map(\.id))
+    }
+
+    /// Одиночный снимок сообщения: его плитку размер знает заранее
+    /// (`ChatMediaTile.singleSize`), а значит, и ключ кеша. Альбомы раскладываются по
+    /// месту — их не греем, чтобы не качать копию не того размера.
+    private func prefetchable(at indexPaths: [IndexPath]) -> [AttachmentRecord] {
+        indexPaths.compactMap { indexPath in
+            guard let id = dataSource.itemIdentifier(for: indexPath),
+                let item = itemsByID[id], item.message.deletedAt == nil
+            else { return nil }
+            let media = item.attachments.filter(\.showsAsMedia)
+            guard media.count == 1, let only = media.first, only.chatKind == .photo else { return nil }
+            return only
+        }
     }
 }
 
