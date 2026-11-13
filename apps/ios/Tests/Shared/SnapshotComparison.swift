@@ -228,8 +228,12 @@ private struct RGBA {
 
     init?(_ image: UIImage) {
         guard let cgImage = image.cgImage else { return nil }
-        width = cgImage.width
-        height = cgImage.height
+        // Локальные копии: замыкание ниже не может захватить `self` до того, как
+        // задан `pixels`.
+        let width = cgImage.width
+        let height = cgImage.height
+        self.width = width
+        self.height = height
         var buffer = [UInt8](repeating: 0, count: width * height * 4)
         let drawn: Bool = buffer.withUnsafeMutableBytes { raw in
             guard let context = CGContext(
