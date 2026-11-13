@@ -8,7 +8,7 @@ import os
 /// перепутать и дать ему общий клиент, обновление токена уйдёт в рекурсию.
 enum AppServices {
     static let auth = AuthAPI()
-    static let session = SessionStore(auth: auth)
+    static let session = SessionStore(auth: auth, background: UIKitBackgroundActivity())
     static let api = APIClient(authorization: session)
     /// Подтверждение входа по QR — наоборот, только с авторизацией: пользователя
     /// сервер берёт из токена.
@@ -21,37 +21,22 @@ enum AppServices {
     /// Что делать по тихому пушу.
     static let pushSync = PushSync()
 
+    /// Непрочитанные уведомления: одно число для колокольчика, бейджа иконки и догона
+    /// по пушу (п. 18 аудита).
+    static let unreadNotifications = UnreadNotificationsCounter()
+
     /// Ссылки на вложения: кэш по id файла, а не по адресу.
     static let attachmentURLs = AttachmentURLProvider()
 
     /// Реальное время. Транспорт — единственное место, знающее про socket.io.
     static let realtime = RealtimeCoordinator(transport: SocketIORealtimeTransport())
 
-    /// Локальная база чатов. Создаётся лениво, но до первого экрана, которому она
-    /// нужна: миграции обязаны пройти раньше первого чтения.
-    ///
-    /// Файл не открылся (повреждение, нет места) — удаляем и заводим заново, а если
-    /// и это не вышло, работаем в памяти. Приложение без базы бесполезно, но падение
-    /// на старте бесполезно вдвойне: человек не увидит даже причины.
-    static let database: AppDatabase = {
-        let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "kz.studenthub.app", category: "storage")
-        do {
-            return try AppDatabase.onDisk()
-        } catch {
-            log.error("Не открылась база чатов, пробуем завести заново: \(error.localizedDescription, privacy: .public)")
-        }
-        do {
-            try AppDatabase.removeStore()
-            return try AppDatabase.onDisk()
-        } catch {
-            log.error("База чатов недоступна, работаем в памяти: \(error.localizedDescription, privacy: .public)")
-        }
-        do {
-            return try AppDatabase.inMemory()
-        } catch {
-            // Память не открылась — это уже не про хранилище, а про нехватку ресурсов
-            // процесса, и работать дальше всё равно нечем.
-            preconditionFailure("Не удалось создать базу даже в памяти: \(error)")
-        }
-    }()
+    /// Локальная база чатов — через явного держателя (`DatabaseHolder`): база не
+    /// открывается, пока данные устройства заперты до первой разблокировки, и
+    /// открывается по разблокировке (`AppDelegate`).
+    static let databaseHolder = DatabaseHolder()
+
+    /// База для экранов и хранилищ. Интерфейс есть только после разблокировки, так что
+    /// к их первому обращению база открыта или открывается сразу.
+    static var database: AppDatabase { databaseHolder.database }
 }

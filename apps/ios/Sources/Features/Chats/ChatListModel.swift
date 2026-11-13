@@ -1,6 +1,7 @@
 import Foundation
 import GRDB
 import Observation
+import os
 
 /// Список чатов.
 ///
@@ -89,6 +90,10 @@ final class ChatListModel {
         defer { isRefreshing = false }
 
         do {
+            // Папки не зависят от страниц — запрос идёт параллельно, а не после всех
+            // страниц (п. 45 аудита). Сбой страниц снимет и его (`async let`).
+            let api = api
+            async let folders = api.folders()
             var cursor: String?
             for _ in 0..<Self.maxPages {
                 let page = try await api.chats(cursor: cursor, limit: ChatsAPI.pageLimit)
@@ -96,7 +101,7 @@ final class ChatListModel {
                 guard page.meta?.hasNext == true, let next = page.meta?.cursor else { break }
                 cursor = next
             }
-            try await store.save(folders: try await api.folders())
+            try await store.save(folders: try await folders)
             failure = nil
             loadFailure = nil
             isOffline = false
@@ -251,10 +256,19 @@ final class ChatListModel {
     private func observeRows() {
         rowsTask?.cancel()
         let request = ChatListQuery.rows(for: tab)
-        let observation = ValueObservation.tracking { db in try request.fetchAll(db) }
+        let observation = ValueObservation.tracking { db -> [ChatListRow] in
+            let signpost = Signposts.chats.beginInterval("ChatListRead")
+            let rows = try request.fetchAll(db)
+            Signposts.chats.endInterval("ChatListRead", signpost, "rows: \(rows.count)")
+            return rows
+        }
+        // Запись, не меняющая строк (страница истории, прочтение в открытом чате), не
+        // будит список и не запускает анимацию перестановки.
+        .removeDuplicates()
         rowsTask = Task { @MainActor [weak self, database] in
             var isFirst = true
             for await rows in AsyncValues.stream(of: observation, in: database.reader) {
+                Signposts.chats.emitEvent("ChatListApply", "rows: \(rows.count)")
                 self?.rows = rows
                 if isFirst {
                     isFirst = false
@@ -270,6 +284,7 @@ final class ChatListModel {
         archiveTask?.cancel()
         let request = ChatListQuery.rows(for: .archive)
         let observation = ValueObservation.tracking { db in try request.fetchAll(db) }
+            .removeDuplicates()
         archiveTask = Task { @MainActor [weak self, database] in
             var isFirst = true
             for await rows in AsyncValues.stream(of: observation, in: database.reader) {
@@ -288,6 +303,7 @@ final class ChatListModel {
     private func observeTabs() {
         tabsTask?.cancel()
         let observation = ValueObservation.tracking { db in try ChatListQuery.tabs(in: db) }
+            .removeDuplicates()
         tabsTask = Task { @MainActor [weak self, database] in
             for await tabs in AsyncValues.stream(of: observation, in: database.reader) {
                 self?.tabs = tabs

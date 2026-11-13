@@ -14,6 +14,18 @@ struct AccessToken: Equatable {
     let groupID: String?
     let twoFactorEnabled: Bool
     let expiresAt: Date
+    /// Когда выдан (`iat`). Нет в токене — срок жизни считается по умолчанию сервера.
+    let issuedAt: Date?
+
+    /// Срок жизни сервера по умолчанию (`JWT_ACCESS_EXPIRES_IN=15m`): на него опираемся,
+    /// когда в токене нет `iat`.
+    static let defaultLifetime: TimeInterval = 15 * 60
+
+    /// Сколько токен живёт от выдачи до истечения.
+    var lifetime: TimeInterval {
+        guard let issuedAt else { return Self.defaultLifetime }
+        return max(0, expiresAt.timeIntervalSince(issuedAt))
+    }
 
     /// Токен живёт 15 минут. Обновляем заранее: запрос с токеном, которому осталась
     /// секунда, доедет до сервера уже просроченным.
@@ -40,6 +52,7 @@ struct AccessToken: Equatable {
         groupID = claims.groupId
         twoFactorEnabled = claims.tfa ?? false
         expiresAt = Date(timeIntervalSince1970: claims.exp)
+        issuedAt = claims.iat.map { Date(timeIntervalSince1970: $0) }
     }
 
     private struct Claims: Decodable {
@@ -50,6 +63,7 @@ struct AccessToken: Equatable {
         let groupId: String?
         let tfa: Bool?
         let exp: TimeInterval
+        let iat: TimeInterval?
     }
 
     /// base64url отличается от base64 двумя символами и отсутствием выравнивания.

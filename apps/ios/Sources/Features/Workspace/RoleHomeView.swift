@@ -45,9 +45,14 @@ struct RoleHomeView: View {
 }
 
 /// Колокольчик в верхней панели «Главной»: точка у значка — есть непрочитанное.
-/// Счётчик перечитывается при каждом показе: вернулись из уведомлений — точка гаснет.
+///
+/// Число — общее (`UnreadNotificationsCounter`): экран уведомлений гасит точку сразу,
+/// как только что-то прочитано, а при показе колокольчик просит обновить число, только
+/// если оно старше 15 секунд (п. 18 аудита — раньше свой запрос на каждый показ).
 struct NotificationsBell: View {
-    @State private var unread = 0
+    private let counter = AppServices.unreadNotifications
+
+    private var unread: Int { counter.count ?? 0 }
 
     var body: some View {
         NavigationLink(value: AppRoute.section(.notifications)) {
@@ -59,10 +64,7 @@ struct NotificationsBell: View {
             ? String(localized: "home.notifications.unread", defaultValue: "Непрочитанных: \(unread)")
             : ""))
         .accessibilityIdentifier("dashboard.notifications")
-        .onAppear {
-            Task {
-                if let value = try? await FeedAPI().unreadNotifications() { unread = value }
-            }
-        }
+        // `.task`, а не `Task {}` в `onAppear`: ушёл с экрана — запрос снят (п. 31).
+        .task { await counter.refresh() }
     }
 }

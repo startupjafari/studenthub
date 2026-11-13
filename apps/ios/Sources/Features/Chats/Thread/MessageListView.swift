@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import os
 
 /// Лента сообщений.
 ///
@@ -8,6 +9,8 @@ import UIKit
 /// через `UIHostingConfiguration`, так что пузыри остаются обычными вьюхами.
 struct MessageListView: UIViewControllerRepresentable {
     let days: [MessageTimeline.Day]
+    /// Номер ленты (`ChatThreadModel.daysRevision`): тот же — лента не менялась.
+    var revision = 0
     /// Куда прокрутить при первом показе (первое непрочитанное).
     let anchor: String?
     var bubbleContext = BubbleContext()
@@ -49,7 +52,7 @@ struct MessageListView: UIViewControllerRepresentable {
         bind(controller)
         controller.setBottomInset(bottomInset)
         controller.setTopObstruction(topObstruction)
-        controller.apply(days: days, anchor: anchor, context: bubbleContext, selection: selection)
+        controller.apply(days: days, revision: revision, anchor: anchor, context: bubbleContext, selection: selection)
         controller.focus(focus)
         controller.scrollToBottom(token: scrollToBottomToken)
     }
@@ -80,6 +83,8 @@ final class MessageListViewController: UIViewController {
     private var appliedBottomToken = 0
     private var reportedAtBottom = true
     private var appliedFocus: MessageFocus?
+    /// Номер последней применённой ленты; `nil` — ещё ни одной.
+    private var appliedRevision: Int?
     /// Вела ли лента за новыми сообщениями на прошлом срезе. Окно истории, сомкнувшееся
     /// со свежим, включает `followsBottom` тем же обновлением, что приносит последнюю
     /// страницу: решать по новому значению — значит считать низ окна низом переписки и
@@ -217,12 +222,34 @@ final class MessageListViewController: UIViewController {
     /// верхнее видимое сообщение после применения возвращается на то же место экрана.
     /// По нему, а не по выросшей высоте: в окне истории страницы доезжают и снизу, и
     /// сдвиг на их высоту унёс бы ленту прочь от того, что человек читает.
-    func apply(days: [MessageTimeline.Day], anchor: String?, context: BubbleContext, selection: Set<String>? = nil) {
+    func apply(
+        days: [MessageTimeline.Day],
+        revision: Int,
+        anchor: String?,
+        context: BubbleContext,
+        selection: Set<String>? = nil
+    ) {
+        // Экран чата пересчитывается по многим причинам (кнопка «вниз», панели сверху,
+        // закреплённое), а лента при этом та же: без раннего выхода каждый такой пересчёт
+        // заново собирал и сравнивал снапшот из всех сообщений.
+        let sameDays = revision == appliedRevision
+        if sameDays, context == bubbleContext, selection == self.selection { return }
+        appliedRevision = revision
+        // Весь проход — от сборки снапшота до конца его применения (`SnapshotApply`).
+        let signpost = Signposts.chats.beginInterval("SnapshotApply")
         let previous = itemsByID
         let previousSnapshot = dataSource.snapshot()
         let previousOrder = previousSnapshot.itemIdentifiers
         let previousDays = Set(previousSnapshot.sectionIdentifiers)
-        let contextChanged = context != bubbleContext
+        // Прочтение меняет только галочки своих сообщений: перерисовываются те, чьё
+        // состояние «прочитано» правда сменилось, а не вся лента. Остальное в контексте
+        // (группа, поиск) касается каждой ячейки.
+        let oldContext = bubbleContext
+        let contextChanged = context.isGroup != oldContext.isGroup
+            || context.viewerID != oldContext.viewerID
+            || context.highlight != oldContext.highlight
+        let readChanged = !contextChanged
+            && (context.othersReadAt != oldContext.othersReadAt || context.readMarks != oldContext.readMarks)
         bubbleContext = context
         // Вход в режим выбора и выход перерисовывают все ячейки (кружки слева), а
         // касание в режиме — только те, чья отметка сменилась.
@@ -242,7 +269,10 @@ final class MessageListViewController: UIViewController {
         // прочтение без этого не перерисовали бы уже показанную ячейку.
         let changed = snapshot.itemIdentifiers.filter { id in
             guard let old = previous[id] else { return false }
-            return contextChanged || selectionModeChanged || toggled.contains(id) || old != itemsByID[id]
+            if contextChanged || selectionModeChanged || toggled.contains(id) { return true }
+            if !sameDays, old != itemsByID[id] { return true }
+            guard readChanged, let item = itemsByID[id] else { return false }
+            return Self.readState(of: item, in: oldContext) != Self.readState(of: item, in: context)
         }
         if !changed.isEmpty { snapshot.reconfigureItems(changed) }
 
@@ -270,7 +300,9 @@ final class MessageListViewController: UIViewController {
             needsInitialPosition = true
         }
 
+        let itemCount = snapshot.numberOfItems
         dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
+            Signposts.chats.endInterval("SnapshotApply", signpost, "items: \(itemCount)")
             guard let self else { return }
             defer {
                 // Срез мог дописать ленту снизу без прокрутки — «у низа» пересчитываем.
@@ -304,6 +336,16 @@ final class MessageListViewController: UIViewController {
         }
     }
 
+    /// Галочки своего сообщения в этом контексте — как их рисует пузырь
+    /// (`MessageBubbleView.isRead`, `readCount`).
+    private static func readState(of item: MessageTimeline.Item, in context: BubbleContext) -> (read: Bool, count: Int) {
+        guard item.isOwn else { return (false, 0) }
+        let message = item.message
+        let count = context.isGroup && message.sendState == .sent ? context.readCount(at: message.createdAt) : 0
+        let read = (context.othersReadAt.map { $0 >= message.createdAt } ?? false) || count > 0
+        return (read, count)
+    }
+
     /// Короткая история помещается на экран целиком — прокрутки нет, и подгрузка
     /// по прокрутке не случится никогда. Просим соседние страницы сами.
     private func requestOlderIfScreenNotFilled() {
@@ -335,6 +377,10 @@ final class MessageListViewController: UIViewController {
         sticksToBottom = target == nil
         reportBottom()
         reveal()
+        // Переписка показала первое содержимое — конец «открытия чата» для человека.
+        // Число — заранее: строка метки — автозамыкание, и `self` в ней пришлось бы писать явно.
+        let items = dataSource.snapshot().numberOfItems
+        Signposts.chats.emitEvent("FirstContentFrame", "items: \(items)")
         scheduleHeaderHide()
     }
 

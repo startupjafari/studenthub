@@ -28,6 +28,9 @@ struct ChatListView: View {
     @State private var showsBlocked = false
     @State private var editingFolder: ChatFolderEditTarget?
     @State private var deletingFolder: ChatFolderDTO?
+    /// Список катится пальцем или по инерции — перестановки строк не анимируются: пружина
+    /// посреди прокрутки дёргала строки под пальцем.
+    @State private var isScrolling = false
     @Environment(\.viewerID) private var viewerID
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var realtime: RealtimeCoordinator { AppServices.realtime }
@@ -92,7 +95,11 @@ struct ChatListView: View {
         // наверх, закреплённый встаёт к закреплённым, архивный уходит из списка, счётчик
         // перещёлкивает цифры. Ревизия растёт только на изменениях после первого среза
         // (`ChatListModel.liveRevision`): открытие экрана и смена вкладки не анимируются.
-        .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: model.liveRevision)
+        .animation(
+            isScrolling ? nil : Motion.respecting(Motion.calm, reduceMotion: reduceMotion),
+            value: model.liveRevision
+        )
+        .modifier(ScrollActivityTracker(isScrolling: $isScrolling))
         // Папки закреплены под поиском, как в Telegram: строкой списка они уезжали под
         // заголовок и поле поиска и наслаивались на них. Список под ними тает мягко.
         .softEdgeBar(edge: .top) { tabsBar }
@@ -412,9 +419,11 @@ struct ChatListView: View {
     private func rowView(_ row: ChatListRow) -> some View {
         // Ссылка спрятана под строкой: так у строки нет стрелки справа, как в Telegram,
         // а касание по-прежнему открывает чат.
+        // «Печатает…» строка читает сама из наблюдаемого объекта своего чата: из общего
+        // словаря в теле списка любое событие набора пересчитывало бы весь список.
         ChatRowView(
             row: row,
-            action: realtime.actions[row.id]?.values.first,
+            activity: realtime.activity(for: row.id),
             isGroup: row.kind != .private && row.kind != .saved
         )
         .background {
@@ -696,6 +705,8 @@ private struct ChatRowBackground: View {
 struct ChatRowView: View {
     let row: ChatListRow
     var action: String?
+    /// Что делают в чате сейчас («печатает…») — следит только за этим чатом.
+    var activity: ChatActivity?
     var isGroup = false
 
     @Environment(\.viewerID) private var viewerID
@@ -793,7 +804,7 @@ struct ChatRowView: View {
 
     @ViewBuilder
     private var preview: some View {
-        if let action {
+        if let action = activity?.action ?? action {
             Text(ChatActionCaption.title(for: action))
                 .foregroundStyle(Palette.primary)
                 .lineLimit(2, reservesSpace: true)
@@ -1066,5 +1077,22 @@ enum ChatMoment {
             return date.formatted(.dateTime.weekday(.abbreviated))
         }
         return date.formatted(.dateTime.day().month(.twoDigits).year(.twoDigits))
+    }
+}
+
+/// Катится ли список. Фаза прокрутки есть с iOS 18; на iOS 17 признак остаётся `false`,
+/// и анимация перестановок работает как раньше.
+private struct ScrollActivityTracker: ViewModifier {
+    @Binding var isScrolling: Bool
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18, *) {
+            content.onScrollPhaseChange { _, phase in
+                let scrolling = phase != .idle
+                if isScrolling != scrolling { isScrolling = scrolling }
+            }
+        } else {
+            content
+        }
     }
 }

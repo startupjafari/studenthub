@@ -234,8 +234,21 @@ struct LessonDetailView: View {
         guard let subject = pair?.subject.lowercased() else { return }
 
         // Пара хранит дисциплину названием (так её отдаёт сервер) — связываем по нему.
-        async let courses = try? CoursesAPI().courses(mine: false)
-        async let tasks = try? StudyAPI().assignments().items
+        // Курсы и задания — те же ответы, что у списков и главной: из кеша экранов сразу,
+        // свежие — следом (п. 30 аудита; `courseId` в паре — «Требует бэкенда»).
+        if course == nil, assignments == nil {
+            async let cachedCourses = ScreenCache.cached { try await CoursesAPI().courses(mine: false) }
+            async let cachedTasks = ScreenCache.cached { try await StudyAPI().assignments().items }
+            let (savedCourses, savedTasks) = await (cachedCourses, cachedTasks)
+            if course == nil, let savedCourses {
+                course = savedCourses.first { $0.subject.name.lowercased() == subject }
+            }
+            if assignments == nil, let savedTasks {
+                assignments = savedTasks.filter { $0.subject?.lowercased() == subject }
+            }
+        }
+        async let courses = try? ScreenCache.refreshing { try await CoursesAPI().courses(mine: false) }
+        async let tasks = try? ScreenCache.refreshing { try await StudyAPI().assignments().items }
         let day = ScheduleAPI.day(date, in: .current)
         async let changes = try? StudentStudyAPI().scheduleChanges(from: day, to: day)
         let fetchedCourses = await courses

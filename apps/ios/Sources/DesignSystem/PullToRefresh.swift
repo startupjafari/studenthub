@@ -21,6 +21,11 @@ private struct PullTunerProbe: UIViewRepresentable {
     func updateUIView(_ view: ProbeView, context: Context) { view.attachSoon() }
 
     final class ProbeView: UIView {
+        /// Найденная прокрутка. Пока она жива и на экране, искать её снова незачем:
+        /// `updateUIView` зовётся на каждый пересчёт экрана, а поиск — три отложенных
+        /// обхода иерархии (п. 42 аудита).
+        private weak var attached: UIScrollView?
+
         override init(frame: CGRect) {
             super.init(frame: frame)
             isUserInteractionEnabled = false
@@ -37,7 +42,7 @@ private struct PullTunerProbe: UIViewRepresentable {
 
         /// Список строится позже пробы — ищем его на следующих витках.
         func attachSoon() {
-            guard window != nil else { return }
+            guard window != nil, attached?.window == nil else { return }
             for delay in [0.0, 0.25, 0.8] {
                 DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                     self?.attach()
@@ -46,7 +51,8 @@ private struct PullTunerProbe: UIViewRepresentable {
         }
 
         private func attach() {
-            guard let window, let scrollView = findScrollView(in: window) else { return }
+            guard attached?.window == nil, let window, let scrollView = findScrollView(in: window) else { return }
+            attached = scrollView
             PullTuner.install(on: scrollView)
         }
 
@@ -132,6 +138,10 @@ final class PullTuner: NSObject {
         }
         // Сколько открыто над первой строкой.
         let pull = -(scrollView.contentOffset.y + baseInset)
+        // Список прокручен вниз, его не тянут и не обновляют, индикатор спрятан: на
+        // каждом кадре прокрутки делать нечего (п. 42) — раньше здесь каждый кадр
+        // ставились цвет и `prepare()` тактильного отклика.
+        if pull <= 0, !refreshing, !wasRefreshing, spinner.alpha == 0 { return }
 
         if scrollView.isTracking, pull > Self.maxPull {
             isClamping = true
@@ -143,7 +153,7 @@ final class PullTuner: NSObject {
         if !refreshing { feedback.prepare() }
         wasRefreshing = refreshing
 
-        control?.tintColor = .clear
+        if control?.tintColor != .clear { control?.tintColor = .clear }
         let shown = min(pull, Self.maxPull)
         if shown > 8 || refreshing {
             // Посередине пустоты между шапкой и первой строкой.

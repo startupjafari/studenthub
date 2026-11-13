@@ -123,14 +123,26 @@ extension PagedList where Header == EmptyView {
 
 /// Экран, который грузит одно значение: карточка, сводка, настройки. `reloadToken` —
 /// повод перечитать (сохранили форму — увеличили счётчик).
+///
+/// Кеш экранов (итерация 5, п. 27 аудита): на первом показе значение собирается из
+/// сохранённых ответов (`ScreenCache.cached`) и встаёт сразу, сеть обновляет его фоном
+/// (`ScreenCache.refreshing`); не обновилось — полоса «данные не свежие» над
+/// сохранённым. При возврате на экран показанное остаётся, а сеть обновляет его фоном,
+/// без спиннера: на вложенном экране могли что-то изменить. `caching: false` — экран,
+/// который нельзя показывать из
+/// сохранённого (маршруты-исключения `ScreenCache.allows` не кешируются и так).
 struct RemoteContent<Value, Content: View>: View {
     var reloadToken: Int = 0
+    var caching = true
     let load: () async throws -> Value
     @ViewBuilder let content: (Value) -> Content
 
     @State private var value: Value?
     @State private var failure: String?
     @State private var isOffline = false
+    /// Сохранённое уже проверено. До этого вместо спиннера — пусто: чтение с диска —
+    /// миллисекунды, и спиннер только мигнул бы перед содержимым.
+    @State private var checkedCache = false
 
     var body: some View {
         Group {
@@ -147,21 +159,33 @@ struct RemoteContent<Value, Content: View>: View {
                     }
             } else if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await run() }
-            } else {
+            } else if checkedCache || !usesCache {
                 LoadingStateView()
+            } else {
+                Color.clear
             }
         }
         .task(id: reloadToken) { await run() }
     }
 
+    private var usesCache: Bool { caching && PerformanceFlags.screenCache }
+
     @MainActor
     private func run() async {
+        if value == nil, usesCache {
+            let cached = await ScreenCache.cached(load)
+            guard !Task.isCancelled else { return }
+            if let cached, value == nil { value = cached }
+            checkedCache = true
+        }
         do {
-            value = try await load()
+            let loaded = usesCache ? try await ScreenCache.refreshing(load) : try await load()
+            value = loaded
             failure = nil
         } catch is CancellationError {
             return
         } catch {
+            guard !Task.isCancelled else { return }
             failure = error.userMessage
             isOffline = error.isOffline
         }

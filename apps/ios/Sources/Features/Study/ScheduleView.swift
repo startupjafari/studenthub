@@ -44,7 +44,9 @@ struct ScheduleView: View {
         }
         .task {
             model.start()
-            await model.refresh()
+            // Свежее пяти минут — не перезапрашиваем на каждом показе (п. 29);
+            // обновить сейчас — жестом.
+            await model.refreshIfStale()
         }
         // Неделя читается и в режиме «День»: по ней под числами полосы стоят точки
         // дней, в которые есть пары.
@@ -184,7 +186,8 @@ struct ScheduleView: View {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .overlay {
-                if pairs.isEmpty {
+                // Пока день читается из базы, пустота — не «пар нет».
+                if pairs.isEmpty, !model.isReadingDay {
                     emptyDay
                 }
             }

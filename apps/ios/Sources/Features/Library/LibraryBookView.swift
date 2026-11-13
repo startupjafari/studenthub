@@ -90,6 +90,9 @@ struct LibraryBookView: View {
         }
         .navigationTitle(Text(String(localized: "library.book", defaultValue: "Книга")))
         .navigationBarTitleDisplayMode(.inline)
+        // Бронь или очередь приняты (и бронь отменена) — тактильный отклик вместе с
+        // плашкой (п. 50 аудита).
+        .sensoryFeedback(trigger: model?.notice) { _, new in new == nil ? nil : .success }
         .pullToRefresh { await model?.load() }
         .task {
             if model == nil { model = LibraryBookModel(bookID: bookID) }

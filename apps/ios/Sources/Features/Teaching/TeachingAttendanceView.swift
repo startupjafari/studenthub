@@ -19,12 +19,7 @@ struct TeachingDayPair: Identifiable, Equatable {
 
 /// Дата изменения расписания — полночь UTC: день берём в UTC, как `date.slice(0, 10)` веба.
 func teachingChangeDay(_ date: Date) -> String {
-    let formatter = DateFormatter()
-    formatter.calendar = Calendar(identifier: .gregorian)
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = TimeZone(identifier: "UTC")
-    formatter.dateFormat = "yyyy-MM-dd"
-    return formatter.string(from: date)
+    DayString.string(from: date, timeZone: TimeZone(identifier: "UTC") ?? .gmt)
 }
 
 /// Занятия преподавателя на дату: свои пары дня и чётности недели без отданных на

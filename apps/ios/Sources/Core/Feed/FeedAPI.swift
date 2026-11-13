@@ -202,7 +202,8 @@ struct NotificationDTO: Decodable, Equatable, Identifiable {
     let type: String
     let title: String
     let body: String
-    let isRead: Bool
+    /// `var`: «прочитано» ставится на экране сразу, до ответа сервера.
+    var isRead: Bool
     let createdAt: Date
     /// Идентификаторы перехода: chatId, postId, applicationId, url. `data` на сервере —
     /// произвольный JSON, поэтому берутся только строковые поля: число в одном из них

@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 /// Состояние сессии для интерфейса.
 ///
@@ -19,6 +20,9 @@ final class AppSessionModel {
     }
 
     private(set) var state: State = .restoring
+    /// Сервер отказал в продлении, пока интерфейс ещё открывался (фоновое продление
+    /// успело раньше `state = .signedIn`): выход доводится сразу после открытия.
+    @ObservationIgnored private var endedWhileRestoring = false
 
     private let store: SessionStore
 
@@ -40,12 +44,25 @@ final class AppSessionModel {
         // Прежние сборки держали refresh-cookie в системном хранилище — на диске, в
         // резервной копии. Значение давно в связке ключей; файл больше не нужен.
         RefreshCookieJar.purgeSystemStorage()
-        switch await store.restore() {
-        case .active(let token), .offline(let token):
+        let signpost = Signposts.launch.beginInterval("SessionRestore")
+        let restoration = await store.restore()
+        // Только исход, без токена: токенам в логах и метках не место.
+        let outcome: String = switch restoration {
+        case .active: "active"
+        case .cached: "cached"
+        case .none: "none"
+        }
+        Signposts.launch.endInterval("SessionRestore", signpost, "\(outcome, privacy: .public)")
+        switch restoration {
+        case .active(let token), .cached(let token):
             // Без сети — по последнему токену: расписание и чаты в базе, а выбросить
             // человека на вход только потому, что он в метро, — значит отнять у него и их.
             await LocalData.claim(for: token.subject)
             state = .signedIn(token)
+            if endedWhileRestoring {
+                endedWhileRestoring = false
+                await sessionDidEnd()
+            }
         case .none:
             // Сессия не поднялась — отложенная ссылка из пуша никому не адресована.
             AppServices.router.reset()
@@ -84,7 +101,10 @@ final class AppSessionModel {
     /// другой — их сотрёт `LocalData.claim`.
     @MainActor
     private func sessionDidEnd() async {
-        guard case .signedIn = state else { return }
+        guard case .signedIn = state else {
+            if state == .restoring { endedWhileRestoring = true }
+            return
+        }
         await AppServices.realtime.stop()
         AppServices.router.reset()
         GifPanelCache.shared.clear()
@@ -134,18 +154,31 @@ enum LocalData {
             await erase()
         }
         UserDefaults.standard.set(userID, forKey: ownerKey)
+        // Кеш экранов читается и пишется только под id вошедшего (ключ ответа включает его).
+        ScreenCacheStore.shared.claim(owner: userID)
     }
 
     @MainActor
     static func erase() async {
+        // Первым: ответы экранов прежнего человека не должны показаться ни на кадр, даже
+        // пока стирается остальное.
+        ScreenCacheStore.shared.erase()
+        AppServices.unreadNotifications.reset()
         try? await AppServices.database.eraseAll()
         await AppServices.attachmentURLs.clear()
         // Фото, аватары и свои вложения прежнего человека — тоже его данные.
         ImageMemoryCache.shared.removeAll()
+        // И с диска — все картинки, аватары тоже: платформа закрытая, а смена аккаунта не
+        // должна показать чужое ни на кадр (итерация 6).
+        ImageDiskCache.shared.eraseAll()
+        // Разобранные тексты и превью фото — тоже его данные, хоть и в памяти.
+        RichText.clearCache()
+        LQIP.clearCache()
         URLCache.shared.removeAllCachedResponses()
         try? FileManager.default.removeItem(at: AttachmentUploader.outboxDirectory)
         UserDefaults.standard.removeObject(forKey: ScheduleModel.syncedKey)
         UserDefaults.standard.removeObject(forKey: ScheduleModel.timeZoneKey)
+        UserDefaults.standard.removeObject(forKey: WorkspaceView.libraryEnabledKey)
         UserDefaults.standard.removeObject(forKey: ownerKey)
         await BadgeCounter().reset()
     }

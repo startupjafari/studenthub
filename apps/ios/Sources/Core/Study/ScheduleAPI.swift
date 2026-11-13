@@ -98,11 +98,6 @@ struct ScheduleAPI: ScheduleFetching {
 
     /// Календарная дата момента в поясе вуза.
     static func day(_ date: Date, in timeZone: TimeZone) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
+        DayString.string(from: date, timeZone: timeZone)
     }
 }

@@ -20,11 +20,20 @@ struct TeachingDashboardView: View {
     @State private var exported: ExportedFile?
     @State private var isExporting = false
     @State private var actionFailure: String?
+    /// Сводка дня пришла из сети. Пока нет — на экране сохранённое, и возврат на экран
+    /// грузит заново, а не только отметки.
+    @State private var isFresh = false
 
     private let api = TeachingAPI()
 
     var body: some View {
         List {
+            // Сводка из сохранённого, а обновить не вышло — говорим полосой (итерация 5).
+            if today != nil, let failure {
+                StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+            }
             if let today {
                 content(today)
             }
@@ -52,9 +61,19 @@ struct TeachingDashboardView: View {
         }
         .actionFailureAlert($actionFailure)
         .pullToRefresh { await load() }
-        .task { await load() }
-        // Отметили посещаемость и вернулись — список «отметить» должен сократиться.
-        .onAppear { if today != nil { Task { await loadMarked() } } }
+        // Каждый показ — всё заново, как раньше: вернулись после проверки работы или
+        // отметки — очередь и отметки свежие (отметки — внутри `load`, один раз; раньше
+        // их ещё раз грузил `onAppear`, п. 31). Первый показ — сводка дня из кеша экранов
+        // сразу (итерация 5); на возврате на экране остаётся показанное, без спиннера.
+        .task {
+            if !isFresh, today == nil {
+                let api = api
+                if let cached = await ScreenCache.cached({ try await api.today() }), today == nil {
+                    today = cached
+                }
+            }
+            await load()
+        }
     }
 
     // MARK: Содержимое
@@ -375,10 +394,12 @@ struct TeachingDashboardView: View {
     @MainActor
     private func load() async {
         do {
-            async let summary = api.today()
+            let api = api
+            async let summary = ScreenCache.refreshing { try await api.today() }
             async let review = try? api.reviewQueue(limit: 5)
             async let slots = try? UniversityServicesAPI().myConsultations()
             today = try await summary
+            isFresh = true
             // Не пришедший блок не затирает показанное — только помечается сбоем.
             let fetchedQueue = await review
             // Ушли с экрана посреди загрузки — это не сбой.

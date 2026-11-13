@@ -327,11 +327,7 @@ struct TeachingAPI {
 
     /// Календарная дата «ГГГГ-ММ-ДД» по часам устройства — как веб берёт дату для журнала.
     static func day(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
+        DayString.string(from: date)
     }
 
     // MARK: Обзор

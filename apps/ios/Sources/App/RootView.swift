@@ -32,6 +32,12 @@ struct RootView: View {
             }
             .animation(LaunchLoadingView.exitAnimation(reduceMotion: reduceMotion), value: isLaunching)
             .task {
+                // База (открытие и миграции) поднимается фоном, пока идёт восстановление
+                // сессии: иначе её открывал бы первый кадр оболочки на главном потоке.
+                AppServices.databaseHolder.prewarm()
+                // Каталоги кеша экранов от прежних сборок и записи сверх лимитов — фоном.
+                ScreenCacheStore.shared.housekeeping()
+                ImageDiskCache.shared.housekeeping()
                 // Версию и сессию спрашиваем разом: они не зависят друг от друга, а
                 // по очереди это лишняя секунда к запуску.
                 async let version: Void = update.check()

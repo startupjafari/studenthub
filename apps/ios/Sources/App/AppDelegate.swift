@@ -1,5 +1,6 @@
 import UIKit
 import UserNotifications
+import os
 
 /// Делегат приложения.
 ///
@@ -8,11 +9,14 @@ import UserNotifications
 /// доставки и нажатие на уведомление приходят только сюда.
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     private let registrar = PushRegistrar()
+    /// Тихий пуш пришёл до первой разблокировки: догон отложен до неё.
+    private var deferredSync = false
 
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        Signposts.launch.emitEvent("AppDidFinishLaunching")
         Observability.start()
         KeyboardDismissal.install()
         UNUserNotificationCenter.current().delegate = self
@@ -53,8 +57,33 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             completion(.noData)
             return
         }
+        // До первой разблокировки база и связка ключей заперты: открывать базу нельзя
+        // (её приняли бы за повреждённую), а писать в память — значит потерять. Догон —
+        // по разблокировке.
+        guard AppServices.databaseHolder.isAvailable else {
+            deferredSync = true
+            completion(.noData)
+            return
+        }
         Task {
             completion(await AppServices.pushSync.catchUp() ? .newData : .failed)
+        }
+    }
+
+    /// Данные устройства разблокированы. После включения это первая разблокировка:
+    /// открываем базу, доводим продление сессии, отложенное из-за запертой связки ключей,
+    /// и догон, отложенный из-за тихого пуша. Потом приходит на каждую разблокировку —
+    /// тогда всё это уже сделано и ничего не стоит.
+    func applicationProtectedDataDidBecomeAvailable(_ application: UIApplication) {
+        AppServices.databaseHolder.prewarm()
+        // Уборка кеша экранов, отложенная запуском до разблокировки (файлы были заперты).
+        ScreenCacheStore.shared.housekeeping()
+        ImageDiskCache.shared.housekeeping()
+        let syncDeferred = deferredSync
+        deferredSync = false
+        Task {
+            await AppServices.session.resumeAfterUnlock()
+            if syncDeferred { _ = await AppServices.pushSync.catchUp() }
         }
     }
 

@@ -335,42 +335,66 @@ extension View {
 
 @Observable
 final class NotificationPreferencesModel {
+    typealias Field = WritableKeyPath<NotificationPreferencesDTO, Bool?>
+
     private(set) var value: NotificationPreferencesDTO?
     private(set) var failure: String?
     private(set) var isOffline = false
     private let api: AccountFetching
+    /// Переключатель на поле: «вкл-выкл-вкл» уходит одним итоговым запросом, ответ на
+    /// один переключатель не перезаписывает соседний, который ещё в пути.
+    private let sync: OptimisticSync<Field, Bool?>
 
-    init(api: AccountFetching = AccountAPI()) {
+    init(api: AccountFetching = AccountAPI(), pacing: OptimisticPacing = .standard) {
         self.api = api
+        sync = OptimisticSync(label: "notifications.preferences", pacing: pacing)
     }
 
     @MainActor
     func load() async {
+        let stamp = sync.beginRead()
         do {
-            value = try await api.notificationPreferences()
+            var loaded = try await api.notificationPreferences()
+            for field in sync.trackedKeys {
+                loaded[keyPath: field] = sync.resolve(field, server: loaded[keyPath: field], readAt: stamp)
+            }
+            value = loaded
             failure = nil
+        } catch is CancellationError {
+            return
         } catch {
             failure = error.userMessage
             isOffline = error.isOffline
         }
     }
 
-    /// Переключатель меняется сразу; отказ сервера возвращает прежнее значение.
+    /// Переключатель меняется сразу; отказ сервера возвращает подтверждённое значение
+    /// этого поля (соседние не трогает).
     @MainActor
-    func set(_ keyPath: WritableKeyPath<NotificationPreferencesDTO, Bool?>, to on: Bool) async {
+    func set(_ keyPath: Field, to on: Bool) async {
         guard let current = value else { return }
-        var next = current
-        next[keyPath: keyPath] = on
-        value = next
-        var change = NotificationPreferencesDTO()
-        change[keyPath: keyPath] = on
-        do {
-            value = try await api.updateNotificationPreferences(change)
-            failure = nil
-        } catch {
-            value = current
-            failure = error.userMessage
-        }
+        failure = nil
+        let api = api
+        await sync.set(
+            keyPath,
+            to: on,
+            current: current[keyPath: keyPath],
+            apply: { [weak self] next in self?.value?[keyPath: keyPath] = next },
+            send: { _, next in
+                var change = NotificationPreferencesDTO()
+                change[keyPath: keyPath] = next
+                // Ответ — все поля, но правда из него берётся только для своего: соседнее
+                // поле может быть ещё в пути, и старое значение затёрло бы нажатое.
+                // Поля в ответе нет — верим отправленному, а не «выключено по умолчанию».
+                // Развёрнуто явно: `Value` здесь сам `Bool?`, и `?? next` молча выбирал бы
+                // «нет поля» как значение.
+                if let saved = try await api.updateNotificationPreferences(change)[keyPath: keyPath] {
+                    return saved
+                }
+                return next
+            },
+            failed: { [weak self] error in self?.failure = error.rollbackMessage }
+        )
     }
 }
 
@@ -474,8 +498,11 @@ struct PrivacySettingsView: View {
                 Picker(
                     String(localized: "settings.privacy.visibility", defaultValue: "Кто видит профиль"),
                     selection: Binding(
-                        get: { viewer.profile?.profileVisibility ?? "UNIVERSITY" },
-                        set: { value in save(ProfileUpdate(profileVisibility: value)) }
+                        get: { viewer.profile?.profileVisibility ?? ViewerProfileModel.defaultVisibility },
+                        set: { value in
+                            failure = nil
+                            Task { await viewer.setVisibility(value, api: api) { failure = $0.rollbackMessage } }
+                        }
                     )
                 ) {
                     ForEach(Self.visibilities, id: \.self) { value in
@@ -485,15 +512,21 @@ struct PrivacySettingsView: View {
                 Toggle(
                     String(localized: "settings.privacy.showEmail", defaultValue: "Показывать почту"),
                     isOn: Binding(
-                        get: { viewer.profile?.showEmail ?? false },
-                        set: { save(ProfileUpdate(showEmail: $0)) }
+                        get: { viewer.privacyFlag(.showEmail) },
+                        set: { on in
+                            failure = nil
+                            Task { await viewer.setPrivacy(.showEmail, to: on, api: api) { failure = $0.rollbackMessage } }
+                        }
                     )
                 )
                 Toggle(
                     String(localized: "settings.privacy.showPhone", defaultValue: "Показывать телефон"),
                     isOn: Binding(
-                        get: { viewer.profile?.showPhone ?? false },
-                        set: { save(ProfileUpdate(showPhone: $0)) }
+                        get: { viewer.privacyFlag(.showPhone) },
+                        set: { on in
+                            failure = nil
+                            Task { await viewer.setPrivacy(.showPhone, to: on, api: api) { failure = $0.rollbackMessage } }
+                        }
                     )
                 )
             } footer: {
@@ -542,17 +575,6 @@ struct PrivacySettingsView: View {
         case "FACULTY": return String(localized: "settings.visibility.faculty", defaultValue: "Мой факультет")
         case "GROUP": return String(localized: "settings.visibility.group", defaultValue: "Моя группа")
         default: return String(localized: "settings.visibility.private", defaultValue: "Только друзья")
-        }
-    }
-
-    private func save(_ update: ProfileUpdate) {
-        Task { @MainActor in
-            do {
-                viewer.adopt(try await api.updateProfile(update))
-                failure = nil
-            } catch {
-                failure = error.userMessage
-            }
         }
     }
 

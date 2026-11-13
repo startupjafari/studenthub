@@ -71,8 +71,9 @@ struct PostMediaView: View {
 }
 
 /// Ширина карточки в точках для выбора копии: точный размер не нужен — копии идут
-/// ступенями 320/640/1280, и ошибка в полэкрана не меняет выбор.
-private let cardImagePoints: CGFloat = 420
+/// ступенями 320/640/1280, и ошибка в полэкрана не меняет выбор. Декодируется копия уже
+/// под фактический размер плитки (`RemoteImage`).
+let cardImagePoints: CGFloat = 420
 
 private struct ViewerTarget: Identifiable {
     let index: Int
@@ -92,16 +93,19 @@ private struct MediaTile: View {
         } else {
             Button(action: open) {
                 ZStack {
-                    // Подложка: то же фото, размытое, — поля у вертикального снимка не
-                    // выглядят пустыми.
-                    RemoteImage(url: media.imageURL(width: 320), cacheKey: media.cacheKey(320), placeholder: media.placeholder)
-                        .blur(radius: 24)
-                        .opacity(0.6)
+                    // Подложка видна только по бокам вписанного вертикального снимка — поля
+                    // не выглядят пустыми. Раньше это была вторая загрузка того же фото с
+                    // размытием на каждом кадре (п. 33 аудита); теперь — уже размытое
+                    // превью из ответа, без сети и без прохода вне экрана, и только там,
+                    // где его видно. Размер плитки она не меняет.
+                    if media.tileContentMode == .fit {
+                        MediaBackdrop(placeholder: media.placeholder)
+                    }
                     RemoteImage(
                         url: media.imageURL(width: width),
                         cacheKey: media.cacheKey(width),
                         placeholder: media.placeholder,
-                        contentMode: (media.aspectRatio ?? 1) < 4.0 / 5.0 ? .fit : .fill
+                        contentMode: media.tileContentMode
                     )
                 }
             }
@@ -109,6 +113,28 @@ private struct MediaTile: View {
             .accessibilityLabel(Text(String(localized: "feed.photo", defaultValue: "Фотография")))
             .accessibilityHint(Text(String(localized: "feed.photo.open", defaultValue: "Открыть на весь экран")))
         }
+    }
+}
+
+/// Подложка вписанного снимка: размытое превью, растянутое на всю плитку, или ровный
+/// цвет. Вписана в рамку плитки (`Color.clear` + `overlay`) и не влияет на раскладку.
+private struct MediaBackdrop: View {
+    let placeholder: String?
+
+    var body: some View {
+        Color.clear
+            .overlay {
+                if let preview = LQIP.blurred(from: placeholder) {
+                    Image(uiImage: preview)
+                        .resizable()
+                        .scaledToFill()
+                        .opacity(0.6)
+                } else {
+                    Palette.muted
+                }
+            }
+            .clipped()
+            .accessibilityHidden(true)
     }
 }
 
@@ -246,5 +272,11 @@ extension PostDTO.Media {
 
     func cacheKey(_ points: CGFloat) -> String {
         "\(id):\(sources?.best(forPoints: points)?.width ?? 0)"
+    }
+
+    /// Как снимок ложится в плитку: слишком вытянутый по вертикали — целиком (на
+    /// подложке), остальные — заполняя плитку.
+    var tileContentMode: ContentMode {
+        (aspectRatio ?? 1) < 4.0 / 5.0 ? .fit : .fill
     }
 }

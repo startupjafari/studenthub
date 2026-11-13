@@ -119,12 +119,7 @@ enum DeanTime {
 
     /// «YYYY-MM-DD» в поясе вуза.
     static func day(_ date: Date, timeZone: TimeZone = .current) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
+        DayString.string(from: date, timeZone: timeZone)
     }
 
     /// ISO-день недели (1 — понедельник) в поясе вуза.
@@ -138,11 +133,8 @@ enum DeanTime {
     /// Дата из строки сервера: и «2025-09-01», и полный ISO-момент.
     static func parse(_ raw: String?) -> Date? {
         guard let raw, !raw.isEmpty else { return nil }
-        if let full = JSONValue.string(raw).date { return full }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.date(from: String(raw.prefix(10)))
+        if let full = JSONCoding.isoDate(raw) { return full }
+        return DayString.date(from: raw)
     }
 }
 

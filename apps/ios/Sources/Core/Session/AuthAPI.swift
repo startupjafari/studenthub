@@ -83,8 +83,16 @@ struct AuthAPI: SessionRefreshing, SessionIssuing {
 
     // MARK: - Продление и выход
 
+    /// Предел ожидания — длинный. Короткий вреден при ротации refresh-токенов: запрос
+    /// успевает дойти до сервера и ротировать токен, а ответ мы бросаем, и следующее
+    /// продление старым токеном сервер принимает за повторное использование. Экраны его
+    /// столько не ждут: им хватает `SessionStore.tokenWait`, дальше — «нет связи».
+    static let refreshTimeout: TimeInterval = 60
+
     func refresh() async throws -> AuthSession {
-        try await client.send(publicEndpoint("auth/refresh"), as: AuthSession.self)
+        var endpoint = publicEndpoint("auth/refresh")
+        endpoint.timeout = Self.refreshTimeout
+        return try await client.send(endpoint, as: AuthSession.self)
     }
 
     func endSession(deviceToken: String?, refreshToken: String?) async throws {

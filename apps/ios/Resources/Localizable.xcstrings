@@ -96508,6 +96508,40 @@
           }
         }
       }
+    },
+    "optimistic.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет связи — изменение не сохранилось"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Байланыс жоқ — өзгеріс сақталмады"
+          }
+        }
+      }
+    },
+    "home.offline.cached": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет связи — показано сохранённое"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Байланыс жоқ — сақталғаны көрсетілді"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

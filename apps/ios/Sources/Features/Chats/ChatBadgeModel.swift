@@ -12,11 +12,15 @@ import Observation
 final class ChatBadgeModel {
     private(set) var unread = 0
 
-    private let database: AppDatabase
+    /// База — по первому `start()`, а не в инициализаторе: оболочка держит модель в
+    /// `@State`, и SwiftUI вызывает инициализатор при каждом пересчёте корня, выбрасывая
+    /// лишние экземпляры (п. 19 аудита). Такой экземпляр не должен ни открывать базу, ни
+    /// брать её замок.
+    @ObservationIgnored private let databaseSource: () -> AppDatabase
     private var task: Task<Void, Never>?
 
-    init(database: AppDatabase = AppServices.database) {
-        self.database = database
+    init(database: @autoclosure @escaping () -> AppDatabase = AppServices.database) {
+        databaseSource = database
     }
 
     deinit {
@@ -26,6 +30,7 @@ final class ChatBadgeModel {
     @MainActor
     func start() {
         guard task == nil else { return }
+        let database = databaseSource()
         let observation = ValueObservation.tracking { db in
             try Int.fetchOne(
                 db,
@@ -35,6 +40,8 @@ final class ChatBadgeModel {
                     """
             ) ?? 0
         }
+        // Число то же — оболочка с вкладками не пересчитывается.
+        .removeDuplicates()
         task = Task { @MainActor [weak self, database] in
             for await unread in AsyncValues.stream(of: observation, in: database.reader) {
                 self?.unread = unread

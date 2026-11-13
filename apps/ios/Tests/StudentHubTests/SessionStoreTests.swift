@@ -7,6 +7,11 @@ private let longLivedToken = """
     eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLWZ1dHVyZSIsInJvbGUiOiJURUFDSEVSIiwidW5pdmVyc2l0eUlkIjoidS05IiwiZmFjdWx0eUlkIjpudWxsLCJncm91cElkIjpudWxsLCJ0ZmEiOnRydWUsImV4cCI6NDEwMjQ0NDgwMH0.signature
     """
 
+/// Истёк в 2001 году — для холодного старта с просроченным последним токеном.
+private let expiredToken = """
+    eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLXBhc3QiLCJyb2xlIjoiVEVBQ0hFUiIsInVuaXZlcnNpdHlJZCI6InUtOSIsImZhY3VsdHlJZCI6bnVsbCwiZ3JvdXBJZCI6bnVsbCwidGZhIjp0cnVlLCJleHAiOjEwMDAwMDAwMDB9.signature
+    """
+
 final class SessionStoreTests: XCTestCase {
     /// Главное требование плана: сколько бы экранов ни спросили токен разом,
     /// обновление уходит одно. Второй refresh сервер считает повторным
@@ -125,40 +130,185 @@ final class SessionStoreTests: XCTestCase {
 
     // MARK: - Холодный старт без сети
 
-    /// Сеть не ответила, а вход был — приложение открывается по последнему токену, а не
-    /// выбрасывает на вход: расписание и чаты лежат в базе.
-    func testOfflineColdStartKeepsLastKnownUser() async {
+    /// Последний токен ещё действует — интерфейс открывается по нему без сети и без
+    /// продления: запросы им же и подписываются.
+    func testColdStartWithUsableTokenOpensWithoutNetwork() async {
         let secrets = MemorySecrets()
         secrets.set("rt-1", for: .refreshToken)
         secrets.set("1", for: .sessionPresent)
         secrets.set(longLivedToken, for: .lastAccessToken)
         let auth = StubAuth(token: longLivedToken)
-        await auth.failNext(with: .transport(URLError(.notConnectedToInternet)))
         let store = makeStore(auth: auth, secrets: secrets)
 
         let restoration = await store.restore()
 
-        XCTAssertEqual(restoration, .offline(AccessToken(raw: longLivedToken)!))
-        let hasSession = await store.hasStoredSession
-        XCTAssertTrue(hasSession)
+        XCTAssertEqual(restoration, .active(AccessToken(raw: longLivedToken)!))
+        let token = await store.accessToken()
+        XCTAssertEqual(token, longLivedToken)
+        let calls = await auth.refreshCalls
+        XCTAssertEqual(calls, 0)
     }
 
-    /// Отказ сервера — не «нет сети»: сессия кончилась, показываем вход.
-    func testRejectedSessionOnColdStartShowsLogin() async {
+    /// Токен истёк, сети нет: интерфейс всё равно открывается сразу по последнему
+    /// токену, продление идёт фоном одно на всех, и его неудача человека не разлогинивает.
+    func testColdStartWithExpiredTokenSurvivesNoNetwork() async {
         let secrets = MemorySecrets()
         secrets.set("rt-1", for: .refreshToken)
         secrets.set("1", for: .sessionPresent)
-        secrets.set(longLivedToken, for: .lastAccessToken)
+        secrets.set(expiredToken, for: .lastAccessToken)
+        let auth = StubAuth(token: longLivedToken)
+        await auth.failNext(with: .transport(URLError(.timedOut)))
+        let store = makeStore(auth: auth, secrets: secrets)
+        let ended = Flag()
+        await store.onSessionEnded { ended.raise() }
+
+        let restoration = await store.restore()
+        // Запрос экрана присоединяется к фоновому продлению, а не шлёт своё.
+        let token = await store.accessToken()
+
+        XCTAssertEqual(restoration, .cached(AccessToken(raw: expiredToken)!))
+        XCTAssertNil(token)
+        let calls = await auth.refreshCalls
+        XCTAssertEqual(calls, 1)
+        let hasSession = await store.hasStoredSession
+        XCTAssertTrue(hasSession)
+        XCTAssertFalse(ended.isRaised)
+        XCTAssertNotNil(secrets.value(for: .lastAccessToken))
+    }
+
+    /// Отказ сервера в фоновом продлении — не «нет сети»: сессия кончилась, следы
+    /// стираются, интерфейс уходит на вход (`onSessionEnded`).
+    func testRejectedBackgroundRefreshEndsSession() async {
+        let secrets = MemorySecrets()
+        secrets.set("rt-1", for: .refreshToken)
+        secrets.set("1", for: .sessionPresent)
+        secrets.set(expiredToken, for: .lastAccessToken)
         let auth = StubAuth(token: longLivedToken)
         await auth.failNext(
             with: .server(code: .tokenExpired, message: "Сессия истекла", details: [], statusCode: 401)
         )
         let store = makeStore(auth: auth, secrets: secrets)
+        let ended = Flag()
+        await store.onSessionEnded { ended.raise() }
 
         let restoration = await store.restore()
+        _ = await store.accessToken()
 
-        XCTAssertEqual(restoration, .none)
+        XCTAssertEqual(restoration, .cached(AccessToken(raw: expiredToken)!))
+        XCTAssertTrue(ended.isRaised)
         XCTAssertNil(secrets.value(for: .lastAccessToken))
+        let hasSession = await store.hasStoredSession
+        XCTAssertFalse(hasSession)
+    }
+
+    // MARK: - Продление: заранее, без повторов, без связки ключей
+
+    /// 401 пришёл на старый токен, а сессию уже продлил другой запрос — второго обмена
+    /// refresh-токена нет: при ротации он был бы лишним.
+    func testRefreshAfterStaleUnauthorizedReusesCurrentToken() async {
+        let auth = StubAuth(token: longLivedToken)
+        let store = makeStore(auth: auth)
+        await store.adopt(AuthSession(accessToken: longLivedToken))
+
+        let token = await store.refreshedAccessToken(replacing: expiredToken)
+
+        XCTAssertEqual(token, longLivedToken)
+        let calls = await auth.refreshCalls
+        XCTAssertEqual(calls, 0)
+    }
+
+    /// Токен скоро истечёт — запрос идёт с ним и не ждёт, а продление уходит фоном.
+    func testTokenCloseToExpiryIsRefreshedInBackground() async {
+        let auth = StubAuth(token: longLivedToken)
+        let store = makeStore(auth: auth)
+        let soon = makeToken(expiringIn: 120)
+        await store.adopt(AuthSession(accessToken: soon))
+
+        let token = await store.accessToken()
+
+        XCTAssertEqual(token, soon)
+        // Фоновое продление — то же единственное в полёте: дожидаемся его.
+        let refreshed = await store.refreshedAccessToken()
+        XCTAssertEqual(refreshed, longLivedToken)
+        let calls = await auth.refreshCalls
+        XCTAssertEqual(calls, 1)
+    }
+
+    /// Связка ключей заперта до первой разблокировки: секреты «не читаются», но сессию
+    /// это не гасит — продления без cookie нет, ничего не стирается, запросы — «нет связи».
+    func testLockedKeychainNeitherRefreshesNorEndsSession() async {
+        let secrets = MemorySecrets()
+        secrets.set("rt-1", for: .refreshToken)
+        secrets.set("1", for: .sessionPresent)
+        secrets.set(expiredToken, for: .lastAccessToken)
+        secrets.locked = true
+        let auth = StubAuth(token: longLivedToken)
+        let store = makeStore(auth: auth, secrets: secrets)
+        let ended = Flag()
+        await store.onSessionEnded { ended.raise() }
+
+        let token = await store.refreshedAccessToken()
+        let pending = await store.isSessionPending
+
+        XCTAssertNil(token)
+        XCTAssertTrue(pending)
+        XCTAssertFalse(ended.isRaised)
+        let calls = await auth.refreshCalls
+        XCTAssertEqual(calls, 0)
+        secrets.locked = false
+        XCTAssertEqual(secrets.value(for: .refreshToken), "rt-1")
+    }
+
+    /// Ответ на продление потерялся (обрыв) — через пару секунд один повтор тем же
+    /// единственным продлением: успевает в окно, где сервер отдаёт уже выданного преемника.
+    func testLostRefreshResponseIsRetriedOnce() async throws {
+        let secrets = MemorySecrets()
+        secrets.set("rt-1", for: .refreshToken)
+        secrets.set("1", for: .sessionPresent)
+        let auth = StubAuth(token: longLivedToken)
+        await auth.failNext(with: .transport(URLError(.networkConnectionLost)))
+        let store = makeStore(auth: auth, secrets: secrets, lossRetryDelay: .milliseconds(50))
+
+        let first = await store.refreshedAccessToken()
+        XCTAssertNil(first)
+        try await Task.sleep(for: .milliseconds(400))
+
+        let calls = await auth.refreshCalls
+        XCTAssertEqual(calls, 2)
+        let token = await store.accessToken()
+        XCTAssertEqual(token, longLivedToken)
+    }
+
+    /// Связку ключей разблокировали — отложенное из-за неё продление доводится.
+    func testUnlockResumesDeferredRefresh() async {
+        let secrets = MemorySecrets()
+        secrets.set("rt-1", for: .refreshToken)
+        secrets.set("1", for: .sessionPresent)
+        secrets.locked = true
+        let auth = StubAuth(token: longLivedToken)
+        let store = makeStore(auth: auth, secrets: secrets)
+
+        let locked = await store.refreshedAccessToken()
+        XCTAssertNil(locked)
+        secrets.locked = false
+        await store.resumeAfterUnlock()
+        let token = await store.refreshedAccessToken()
+
+        XCTAssertEqual(token, longLivedToken)
+        let calls = await auth.refreshCalls
+        XCTAssertEqual(calls, 1)
+    }
+
+    /// Запас продления заранее — 5 минут, но не больше трети срока жизни токена.
+    func testEarlyRefreshWindowIsCappedByLifetime() {
+        let usual = AccessToken(raw: makeToken(expiringIn: 15 * 60, issuedAgo: 0))!
+        let short = AccessToken(raw: makeToken(expiringIn: 6 * 60, issuedAgo: 0))!
+        let withoutIssueTime = AccessToken(raw: makeToken(expiringIn: 60))!
+
+        XCTAssertEqual(SessionStore.earlyRefreshWindow(for: usual), 5 * 60, accuracy: 1)
+        XCTAssertEqual(SessionStore.earlyRefreshWindow(for: short), 2 * 60, accuracy: 1)
+        // Без `iat` — срок жизни по умолчанию сервера, 15 минут.
+        XCTAssertEqual(SessionStore.earlyRefreshWindow(for: withoutIssueTime), 5 * 60, accuracy: 1)
     }
 
     // MARK: - Выход без сети
@@ -207,12 +357,36 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertFalse(pending)
     }
 
+    /// Токен с заданным сроком — для проверок «скоро истечёт».
+    private func makeToken(expiringIn seconds: TimeInterval, issuedAgo: TimeInterval? = nil) -> String {
+        func encode(_ json: String) -> String {
+            Data(json.utf8).base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-")
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: "=", with: "")
+        }
+        let now = Date()
+        let exp = Int(now.addingTimeInterval(seconds).timeIntervalSince1970)
+        let iat = issuedAgo.map { #","iat":\#(Int(now.addingTimeInterval(-$0).timeIntervalSince1970))"# } ?? ""
+        let header = encode(#"{"alg":"HS256","typ":"JWT"}"#)
+        let payload = encode(
+            #"{"sub":"user-soon","role":"TEACHER","universityId":"u-9","facultyId":null,"groupId":null,"tfa":true,"exp":"# + "\(exp)\(iat)}"
+        )
+        return "\(header).\(payload).signature"
+    }
+
     private func makeStore(
         auth: StubAuth? = nil,
         secrets: MemorySecrets = MemorySecrets(),
-        cookies: MemoryCookies = MemoryCookies()
+        cookies: MemoryCookies = MemoryCookies(),
+        lossRetryDelay: Duration = .seconds(60)
     ) -> SessionStore {
-        SessionStore(auth: auth ?? StubAuth(token: longLivedToken), secrets: secrets, cookies: cookies)
+        SessionStore(
+            auth: auth ?? StubAuth(token: longLivedToken),
+            secrets: secrets,
+            cookies: cookies,
+            lossRetryDelay: lossRetryDelay
+        )
     }
 }
 
@@ -250,13 +424,31 @@ private actor StubAuth: SessionRefreshing {
     }
 }
 
+/// Отметка «сессия кончилась» из обработчика хранилища.
+private final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var raised = false
+
+    func raise() { lock.withLock { raised = true } }
+    var isRaised: Bool { lock.withLock { raised } }
+}
+
 /// Связка ключей симулятора в юнит-тестах недоступна без прав на подпись.
 private final class MemorySecrets: SecretStore, @unchecked Sendable {
     private let lock = NSLock()
     private var storage: [String: String] = [:]
+    private var isLockedValue = false
+
+    /// Как связка ключей до первой разблокировки: секреты есть, но не читаются.
+    var locked: Bool {
+        get { lock.withLock { isLockedValue } }
+        set { lock.withLock { isLockedValue = newValue } }
+    }
+
+    var isLocked: Bool { locked }
 
     func value(for key: SecretKey) -> String? {
-        lock.withLock { storage[key.rawValue] }
+        lock.withLock { isLockedValue ? nil : storage[key.rawValue] }
     }
 
     func set(_ value: String, for key: SecretKey) {

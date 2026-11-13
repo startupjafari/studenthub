@@ -6,10 +6,16 @@ import Foundation
 /// формирование запросов: иначе они ссылаются друг на друга, и ни один не
 /// тестируется в одиночку.
 protocol AuthorizationProvider: Sendable {
-    /// Действующий токен или `nil`, если пользователь не вошёл.
+    /// Действующий токен или `nil`, если пользователь не вошёл или токена пока нет.
     func accessToken() async -> String?
-    /// Сервер ответил 401. Вернуть новый токен, если сессию удалось продлить.
-    func refreshedAccessToken() async -> String?
+    /// Сервер ответил 401 на запрос с токеном `used`. Вернуть новый токен, если сессию
+    /// удалось продлить. Токен уже сменился (продлил кто-то другой) — вернуть его без
+    /// нового продления.
+    func refreshedAccessToken(replacing used: String?) async -> String?
+    /// Сессия есть, но токена сейчас нет: продление ещё идёт, не дало ответа по
+    /// существу (нет связи, 5xx) или связка ключей заперта до первой разблокировки.
+    /// Запрос тогда — «нет связи», а не анонимный запрос с ответом «Unauthorized».
+    var isSessionPending: Bool { get async }
 }
 
 /// Единственная дверь в API.
@@ -22,19 +28,22 @@ actor APIClient {
     private let authorization: AuthorizationProvider?
     private let maxRetries: Int
     private let cookieJar: RefreshCookieJar?
+    private let screenCache: ScreenCacheStore
 
     init(
         baseURL: URL = AppConfiguration.apiBaseURL,
         session: URLSession = APIClient.session,
         authorization: AuthorizationProvider? = nil,
         maxRetries: Int = 2,
-        cookieJar: RefreshCookieJar? = .shared
+        cookieJar: RefreshCookieJar? = .shared,
+        screenCache: ScreenCacheStore = .shared
     ) {
         self.baseURL = baseURL
         self.session = session
         self.authorization = authorization
         self.maxRetries = maxRetries
         self.cookieJar = cookieJar
+        self.screenCache = screenCache
     }
 
     /// Соединение без системного хранилища cookie: refresh-cookie оно записало бы на диск,
@@ -50,21 +59,24 @@ actor APIClient {
 
     /// Запрос с телом ответа.
     func send<Response: Decodable>(_ endpoint: Endpoint, as type: Response.Type) async throws -> Response {
-        let data = try await perform(endpoint)
+        let data = try await perform(endpoint, cacheable: true)
         do {
             return try JSONCoding.decoder.decode(APISuccessEnvelope<Response>.self, from: data).data
         } catch {
+            // Сохранённый ответ не разобрался новой моделью — тоже промах кеша.
+            ScreenCache.scope?.misses.record()
             throw APIError.decoding(underlying: error, statusCode: 200)
         }
     }
 
     /// Запрос со страницей списка: данные и курсоры приходят рядом, в одном конверте.
     func page<Item: Decodable>(_ endpoint: Endpoint, of type: Item.Type) async throws -> Page<Item> {
-        let data = try await perform(endpoint)
+        let data = try await perform(endpoint, cacheable: true)
         do {
             let envelope = try JSONCoding.decoder.decode(APISuccessEnvelope<[Item]>.self, from: data)
             return Page(items: envelope.data, meta: envelope.meta)
         } catch {
+            ScreenCache.scope?.misses.record()
             throw APIError.decoding(underlying: error, statusCode: 200)
         }
     }
@@ -81,20 +93,62 @@ actor APIClient {
 
     // MARK: - Внутреннее
 
-    private func perform(_ endpoint: Endpoint) async throws -> Data {
+    /// Запрос с учётом кеша экранов (`ScreenCache`). Вне его скобок — как раньше.
+    /// `cacheable` — ответ — JSON экрана (`send`, `page`), а не файл (`data`).
+    private func perform(_ endpoint: Endpoint, cacheable: Bool = false) async throws -> Data {
+        guard let scope = ScreenCache.scope else { return try await performNetwork(endpoint) }
+        let key: ScreenCacheKey? = cacheable && endpoint.method == .get
+            && ScreenCache.allows(path: endpoint.path, query: endpoint.query)
+            ? ScreenCacheKey(
+                owner: scope.owner,
+                method: endpoint.method.rawValue,
+                path: endpoint.path,
+                query: endpoint.query,
+                language: ScreenCache.language
+            )
+            : nil
+        switch scope.mode {
+        case .cachedOnly:
+            // Только сохранённое: ни сети, ни продления сессии. Запись (POST и др.) и
+            // несохраняемые маршруты — промах, а не запрос.
+            guard let key, let data = await screenCache.data(for: key) else {
+                scope.misses.record()
+                throw ScreenCacheMiss()
+            }
+            scope.misses.recordHit()
+            return data
+        case .refresh:
+            let data = try await performNetwork(endpoint)
+            if let key { screenCache.store(data, for: key, generation: scope.generation) }
+            return data
+        }
+    }
+
+    private func performNetwork(_ endpoint: Endpoint) async throws -> Data {
         let token = endpoint.requiresAuthorization ? await authorization?.accessToken() : nil
+        try await failIfSessionPending(endpoint, token: token)
 
         do {
             return try await attempt(endpoint, token: token)
         } catch let error as APIError {
             // Ровно одна попытка продлить сессию. Второй 401 после свежего токена
             // означает, что дело не в сроке жизни, и повторять бесполезно.
-            guard
-                endpoint.requiresAuthorization,
-                let code = error.code, code.meansSessionExpired,
-                let refreshed = await authorization?.refreshedAccessToken()
-            else { throw error }
+            guard endpoint.requiresAuthorization, let code = error.code, code.meansSessionExpired else { throw error }
+            guard let refreshed = await authorization?.refreshedAccessToken(replacing: token) else {
+                // Продление не дало ответа по существу — экрану «нет связи», а не 401.
+                try await failIfSessionPending(endpoint, token: nil)
+                throw error
+            }
             return try await attempt(endpoint, token: refreshed)
+        }
+    }
+
+    /// Токена нет, а сессия жива и ждёт продления (или связки ключей): запрос без
+    /// токена получил бы 401 и выглядел бы как конец сессии. Отвечаем «нет связи».
+    private func failIfSessionPending(_ endpoint: Endpoint, token: String?) async throws {
+        guard endpoint.requiresAuthorization, token == nil, let authorization else { return }
+        if await authorization.isSessionPending {
+            throw APIError.transport(URLError(.timedOut))
         }
     }
 
@@ -149,6 +203,7 @@ actor APIClient {
         }
 
         var request = URLRequest(url: url)
+        if let timeout = endpoint.timeout { request.timeoutInterval = timeout }
         request.httpMethod = endpoint.method.rawValue
         request.httpBody = endpoint.body
         request.setValue("application/json", forHTTPHeaderField: "Accept")

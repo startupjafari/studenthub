@@ -43,15 +43,40 @@ final class AppDatabase: Sendable {
         return try AppDatabase(pool)
     }
 
-    /// Снести хранилище целиком — путь для повреждённого файла.
+    /// Файл базы есть, но не читается: данные устройства заперты до первой разблокировки
+    /// (запуск тихим пушем после перезагрузки). Это не повреждение — сносить нельзя.
+    static func isStoreLocked(fileManager: FileManager = .default) -> Bool {
+        guard let folder = try? storeFolder(fileManager: fileManager) else { return false }
+        let path = folder.appendingPathComponent(storeName).path
+        guard fileManager.fileExists(atPath: path) else { return false }
+        return FileHandle(forReadingAtPath: path) == nil
+    }
+
+    /// Отложить хранилище в резервную копию с датой — путь для базы, которая не
+    /// открылась (повреждение, ошибка миграции). Не удаляем: в ней черновики и
+    /// неотправленное, а резервную копию можно достать при разборе. Резервная — одна:
+    /// прежняя удаляется, чтобы копии не копились.
     ///
-    /// Удаляем каталог, а не один файл: рядом с базой лежат `-wal` и `-shm`, и
-    /// оставленный журнал воскресит ровно ту поломку, из-за которой мы сюда пришли.
-    static func removeStore(fileManager: FileManager = .default) throws {
+    /// Переносим каталог, а не один файл: рядом с базой лежат `-wal` и `-shm`, и
+    /// оставленный журнал воскресил бы ровно ту поломку, из-за которой мы сюда пришли.
+    static func moveStoreAside(fileManager: FileManager = .default, now: Date = Date()) throws {
         let folder = try storeFolder(fileManager: fileManager)
         guard fileManager.fileExists(atPath: folder.path) else { return }
-        try fileManager.removeItem(at: folder)
+        let parent = folder.deletingLastPathComponent()
+        let prefix = folder.lastPathComponent + backupMarker
+        let existing = (try? fileManager.contentsOfDirectory(at: parent, includingPropertiesForKeys: nil)) ?? []
+        for old in existing where old.lastPathComponent.hasPrefix(prefix) {
+            try? fileManager.removeItem(at: old)
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        let stamp = formatter.string(from: now)
+        try fileManager.moveItem(at: folder, to: parent.appendingPathComponent(prefix + stamp, isDirectory: true))
     }
+
+    private static let backupMarker = "-backup-"
 
     /// Стереть данные, оставив схему, — при смене человека на устройстве.
     ///

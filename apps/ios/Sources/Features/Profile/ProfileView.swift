@@ -94,10 +94,16 @@ struct ProfileView: View {
             if model.isMine, !viewerID.isEmpty {
                 posts = FeedModel(api: FeedAPI(scope: .author(id: viewerID)))
             }
+            // Свой профиль уже в памяти оболочки — шапка сразу, без спиннера (п. 21);
+            // карточка с сервера обновит её фоном.
+            if model.isMine, model.profile == nil, let mine = viewer.profile {
+                model.adopt(mine)
+            }
             async let card: Void = model.load()
             async let feed: Void = posts.refresh()
             _ = await (card, feed)
         }
+        .actionToast($model.staleNotice)
         .pullToRefresh {
             async let card: Void = model.load()
             async let feed: Void = posts.refresh()
@@ -685,14 +691,13 @@ private struct ProfileHeaderView: View {
                 Task { await model.friendshipAction() }
             } label: { label }
                 .buttonStyle(.plain)
-                .disabled(model.isChangingFriendship)
-                .sensoryFeedback(.success, trigger: friendship.status)
+                .sensoryFeedback(trigger: friendship.status) { _, new in Self.friendshipFeedback(new) }
         default:
             Button {
                 confirmsUnfriend = true
             } label: { label }
                 .buttonStyle(.plain)
-                .sensoryFeedback(.success, trigger: friendship.status)
+                .sensoryFeedback(trigger: friendship.status) { _, new in Self.friendshipFeedback(new) }
         }
     }
 
@@ -1025,6 +1030,12 @@ private struct ProfileHeaderView: View {
         }
     }
 
+    /// Отклик — на шаг навстречу (заявка ушла, дружба принята), а не на откат и не на
+    /// разрыв: статус меняется сразу, до ответа сервера, и откат тоже меняет его.
+    static func friendshipFeedback(_ status: String) -> SensoryFeedback? {
+        status == "PENDING_OUTGOING" || status == "ACCEPTED" ? .success : nil
+    }
+
     static func friendshipTitle(_ status: String) -> String {
         switch status {
         case "ACCEPTED": return String(localized: "profile.friends.remove", defaultValue: "В друзьях")
@@ -1167,6 +1178,8 @@ private struct ProfilePollCard: View {
             .foregroundStyle(Palette.mutedForeground)
         }
         .cardSurface(padding: Spacing.lg)
+        // Голос принят на экране (сразу, до ответа сервера) — тактильный отклик.
+        .sensoryFeedback(trigger: poll.myVotes) { old, new in old.isEmpty && !new.isEmpty ? .success : nil }
     }
 
     private func result(_ option: ProfilePollDTO.Option) -> some View {

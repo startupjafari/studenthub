@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 
 /// Оболочка приложения: до пяти вкладок, у каждой свой стек.
 ///
@@ -39,6 +40,9 @@ struct AppShellView: View {
         .fullScreenCover(isPresented: Binding(get: { consent.isRequired }, set: { _ in })) {
             ConsentGateView(model: consent, session: session)
         }
+        // Первый кадр оболочки — конец холодного старта для человека (App Launch покажет
+        // и время до него от запуска процесса).
+        .onAppear { Signposts.launch.emitEvent("ShellFirstFrame") }
         .task {
             router.adopt(role: role)
             // Чатов у охраны и библиотеки нет (`hasChats` в вебе): и счётчик им не нужен.
