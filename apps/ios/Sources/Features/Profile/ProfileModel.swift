@@ -71,6 +71,7 @@ enum ProfileTab: String, CaseIterable, Identifiable {
 ///
 /// Вкладки грузятся лениво — при первом открытии: человек, зашедший посмотреть
 /// группу и курс, не должен тянуть сотню фото.
+@MainActor
 @Observable
 final class ProfileModel {
     let userID: String?

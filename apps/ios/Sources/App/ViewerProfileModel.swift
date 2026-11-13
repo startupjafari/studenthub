@@ -6,6 +6,7 @@ import SwiftUI
 ///
 /// Живёт в оболочке, а не в `AppServices`: оболочка исчезает при выходе из аккаунта,
 /// и вместе с ней — профиль прежнего человека. Следующий вход начинает с пустого.
+@MainActor
 @Observable
 final class ViewerProfileModel {
     /// Переключатели конфиденциальности (`PrivacySettingsView`).
