@@ -44,7 +44,8 @@ xcodebuild -project StudentHub.xcodeproj -scheme StudentHub -destination 'platfo
 `SENTRY_DSN` (`SHSentryDSN`): пусто — трекер не инициализируется.
 
 CI: `.github/workflows/ios.yml` — сборка и тесты на симуляторе (раздел «Тесты»);
-`ios-nightly.yml` — расширенный ночной прогон; `ios-release.yml` — архив и загрузка в
+`ios-nightly.yml` — расширенный прогон (все UI-сценарии и замеры) после каждого
+вливания iOS в develop и ночью; `ios-release.yml` — архив и загрузка в
 TestFlight вручную. Выпуск — `docs/RELEASE_IOS.md`.
 
 ## Тесты
@@ -71,8 +72,16 @@ scripts/test.sh snapshot --record   # переснять эталоны сним
 **Mock API.** UI- и perf-тесты не ходят в сеть: приложение запускается с
 `SH_UITEST_MOCK=1` и берёт ответы из фикстур (`Sources/App/UITesting`, только в Debug).
 `SH_UITEST_SCENARIO=student` — сразу вошедший студент, `SH_UITEST_LARGE=1` — большие
-данные для замеров, `SH_UITEST_REDUCE_MOTION=1` — уменьшение движения. Учётка mock:
+данные для замеров, `SH_UITEST_REDUCE_MOTION=1` — уменьшение движения,
+`SH_UITEST_HISTORY_DELAY_MS=1500` — медленная загрузка истории переписки. Учётка mock:
 `student@test.local` / `Test1234!`. Прод-секретов в тестах нет.
+
+**Флаги производительности** второй волны (`PerformanceFlags.Switch`) включаются не «на
+глаз»: `MessageBubbleSnapshotTests` и `PerformanceFlagUITests` на каждом PR сравнивают
+вид с флагом и без него (пузыри во всей матрице снимков, лента переписки внизу, наверху и
+после возврата, приход истории при медленной сети). Весь прогон можно пустить в нужном
+положении: `SH_PERF_FLAGS=all=0 scripts/test.sh` (или `chatHeightCache=1,…`; в CI — поле
+`perf_flags` ручного запуска).
 
 **Эталоны снимков** лежат в `Tests/**/__Snapshots__/<среда>/` (`ios26@3x`) и сравнимы
 только в той же среде: Xcode 26.6, iPhone 17 Pro, iOS 26.5 — как в CI. Переснимать —
