@@ -7,12 +7,10 @@ struct DeanAnalyticsView: View {
     private enum Tab: Hashable { case students, groups }
     private enum RiskSort: Hashable { case risk, name, attendance, overdue, grades }
 
-    @State private var overview: DeanFacultyOverview?
-    @State private var risk: DeanAtRisk?
-    @State private var failure: String?
-    @State private var isOffline = false
-    @State private var riskFailure: String?
-    @State private var riskOffline = false
+    /// Сводка факультета и «требуют внимания» — независимо (`RemoteValue`): список
+    /// риска не пришёл — сводка всё равно на экране.
+    @State private var overviewRemote = RemoteValue<DeanFacultyOverview>()
+    @State private var riskRemote = RemoteValue<DeanAtRisk>()
     @State private var tab: Tab? = .students
     @State private var riskSort: RiskSort = .risk
     @State private var reasonFilter: String?
@@ -21,9 +19,21 @@ struct DeanAnalyticsView: View {
 
     private let api = DeanAPI()
 
+    private var overview: DeanFacultyOverview? { overviewRemote.value }
+    private var risk: DeanAtRisk? { riskRemote.value }
+    private var failure: String? { overviewRemote.failure }
+    private var isOffline: Bool { overviewRemote.isOffline }
+    private var riskFailure: String? { riskRemote.failure }
+    private var riskOffline: Bool { riskRemote.isOffline }
+
     var body: some View {
         List {
             if let overview {
+                if let failure {
+                    StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
                 summary(overview)
                 FilterChipsRow(
                     options: [
@@ -78,7 +88,9 @@ struct DeanAnalyticsView: View {
         }
         .deanExportSheet(exporter)
         .pullToRefresh { await load() }
-        .task { if overview == nil { await load() } }
+        // Показ, возврат на экран и возврат приложения из фона — сохранённое на месте,
+        // сеть обновляет фоном.
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await load() }
     }
 
     private var threshold: Double { risk?.thresholds.attendance ?? 60 }
@@ -227,28 +239,10 @@ struct DeanAnalyticsView: View {
         }
     }
 
-    @MainActor
     private func load() async {
-        async let overviewTask = api.facultyOverview()
-        async let riskTask = api.atRisk()
-        do {
-            overview = try await overviewTask
-            failure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
-        do {
-            risk = try await riskTask
-            riskFailure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            riskFailure = error.userMessage
-            riskOffline = error.isOffline
-        }
+        async let overview: Void = overviewRemote.load(api.facultyOverview)
+        async let risk: Void = riskRemote.load(api.atRisk)
+        _ = await (overview, risk)
     }
 }
 

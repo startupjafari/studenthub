@@ -38,6 +38,16 @@ final class RemoteValue<Value> {
 
     private var usesCache: Bool { caching && PerformanceFlags.screenCache }
 
+    /// Сменился запрос (вкладка, период, фильтр): показанное уже не ответ на него.
+    /// Значение и ошибка сбрасываются, идущая загрузка больше ничего не запишет.
+    func reset() {
+        generation += 1
+        value = nil
+        failure = nil
+        isOffline = false
+        checkedCache = false
+    }
+
     /// Загрузить. Ответ устаревшей загрузки (её обогнала новая — жест обновления поверх
     /// первой загрузки) отбрасывается.
     func load(_ fetch: () async throws -> Value) async {
