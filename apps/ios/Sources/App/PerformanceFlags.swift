@@ -28,4 +28,8 @@ enum PerformanceFlags {
     /// Шаг 2.5. Своя раскладка ленты с кешем высот (`MessageStackLayout`): высота строки
     /// известна до показа. Выключен до проверки на устройстве — меняет то, что видно.
     static let chatHeightCache = false
+    /// Шаг 2.6. `ChatBubbleStack` запоминает замеры детей между `sizeThatFits` и
+    /// `placeSubviews` при той же ширине — каждый ребёнок меряется раз, а не 2–3.
+    /// Выключен до проверки на устройстве: устаревший замер обрезал бы пузырь.
+    static let chatBubbleLayoutCache = false
 }
