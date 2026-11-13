@@ -159,7 +159,7 @@ struct AssignmentDetailView: View {
     var isStudent = true
 
     @Environment(\.openURL) private var openURL
-    @State private var model: StudySectionModel<AssignmentDTO>?
+    @State private var remote = RemoteValue<AssignmentDTO>()
     @State private var files: StudentSubmissionFilesModel?
     @State private var text = ""
     @State private var link = ""
@@ -173,13 +173,19 @@ struct AssignmentDetailView: View {
 
     private let api = StudyAPI()
 
-    private var assignment: AssignmentDTO? { model?.value }
+    private var assignment: AssignmentDTO? { remote.value }
 
     var body: some View {
         Form {
             if let failure {
                 FormAlert(message: failure)
                     .listRowBackground(Color.clear)
+            }
+            // Обновление не удалось, а задание на экране — полосой, набранное не трогаем.
+            if assignment != nil, let loadFailure = remote.failure {
+                StaleDataBanner(message: loadFailure, isOffline: remote.isOffline) { await reload() }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
             }
 
             if let assignment {
@@ -191,9 +197,9 @@ struct AssignmentDetailView: View {
             }
         }
         .screenState(assignment == nil) {
-            if let failure = model?.failure {
-                ErrorStateView(message: failure, isOffline: model?.isOffline ?? false) { await model?.refresh() }
-            } else {
+            if let failure = remote.failure {
+                ErrorStateView(message: failure, isOffline: remote.isOffline) { await reload() }
+            } else if remote.checkedCache {
                 LoadingStateView()
             }
         }
@@ -204,11 +210,11 @@ struct AssignmentDetailView: View {
         .alert(notice ?? "", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}
         }
-        .task {
-            if model == nil {
-                let id = assignmentID
-                model = StudySectionModel<AssignmentDTO> { try await StudyAPI().assignment(id: id) }
-                let filesModel = StudentSubmissionFilesModel(assignmentID: id)
+        .onChange(of: remote.checkedCache) { syncFields() }
+        // Возврат приложения из фона после долгой паузы — повод перечитать (`AppLifecycle`).
+        .task(id: AppLifecycle.shared.foregroundEpoch) {
+            if files == nil {
+                let filesModel = StudentSubmissionFilesModel(assignmentID: assignmentID)
                 filesModel.onChanged = { await self.reload() }
                 files = filesModel
             }
@@ -374,9 +380,17 @@ struct AssignmentDetailView: View {
 
     @MainActor
     private func reload() async {
-        await model?.refresh()
-        // Поля синхронизируются по значениям с сервера: после загрузки файла задание
-        // приходит заново, и набранный, но не сохранённый ответ не должен стираться.
+        let id = assignmentID
+        await remote.load { try await StudyAPI().assignment(id: id) }
+        syncFields()
+    }
+
+    /// Поля синхронизируются по значениям с сервера: после загрузки файла задание
+    /// приходит заново, и набранный, но не сохранённый ответ не должен стираться.
+    /// Зовётся и когда задание встало из сохранённого — до ответа сети, чтобы ответ
+    /// с тем же текстом не затёр начатое за это время.
+    @MainActor
+    private func syncFields() {
         let serverText = assignment?.mySubmission?.text ?? ""
         let serverLink = assignment?.mySubmission?.linkUrl ?? ""
         if serverText != syncedText {

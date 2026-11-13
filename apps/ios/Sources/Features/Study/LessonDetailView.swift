@@ -13,15 +13,25 @@ struct LessonDetailView: View {
     @State private var pair: PairRecord?
     @State private var change: PairChangeRecord?
     @State private var isMissing = false
-    @State private var course: CourseDTO?
-    @State private var assignments: [AssignmentDTO]?
-    /// Дисциплина или задания не пришли — это сбой, а не «заданий нет».
-    @State private var relatedFailed = false
+    /// Дисциплина и её задания — `RemoteValue`: те же ответы, что у списков и главной,
+    /// из сохранённого сразу, свежие — следом (п. 30 аудита).
+    @State private var related = RemoteValue<Related>()
     /// Разовое изменение на этот день с сервера — с новой аудиторией и заменяющим, как
     /// в карточке пары веба. В локальной базе их нет: там только время и примечание.
     @State private var remoteChange: StudentScheduleChangeDTO?
 
     private var item: SchedulePair? { pair.map { SchedulePair(pair: $0, change: change) } }
+
+    private struct Related {
+        let course: CourseDTO?
+        let assignments: [AssignmentDTO]
+    }
+
+    private var course: CourseDTO? { related.value?.course }
+    private var assignments: [AssignmentDTO]? { related.value?.assignments }
+    /// Дисциплина или задания не пришли — это сбой, а не «заданий нет». Показанное при
+    /// этом остаётся.
+    private var relatedFailed: Bool { related.failure != nil }
 
     @State private var showsCourse = false
 
@@ -86,7 +96,8 @@ struct LessonDetailView: View {
         .navigationDestination(isPresented: $showsCourse) {
             if let course { CourseDetailView(course: course, role: .student) }
         }
-        .task { await load() }
+        // Возврат приложения из фона после долгой паузы — повод перечитать (`AppLifecycle`).
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await load() }
     }
 
     /// Дисциплина и её задания — строками как в списке чатов.
@@ -233,37 +244,26 @@ struct LessonDetailView: View {
         isMissing = pair == nil
         guard let subject = pair?.subject.lowercased() else { return }
 
-        // Пара хранит дисциплину названием (так её отдаёт сервер) — связываем по нему.
-        // Курсы и задания — те же ответы, что у списков и главной: из кеша экранов сразу,
-        // свежие — следом (п. 30 аудита; `courseId` в паре — «Требует бэкенда»).
-        if course == nil, assignments == nil {
-            async let cachedCourses = ScreenCache.cached { try await CoursesAPI().courses(mine: false) }
-            async let cachedTasks = ScreenCache.cached { try await StudyAPI().assignments().items }
-            let (savedCourses, savedTasks) = await (cachedCourses, cachedTasks)
-            if course == nil, let savedCourses {
-                course = savedCourses.first { $0.subject.name.lowercased() == subject }
-            }
-            if assignments == nil, let savedTasks {
-                assignments = savedTasks.filter { $0.subject?.lowercased() == subject }
-            }
-        }
-        async let courses = try? ScreenCache.refreshing { try await CoursesAPI().courses(mine: false) }
-        async let tasks = try? ScreenCache.refreshing { try await StudyAPI().assignments().items }
+        // Пара хранит дисциплину названием (так её отдаёт сервер) — связываем по нему
+        // (`courseId` в паре — «Требует бэкенда»). Не пришедшее не затирает показанное:
+        // при сбое повтора старое остаётся (`RemoteValue`).
         let day = ScheduleAPI.day(date, in: .current)
         async let changes = try? StudentStudyAPI().scheduleChanges(from: day, to: day)
-        let fetchedCourses = await courses
-        let fetchedTasks = await tasks
+        await related.load { try await Self.fetchRelated(subject: subject) }
+        let fetchedChanges = await changes
         // Ушли с экрана посреди загрузки — это не сбой.
         guard !Task.isCancelled else { return }
-        // Не пришедшее не затирает показанное: при сбое повтора старое остаётся.
-        relatedFailed = fetchedCourses == nil || fetchedTasks == nil
-        if let fetchedCourses {
-            course = fetchedCourses.first { $0.subject.name.lowercased() == subject }
-        }
-        if let fetchedTasks {
-            assignments = fetchedTasks.filter { $0.subject?.lowercased() == subject }
-        }
-        remoteChange = StudentCalendarBuilder.mergedChanges((await changes ?? []).filter { $0.pairId == pairID })["\(pairID)|\(day)"]
+        remoteChange = StudentCalendarBuilder.mergedChanges((fetchedChanges ?? []).filter { $0.pairId == pairID })["\(pairID)|\(day)"]
+    }
+
+    private static func fetchRelated(subject: String) async throws -> Related {
+        async let courses = CoursesAPI().courses(mine: false)
+        async let tasks = StudyAPI().assignments().items
+        let (allCourses, allTasks) = try await (courses, tasks)
+        return Related(
+            course: allCourses.first { $0.subject.name.lowercased() == subject },
+            assignments: allTasks.filter { $0.subject?.lowercased() == subject }
+        )
     }
 }
 
