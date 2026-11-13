@@ -123,11 +123,8 @@ struct AdminUniversityView: View {
     @Environment(\.viewerRole) private var viewerRole
     @Environment(\.dismiss) private var dismiss
 
-    @State private var university: AdminUniversityDTO?
-    @State private var stats: AdminUniversityStatsDTO?
-    @State private var cityName: String?
-    @State private var failure: String?
-    @State private var isOffline = false
+    /// Реквизиты, размер и название города — одним значением (`RemoteValue`).
+    @State private var remote = RemoteValue<Loaded>()
     @State private var actionFailure: String?
     @State private var editing = false
     @State private var inviting = false
@@ -138,19 +135,20 @@ struct AdminUniversityView: View {
     private let api = AdminAPI()
     private var canEdit: Bool { viewerRole == .platformAdmin }
 
+    private struct Loaded {
+        let university: AdminUniversityDTO
+        let stats: AdminUniversityStatsDTO?
+        let cityName: String?
+    }
+
+    private var university: AdminUniversityDTO? { remote.value?.university }
+    private var stats: AdminUniversityStatsDTO? { remote.value?.stats }
+    private var cityName: String? { remote.value?.cityName }
+
     var body: some View {
-        Group {
-            if let university {
-                content(university)
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
-                LoadingStateView()
-            }
-        }
+        RemoteValueContent(remote: remote, load: fetch) { loaded in content(loaded.university) }
         .navigationTitle(Text(AdminScreen.university(id: id).title))
         .navigationBarTitleDisplayMode(.inline)
-        .task { await load() }
         .actionFailureAlert($actionFailure)
         .sheet(isPresented: $editing) {
             if let university {
@@ -318,22 +316,16 @@ struct AdminUniversityView: View {
         ]
     }
 
-    @MainActor
     private func load() async {
-        do {
-            let value = try await api.university(id: id)
-            university = value
-            failure = nil
-            if let city = value.city, let unit = try? await api.katoResolve([city]).first {
-                cityName = unit.nameRu
-            }
-            stats = try? await api.universityStats(id: id)
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
+        await remote.load(fetch)
+    }
+
+    /// Город и размер — дополнение к реквизитам: не пришли — карточка без них, не ошибка.
+    private func fetch() async throws -> Loaded {
+        let university = try await api.university(id: id)
+        async let city = AdminKato.cityName(university.city)
+        async let stats = try? api.universityStats(id: id)
+        return Loaded(university: university, stats: await stats, cityName: await city)
     }
 
     @MainActor
@@ -583,10 +575,8 @@ struct AdminDemoRequestView: View {
     let id: String
 
     @Environment(\.openURL) private var openURL
-    @State private var request: AdminDemoRequestDTO?
-    @State private var cityName: String?
-    @State private var failure: String?
-    @State private var isOffline = false
+    /// Заявка и название города — одним значением (`RemoteValue`).
+    @State private var remote = RemoteValue<Loaded>()
     @State private var actionFailure: String?
     @State private var approving = false
     @State private var rejecting = false
@@ -596,19 +586,18 @@ struct AdminDemoRequestView: View {
 
     private let api = AdminAPI()
 
+    private struct Loaded {
+        let request: AdminDemoRequestDTO
+        let cityName: String?
+    }
+
+    private var request: AdminDemoRequestDTO? { remote.value?.request }
+    private var cityName: String? { remote.value?.cityName }
+
     var body: some View {
-        Group {
-            if let request {
-                content(request)
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
-                LoadingStateView()
-            }
-        }
+        RemoteValueContent(remote: remote, load: fetch) { loaded in content(loaded.request) }
         .navigationTitle(Text(AdminScreen.demoRequest(id: id).title))
         .navigationBarTitleDisplayMode(.inline)
-        .task { await load() }
         .actionFailureAlert($actionFailure)
         .sheet(isPresented: $approving) {
             if let request {
@@ -756,21 +745,13 @@ struct AdminDemoRequestView: View {
         return Array(actions.prefix(4))
     }
 
-    @MainActor
     private func load() async {
-        do {
-            let value = try await api.demoRequest(id: id)
-            request = value
-            failure = nil
-            if let city = value.city, let unit = try? await api.katoResolve([city]).first {
-                cityName = unit.nameRu
-            }
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
+        await remote.load(fetch)
+    }
+
+    private func fetch() async throws -> Loaded {
+        let request = try await api.demoRequest(id: id)
+        return Loaded(request: request, cityName: await AdminKato.cityName(request.city))
     }
 
     @MainActor

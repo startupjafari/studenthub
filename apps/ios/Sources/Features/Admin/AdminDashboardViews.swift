@@ -15,22 +15,37 @@ struct AdminPlatformDashboardView: View {
 
     @State private var days = 30
     @State private var topic: Topic = .users
-    @State private var overview: AdminPlatformOverviewDTO?
-    @State private var overviewFailure: String?
-    @State private var isOffline = false
-    @State private var growth: AdminSeriesDTO?
-    @State private var active: AdminSeriesDTO?
-    @State private var flow: AdminSeriesDTO?
-    @State private var latency: AdminLatencyDTO?
-    @State private var invites: AdminInvitesFunnelDTO?
-    @State private var heatmap: AdminHeatmapDTO?
-    @State private var actions: AdminTopActionsDTO?
-    @State private var sizes: AdminUniversitiesSizeDTO?
-    /// Запросы периода уже отвечали: пустой график после этого — сбой, а не загрузка.
-    @State private var rangeLoaded = false
-    @State private var sizesTried = false
+    /// Сводка, графики периода и размер вузов — три независимых значения
+    /// (`RemoteValue`): падение одного не прячет остальные.
+    @State private var overviewRemote = RemoteValue<AdminPlatformOverviewDTO>()
+    @State private var rangeRemote = RemoteValue<RangeData>()
+    @State private var sizesRemote = RemoteValue<AdminUniversitiesSizeDTO>()
 
     private let api = AdminAPI()
+
+    /// Графики периода. Каждый — сам по себе: не пришёл — `nil`, остальные на месте.
+    private struct RangeData {
+        var growth: AdminSeriesDTO?
+        var active: AdminSeriesDTO?
+        var flow: AdminSeriesDTO?
+        var latency: AdminLatencyDTO?
+        var invites: AdminInvitesFunnelDTO?
+        var heatmap: AdminHeatmapDTO?
+        var actions: AdminTopActionsDTO?
+    }
+
+    private var overview: AdminPlatformOverviewDTO? { overviewRemote.value }
+    private var growth: AdminSeriesDTO? { rangeRemote.value?.growth }
+    private var active: AdminSeriesDTO? { rangeRemote.value?.active }
+    private var flow: AdminSeriesDTO? { rangeRemote.value?.flow }
+    private var latency: AdminLatencyDTO? { rangeRemote.value?.latency }
+    private var invites: AdminInvitesFunnelDTO? { rangeRemote.value?.invites }
+    private var heatmap: AdminHeatmapDTO? { rangeRemote.value?.heatmap }
+    private var actions: AdminTopActionsDTO? { rangeRemote.value?.actions }
+    private var sizes: AdminUniversitiesSizeDTO? { sizesRemote.value }
+    /// Запросы периода уже отвечали: пустой график после этого — сбой, а не загрузка.
+    private var rangeLoaded: Bool { rangeRemote.value != nil }
+    private var sizesTried: Bool { sizesRemote.failure != nil }
 
     var body: some View {
         List {
@@ -42,9 +57,9 @@ struct AdminPlatformDashboardView: View {
                 }
             )
 
-            if overview == nil, let overviewFailure {
+            if overview == nil, let overviewFailure = overviewRemote.failure {
                 Section {
-                    ErrorStateView(message: overviewFailure, isOffline: isOffline) { await loadOverview() }
+                    ErrorStateView(message: overviewFailure, isOffline: overviewRemote.isOffline) { await loadOverview() }
                 }
                 .listRowBackground(Color.clear)
             } else {
@@ -100,8 +115,9 @@ struct AdminPlatformDashboardView: View {
             await loadOverview()
             await loadRange()
         }
-        .task { await loadOverview() }
-        .task(id: days) { await loadRange() }
+        // Возврат приложения из фона после долгой паузы — повод перечитать (`AppLifecycle`).
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await loadOverview() }
+        .task(id: [days, AppLifecycle.shared.foregroundEpoch]) { await loadRange() }
     }
 
     /// Пользователи: главный график — рост; ниже — доходят ли приглашения до регистрации.
@@ -246,30 +262,22 @@ struct AdminPlatformDashboardView: View {
 
     // MARK: Загрузка
 
-    @MainActor
     private func loadOverview() async {
-        do {
-            overview = try await api.platformOverview()
-            overviewFailure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            overviewFailure = error.userMessage
-            isOffline = error.isOffline
-        }
-        if sizes == nil { await loadSizes() }
+        await overviewRemote.load(api.platformOverview)
+        await loadSizes()
     }
 
-    @MainActor
     private func loadSizes() async {
-        sizes = try? await api.universitiesSize()
-        sizesTried = true
+        await sizesRemote.load(api.universitiesSize)
+    }
+
+    private func loadRange() async {
+        let range = AdminPlatformRange.last(days: days)
+        await rangeRemote.load { await Self.rangeData(api, range) }
     }
 
     /// Графики периода грузятся вместе, а падение одного не прячет остальные.
-    @MainActor
-    private func loadRange() async {
-        let range = AdminPlatformRange.last(days: days)
+    private static func rangeData(_ api: AdminAPI, _ range: AdminPlatformRange) async -> RangeData {
         async let growth = try? api.platformSeries("users-growth", range: range)
         async let active = try? api.platformSeries("active-users", range: range)
         async let flow = try? api.platformSeries("complaints-flow", range: range)
@@ -277,16 +285,10 @@ struct AdminPlatformDashboardView: View {
         async let invites = try? api.invitesFunnel(range: range)
         async let heatmap = try? api.activityHeatmap(range: range)
         async let actions = try? api.topActions(range: range)
-        let results = await (growth, active, flow, latency, invites, heatmap, actions)
-        guard !Task.isCancelled else { return }
-        self.growth = results.0
-        self.active = results.1
-        self.flow = results.2
-        self.latency = results.3
-        self.invites = results.4
-        self.heatmap = results.5
-        self.actions = results.6
-        rangeLoaded = true
+        return await RangeData(
+            growth: growth, active: active, flow: flow, latency: latency,
+            invites: invites, heatmap: heatmap, actions: actions
+        )
     }
 
     // MARK: Подписи
@@ -428,15 +430,20 @@ struct AdminBarChart: View {
 
 /// Показатели по каждому вузу платформы: люди, факультеты, группы, аудитории.
 struct AdminPlatformStatsView: View {
-    @State private var data: AdminUniversitiesSizeDTO?
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var reloadToken = 0
     @State private var search = ""
-    @State private var cities: [String: String] = [:]
+
+    /// Показатели и названия городов по кодам КАТО — одним значением: из сохранённого
+    /// экран встаёт сразу с городами.
+    private struct Loaded {
+        let data: AdminUniversitiesSizeDTO
+        let cities: [String: String]
+    }
 
     var body: some View {
-        List {
-            if let data {
+        RemoteContent(reloadToken: reloadToken, load: Self.load) { loaded in
+            let data = loaded.data
+            List {
                 DashboardMetricsSection(metrics: [
                     DashboardMetric(title: String(localized: "admin.stats.universities", defaultValue: "Университеты"), value: data.totals.universities.formatted(), symbol: "building.columns", tint: TileTint.indigo, caption: String(localized: "admin.stats.active", defaultValue: "активных: \(data.totals.active.formatted())")),
                     DashboardMetric(title: String(localized: "admin.stats.people", defaultValue: "Всего людей"), value: data.totals.total.formatted(), symbol: "person.2", tint: TileTint.blue),
@@ -453,7 +460,7 @@ struct AdminPlatformStatsView: View {
                     }
                     ForEach(items) { item in
                         NavigationLink(value: AppRoute.admin(.university(id: item.id))) {
-                            AdminUniversitySizeRow(item: item, city: item.city.flatMap { cities[$0] })
+                            AdminUniversitySizeRow(item: item, city: item.city.flatMap { loaded.cities[$0] })
                         }
                     }
                 } footer: {
@@ -461,18 +468,12 @@ struct AdminPlatformStatsView: View {
                         Text(String(localized: "admin.stats.shown", defaultValue: "Показано вузов: \(data.items.count.formatted()) из \(data.totals.universities.formatted()), крупнейшие первыми"))
                     }
                 }
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-                    .listRowBackground(Color.clear)
-            } else {
-                LoadingStateView().listRowBackground(Color.clear)
             }
+            .dashboardListStyle()
+            .pullToRefresh { reloadToken += 1 }
         }
-        .dashboardListStyle()
         .navigationTitle(Text(AdminScreen.stats.title))
         .searchable(text: $search, prompt: Text(String(localized: "admin.stats.search", defaultValue: "Поиск вуза")))
-        .pullToRefresh { await load() }
-        .task { await load() }
     }
 
     private func filtered(_ items: [AdminUniversitiesSizeDTO.Item]) -> [AdminUniversitiesSizeDTO.Item] {
@@ -483,22 +484,11 @@ struct AdminPlatformStatsView: View {
         }
     }
 
-    @MainActor
-    private func load() async {
-        do {
-            let value = try await AdminAPI().universitiesSize()
-            data = value
-            failure = nil
-            let codes = value.items.compactMap(\.city)
-            if let units = try? await AdminAPI().katoResolve(codes) {
-                for unit in units { cities[unit.code] = unit.nameRu }
-            }
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
+    private static func load() async throws -> Loaded {
+        let data = try await AdminAPI().universitiesSize()
+        // Города — подпись, не повод для ошибки: не пришли — строки без города.
+        let units = (try? await AdminAPI().katoResolve(data.items.compactMap(\.city))) ?? []
+        return Loaded(data: data, cities: Dictionary(units.map { ($0.code, $0.nameRu) }, uniquingKeysWith: { first, _ in first }))
     }
 }
 
