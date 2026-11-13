@@ -42,7 +42,7 @@ enum PerformanceFlags {
     static var chatBubbleFlatShadow: Bool { isOn(.chatBubbleFlatShadow) }
 
     /// Выключатели второй волны. Включены они не «на глаз», а по автотестам, которые
-    /// сравнивают оба положения: снимки пузырей (`PerformanceFlagSnapshotTests`),
+    /// сравнивают оба положения: снимки пузырей (`MessageBubbleSnapshotTests`),
     /// ленту переписки целиком и её поведение при медленной сети
     /// (`PerformanceFlagUITests`). Тест держит флаг в нужном положении через `overrides`
     /// (в процессе тестов) или `SH_PERF_FLAGS` (в запускаемом приложении), так что
@@ -55,10 +55,13 @@ enum PerformanceFlags {
 
         var defaultValue: Bool {
             switch self {
-            case .chatThinHistoryShortWait: false
+            // Прошли сравнение в обоих положениях (`MessageBubbleSnapshotTests`,
+            // `PerformanceFlagUITests`).
+            case .chatThinHistoryShortWait: true
+            case .chatBubbleLayoutCache: true
+            case .chatBubbleFlatShadow: true
+            // Дыры между пузырями у верха ленты — `testHeightCacheKeepsChatTheSame`.
             case .chatHeightCache: false
-            case .chatBubbleLayoutCache: false
-            case .chatBubbleFlatShadow: false
             }
         }
     }
