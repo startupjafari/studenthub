@@ -4,6 +4,47 @@ import XCTest
 @testable import StudentHub
 
 final class MessageStoreTests: XCTestCase {
+    /// Та же страница второй раз (обновление списка, догон) ничего не пишет: пустая запись
+    /// будила бы наблюдения ленты и списка (шаг 2.1 плана аудита).
+    func testSameMessagesTwiceWriteNothing() async throws {
+        let database = try AppDatabase.inMemory()
+        try await seedChat(in: database)
+        let photo = ChatAttachmentDTO(
+            id: "f-1", mime: "image/jpeg", size: 1000, name: nil, spoiler: nil, asDocument: nil,
+            width: 800, height: 600
+        )
+        var withPhoto = dto(id: "m-2", seq: 2)
+        withPhoto = ChatMessageDTO(
+            id: withPhoto.id, chatId: withPhoto.chatId, seq: withPhoto.seq, senderId: withPhoto.senderId,
+            content: withPhoto.content, replyToId: nil, replyQuote: nil, systemType: nil, editedAt: nil,
+            deletedAt: nil, pinnedAt: nil, createdAt: withPhoto.createdAt, media: [photo]
+        )
+        let page = [dto(id: "m-1", seq: 1), withPhoto]
+        let store = MessageStore(database: database)
+        try await store.save(messages: page, chatID: "c-1")
+
+        let before = try await database.writer.write { db in db.totalChangesCount }
+        try await store.save(messages: page, chatID: "c-1")
+        let after = try await database.writer.write { db in db.totalChangesCount }
+
+        XCTAssertEqual(after, before)
+        let attachments = try await database.reader.read { db in try AttachmentRecord.fetchCount(db) }
+        XCTAssertEqual(attachments, 1)
+    }
+
+    /// Изменилось одно поле — пишется, и только оно меняет строку.
+    func testChangedMessageIsStillWritten() async throws {
+        let database = try AppDatabase.inMemory()
+        try await seedChat(in: database)
+        let store = MessageStore(database: database)
+        try await store.save(messages: [dto(id: "m-1", seq: 1, content: "было")], chatID: "c-1")
+
+        try await store.save(messages: [dto(id: "m-1", seq: 1, content: "стало")], chatID: "c-1")
+
+        let content = try await database.reader.read { db in try MessageRecord.fetchOne(db, key: "m-1")?.content }
+        XCTAssertEqual(content, "стало")
+    }
+
     func testHistoryPageIsStoredAndLastSeqLifted() async throws {
         let database = try AppDatabase.inMemory()
         try await seedChat(in: database)
