@@ -184,6 +184,25 @@ struct SettingsView: View {
                 .accessibilityIdentifier("settings.signOut")
             }
 
+            #if DEBUG
+                // Только отладочная сборка: тестовый чат для замеров производительности
+                // (`PerfFixture`). Строки не переводятся — пользователь их не увидит.
+                Section {
+                    Button {
+                        Task { try? await PerfFixture.seed(viewerID: viewerID) }
+                    } label: {
+                        Text(verbatim: "Засеять чат для замеров (\(PerfFixture.defaultCount))")
+                    }
+                    Button(role: .destructive) {
+                        Task { try? await PerfFixture.remove() }
+                    } label: {
+                        Text(verbatim: "Удалить чат для замеров")
+                    }
+                } header: {
+                    Text(verbatim: "Разработка")
+                }
+            #endif
+
             // Опасная зона — отдельно и в самом низу: удаление аккаунта не должно
             // оказаться под пальцем рядом с переключателем темы. Предупреждение — в
             // подписи, подтверждение — на экране удаления.

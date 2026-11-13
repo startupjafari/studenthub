@@ -34,6 +34,11 @@ enum Observability {
                 options.sendDefaultPii = false
                 options.attachScreenshot = false
                 options.attachViewHierarchy = false
+                // Диагностика MetricKit с устройств (зависания, тяжёлый CPU, запись на
+                // диск): замеры в лаборатории не видят телефонов, на которых тормозит
+                // у людей (план аудита, шаг 0.5). Без персональных данных — это отчёты
+                // системы о процессе.
+                options.enableMetricKit = true
                 options.beforeSend = { event in
                     event.user?.email = nil
                     event.user?.username = nil
