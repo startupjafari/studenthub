@@ -92,7 +92,16 @@ class SnapshotTestCase: XCTestCase {
         host.traitOverrides.userInterfaceStyle = style
         host.traitOverrides.preferredContentSizeCategory = category
 
-        let window = UIWindow(frame: CGRect(origin: .zero, size: size))
+        // Окно — в сцене приложения-хоста. Без сцены окно на iOS 13+ не попадает на экран,
+        // и `drawHierarchy` молча отдаёт прозрачную картинку (так и было в первом прогоне:
+        // все эталоны вышли пустыми). Уровень — над интерфейсом хоста.
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }
+            ?? UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow()
+        window.frame = CGRect(origin: .zero, size: size)
+        window.windowLevel = .alert + 1
         window.overrideUserInterfaceStyle = style
         window.rootViewController = host
         window.isHidden = false
@@ -107,8 +116,12 @@ class SnapshotTestCase: XCTestCase {
 
         let format = UIGraphicsImageRendererFormat(for: window.traitCollection)
         format.opaque = false
-        let image = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
-            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        let image = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { context in
+            // `drawHierarchy` рисует как экран (материалы, размытие); не смог — слой
+            // напрямую, чтобы снимок хотя бы не вышел пустым.
+            if !window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) {
+                window.layer.render(in: context.cgContext)
+            }
         }
         window.isHidden = true
         window.rootViewController = nil

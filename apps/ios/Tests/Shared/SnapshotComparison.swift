@@ -77,6 +77,13 @@ enum SnapshotComparison {
             XCTFail("снимок «\(name)» не кодируется в PNG", file: file, line: line)
             return
         }
+        // Пустой (целиком прозрачный или одноцветный) снимок — не эталон и не проверка:
+        // вид не нарисовался. Такой нельзя ни записать, ни сравнить.
+        if isBlank(image) {
+            attach(image, name: "\(name) — пустой", to: testCase)
+            XCTFail("Снимок «\(name)» пустой: вид не нарисовался (окно вне сцены?).", file: file, line: line)
+            return
+        }
 
         if record || (!strict && !FileManager.default.fileExists(atPath: referenceURL.path)) {
             do {
@@ -163,6 +170,18 @@ enum SnapshotComparison {
         let diff = RGBA(width: left.width, height: left.height, pixels: diffPixels).image(scale: actual.scale)
         return Mismatch(reference: reference, actual: actual, diff: diff,
                         differingPixels: differing, totalPixels: total, sizeMismatch: false)
+    }
+
+    /// Все пиксели одинаковы (в том числе полностью прозрачны).
+    static func isBlank(_ image: UIImage) -> Bool {
+        guard let rgba = RGBA(image), rgba.pixels.count >= 4 else { return true }
+        let first = rgba.pixels[0..<4]
+        var offset = 4
+        while offset < rgba.pixels.count {
+            if rgba.pixels[offset..<offset + 4].elementsEqual(first) == false { return false }
+            offset += 4
+        }
+        return true
     }
 
     // MARK: - Пути и артефакты

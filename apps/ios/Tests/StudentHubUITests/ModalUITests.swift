@@ -35,8 +35,12 @@ final class ModalUITests: MockUITestCase {
     func testSheetClosesWithSwipeDown() throws {
         openProfile()
         openDetails()
-        sheetTitle.swipeDown(velocity: .fast)
-        if sheetTitle.exists { sheetTitle.swipeDown(velocity: .fast) }
+        // `swipeDown()` по заголовку двигает палец на высоту самого элемента (~20 pt) —
+        // это не жест закрытия. Тянем от верха листа к низу экрана, как человек.
+        let window = app.windows.firstMatch
+        let top = sheetTitle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let bottom = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.98))
+        top.press(forDuration: 0.05, thenDragTo: bottom, withVelocity: .fast, thenHoldForDuration: 0)
         XCTAssertTrue(waitForDisappearance(sheetTitle), "лист не закрылся жестом")
         XCTAssertTrue(waitForHittable(app.descendants(matching: .any)["profile.details"].firstMatch))
     }

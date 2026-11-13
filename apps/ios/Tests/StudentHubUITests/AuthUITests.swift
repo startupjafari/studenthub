@@ -15,9 +15,24 @@ final class AuthUITests: MockUITestCase {
         XCTAssertTrue(identifier.waitForExistence(timeout: timeout), "нет экрана входа")
         identifier.tap()
         identifier.typeText(login)
-        password.tap()
-        password.typeText(secret)
+        type(secret, into: password)
         app.buttons["auth.signIn"].tap()
+    }
+
+    /// Ввод в `SecureField` теряет первые символы, если фокус и автозаполнение пароля
+    /// ещё не встали, когда раннер начал печатать. Проверяем, сколько символов реально
+    /// в поле (у защищённого поля `value` — точки по числу символов), и при расхождении
+    /// стираем и печатаем заново.
+    private func type(_ secret: String, into field: XCUIElement) {
+        for _ in 0..<3 {
+            field.tap()
+            XCTAssertTrue(field.waitForExistence(timeout: timeout))
+            field.typeText(secret)
+            let typed = (field.value as? String) ?? ""
+            if typed.count == secret.count { return }
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: typed.count + 2))
+        }
+        XCTFail("пароль не вводится в поле: в нём \((field.value as? String)?.count ?? 0) символов вместо \(secret.count)")
     }
 
     func testLoginScreenLooksRight() throws {
