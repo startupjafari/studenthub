@@ -420,7 +420,8 @@ struct CommunityHighlightPlayer: View {
     @State private var detail: CommunityHighlightDetailDTO?
     @State private var failure: String?
     @State private var index = 0
-    @State private var progress: Double = 0
+    /// Доля показа кадра — `StoryClock`, как у историй: тики пересчитывают только полоски.
+    @State private var clock = StoryClock()
     @State private var holding = false
     @State private var muted = false
     @State private var editing = false
@@ -462,19 +463,8 @@ struct CommunityHighlightPlayer: View {
 
     private func header(_ detail: CommunityHighlightDetailDTO) -> some View {
         VStack(spacing: Spacing.md) {
-            HStack(spacing: Spacing.xs) {
-                ForEach(detail.items.indices, id: \.self) { item in
-                    GeometryReader { proxy in
-                        Capsule().fill(.white.opacity(0.3))
-                            .overlay(alignment: .leading) {
-                                Capsule().fill(.white)
-                                    .frame(width: proxy.size.width * (item < index ? 1 : item > index ? 0 : min(progress, 1)))
-                            }
-                    }
-                    .frame(height: 2.5)
-                }
-            }
-            .accessibilityHidden(true)
+            StoryProgressBars(ids: detail.items.indices.map(String.init), current: index, clock: clock)
+                .accessibilityHidden(true)
             HStack(spacing: Spacing.md) {
                 AvatarView(url: detail.owner.avatar, name: detail.owner.name, size: 32)
                 VStack(alignment: .leading, spacing: 0) {
@@ -523,7 +513,7 @@ struct CommunityHighlightPlayer: View {
         HStack(spacing: 0) {
             Color.clear
                 .contentShape(Rectangle())
-                .onTapGesture { if index > 0 { index -= 1 } else { progress = 0 } }
+                .onTapGesture { if index > 0 { index -= 1 } else { clock.progress = 0 } }
             Color.clear
                 .contentShape(Rectangle())
                 .onTapGesture { advance(count: count) }
@@ -543,13 +533,13 @@ struct CommunityHighlightPlayer: View {
     }
 
     private func run(_ story: StoryDTO, count: Int) async {
-        progress = 0
+        clock.progress = 0
         let seconds = story.media?.durationMs.map { min(Double($0) / 1000, 120) } ?? Self.frameSeconds
         let step = 0.05
-        while progress < 1 {
+        while clock.progress < 1 {
             try? await Task.sleep(for: .milliseconds(Int(step * 1000)))
             if Task.isCancelled { return }
-            if !holding && !editing { progress += step / max(seconds, 1) }
+            if !holding && !editing { clock.progress += step / max(seconds, 1) }
         }
         advance(count: count)
     }
