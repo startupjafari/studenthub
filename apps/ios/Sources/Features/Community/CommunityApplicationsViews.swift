@@ -440,8 +440,8 @@ struct CommunityApplicationDetail: View {
     @State private var editingAnswers = false
     @State private var cancelling = false
     @State private var cancelReason = ""
-    @State private var isBusy = false
-    @State private var actionFailure: String?
+    /// Действия экрана: «идёт работа» и отказ (`ActionRunner`).
+    @State private var runner = ActionRunner()
     @State private var opener = RemoteFileOpener()
     @State private var detaching: CommunityApplicationDTO.Service.Requirement?
 
@@ -508,7 +508,7 @@ struct CommunityApplicationDetail: View {
         ) { requirement in
             await run { try await api.detachDocument(applicationID: applicationID, requirementID: requirement.id) }
         }
-        .actionFailureAlert($actionFailure)
+        .actionFailureAlert(runner)
     }
 
     private var editable: Bool {
@@ -762,7 +762,7 @@ struct CommunityApplicationDetail: View {
                     Text(String(localized: "community.applications.cancel", defaultValue: "Отменить заявку"))
                         .foregroundStyle(Palette.destructive)
                 }
-                .disabled(isBusy)
+                .disabled(runner.isWorking)
             }
         }
     }
@@ -798,15 +798,8 @@ struct CommunityApplicationDetail: View {
 
     @MainActor
     private func run(_ action: () async throws -> Void) async {
-        guard !isBusy else { return }
-        isBusy = true
-        defer { isBusy = false }
-        do {
-            try await action()
-            await load()
-        } catch {
-            actionFailure = error.userMessage
-        }
+        guard !runner.isWorking else { return }
+        await runner.run(action, then: { await load() })
     }
 }
 
