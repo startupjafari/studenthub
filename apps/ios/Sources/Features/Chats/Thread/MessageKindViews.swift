@@ -426,11 +426,17 @@ struct StickerImage: View {
 }
 
 /// Кэш картинок стикеров: в памяти и на диске (каталог кэша), по id стикера.
+///
+/// Чтение файла и распаковка — вне главного потока (`ImageDownsampler`): раньше
+/// `Data(contentsOf:)` и ленивый `UIImage(data:)` выполнялись на нём, и лента с
+/// десятком стикеров дёргалась при прокрутке.
 @MainActor
 enum StickerImages {
     private static let memory = NSCache<NSString, UIImage>()
+    /// Стикер на экране — до ~160 pt; 512 px хватает на @3x с запасом.
+    private static let target = ImageTarget.longSide(512)
 
-    private static var directory: URL {
+    nonisolated private static var directory: URL {
         let url = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("stickers", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
@@ -439,28 +445,37 @@ enum StickerImages {
 
     static func image(for id: String, knownURL: String?) async -> UIImage? {
         if let cached = memory.object(forKey: id as NSString) { return cached }
-        let file = directory.appendingPathComponent(id)
-        if let data = try? Data(contentsOf: file), let image = UIImage(data: data) {
-            memory.setObject(image, forKey: id as NSString)
-            return image
+        let target = target
+        let fromDisk = await Task.detached(priority: .userInitiated) { () -> DecodedImage? in
+            let file = directory.appendingPathComponent(id)
+            guard let data = try? Data(contentsOf: file) else { return nil }
+            return ImageDownsampler.decode(data, target: target)
+        }.value
+        if let fromDisk {
+            memory.setObject(fromDisk.image, forKey: id as NSString)
+            return fromDisk.image
         }
         // Ссылка из каталога живёт минуты: не открылась — просим свежую по id.
-        var loaded = await download(knownURL)
+        var loaded = await download(knownURL, id: id)
         if loaded == nil, let fresh = try? await ChatsAPI().stickerURL(id: id).url {
-            loaded = await download(fresh)
+            loaded = await download(fresh, id: id)
         }
-        guard let (data, image) = loaded else { return nil }
-        try? data.write(to: file, options: .atomic)
-        memory.setObject(image, forKey: id as NSString)
-        return image
+        guard let loaded else { return nil }
+        memory.setObject(loaded.image, forKey: id as NSString)
+        return loaded.image
     }
 
-    private static func download(_ address: String?) async -> (Data, UIImage)? {
+    /// Скачать, сохранить на диск и распаковать — всё вне главного потока.
+    private static func download(_ address: String?, id: String) async -> DecodedImage? {
         guard let address, let url = URL(string: address),
             let (data, response) = try? await URLSession.shared.data(from: url),
-            (response as? HTTPURLResponse)?.statusCode ?? 200 < 400,
-            let image = UIImage(data: data)
+            (response as? HTTPURLResponse)?.statusCode ?? 200 < 400
         else { return nil }
-        return (data, image)
+        let target = target
+        return await Task.detached(priority: .userInitiated) { () -> DecodedImage? in
+            guard let decoded = ImageDownsampler.decode(data, target: target) else { return nil }
+            try? data.write(to: directory.appendingPathComponent(id), options: .atomic)
+            return decoded
+        }.value
     }
 }

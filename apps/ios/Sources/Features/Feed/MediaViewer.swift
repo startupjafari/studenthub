@@ -22,9 +22,16 @@ struct MediaViewer: View {
     var context: MediaViewerContext?
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     @State private var selection = 0
     @State private var dragOffset: CGFloat = 0
+    /// Смещение пальца в момент, когда жест признан: `DragGesture(minimumDistance:)`
+    /// начинает с 20 pt, и без вычета снимок прыгал бы на них под пальцем.
+    @State private var dragOrigin: CGFloat?
+    /// Жест идёт. Сбрасывается и при отмене системой (звонок, центр уведомлений), когда
+    /// `onEnded` не приходит, — иначе снимок остался бы висеть смещённым.
+    @GestureState private var isDragging = false
+    @State private var viewHeight: CGFloat = 800
     @State private var showsControls = true
     @State private var isZoomed = false
     /// Снимки, для которых попросили оригинал вместо уменьшенной копии.
@@ -61,9 +68,17 @@ struct MediaViewer: View {
             }
             // Точки страниц не нужны: номер — в панели сверху.
             .tabViewStyle(.page(indexDisplayMode: .never))
+            .accessibilityIdentifier("media.viewer")
             .ignoresSafeArea()
             .offset(y: dragOffset)
             .simultaneousGesture(dismissDrag, including: isZoomed ? .none : .all)
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewHeight = $0 }
+        .onChange(of: isDragging) { _, dragging in
+            // Отмена системой: `onEnded` не было — возвращаем снимок на место.
+            guard !dragging, dragOrigin != nil else { return }
+            dragOrigin = nil
+            withAnimation(Motion.respecting(Motion.interactive, reduceMotion: reduceMotion)) { dragOffset = 0 }
         }
         // Панель — поверх снимка и не участвует в раскладке: прячется и появляется, не
         // двигая снимок. У видео она видна всегда — касания забирает плеер.
@@ -103,8 +118,8 @@ struct MediaViewer: View {
         .actionFailureAlert($failure)
         .onAppear { selection = start }
         .onChange(of: selection) { _, _ in isZoomed = false }
-        .animation(Motion.respecting(.easeInOut(duration: Motion.Duration.feedback), reduceMotion: reduceMotion), value: showsControls)
-        .animation(Motion.respecting(.easeInOut(duration: Motion.Duration.feedback), reduceMotion: reduceMotion), value: notice)
+        .animation(Motion.respecting(Motion.fade, reduceMotion: reduceMotion), value: showsControls)
+        .animation(Motion.respecting(Motion.fade, reduceMotion: reduceMotion), value: notice)
     }
 
     @ViewBuilder
@@ -125,17 +140,30 @@ struct MediaViewer: View {
         }
     }
 
+    /// Снимок идёт за пальцем 1:1 от точки, где жест признан; на отпускании решает
+    /// `GesturePhysics` — по положению и скорости, как возврат свайпом в Telegram:
+    /// короткий бросок закрывает, медленная оттяжка возвращает.
     private var dismissDrag: some Gesture {
         DragGesture(minimumDistance: 20)
+            .updating($isDragging) { _, state, _ in state = true }
             .onChanged { value in
-                guard abs(value.translation.height) > abs(value.translation.width) else { return }
-                dragOffset = value.translation.height
+                if dragOrigin == nil {
+                    guard abs(value.translation.height) > abs(value.translation.width) else { return }
+                    dragOrigin = value.translation.height
+                }
+                dragOffset = value.translation.height - (dragOrigin ?? 0)
             }
             .onEnded { value in
-                if abs(value.translation.height) > 140 || abs(value.predictedEndTranslation.height) > 400 {
+                guard dragOrigin != nil else { return }
+                dragOrigin = nil
+                // Скорость — по направлению оттяжки: бросок обратно к центру отменяет.
+                let direction: CGFloat = dragOffset < 0 ? -1 : 1
+                let velocity = value.velocity.height * direction
+                if GesturePhysics.shouldComplete(translation: abs(dragOffset), velocity: velocity, extent: viewHeight) {
                     dismiss()
                 } else {
-                    withAnimation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion)) {
+                    let animation = Motion.release(from: dragOffset, to: 0, velocity: value.velocity.height)
+                    withAnimation(Motion.respecting(animation, reduceMotion: reduceMotion)) {
                         dragOffset = 0
                     }
                 }
@@ -149,6 +177,7 @@ struct MediaViewer: View {
             MediaViewerBar.button(symbol: "chevron.left", title: String(localized: "common.close", defaultValue: "Закрыть")) {
                 dismiss()
             }
+            .accessibilityIdentifier("media.close")
             Spacer(minLength: 0)
             titleCapsule
             Spacer(minLength: 0)
@@ -385,7 +414,7 @@ private struct ZoomableImage: View {
     @Binding var isZoomed: Bool
     let toggleControls: () -> Void
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     @State private var scale: CGFloat = 1
     @State private var lastScale: CGFloat = 1
     @State private var offset: CGSize = .zero

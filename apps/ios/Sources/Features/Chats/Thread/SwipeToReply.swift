@@ -76,7 +76,7 @@ final class SwipeToReply: NSObject, UIGestureRecognizerDelegate {
             if nowArmed != armed {
                 armed = nowArmed
                 if armed { feedback.impactOccurred() }
-                UIView.animate(withDuration: 0.2, delay: 0, usingSpringWithDamping: 0.5, initialSpringVelocity: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+                UIView.animate(withDuration: Motion.isReducedNow ? 0 : 0.2, delay: 0, usingSpringWithDamping: 0.5, initialSpringVelocity: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
                     self.arrow.transform = nowArmed ? .identity : CGAffineTransform(scaleX: 0.7, y: 0.7)
                 }
             } else if !armed {
@@ -103,7 +103,7 @@ final class SwipeToReply: NSObject, UIGestureRecognizerDelegate {
         self.cell = nil
         message = nil
         armed = false
-        let still = UIAccessibility.isReduceMotionEnabled
+        let still = Motion.isReducedNow
         UIView.animate(
             withDuration: still ? 0 : 0.35,
             delay: 0,

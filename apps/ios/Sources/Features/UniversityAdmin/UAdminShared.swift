@@ -434,36 +434,12 @@ extension View {
         delay: Duration = .milliseconds(350),
         onChange: @escaping (String) async -> Void
     ) -> some View {
-        modifier(UAdminDebouncedSearch(text: text, prompt: prompt, delay: delay, onChange: onChange))
+        debouncedSearch(text, prompt: prompt, delay: delay, onChange: onChange)
     }
 
     /// Мгновенный поиск по уже загруженному списку. Поле прячется при прокрутке вниз и
     /// выезжает жестом вниз, как на остальных экранах-списках.
     func uadminSearchable(_ text: Binding<String>, prompt: String) -> some View {
         searchable(text: text, prompt: Text(prompt))
-    }
-}
-
-private struct UAdminDebouncedSearch: ViewModifier {
-    @Binding var text: String
-    let prompt: String
-    let delay: Duration
-    let onChange: (String) async -> Void
-
-    @State private var lastSent = ""
-
-    func body(content: Content) -> some View {
-        content
-            .searchable(text: $text, prompt: Text(prompt))
-            .task(id: text) {
-                let needle = text.trimmingCharacters(in: .whitespaces)
-                guard needle != lastSent else { return }
-                if !needle.isEmpty {
-                    try? await Task.sleep(for: delay)
-                    guard !Task.isCancelled else { return }
-                }
-                lastSent = needle
-                await onChange(needle)
-            }
     }
 }

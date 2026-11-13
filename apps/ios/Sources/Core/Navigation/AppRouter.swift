@@ -48,6 +48,7 @@ enum AppRoute: Hashable {
 /// У каждой вкладки свой стек, а не один общий. Так устроен iOS: человек уходит из
 /// чата в расписание и возвращается ровно в тот чат, а не к списку. Общий стек это
 /// поведение теряет, и его потом не вернуть — путь уже затёрт.
+@MainActor
 @Observable
 final class AppRouter {
     /// Выбранная вкладка переживает выгрузку приложения системой: вернулся человек из
@@ -245,6 +246,7 @@ final class AppRouter {
 }
 
 /// Путь одной вкладки (`AppRouter.path(for:)`).
+@MainActor
 @Observable
 final class TabPath {
     var routes: [AppRoute] = []

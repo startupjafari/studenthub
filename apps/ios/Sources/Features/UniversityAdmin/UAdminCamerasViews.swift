@@ -13,7 +13,8 @@ struct UAdminCamerasView: View {
     @State private var cameras: [UAdminCameraDTO]?
     @State private var failure: String?
     @State private var isOffline = false
-    @State private var actionFailure: String?
+    /// Действия экрана: «идёт работа» и отказ (`ActionRunner`).
+    @State private var runner = ActionRunner()
     @State private var confirmDisable = false
     @State private var creatingAgent = false
     @State private var issued: UAdminAgentTokenDTO?
@@ -68,7 +69,7 @@ struct UAdminCamerasView: View {
                 issued = try await UAdminAPI().rotateAgentToken(id: agent.id)
                 await load()
             } catch {
-                actionFailure = error.userMessage
+                runner.failure = error.userMessage
             }
         }
         .confirmDestructive(
@@ -85,7 +86,7 @@ struct UAdminCamerasView: View {
         ) { camera in
             await run { try await UAdminAPI().deleteCamera(id: camera.id) }
         }
-        .actionFailureAlert($actionFailure)
+        .actionFailureAlert(runner)
         .pullToRefresh { await load() }
         .task { await load() }
     }
@@ -295,12 +296,7 @@ struct UAdminCamerasView: View {
 
     @MainActor
     private func run(_ action: () async throws -> Void) async {
-        do {
-            try await action()
-            await load()
-        } catch {
-            actionFailure = error.userMessage
-        }
+        await runner.run(action, then: { await load() })
     }
 
     @MainActor

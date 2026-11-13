@@ -87,6 +87,7 @@ struct TwoFactorStepView: View {
         .tracking(usesBackupCode ? 0 : 4)
         .submitLabel(.go)
         .focused($isCodeFocused)
+        .accessibilityIdentifier("auth.code")
         .onSubmit(submit)
         .disabled(model.isBusy)
         // Тип клавиатуры у поля в фокусе система не меняет на лету — при смене режима

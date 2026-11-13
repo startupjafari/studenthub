@@ -20,7 +20,7 @@ struct VoiceAttachmentView: View {
     /// Палец ведёт по волне: показываем место под ним, перематываем — когда отпустит.
     @State private var scrub: Double?
     @State private var waveWidth: CGFloat = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
 
     private var playback: VoicePlayback { VoicePlayback.shared }
     private var rate: VoicePlaybackRate { VoicePlaybackRate.shared }
@@ -65,7 +65,7 @@ struct VoiceAttachmentView: View {
                     .contentTransition(.symbolEffect(.replace))
                     // Состояние меняет проигрыватель, а не касание в `withAnimation`: без
                     // своей анимации замена значка шла скачком, без перетекания.
-                    .animation(Motion.respecting(.snappy(duration: 0.25), reduceMotion: reduceMotion), value: isPlaying)
+                    .animation(Motion.respecting(Motion.snappy, reduceMotion: reduceMotion), value: isPlaying)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Text(isPlaying
@@ -164,7 +164,7 @@ struct AudioFileAttachmentView: View {
     var upload: AttachmentUploadState?
 
     @State private var barWidth: CGFloat = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
 
     /// Ширина ровная, как у музыки в Telegram: короткое имя не сжимает плеер в точку, но
     /// и за пузырь на узком экране он не вылезает.
@@ -238,7 +238,7 @@ struct AudioFileAttachmentView: View {
                 .frame(width: ControlHeight.xl, height: ControlHeight.xl)
                 .background(isOwn ? Palette.primaryForeground : Palette.primary, in: Circle())
                 .contentTransition(.symbolEffect(.replace))
-                .animation(Motion.respecting(.snappy(duration: 0.25), reduceMotion: reduceMotion), value: isPlaying)
+                .animation(Motion.respecting(Motion.snappy, reduceMotion: reduceMotion), value: isPlaying)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(isPlaying

@@ -13,7 +13,7 @@ struct UAdminSetupView: View {
     @State private var cityName: String?
     @State private var busy: String?
     @State private var launched = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
 
     var body: some View {
         Group {

@@ -17,7 +17,7 @@ struct LoginView: View {
     @State private var model = LoginModel()
     @State private var path: [AuthRoute] = []
     @State private var showsEmployerSignup = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -177,6 +177,7 @@ private struct CredentialsStepView: View {
             passwordField
         } accessory: {
             PasswordVisibilityToggle(isVisible: $showsPassword)
+                .accessibilityIdentifier("auth.passwordVisibility")
         }
 
         // Приглашение — в одной строке с «Забыли пароль?»: ссылка нужна раз в жизни, и
@@ -249,6 +250,7 @@ private struct CredentialsStepView: View {
 
     private var forgotLink: some View {
         AuthTextLink(title: String(localized: "auth.forgotPassword", defaultValue: "Забыли пароль?"), action: forgotPassword)
+            .accessibilityIdentifier("auth.forgot")
     }
 
     private var passwordLabel: String {

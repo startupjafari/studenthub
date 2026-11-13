@@ -12,7 +12,7 @@ struct LegalDocumentView<Route: Hashable>: View {
     /// маршрутом экранов входа. Каждый стек знает только свои маршруты.
     let route: (LegalDocument) -> Route
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     @State private var expanded: Set<Int> = []
 
     var body: some View {
@@ -88,7 +88,7 @@ struct LegalDocumentView<Route: Hashable>: View {
         Binding(
             get: { expanded.contains(id) },
             set: { isOpen in
-                withAnimation(Motion.respecting(.snappy, reduceMotion: reduceMotion)) {
+                withAnimation(Motion.respecting(Motion.snappy, reduceMotion: reduceMotion)) {
                     if isOpen { expanded.insert(id) } else { expanded.remove(id) }
                 }
             }
@@ -96,7 +96,7 @@ struct LegalDocumentView<Route: Hashable>: View {
     }
 
     private func toggleAll() {
-        withAnimation(Motion.respecting(.snappy, reduceMotion: reduceMotion)) {
+        withAnimation(Motion.respecting(Motion.snappy, reduceMotion: reduceMotion)) {
             expanded = allExpanded ? [] : Set(document.sections.map(\.id))
         }
     }

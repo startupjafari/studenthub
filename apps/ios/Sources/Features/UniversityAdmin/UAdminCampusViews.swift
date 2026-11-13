@@ -138,7 +138,8 @@ struct UAdminCampusDetailView: View {
     @State private var versionsFailed = false
     @State private var failure: String?
     @State private var isOffline = false
-    @State private var actionFailure: String?
+    /// Действия экрана: «идёт работа» и отказ (`ActionRunner`).
+    @State private var runner = ActionRunner()
     @State private var notice: String?
     @State private var editingProperties = false
     @State private var publishing = false
@@ -221,7 +222,7 @@ struct UAdminCampusDetailView: View {
             }
             Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
-        .actionFailureAlert($actionFailure)
+        .actionFailureAlert(runner)
         .alert(
             notice ?? "",
             isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })
@@ -245,7 +246,7 @@ struct UAdminCampusDetailView: View {
                             symbol: "paperplane"
                         ) {
                             if tree.buildings.isEmpty {
-                                actionFailure = String(localized: "uadmin.campus.publishNeedsBuilding", defaultValue: "Сначала добавьте корпус — публиковать пока нечего.")
+                                runner.failure = String(localized: "uadmin.campus.publishNeedsBuilding", defaultValue: "Сначала добавьте корпус — публиковать пока нечего.")
                             } else {
                                 publishing = true
                             }
@@ -439,18 +440,13 @@ struct UAdminCampusDetailView: View {
 
     @MainActor
     private func run(_ action: () async throws -> Void) async {
-        do {
-            try await action()
-            await load()
-        } catch {
-            actionFailure = error.userMessage
-        }
+        await runner.run(action, then: { await load() })
     }
 
     @MainActor
     private func activate(_ version: UAdminCampusVersionDTO) async {
         await run { try await UAdminAPI().activateVersion(campusID: campusID, versionID: version.id) }
-        if actionFailure == nil {
+        if runner.failure == nil {
             notice = String(localized: "uadmin.campus.activated", defaultValue: "Карта переключена на выбранную версию")
         }
     }
@@ -462,7 +458,7 @@ struct UAdminCampusDetailView: View {
             notice = String(localized: "uadmin.campus.restored", defaultValue: "Восстановлено этажей: \(count.formatted())")
             await load()
         } catch {
-            actionFailure = error.userMessage
+            runner.failure = error.userMessage
         }
     }
 
@@ -472,7 +468,7 @@ struct UAdminCampusDetailView: View {
             try await UAdminAPI().deleteCampus(id: campusID)
             dismiss()
         } catch {
-            actionFailure = error.userMessage
+            runner.failure = error.userMessage
         }
     }
 }

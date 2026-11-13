@@ -20,7 +20,7 @@ struct PrimaryButtonStyle: ButtonStyle {
         let configuration: ButtonStyleConfiguration
         let isLoading: Bool
         @Environment(\.isEnabled) private var isEnabled
-        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+        @Environment(\.motionReduced) private var reduceMotion
 
         var body: some View {
             label

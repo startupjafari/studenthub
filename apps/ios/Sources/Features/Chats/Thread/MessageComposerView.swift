@@ -37,7 +37,7 @@ struct MessageComposerView: View {
     @State private var captured: UIImage?
     /// Каждая отправка — лёгкий отклик под пальцем, как в Telegram.
     @State private var sentTick = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
@@ -181,7 +181,7 @@ struct MessageComposerView: View {
                 .transition(.move(edge: .bottom))
             }
         }
-        .animation(Motion.respecting(.spring(duration: 0.3, bounce: 0), reduceMotion: reduceMotion), value: showsPanel)
+        .animation(Motion.respecting(Motion.snappy, reduceMotion: reduceMotion), value: showsPanel)
         // Пока открыта панель, экран чата не отступает от клавиатуры (`ComposerPanelShown`):
         // панель и клавиатура сменяют друг друга на одном месте, и поле ввода не прыгает.
         .preference(key: ComposerPanelShown.self, value: showsPanel)

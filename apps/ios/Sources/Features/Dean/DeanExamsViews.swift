@@ -7,9 +7,7 @@ struct DeanExamsView: View {
     private enum Tab: Hashable { case upcoming, past }
 
     @State private var tab: Tab? = .upcoming
-    @State private var exams: [DeanExam]?
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var remote = RemoteValue<[DeanExam]>()
     /// Запрос, ответ на который сейчас на экране: при смене вкладки или периода старый
     /// список не показывается под новыми фильтрами.
     @State private var shownKey: QueryKey?
@@ -25,6 +23,10 @@ struct DeanExamsView: View {
     private let today = Calendar.current.startOfDay(for: Date())
     /// Потолок выдачи сервера (`EXAM_LIST_LIMIT`).
     private static let cap = 200
+
+    private var exams: [DeanExam]? { remote.value }
+    private var failure: String? { remote.failure }
+    private var isOffline: Bool { remote.isOffline }
 
     var body: some View {
         List {
@@ -78,7 +80,7 @@ struct DeanExamsView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    withAnimation { periodOn.toggle() }
+                    withMotion { periodOn.toggle() }
                 } label: {
                     Image(systemName: periodOn ? "calendar.badge.minus" : "calendar.badge.plus")
                 }
@@ -95,11 +97,15 @@ struct DeanExamsView: View {
             // Другая вкладка или период — прежний список уже не ответ: загрузка с нуля.
             // Возврат на экран с тем же запросом обновляет список на месте.
             if shownKey != key {
-                exams = nil
-                failure = nil
+                remote.reset()
                 shownKey = key
             }
             await load()
+        }
+        // Вернулись из фона после долгой паузы — список перечитывается фоном
+        // (`AppLifecycle`), показанное остаётся на месте.
+        .onChange(of: AppLifecycle.shared.foregroundEpoch) {
+            Task { await load() }
         }
         .sheet(isPresented: $creating) {
             DeanExamForm(exam: nil) { await load() }
@@ -179,7 +185,6 @@ struct DeanExamsView: View {
         let to: Date
     }
 
-    @MainActor
     private func load() async {
         let calendar = Calendar.current
         let from = periodOn ? calendar.startOfDay(for: periodFrom) : nil
@@ -190,19 +195,12 @@ struct DeanExamsView: View {
         } else {
             range = (max(from ?? today, today), to)
         }
-        do {
+        let past = tab == .past
+        let api = api
+        await remote.load {
             let list = try await api.exams(from: range.0, to: range.1)
-            guard !Task.isCancelled else { return }
             // Предстоящие — ближайший сверху, прошедшие — свежий сверху.
-            exams = tab == .past ? list.sorted { $0.date > $1.date } : list.sorted { $0.date < $1.date }
-            failure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            // Сменили вкладку посреди запроса — ответ устарел, это не сбой.
-            guard !Task.isCancelled else { return }
-            failure = error.userMessage
-            isOffline = error.isOffline
+            return past ? list.sorted { $0.date > $1.date } : list.sorted { $0.date < $1.date }
         }
     }
 
@@ -210,7 +208,7 @@ struct DeanExamsView: View {
     private func delete(_ exam: DeanExam) async {
         do {
             try await api.deleteExam(id: exam.id)
-            exams?.removeAll { $0.id == exam.id }
+            remote.value?.removeAll { $0.id == exam.id }
         } catch {
             if let api = error as? APIError, api.code == .conflict {
                 actionFailure = String(localized: "dean.exams.deleteHasResults", defaultValue: "По экзамену уже выставлены результаты — удалить его нельзя.")

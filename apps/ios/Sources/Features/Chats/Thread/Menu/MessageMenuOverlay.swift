@@ -119,7 +119,7 @@ struct MessageMenuOverlay: View {
     /// панель, подсветка идёт за ним вверх и вниз, отпустил — действие.
     @State private var pressed: MessageMenuAction?
     @State private var rowFrames: [String: CGRect] = [:]
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     @Environment(\.displayScale) private var displayScale
     @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 44
 
@@ -156,7 +156,7 @@ struct MessageMenuOverlay: View {
         }
         .ignoresSafeArea()
         .onAppear {
-            withAnimation(Motion.respecting(.spring(duration: 0.32, bounce: 0.18), reduceMotion: reduceMotion)) {
+            withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) {
                 shown = true
             }
         }
@@ -430,7 +430,7 @@ struct MessageMenuOverlay: View {
 
     private func dismiss() {
         guard shown else { return }
-        withAnimation(Motion.respecting(.spring(duration: 0.25, bounce: 0), reduceMotion: reduceMotion)) {
+        withAnimation(Motion.respecting(Motion.snappy, reduceMotion: reduceMotion)) {
             shown = false
             expanded = false
         }
@@ -477,7 +477,7 @@ struct ReactionPicker: View {
     let mine: String?
     let onPick: (String) -> Void
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
 
     var body: some View {
         if expanded {

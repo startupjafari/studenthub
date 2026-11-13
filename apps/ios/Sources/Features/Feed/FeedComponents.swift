@@ -33,7 +33,7 @@ struct RemoteImage: View {
     /// Размер вида в точках — из него цель считается в теле, с текущими масштабом
     /// экрана и `contentMode`.
     @State private var viewSize: CGSize = .zero
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     @Environment(\.displayScale) private var displayScale
 
     private var target: ImageTarget? {

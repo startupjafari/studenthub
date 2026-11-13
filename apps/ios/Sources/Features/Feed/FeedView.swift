@@ -48,6 +48,7 @@ struct FeedView: View {
                 }
                 .padding(.vertical, Spacing.md)
             }
+            .accessibilityIdentifier("feed.list")
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { listWidth = $0 }
             // Первая загрузка — один системный индикатор по центру экрана, без заглушек
             // карточек: человек видит, что лента грузится, а не пустые серые блоки.
@@ -101,6 +102,8 @@ struct FeedView: View {
             set: { viewingRing = $0?.id }
         )) { target in
             StoryViewer(model: stories, startRingID: target.id)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("stories.viewer")
         }
         .sheet(isPresented: $composingStory) {
             StoryComposerView(model: stories)
@@ -192,6 +195,9 @@ struct FeedView: View {
 
             ForEach(feed.posts) { post in
                 PostCardView(post: post, model: feed, viewerID: viewerID, actions: actions)
+                    // Контейнер с id для UI-тестов; кнопки внутри доступны по-прежнему.
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("feed.post.\(post.id)")
                     .onAppear {
                         prefetcher.appeared(post.id, in: feed.posts, width: mediaWidth, scale: displayScale)
                         // Следующая страница — за пять постов до конца, а не на последнем:

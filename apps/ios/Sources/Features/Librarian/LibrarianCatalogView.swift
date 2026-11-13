@@ -476,10 +476,8 @@ private struct LibrarianImportSheet: View {
         isBusy = true
         defer { isBusy = false }
         result = nil
-        let access = url.startAccessingSecurityScopedResource()
-        defer { if access { url.stopAccessingSecurityScopedResource() } }
         do {
-            let data = try Data(contentsOf: url)
+            let data = try await PickedFile.read(url)
             preview = try await api.importPreview(data: data, filename: url.lastPathComponent)
             failure = nil
         } catch {

@@ -1,0 +1,70 @@
+name: iOS snapshots
+
+# Переснять эталоны снимков (Tests/**/__Snapshots__) — в той же среде, где их потом
+# сравнивает ios.yml. Запуск — метка `ios-record-snapshots` на PR (её можно снять и
+# повесить снова) или вручную. Эталоны приходят артефактом ios-snapshot-references:
+# посмотреть картинки глазами, разложить в репозиторий и закоммитить.
+#
+# Отдельный workflow, а не режим ios.yml: запись по определению «валит» тесты, и
+# обязательная проверка «iOS — итог» от неё краснеть не должна.
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-snapshots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  record:
+    name: Переснять эталоны
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'ios-record-snapshots'
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      SH_TEST_DEVICE: iPhone 17 Pro
+      SH_TEST_OS: '26.5'
+    defaults:
+      run:
+        working-directory: apps/ios
+    steps:
+      - name: Забрать код
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Поставить XcodeGen
+        run: brew install xcodegen
+
+      - name: Кеш пакетов Swift
+        uses: actions/cache@v6
+        with:
+          path: apps/ios/build/DerivedData/SourcePackages
+          key: ios-spm-${{ hashFiles('apps/ios/project.yml') }}
+          restore-keys: ios-spm-
+
+      # Запись отмечает каждый снимок упавшим («записан») — это ожидаемо.
+      - name: Снять эталоны
+        continue-on-error: true
+        run: scripts/test.sh snapshot ui --record
+
+      - name: Сохранить эталоны
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-snapshot-references
+          path: apps/ios/Tests/**/__Snapshots__/**
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Сохранить результаты
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-snapshot-record-results
+          path: apps/ios/build/test-output
+          retention-days: 7

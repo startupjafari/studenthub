@@ -73,7 +73,7 @@ struct EmojiBrowser: View {
                         Button {
                             // Раздел из полосы выходит и из поиска: сетка возвращается к нему.
                             query = ""
-                            withAnimation { current = section.id }
+                            withMotion { current = section.id }
                         } label: {
                             Image(systemName: section.symbol)
                                 .font(.title3)
@@ -93,7 +93,7 @@ struct EmojiBrowser: View {
             // Подсвеченный раздел не уезжает за край полосы.
             .onChange(of: current) { _, id in
                 guard let id else { return }
-                withAnimation { strip.scrollTo(id) }
+                withMotion { strip.scrollTo(id) }
             }
         }
     }
@@ -110,7 +110,7 @@ struct EmojiBrowser: View {
                     VStack(spacing: 0) {
                         ExpressionSectionHeader(
                             title: section.title,
-                            onClear: section.clearable ? { withAnimation { recents.clear() } } : nil
+                            onClear: section.clearable ? { withMotion { recents.clear() } } : nil
                         )
                         LazyVGrid(
                             columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: columns),
@@ -253,6 +253,7 @@ struct ReactionButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 1.25 : 1)
-            .animation(.spring(duration: 0.2, bounce: 0.4), value: configuration.isPressed)
+            // Под пальцем — быстро, на отпускании — с перелётом (`Motion.press`/`release`).
+            .animation(Motion.isReducedNow ? nil : (configuration.isPressed ? Motion.press : Motion.release), value: configuration.isPressed)
     }
 }

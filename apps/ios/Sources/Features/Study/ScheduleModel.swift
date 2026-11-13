@@ -6,6 +6,7 @@ import Observation
 ///
 /// Читает базу, как и чаты: расписание смотрят в коридоре и в метро, где связи
 /// нет, и экран, который в этот момент показывает спиннер, бесполезен.
+@MainActor
 @Observable
 final class ScheduleModel {
     /// День недели, выбранный человеком (1 — понедельник).
@@ -29,8 +30,8 @@ final class ScheduleModel {
     private let store: ScheduleStore
     private let calendar: Calendar
 
-    private var pairsTask: Task<Void, Never>?
-    private var changesTask: Task<Void, Never>?
+    @ObservationIgnored nonisolated(unsafe) private var pairsTask: Task<Void, Never>?
+    @ObservationIgnored nonisolated(unsafe) private var changesTask: Task<Void, Never>?
 
     init(
         database: AppDatabase = AppServices.database,
@@ -150,7 +151,7 @@ final class ScheduleModel {
     }
 
     /// «HH:mm» — в той же форме, что время пар: сравнивается строкой.
-    static func clock(of date: Date, calendar: Calendar) -> String {
+    nonisolated static func clock(of date: Date, calendar: Calendar) -> String {
         let parts = calendar.dateComponents([.hour, .minute], from: date)
         return String(format: "%02d:%02d", parts.hour ?? 0, parts.minute ?? 0)
     }
@@ -224,7 +225,7 @@ final class ScheduleModel {
     }
 
     /// Понедельник — 1, воскресенье — 7, как в контракте API.
-    static func isoDay(of date: Date, calendar: Calendar) -> Int {
+    nonisolated static func isoDay(of date: Date, calendar: Calendar) -> Int {
         let weekday = calendar.component(.weekday, from: date)
         return ((weekday + 5) % 7) + 1
     }

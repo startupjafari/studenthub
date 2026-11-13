@@ -133,7 +133,8 @@ struct HeroActionRow: View {
                     Button(role: item.role, action: item.action) {
                         HeroActionLabel(title: item.title, symbol: item.symbol, isDestructive: item.role == .destructive)
                     }
-                    .buttonStyle(.plain)
+                    // Круг поддаётся под пальцем и возвращается с перелётом (`Motion`).
+                    .buttonStyle(.pressableIcon)
                     .frame(maxWidth: .infinity)
                 }
                 if !menu.isEmpty {

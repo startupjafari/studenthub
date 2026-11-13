@@ -12,7 +12,7 @@ struct ProfileView: View {
 
     @Environment(\.viewerID) private var viewerID
     @Environment(ViewerProfileModel.self) private var viewer
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     @State private var model: ProfileModel
     @State private var posts: FeedModel
     /// Выбранная вкладка переживает уход с экрана и восстановление сцены — у каждого
@@ -255,7 +255,7 @@ struct ProfileView: View {
     /// не остаётся посреди прежней ленты. `revealing` — прокрутить к вкладкам в любом
     /// случае (касание итога в шапке).
     private func select(_ next: ProfileTab, revealing: Bool, with scroller: ScrollViewProxy) {
-        let animation = Motion.respecting(.snappy(duration: 0.3), reduceMotion: reduceMotion)
+        let animation = Motion.respecting(Motion.snappy, reduceMotion: reduceMotion)
         let reveals = revealing || scroll.tabsPinned
         withAnimation(animation) {
             tab = next

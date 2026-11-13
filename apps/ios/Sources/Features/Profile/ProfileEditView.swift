@@ -96,7 +96,7 @@ struct ProfileEditView: View {
                 guard message != nil else { return }
                 // Строка ошибки появляется в этом же проходе — прокрутка к ней после него.
                 Task { @MainActor in
-                    withAnimation(Motion.calm) { scroller.scrollTo(Self.topAnchor, anchor: .top) }
+                    withMotion(Motion.calm) { scroller.scrollTo(Self.topAnchor, anchor: .top) }
                 }
             }
         }

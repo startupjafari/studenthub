@@ -11,7 +11,7 @@ private struct ActionToastModifier: ViewModifier {
     @Binding var message: String?
     var duration: Duration
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     @State private var hideTask: Task<Void, Never>?
 
     func body(content: Content) -> some View {

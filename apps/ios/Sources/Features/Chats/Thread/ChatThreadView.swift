@@ -61,7 +61,7 @@ struct ChatThreadView: View {
     @State private var pickingSearchSender = false
     /// Размер кнопки «вниз» — для запаса под ней в ленте (`ChatScrollDownButton`).
     @ScaledMetric(relativeTo: .body) private var downButtonSize: CGFloat = 40
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     private var realtime: RealtimeCoordinator { AppServices.realtime }
     private var jumps: ChatJumpRequests { ChatJumpRequests.shared }
 
@@ -98,6 +98,7 @@ struct ChatThreadView: View {
                         ChatTitleView(model: model, realtime: realtime)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("chat.title")
                 }
                 ChatAvatarToolbarItem(chatID: chatID, chat: model?.chat, title: model?.title)
             }
@@ -277,7 +278,10 @@ struct ChatThreadView: View {
                 }
                 }
                 .frame(maxWidth: .infinity)
-                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { topBars = $0 }
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+                    ScrollProbe.note("topBars maxY \(Int(topBars.maxY)) -> \(Int(frame.maxY)) failure=\(model.failure != nil)")
+                    topBars = frame
+                }
 
                 if let search, showsSearchList {
                     ChatSearchResultsList(search: search, viewerID: viewerID) { position in
@@ -935,7 +939,7 @@ private struct ChatTitleView: View {
                     .contentTransition(.opacity)
                     .opacity(subtitle == nil ? 0 : 1)
                     .accessibilityHidden(subtitle == nil)
-                    .animation(.default, value: subtitle == nil)
+                    .animation(Motion.fade, value: subtitle == nil)
             }
         }
         .padding(.horizontal, Spacing.md)
@@ -1171,7 +1175,7 @@ private struct ChatScrollDownButton: View {
     let action: () -> Void
 
     @ScaledMetric(relativeTo: .body) private var size: CGFloat = 40
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
 
     var body: some View {
         Button(action: action) {

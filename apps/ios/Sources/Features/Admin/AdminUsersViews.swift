@@ -195,10 +195,9 @@ struct AdminUserView: View {
     @Environment(\.viewerRole) private var viewerRole
     @Environment(\.viewerID) private var viewerID
 
-    @State private var profile: JSONValue?
-    @State private var card: AdminModerationCardDTO?
-    @State private var failure: String?
-    @State private var isOffline = false
+    /// Профиль и карточка модератора — одним значением (`RemoteValue`): сохранённое
+    /// встаёт сразу, сеть обновляет фоном.
+    @State private var remote = RemoteValue<Loaded>()
     @State private var actionFailure: String?
     @State private var notice: String?
     @State private var isWorking = false
@@ -218,6 +217,14 @@ struct AdminUserView: View {
 
     private var canEditAcademic: Bool { viewerRole == .dean || viewerRole == .universityAdmin }
 
+    private struct Loaded {
+        var profile: JSONValue?
+        var card: AdminModerationCardDTO?
+    }
+
+    private var profile: JSONValue? { remote.value?.profile }
+    private var card: AdminModerationCardDTO? { remote.value?.card }
+
     private var targetRole: String {
         card?.role ?? profile?["role"]?.string ?? ""
     }
@@ -232,18 +239,9 @@ struct AdminUserView: View {
     }
 
     var body: some View {
-        Group {
-            if profile != nil || card != nil {
-                content
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
-                LoadingStateView()
-            }
-        }
+        RemoteValueContent(remote: remote, load: fetch) { _ in content }
         .navigationTitle(Text(AdminScreen.user(id: id).title))
         .navigationBarTitleDisplayMode(.inline)
-        .task { await load() }
         .actionFailureAlert($actionFailure)
         .alert(
             notice ?? "",
@@ -540,25 +538,27 @@ struct AdminUserView: View {
 
     // MARK: Загрузка и действия
 
-    @MainActor
     private func load() async {
-        // Профиль виден всем ролям; карточка модератора — только модерации. Падение одной
-        // половины не прячет вторую.
+        await remote.load(fetch)
+    }
+
+    /// Профиль виден всем ролям; карточка модератора — только модерации. Падение одной
+    /// половины не прячет вторую; ошибка — только если не пришло ничего.
+    private func fetch() async throws -> Loaded {
         async let profileResult = fetchProfile()
-        var cardError: Error?
+        var loaded = Loaded()
+        var firstError: Error?
         if canModerate {
-            do { card = try await api.moderationCard(id: id) } catch { cardError = error }
+            do { loaded.card = try await api.moderationCard(id: id) } catch { firstError = error }
         }
         switch await profileResult {
         case .success(let value):
-            profile = value
+            loaded.profile = value
         case .failure(let error):
-            cardError = cardError ?? error
+            firstError = firstError ?? error
         }
-        if profile == nil && card == nil, let cardError {
-            failure = cardError.userMessage
-            isOffline = cardError.isOffline
-        }
+        if loaded.profile == nil, loaded.card == nil, let firstError { throw firstError }
+        return loaded
     }
 
     private func fetchProfile() async -> Result<JSONValue, Error> {

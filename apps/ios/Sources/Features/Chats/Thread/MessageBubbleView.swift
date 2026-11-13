@@ -75,7 +75,7 @@ struct MessageBubbleView: View {
 
     @State private var reactionTick = 0
     @Environment(\.colorScheme) private var scheme
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     @ScaledMetric(relativeTo: .body) private var avatarSize: CGFloat = 32
 
     private var message: MessageRecord { item.message }
@@ -160,6 +160,7 @@ struct MessageBubbleView: View {
             if !item.isOwn { Spacer(minLength: Spacing.xxl * 2) }
         }
         .bubbleAnchor(message.id, part: .row, enabled: !isMenuPreview)
+        .accessibilityIdentifier("message.bubble.\(message.remoteId ?? message.id)")
         .accessibilityHidden(selecting)
     }
 
@@ -321,14 +322,22 @@ struct MessageBubbleView: View {
         .padding(.trailing, padding(leading: false))
         .padding(.vertical, isMediaOnly ? 3 : Spacing.sm)
         .background {
-            shape
-                .fill(background)
-                .shadow(
-                    color: Palette.overlay.opacity(item.isOwn || scheme == .dark ? 0 : 0.10),
-                    radius: 0.6,
-                    x: 0,
-                    y: 0.6
-                )
+            if PerformanceFlags.chatBubbleFlatShadow {
+                // Та же тень без размытия: подложка со сдвигом вниз под заливкой пузыря.
+                shape
+                    .fill(Palette.overlay.opacity(item.isOwn || scheme == .dark ? 0 : 0.10))
+                    .offset(y: 0.6)
+                    .overlay { shape.fill(background) }
+            } else {
+                shape
+                    .fill(background)
+                    .shadow(
+                        color: Palette.overlay.opacity(item.isOwn || scheme == .dark ? 0 : 0.10),
+                        radius: 0.6,
+                        x: 0,
+                        y: 0.6
+                    )
+            }
         }
         .contentShape(shape)
         .overlay(alignment: item.isOwn ? .bottomLeading : .bottomTrailing) {
@@ -499,7 +508,7 @@ struct MessageBubbleView: View {
     }
 
     private var time: String {
-        message.createdAt.formatted(date: .omitted, time: .shortened)
+        item.time.isEmpty ? message.createdAt.formatted(date: .omitted, time: .shortened) : item.time
     }
 
     /// Время, «изм.», булавка и галочки.

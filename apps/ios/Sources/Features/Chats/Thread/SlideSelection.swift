@@ -38,7 +38,7 @@ private struct SlideSelection: ViewModifier {
     let onSelect: (Int) -> Void
 
     @State private var frames: [Int: CGRect] = [:]
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
 
     func body(content: Content) -> some View {
         content

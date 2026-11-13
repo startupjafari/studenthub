@@ -98,7 +98,7 @@ struct AppShellView: View {
     @ViewBuilder
     private var tabs: some View {
         if #available(iOS 18, *) {
-            TabView(selection: $router.selectedTab) {
+            TabView(selection: tabSelection) {
                 ForEach(AppTab.tabs(for: role)) { tab in
                     Tab(value: tab, role: tab == .search ? .search : nil) {
                         stack(for: tab)
@@ -110,7 +110,7 @@ struct AppShellView: View {
                 }
             }
         } else {
-            TabView(selection: $router.selectedTab) {
+            TabView(selection: tabSelection) {
                 ForEach(AppTab.tabs(for: role)) { tab in
                     stack(for: tab)
                         .tabItem {
@@ -121,6 +121,24 @@ struct AppShellView: View {
                 }
             }
         }
+    }
+
+    /// Выбор вкладки. Нажатие на уже открытую вкладку возвращает её стек к корню, как в
+    /// Telegram и системных приложениях: `TabView` зовёт сеттер и с тем же значением, а
+    /// у `NavigationStack` с внешним `path` сама система этого не делает.
+    private var tabSelection: Binding<AppTab> {
+        Binding(
+            get: { router.selectedTab },
+            set: { tab in
+                if tab == router.selectedTab {
+                    guard !router.path(for: tab).routes.isEmpty else { return }
+                    // Переход назад анимирует сам стек — своей кривой ему не нужно.
+                    router.popToRoot(tab)
+                } else {
+                    router.selectedTab = tab
+                }
+            }
+        )
     }
 
     /// Стек вкладки: у каждой свой путь, профиль в верхней панели корня.

@@ -22,7 +22,7 @@ struct VoiceMicButton: View {
     /// Номер касания: сброс оборванного касания на следующем витке не должен задеть
     /// уже начавшееся новое.
     @State private var touchSerial = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
     @ScaledMetric(relativeTo: .body) private var bigCircle: CGFloat = 84
 
     private var phase: VoiceRecordingMachine.Phase { recorder.phase }
@@ -247,7 +247,7 @@ struct VoiceRecordingStrip: View {
     let offset: CGSize
 
     @State private var blink = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
 
     var body: some View {
         Group {

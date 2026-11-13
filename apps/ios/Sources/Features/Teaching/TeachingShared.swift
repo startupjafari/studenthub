@@ -309,9 +309,7 @@ struct TeachingPickedFile {
     let mime: String
 
     static func read(_ url: URL) throws -> TeachingPickedFile {
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        let data = try Data(contentsOf: url)
+        let data = try PickedFile.readNow(url)
         let mime = (try? url.resourceValues(forKeys: [.contentTypeKey]).contentType?.preferredMIMEType) ?? "application/octet-stream"
         return TeachingPickedFile(data: data, name: url.lastPathComponent, mime: mime)
     }

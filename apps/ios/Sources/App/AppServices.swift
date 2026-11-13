@@ -8,7 +8,7 @@ import os
 /// перепутать и дать ему общий клиент, обновление токена уйдёт в рекурсию.
 enum AppServices {
     static let auth = AuthAPI()
-    static let session = SessionStore(auth: auth, background: UIKitBackgroundActivity())
+    static let session = SessionStore(auth: auth, secrets: UITestHooks.secretStore, background: UIKitBackgroundActivity())
     static let api = APIClient(authorization: session)
     /// Подтверждение входа по QR — наоборот, только с авторизацией: пользователя
     /// сервер берёт из токена.
@@ -16,7 +16,7 @@ enum AppServices {
 
     /// Навигация. Общая, а не у каждого экрана своя: по нажатию на уведомление
     /// переход делает делегат приложения, у которого своего состояния нет.
-    static let router = AppRouter()
+    @MainActor static let router = AppRouter()
 
     /// Что делать по тихому пушу.
     static let pushSync = PushSync()
@@ -29,7 +29,7 @@ enum AppServices {
     static let attachmentURLs = AttachmentURLProvider()
 
     /// Реальное время. Транспорт — единственное место, знающее про socket.io.
-    static let realtime = RealtimeCoordinator(transport: SocketIORealtimeTransport())
+    static let realtime = RealtimeCoordinator(transport: UITestHooks.realtimeTransport())
 
     /// Досылка неотправленных сообщений, не привязанная к открытому чату.
     static let outbox = OutboxService.live()
