@@ -449,7 +449,9 @@ struct LibrarianReaderCardSheet: View {
 
     var body: some View {
         NavigationStack {
-            RemoteContent(load: {
+            // Без кеша: копия на телефоне обошла бы журнал просмотров и показывала бы
+            // удостоверение после возврата книги.
+            RemoteContent(caching: false, load: {
                 do {
                     return try await api.readerCard(loanID: loanID)
                 } catch let error as APIError where error.code == .forbidden {

@@ -11,13 +11,16 @@ struct LibrarianReportsView: View {
 
     @State private var token = 0
     @State private var days = 90
-    @State private var popular: [LibrarianPopularDTO]?
-    @State private var popularFailure: String?
+    /// Популярное — своё значение (`RemoteValue`): сбой не прячет сводку и должников.
+    @State private var popularRemote = RemoteValue<[LibrarianPopularDTO]>()
     /// За какой период загружен `popular`: при смене периода старый топ не выдаём за новый.
     @State private var popularDays: Int?
 
     private let api = LibrarianAPI()
     private static let preview = 8
+
+    private var popular: [LibrarianPopularDTO]? { popularRemote.value }
+    private var popularFailure: String? { popularRemote.failure }
 
     var body: some View {
         RemoteContent(reloadToken: token, load: load) { snapshot in
@@ -59,7 +62,7 @@ struct LibrarianReportsView: View {
                     .pickerStyle(.segmented)
                     if let popular {
                         if let popularFailure {
-                            StaleDataBanner(message: popularFailure) { await loadPopular() }
+                            StaleDataBanner(message: popularFailure, isOffline: popularRemote.isOffline) { await loadPopular() }
                                 .listRowBackground(Color.clear)
                                 .listRowInsets(EdgeInsets())
                         }
@@ -107,7 +110,8 @@ struct LibrarianReportsView: View {
             }
         }
         .navigationTitle(Text(LibrarianScreen.reports.title))
-        .task(id: days) { await loadPopular() }
+        // Смена периода и возврат приложения из фона (`AppLifecycle`) — перечитать.
+        .task(id: [days, AppLifecycle.shared.foregroundEpoch]) { await loadPopular() }
     }
 
     private func summarySection(_ s: LibrarianSummaryDTO) -> some View {
@@ -186,22 +190,13 @@ struct LibrarianReportsView: View {
         return try await Snapshot(summary: summary, lost: lost.items, overdue: overdue.items)
     }
 
-    @MainActor
     private func loadPopular() async {
         let days = self.days
         // Новый период — пока ответа нет, крутилка, а не топ прошлого периода.
         if popularDays != days {
-            popular = nil
-            popularFailure = nil
-        }
-        do {
-            popular = try await api.popular(days: days)
+            popularRemote.reset()
             popularDays = days
-            popularFailure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            popularFailure = error.userMessage
         }
+        await popularRemote.load { try await api.popular(days: days) }
     }
 }
