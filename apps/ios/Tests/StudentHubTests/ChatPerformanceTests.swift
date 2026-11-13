@@ -69,6 +69,19 @@ final class ChatPerformanceTests: XCTestCase {
         }
     }
 
+    /// То же чтение, но окном у свежего края (шаг 2.2): цена не зависит от длины истории.
+    func testMeasureWindowRead() async throws {
+        let database = try AppDatabase.inMemory()
+        try await PerfFixture.seed(viewerID: viewer, database: database, now: now)
+        let request = MessageStore(database: database)
+            .messages(chatID: PerfFixture.chatID, from: PerfFixture.defaultCount - 150)
+
+        measure(metrics: [XCTClockMetric()]) {
+            let rows = (try? database.reader.read { db in try request.fetchAll(db) }) ?? []
+            XCTAssertEqual(rows.count, 151)
+        }
+    }
+
     /// Полная сборка ленты по всем сообщениям (`TimelineBuild`).
     func testMeasureTimelineBuild() {
         let items = PerfFixture.makeMessages(count: PerfFixture.defaultCount, viewerID: viewer, now: now)

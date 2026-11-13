@@ -32,6 +32,38 @@ final class MessageStoreTests: XCTestCase {
         XCTAssertEqual(attachments, 1)
     }
 
+    /// Окно ленты: старее границы не читается, неотправленное (без номера) — всегда.
+    func testWindowRequestRespectsFloor() async throws {
+        let database = try AppDatabase.inMemory()
+        try await seedChat(in: database)
+        let store = MessageStore(database: database)
+        try await store.save(messages: (1...10).map { dto(id: "m-\($0)", seq: $0) }, chatID: "c-1")
+        let own = pending(id: "local-1")
+        try await database.writer.write { db in try own.insert(db) }
+
+        let window = try await database.reader.read { db in
+            try store.messages(chatID: "c-1", from: 8).fetchAll(db)
+        }
+
+        XCTAssertEqual(Set(window.map(\.id)), ["m-8", "m-9", "m-10", "local-1"])
+    }
+
+    /// Граница опускается на страницу из того, что уже лежит в базе; ниже ничего нет — `nil`.
+    func testLowerFloorUsesLocalHistory() async throws {
+        let database = try AppDatabase.inMemory()
+        try await seedChat(in: database)
+        let store = MessageStore(database: database)
+        try await store.save(messages: (1...10).map { dto(id: "m-\($0)", seq: $0) }, chatID: "c-1")
+
+        let byPage = try await store.lowerFloor(chatID: "c-1", below: 8, by: 3)
+        let rest = try await store.lowerFloor(chatID: "c-1", below: 3, by: 5)
+        let none = try await store.lowerFloor(chatID: "c-1", below: 1, by: 5)
+
+        XCTAssertEqual(byPage, 5)
+        XCTAssertEqual(rest, 1)
+        XCTAssertNil(none)
+    }
+
     /// Изменилось одно поле — пишется, и только оно меняет строку.
     func testChangedMessageIsStillWritten() async throws {
         let database = try AppDatabase.inMemory()

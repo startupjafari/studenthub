@@ -47,10 +47,30 @@ struct MessageStore: Sendable {
     ///
     /// Сортируем по времени, а не по номеру: номер есть только у подтверждённых, а
     /// неотправленное должно стоять там, где человек его написал, — последним.
-    func messages(chatID: String) -> QueryInterfaceRequest<MessageRecord> {
-        MessageRecord
-            .filter(MessageRecord.Columns.chatId == chatID)
-            .order(MessageRecord.Columns.createdAt.asc, MessageRecord.Columns.seq.asc)
+    /// `floor` — нижняя граница окна (`seq`): старее неё не читается. Неотправленные
+    /// (без номера) входят всегда. `nil` — весь чат.
+    func messages(chatID: String, from floor: Int? = nil) -> QueryInterfaceRequest<MessageRecord> {
+        var request = MessageRecord.filter(MessageRecord.Columns.chatId == chatID)
+        if let floor {
+            request = request.filter(MessageRecord.Columns.seq >= floor || MessageRecord.Columns.seq == nil)
+        }
+        return request.order(MessageRecord.Columns.createdAt.asc, MessageRecord.Columns.seq.asc)
+    }
+
+    /// Новая нижняя граница окна на страницу старее `floor` — из того, что уже лежит в
+    /// базе. `nil` — старее границы в базе ничего нет, нужна сеть.
+    func lowerFloor(chatID: String, below floor: Int, by count: Int) async throws -> Int? {
+        try await database.reader.read { db in
+            let older = MessageRecord
+                .filter(MessageRecord.Columns.chatId == chatID)
+                .filter(MessageRecord.Columns.seq < floor)
+            let paged = try Int.fetchOne(
+                db,
+                older.select(MessageRecord.Columns.seq).order(MessageRecord.Columns.seq.desc).limit(1, offset: count - 1)
+            )
+            if let paged { return paged }
+            return try Int.fetchOne(db, older.select(min(MessageRecord.Columns.seq)))
+        }
     }
 
     /// Известная позиция догона: с неё запрашивается разница после обрыва.
