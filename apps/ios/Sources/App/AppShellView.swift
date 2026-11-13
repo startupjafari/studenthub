@@ -74,6 +74,11 @@ struct AppShellView: View {
         // Вернулись в приложение: сокет, порванный в фоне, поднимаем сразу, а
         // пропущенное за это время догоняем — пуши могли прийти не все.
         .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .background: AppLifecycle.shared.enterBackground()
+            case .active: AppLifecycle.shared.becomeActive()
+            default: break
+            }
             guard phase == .active else { return }
             Task {
                 await AppServices.realtime.resume()

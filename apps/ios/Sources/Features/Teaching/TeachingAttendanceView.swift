@@ -405,6 +405,9 @@ struct TeachingAttendanceQRView: View {
             .task {
                 // Обновление раз в минуту — раньше истечения токена (90 с).
                 while !Task.isCancelled {
+                    // В фоне QR никто не видит — новый токен берём после возвращения.
+                    await AppLifecycle.shared.waitUntilActive()
+                    if Task.isCancelled { break }
                     await load()
                     try? await Task.sleep(for: .seconds(60))
                 }
