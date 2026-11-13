@@ -327,7 +327,7 @@ struct StaffApplicationDetailView: View {
     @State private var app: StaffApplication?
     @State private var failure: String?
     /// Действия над заявкой: «идёт работа» и отказ (`ActionRunner`).
-    @State private var actions = ActionRunner()
+    @State private var runner = ActionRunner()
     @State private var notice: String?
     @State private var prompt: StaffTextPrompt?
     @State private var addingResult = false
@@ -361,7 +361,7 @@ struct StaffApplicationDetailView: View {
                 await load()
             }
         }
-        .actionFailureAlert(actions)
+        .actionFailureAlert(runner)
         .alert(
             String(localized: "staff.app.done", defaultValue: "Готово"),
             isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })
@@ -528,7 +528,7 @@ struct StaffApplicationDetailView: View {
             if AdminNav.canChat(viewerRole) {
                 actions.append(HeroAction(title: String(localized: "staff.app.write", defaultValue: "Написать"), symbol: "bubble.left.fill") {
                     Task {
-                        do { try await AdminNav.openChat(with: student.id) } catch { actions.failure = error.userMessage }
+                        do { try await AdminNav.openChat(with: student.id) } catch { runner.failure = error.userMessage }
                     }
                 })
             }
@@ -595,7 +595,7 @@ struct StaffApplicationDetailView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(actions.isWorking)
+            .disabled(runner.isWorking)
         }
     }
 
@@ -750,7 +750,7 @@ struct StaffApplicationDetailView: View {
                     Button(role: primary.destructive ? .destructive : nil) {
                         primary.run()
                     } label: {
-                        if actions.isWorking {
+                        if runner.isWorking {
                             ProgressView().frame(maxWidth: .infinity)
                         } else {
                             Label(primary.title, systemImage: primary.symbol).frame(maxWidth: .infinity)
@@ -758,7 +758,7 @@ struct StaffApplicationDetailView: View {
                     }
                     .glassProminentButton()
                     .controlSize(.large)
-                    .disabled(actions.isWorking)
+                    .disabled(runner.isWorking)
                 }
             }
             .padding(.horizontal, Spacing.xl)
@@ -843,7 +843,7 @@ struct StaffApplicationDetailView: View {
         // Электронную выдачу без результата сервер не примет: студенту пришло бы «готово»,
         // а скачать нечего. Подсказываем до запроса.
         if app.deliveryType != "PAPER", !app.hasActiveResult {
-            actions.failure = String(
+            runner.failure = String(
                 localized: "staff.app.readyNeedsResult",
                 defaultValue: "Сначала добавьте результат — без него студенту нечего скачать"
             )
@@ -937,7 +937,7 @@ struct StaffApplicationDetailView: View {
                 failure = error.userMessage
                 isOffline = error.isOffline
             } else {
-                actions.failure = error.userMessage
+                runner.failure = error.userMessage
             }
         }
     }
@@ -958,7 +958,7 @@ struct StaffApplicationDetailView: View {
 
     @MainActor
     private func run(_ work: () async throws -> Void) async {
-        await actions.run(work, then: { await load() })
+        await runner.run(work, then: { await load() })
     }
 
     @MainActor
