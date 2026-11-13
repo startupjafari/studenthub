@@ -95183,23 +95183,6 @@
         }
       }
     },
-    "chats.checklist.new": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Список"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Тізім"
-          }
-        }
-      }
-    },
     "chats.checklist.notDone": {
       "extractionState": "manual",
       "localizations": {
@@ -96539,6 +96522,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "Байланыс жоқ — сақталғаны көрсетілді"
+          }
+        }
+      }
+    },
+    "chats.attach.album": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Альбом: %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Альбом: %@"
+          }
+        }
+      }
+    },
+    "chats.attach.recents": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недавние"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Соңғылар"
+          }
+        }
+      }
+    },
+    "chats.file.cancelDownload": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отменить скачивание"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жүктеп алуды болдырмау"
+          }
+        }
+      }
+    },
+    "chats.file.download": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скачать и открыть"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жүктеп алып, ашу"
+          }
+        }
+      }
+    },
+    "chats.file.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ашу"
+          }
+        }
+      }
+    },
+    "chats.stickers.filter": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стикеры %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стикерлер %@"
           }
         }
       }
