@@ -124,6 +124,10 @@ final class ChatThreadModel {
     /// окно начинается у свежего края и опускается, когда лента подъезжает к его верху.
     /// После замены переписки окном истории граница снимается: в базе тогда только оно.
     @ObservationIgnored private var floor: Int?
+    /// Сколько ждать первую страницу, пока в базе одно превью (шаг 2.9, флаг).
+    static var preparingWait: Duration {
+        PerformanceFlags.chatThinHistoryShortWait ? .milliseconds(600) : .milliseconds(2500)
+    }
     /// Сколько свежих сообщений наблюдать при открытии (плюс всё непрочитанное).
     private static let liveWindow = 150
 
@@ -171,7 +175,7 @@ final class ChatThreadModel {
         observeChat()
         loadDraft()
         preparingTimeout = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(2500))
+            try? await Task.sleep(for: Self.preparingWait)
             guard !Task.isCancelled else { return }
             await self?.finishPreparing()
         }
