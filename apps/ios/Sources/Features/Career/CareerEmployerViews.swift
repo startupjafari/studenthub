@@ -888,40 +888,37 @@ private struct CareerHistorySheet: View {
 struct CareerCandidateView: View {
     let id: String
 
-    @State private var card: CareerCandidateCard?
-    @State private var failure: String?
-    @State private var isOffline = false
-    @State private var hidden = false
+    // Чужие личные данные студента без копии на телефоне работодателя: скрытый профиль
+    // не должен оставаться в сохранённом.
+    @State private var remote = RemoteValue<Loaded>(caching: false)
+
+    /// Карточка или «профиль скрыт» (404) — оба ответа сервера, а не сбой.
+    private enum Loaded {
+        case card(CareerCandidateCard)
+        case hidden
+    }
 
     var body: some View {
-        Group {
-            if let card {
+        RemoteValueContent(remote: remote, load: fetch) { loaded in
+            switch loaded {
+            case .card(let card):
                 content(card)
-            } else if hidden {
+            case .hidden:
                 EmptyStateView(
                     title: String(localized: "career.candidate.hidden", defaultValue: "Студент скрыл профиль от работодателей"),
                     symbol: "person.crop.circle.badge.xmark"
                 )
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
-                LoadingStateView()
             }
         }
         .navigationTitle(Text(CareerScreen.candidate(id: id).title))
         .navigationBarTitleDisplayMode(.inline)
-        .task { await load() }
     }
 
-    @MainActor
-    private func load() async {
+    private func fetch() async throws -> Loaded {
         do {
-            card = try await CareerAPI().candidate(studentID: id)
+            return .card(try await CareerAPI().candidate(studentID: id))
         } catch let error as APIError where error.code == .notFound {
-            hidden = true
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
+            return .hidden
         }
     }
 
