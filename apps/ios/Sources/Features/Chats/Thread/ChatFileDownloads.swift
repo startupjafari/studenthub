@@ -54,9 +54,7 @@ final class ChatFileDownloads {
         tasks[id] = Task { [weak self] in
             defer { self?.tasks[id] = nil }
             do {
-                guard let remote = await AppServices.attachmentURLs.url(for: id),
-                    let target = Self.cachedURL(for: file)
-                else { throw URLError(.fileDoesNotExist) }
+                guard let target = Self.cachedURL(for: file) else { throw URLError(.fileDoesNotExist) }
                 let relay = DownloadProgressRelay { fraction in
                     Task { @MainActor [weak self] in
                         // Отменённое или законченное не оживляем запоздалым отсчётом.
@@ -64,10 +62,25 @@ final class ChatFileDownloads {
                         self.active[id] = fraction
                     }
                 }
-                let (temp, response) = try await URLSession.shared.download(from: remote, delegate: relay)
-                if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-                    throw APIError.malformedResponse(statusCode: http.statusCode)
+                // Хранилище отказало (подпись протухла или отозвана) — ещё раз по свежей
+                // ссылке: кэш ссылок отдал бы ту же самую.
+                var attempt = 0
+                var downloaded: URL?
+                while downloaded == nil {
+                    attempt += 1
+                    guard let remote = await AppServices.attachmentURLs.url(for: id) else {
+                        throw URLError(.fileDoesNotExist)
+                    }
+                    let (temp, response) = try await URLSession.shared.download(from: remote, delegate: relay)
+                    if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                        try? FileManager.default.removeItem(at: temp)
+                        await AppServices.attachmentURLs.invalidate(id)
+                        guard attempt < 2 else { throw APIError.malformedResponse(statusCode: http.statusCode) }
+                        continue
+                    }
+                    downloaded = temp
                 }
+                guard let temp = downloaded else { throw URLError(.fileDoesNotExist) }
                 let folder = target.deletingLastPathComponent()
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                 try? FileManager.default.removeItem(at: target)
