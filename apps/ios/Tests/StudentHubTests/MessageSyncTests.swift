@@ -262,6 +262,89 @@ final class MessageOutboxTests: XCTestCase {
         XCTAssertEqual(Array(api.sent.suffix(2)), ["первое", "второе"])
     }
 
+    /// Ключ повтора — локальный id строки, и повтор шлёт тот же ключ: сервер вернёт уже
+    /// созданное сообщение, а не второе (P0-1 аудита).
+    func testRetrySendsSameNonceAsFirstAttempt() async throws {
+        let database = try AppDatabase.inMemory()
+        try await seedChat(in: database)
+        let api = StubSender()
+        api.failure = .transport(URLError(.timedOut))
+        let outbox = MessageOutbox(database: database, api: api)
+        await outbox.send(text: "привет", chatID: "c-1", senderID: "u-me", replyToID: nil)
+        let local = try await database.reader.read { db in try MessageRecord.fetchOne(db) }
+        let row = try XCTUnwrap(local)
+
+        api.failure = nil
+        api.answer = echo(id: "server-1", content: "привет")
+        let delivered = await outbox.retry(row)
+
+        XCTAssertTrue(delivered)
+        XCTAssertEqual(api.nonces, [row.id, row.id])
+    }
+
+    /// Два одинаковых «ок» подряд: эхо с ключом подтверждает именно свою строку, а не
+    /// самую раннюю с тем же текстом.
+    func testEchoWithNonceConfirmsItsOwnRow() async throws {
+        let database = try AppDatabase.inMemory()
+        try await seedChat(in: database)
+        let first = pending(id: "local-1", content: "ок", at: 1)
+        let second = pending(id: "local-2", content: "ок", at: 2)
+        let arrived = echo(id: "server-2", content: "ок")
+        try await database.writer.write { db in
+            try first.insert(db)
+            try second.insert(db)
+        }
+
+        try await database.writer.write { db in
+            try MessageStore.upsert(arrived, nonce: "local-2", in: db)
+        }
+
+        let rows = try await database.reader.read { db in
+            try MessageRecord.order(MessageRecord.Columns.id).fetchAll(db)
+        }
+        XCTAssertEqual(rows.map(\.id), ["local-1", "local-2"])
+        XCTAssertEqual(rows.map(\.remoteId), [nil, "server-2"])
+        XCTAssertEqual(rows.map(\.sendState), [.pending, .sent])
+    }
+
+    /// Ключ есть, но строки с ним нет — сообщение ушло с другого устройства: своё
+    /// неотправленное с тем же текстом остаётся неотправленным, пришедшее — отдельной строкой.
+    func testEchoWithForeignNonceIsNotGluedToPendingRow() async throws {
+        let database = try AppDatabase.inMemory()
+        try await seedChat(in: database)
+        let own = pending(id: "local-1", content: "ок", at: 1)
+        let arrived = echo(id: "server-9", content: "ок")
+        try await database.writer.write { db in try own.insert(db) }
+
+        try await database.writer.write { db in
+            try MessageStore.upsert(arrived, nonce: "web-device-nonce", in: db)
+        }
+
+        let rows = try await database.reader.read { db in
+            try MessageRecord.order(MessageRecord.Columns.id).fetchAll(db)
+        }
+        XCTAssertEqual(rows.map(\.id), ["local-1", "server-9"])
+        XCTAssertEqual(rows.first?.sendState, .pending)
+        XCTAssertNil(rows.first?.remoteId)
+    }
+
+    private func echo(id: String, content: String) -> ChatMessageDTO {
+        ChatMessageDTO(
+            id: id, chatId: "c-1", seq: 1, senderId: "u-me", content: content,
+            replyToId: nil, replyQuote: nil, systemType: nil, editedAt: nil, deletedAt: nil,
+            pinnedAt: nil, createdAt: Date(timeIntervalSince1970: 1_800_000_100), media: nil
+        )
+    }
+
+    private func pending(id: String, content: String, at second: TimeInterval) -> MessageRecord {
+        MessageRecord(
+            id: id, remoteId: nil, chatId: "c-1", seq: nil, senderId: "u-me", content: content,
+            replyToId: nil, replyQuote: nil, systemType: nil, editedAt: nil, deletedAt: nil,
+            pinnedAt: nil, createdAt: Date(timeIntervalSince1970: 1_800_000_000 + second),
+            sendState: .pending
+        )
+    }
+
     private func seedChat(in database: AppDatabase) async throws {
         try await database.writer.write { db in
             try ChatRecord(
@@ -280,7 +363,7 @@ private struct EchoFirstSender: ChatMessageSending {
     let database: AppDatabase
     let answer: ChatMessageDTO
 
-    func send(text: String, chatID: String, replyToID: String?) async throws -> ChatMessageDTO {
+    func send(text: String, chatID: String, replyToID: String?, nonce: String) async throws -> ChatMessageDTO {
         try await database.writer.write { db in try MessageStore.upsert(answer, in: db) }
         return answer
     }
@@ -291,10 +374,12 @@ private final class StubSender: ChatMessageSending, @unchecked Sendable {
     var answer: ChatMessageDTO?
     var failure: APIError?
     private(set) var sent: [String] = []
+    private(set) var nonces: [String] = []
 
-    func send(text: String, chatID: String, replyToID: String?) async throws -> ChatMessageDTO {
+    func send(text: String, chatID: String, replyToID: String?, nonce: String) async throws -> ChatMessageDTO {
         let outcome: (APIError?, ChatMessageDTO?) = lock.withLock {
             sent.append(text)
+            nonces.append(nonce)
             return (failure, answer)
         }
         if let error = outcome.0 { throw error }

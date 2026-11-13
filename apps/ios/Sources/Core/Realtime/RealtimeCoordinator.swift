@@ -200,9 +200,9 @@ final class RealtimeCoordinator {
             connectedAt = nil
             scheduleReconnect()
 
-        case .messageNew(let message):
+        case .messageNew(let message, let nonce):
             Signposts.chats.emitEvent("MessageReceived", "new")
-            await save(message, countsAsUnread: true)
+            await save(message, nonce: nonce, countsAsUnread: true)
 
         case .messageUpdated(let message):
             Signposts.chats.emitEvent("MessageReceived", "updated")
@@ -286,11 +286,11 @@ final class RealtimeCoordinator {
     }
 
     @MainActor
-    private func save(_ message: ChatMessageDTO, countsAsUnread: Bool) async {
+    private func save(_ message: ChatMessageDTO, nonce: String? = nil, countsAsUnread: Bool) async {
         let viewerID = await session.currentToken?.subject
         let isOpen = openChatID == message.chatId
         try? await database.writer.write { db in
-            try MessageStore.upsert(message, in: db)
+            try MessageStore.upsert(message, nonce: nonce, in: db)
             guard var chat = try ChatRecord.fetchOne(db, key: message.chatId) else { return }
             if let seq = message.seq, seq > chat.lastSeq {
                 chat.lastSeq = seq

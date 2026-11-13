@@ -206,7 +206,8 @@ private final class StubAttachments: AttachmentSending, @unchecked Sendable {
         content: String?,
         replyToID: String?,
         asFiles: Bool,
-        attachments: [AttachmentUpload]
+        attachments: [AttachmentUpload],
+        nonce: String
     ) async throws -> ChatMessageDTO {
         if let failure = lock.withLock({ failure }) { throw failure }
         guard let message = lock.withLock({ message }) else {

@@ -152,7 +152,7 @@ struct MessageStore: Sendable {
         try local.update(db)
     }
 
-    static func upsert(_ message: ChatMessageDTO, in db: Database) throws {
+    static func upsert(_ message: ChatMessageDTO, nonce: String? = nil, in db: Database) throws {
         // Своё отправленное сообщение уже лежит в базе под локальным ключом —
         // подтверждение находим по `remoteId`, иначе в ленте появился бы дубль.
         if var local = try MessageRecord
@@ -175,16 +175,8 @@ struct MessageStore: Sendable {
         // id у локальной строки ещё нет. Без сверки здесь вставлялась вторая строка, а
         // потом подтверждение отправки упиралось в UNIQUE(remoteId) — сообщение
         // раздваивалось и помечалось «Не отправлено» (§9.1a: терпимость к порядку).
-        // nonce HTTP-отправка не несёт, поэтому узнаём строку по автору и тексту —
-        // самую раннюю из неподтверждённых.
         if try MessageRecord.fetchOne(db, key: message.id) == nil,
-           var pending = try MessageRecord
-               .filter(MessageRecord.Columns.chatId == message.chatId)
-               .filter(MessageRecord.Columns.remoteId == nil)
-               .filter(MessageRecord.Columns.senderId == message.senderId)
-               .filter(MessageRecord.Columns.content == message.content)
-               .order(MessageRecord.Columns.createdAt.asc)
-               .fetchOne(db)
+           var pending = try ownPending(for: message, nonce: nonce, in: db)
         {
             pending.remoteId = message.id
             pending.seq = message.seq
@@ -202,6 +194,33 @@ struct MessageStore: Sendable {
 
     /// Вложения переписываем целиком: сервер присылает их полным списком, а
     /// дельта по ним не приходит вовсе.
+    /// Своё неподтверждённое сообщение, которому соответствует пришедшее.
+    ///
+    /// Ключ повтора (`nonce`) — это локальный id строки: по нему сверка точная. Ключ есть,
+    /// а строки с ним нет — сообщение отправлено с другого устройства, и подбирать ему
+    /// «пару» по тексту нельзя: два одинаковых «ок» склеились бы не с теми строками.
+    /// Без ключа (эхо сообщения, отправленного прежней версией приложения) — по автору и
+    /// тексту, самую раннюю из неподтверждённых.
+    private static func ownPending(
+        for message: ChatMessageDTO,
+        nonce: String?,
+        in db: Database
+    ) throws -> MessageRecord? {
+        if let nonce {
+            guard let row = try MessageRecord.fetchOne(db, key: nonce),
+                row.remoteId == nil, row.chatId == message.chatId
+            else { return nil }
+            return row
+        }
+        return try MessageRecord
+            .filter(MessageRecord.Columns.chatId == message.chatId)
+            .filter(MessageRecord.Columns.remoteId == nil)
+            .filter(MessageRecord.Columns.senderId == message.senderId)
+            .filter(MessageRecord.Columns.content == message.content)
+            .order(MessageRecord.Columns.createdAt.asc)
+            .fetchOne(db)
+    }
+
     private static func saveAttachments(
         of message: ChatMessageDTO,
         messageID: String,
