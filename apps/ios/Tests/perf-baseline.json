@@ -1,5 +1,46 @@
 {
-  "_comment": "Baseline метрик производительности (scripts/perf_check.py). Ключ — '<тест>|<метрика>'. Числа — средние с macOS-раннера CI (macos-26, симулятор iPhone 17 Pro); метрика без строки здесь — «новая» и не валит прогон. Обновлять только после взгляда на metrics.json прогона и с причиной в коммите.",
+  "_comment": "Baseline метрик производительности (scripts/perf_check.py). Ключ — '<тест>|<метрика>'. Числа — средние с macOS-раннера CI (macos-26, симулятор iPhone 17 Pro); метрика без строки здесь — «новая» и не валит прогон. Обновлять только после взгляда на metrics.json прогона и с причиной в коммите. Первые значения — ручной прогон набора perf на develop 13.11.2026 (5 повторов): взяты пиковая память, CPU Time, запуск и переход; CPU Cycles/Instructions (0 на симуляторе), приросты памяти, длительность прокрутки (задаётся жестом) и Clock Monotonic Time не сравниваются.",
   "tolerance": 0.3,
-  "metrics": {}
+  "metrics": {
+    "PerformanceTests/testChatListScroll()|Memory Peak Physical (app)": {
+      "baseline": 101823,
+      "unit": "kB",
+      "tolerance": 0.2
+    },
+    "PerformanceTests/testFeedScroll()|Memory Peak Physical (app)": {
+      "baseline": 105241,
+      "unit": "kB",
+      "tolerance": 0.2
+    },
+    "PerformanceTests/testMessageHistoryScroll()|Memory Peak Physical (app)": {
+      "baseline": 121553,
+      "unit": "kB",
+      "tolerance": 0.2
+    },
+    "PerformanceTests/testChatListScroll()|CPU Time (app)": {
+      "baseline": 3.217,
+      "unit": "s",
+      "tolerance": 0.3
+    },
+    "PerformanceTests/testMessageHistoryScroll()|CPU Time (app)": {
+      "baseline": 5.158,
+      "unit": "s",
+      "tolerance": 0.3
+    },
+    "PerformanceTests/testTabSwitching()|CPU Time (app)": {
+      "baseline": 6.182,
+      "unit": "s",
+      "tolerance": 0.5
+    },
+    "PerformanceTests/testLaunchToShell()|Duration (ApplicationFirstFramePresentationResponsive)": {
+      "baseline": 6.811,
+      "unit": "s",
+      "tolerance": 0.5
+    },
+    "PerformanceTests/testOpenChatTransition()|Duration (NavigationTransition)": {
+      "baseline": 0.918,
+      "unit": "s",
+      "tolerance": 0.3
+    }
+  }
 }
