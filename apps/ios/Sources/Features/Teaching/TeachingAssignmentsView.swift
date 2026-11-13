@@ -7,17 +7,18 @@ struct TeachingAssignmentsView: View {
     @State private var loader = PagedLoader<TeachingAssignmentDTO>(limit: 20) { request in
         try await TeachingAPI().assignments(request, status: nil)
     }
-    @State private var queue: TeachingReviewQueueDTO?
-    /// Очередь «Ждут проверки» не пришла: без полосы блок просто исчезал бы, и
-    /// преподаватель решил бы, что проверять нечего.
-    @State private var queueFailure: String?
-    @State private var queueOffline = false
+    /// Очередь «Ждут проверки» — `RemoteValue`: сохранённая встаёт сразу. Не пришла —
+    /// полоса: без неё блок просто исчезал бы, и преподаватель решил бы, что проверять
+    /// нечего.
+    @State private var queueRemote = RemoteValue<TeachingReviewQueueDTO>()
     @State private var creating = false
     @State private var editing: TeachingAssignmentDTO?
     @State private var deleting: TeachingAssignmentDTO?
     @State private var actionFailure: String?
 
     private let api = TeachingAPI()
+
+    private var queue: TeachingReviewQueueDTO? { queueRemote.value }
 
     var body: some View {
         PagedList(
@@ -31,8 +32,8 @@ struct TeachingAssignmentsView: View {
             )
         ) {
             // Сбой самого списка уже занимает экран — вторая ошибка над ним лишняя.
-            if let queueFailure, loader.failure == nil {
-                StaleDataBanner(message: queueFailure, isOffline: queueOffline) { await loadQueue() }
+            if let queueFailure = queueRemote.failure, loader.failure == nil {
+                StaleDataBanner(message: queueFailure, isOffline: queueRemote.isOffline) { await loadQueue() }
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets())
             }
@@ -101,7 +102,8 @@ struct TeachingAssignmentsView: View {
         }
         .actionFailureAlert($actionFailure)
         .onChange(of: status) { Task { await applyFilter() } }
-        .task { await loadQueue() }
+        // Возврат приложения из фона после долгой паузы — повод перечитать (`AppLifecycle`).
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await loadQueue() }
     }
 
     private static let filters: [(value: String?, title: String)] = [
@@ -159,18 +161,9 @@ struct TeachingAssignmentsView: View {
         await loadQueue()
     }
 
-    @MainActor
+    /// Прошлая очередь при сбое остаётся на экране — полоса говорит, что она несвежая.
     private func loadQueue() async {
-        do {
-            queue = try await api.reviewQueue(limit: 5)
-            queueFailure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            // Прошлая очередь остаётся на экране — полоса говорит, что она несвежая.
-            queueFailure = error.userMessage
-            queueOffline = error.isOffline
-        }
+        await queueRemote.load { try await api.reviewQueue(limit: 5) }
     }
 
     /// Конфликт смены статуса значит, что задание уже перевели в другом окне, — список
@@ -383,17 +376,40 @@ struct TeachingAssignmentForm: View {
 struct TeachingSubmissionsView: View {
     let assignmentID: String
 
-    @State private var assignment: TeachingAssignmentDTO?
-    @State private var submissions: [TeachingSubmissionDTO]?
-    @State private var failure: String?
-    @State private var isOffline = false
+    /// Задание и сдачи — независимо (`RemoteValue`): задание открылось, а сдачи нет —
+    /// сбой строкой под его шапкой.
+    @State private var assignmentRemote = RemoteValue<TeachingAssignmentDTO>()
+    /// Сдачи — чужие ответы и баллы: без копии на телефоне.
+    @State private var submissionsRemote = RemoteValue<[TeachingSubmissionDTO]>(caching: false)
     @State private var filter: String?
     @State private var editing = false
 
     private let api = TeachingAPI()
 
+    private var assignment: TeachingAssignmentDTO? { assignmentRemote.value }
+    private var submissions: [TeachingSubmissionDTO]? { submissionsRemote.value }
+    private var failure: String? { assignmentRemote.failure ?? submissionsRemote.failure }
+    private var isOffline: Bool { assignmentRemote.failure != nil ? assignmentRemote.isOffline : submissionsRemote.isOffline }
+
+    /// Обновление не удалось, а показанное на экране — полосой над ним. Сдачи без списка
+    /// показывают свою ошибку строкой под шапкой.
+    private var staleFailure: (message: String, isOffline: Bool)? {
+        if assignment != nil || submissions != nil, let failure = assignmentRemote.failure {
+            return (failure, assignmentRemote.isOffline)
+        }
+        if submissions != nil, let failure = submissionsRemote.failure {
+            return (failure, submissionsRemote.isOffline)
+        }
+        return nil
+    }
+
     var body: some View {
         List {
+            if let staleFailure {
+                StaleDataBanner(message: staleFailure.message, isOffline: staleFailure.isOffline) { await load() }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+            }
             if let assignment {
                 Section {
                     let status = TeachingText.assignmentStatus(assignment.status)
@@ -458,9 +474,9 @@ struct TeachingSubmissionsView: View {
                         }
                     }
                 }
-            } else if assignment != nil, let failure {
+            } else if assignment != nil, let failure = submissionsRemote.failure {
                 // Задание открылось, а сдачи нет — сбой строкой под его шапкой.
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
+                ErrorStateView(message: failure, isOffline: submissionsRemote.isOffline) { await load() }
                     .listRowBackground(Color.clear)
             }
         }
@@ -468,7 +484,7 @@ struct TeachingSubmissionsView: View {
         .screenState(assignment == nil && submissions == nil) {
             if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
+            } else if assignmentRemote.checkedCache {
                 LoadingStateView()
             }
         }
@@ -480,7 +496,8 @@ struct TeachingSubmissionsView: View {
             }
         }
         .pullToRefresh { await load() }
-        .task { await load() }
+        // Возврат приложения из фона после долгой паузы — повод перечитать (`AppLifecycle`).
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await load() }
     }
 
     private static func visual(_ assignment: TeachingAssignmentDTO) -> HeroVisual {
@@ -524,20 +541,12 @@ struct TeachingSubmissionsView: View {
         }
     }
 
-    @MainActor
     private func load() async {
-        do {
-            async let detail = api.assignment(id: assignmentID)
-            async let list = api.submissions(assignmentID: assignmentID)
-            assignment = try await detail
-            submissions = try await list
-            failure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
+        let api = api
+        let id = assignmentID
+        async let detail: Void = assignmentRemote.load { try await api.assignment(id: id) }
+        async let list: Void = submissionsRemote.load { try await api.submissions(assignmentID: id) }
+        _ = await (detail, list)
     }
 }
 

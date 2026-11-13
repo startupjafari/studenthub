@@ -6,9 +6,9 @@ import SwiftUI
 struct TeachingDashboardView: View {
     @Environment(\.viewerID) private var viewerID
 
-    @State private var today: TeachingTodayDTO?
-    @State private var failure: String?
-    @State private var isOffline = false
+    /// Сводка дня — `RemoteValue`: сохранённое сразу, сеть фоном, сбой обновления —
+    /// полосой над показанным.
+    @State private var remote = RemoteValue<TeachingTodayDTO>()
     @State private var marked: Set<String> = []
     @State private var queue: TeachingReviewQueueDTO?
     @State private var consultations: [ConsultationSlotDTO] = []
@@ -20,11 +20,12 @@ struct TeachingDashboardView: View {
     @State private var exported: ExportedFile?
     @State private var isExporting = false
     @State private var actionFailure: String?
-    /// Сводка дня пришла из сети. Пока нет — на экране сохранённое, и возврат на экран
-    /// грузит заново, а не только отметки.
-    @State private var isFresh = false
 
     private let api = TeachingAPI()
+
+    private var today: TeachingTodayDTO? { remote.value }
+    private var failure: String? { remote.failure }
+    private var isOffline: Bool { remote.isOffline }
 
     var body: some View {
         List {
@@ -42,7 +43,7 @@ struct TeachingDashboardView: View {
         .screenState(today == nil) {
             if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
+            } else if remote.checkedCache {
                 LoadingStateView()
             }
         }
@@ -64,16 +65,9 @@ struct TeachingDashboardView: View {
         // Каждый показ — всё заново, как раньше: вернулись после проверки работы или
         // отметки — очередь и отметки свежие (отметки — внутри `load`, один раз; раньше
         // их ещё раз грузил `onAppear`, п. 31). Первый показ — сводка дня из кеша экранов
-        // сразу (итерация 5); на возврате на экране остаётся показанное, без спиннера.
-        .task {
-            if !isFresh, today == nil {
-                let api = api
-                if let cached = await ScreenCache.cached({ try await api.today() }), today == nil {
-                    today = cached
-                }
-            }
-            await load()
-        }
+        // сразу (`RemoteValue`); на возврате на экране остаётся показанное, без спиннера.
+        // Возврат приложения из фона после долгой паузы — тоже повод (`AppLifecycle`).
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await load() }
     }
 
     // MARK: Содержимое
@@ -391,34 +385,23 @@ struct TeachingDashboardView: View {
         if let url { AppServices.router.open(url, for: .teacher) }
     }
 
-    @MainActor
     private func load() async {
-        do {
-            let api = api
-            async let summary = ScreenCache.refreshing { try await api.today() }
-            async let review = try? api.reviewQueue(limit: 5)
-            async let slots = try? UniversityServicesAPI().myConsultations()
-            today = try await summary
-            isFresh = true
-            // Не пришедший блок не затирает показанное — только помечается сбоем.
-            let fetchedQueue = await review
-            // Ушли с экрана посреди загрузки — это не сбой.
-            try Task.checkCancellation()
-            reviewFailed = fetchedQueue == nil
-            if let fetchedQueue { queue = fetchedQueue }
-            let fetchedSlots = await slots
-            consultationsFailed = fetchedSlots == nil
-            if let fetchedSlots {
-                consultations = Array(fetchedSlots.filter { $0.startsAt >= Date() }.prefix(3))
-            }
-            failure = nil
-            await loadMarked()
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
+        let api = api
+        async let review = try? api.reviewQueue(limit: 5)
+        async let slots = try? UniversityServicesAPI().myConsultations()
+        await remote.load(api.today)
+        // Не пришедший блок не затирает показанное — только помечается сбоем.
+        let fetchedQueue = await review
+        let fetchedSlots = await slots
+        // Ушли с экрана посреди загрузки — это не сбой.
+        guard !Task.isCancelled else { return }
+        reviewFailed = fetchedQueue == nil
+        if let fetchedQueue { queue = fetchedQueue }
+        consultationsFailed = fetchedSlots == nil
+        if let fetchedSlots {
+            consultations = Array(fetchedSlots.filter { $0.startsAt >= Date() }.prefix(3))
         }
+        await loadMarked()
     }
 
     @MainActor
