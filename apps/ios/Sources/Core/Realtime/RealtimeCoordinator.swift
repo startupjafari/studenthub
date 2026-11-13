@@ -191,6 +191,11 @@ final class RealtimeCoordinator {
             connectionEpoch += 1
             // Комнату после переподключения сервер не помнит — входим заново.
             if let openChatID { await transport.join(chatID: openChatID) }
+            // Переподключение, а не первое подключение: за время обрыва события мимо
+            // прошли, и не только по открытому чату — его догоняет сам экран, а список
+            // и счётчики догоняются здесь (P0-3 аудита). Первой страницы хватает:
+            // изменившиеся чаты поднимаются наверх.
+            if connectionEpoch > 1 { scheduleListRefresh() }
 
         case .disconnected:
             isConnected = false

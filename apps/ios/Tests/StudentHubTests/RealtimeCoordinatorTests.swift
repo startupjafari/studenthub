@@ -142,9 +142,29 @@ final class RealtimeCoordinatorTests: XCTestCase {
         _ = coordinator
     }
 
+    /// Переподключение догоняет список чатов (события за время обрыва никто не
+    /// переприсылает), а первое подключение — нет: список и так грузится при входе.
+    func testReconnectRefreshesChatListOnce() async throws {
+        let api = CountingChats()
+        let (_, coordinator, transport) = try await make(api: api)
+
+        await transport.emit(.connected)
+        await transport.emit(.disconnected)
+        await transport.emit(.connected)
+        // Обновление списка ждёт пачку событий 0,7 с.
+        try? await Task.sleep(for: .milliseconds(1_000))
+
+        let calls = await api.calls
+        XCTAssertEqual(calls, 1)
+        _ = coordinator
+    }
+
     // MARK: - Помощники
 
-    private func make(unread: Int = 0) async throws -> (AppDatabase, RealtimeCoordinator, StubTransport) {
+    private func make(
+        unread: Int = 0,
+        api: ChatsFetching? = nil
+    ) async throws -> (AppDatabase, RealtimeCoordinator, StubTransport) {
         let database = try AppDatabase.inMemory()
         try await database.writer.write { db in
             try ChatRecord(
@@ -159,7 +179,8 @@ final class RealtimeCoordinatorTests: XCTestCase {
         let coordinator = RealtimeCoordinator(
             transport: transport,
             session: SessionStore(auth: SilentAuth(), secrets: MemoryKeys(), cookies: MemoryJar()),
-            database: database
+            database: database,
+            api: api
         )
         coordinator.start()
         return (database, coordinator, transport)
@@ -207,6 +228,21 @@ private actor StubTransport: RealtimeTransport {
     func send(action: String?, chatID: String) async { actions.append(action) }
     func edit(messageID: String, content: String) async {}
     func delete(messageID: String) async {}
+}
+
+/// Список чатов, который только считает обращения.
+private actor CountingChats: ChatsFetching {
+    private(set) var calls = 0
+
+    func chats(cursor: String?, limit: Int) async throws -> Page<ChatListItemDTO> {
+        calls += 1
+        return Page(items: [], meta: nil)
+    }
+
+    func folders() async throws -> [ChatFolderDTO] { [] }
+    func setPinned(_ pinned: Bool, chatID: String) async throws {}
+    func setArchived(_ archived: Bool, chatID: String) async throws {}
+    func setMuted(_ muted: Bool, chatID: String) async throws {}
 }
 
 private struct SilentAuth: SessionRefreshing {
