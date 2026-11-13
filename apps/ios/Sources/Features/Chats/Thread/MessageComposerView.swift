@@ -82,7 +82,7 @@ struct MessageComposerView: View {
                             .frame(width: ControlHeight.lg, height: ControlHeight.lg)
                             .composerGlass(in: Circle(), isVisible: !recorder.machine.isActive)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pressableIcon)
                     .accessibilityIdentifier("chat.attach")
                     .accessibilityLabel(Text(String(localized: "chats.attach", defaultValue: "Вложение")))
 
@@ -364,7 +364,7 @@ struct MessageComposerView: View {
                 .frame(width: ControlHeight.lg, height: ControlHeight.lg)
                 .glassSurface(tint: Palette.primary, in: Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressableIcon)
         .transition(buttonTransition)
         .accessibilityIdentifier("chat.send")
         .accessibilityLabel(Text(model.editing == nil
@@ -601,7 +601,7 @@ struct MessageSelectionBar: View {
                 .frame(width: ControlHeight.lg, height: ControlHeight.lg)
                 .composerGlass(in: Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressableIcon)
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.5)
         .animation(.easeOut(duration: Motion.Duration.feedback), value: enabled)

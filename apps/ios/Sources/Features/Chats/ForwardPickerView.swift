@@ -143,7 +143,7 @@ struct ForwardPickerView: View {
                         .frame(width: ControlHeight.lg, height: ControlHeight.lg)
                         .glassSurface(tint: Palette.primary, in: Circle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pressableIcon)
                     .disabled(isSending)
                     .accessibilityLabel(Text(String(localized: "chats.send", defaultValue: "Отправить")))
                 }

@@ -79,7 +79,7 @@ private struct CareerSeekerHomeView: View {
                                     tint: Palette.info
                                 )
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.pressable)
                         }
                     }
                     .listRowBackground(Color.clear)

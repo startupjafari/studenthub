@@ -1202,7 +1202,7 @@ private struct ChatScrollDownButton: View {
                     .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: count)
                 }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressableIcon)
         .accessibilityLabel(Text(String(localized: "chats.scrollDown", defaultValue: "К последним сообщениям")))
         .accessibilityValue(count > 0
             ? Text(String(localized: "chats.unreadCount", defaultValue: "Непрочитанных: \(count.formatted())"))

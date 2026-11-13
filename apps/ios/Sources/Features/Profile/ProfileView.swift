@@ -281,7 +281,7 @@ struct ProfileView: View {
                             NavigationLink(value: AppRoute.community(.article(id: article.id))) {
                                 ArticleCardRow(article: article)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.pressable)
                         }
                     }
                     .padding(.horizontal, Spacing.xl)
@@ -647,20 +647,20 @@ private struct ProfileHeaderView: View {
                     Button(action: edit) {
                         HeroActionLabel(title: String(localized: "profile.edit", defaultValue: "Изменить"), symbol: "pencil")
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pressableIcon)
                     .frame(maxWidth: actionWidth)
                     .accessibilityIdentifier("profile.edit")
                     NavigationLink(value: AppRoute.community(.friends(userID: nil))) {
                         HeroActionLabel(title: CommunityScreen.friends(userID: nil).title, symbol: "person.2.fill")
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pressableIcon)
                     .frame(maxWidth: actionWidth)
                     NavigationLink {
                         SavedPostsView()
                     } label: {
                         HeroActionLabel(title: String(localized: "saved.title", defaultValue: "Сохранённое"), symbol: "bookmark.fill")
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pressableIcon)
                     .frame(maxWidth: actionWidth)
                 } else if !profile.isLimited || model.friendship != nil {
                     if !CommunityPlatformState.shared.isDisabled("chats") {
@@ -669,7 +669,7 @@ private struct ProfileHeaderView: View {
                         } label: {
                             HeroActionLabel(title: String(localized: "profile.message", defaultValue: "Написать"), symbol: "bubble.left.fill")
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.pressableIcon)
                         .frame(maxWidth: actionWidth)
                     }
                     if let friendship = model.friendship {
@@ -695,13 +695,13 @@ private struct ProfileHeaderView: View {
             Button {
                 Task { await model.friendshipAction() }
             } label: { label }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressableIcon)
                 .sensoryFeedback(trigger: friendship.status) { _, new in Self.friendshipFeedback(new) }
         default:
             Button {
                 confirmsUnfriend = true
             } label: { label }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressableIcon)
                 .sensoryFeedback(trigger: friendship.status) { _, new in Self.friendshipFeedback(new) }
         }
     }
@@ -1159,7 +1159,7 @@ private struct ProfilePollCard: View {
                         .padding(Spacing.lg)
                         .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pressable)
                     .disabled(!poll.canVote)
                 }
             }
@@ -1243,7 +1243,7 @@ private extension View {
             } label: {
                 self
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pressable)
             .accessibilityLabel(Text(label))
         } else {
             self.accessibilityHidden(true)

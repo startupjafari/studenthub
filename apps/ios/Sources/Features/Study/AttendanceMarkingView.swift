@@ -293,7 +293,7 @@ private struct AttendanceStatusTrack: View {
                         .background(isOn ? tint : Palette.muted, in: Capsule())
                         .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable)
                 .accessibilityAddTraits(isOn ? .isSelected : [])
             }
         }

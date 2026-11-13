@@ -138,7 +138,7 @@ struct LibrarianBookView: View {
                                 .offset(x: 8, y: 8)
                         }
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pressable)
                     .accessibilityLabel(Text(String(localized: "librarian.book.cover", defaultValue: "Обложка")))
                     .padding(.bottom, Spacing.xs)
                     Text(book.title)

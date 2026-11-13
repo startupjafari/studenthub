@@ -98,7 +98,7 @@ struct StudentIDView: View {
                                 .padding(Spacing.sm)
                         }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable)
                 .accessibilityLabel(Text(String(localized: "student.id.qrEnlarge", defaultValue: "Открыть QR крупнее")))
 
                 if expired {

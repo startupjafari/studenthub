@@ -224,7 +224,7 @@ struct ProfileEditView: View {
                     coverPreview
                         .overlay(alignment: .topTrailing) { EditBadge().padding(Spacing.md) }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable)
                 .padding(.bottom, avatarSide / 2)
                 .accessibilityLabel(Text(viewer.profile?.coverUrl == nil
                     ? String(localized: "profile.addCover", defaultValue: "Добавить обложку")
@@ -236,7 +236,7 @@ struct ProfileEditView: View {
                     avatarPreview
                         .overlay(alignment: .bottomTrailing) { EditBadge() }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable)
                 .accessibilityLabel(Text(String(localized: "profile.changeAvatar", defaultValue: "Сменить фото")))
                 .confirmationDialog(Text(verbatim: ""), isPresented: $avatarActions, titleVisibility: .hidden) {
                     photoActions(.avatar)

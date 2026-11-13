@@ -215,7 +215,7 @@ struct ChatSearchBar: View {
                     .padding(.vertical, Spacing.xs)
                     .background(Palette.primary.opacity(0.12), in: Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable)
                 .accessibilityHint(Text(String(localized: "chats.thread.search.clearFrom", defaultValue: "Убрать фильтр по автору")))
             }
         }
@@ -359,7 +359,7 @@ struct ChatSearchPanel: View {
                 .frame(width: ControlHeight.lg, height: ControlHeight.lg)
                 .composerGlass(in: Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressableIcon)
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.4)
         .accessibilityLabel(Text(title))

@@ -26,7 +26,7 @@ struct CommunityHighlightsStrip: View {
                             } label: {
                                 CommunityHighlightBubble(highlight: highlight)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.pressableIcon)
                         }
                         NavigationLink(value: AppRoute.community(.highlights(userID: userID))) {
                             VStack(spacing: Spacing.xs) {
@@ -39,7 +39,7 @@ struct CommunityHighlightsStrip: View {
                             }
                             .foregroundStyle(Palette.mutedForeground)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.pressableIcon)
                     }
                     .padding(.horizontal, Spacing.xl)
                 }

@@ -916,7 +916,7 @@ private struct ChatInfoActionButton: View {
         Button(action: action) {
             HeroActionLabel(title: title, symbol: symbol)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressableIcon)
         .frame(maxWidth: .infinity)
     }
 }
@@ -1165,7 +1165,7 @@ struct GroupAvatarButton: View {
                 if isEnabled { EditBadge() }
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
         .disabled(busy)
         .padding(.vertical, Spacing.sm)
         .accessibilityLabel(Text(String(localized: "chats.group.photo", defaultValue: "Фото группы")))
