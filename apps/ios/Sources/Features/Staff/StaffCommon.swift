@@ -215,9 +215,7 @@ struct StaffPickedFile {
     /// Файл из «Файлов» читается только внутри доступа к защищённому ресурсу.
     static func read(_ result: Result<URL, Error>) -> StaffPickedFile? {
         guard case .success(let url) = result else { return nil }
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        guard let data = try? PickedFile.readNow(url) else { return nil }
         let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
         return StaffPickedFile(data: data, name: url.lastPathComponent, mime: mime)
     }

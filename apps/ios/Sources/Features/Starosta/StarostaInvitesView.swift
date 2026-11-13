@@ -124,9 +124,7 @@ struct StarostaInvitesView: View {
         defer { isChecking = false }
         do {
             let url = try result.get()
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            let data = try Data(contentsOf: url)
+            let data = try await PickedFile.read(url)
             let mime = url.pathExtension.lowercased() == "csv"
                 ? "text/csv"
                 : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

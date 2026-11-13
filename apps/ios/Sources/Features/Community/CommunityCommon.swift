@@ -317,9 +317,7 @@ struct CommunityPickedFile: Equatable {
 
     /// Из системного выбора файла. Доступ к файлу вне песочницы открывается на время чтения.
     static func read(_ url: URL) throws -> CommunityPickedFile {
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        let data = try Data(contentsOf: url)
+        let data = try PickedFile.readNow(url)
         let type = UTType(filenameExtension: url.pathExtension)
         let mime = type?.preferredMIMEType ?? "application/octet-stream"
         return CommunityPickedFile(data: data, mime: mime, filename: url.lastPathComponent)

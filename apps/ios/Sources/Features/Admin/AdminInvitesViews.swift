@@ -158,10 +158,8 @@ struct AdminInvitesView: View {
         }
         isParsing = true
         defer { isParsing = false }
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         do {
-            let data = try Data(contentsOf: url)
+            let data = try await PickedFile.read(url)
             preview = try await AdminAPI().bulkInvitePreview(file: data, filename: url.lastPathComponent)
         } catch {
             actionFailure = error.userMessage
