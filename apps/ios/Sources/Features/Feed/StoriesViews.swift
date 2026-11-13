@@ -147,7 +147,9 @@ struct StoryViewer: View {
 
     @State private var ringIndex = 0
     @State private var storyIndex = 0
-    @State private var progress: Double = 0
+    /// Доля показа текущего кадра — отдельным объектом (`StoryClock`): таймер меняет её
+    /// 20 раз в секунду, и пересчитываться должна только полоска, а не весь просмотр.
+    @State private var clock = StoryClock()
     @State private var holding = false
     @State private var pollExpanded = false
     @State private var muted = false
@@ -277,15 +279,15 @@ struct StoryViewer: View {
     private func run() async {
         guard let story else { return }
         shownRingID = ring?.id
-        progress = 0
+        clock.progress = 0
         prefetchNeighbours()
         await model.markViewed(story, viewerID: viewerID)
         let seconds = story.media?.durationMs.map { min(Double($0) / 1000, 120) } ?? Self.frameSeconds
         let step = 0.05
-        while progress < 1 {
+        while clock.progress < 1 {
             try? await Task.sleep(for: .milliseconds(Int(step * 1000)))
             if Task.isCancelled { return }
-            if !paused { progress += step / max(seconds, 1) }
+            if !paused { clock.progress += step / max(seconds, 1) }
         }
         advance()
     }
@@ -344,7 +346,7 @@ struct StoryViewer: View {
         } else if ringIndex > 0 {
             switchRing(to: ringIndex - 1)
         } else {
-            progress = 0
+            clock.progress = 0
         }
     }
 
@@ -407,19 +409,8 @@ struct StoryViewer: View {
 
     private func header(ring: StoryRingDTO, story: StoryDTO) -> some View {
         VStack(spacing: Spacing.md) {
-            HStack(spacing: Spacing.xs) {
-                ForEach(Array(ring.stories.enumerated()), id: \.element.id) { index, _ in
-                    GeometryReader { proxy in
-                        Capsule().fill(.white.opacity(0.3))
-                            .overlay(alignment: .leading) {
-                                Capsule().fill(.white)
-                                    .frame(width: proxy.size.width * fill(for: index))
-                            }
-                    }
-                    .frame(height: 2.5)
-                }
-            }
-            .accessibilityHidden(true)
+            StoryProgressBars(ids: ring.stories.map(\.id), current: storyIndex, clock: clock)
+                .accessibilityHidden(true)
 
             HStack(spacing: Spacing.md) {
                 AvatarView(url: ring.author.avatarUrl, name: ring.author.name, size: 32)
@@ -491,12 +482,6 @@ struct StoryViewer: View {
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
         )
-    }
-
-    private func fill(for index: Int) -> Double {
-        if index < storyIndex { return 1 }
-        if index > storyIndex { return 0 }
-        return min(max(progress, 0), 1)
     }
 
     private func footer(story: StoryDTO) -> some View {
@@ -1221,4 +1206,39 @@ struct StoryComposerView: View {
 private struct PollDraftOption: Identifiable {
     let id = UUID()
     var text = ""
+}
+
+/// Доля показа текущего кадра истории (P2-1 аудита). Таймер просмотра пишет сюда, а
+/// читает только `StoryProgressBars` — тело просмотра от тиков не пересчитывается.
+@Observable
+final class StoryClock {
+    var progress: Double = 0
+}
+
+/// Полоски кадров над историей: пройденные — полные, текущая — по таймеру.
+struct StoryProgressBars: View {
+    let ids: [String]
+    let current: Int
+    let clock: StoryClock
+
+    var body: some View {
+        HStack(spacing: Spacing.xs) {
+            ForEach(Array(ids.enumerated()), id: \.element) { index, _ in
+                GeometryReader { proxy in
+                    Capsule().fill(.white.opacity(0.3))
+                        .overlay(alignment: .leading) {
+                            Capsule().fill(.white)
+                                .frame(width: proxy.size.width * fill(for: index))
+                        }
+                }
+                .frame(height: 2.5)
+            }
+        }
+    }
+
+    private func fill(for index: Int) -> Double {
+        if index < current { return 1 }
+        if index > current { return 0 }
+        return min(max(clock.progress, 0), 1)
+    }
 }
