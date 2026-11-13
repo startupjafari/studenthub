@@ -159,6 +159,7 @@ struct MessageStore: Sendable {
             .filter(MessageRecord.Columns.remoteId == message.id)
             .fetchOne(db)
         {
+            let before = local
             local.seq = message.seq ?? local.seq
             local.content = message.content
             local.editedAt = message.editedAt
@@ -166,7 +167,9 @@ struct MessageStore: Sendable {
             local.pinnedAt = message.pinnedAt
             local.sendState = .sent
             local.absorb(message)
-            try local.update(db)
+            // Только изменённые столбцы и только если они есть: страница списка и догон
+            // приносят те же сообщения снова, и пустая запись будила бы ленту и список.
+            try local.updateChanges(db, from: before)
             try saveAttachments(of: message, messageID: local.id, in: db)
             return
         }
@@ -188,7 +191,12 @@ struct MessageStore: Sendable {
             return
         }
 
-        try MessageRecord(server: message).upsert(db)
+        let arrived = MessageRecord(server: message)
+        if let known = try MessageRecord.fetchOne(db, key: message.id) {
+            try arrived.updateChanges(db, from: known)
+        } else {
+            try arrived.insert(db)
+        }
         try saveAttachments(of: message, messageID: message.id, in: db)
     }
 
@@ -235,12 +243,8 @@ struct MessageStore: Sendable {
         // без них пузырь на миг перескакивал к пропорции «по умолчанию» — лента прыгала.
         let sizes = Dictionary(known.map { ($0.id, ($0.width, $0.height)) }, uniquingKeysWith: { first, _ in first })
 
-        try AttachmentRecord
-            .filter(AttachmentRecord.Columns.messageId == messageID)
-            .deleteAll(db)
-
-        for item in media {
-            try AttachmentRecord(
+        let arrived = media.map { item in
+            AttachmentRecord(
                 id: item.id,
                 messageId: messageID,
                 mime: item.mime,
@@ -255,7 +259,17 @@ struct MessageStore: Sendable {
                 durationMs: item.durationMs,
                 spoiler: item.spoiler ?? false,
                 asDocument: item.asDocument ?? false
-            ).insert(db)
+            )
+        }
+        // Те же вложения в том же порядке — ничего не пишем: удаление и вставка заново
+        // будили наблюдения ленты и списка на каждый повтор того же сообщения.
+        guard arrived != known else { return }
+
+        try AttachmentRecord
+            .filter(AttachmentRecord.Columns.messageId == messageID)
+            .deleteAll(db)
+        for record in arrived {
+            try record.insert(db)
         }
     }
 
