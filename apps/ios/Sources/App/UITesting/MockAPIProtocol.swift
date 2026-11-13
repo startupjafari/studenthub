@@ -23,6 +23,31 @@
                 return
             }
             let reply = MockServer.shared.respond(to: request, body: Self.body(of: request))
+            // Медленная сеть для истории переписки (`SH_UITEST_HISTORY_DELAY_MS`): так
+            // проверяется открытие чата, где в базе одно превью, а страница едет из сети.
+            let delay = Self.historyDelay(for: request)
+            guard delay > 0 else {
+                deliver(reply, for: url)
+                return
+            }
+            // Клиенту `URLProtocol` отвечают на потоке, где началась загрузка.
+            pending = (reply, url)
+            let thread = Thread.current
+            DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self else { return }
+                self.perform(#selector(self.deliverPending), on: thread, with: nil, waitUntilDone: false)
+            }
+        }
+
+        private var pending: (reply: MockServer.Reply, url: URL)?
+
+        @objc private func deliverPending() {
+            guard let pending else { return }
+            self.pending = nil
+            deliver(pending.reply, for: pending.url)
+        }
+
+        private func deliver(_ reply: MockServer.Reply, for url: URL) {
             guard let response = HTTPURLResponse(
                 url: url, statusCode: reply.status, httpVersion: "HTTP/1.1", headerFields: reply.headers)
             else {
@@ -34,7 +59,22 @@
             client?.urlProtocolDidFinishLoading(self)
         }
 
-        override func stopLoading() {}
+        override func stopLoading() {
+            pending = nil
+        }
+
+        private static let historyDelaySeconds: TimeInterval = {
+            let value = ProcessInfo.processInfo.environment["SH_UITEST_HISTORY_DELAY_MS"].flatMap(Double.init) ?? 0
+            return max(0, value) / 1000
+        }()
+
+        private static func historyDelay(for request: URLRequest) -> TimeInterval {
+            guard historyDelaySeconds > 0, request.httpMethod ?? "GET" == "GET", let url = request.url,
+                  let path = MockServer.relativePath(of: url)
+            else { return 0 }
+            let parts = path.split(separator: "/")
+            return parts.count == 3 && parts[0] == "chats" && parts[2] == "messages" ? historyDelaySeconds : 0
+        }
 
         /// Тело запроса: внутри `URLProtocol` оно приходит потоком, а не `httpBody`.
         private static func body(of request: URLRequest) -> Data {

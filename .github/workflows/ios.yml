@@ -24,6 +24,10 @@ on:
         description: 'Переснять эталоны снимков (артефакт ios-snapshot-references; посмотреть и закоммитить)'
         default: false
         type: boolean
+      perf_flags:
+        description: 'Положение флагов второй волны на весь прогон (all=0, all=1, chatHeightCache=1,…); пусто — как в коде'
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -104,6 +108,7 @@ jobs:
         env:
           SUITES: ${{ inputs.suites || 'pr' }}
           RECORD: ${{ inputs.record_snapshots && '--record' || '' }}
+          SH_PERF_FLAGS: ${{ inputs.perf_flags }}
         # shellcheck disable=SC2086 — наборы через пробел.
         run: scripts/test.sh $SUITES $RECORD
 
