@@ -790,8 +790,9 @@ private struct CareerApplicationSheet: View {
     let changed: () async -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var history: [CareerApplicationEvent]?
-    @State private var historyFailure: String?
+    /// История статусов — своей моделью (`RemoteValue`): не пришла — остальной отклик на
+    /// месте, сбой обновления не стирает показанную.
+    @State private var historyRemote = RemoteValue<[CareerApplicationEvent]>()
     @State private var access: String?
     @State private var confirmWithdraw = false
     @State private var failure: String?
@@ -841,7 +842,12 @@ private struct CareerApplicationSheet: View {
                 }
 
                 Section {
-                    if let history {
+                    if let history = historyRemote.value {
+                        if let failure = historyRemote.failure {
+                            StaleDataBanner(message: failure, isOffline: historyRemote.isOffline) { await loadHistory() }
+                                .listRowBackground(Color.clear)
+                                .listRowInsets(EdgeInsets())
+                        }
                         if history.isEmpty {
                             Text(String(localized: "career.apps.historyEmpty", defaultValue: "Изменений пока не было"))
                                 .foregroundStyle(Palette.mutedForeground)
@@ -849,7 +855,7 @@ private struct CareerApplicationSheet: View {
                         ForEach(history) { event in
                             CareerHistoryRow(event: event)
                         }
-                    } else if let historyFailure {
+                    } else if let historyFailure = historyRemote.failure {
                         DashboardFailurePlaceholder(message: historyFailure) { await loadHistory() }
                     } else {
                         ProgressView()
@@ -887,7 +893,9 @@ private struct CareerApplicationSheet: View {
                 Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
             }
             .actionFailureAlert($failure)
-            .task { await loadHistory() }
+            // Показ и возврат приложения из фона — показанное на месте, сеть обновляет
+            // фоном (`AppLifecycle`).
+            .task(id: AppLifecycle.shared.foregroundEpoch) { await loadHistory() }
         }
     }
 
@@ -899,16 +907,9 @@ private struct CareerApplicationSheet: View {
         return [HeroAction(title: String(localized: "career.company.siteShort", defaultValue: "Сайт"), symbol: "globe") { openURL(url) }]
     }
 
-    @MainActor
     private func loadHistory() async {
-        do {
-            history = try await CareerAPI().history(applicationID: application.id)
-            historyFailure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            historyFailure = error.userMessage
-        }
+        let applicationID = application.id
+        await historyRemote.load { try await CareerAPI().history(applicationID: applicationID) }
     }
 
     @MainActor
