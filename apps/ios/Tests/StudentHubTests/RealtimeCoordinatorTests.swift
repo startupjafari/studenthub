@@ -159,6 +159,41 @@ final class RealtimeCoordinatorTests: XCTestCase {
         _ = coordinator
     }
 
+    /// События пишутся в объекты своего ключа: прочтение в одном чате и «в сети» одного
+    /// человека не трогают сигналы других (P1-4 аудита).
+    func testKeyedSignalsChangeOnlyForTheirKey() async throws {
+        let (_, coordinator, transport) = try await make()
+        let mine = coordinator.signals(for: "c-1")
+        let other = coordinator.signals(for: "c-2")
+        let alice = coordinator.presence(of: "u-alice")
+        let bob = coordinator.presence(of: "u-bob")
+        let readAt = Date(timeIntervalSince1970: 1_800_000_900)
+
+        await transport.emit(.messageRead(chatID: "c-1", userID: "u-alice", readAt: readAt))
+        await transport.emit(.presence(userID: "u-alice", online: true))
+        await transport.emit(.chatPinned(chatID: "c-1"))
+        await settle()
+
+        XCTAssertEqual(mine.memberReads["u-alice"], readAt)
+        XCTAssertEqual(mine.pinnedVersion, 1)
+        XCTAssertTrue(other.memberReads.isEmpty)
+        XCTAssertEqual(other.pinnedVersion, 0)
+        XCTAssertTrue(alice.isOnline)
+        XCTAssertNil(bob.mark)
+    }
+
+    /// Объект, созданный после событий, начинает с уже известного.
+    func testLateSignalStartsFromKnownState() async throws {
+        let (_, coordinator, transport) = try await make()
+
+        await transport.emit(.presence(userID: "u-alice", online: true))
+        await transport.emit(.pollUpdated(pollID: "p-1", chatID: "c-1"))
+        await settle()
+
+        XCTAssertTrue(coordinator.presence(of: "u-alice").isOnline)
+        XCTAssertEqual(coordinator.pollSignal("p-1").version, 1)
+    }
+
     // MARK: - Помощники
 
     private func make(
