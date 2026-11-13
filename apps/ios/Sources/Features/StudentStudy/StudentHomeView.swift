@@ -66,6 +66,15 @@ struct StudentHomeView: View {
             async let rest: Void = load()
             _ = await (pairs, rest)
         }
+        // Вернулись из фона после долгой паузы — главная перечитывается фоном
+        // (`AppLifecycle`), показанное остаётся на месте.
+        .onChange(of: AppLifecycle.shared.foregroundEpoch) {
+            Task {
+                async let pairs: Void = schedule.refreshIfStale()
+                async let rest: Void = load()
+                _ = await (pairs, rest)
+            }
+        }
     }
 
     // MARK: Сегодня

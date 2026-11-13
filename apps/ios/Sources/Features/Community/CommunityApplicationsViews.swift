@@ -427,13 +427,9 @@ struct CommunityApplicationForm: View {
 struct CommunityApplicationDetail: View {
     let applicationID: String
 
-    @State private var application: CommunityApplicationDTO?
-    @State private var failure: String?
-    @State private var isOffline = false
-    /// `nil` — свои документы ещё не пришли или не загрузились (`documentsFailure`).
-    @State private var documents: [CommunityDocumentDTO]?
-    @State private var documentsFailure: String?
-    @State private var documentsOffline = false
+    @State private var remote = RemoteValue<CommunityApplicationDTO>()
+    // Личные документы — чувствительное: без копии на телефоне.
+    @State private var documentsRemote = RemoteValue<[CommunityDocumentDTO]>(caching: false)
     @State private var choosing: CommunityApplicationDTO.Service.Requirement?
     @State private var uploadType: String?
     @State private var uploading = false
@@ -448,20 +444,22 @@ struct CommunityApplicationDetail: View {
     private let api = CommunityAPI()
     private var realtime: RealtimeCoordinator { AppServices.realtime }
 
+    private var application: CommunityApplicationDTO? { remote.value }
+    /// `nil` — свои документы ещё не пришли или не загрузились (`documentsFailure`).
+    private var documents: [CommunityDocumentDTO]? { documentsRemote.value }
+    private var documentsFailure: String? { documentsRemote.failure }
+    private var documentsOffline: Bool { documentsRemote.isOffline }
+
     var body: some View {
-        Group {
-            if let application {
-                content(application)
-            } else if let failure {
-                ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
-                LoadingStateView()
-            }
-        }
+        RemoteValueContent(remote: remote, load: fetch) { application in content(application) }
         .background(Palette.background)
         .navigationTitle(Text(String(localized: "shell.application", defaultValue: "Заявка")))
         .navigationBarTitleDisplayMode(.inline)
-        .task { await load() }
+        // Свои документы — только пока заявку можно править: при показе, когда она
+        // стала правимой, и после возврата приложения из фона.
+        .task(id: [AppLifecycle.shared.foregroundEpoch, editable ? 1 : 0]) {
+            if editable { await loadDocuments() }
+        }
         .onChange(of: realtime.applicationStatus) {
             Task { await load() }
         }
@@ -767,33 +765,19 @@ struct CommunityApplicationDetail: View {
         }
     }
 
-    @MainActor
     private func load() async {
-        do {
-            application = try await api.application(id: applicationID)
-            failure = nil
-            if editable { await loadDocuments() }
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
+        await remote.load(fetch)
+        if remote.failure == nil, editable { await loadDocuments() }
+    }
+
+    private func fetch() async throws -> CommunityApplicationDTO {
+        try await api.application(id: applicationID)
     }
 
     /// Свои документы для выбора. Сбой не стирает прежний список и не выдаёт себя
     /// за «Подходящих документов нет»: в выборе — ошибка с повтором.
-    @MainActor
     private func loadDocuments() async {
-        do {
-            documents = try await api.allDocuments()
-            documentsFailure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            documentsFailure = error.userMessage
-            documentsOffline = error.isOffline
-        }
+        await documentsRemote.load(api.allDocuments)
     }
 
     @MainActor

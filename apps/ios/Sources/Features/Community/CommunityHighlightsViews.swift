@@ -104,9 +104,7 @@ struct CommunityHighlightsView: View {
     let userID: String
 
     @Environment(\.viewerID) private var viewerID
-    @State private var highlights: [CommunityHighlightDTO]?
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var remote = RemoteValue<[CommunityHighlightDTO]>()
     @State private var playing: CommunityHighlightTarget?
     @State private var editingID: CommunityHighlightTarget?
     @State private var deleting: CommunityHighlightDTO?
@@ -114,10 +112,18 @@ struct CommunityHighlightsView: View {
 
     private let api = CommunityAPI()
     private var isMine: Bool { userID == viewerID }
+    private var highlights: [CommunityHighlightDTO]? { remote.value }
+    private var failure: String? { remote.failure }
+    private var isOffline: Bool { remote.isOffline }
 
     var body: some View {
         List {
             if let highlights, !highlights.isEmpty {
+                if let failure {
+                    StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
                 Section {
                     ForEach(highlights) { highlight in
                         Button {
@@ -195,7 +201,9 @@ struct CommunityHighlightsView: View {
             }
         }
         .pullToRefresh { await load() }
-        .task { await load() }
+        // Показ, возврат на экран и возврат приложения из фона — сохранённое на месте,
+        // сеть обновляет фоном (`RemoteValue`).
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await load() }
         .fullScreenCover(item: $playing) { target in
             CommunityHighlightPlayer(highlightID: target.id) { Task { await load() } }
         }
@@ -209,7 +217,7 @@ struct CommunityHighlightsView: View {
         ) { highlight in
             do {
                 try await api.deleteHighlight(id: highlight.id)
-                highlights?.removeAll { $0.id == highlight.id }
+                remote.value?.removeAll { $0.id == highlight.id }
             } catch {
                 actionFailure = error.userMessage
             }
@@ -217,29 +225,20 @@ struct CommunityHighlightsView: View {
         .actionFailureAlert($actionFailure)
     }
 
-    @MainActor
     private func load() async {
-        do {
-            highlights = try await api.highlights(ownerID: userID)
-            failure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
+        await remote.load { try await api.highlights(ownerID: userID) }
     }
 
     private func move(from source: IndexSet, to destination: Int) {
         guard var list = highlights else { return }
         let snapshot = list
         list.move(fromOffsets: source, toOffset: destination)
-        highlights = list
+        remote.value = list
         Task {
             do {
                 try await api.reorderHighlights(ids: list.map(\.id))
             } catch {
-                highlights = snapshot
+                remote.value = snapshot
                 actionFailure = error.userMessage
             }
         }

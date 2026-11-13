@@ -210,9 +210,8 @@ struct CommunityDocumentDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(ViewerProfileModel.self) private var viewer
     @State private var document: CommunityDocumentDTO?
-    @State private var access: [CommunityDocumentAccessDTO]?
-    /// Список доступов не загрузился — не «никому не открыт».
-    @State private var accessFailure: String?
+    /// Кому открыт личный документ — чувствительное: без копии на телефоне.
+    @State private var accessRemote = RemoteValue<[CommunityDocumentAccessDTO]>(caching: false)
     @State private var opener = RemoteFileOpener()
     @State private var editing = false
     @State private var granting = false
@@ -227,6 +226,9 @@ struct CommunityDocumentDetailView: View {
 
     private let api = CommunityAPI()
     private var current: CommunityDocumentDTO { document ?? initial }
+    private var access: [CommunityDocumentAccessDTO]? { accessRemote.value }
+    /// Список доступов не загрузился — не «никому не открыт».
+    private var accessFailure: String? { accessRemote.failure }
     private var isArchived: Bool { current.archivedAt != nil || current.status == "ARCHIVED" }
     private var isIssued: Bool { current.issuedByUniversity == true }
 
@@ -349,6 +351,12 @@ struct CommunityDocumentDetailView: View {
             if !isIssued {
                 Section {
                     if let access {
+                        // Обновление не удалось — прежний список на месте, сбой — полосой.
+                        if let accessFailure {
+                            StaleDataBanner(message: accessFailure, isOffline: accessRemote.isOffline) { await reloadAccess() }
+                                .listRowBackground(Color.clear)
+                                .listRowInsets(EdgeInsets())
+                        }
                         let active = access.filter { $0.active != false && $0.revokedAt == nil }
                         if active.isEmpty {
                             DashboardEmptyRow(
@@ -405,7 +413,9 @@ struct CommunityDocumentDetailView: View {
         .navigationTitle(Text(current.title))
         .navigationBarTitleDisplayMode(.inline)
         .pullToRefresh { await reloadAccess() }
-        .task { await reloadAccess() }
+        // Показ и возврат приложения из фона (`AppLifecycle`) — список доступов
+        // перечитывается.
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await reloadAccess() }
         .remoteFilePreview(opener)
         .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf, .jpeg, .png], allowsMultipleSelection: true) { result in
             guard case .success(let urls) = result else { return }
@@ -485,18 +495,10 @@ struct CommunityDocumentDetailView: View {
         .actionFailureAlert($actionFailure)
     }
 
-    @MainActor
     private func reloadAccess() async {
         guard !isIssued else { return }
-        do {
-            access = try await api.documentAccess(id: documentID)
-            accessFailure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            // Прежний список остаётся; сбой виден, только когда показать нечего.
-            accessFailure = error.userMessage
-        }
+        // Прежний список остаётся; сбой — полосой над ним или заглушкой, если показать нечего.
+        await accessRemote.load { try await api.documentAccess(id: documentID) }
     }
 
     @MainActor

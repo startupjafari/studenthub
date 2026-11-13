@@ -8,19 +8,26 @@ struct PortfolioView: View {
 }
 
 private struct PortfolioContent: View {
-    @State private var items: [PortfolioItemDTO]?
+    @State private var remote = RemoteValue<[PortfolioItemDTO]>()
     @State private var editing: PortfolioItemDTO?
     @State private var deleting: PortfolioItemDTO?
-    @State private var failure: String?
-    @State private var isOffline = false
     @State private var actionFailure: String?
     @State private var creating = false
 
     private let api: UniversityServicesFetching = UniversityServicesAPI()
 
+    private var items: [PortfolioItemDTO]? { remote.value }
+    private var failure: String? { remote.failure }
+    private var isOffline: Bool { remote.isOffline }
+
     var body: some View {
         List {
             if let items {
+                if let failure, !items.isEmpty {
+                    StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
                 ForEach(PortfolioText.kinds, id: \.self) { kind in
                     let group = items.filter { $0.kind == kind }
                     if !group.isEmpty {
@@ -82,7 +89,9 @@ private struct PortfolioContent: View {
         }
         .actionFailureAlert($actionFailure)
         .pullToRefresh { await load() }
-        .task { await load() }
+        // Показ, возврат на экран и возврат приложения из фона — сохранённое на месте,
+        // сеть обновляет фоном (`RemoteValue`).
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await load() }
     }
 
     private func row(_ item: PortfolioItemDTO) -> some View {
@@ -131,15 +140,8 @@ private struct PortfolioContent: View {
         }
     }
 
-    @MainActor
     private func load() async {
-        do {
-            items = try await api.portfolio()
-            failure = nil
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
+        await remote.load { try await api.portfolio() }
     }
 
     /// Порядок общий для всех видов: собираем его в порядке показа — по видам, внутри
@@ -150,12 +152,12 @@ private struct PortfolioContent: View {
         group.move(fromOffsets: source, toOffset: destination)
         let ordered = PortfolioText.kinds.flatMap { name in name == kind ? group : current.filter { $0.kind == name } }
             + current.filter { !PortfolioText.kinds.contains($0.kind) }
-        items = ordered
+        remote.value = ordered
         Task {
             do {
-                items = try await UniversityServicesAPI().reorderPortfolio(ids: ordered.map(\.id))
+                remote.value = try await UniversityServicesAPI().reorderPortfolio(ids: ordered.map(\.id))
             } catch {
-                items = current
+                remote.value = current
                 actionFailure = error.userMessage
             }
         }
@@ -164,11 +166,11 @@ private struct PortfolioContent: View {
     @MainActor
     private func delete(_ item: PortfolioItemDTO) async {
         let snapshot = items
-        items?.removeAll { $0.id == item.id }
+        remote.value?.removeAll { $0.id == item.id }
         do {
             try await api.deletePortfolioItem(id: item.id)
         } catch {
-            items = snapshot
+            remote.value = snapshot
             actionFailure = error.userMessage
         }
     }

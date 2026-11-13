@@ -39,12 +39,22 @@ private struct TeachingScheduleChangesList: View {
     let header: AnyView
 
     @State private var weeks = 2
-    @State private var changes: [TeachingScheduleChangeDTO]?
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var remote = RemoteValue<[TeachingScheduleChangeDTO]>()
+    /// Период, ответ на который сейчас на экране: при смене периода старый список не
+    /// показывается под новым.
+    @State private var shownWeeks: Int?
+
+    private var changes: [TeachingScheduleChangeDTO]? { remote.value }
+    private var failure: String? { remote.failure }
+    private var isOffline: Bool { remote.isOffline }
 
     var body: some View {
         List {
+            if changes?.isEmpty == false, let failure {
+                StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+            }
             header
             Section {
                 Picker(String(localized: "teaching.schedule.range", defaultValue: "Период"), selection: $weeks) {
@@ -79,12 +89,25 @@ private struct TeachingScheduleChangesList: View {
                 )
             } else if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
+            } else if remote.checkedCache {
                 LoadingStateView()
             }
         }
         .pullToRefresh { await load() }
-        .task(id: weeks) { await load() }
+        .task(id: weeks) {
+            // Другой период — прежний список уже не ответ: загрузка с нуля. Возврат на
+            // экран с тем же периодом обновляет список на месте.
+            if shownWeeks != weeks {
+                remote.reset()
+                shownWeeks = weeks
+            }
+            await load()
+        }
+        // Вернулись из фона после долгой паузы — список перечитывается фоном
+        // (`AppLifecycle`), показанное остаётся на месте.
+        .onChange(of: AppLifecycle.shared.foregroundEpoch) {
+            Task { await load() }
+        }
     }
 
     private func groupedByDay(_ changes: [TeachingScheduleChangeDTO]) -> [(day: String, title: String, items: [TeachingScheduleChangeDTO])] {
@@ -141,18 +164,11 @@ private struct TeachingScheduleChangesList: View {
         }
     }
 
-    @MainActor
     private func load() async {
         let from = Calendar.current.startOfDay(for: Date())
         let to = Calendar.current.date(byAdding: .day, value: weeks * 7, to: from) ?? from
-        do {
-            changes = try await TeachingAPI().scheduleChanges(from: from, to: to).sorted { $0.date < $1.date }
-            failure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
+        await remote.load {
+            try await TeachingAPI().scheduleChanges(from: from, to: to).sorted { $0.date < $1.date }
         }
     }
 }

@@ -10,9 +10,10 @@ struct TeachingExamsView: View {
     @State private var usesPeriod = false
     @State private var periodFrom = Calendar.current.date(byAdding: .month, value: -1, to: Date()) ?? Date()
     @State private var periodTo = Calendar.current.date(byAdding: .month, value: 1, to: Date()) ?? Date()
-    @State private var exams: [TeachingExamDTO]?
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var remote = RemoteValue<[TeachingExamDTO]>()
+    /// Запрос, ответ на который сейчас на экране: при смене вкладки или периода старый
+    /// список не показывается под новыми фильтрами.
+    @State private var shownQuery: String?
     @State private var creating = false
     @State private var editing: TeachingExamDTO?
     @State private var deleting: TeachingExamDTO?
@@ -22,8 +23,17 @@ struct TeachingExamsView: View {
     /// Предел выдачи сервера (`EXAM_LIST_LIMIT`).
     private static let listLimit = 200
 
+    private var exams: [TeachingExamDTO]? { remote.value }
+    private var failure: String? { remote.failure }
+    private var isOffline: Bool { remote.isOffline }
+
     var body: some View {
         List {
+            if exams?.isEmpty == false, let failure {
+                StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+            }
             FilterChipsRow(
                 options: [
                     (nil, String(localized: "teaching.exams.upcoming", defaultValue: "Предстоящие")),
@@ -83,7 +93,7 @@ struct TeachingExamsView: View {
                 )
             } else if let failure {
                 ErrorStateView(message: failure, isOffline: isOffline) { await load() }
-            } else {
+            } else if remote.checkedCache {
                 LoadingStateView()
             }
         }
@@ -115,7 +125,20 @@ struct TeachingExamsView: View {
         }
         .actionFailureAlert($actionFailure)
         .pullToRefresh { await load() }
-        .task(id: query) { await load() }
+        .task(id: query) {
+            // Другая вкладка или период — прежний список уже не ответ: загрузка с нуля.
+            // Возврат на экран с тем же запросом обновляет список на месте.
+            if shownQuery != query {
+                remote.reset()
+                shownQuery = query
+            }
+            await load()
+        }
+        // Вернулись из фона после долгой паузы — список перечитывается фоном
+        // (`AppLifecycle`), показанное остаётся на месте.
+        .onChange(of: AppLifecycle.shared.foregroundEpoch) {
+            Task { await load() }
+        }
     }
 
     /// Экзаменатор, не читающий дисциплину, ведёт только ведомость: править и удалять
@@ -146,27 +169,22 @@ struct TeachingExamsView: View {
         "\(tab ?? "upcoming")|\(usesPeriod)|\(TeachingAPI.day(periodFrom))|\(TeachingAPI.day(periodTo))"
     }
 
-    @MainActor
     private func load() async {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
         let from = usesPeriod ? calendar.startOfDay(for: periodFrom) : nil
         let to = usesPeriod ? calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: periodTo)) : nil
-        do {
-            if tab == nil {
+        let upcoming = tab == nil
+        let api = api
+        await remote.load {
+            if upcoming {
                 let lower = max(from ?? today, today)
-                exams = try await api.exams(mine: false, from: lower, to: to)
+                return try await api.exams(mine: false, from: lower, to: to)
             } else {
                 let upper = min(to ?? today, today)
                 // Прошедшие — свежие сверху: сервер отдаёт по возрастанию даты.
-                exams = Array(try await api.exams(mine: false, from: from, to: upper).reversed())
+                return Array(try await api.exams(mine: false, from: from, to: upper).reversed())
             }
-            failure = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
         }
     }
 }

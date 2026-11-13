@@ -8,10 +8,12 @@ import SwiftUI
 struct ConsultationsView: View {
     let role: Role
 
-    @State private var mine: [ConsultationSlotDTO]?
-    @State private var teachers: [ConsultationTeacherDTO]?
-    @State private var failure: String?
-    @State private var isOffline = false
+    /// Свои записи (или окна) и, студенту, преподаватели со свободными окнами — одним
+    /// значением: грузятся вместе и вместе падают.
+    @State private var remote = RemoteValue<Loaded>()
+    /// Период, ответ на который сейчас на экране: при смене старый список не
+    /// показывается под новым переключателем.
+    @State private var shownRange: ConsultationRange?
     @State private var actionFailure: String?
     @State private var creating = false
     @State private var cancelling: ConsultationSlotDTO?
@@ -21,6 +23,17 @@ struct ConsultationsView: View {
 
     private let api: UniversityServicesFetching = UniversityServicesAPI()
     private var isTeacher: Bool { role == .teacher }
+
+    private struct Loaded {
+        var mine: [ConsultationSlotDTO]
+        /// Только студенту; у преподавателя — `nil`.
+        var teachers: [ConsultationTeacherDTO]?
+    }
+
+    private var mine: [ConsultationSlotDTO]? { remote.value?.mine }
+    private var teachers: [ConsultationTeacherDTO]? { remote.value?.teachers }
+    private var failure: String? { remote.failure }
+    private var isOffline: Bool { remote.isOffline }
 
     var body: some View {
         withCreateButton(list)
@@ -151,22 +164,34 @@ struct ConsultationsView: View {
             await cancel(slot)
         }
         .pullToRefresh { await load() }
-        .task(id: range) { await load() }
+        .task(id: range) {
+            // Другой период — прежний список уже не ответ: загрузка с нуля (сохранённое
+            // для этого периода — сразу). Возврат на экран обновляет список на месте.
+            if shownRange != range {
+                remote.reset()
+                shownRange = range
+            }
+            await load()
+        }
+        // Вернулись из фона после долгой паузы — список перечитывается фоном
+        // (`AppLifecycle`), показанное остаётся на месте.
+        .onChange(of: AppLifecycle.shared.foregroundEpoch) {
+            Task { await load() }
+        }
         .actionFailureAlert($actionFailure)
     }
 
-    @MainActor
     private func load() async {
-        do {
-            async let slots = range == .all ? UniversityServicesAPI().allConsultations() : api.myConsultations()
+        let all = range == .all
+        let isTeacher = isTeacher
+        let api = api
+        await remote.load {
+            async let slots = all ? UniversityServicesAPI().allConsultations() : api.myConsultations()
+            var teachers: [ConsultationTeacherDTO]?
             if !isTeacher {
                 teachers = try await api.consultationTeachers()
             }
-            mine = try await slots
-            failure = nil
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
+            return Loaded(mine: try await slots, teachers: teachers)
         }
     }
 
@@ -269,12 +294,14 @@ private struct TeacherSlotsView: View {
     let teacher: ConsultationTeacherDTO
     let changed: () async -> Void
 
-    @State private var slots: [ConsultationSlotDTO]?
-    @State private var failure: String?
-    @State private var isOffline = false
+    @State private var remote = RemoteValue<[ConsultationSlotDTO]>()
     @State private var booking: ConsultationSlotDTO?
 
     private let api: UniversityServicesFetching = UniversityServicesAPI()
+
+    private var slots: [ConsultationSlotDTO]? { remote.value }
+    private var failure: String? { remote.failure }
+    private var isOffline: Bool { remote.isOffline }
 
     var body: some View {
         List {
@@ -295,6 +322,11 @@ private struct TeacherSlotsView: View {
             }
 
             if let slots {
+                if let failure {
+                    StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
                 Section {
                     if slots.isEmpty {
                         EmptyStateView(
@@ -331,7 +363,9 @@ private struct TeacherSlotsView: View {
         .navigationTitle(Text(teacher.name))
         .navigationBarTitleDisplayMode(.inline)
         .pullToRefresh { await load() }
-        .task { await load() }
+        // Показ, возврат на экран и возврат приложения из фона — сохранённое на месте,
+        // сеть обновляет фоном (`RemoteValue`).
+        .task(id: AppLifecycle.shared.foregroundEpoch) { await load() }
         .sheet(item: $booking) { slot in
             BookSlotSheet(slot: slot) {
                 await load()
@@ -341,15 +375,8 @@ private struct TeacherSlotsView: View {
         }
     }
 
-    @MainActor
     private func load() async {
-        do {
-            slots = try await api.slots(teacherID: teacher.teacherId)
-            failure = nil
-        } catch {
-            failure = error.userMessage
-            isOffline = error.isOffline
-        }
+        await remote.load { try await api.slots(teacherID: teacher.teacherId) }
     }
 }
 
