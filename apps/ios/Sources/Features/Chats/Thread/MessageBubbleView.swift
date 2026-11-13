@@ -321,14 +321,22 @@ struct MessageBubbleView: View {
         .padding(.trailing, padding(leading: false))
         .padding(.vertical, isMediaOnly ? 3 : Spacing.sm)
         .background {
-            shape
-                .fill(background)
-                .shadow(
-                    color: Palette.overlay.opacity(item.isOwn || scheme == .dark ? 0 : 0.10),
-                    radius: 0.6,
-                    x: 0,
-                    y: 0.6
-                )
+            if PerformanceFlags.chatBubbleFlatShadow {
+                // Та же тень без размытия: подложка со сдвигом вниз под заливкой пузыря.
+                shape
+                    .fill(Palette.overlay.opacity(item.isOwn || scheme == .dark ? 0 : 0.10))
+                    .offset(y: 0.6)
+                    .overlay { shape.fill(background) }
+            } else {
+                shape
+                    .fill(background)
+                    .shadow(
+                        color: Palette.overlay.opacity(item.isOwn || scheme == .dark ? 0 : 0.10),
+                        radius: 0.6,
+                        x: 0,
+                        y: 0.6
+                    )
+            }
         }
         .contentShape(shape)
         .overlay(alignment: item.isOwn ? .bottomLeading : .bottomTrailing) {
