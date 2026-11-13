@@ -10,14 +10,56 @@ extension View {
     /// поиска), в момент срабатывания — лёгкий толчок, а поиск в шапке при открытии
     /// экрана спрятан и выезжает, когда список тянут вниз.
     func pullToRefresh(action: @escaping @Sendable () async -> Void) -> some View {
-        refreshable(action: action)
-            .background(PullTunerProbe().accessibilityHidden(true))
+        modifier(PullToRefreshModifier(action: action))
+    }
+}
+
+/// Действие обновления, обёрнутое сигналом начала и конца для доводки.
+private struct PullToRefreshModifier: ViewModifier {
+    let action: @Sendable () async -> Void
+    @State private var signal = PullRefreshSignal()
+
+    func body(content: Content) -> some View {
+        let signal = signal
+        let action = action
+        content
+            .refreshable {
+                await signal.begin()
+                await action()
+                await signal.end()
+            }
+            .background(PullTunerProbe(signal: signal).accessibilityHidden(true))
+    }
+}
+
+/// Начало и конец обновления — от самого действия, а не догадкой по сдвигу прокрутки.
+///
+/// Раньше доводка читала `refreshControl.isRefreshing` только на сдвигах `contentOffset`:
+/// список вставал в позицию обновления, сдвиги кончались, а флаг поднимался позже —
+/// индикатор так и висел неподвижным посреди пустоты, пока шёл запрос.
+@MainActor
+final class PullRefreshSignal {
+    fileprivate weak var tuner: PullTuner?
+    fileprivate private(set) var isActive = false
+
+    nonisolated init() {}
+
+    func begin() {
+        isActive = true
+        tuner?.refreshDidBegin()
+    }
+
+    func end() {
+        isActive = false
+        tuner?.refreshDidEnd()
     }
 }
 
 /// Пустой вид рядом со списком: по нему находится прокрутка с обновлением.
 private struct PullTunerProbe: UIViewRepresentable {
-    func makeUIView(context: Context) -> ProbeView { ProbeView() }
+    let signal: PullRefreshSignal
+
+    func makeUIView(context: Context) -> ProbeView { ProbeView(signal: signal) }
     func updateUIView(_ view: ProbeView, context: Context) { view.attachSoon() }
 
     final class ProbeView: UIView {
@@ -25,9 +67,11 @@ private struct PullTunerProbe: UIViewRepresentable {
         /// `updateUIView` зовётся на каждый пересчёт экрана, а поиск — три отложенных
         /// обхода иерархии (п. 42 аудита).
         private weak var attached: UIScrollView?
+        private let signal: PullRefreshSignal
 
-        override init(frame: CGRect) {
-            super.init(frame: frame)
+        init(signal: PullRefreshSignal) {
+            self.signal = signal
+            super.init(frame: .zero)
             isUserInteractionEnabled = false
             backgroundColor = .clear
         }
@@ -53,7 +97,7 @@ private struct PullTunerProbe: UIViewRepresentable {
         private func attach() {
             guard attached?.window == nil, let window, let scrollView = findScrollView(in: window) else { return }
             attached = scrollView
-            PullTuner.install(on: scrollView)
+            PullTuner.install(on: scrollView, signal: signal)
         }
 
         /// Прокрутка с обновлением, внутри которой (по экрану) лежит проба: ищем вверх
@@ -97,6 +141,7 @@ final class PullTuner: NSObject {
     private static var key: UInt8 = 0
 
     private weak var scrollView: UIScrollView?
+    private weak var signal: PullRefreshSignal?
     private var observation: NSKeyValueObservation?
     private let spinner = UIActivityIndicatorView(style: .medium)
     private let feedback = UIImpactFeedbackGenerator(style: .light)
@@ -106,15 +151,21 @@ final class PullTuner: NSObject {
     private var isClamping = false
     private var hidSearch = false
 
-    static func install(on scrollView: UIScrollView) {
-        guard objc_getAssociatedObject(scrollView, &key) == nil else { return }
-        let tuner = PullTuner(scrollView: scrollView)
+    static func install(on scrollView: UIScrollView, signal: PullRefreshSignal) {
+        if let tuner = objc_getAssociatedObject(scrollView, &key) as? PullTuner {
+            tuner.signal = signal
+            signal.tuner = tuner
+            return
+        }
+        let tuner = PullTuner(scrollView: scrollView, signal: signal)
         objc_setAssociatedObject(scrollView, &key, tuner, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     }
 
-    private init(scrollView: UIScrollView) {
+    private init(scrollView: UIScrollView, signal: PullRefreshSignal) {
         self.scrollView = scrollView
+        self.signal = signal
         super.init()
+        signal.tuner = self
         spinner.hidesWhenStopped = false
         spinner.alpha = 0
         spinner.isUserInteractionEnabled = false
@@ -128,12 +179,58 @@ final class PullTuner: NSObject {
         hideSearchInitially()
     }
 
+    /// Обновление идёт: действие ещё не вернулось или система держит индикатор.
+    private var isRefreshing: Bool {
+        signal?.isActive == true || scrollView?.refreshControl?.isRefreshing == true
+    }
+
+    /// Действие началось — индикатор крутится сразу, не дожидаясь следующего сдвига.
+    fileprivate func refreshDidBegin() {
+        update()
+    }
+
+    /// Действие вернулось. Система должна сама снять обновление и вернуть список, но
+    /// бывало, что список так и оставался оттянутым: снимаем и возвращаем сами.
+    fileprivate func refreshDidEnd() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let scrollView = self.scrollView, self.signal?.isActive != true else { return }
+            if scrollView.refreshControl?.isRefreshing == true {
+                scrollView.refreshControl?.endRefreshing()
+            }
+            self.update()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+                self?.settleIfStuck()
+            }
+        }
+    }
+
+    /// Обновления нет, пальца на списке нет, а он всё ещё оттянут — довести до верха.
+    private func settleIfStuck() {
+        guard let scrollView, !isRefreshing, !scrollView.isTracking, !scrollView.isDecelerating else { return }
+        let rest = -scrollView.adjustedContentInset.top
+        if scrollView.contentOffset.y < rest - 1 {
+            scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: rest), animated: true)
+        }
+        hideSpinner()
+    }
+
+    private func hideSpinner() {
+        guard spinner.alpha > 0 || spinner.isAnimating else { return }
+        UIView.animate(withDuration: 0.2) { self.spinner.alpha = 0 } completion: { _ in
+            if !self.isRefreshing { self.spinner.stopAnimating() }
+        }
+    }
+
     private func update() {
         guard let scrollView, !isClamping else { return }
         if !hidSearch, !scrollView.isTracking { hideSearchInitially() }
         let control = scrollView.refreshControl
-        let refreshing = control?.isRefreshing == true
-        if !refreshing, !scrollView.isTracking, !scrollView.isDecelerating {
+        let refreshing = isRefreshing
+        // Отступ шапки берём живым всегда, кроме пальца на списке (большой заголовок
+        // растягивается под ним) и самого обновления (система добавляет свой). Раньше
+        // он не обновлялся и по инерции — после броска к верху отступ оставался старым,
+        // и в покое над первой строкой висел неподвижный индикатор.
+        if !refreshing, !scrollView.isTracking {
             baseInset = scrollView.adjustedContentInset.top
         }
         // Сколько открыто над первой строкой.
