@@ -1170,10 +1170,26 @@ final class ChatThreadModel {
     @MainActor
     func rejoin() async {
         await realtime.open(chatID: chatID)
-        await catchUpAfterReconnect()
-        await markRead()
-        // Пока экрана не было, комната была отпущена: прочтения и входы мимо прошли.
-        await loadGroupStatus()
+        // Догон с отметкой и статус группы друг от друга не зависят — параллельно.
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor in
+                await self.catchUpAfterReconnect()
+                await self.markRead()
+            }
+            // Пока экрана не было, комната была отпущена: прочтения и входы мимо прошли.
+            group.addTask { @MainActor in await self.loadGroupStatus() }
+        }
+    }
+
+    /// Шапка чата: закреплённое, собеседник, статус группы. Друг от друга и от истории
+    /// не зависят — грузятся разом, а не цепочкой из запросов (P1-5 аудита).
+    @MainActor
+    func loadHeader() async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor in await self.loadPinned() }
+            group.addTask { @MainActor in await self.loadPeer() }
+            group.addTask { @MainActor in await self.loadGroupStatus() }
+        }
     }
 
     @MainActor
