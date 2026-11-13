@@ -495,10 +495,7 @@ private struct QrStickerSheet: View {
     }
 
     static func image(_ dataURL: String) -> UIImage? {
-        guard let comma = dataURL.firstIndex(of: ",") else { return nil }
-        let base64 = String(dataURL[dataURL.index(after: comma)...])
-        guard let data = Data(base64Encoded: base64) else { return nil }
-        return UIImage(data: data)
+        DataURLImage.image(from: dataURL)
     }
 }
 

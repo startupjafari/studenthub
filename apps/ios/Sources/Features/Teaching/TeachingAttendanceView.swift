@@ -434,8 +434,6 @@ struct TeachingAttendanceQRView: View {
 
     /// `data:image/png;base64,…` → картинка.
     private static func decode(_ dataURL: String) -> UIImage? {
-        guard let comma = dataURL.firstIndex(of: ",") else { return nil }
-        guard let data = Data(base64Encoded: String(dataURL[dataURL.index(after: comma)...])) else { return nil }
-        return UIImage(data: data)
+        DataURLImage.image(from: dataURL)
     }
 }
