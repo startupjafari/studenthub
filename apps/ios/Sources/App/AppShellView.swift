@@ -55,6 +55,10 @@ struct AppShellView: View {
             // Соединение живёт, пока человек внутри приложения: вход в него делает
             // сессия, выход — её конец.
             AppServices.realtime.start()
+            // Неотправленное с прошлого запуска уходит само, не дожидаясь, пока человек
+            // откроет тот чат; дальше — на каждую смену сети.
+            await AppServices.outbox.start()
+            Task { await AppServices.outbox.kick() }
             // Пуш, нажатый на холодном старте, ждал роли — теперь она есть.
             router.openPending(for: role)
             // Разрешение спрашиваем здесь, а не на экране входа: до входа уведомлять
@@ -74,7 +78,12 @@ struct AppShellView: View {
             Task {
                 await AppServices.realtime.resume()
                 await AppServices.pushSync.catchUp()
+                await AppServices.outbox.kick()
             }
+        }
+        // Сокет поднялся заново — связь есть: досылаем то, что не ушло без неё.
+        .onChange(of: AppServices.realtime.connectionEpoch) {
+            Task { await AppServices.outbox.kick() }
         }
     }
 
