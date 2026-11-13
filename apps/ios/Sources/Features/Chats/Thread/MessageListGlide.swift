@@ -38,6 +38,9 @@ final class MessageListGlide {
         velocity = 0
         lastTimestamp = nil
         let link = CADisplayLink(target: Ticker(owner: self), selector: #selector(Ticker.tick(_:)))
+        // Пружина ведёт ленту, пока её видно: на экране 120 Гц — каждый кадр, а не
+        // каждый второй (ключ `CADisableMinimumFrameDurationOnPhone` в Info.plist).
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
         link.add(to: .main, forMode: .common)
         self.link = link
     }

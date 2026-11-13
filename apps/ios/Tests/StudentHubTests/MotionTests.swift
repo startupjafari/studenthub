@@ -225,3 +225,12 @@ final class GesturePhysicsTests: XCTestCase {
         XCTAssertLessThan(GesturePhysics.projectedEnd(translation: 0, velocity: -1000), 0)
     }
 }
+
+/// Частота кадров: на iPhone с ProMotion анимации приложения идут на 120 Гц только с
+/// ключом `CADisableMinimumFrameDurationOnPhone` — без него iOS держит их на 60.
+final class FrameRateTests: XCTestCase {
+    func testAppAllowsProMotionFrameRates() {
+        let value = Bundle.main.object(forInfoDictionaryKey: "CADisableMinimumFrameDurationOnPhone") as? Bool
+        XCTAssertEqual(value, true, "в Info.plist нет CADisableMinimumFrameDurationOnPhone — анимации на 60 Гц")
+    }
+}
