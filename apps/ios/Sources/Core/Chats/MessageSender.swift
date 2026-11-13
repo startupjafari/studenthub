@@ -8,19 +8,23 @@ import GRDB
 /// строки (`sendState`). Поэтому обрыв связи не стирает написанное и не требует
 /// «повторите ввод».
 protocol ChatMessageSending: Sendable {
-    func send(text: String, chatID: String, replyToID: String?) async throws -> ChatMessageDTO
+    /// `nonce` — ключ повтора отправки: сервер помнит его 10 минут, и повтор с тем же
+    /// ключом возвращает уже созданное сообщение, а не второе. Он же приходит эхом в
+    /// `message:new` — по нему сокет узнаёт своё неподтверждённое сообщение.
+    func send(text: String, chatID: String, replyToID: String?, nonce: String) async throws -> ChatMessageDTO
 }
 
 extension ChatsAPI: ChatMessageSending {
     /// Маршрут multipart: на сервере текст и вложения приходят одним запросом.
     /// Когда появится сокет (задача 1.5), отправка уйдёт туда, а этот путь останется
     /// запасным — он работает и там, где сокет не поднялся.
-    func send(text: String, chatID: String, replyToID: String?) async throws -> ChatMessageDTO {
+    func send(text: String, chatID: String, replyToID: String?, nonce: String) async throws -> ChatMessageDTO {
         var form = MultipartForm()
         form.append(text, name: "content")
         if let replyToID {
             form.append(replyToID, name: "replyToId")
         }
+        form.append(nonce, name: "nonce")
         return try await client.send(.multipart("chats/\(chatID)/messages", form: form), as: ChatMessageDTO.self)
     }
 }
@@ -121,10 +125,13 @@ struct MessageOutbox: Sendable {
 
     private func deliver(_ message: MessageRecord) async -> Bool {
         do {
+            // Ключ повтора — локальный id строки: один на сообщение и переживает
+            // перезапуск приложения, поэтому повтор после таймаута не создаст дубль.
             let sent = try await api.send(
                 text: message.content,
                 chatID: message.chatId,
-                replyToID: message.replyToId
+                replyToID: message.replyToId,
+                nonce: message.id
             )
             try await database.writer.write { db in
                 try MessageStore.confirm(localID: message.id, with: sent, in: db)

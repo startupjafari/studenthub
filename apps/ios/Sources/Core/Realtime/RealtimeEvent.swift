@@ -8,7 +8,9 @@ import Foundation
 enum RealtimeEvent: Equatable {
     case connected
     case disconnected
-    case messageNew(ChatMessageDTO)
+    /// `nonce` — ключ повтора, с которым сообщение отправили (эхо сервера); у чужих и
+    /// у отправленных без ключа его нет.
+    case messageNew(ChatMessageDTO, nonce: String? = nil)
     case messageUpdated(ChatMessageDTO)
     case messageDeleted(messageID: String, chatID: String)
     /// Кто-то прочитал переписку до указанного момента.
