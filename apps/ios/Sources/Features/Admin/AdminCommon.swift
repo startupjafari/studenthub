@@ -372,30 +372,7 @@ extension View {
     /// Поиск с задержкой для больших списков (пользователи, вузы, обращения). Поле, как на
     /// всех экранах-списках, прячется при прокрутке вниз и выезжает жестом вниз.
     func adminPinnedSearch(_ text: Binding<String>, prompt: String, onChange: @escaping (String) async -> Void) -> some View {
-        modifier(AdminPinnedSearch(text: text, prompt: prompt, onChange: onChange))
-    }
-}
-
-private struct AdminPinnedSearch: ViewModifier {
-    @Binding var text: String
-    let prompt: String
-    let onChange: (String) async -> Void
-
-    @State private var lastSent = ""
-
-    func body(content: Content) -> some View {
-        content
-            .searchable(text: $text, prompt: Text(prompt))
-            .task(id: text) {
-                let needle = text.trimmingCharacters(in: .whitespaces)
-                guard needle != lastSent else { return }
-                if !needle.isEmpty {
-                    try? await Task.sleep(for: .milliseconds(350))
-                    guard !Task.isCancelled else { return }
-                }
-                lastSent = needle
-                await onChange(needle)
-            }
+        debouncedSearch(text, prompt: prompt, onChange: onChange)
     }
 }
 
