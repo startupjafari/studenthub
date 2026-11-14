@@ -52,6 +52,11 @@ final class ScrollJankMonitor: NSObject {
         var remeasures = 0
         /// Из них — строки выше видимого: их рост сдвигает ленту под пальцем.
         var remeasuresAbove = 0
+        /// Видимые строки, чья высота в раскладке разошлась с высотой содержимого больше
+        /// чем на 2 pt, — на последней остановке ленты. Дыра под пузырём или наезд.
+        var mismatched = 0
+        /// Первые из них: `id:высота в раскладке/высота содержимого`.
+        var mismatchSamples: [String] = []
 
         /// Время рывков на секунду прокрутки, мс/с.
         var hitchRatio: Double {
@@ -69,11 +74,13 @@ final class ScrollJankMonitor: NSObject {
                 String(format: "frame=%.1fms", expectedFrame * 1000),
                 "remeasure=\(remeasures)",
                 "remeasureAbove=\(remeasuresAbove)",
+                "mismatched=\(mismatched)",
             ]
             for work in Work.allCases {
                 let time = (workTime[work] ?? 0) * 1000
                 parts.append(String(format: "%@=%.1fms/%d", work.rawValue, time, workCount[work] ?? 0))
             }
+            if !mismatchSamples.isEmpty { parts.append("mismatch=" + mismatchSamples.joined(separator: ",")) }
             return parts.joined(separator: " ")
         }
     }
@@ -87,6 +94,8 @@ final class ScrollJankMonitor: NSObject {
     private(set) var report = Report()
     /// Лента, в чьё `accessibilityValue` пишется отчёт (для замера в UI-тестах).
     weak var reportTarget: UIView?
+    /// Сверка видимых строк на остановке: расхождения `id:в раскладке/по содержимому`.
+    var auditVisible: (() -> [String])?
 
     private var link: CADisplayLink?
     private var lastFrame: CFTimeInterval = 0
@@ -114,6 +123,10 @@ final class ScrollJankMonitor: NSObject {
         link.invalidate()
         self.link = nil
         report.duration += CACurrentMediaTime() - startedAt
+        if let mismatches = auditVisible?() {
+            report.mismatched = mismatches.count
+            report.mismatchSamples = Array(mismatches.prefix(4))
+        }
         log.notice("ScrollJank \(self.report.description, privacy: .public)")
         reportTarget?.accessibilityValue = "active=0 \(report.description)"
     }

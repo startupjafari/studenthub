@@ -531,6 +531,7 @@ final class MessageListViewController: UIViewController {
         collectionView = list
         collectionView.accessibilityIdentifier = "chat.messages"
         ScrollJankMonitor.shared.reportTarget = collectionView
+        ScrollJankMonitor.shared.auditVisible = { [weak self] in self?.auditVisibleHeights() ?? [] }
         collectionView.backgroundColor = .clear
         collectionView.keyboardDismissMode = .interactive
         // Короткая переписка тоже тянется: жест к началу ленты есть всегда.
@@ -623,6 +624,25 @@ final class MessageListViewController: UIViewController {
         }
         guard let item = itemsByID[id] else { return 44 }
         return CGFloat(MessageHeightEstimate.estimate(estimateInput(for: item), metrics: Self.estimateMetrics(width: width)))
+    }
+
+    /// Видимые строки, чья высота в раскладке разошлась с содержимым (`ScrollJankMonitor`):
+    /// содержимое меряется от нулевой высоты, как его мерила бы сама ячейка без подсказки.
+    private func auditVisibleHeights() -> [String] {
+        let width = collectionView.bounds.width
+        return collectionView.indexPathsForVisibleItems.sorted().compactMap { indexPath in
+            guard let cell = collectionView.cellForItem(at: indexPath),
+                let id = dataSource.itemIdentifier(for: indexPath)
+            else { return nil }
+            let fitted = cell.contentView.systemLayoutSizeFitting(
+                CGSize(width: width, height: 0),
+                withHorizontalFittingPriority: .required,
+                verticalFittingPriority: .fittingSizeLevel
+            ).height
+            let laid = cell.frame.height
+            guard abs(laid - fitted) > 2 else { return nil }
+            return "\(id):\(Int(laid))/\(Int(fitted))"
+        }
     }
 
     /// Ячейка измерила себя — запоминаем: в следующий раз строка встанет сразу своей высоты.
