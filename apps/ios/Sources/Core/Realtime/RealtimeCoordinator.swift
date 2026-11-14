@@ -355,35 +355,64 @@ final class RealtimeCoordinator {
     private func save(_ message: ChatMessageDTO, nonce: String? = nil, countsAsUnread: Bool) async {
         let viewerID = await session.currentToken?.subject
         let isOpen = openChatID == message.chatId
-        try? await database.writer.write { db in
+        let step = try? await database.writer.write { db -> SyncPosition.Step in
+            // Строка уже была (догон или страница успели раньше, сервер прислал событие
+            // повторно) — счётчик второй раз не растёт.
+            let known = try MessageRecord
+                .filter(MessageRecord.Columns.remoteId == message.id)
+                .fetchCount(db) > 0
             try MessageStore.upsert(message, nonce: nonce, in: db)
-            guard var chat = try ChatRecord.fetchOne(db, key: message.chatId) else { return }
+            guard var chat = try ChatRecord.fetchOne(db, key: message.chatId) else { return .stay }
+            let before = chat
             if let seq = message.seq, seq > chat.lastSeq {
                 chat.lastSeq = seq
                 chat.lastMessageId = message.id
                 chat.updatedAt = message.createdAt
             }
+            // Позиция догона — только по порядку: через разрыв сообщение сохранено, но
+            // позиция стоит, и догон пойдёт с неё (IOS_RULES 9.3.2).
+            let step = SyncPosition.step(from: chat.syncSeq, seqs: message.seq.map { [$0] } ?? [])
+            if case .advance(let position) = step { chat.syncSeq = position }
             // Счётчик растёт только от чужого и только в закрытом чате: читаемое
             // прямо сейчас непрочитанным не бывает.
-            if countsAsUnread, !isOpen, message.senderId != viewerID {
+            if countsAsUnread, !known, !isOpen, message.senderId != viewerID {
                 chat.unreadCount += 1
             }
-            try chat.update(db)
+            try chat.updateChanges(db, from: before)
+            return step
         }
+        // Разрыв в открытом чате догоняет его экран. Закрытый догонится при открытии —
+        // с той же непродвинутой позиции.
+        if step == .gap { chatSignals[message.chatId]?.gapVersion += 1 }
     }
 
     /// Обновить верх списка: в одном из чатов что-то произошло. События идут пачками
     /// (сообщение, затем прочтение), поэтому запрос — после короткой паузы, один на
     /// пачку. Первой страницы хватает: изменившийся чат поднимается наверх.
+    ///
+    /// Временная ошибка не глотается: повтор с паузой 2 → 60 с с разбросом, пока сервер
+    /// не ответит по существу, не придёт новая просьба или не выйдет человек (IOS_RULES
+    /// 9.3.1) — иначе счётчики и порядок списка стояли бы до следующего события.
     @MainActor
     private func scheduleListRefresh() {
         listRefresh?.cancel()
         listRefresh = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(700))
-            guard let self, !Task.isCancelled else { return }
-            let api = self.api ?? ChatsAPI()
-            guard let page = try? await api.chats(cursor: nil, limit: 50) else { return }
-            try? await self.store.save(chats: page.items)
+            var wait: Duration = .milliseconds(700)
+            var delay = OutboxService.firstRetryDelay
+            while true {
+                try? await Task.sleep(for: wait)
+                guard !Task.isCancelled, let self, self.active else { return }
+                let api = self.api ?? ChatsAPI()
+                do {
+                    let page = try await api.chats(cursor: nil, limit: 50)
+                    try await self.store.save(chats: page.items)
+                    return
+                } catch {
+                    guard ActionFailureKind(error) == .transient else { return }
+                }
+                wait = OutboxService.jittered(delay)
+                delay = min(delay * 2, OutboxService.maxRetryDelay)
+            }
         }
     }
 
@@ -536,6 +565,9 @@ final class ChatSignals {
     var pinnedVersion = 0
     /// Растёт с каждым `chat:scheduled-changed`: экран перечитывает свои отложенные.
     var scheduledVersion = 0
+    /// Растёт, когда сообщение пришло через разрыв по `seq`: открытый чат догоняет
+    /// пропущенное (IOS_RULES 9.3.2).
+    var gapVersion = 0
     var memberReads: [String: Date] = [:]
 }
 

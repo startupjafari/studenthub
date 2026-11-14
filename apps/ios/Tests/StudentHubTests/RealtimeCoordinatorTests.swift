@@ -22,6 +22,40 @@ final class RealtimeCoordinatorTests: XCTestCase {
         _ = coordinator
     }
 
+    /// Сообщение по порядку двигает позицию догона, через разрыв — нет: догон пойдёт с
+    /// прежней, и пропущенное между не потеряется (IOS_RULES 9.3.2).
+    func testPositionMovesOnlyInOrderAndGapSignalsOpenChat() async throws {
+        let (database, coordinator, transport) = try await make()
+        let signals = coordinator.signals(for: "c-1")
+
+        await transport.emit(.messageNew(message(id: "m-2", seq: 2, sender: "u-other")))
+        await settle()
+        var chat = try await database.reader.read { db in try ChatRecord.fetchOne(db, key: "c-1") }
+        XCTAssertEqual(chat?.syncSeq, 2)
+        XCTAssertEqual(signals.gapVersion, 0)
+
+        await transport.emit(.messageNew(message(id: "m-5", seq: 5, sender: "u-other")))
+        await settle()
+        chat = try await database.reader.read { db in try ChatRecord.fetchOne(db, key: "c-1") }
+        XCTAssertEqual(chat?.syncSeq, 2)
+        XCTAssertEqual(chat?.lastSeq, 5)
+        XCTAssertEqual(chat?.lastMessageId, "m-5")
+        XCTAssertEqual(signals.gapVersion, 1)
+    }
+
+    /// Повторный `message:new` для уже сохранённой строки счётчик не удваивает.
+    func testRepeatedMessageDoesNotCountTwice() async throws {
+        let (database, coordinator, transport) = try await make()
+
+        await transport.emit(.messageNew(message(id: "m-2", seq: 2, sender: "u-other")))
+        await transport.emit(.messageNew(message(id: "m-2", seq: 2, sender: "u-other")))
+        await settle()
+
+        let unread = try await database.reader.read { db in try ChatRecord.fetchOne(db, key: "c-1")?.unreadCount }
+        XCTAssertEqual(unread, 1)
+        _ = coordinator
+    }
+
     /// Открытый чат читают прямо сейчас — непрочитанным его сообщение не бывает.
     func testMessageInOpenChatDoesNotRaiseCounter() async throws {
         let (database, coordinator, transport) = try await make()
@@ -207,7 +241,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
                 chatDescription: nil, subject: nil, memberCount: 3, unreadCount: unread, muted: false,
                 mutedImportantOnly: false, pinnedAt: nil, archivedAt: nil, requestIncoming: false,
                 requestOutgoing: false, othersReadAt: nil, lastMessageId: nil, lastSeq: 1,
-                updatedAt: Date(timeIntervalSince1970: 1_800_000_000)
+                updatedAt: Date(timeIntervalSince1970: 1_800_000_000), syncSeq: 1
             ).insert(db)
         }
         let transport = StubTransport()
