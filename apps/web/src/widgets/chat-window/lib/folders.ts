@@ -1,3 +1,4 @@
+import { chatInFolder, type ChatFolderRule } from '@studenthub/shared-schemas'
 import type { ChatFolder, ChatListItem, ChatTypeValue } from '../../../entities/chat'
 
 // Папки чатов (Telegram-стиль §2) — клиентский фильтр поверх готового GET /chats.
@@ -17,7 +18,7 @@ export interface BuiltinFolder {
   archive?: boolean
 }
 
-export interface UserFolder {
+export interface UserFolder extends Partial<Omit<ChatFolderRule, 'chatIds'>> {
   id: string
   kind: 'user'
   name: string
@@ -63,7 +64,16 @@ export function buildFolderTabs(chats: ChatListItem[], userFolders: ChatFolder[]
   })
   const user: UserFolder[] = [...userFolders]
     .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
-    .map((f) => ({ id: f.id, kind: 'user', name: f.name, chatIds: f.chatIds }))
+    .map((f) => ({
+      id: f.id,
+      kind: 'user',
+      name: f.name,
+      chatIds: f.chatIds,
+      excludedChatIds: f.excludedChatIds,
+      includeContacts: f.includeContacts,
+      includeNonContacts: f.includeNonContacts,
+      includeGroups: f.includeGroups,
+    }))
   return [...builtins, ...user]
 }
 
@@ -82,8 +92,18 @@ export function filterChatsByTab(
   const open = chats.filter(isOpen)
   if (!tab || tab.id === 'folderAll') return open
   if (tab.kind === 'user') {
-    const ids = new Set(tab.chatIds)
-    return open.filter((c) => ids.has(c.id))
+    // Правило состава общее с сервером и iOS (shared-schemas): явные чаты, правила по типу и
+    // дружбе, минус исключения.
+    const rule: ChatFolderRule = {
+      chatIds: tab.chatIds,
+      excludedChatIds: tab.excludedChatIds ?? [],
+      includeContacts: tab.includeContacts ?? false,
+      includeNonContacts: tab.includeNonContacts ?? false,
+      includeGroups: tab.includeGroups ?? false,
+    }
+    return open.filter((c) =>
+      chatInFolder(rule, { id: c.id, type: c.type, isFriend: c.isFriend ?? false }),
+    )
   }
   if (tab.unread) return open.filter((c) => c.unreadCount > 0)
   return open.filter((c) => tab.types?.includes(c.type))

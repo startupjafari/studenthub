@@ -292,6 +292,9 @@ export interface ChatListItem {
   // Личная блокировка (только PRIVATE): blocked — я заблокировал собеседника; blockedBy — он меня.
   blocked: boolean
   blockedBy: boolean
+  // Собеседник — друг (только PRIVATE): «Контакты» в правилах папок (chatInFolder).
+  // Необязательное — сервер прошлой версии поля не отдаёт.
+  isFriend?: boolean
   // Собеседник онлайн (только PRIVATE) — индикатор-точка на аватаре в списке.
   online: boolean
   // Макс. время прочтения другими участниками — для статусов доставки своих сообщений.
@@ -339,4 +342,10 @@ export interface ChatFolder {
   name: string
   position: number
   chatIds: string[]
+  // Исключения и правила состава (папки, собранные на iOS). Веб их пока не редактирует,
+  // но учитывает при фильтре вкладки — иначе папка «все группы» здесь была бы пустой.
+  excludedChatIds?: string[]
+  includeContacts?: boolean
+  includeNonContacts?: boolean
+  includeGroups?: boolean
 }
