@@ -7,7 +7,7 @@ struct ThreadSnapshot: Equatable {
     let attachments: [String: [AttachmentRecord]]
 }
 
-/// Чтение базы для экрана чата: наблюдение ленты и строки чата.
+/// База для экрана чата: наблюдение ленты и строки чата, черновик, точечные записи.
 ///
 /// Экран не знает про GRDB (IOS_RULES 9.1.2): он получает потоки готовых значений, а
 /// запросы, порядок и отсев одинаковых срезов живут здесь.
@@ -81,5 +81,31 @@ struct ChatThreadQueries: Sendable {
         let observation = ValueObservation.tracking { db in try ChatRecord.fetchOne(db, key: id) }
             .removeDuplicates()
         return AsyncValues.stream(of: observation, in: database.reader)
+    }
+
+    /// Строка чата сейчас, синхронно: одна строка по ключу, а граница окна нужна
+    /// экрану до первого среза.
+    func chatNow(id: String) throws -> ChatRecord? {
+        try database.reader.read { db in try ChatRecord.fetchOne(db, key: id) }
+    }
+
+    /// Вид чата из базы — пока наблюдение ещё не донесло строку.
+    func chatKind(id: String) async throws -> ChatKind? {
+        try await database.reader.read { db in try ChatRecord.fetchOne(db, key: id)?.kind }
+    }
+
+    /// Строка чата уходит из базы: сервер удалил чат, я вышел или отклонил запрос на
+    /// переписку. Список и экран увидят это сами.
+    func removeChat(id: String) async throws {
+        _ = try await database.writer.write { db in try ChatRecord.deleteOne(db, key: id) }
+    }
+
+    /// Запрос на переписку принят: чат становится обычным, плашка запроса уходит.
+    func acceptRequest(chatID: String) async throws {
+        try await database.writer.write { db in
+            guard var chat = try ChatRecord.fetchOne(db, key: chatID) else { return }
+            chat.requestIncoming = false
+            try chat.update(db)
+        }
     }
 }

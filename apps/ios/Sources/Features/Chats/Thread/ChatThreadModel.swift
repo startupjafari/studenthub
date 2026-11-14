@@ -1171,7 +1171,7 @@ final class ChatThreadModel {
         let id = chatID
         var kind = chat?.kind
         if kind == nil {
-            kind = try? await database.reader.read { db in try ChatRecord.fetchOne(db, key: id)?.kind }
+            kind = try? await queries.chatKind(id: id)
         }
         guard kind == .private, let list = try? await actions.members(chatID: chatID) else { return }
         peer = list.first { $0.id != viewerID }
@@ -1212,7 +1212,7 @@ final class ChatThreadModel {
         let id = chatID
         var kind = chat?.kind
         if kind == nil {
-            kind = try? await database.reader.read { db in try ChatRecord.fetchOne(db, key: id)?.kind }
+            kind = try? await queries.chatKind(id: id)
         }
         guard let kind else { return false }
         return kind != .private && kind != .saved
@@ -1480,7 +1480,7 @@ final class ChatThreadModel {
     private func initialFloor() -> Int? {
         guard PerformanceFlags.chatWindowedObservation else { return nil }
         let id = chatID
-        guard let chat = try? database.reader.read({ db in try ChatRecord.fetchOne(db, key: id) }) else { return nil }
+        guard let chat = try? queries.chatNow(id: id) else { return nil }
         let span = max(Self.liveWindow, chat.unreadCount + 20)
         guard chat.lastSeq > span else { return nil }
         return chat.lastSeq - span
