@@ -90,7 +90,7 @@ struct StarostaGroupView: View {
             }
         }
         .navigationTitle(Text(StarostaScreen.myGroup.title))
-        .searchable(
+        .listSearch(
             text: $query,
             prompt: Text(String(localized: "starosta.group.search", defaultValue: "Найти по имени"))
         )

@@ -178,7 +178,7 @@ struct CommunityServiceCatalog: View {
             }
         }
         .background(Palette.background)
-        .searchable(
+        .listSearch(
             text: $search,
             prompt: Text(String(localized: "community.applications.searchService", defaultValue: "Найти услугу"))
         )

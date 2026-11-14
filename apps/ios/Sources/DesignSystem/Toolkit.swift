@@ -919,6 +919,20 @@ extension View {
     }
 }
 
+extension View {
+    /// Поиск экрана-списка, как в Telegram: на входе поле видно под заголовком, при
+    /// прокрутке вниз уезжает под шапку, при прокрутке вверх возвращается. Место поля —
+    /// явно в шапке: размещение по умолчанию на iOS 26 ставило поиск то в шапку, то в
+    /// нижнюю панель, и экраны вели себя по-разному. С обновлением оттягиванием не
+    /// спорит: сначала выезжает поле, дальше тянется список (`PullTuner`).
+    ///
+    /// Листы выбора (переслать, человек, поделиться) держат поле видимым всегда —
+    /// `.navigationBarDrawer(displayMode: .always)`: там поиск и есть главное действие.
+    func listSearch(text: Binding<String>, prompt: Text) -> some View {
+        searchable(text: text, placement: .navigationBarDrawer(displayMode: .automatic), prompt: prompt)
+    }
+}
+
 private struct DebouncedSearchModifier: ViewModifier {
     @Binding var text: String
     let prompt: String
@@ -929,7 +943,7 @@ private struct DebouncedSearchModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .searchable(text: $text, prompt: Text(prompt))
+            .listSearch(text: $text, prompt: Text(prompt))
             .task(id: text) {
                 let needle = text.trimmingCharacters(in: .whitespaces)
                 guard needle != lastSent else { return }

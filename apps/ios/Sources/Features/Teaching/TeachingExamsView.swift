@@ -295,7 +295,7 @@ struct TeachingExamDetailView: View {
         }
         .navigationTitle(Text(exam?.course.subject.name ?? TeacherScreen.exam(id: examID).title))
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $query, prompt: Text(String(localized: "teaching.searchStudent", defaultValue: "Найти студента")))
+        .listSearch(text: $query, prompt: Text(String(localized: "teaching.searchStudent", defaultValue: "Найти студента")))
         .scrollDismissesKeyboard(.interactively)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {

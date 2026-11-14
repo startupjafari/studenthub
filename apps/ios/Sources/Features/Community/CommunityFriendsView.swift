@@ -72,7 +72,7 @@ struct CommunityFriendsView: View {
         .navigationBarTitleDisplayMode(.inline)
         // Поле поиска не висит над списком всегда, а выезжает жестом вниз — как на
         // «Разделах»: главное на экране — сами друзья и заявки.
-        .searchable(
+        .listSearch(
             text: $query,
             prompt: Text(String(localized: "community.friends.search", defaultValue: "Найти людей"))
         )

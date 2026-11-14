@@ -7,8 +7,8 @@ extension View {
     /// Механика — системная (`refreshable`), поверх неё прокрутка списка доводится
     /// через UIKit (`PullTuner`): оттянуть можно не дальше предела, индикатор крутится
     /// посередине открывшейся пустоты (системный на iOS 26 прилипал под шапку, на поле
-    /// поиска), в момент срабатывания — лёгкий толчок, а поиск в шапке при открытии
-    /// экрана спрятан и выезжает, когда список тянут вниз.
+    /// поиска), в момент срабатывания — лёгкий толчок. С поиском в шапке (`listSearch`) не
+    /// спорит: спрятанное поле выезжает первым, и только дальше тянется список.
     func pullToRefresh(action: @escaping @Sendable () async -> Void) -> some View {
         modifier(PullToRefreshModifier(action: action))
     }
@@ -149,7 +149,6 @@ final class PullTuner: NSObject {
     private var baseInset: CGFloat = 0
     private var wasRefreshing = false
     private var isClamping = false
-    private var hidSearch = false
 
     static func install(on scrollView: UIScrollView, signal: PullRefreshSignal) {
         if let tuner = objc_getAssociatedObject(scrollView, &key) as? PullTuner {
@@ -176,7 +175,6 @@ final class PullTuner: NSObject {
         observation = scrollView.observe(\.contentOffset, options: [.new]) { [weak self] _, _ in
             MainActor.assumeIsolated { self?.update() }
         }
-        hideSearchInitially()
     }
 
     /// Обновление идёт: действие ещё не вернулось или система держит индикатор.
@@ -223,18 +221,27 @@ final class PullTuner: NSObject {
 
     private func update() {
         guard let scrollView, !isClamping else { return }
-        if !hidSearch, !scrollView.isTracking { hideSearchInitially() }
         let control = scrollView.refreshControl
         let refreshing = isRefreshing
         // Отступ шапки берём живым всегда, кроме пальца на списке (большой заголовок
         // растягивается под ним) и самого обновления (система добавляет свой). Раньше
         // он не обновлялся и по инерции — после броска к верху отступ оставался старым,
         // и в покое над первой строкой висел неподвижный индикатор.
+        let liveInset = scrollView.adjustedContentInset.top
         if !refreshing, !scrollView.isTracking {
-            baseInset = scrollView.adjustedContentInset.top
+            baseInset = liveInset
+        }
+        // Поле поиска в шапке (`listSearch`), спрятанное прокруткой, выезжает под пальцем
+        // первым: шапка растёт на его высоту, и это не оттягивание списка. Раньше рост
+        // шапки считался оттягиванием — индикатор появлялся, пока выезжал поиск, а предел
+        // оттягивания дёргал список. Рост сверх высоты поля — растяжение большого
+        // заголовка — по-прежнему не мешает индикатору.
+        var base = baseInset
+        if scrollView.isTracking, !refreshing, liveInset > baseInset {
+            base += min(liveInset - baseInset, searchBarHeight)
         }
         // Сколько открыто над первой строкой.
-        let pull = -(scrollView.contentOffset.y + baseInset)
+        let pull = -(scrollView.contentOffset.y + base)
         // Список прокручен вниз, его не тянут и не обновляют, индикатор спрятан: на
         // каждом кадре прокрутки делать нечего (п. 42) — раньше здесь каждый кадр
         // ставились цвет и `prepare()` тактильного отклика.
@@ -242,7 +249,7 @@ final class PullTuner: NSObject {
 
         if scrollView.isTracking, pull > Self.maxPull {
             isClamping = true
-            scrollView.contentOffset.y = -(baseInset + Self.maxPull)
+            scrollView.contentOffset.y = -(base + Self.maxPull)
             isClamping = false
         }
 
@@ -254,7 +261,7 @@ final class PullTuner: NSObject {
         let shown = min(pull, Self.maxPull)
         if shown > 8 || refreshing {
             // Посередине пустоты между шапкой и первой строкой.
-            let top = scrollView.contentOffset.y + baseInset
+            let top = scrollView.contentOffset.y + base
             spinner.center = CGPoint(x: scrollView.bounds.midX, y: top / 2)
             // Системный индикатор крутится с первого появления, как в других
             // приложениях, — и пока тянут, и пока идёт обновление. Раньше до начала
@@ -271,28 +278,12 @@ final class PullTuner: NSObject {
         }
     }
 
-    /// Поиск в шапке, как в Telegram, при открытии спрятан: список чуть прокручен под
-    /// него, а оттянув список вниз, поиск возвращают.
-    ///
-    /// Только до iOS 26. Там поле поиска от такого сдвига не сворачивается: оно остаётся
-    /// на месте, а под ним и под заголовком оказываются первые строки — вкладки папок
-    /// наслаивались на «Поиск» и на «Чаты». Поиск на iOS 26 сворачивает сама система.
-    private func hideSearchInitially() {
-        if #available(iOS 26, *) {
-            hidSearch = true
-            return
-        }
-        guard !hidSearch, let scrollView, let controller = Self.viewController(of: scrollView),
-            let search = controller.navigationItem.searchController ?? controller.parent?.navigationItem.searchController,
-            controller.navigationItem.hidesSearchBarWhenScrolling || controller.parent?.navigationItem.hidesSearchBarWhenScrolling == true
-        else { return }
-        let height = search.searchBar.frame.height
-        // Поле ещё не разложено — попробуем на следующей прокрутке или замере.
-        guard height > 0 else { return }
-        hidSearch = true
-        // Человек уже листает — его положение не трогаем.
-        guard scrollView.contentOffset.y <= -scrollView.adjustedContentInset.top + 1 else { return }
-        scrollView.setContentOffset(CGPoint(x: 0, y: scrollView.contentOffset.y + height), animated: false)
+    /// Высота поля поиска в шапке экрана; 0 — поиска нет.
+    private var searchBarHeight: CGFloat {
+        guard let scrollView, let controller = Self.viewController(of: scrollView),
+            let search = controller.navigationItem.searchController ?? controller.parent?.navigationItem.searchController
+        else { return 0 }
+        return search.searchBar.frame.height
     }
 
     private static func viewController(of view: UIView) -> UIViewController? {

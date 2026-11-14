@@ -52,7 +52,7 @@ struct CoursesView: View {
             }
         }
         .navigationTitle(Text(MoreSection.subjects.title))
-        .searchable(
+        .listSearch(
             text: $query,
             prompt: Text(String(localized: "courses.search", defaultValue: "Найти дисциплину"))
         )
@@ -373,7 +373,7 @@ struct GroupMembersView: View {
             }
         }
         .navigationTitle(Text(title))
-        .searchable(
+        .listSearch(
             text: $query,
             prompt: Text(String(localized: "group.search", defaultValue: "Найти по имени"))
         )

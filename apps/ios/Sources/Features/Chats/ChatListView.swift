@@ -105,7 +105,7 @@ struct ChatListView: View {
         .softEdgeBar(edge: .top) { tabsBar }
         .environment(\.editMode, $editMode)
         .overlay { emptyState }
-        .searchable(
+        .listSearch(
             text: $query,
             prompt: Text(String(localized: "chats.search.prompt.short", defaultValue: "Поиск"))
         )

@@ -422,7 +422,7 @@ private struct TeachingColumnGradesView: View {
         .listStyle(.insetGrouped)
         .navigationTitle(Text(column.title))
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $query, prompt: Text(String(localized: "teaching.searchStudent", defaultValue: "Найти студента")))
+        .listSearch(text: $query, prompt: Text(String(localized: "teaching.searchStudent", defaultValue: "Найти студента")))
         .scrollDismissesKeyboard(.interactively)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {

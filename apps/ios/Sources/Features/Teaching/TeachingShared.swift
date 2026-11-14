@@ -262,7 +262,11 @@ struct TeachingRoomPicker: View {
         }
         .navigationTitle(Text(String(localized: "teaching.room", defaultValue: "Аудитория")))
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $query, prompt: Text(String(localized: "teaching.room.search", defaultValue: "Номер аудитории")))
+        .searchable(
+            text: $query,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: Text(String(localized: "teaching.room.search", defaultValue: "Номер аудитории"))
+        )
         .task(id: query) {
             if !query.isEmpty { try? await Task.sleep(for: .milliseconds(300)) }
             guard !Task.isCancelled else { return }

@@ -233,7 +233,7 @@ private struct StaffTemplateVariablesView: View {
                 hint: String(localized: "staff.tpl.catalog.empty.hint", defaultValue: "Попробуйте другое слово или выберите группу «Все»")
             )
         }
-        .searchable(text: $search, prompt: Text(String(localized: "staff.tpl.catalog.search", defaultValue: "Поиск переменной")))
+        .listSearch(text: $search, prompt: Text(String(localized: "staff.tpl.catalog.search", defaultValue: "Поиск переменной")))
         .navigationTitle(Text(String(localized: "staff.tpl.variables", defaultValue: "Переменные")))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
