@@ -168,7 +168,7 @@ struct ChatThreadView: View {
         do {
             try await ChatsAPI().deleteChat(chatID: chatID)
             let id = chatID
-            _ = try? await AppServices.database.writer.write { db in try ChatRecord.deleteOne(db, key: id) }
+            try? await ChatThreadQueries().removeChat(id: id)
             model?.endSelection()
             AppServices.router.popToRoot(.chats)
         } catch {
@@ -1345,9 +1345,7 @@ private struct ChatRequestBar: View {
                     Task {
                         do {
                             try await api.declineRequest(chatID: chatID)
-                            try? await AppServices.database.writer.write { db in
-                                _ = try ChatRecord.deleteOne(db, key: chatID)
-                            }
+                            try? await ChatThreadQueries().removeChat(id: chatID)
                             dismiss()
                         } catch {
                             failure = (error as? APIError)?.displayMessage
@@ -1359,11 +1357,7 @@ private struct ChatRequestBar: View {
                     Task {
                         do {
                             try await api.acceptRequest(chatID: chatID)
-                            try? await AppServices.database.writer.write { db in
-                                guard var chat = try ChatRecord.fetchOne(db, key: chatID) else { return }
-                                chat.requestIncoming = false
-                                try chat.update(db)
-                            }
+                            try? await ChatThreadQueries().acceptRequest(chatID: chatID)
                         } catch {
                             failure = (error as? APIError)?.displayMessage
                         }

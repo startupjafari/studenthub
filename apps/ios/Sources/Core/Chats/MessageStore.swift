@@ -276,6 +276,42 @@ struct MessageStore: Sendable {
         }
     }
 
+    /// Сообщение целиком из ответа сервера (например, после реакции) — в базу.
+    func save(message: ChatMessageDTO) async throws {
+        try await database.writer.write { db in try MessageStore.upsert(message, in: db) }
+    }
+
+    /// Своя правка — в строку сразу, до подтверждения сервера. Метка правки — на миг
+    /// позже прежней: поздняя страница со старой меткой её не откатит, а серверное
+    /// подтверждение примется (IOS_RULES 9.5.1).
+    func saveLocalEdit(messageID id: String, text: String) async throws {
+        try await database.writer.write { db in
+            guard var row = try MessageRecord.fetchOne(db, key: id) else { return }
+            row.content = text
+            row.editedAt = (row.editedAt ?? row.createdAt).addingTimeInterval(0.001)
+            try row.update(db)
+        }
+    }
+
+    /// Пометить сообщение удалённым сразу, не дожидаясь события сервера.
+    func markDeleted(messageID id: String) async throws {
+        try await database.writer.write { db in
+            guard var row = try MessageRecord.fetchOne(db, key: id) else { return }
+            row.deletedAt = Date()
+            try row.update(db)
+        }
+    }
+
+    /// Стереть неотправленное: серверу о нём нечего сказать.
+    func deleteLocal(messageID id: String) async throws {
+        _ = try await database.writer.write { db in try MessageRecord.deleteOne(db, key: id) }
+    }
+
+    /// Стереть несколько неотправленных разом.
+    func deleteLocal(messageIDs ids: [String]) async throws {
+        _ = try await database.writer.write { db in try MessageRecord.deleteAll(db, keys: ids) }
+    }
+
     // MARK: - Внутреннее
 
     /// Подтвердить свою отправку ответом сервера.
