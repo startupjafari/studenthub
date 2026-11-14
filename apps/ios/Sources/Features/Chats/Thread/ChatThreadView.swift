@@ -551,6 +551,9 @@ struct ChatThreadView: View {
         .onChange(of: realtime.signals(for: chatID).pinnedVersion) {
             Task { await model?.loadPinned() }
         }
+        .onChange(of: realtime.signals(for: chatID).scheduledVersion) {
+            Task { await model?.scheduled.load() }
+        }
         .onChange(of: model?.newestIncomingID) {
             // Пришло новое — пока чат открыт, оно прочитано.
             Task { await model?.markRead() }

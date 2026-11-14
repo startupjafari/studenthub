@@ -198,6 +198,9 @@ actor SocketIORealtimeTransport: RealtimeTransport {
         on(RealtimeEvent.Name.chatPinned) { payload in
             (payload["chatId"] as? String).map { RealtimeEvent.chatPinned(chatID: $0) }
         }
+        on(RealtimeEvent.Name.scheduledChanged) { payload in
+            (payload["chatId"] as? String).map { RealtimeEvent.scheduledChanged(chatID: $0) }
+        }
         on(RealtimeEvent.Name.pollUpdated) { payload in
             guard
                 let pollID = payload["pollId"] as? String,
