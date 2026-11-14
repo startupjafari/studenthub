@@ -237,6 +237,9 @@ struct ChecklistMessageView: View {
     var viewerID = ""
 
     @State private var busy: Set<String> = []
+    /// Длинный список (сервер допускает 50 пунктов) свёрнут до `collapsedLimit`: пузырь
+    /// не должен вырастать на несколько экранов из-за чужого списка.
+    @State private var showsAll = false
     @State private var adding = false
     @State private var newItem = ""
     @State private var failure: String?
@@ -262,8 +265,22 @@ struct ChecklistMessageView: View {
                 .font(Typography.meta)
                 .opacity(0.7)
             }
-            ForEach(current.items.sorted { ($0.order ?? 0) < ($1.order ?? 0) }) { item in
+            ForEach(visibleItems) { item in
                 row(item)
+            }
+            if current.items.count > Self.collapsedLimit {
+                Button {
+                    showsAll.toggle()
+                } label: {
+                    Label(
+                        showsAll
+                            ? String(localized: "chats.checklist.collapse", defaultValue: "Свернуть")
+                            : String(localized: "chats.checklist.showAll", defaultValue: "Показать все (\(current.items.count))"),
+                        systemImage: showsAll ? "chevron.up" : "chevron.down"
+                    )
+                    .font(Typography.meta.weight(.semibold))
+                }
+                .buttonStyle(.plain)
             }
             if canAdd, current.items.count < ChecklistDraft.maxItems {
                 Button {
@@ -293,6 +310,14 @@ struct ChecklistMessageView: View {
                 Task { await apply { try await api.addChecklistItem(checklistID: current.id, text: text) } }
             }
         }
+    }
+
+    /// Сколько пунктов видно в свёрнутом списке.
+    static let collapsedLimit = 10
+
+    private var visibleItems: [MessageExtras.Checklist.Item] {
+        let sorted = current.items.sorted { ($0.order ?? 0) < ($1.order ?? 0) }
+        return showsAll ? sorted : Array(sorted.prefix(Self.collapsedLimit))
     }
 
     private func row(_ item: MessageExtras.Checklist.Item) -> some View {
