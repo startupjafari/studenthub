@@ -31,6 +31,9 @@ struct ChatListView: View {
     /// Список катится пальцем или по инерции — перестановки строк не анимируются: пружина
     /// посреди прокрутки дёргала строки под пальцем.
     @State private var isScrolling = false
+    /// Истории в шапке: стопка авторов с непросмотренным, касание — просмотр.
+    @State private var stories = StoriesModel()
+    @State private var viewingRing: ChatStoryTarget?
     @Environment(\.viewerID) private var viewerID
     @Environment(\.motionReduced) private var reduceMotion
     private var realtime: RealtimeCoordinator { AppServices.realtime }
@@ -48,7 +51,7 @@ struct ChatListView: View {
                 didStart = true
                 model.start(archive: isArchive)
                 if !isArchive { folders.start() }
-                await model.refresh()
+                await reload()
             }
     }
 
@@ -87,7 +90,11 @@ struct ChatListView: View {
                 ForEach(model.rows) { row in
                     rowView(row)
                         .tag(row.id)
+                        // Ручки ≡ в режиме «Изм.» — только у закреплённых, как в Telegram:
+                        // остальной список упорядочен свежестью, а не руками.
+                        .moveDisabled(!row.isPinned)
                 }
+                .onMove(perform: pinnedMove)
             }
         }
         .listStyle(.plain)
@@ -110,7 +117,7 @@ struct ChatListView: View {
             prompt: Text(String(localized: "chats.search.prompt.short", defaultValue: "Поиск"))
         )
         .pullToRefresh {
-            await model.refresh()
+            await reload()
         }
         .navigationTitle(Text(isArchive
             ? String(localized: "chats.tab.archive", defaultValue: "Архив")
@@ -136,6 +143,24 @@ struct ChatListView: View {
             // Чат ушёл из списка (удалён, перенесён в архив) — снимаем с него выбор.
             selection.formIntersection(Set(model.rows.map(\.id)))
         }
+    }
+
+    /// Список и истории шапки друг от друга не зависят — разом. Архиву истории не нужны.
+    private func reload() async {
+        guard !isArchive else {
+            await model.refresh()
+            return
+        }
+        async let list: Void = model.refresh()
+        async let rings: Void = stories.refresh()
+        _ = await (list, rings)
+    }
+
+    /// Перетаскивание закреплённых — только в режиме «Изм.»: вне его долгое нажатие
+    /// открывает меню чата.
+    private var pinnedMove: ((IndexSet, Int) -> Void)? {
+        guard isEditing else { return nil }
+        return { source, destination in model.movePinned(from: source, to: destination) }
     }
 
     /// Строка «Архив» — только во «Все» и только когда в архиве что-то есть.
@@ -188,47 +213,100 @@ struct ChatListView: View {
     // MARK: Папки
 
     /// Папки и вкладки по типу — стеклянной дорожкой над списком, как папки Telegram.
-    /// «Архив» здесь не вкладка, а строка под ними.
+    /// «Архив» здесь не вкладка, а строка под ними. У своих папок — число непрочитанных
+    /// чатов, в режиме «Изм.» — крестик и перетаскивание.
     @ViewBuilder
     private var tabsBar: some View {
         let tabs = model.tabs.filter { $0 != .archive }
         if !isArchive, tabs.count > 1, !isSearching {
-            FilterChips(
-                options: tabs.map { (value: Optional($0), title: ChatTabTitle.title(of: $0)) },
+            ChatFolderTabs(
+                tabs: tabs,
                 selection: $chip,
-                menu: tabActions
+                badges: model.folderSummary.badges,
+                isEditing: isEditing,
+                delete: { id in deletingFolder = folders.folder(id: id) },
+                reorder: { ids in folders.reorder(ids) },
+                menu: tabMenu
             )
             .padding(.horizontal, Spacing.xl)
             .padding(.vertical, Spacing.xs)
         }
     }
 
-    /// Долгое нажатие на вкладку, как в Telegram: у своей папки — правка и удаление, у
-    /// любой — путь к настройке папок.
-    private func tabActions(_ tab: ChatListTab?) -> [FilterChipAction] {
-        var actions: [FilterChipAction] = []
+    /// Долгое нажатие на вкладку, как в Telegram: у своей папки — настройка, состав,
+    /// прочтение, звук и удаление, ниже — перестановка вкладок; у встроенной — путь к
+    /// настройке папок. Значки слева, как во всех меню приложения.
+    @ViewBuilder
+    private func tabMenu(_ tab: ChatListTab) -> some View {
         if case .folder(let id, _) = tab, let folder = folders.folder(id: id) {
-            actions.append(FilterChipAction(
-                title: String(localized: "chats.folders.edit", defaultValue: "Изменить папку"),
-                symbol: "pencil"
-            ) { editingFolder = .edit(folder) })
-            actions.append(FilterChipAction(
-                title: String(localized: "chats.folders.delete", defaultValue: "Удалить папку"),
-                symbol: "trash",
-                isDestructive: true
-            ) { deletingFolder = folder })
+            let badge = model.folderSummary.badges[id] ?? ChatFolderBadge()
+            Button {
+                editingFolder = .edit(folder)
+            } label: {
+                Label(String(localized: "chats.folders.configure", defaultValue: "Настроить папку"), systemImage: "square.and.pencil")
+            }
+            Button {
+                editingFolder = .edit(folder, addingChats: true)
+            } label: {
+                Label(String(localized: "chats.folders.addChats", defaultValue: "Добавить чаты"), systemImage: "plus")
+            }
+            if badge.unread + badge.mutedUnread > 0 {
+                Button {
+                    Task { await model.markFolderRead(folderID: id) }
+                } label: {
+                    Label(String(localized: "chats.folders.readAll", defaultValue: "Прочитать все"), systemImage: "envelope.open")
+                }
+            }
+            if badge.total > 0 {
+                Button {
+                    Task { await folders.setMuted(!badge.allMuted, folderID: id) }
+                } label: {
+                    if badge.allMuted {
+                        Label(String(localized: "chats.folders.unmute", defaultValue: "Вкл. уведомления"), systemImage: "bell")
+                    } else {
+                        Label(String(localized: "chats.folders.mute", defaultValue: "Выкл. уведомления"), systemImage: "bell.slash")
+                    }
+                }
+            }
+            Button(role: .destructive) {
+                deletingFolder = folder
+            } label: {
+                Label(String(localized: "chats.folders.deleteShort", defaultValue: "Удалить"), systemImage: "trash")
+            }
+            Divider()
+            Button {
+                startEditing()
+            } label: {
+                Label(String(localized: "chats.folders.reorder", defaultValue: "Изменить порядок"), systemImage: "arrow.left.arrow.right")
+            }
+        } else {
+            Button {
+                showsFolders = true
+            } label: {
+                Label(String(localized: "chats.folders.manage", defaultValue: "Настроить папки"), systemImage: "folder.badge.gearshape")
+            }
+            if folders.folders.count > 1 {
+                Divider()
+                Button {
+                    startEditing()
+                } label: {
+                    Label(String(localized: "chats.folders.reorder", defaultValue: "Изменить порядок"), systemImage: "arrow.left.arrow.right")
+                }
+            }
         }
-        actions.append(FilterChipAction(
-            title: String(localized: "chats.folders.manage", defaultValue: "Настроить папки"),
-            symbol: "folder.badge.gearshape"
-        ) { showsFolders = true })
-        return actions
     }
 
     // MARK: Панель
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        if !isArchive, !isEditing, !unseenStories.isEmpty {
+            ToolbarItem(placement: .principal) {
+                ChatStoriesTitle(rings: unseenStories) {
+                    viewingRing = unseenStories.first.map { ChatStoryTarget(id: $0.id) }
+                }
+            }
+        }
         ToolbarItem(placement: isArchive ? .topBarTrailing : .topBarLeading) {
             Button {
                 toggleEditing()
@@ -309,7 +387,7 @@ struct ChatListView: View {
                 ? String(localized: "chats.bulk.readAll", defaultValue: "Прочитать все")
                 : String(localized: "chats.bulk.read", defaultValue: "Прочитать"))
         }
-        .disabled(!(chosen.isEmpty ? model.rows : chosen).contains { $0.unreadCount > 0 })
+        .disabled(!(chosen.isEmpty ? model.rows : chosen).contains(where: \.isUnread))
 
         Spacer()
 
@@ -346,6 +424,23 @@ struct ChatListView: View {
         }
     }
 
+    /// «Изменить порядок» из меню вкладки — тот же режим «Изм.»: вкладки получают
+    /// крестики и перетаскивание, закреплённые — ручки.
+    private func startEditing() {
+        guard !isEditing else { return }
+        withAnimation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion)) {
+            editMode = .active
+            selection = []
+        }
+    }
+
+    /// Авторы с непросмотренными историями — до трёх, своё кольцо не в счёт. Раздел
+    /// выключен или не загрузился — пусто, и шапка остаётся прежней.
+    private var unseenStories: [StoryRingDTO] {
+        guard stories.failure == nil else { return [] }
+        return Array(stories.rings.filter { $0.hasUnseen && $0.author.id != viewerID }.prefix(3))
+    }
+
     private func finishEditing() {
         withAnimation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion)) {
             editMode = .inactive
@@ -361,6 +456,11 @@ struct ChatListView: View {
                 ChatFolderEditorView(model: folders, target: target)
             }
             .chatFolderDeleteAlert($deletingFolder, model: folders)
+            .fullScreenCover(item: $viewingRing) { target in
+                StoryViewer(model: stories, startRingID: target.id)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("stories.viewer")
+            }
             .sheet(item: $clearingPeriod) { row in
                 // Последнее сообщение могло попасть в период — превью в списке берём заново.
                 ChatClearPeriodSheet(chatID: row.id) { await model.refresh() }
@@ -425,7 +525,9 @@ struct ChatListView: View {
         ChatRowView(
             row: row,
             activity: realtime.activity(for: row.id),
-            isGroup: row.kind != .private && row.kind != .saved
+            isGroup: row.kind != .private && row.kind != .saved,
+            // Теги папок — только во «Все»: на вкладке папки её же тег ничего не говорит.
+            tags: !isArchive && model.tab == .all ? model.folderSummary.tags[row.id] ?? [] : []
         )
         .accessibilityIdentifier("chatlist.row.\(row.id)")
         .background {
@@ -435,14 +537,17 @@ struct ChatListView: View {
         .listRowInsets(Self.rowInsets)
         .listRowBackground(ChatRowBackground(isPinned: row.isPinned))
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            if row.unreadCount > 0 {
-                Button {
-                    Task { await model.markRead(row) }
-                } label: {
+            // Как в Telegram: «Прочитано» у непрочитанного, «Непрочитано» — у остальных.
+            Button {
+                Task { await model.toggleMarkedUnread(row) }
+            } label: {
+                if row.isUnread {
                     Label(String(localized: "chats.markRead", defaultValue: "Прочитано"), systemImage: "checkmark.message.fill")
+                } else {
+                    Label(String(localized: "chats.markUnread.short", defaultValue: "Непрочитано"), systemImage: "message.badge.fill")
                 }
-                .tint(Palette.primary)
             }
+            .tint(Palette.primary)
             Button {
                 Task { await model.togglePinned(row) }
             } label: {
@@ -491,11 +596,13 @@ struct ChatListView: View {
 
     @ViewBuilder
     private func contextMenu(_ row: ChatListRow) -> some View {
-        if row.unreadCount > 0 {
-            Button {
-                Task { await model.markRead(row) }
-            } label: {
-                Label(String(localized: "chats.markRead", defaultValue: "Прочитано"), systemImage: "checkmark.message")
+        Button {
+            Task { await model.toggleMarkedUnread(row) }
+        } label: {
+            if row.isUnread {
+                Label(String(localized: "chats.markAsRead", defaultValue: "Пометить как прочитанное"), systemImage: "checkmark.message")
+            } else {
+                Label(String(localized: "chats.markUnread", defaultValue: "Пометить как новое"), systemImage: "message.badge")
             }
         }
         Button {
@@ -544,9 +651,10 @@ struct ChatListView: View {
     /// повторная вынимает. На открытой вкладке своей папки — ещё и «Удалить из папки».
     @ViewBuilder
     private func folderMenu(_ row: ChatListRow) -> some View {
-        if case .folder(let id, _) = model.tab, folders.folder(id: id)?.chatIds.contains(row.id) == true {
+        // На вкладке папки строка в ней по определению: выбрана явно или попала по типу.
+        if case .folder(let id, _) = model.tab, folders.folder(id: id) != nil {
             Button {
-                Task { await folders.toggle(chatID: row.id, folderID: id) }
+                Task { await folders.remove(chatID: row.id, fromFolder: id) }
             } label: {
                 Label(String(localized: "chats.folders.removeFrom", defaultValue: "Удалить из папки"), systemImage: "folder.badge.minus")
             }
@@ -710,6 +818,8 @@ struct ChatRowView: View {
     /// Что делают в чате сейчас («печатает…») — следит только за этим чатом.
     var activity: ChatActivity?
     var isGroup = false
+    /// Теги папок с цветом — маленькими плашками после имени.
+    var tags: [ChatFolderTag] = []
 
     @Environment(\.viewerID) private var viewerID
     @ScaledMetric(relativeTo: .body) private var avatarSize: CGFloat = 58
@@ -730,6 +840,8 @@ struct ChatRowView: View {
                         .font(.body.weight(.semibold))
                         .foregroundStyle(Palette.foreground)
                         .lineLimit(1)
+                        // Имя важнее тегов: при нехватке места сжимаются теги.
+                        .layoutPriority(1)
                     if row.kind.isOfficial {
                         Image(systemName: "checkmark.seal.fill")
                             .font(.caption)
@@ -741,6 +853,10 @@ struct ChatRowView: View {
                             .font(.caption2)
                             .foregroundStyle(Palette.mutedForeground)
                             .accessibilityLabel(Text(String(localized: "chats.mutedBadge", defaultValue: "Уведомления выключены")))
+                    }
+                    ForEach(tags.prefix(2), id: \.folderID) { tag in
+                        ChatFolderTagLabel(tag: tag)
+                            .alignmentGuide(.firstTextBaseline) { $0[.firstTextBaseline] }
                     }
                     Spacer(minLength: Spacing.md)
                     if let isRead = readState {
@@ -777,12 +893,24 @@ struct ChatRowView: View {
         return (row.othersReadAt ?? .distantPast) >= last
     }
 
+    /// Миниатюра снимка или ролика последнего сообщения — перед текстом превью.
+    @ViewBuilder
+    private var thumbnail: some View {
+        if let media = row.previewMedia {
+            ChatPreviewThumbnail(attachment: media)
+        }
+    }
+
     /// Счётчик и булавка появляются и уходят «пузырём» — в анимации списка
     /// (`ChatListView`, `liveRevision`); без неё — сразу.
     @ViewBuilder
     private var trailingBadge: some View {
         if row.unreadCount > 0 {
             ChatUnreadBadge(count: row.unreadCount, muted: row.muted)
+                .transition(.scale(scale: 0.5).combined(with: .opacity))
+        } else if row.markedUnread {
+            // «Пометить как новое» — синий кружок без числа, как в Telegram.
+            ChatUnreadBadge(count: 0, muted: row.muted)
                 .transition(.scale(scale: 0.5).combined(with: .opacity))
         } else if row.isPinned {
             Image(systemName: "pin.fill")
@@ -824,14 +952,20 @@ struct ChatRowView: View {
                     Text(senderName)
                         .foregroundStyle(Palette.foreground)
                         .lineLimit(1)
-                    Text(text)
-                        .foregroundStyle(Palette.mutedForeground)
-                        .lineLimit(1)
+                    HStack(alignment: .center, spacing: Spacing.xs) {
+                        thumbnail
+                        Text(text)
+                            .foregroundStyle(Palette.mutedForeground)
+                            .lineLimit(1)
+                    }
                 }
             } else {
-                Text(text)
-                    .foregroundStyle(Palette.mutedForeground)
-                    .lineLimit(2, reservesSpace: true)
+                HStack(alignment: .top, spacing: Spacing.xs) {
+                    thumbnail
+                    Text(text)
+                        .foregroundStyle(Palette.mutedForeground)
+                        .lineLimit(2, reservesSpace: true)
+                }
             }
         } else if row.requestIncoming {
             Text(String(localized: "chats.request.preview", defaultValue: "Запрос на переписку"))
@@ -847,7 +981,8 @@ struct ChatRowView: View {
 }
 
 /// Счётчик непрочитанного: синяя капсула, у заглушённых — серая. Число меняется
-/// перещёлкиванием цифр (`numericText`), когда список анимирует изменение.
+/// перещёлкиванием цифр (`numericText`), когда список анимирует изменение. Ноль —
+/// пометка «как новое»: кружок без числа.
 private struct ChatUnreadBadge: View {
     let count: Int
     let muted: Bool
@@ -855,17 +990,25 @@ private struct ChatUnreadBadge: View {
     @ScaledMetric(relativeTo: .footnote) private var height: CGFloat = 22
 
     var body: some View {
-        Text(verbatim: count > 999 ? "999+" : count.formatted())
-            .font(Typography.tabular(.footnote).weight(.semibold))
-            .contentTransition(.numericText(value: Double(min(count, 1000))))
-            .foregroundStyle(Palette.primaryForeground)
-            .padding(.horizontal, Spacing.sm)
-            .frame(minWidth: height, minHeight: height)
-            .background(muted ? Palette.mutedForeground : Palette.primary, in: Capsule())
-            .accessibilityLabel(Text(String(
-                localized: "chats.unreadCount",
-                defaultValue: "Непрочитанных: \(count.formatted())"
-            )))
+        if count > 0 {
+            Text(verbatim: count > 999 ? "999+" : count.formatted())
+                .font(Typography.tabular(.footnote).weight(.semibold))
+                .contentTransition(.numericText(value: Double(min(count, 1000))))
+                .foregroundStyle(Palette.primaryForeground)
+                .padding(.horizontal, Spacing.sm)
+                .frame(minWidth: height, minHeight: height)
+                .background(muted ? Palette.mutedForeground : Palette.primary, in: Capsule())
+                .accessibilityLabel(Text(String(
+                    localized: "chats.unreadCount",
+                    defaultValue: "Непрочитанных: \(count.formatted())"
+                )))
+        } else {
+            // Пометка «как новое»: кружок того же размера без числа.
+            Circle()
+                .fill(muted ? Palette.mutedForeground : Palette.primary)
+                .frame(width: height, height: height)
+                .accessibilityLabel(Text(String(localized: "chats.markedUnread", defaultValue: "Помечен как новый")))
+        }
     }
 }
 
@@ -1096,5 +1239,102 @@ private struct ScrollActivityTracker: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+// MARK: - Миниатюра в превью
+
+/// Миниатюра снимка или ролика в превью строки, как в Telegram: скруглённый квадрат
+/// чуть меньше строки текста. Сначала — размытое превью из сообщения, затем копия тем
+/// же загрузчиком и в тот же кэш, что плитки переписки. Спойлер так и остаётся размытым.
+private struct ChatPreviewThumbnail: View {
+    let attachment: AttachmentRecord
+
+    @Environment(\.displayScale) private var displayScale
+    @ScaledMetric(relativeTo: .subheadline) private var side: CGFloat = 18
+    @State private var image: UIImage?
+
+    /// Ключ — тот же, что у плитки на 40 pt: мелкая копия общая с превью переписки.
+    private static let points: CGFloat = 40
+
+    var body: some View {
+        let key = ChatMediaTile.cacheKey(attachment, points: Self.points)
+        let shown = image ?? ImageMemoryCache.shared.image(for: key) ?? ChatMediaImages.preview(for: attachment)
+        ZStack {
+            if let shown {
+                Image(uiImage: shown)
+                    .resizable()
+                    .scaledToFill()
+                    .blur(radius: attachment.spoiler ? 3 : 0)
+            } else {
+                Palette.muted
+            }
+            if attachment.mime.hasPrefix("video/") {
+                Image(systemName: "play.fill")
+                    .font(.system(size: side * 0.4, weight: .bold))
+                    .foregroundStyle(.white)
+                    .shadow(radius: 1)
+            }
+        }
+        .frame(width: side, height: side)
+        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .accessibilityHidden(true)
+        .task(id: attachment.id) {
+            guard !attachment.spoiler, image == nil, ImageMemoryCache.shared.image(for: key) == nil else { return }
+            if case .loaded(let loaded) = await ChatMediaImages.load(
+                attachment, points: Self.points, scale: displayScale, key: key
+            ) {
+                image = loaded
+            }
+        }
+    }
+}
+
+// MARK: - Истории в шапке
+
+/// Кольцо, которое открывает просмотр историй.
+private struct ChatStoryTarget: Identifiable {
+    let id: String
+}
+
+/// Заголовок «Чаты» со стопкой аватаров авторов непросмотренных историй слева — как в
+/// Telegram. Касание открывает просмотр с первого автора.
+private struct ChatStoriesTitle: View {
+    let rings: [StoryRingDTO]
+    let open: () -> Void
+
+    private let size: CGFloat = 28
+
+    var body: some View {
+        Button(action: open) {
+            HStack(spacing: Spacing.sm) {
+                HStack(spacing: -size * 0.4) {
+                    ForEach(Array(rings.enumerated()), id: \.element.id) { index, ring in
+                        AvatarView(url: ring.author.avatarUrl, name: ring.author.name, size: size - 4)
+                            .padding(2)
+                            .background(Palette.plainBackground, in: Circle())
+                            .overlay(
+                                Circle().strokeBorder(
+                                    AngularGradient(
+                                        colors: [Palette.primary, Palette.chart3, Palette.primary],
+                                        center: .center
+                                    ),
+                                    lineWidth: 1.5
+                                )
+                            )
+                            // Первый — сверху стопки, как в Telegram.
+                            .zIndex(Double(rings.count - index))
+                    }
+                }
+                Text(AppTab.chats.title)
+                    .font(.headline)
+                    .foregroundStyle(Palette.foreground)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(AppTab.chats.title))
+        .accessibilityHint(Text(String(localized: "chats.stories.open", defaultValue: "Открыть истории")))
+        .accessibilityIdentifier("chatlist.stories")
     }
 }

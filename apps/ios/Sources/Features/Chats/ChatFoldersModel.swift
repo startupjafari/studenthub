@@ -15,11 +15,14 @@ final class ChatFoldersModel {
     private(set) var failure: String?
 
     private let database: AppDatabase
-    private let api: ChatActing & ChatsFetching
+    private let api: ChatActing & ChatsFetching & ChatListActing
     private let store: ChatStore
     private var task: Task<Void, Never>?
 
-    init(database: AppDatabase = AppServices.database, api: ChatActing & ChatsFetching = ChatsAPI()) {
+    init(
+        database: AppDatabase = AppServices.database,
+        api: ChatActing & ChatsFetching & ChatListActing = ChatsAPI()
+    ) {
         self.database = database
         self.api = api
         self.store = ChatStore(database: database)
@@ -66,16 +69,16 @@ final class ChatFoldersModel {
     /// отказ (имя занято, лимит) показывается в нём же — поэтому они бросают ошибку.
     @MainActor
     @discardableResult
-    func create(name: String, chatIDs: [String]) async throws -> ChatFolderDTO {
-        let folder = try await api.createFolder(name: name, chatIDs: chatIDs)
+    func create(_ draft: ChatFolderDraft) async throws -> ChatFolderDTO {
+        let folder = try await api.createFolder(draft)
         try await store.save(folder: folder)
         failure = nil
         return folder
     }
 
     @MainActor
-    func update(id: String, name: String, chatIDs: [String]) async throws {
-        let folder = try await api.updateFolder(id: id, name: name, chatIDs: chatIDs, position: nil)
+    func update(id: String, _ patch: ChatFolderPatch) async throws {
+        let folder = try await api.updateFolder(id: id, patch)
         try await store.save(folder: folder)
         failure = nil
     }
@@ -84,6 +87,8 @@ final class ChatFoldersModel {
 
     /// Чат в папку или из неё — из меню строки. Пишем сразу, как в Telegram: галочку жмут
     /// и смотрят на неё же. Отказ сервера откатывает папку к прежнему виду.
+    ///
+    /// Добавленный чат снимается с исключений: сервер не примет чат и там, и там.
     @MainActor
     func toggle(chatID: String, folderID: String) async {
         guard let folder = folder(id: folderID) else { return }
@@ -92,8 +97,63 @@ final class ChatFoldersModel {
             failure = Self.chatsLimitMessage
             return
         }
-        let chatIDs = inside ? folder.chatIds.filter { $0 != chatID } : folder.chatIds + [chatID]
-        let draft = ChatFolderDTO(id: folder.id, name: folder.name, position: folder.position, chatIds: chatIDs)
+        var draft = folder
+        draft.chatIds = inside ? folder.chatIds.filter { $0 != chatID } : folder.chatIds + [chatID]
+        let wasExcluded = folder.excludedChatIds.contains(chatID)
+        if !inside { draft.excludedChatIds.removeAll { $0 == chatID } }
+        await apply(draft, over: folder, patch: ChatFolderPatch(
+            chatIds: draft.chatIds,
+            excludedChatIds: !inside && wasExcluded ? draft.excludedChatIds : nil
+        ))
+    }
+
+    /// «Удалить из папки» на её вкладке. Чат, выбранный явно, уходит из выбора; попавший
+    /// по типу («Контакты», «Группы») — в исключения, иначе правило вернуло бы его.
+    @MainActor
+    func remove(chatID: String, fromFolder folderID: String) async {
+        guard let folder = folder(id: folderID) else { return }
+        var draft = folder
+        draft.chatIds.removeAll { $0 == chatID }
+        let patch: ChatFolderPatch
+        if folder.includesTypes {
+            guard folder.excludedChatIds.count < ChatFolderLimits.excludedPerFolder else {
+                failure = Self.chatsLimitMessage
+                return
+            }
+            if !draft.excludedChatIds.contains(chatID) { draft.excludedChatIds.append(chatID) }
+            patch = ChatFolderPatch(chatIds: draft.chatIds, excludedChatIds: draft.excludedChatIds)
+        } else {
+            patch = ChatFolderPatch(chatIds: draft.chatIds)
+        }
+        await apply(draft, over: folder, patch: patch)
+    }
+
+    /// Звук всем чатам папки — «Выкл./Вкл. уведомления» из меню вкладки. Флаги чатов
+    /// меняются сразу; отказ сервера возвращает прежние.
+    @MainActor
+    func setMuted(_ muted: Bool, folderID: String) async {
+        let previous: [String: Bool]
+        do {
+            previous = try await store.setMuted(muted, folderID: folderID)
+        } catch {
+            failure = String(localized: "chats.error.local", defaultValue: "Не удалось сохранить изменение")
+            return
+        }
+        do {
+            if muted {
+                try await api.muteFolder(id: folderID)
+            } else {
+                try await api.unmuteFolder(id: folderID)
+            }
+            failure = nil
+        } catch {
+            try? await store.restoreMuted(previous)
+            if !(error is CancellationError) { failure = error.userMessage }
+        }
+    }
+
+    @MainActor
+    private func apply(_ draft: ChatFolderDTO, over folder: ChatFolderDTO, patch: ChatFolderPatch) async {
         do {
             try await store.save(folder: draft)
         } catch {
@@ -101,7 +161,7 @@ final class ChatFoldersModel {
             return
         }
         do {
-            let saved = try await api.updateFolder(id: folder.id, name: nil, chatIDs: chatIDs, position: nil)
+            let saved = try await api.updateFolder(id: folder.id, patch)
             try await store.save(folder: saved)
             failure = nil
         } catch {
@@ -133,15 +193,18 @@ final class ChatFoldersModel {
 
     /// Новый порядок вкладок — id папок сверху вниз.
     ///
-    /// Ручки «переставить всё» у сервера нет: уходит по запросу на каждую сдвинутую
-    /// папку, как в вебе. Порядок меняем сразу и синхронно — `List` после перетаскивания
-    /// ждёт новые данные тем же кадром, иначе строка на миг прыгает назад.
+    /// Уходит одним `PUT /chats/folders/order`; старый сервер его не знает — тогда по
+    /// запросу на каждую сдвинутую папку, как раньше. Порядок меняем сразу и синхронно —
+    /// `List` после перетаскивания ждёт новые данные тем же кадром, иначе строка на миг
+    /// прыгает назад.
     @MainActor
     func reorder(_ ids: [String]) {
         let previous = folders
         let byID = Dictionary(uniqueKeysWithValues: previous.map { ($0.id, $0) })
-        let next = ids.enumerated().compactMap { index, id in
-            byID[id].map { ChatFolderDTO(id: $0.id, name: $0.name, position: index, chatIds: $0.chatIds) }
+        let next = ids.enumerated().compactMap { index, id -> ChatFolderDTO? in
+            guard var folder = byID[id] else { return nil }
+            folder.position = index
+            return folder
         }
         let moved = next.filter { byID[$0.id]?.position != $0.position }
         guard !moved.isEmpty else { return }
@@ -149,8 +212,12 @@ final class ChatFoldersModel {
         Task { @MainActor in
             do {
                 try await store.save(folders: next)
-                for folder in moved {
-                    _ = try await api.updateFolder(id: folder.id, name: nil, chatIDs: nil, position: folder.position)
+                do {
+                    try await api.setFolderOrder(next.map(\.id))
+                } catch let error as APIError where error.code == .notFound {
+                    for folder in moved {
+                        _ = try await api.updateFolder(id: folder.id, name: nil, chatIDs: nil, position: folder.position)
+                    }
                 }
                 failure = nil
             } catch {
