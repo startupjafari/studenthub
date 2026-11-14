@@ -436,6 +436,22 @@ describe('FileService — многочастная загрузка', () => {
       }),
     ).resolves.toBeUndefined()
   })
+
+  // Отмена чужой загрузки (в т.ч. вложения чата, POST /chats/:id/attachments/multipart/abort):
+  // зная чужой ключ и uploadId, нельзя стереть чужие части.
+  it('отмена чужого ключа — FORBIDDEN, в хранилище не идём', async () => {
+    const { service, minio } = setup()
+
+    await expect(
+      service.abortMultipart({
+        bucket: 'chat-media',
+        key: 'user-2/a.mp4',
+        uploadId: 'upload-1',
+        ownerId: 'user-1',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(minio.abortMultipartUpload).not.toHaveBeenCalled()
+  })
 })
 
 // Архив — категория «по приглашению»: общий детектор его узнаёт, но принимает его только

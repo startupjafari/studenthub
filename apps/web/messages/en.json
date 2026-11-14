@@ -6815,7 +6815,9 @@
       "reactionEmoji": "A reaction must be a single emoji",
       "contactEmpty": "Add at least one phone number or email address",
       "stickerSlug": "Short name: Latin letters, digits, “-” and “_”, 2 to 64 characters",
-      "livePeriod": "Live location: 15 minutes, 1 hour or 8 hours"
+      "livePeriod": "Live location: 15 minutes, 1 hour or 8 hours",
+      "folderEmoji": "Folder icon must be a single emoji",
+      "folderChatExcluded": "A chat cannot be both included in and excluded from a folder"
     },
     "documents": {
       "typeCode": "Code: uppercase Latin letters, digits, underscore"

@@ -5570,6 +5570,8 @@
     <string name="validation_chats_contactEmpty">Кемінде бір телефон немесе пошта мекенжайын көрсетіңіз</string>
     <string name="validation_chats_emptyMessage">Хабарлама бос болмауы керек</string>
     <string name="validation_chats_livePeriod">Трансляция: 15 минут, 1 сағат немесе 8 сағат</string>
+    <string name="validation_chats_folderEmoji">Бума белгішесі — бір эмодзи</string>
+    <string name="validation_chats_folderChatExcluded">Чат бір мезгілде бумада да, ерекшеліктерде де бола алмайды</string>
     <string name="validation_chats_nothingToChange">Өзгертетін ештеңе жоқ: атауын немесе сипаттамасын көрсетіңіз</string>
     <string name="validation_chats_privateOneMember">Жеке чат дәл бір әңгімелесушімен құрылады</string>
     <string name="validation_chats_quoteWithoutReply">Дәйексөз тек хабарламаға жауаппен бірге болады</string>

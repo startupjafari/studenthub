@@ -33,6 +33,7 @@ import type { ExportContext, ExportLocale } from '../../common/export/export-bra
 import { ChatsService } from './chats.service'
 import { CreateChatDto } from './dto/create-chat.dto'
 import {
+  ChatAttachmentMultipartAbortDto,
   ChatAttachmentMultipartStartDto,
   ChatAttachmentMultipartUrlsDto,
   ChatAttachmentPresignDto,
@@ -45,6 +46,11 @@ import { ChatMessagesQueryDto } from './dto/chat-messages-query.dto'
 import { ChatUpdatesQueryDto } from './dto/chat-updates-query.dto'
 import { ChatMediaQueryDto } from './dto/chat-media-query.dto'
 import { ChatMediaCalendarQueryDto } from './dto/chat-media-calendar-query.dto'
+import { ChatMediaPositionQueryDto } from './dto/chat-media-position-query.dto'
+import { MarkChatsReadDto } from './dto/mark-chats-read.dto'
+import { PinnedChatsOrderDto } from './dto/pinned-chats-order.dto'
+import { ScheduleMessageDto } from './dto/schedule-message.dto'
+import { UpdateScheduledMessageDto } from './dto/update-scheduled-message.dto'
 import { ChatExportFileQueryDto } from './dto/chat-export-file-query.dto'
 import { ClearChatDto } from './dto/clear-chat.dto'
 import { ChatLinksQueryDto } from './dto/chat-links-query.dto'
@@ -118,6 +124,66 @@ export class ChatsController {
     return this.chats.getUnreadSummary(user)
   }
 
+  @Post('read')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Прочитать чаты целиком (≤ 200): снять «как новое», message:read участникам, chat:read себе',
+  })
+  @ApiResponse({ status: 200, description: '{ updated } — чаты, где я участник; чужие пропущены' })
+  markChatsRead(@CurrentUser() user: CurrentUserData, @Body() dto: MarkChatsReadDto) {
+    return this.chats.markChatsRead(user.sub, dto.chatIds)
+  }
+
+  @Put('pinned/order')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Порядок закреплённых чатов сверху вниз (остальные закреплённые — ниже, как были)',
+  })
+  @ApiResponse({ status: 204, description: 'Порядок сохранён' })
+  @ApiResponse({ status: 422, description: 'VALIDATION_ERROR — чат не закреплён или дубли' })
+  async setPinnedOrder(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: PinnedChatsOrderDto,
+  ): Promise<void> {
+    await this.chats.setPinnedOrder(user.sub, dto.chatIds)
+  }
+
+  @Patch('scheduled/:scheduledId')
+  @ApiOperation({ summary: 'Изменить текст или время своего отложенного сообщения' })
+  @ApiResponse({ status: 200, description: 'Отложенное обновлено' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — нет такого или чужое' })
+  updateScheduled(
+    @CurrentUser() user: CurrentUserData,
+    @Param('scheduledId') scheduledId: string,
+    @Body() dto: UpdateScheduledMessageDto,
+  ) {
+    return this.chats.updateScheduled(user.sub, scheduledId, dto)
+  }
+
+  @Delete('scheduled/:scheduledId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Отменить своё отложенное сообщение' })
+  @ApiResponse({ status: 204, description: 'Отложенное отменено' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — нет такого или чужое' })
+  async cancelScheduled(
+    @CurrentUser() user: CurrentUserData,
+    @Param('scheduledId') scheduledId: string,
+  ): Promise<void> {
+    await this.chats.cancelScheduled(user.sub, scheduledId)
+  }
+
+  @Post('scheduled/:scheduledId/send-now')
+  @ApiOperation({ summary: 'Отправить отложенное сейчас (тот же путь, что у доставки по времени)' })
+  @ApiResponse({ status: 201, description: 'Сообщение отправлено (message:new в чат)' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — нет такого, чужое или уже отправлено' })
+  sendScheduledNow(
+    @CurrentUser() user: CurrentUserData,
+    @Param('scheduledId') scheduledId: string,
+  ) {
+    return this.chats.sendScheduledNow(user.sub, scheduledId)
+  }
+
   @Get('saved')
   @ApiOperation({ summary: 'Личный чат «Сохранённые» (§15): найти или создать' })
   @ApiResponse({ status: 200, description: '{ id } чата «Сохранённые»' })
@@ -178,6 +244,21 @@ export class ChatsController {
     @Query() query: ChatMediaQueryDto,
   ) {
     return this.chats.listChatMedia(user, id, query)
+  }
+
+  @Get(':id/media/:fileId/position')
+  @ApiOperation({
+    summary: 'Место файла среди материалов вкладки: index (1 — самый старый) и total',
+  })
+  @ApiResponse({ status: 200, description: '{ index, total }' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — файла нет в этой вкладке чата' })
+  mediaPosition(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Param('fileId') fileId: string,
+    @Query() query: ChatMediaPositionQueryDto,
+  ) {
+    return this.chats.getChatMediaPosition(user, id, fileId, query.type)
   }
 
   @Get(':id/media/calendar')
@@ -339,6 +420,19 @@ export class ChatsController {
       from: dto.from,
       to: dto.to,
     })
+  }
+
+  @Post(':id/attachments/multipart/abort')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Отменить многочастную загрузку вложения — части удаляются' })
+  @ApiResponse({ status: 204, description: 'Залитые части удалены (или отменять уже нечего)' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — ключ не принадлежит вызывающему' })
+  async abortAttachmentMultipart(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: ChatAttachmentMultipartAbortDto,
+  ): Promise<void> {
+    await this.chats.abortAttachmentMultipart(user.sub, { key: dto.key, uploadId: dto.uploadId })
   }
 
   @Post(':id/messages/uploaded')
@@ -523,6 +617,33 @@ export class ChatsController {
   @ApiResponse({ status: 200, description: 'Список закреплённых сообщений' })
   pinned(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
     return this.chats.listPinned(user.sub, id)
+  }
+
+  @Delete(':id/pinned')
+  @ApiOperation({ summary: 'Открепить все сообщения чата (права — как у открепления одного)' })
+  @ApiResponse({ status: 200, description: '{ count } — message:unpinned по каждому' })
+  unpinAll(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.chats.unpinAllMessages(user.sub, id)
+  }
+
+  @Get(':id/scheduled')
+  @ApiOperation({ summary: 'Мои отложенные сообщения в чате (чужие не видны), ближайшие первыми' })
+  @ApiResponse({ status: 200, description: 'Отложенные (≤ 100)' })
+  scheduled(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.chats.listScheduled(user.sub, id)
+  }
+
+  @Post(':id/scheduled')
+  @ApiOperation({ summary: 'Отложить сообщение на будущее (только текст, без вложений)' })
+  @ApiResponse({ status: 201, description: 'Сообщение поставлено в очередь' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — превышен лимит отложенных в чате' })
+  @ApiResponse({ status: 422, description: 'VALIDATION_ERROR — время в прошлом или дальше года' })
+  schedule(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: ScheduleMessageDto,
+  ) {
+    return this.chats.scheduleMessage(user.sub, id, dto)
   }
 
   @Post('messages/:messageId/pin')
@@ -735,6 +856,22 @@ export class ChatsController {
   @ApiResponse({ status: 200, description: 'Чат откреплён' })
   unpinChat(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
     return this.chats.setChatPinned(user.sub, id, false)
+  }
+
+  @Post(':id/unread')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: '«Пометить как новое» (у себя; снимается любым прочтением)' })
+  @ApiResponse({ status: 204, description: 'Чат помечен' })
+  async markUnread(@CurrentUser() user: CurrentUserData, @Param('id') id: string): Promise<void> {
+    await this.chats.setChatMarkedUnread(user.sub, id, true)
+  }
+
+  @Delete(':id/unread')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Снять пометку «как новое»' })
+  @ApiResponse({ status: 204, description: 'Пометка снята' })
+  async unmarkUnread(@CurrentUser() user: CurrentUserData, @Param('id') id: string): Promise<void> {
+    await this.chats.setChatMarkedUnread(user.sub, id, false)
   }
 
   @Get(':id/presence')

@@ -10,18 +10,45 @@ function setup() {
       count: jest.fn().mockResolvedValue(0),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
-    chatFolderItem: { deleteMany: jest.fn(), createMany: jest.fn() },
-    chatMember: { findMany: jest.fn().mockResolvedValue([]) },
+    chatFolderItem: {
+      deleteMany: jest.fn(),
+      createMany: jest.fn(),
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
+    chatMember: {
+      findMany: jest.fn().mockResolvedValue([]),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    friendship: { findMany: jest.fn().mockResolvedValue([]) },
   }
   // $transaction прогоняет колбэк на том же наборе моков: сервис внутри транзакции работает
   // с tx, и подменять его отдельным объектом значило бы проверять не то, что выполняется.
   const prisma = {
     ...models,
-    $transaction: jest.fn((fn: (tx: typeof models) => Promise<unknown>) => fn(models)),
+    // Пачка запросов массивом (reorder) — просто дожидаемся всех.
+    $transaction: jest.fn((arg: unknown) =>
+      Array.isArray(arg) ? Promise.all(arg) : (arg as (tx: typeof models) => unknown)(models),
+    ),
   }
-  return { service: new ChatFoldersService(prisma as never), prisma }
+  const realtime = { emitToUser: jest.fn() }
+  return { service: new ChatFoldersService(prisma as never, realtime as never), prisma, realtime }
+}
+
+/** Строка папки в форме FOLDER_SELECT: без значка, цвета и правил. */
+function folderRow(id: string, name: string) {
+  return {
+    id,
+    name,
+    position: 0,
+    emoji: null,
+    color: null,
+    includeContacts: false,
+    includeNonContacts: false,
+    includeGroups: false,
+  }
 }
 
 function p2002() {
@@ -35,11 +62,18 @@ describe('ChatFoldersService', () => {
   it('list отдаёт папки с составом', async () => {
     const { service, prisma } = setup()
     prisma.chatFolder.findMany.mockResolvedValue([
-      { id: 'f1', name: 'Учёба', position: 0, items: [{ chatId: 'c1' }, { chatId: 'c2' }] },
+      {
+        ...folderRow('f1', 'Учёба'),
+        items: [
+          { chatId: 'c1', excluded: false },
+          { chatId: 'c2', excluded: false },
+          { chatId: 'c3', excluded: true },
+        ],
+      },
     ])
 
     await expect(service.list('me')).resolves.toEqual([
-      { id: 'f1', name: 'Учёба', position: 0, chatIds: ['c1', 'c2'] },
+      { ...folderRow('f1', 'Учёба'), chatIds: ['c1', 'c2'], excludedChatIds: ['c3'] },
     ])
     // Папка — личная: выборка всегда по владельцу.
     expect(prisma.chatFolder.findMany.mock.calls[0]?.[0]?.where).toEqual({ userId: 'me' })
@@ -49,11 +83,16 @@ describe('ChatFoldersService', () => {
     const { service, prisma } = setup()
     prisma.chatFolder.count.mockResolvedValue(3)
     prisma.chatMember.findMany.mockResolvedValue([{ chatId: 'c1' }])
-    prisma.chatFolder.create.mockResolvedValue({ id: 'f9', name: 'Кураторы', position: 3 })
+    prisma.chatFolder.create.mockResolvedValue({ ...folderRow('f9', 'Кураторы'), position: 3 })
 
     const res = await service.create('me', { name: 'Кураторы', chatIds: ['c1'] })
 
-    expect(res).toEqual({ id: 'f9', name: 'Кураторы', position: 3, chatIds: ['c1'] })
+    expect(res).toEqual({
+      ...folderRow('f9', 'Кураторы'),
+      position: 3,
+      chatIds: ['c1'],
+      excludedChatIds: [],
+    })
     expect(prisma.chatFolder.create.mock.calls[0]?.[0]?.data?.position).toBe(3)
   })
 
@@ -63,7 +102,7 @@ describe('ChatFoldersService', () => {
     const { service, prisma } = setup()
     // Участник только в одном из двух присланных чатов.
     prisma.chatMember.findMany.mockResolvedValue([{ chatId: 'c1' }])
-    prisma.chatFolder.create.mockResolvedValue({ id: 'f1', name: 'Папка', position: 0 })
+    prisma.chatFolder.create.mockResolvedValue(folderRow('f1', 'Папка'))
 
     const res = await service.create('me', { name: 'Папка', chatIds: ['c1', 'c-чужой'] })
 
@@ -96,12 +135,16 @@ describe('ChatFoldersService', () => {
     prisma.chatFolder.findFirst.mockResolvedValue({ id: 'f1' })
     prisma.chatMember.findMany.mockResolvedValue([{ chatId: 'c2' }])
     prisma.chatFolder.findMany.mockResolvedValue([
-      { id: 'f1', name: 'Учёба', position: 0, items: [{ chatId: 'c2' }] },
+      { ...folderRow('f1', 'Учёба'), items: [{ chatId: 'c2', excluded: false }] },
     ])
 
     const res = await service.update('me', 'f1', { chatIds: ['c2'] })
 
-    expect(prisma.chatFolderItem.deleteMany).toHaveBeenCalledWith({ where: { folderId: 'f1' } })
+    // Заменяются только явные: исключения, которых в правке нет, остаются как были.
+    expect(prisma.chatFolderItem.deleteMany).toHaveBeenCalledTimes(1)
+    expect(prisma.chatFolderItem.deleteMany).toHaveBeenCalledWith({
+      where: { folderId: 'f1', excluded: false },
+    })
     expect(res.chatIds).toEqual(['c2'])
   })
 

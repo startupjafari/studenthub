@@ -42,6 +42,26 @@ describe('buildFolderTabs', () => {
 })
 
 describe('filterChatsByTab', () => {
+  // Папка, собранная правилами на iOS: «все группы» + «контакты», минус исключение.
+  it('пользовательская папка учитывает правила состава и исключения (chatInFolder)', () => {
+    const chats = [
+      chat('g1', 'GROUP'),
+      chat('g2', 'FACULTY'),
+      { ...chat('p1', 'PRIVATE'), isFriend: true },
+      chat('p2', 'PRIVATE'),
+      chat('s1', 'SAVED'),
+    ]
+    const [, tab] = buildFolderTabs(chats, [
+      {
+        ...folder('f1', 'Учёба', ['s1']),
+        excludedChatIds: ['g2'],
+        includeGroups: true,
+        includeContacts: true,
+      },
+    ]).filter((t) => t.id === 'folderAll' || t.id === 'f1')
+    expect(filterChatsByTab(chats, tab).map((c) => c.id)).toEqual(['g1', 'p1', 's1'])
+  })
+
   const chats = [chat('c1', 'PRIVATE', 2), chat('c2', 'SUBJECT'), chat('c3', 'GROUP')]
 
   it('«Все» отдаёт список без изменений', () => {

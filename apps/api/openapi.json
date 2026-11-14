@@ -20394,7 +20394,7 @@
             "bearer": []
           }
         ],
-        "summary": "Мои папки чатов (§2): имя, позиция вкладки, состав",
+        "summary": "Мои папки чатов (§2): имя, позиция, значок, цвет, состав, исключения и правила",
         "tags": [
           "Чаты"
         ]
@@ -20421,6 +20421,9 @@
           },
           "409": {
             "description": "CONFLICT — имя занято или превышен лимит папок"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — чат и в составе, и в исключениях"
           }
         },
         "security": [
@@ -20428,7 +20431,40 @@
             "bearer": []
           }
         ],
-        "summary": "Создать папку (имя + необязательный стартовый состав)",
+        "summary": "Создать папку (имя + необязательные состав, исключения, значок, цвет и правила)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/folders/order": {
+      "put": {
+        "operationId": "ChatFoldersController_reorder",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatFoldersOrderDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Порядок сохранён"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — не ровно множество моих папок"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Порядок вкладок-папок: ровно все мои папки сверху вниз",
         "tags": [
           "Чаты"
         ]
@@ -20463,6 +20499,9 @@
           },
           "404": {
             "description": "NOT_FOUND — папки нет у этого пользователя"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — чат и в составе, и в исключениях"
           }
         },
         "security": [
@@ -20470,7 +20509,7 @@
             "bearer": []
           }
         ],
-        "summary": "Переименовать папку, заменить состав или переставить вкладку",
+        "summary": "Переименовать папку, заменить состав/исключения/правила или переставить вкладку",
         "tags": [
           "Чаты"
         ]
@@ -20501,6 +20540,78 @@
           }
         ],
         "summary": "Удалить папку (сами чаты остаются)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/folders/{id}/mute": {
+      "post": {
+        "operationId": "ChatFoldersController_mute",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatFolderMuteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ updated } — сколько чатов заглушено"
+          },
+          "404": {
+            "description": "NOT_FOUND — папки нет у этого пользователя"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Заглушить все чаты папки (minutes? — на время, иначе навсегда; importantOnly?)",
+        "tags": [
+          "Чаты"
+        ]
+      },
+      "delete": {
+        "operationId": "ChatFoldersController_unmute",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ updated } — со скольких чатов снято заглушение"
+          },
+          "404": {
+            "description": "NOT_FOUND — папки нет у этого пользователя"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Включить уведомления всех чатов папки",
         "tags": [
           "Чаты"
         ]
@@ -20688,6 +20799,85 @@
           }
         ],
         "summary": "Опубликованные наборы стикеров со ссылками на картинки",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/stickers/favorites": {
+      "get": {
+        "operationId": "ChatStickersController_favorites",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "[{ id, emoji, width, height, url, expiresAt }]"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Мои избранные стикеры: свежие сверху, не больше 30",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/stickers/favorites/{stickerId}": {
+      "post": {
+        "operationId": "ChatStickersController_addFavorite",
+        "parameters": [
+          {
+            "name": "stickerId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Добавлен; сверх 30 вытесняется самый давний"
+          },
+          "404": {
+            "description": "NOT_FOUND — стикера нет или набор не опубликован"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Добавить стикер в избранное (повтор поднимает наверх)",
+        "tags": [
+          "Чаты"
+        ]
+      },
+      "delete": {
+        "operationId": "ChatStickersController_removeFavorite",
+        "parameters": [
+          {
+            "name": "stickerId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Убран (или его там не было)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Убрать стикер из избранного",
         "tags": [
           "Чаты"
         ]
@@ -21003,6 +21193,173 @@
         ]
       }
     },
+    "/chats/read": {
+      "post": {
+        "operationId": "ChatsController_markChatsRead",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkChatsReadDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ updated } — чаты, где я участник; чужие пропущены"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Прочитать чаты целиком (≤ 200): снять «как новое», message:read участникам, chat:read себе",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/pinned/order": {
+      "put": {
+        "operationId": "ChatsController_setPinnedOrder",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PinnedChatsOrderDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Порядок сохранён"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — чат не закреплён или дубли"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Порядок закреплённых чатов сверху вниз (остальные закреплённые — ниже, как были)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/scheduled/{scheduledId}": {
+      "patch": {
+        "operationId": "ChatsController_updateScheduled",
+        "parameters": [
+          {
+            "name": "scheduledId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateScheduledMessageDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Отложенное обновлено"
+          },
+          "404": {
+            "description": "NOT_FOUND — нет такого или чужое"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Изменить текст или время своего отложенного сообщения",
+        "tags": [
+          "Чаты"
+        ]
+      },
+      "delete": {
+        "operationId": "ChatsController_cancelScheduled",
+        "parameters": [
+          {
+            "name": "scheduledId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Отложенное отменено"
+          },
+          "404": {
+            "description": "NOT_FOUND — нет такого или чужое"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отменить своё отложенное сообщение",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/scheduled/{scheduledId}/send-now": {
+      "post": {
+        "operationId": "ChatsController_sendScheduledNow",
+        "parameters": [
+          {
+            "name": "scheduledId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Сообщение отправлено (message:new в чат)"
+          },
+          "404": {
+            "description": "NOT_FOUND — нет такого, чужое или уже отправлено"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отправить отложенное сейчас (тот же путь, что у доставки по времени)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
     "/chats/saved": {
       "get": {
         "operationId": "ChatsController_saved",
@@ -21291,6 +21648,18 @@
               ],
               "default": "media"
             }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "older",
+                "newer"
+              ]
+            }
           }
         ],
         "responses": {
@@ -21307,6 +21676,63 @@
           }
         ],
         "summary": "Общие материалы: media|file|voice|voice_note|music|gif (cursor, только участник). voice — всё аудио, voice_note — голосовые, music — аудио кроме голосовых",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/media/{fileId}/position": {
+      "get": {
+        "operationId": "ChatsController_mediaPosition",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fileId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "media",
+                "file",
+                "voice",
+                "voice_note",
+                "music",
+                "gif"
+              ],
+              "default": "media"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ index, total }"
+          },
+          "404": {
+            "description": "NOT_FOUND — файла нет в этой вкладке чата"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Место файла среди материалов вкладки: index (1 — самый старый) и total",
         "tags": [
           "Чаты"
         ]
@@ -21736,6 +22162,39 @@
           }
         ],
         "summary": "Подписи на диапазон частей вложения (только участник)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/attachments/multipart/abort": {
+      "post": {
+        "operationId": "ChatsController_abortAttachmentMultipart",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatAttachmentMultipartAbortDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Залитые части удалены (или отменять уже нечего)"
+          },
+          "403": {
+            "description": "FORBIDDEN — ключ не принадлежит вызывающему"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отменить многочастную загрузку вложения — части удаляются",
         "tags": [
           "Чаты"
         ]
@@ -22294,6 +22753,105 @@
           }
         ],
         "summary": "Закреплённые сообщения чата (только участник)",
+        "tags": [
+          "Чаты"
+        ]
+      },
+      "delete": {
+        "operationId": "ChatsController_unpinAll",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ count } — message:unpinned по каждому"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Открепить все сообщения чата (права — как у открепления одного)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/scheduled": {
+      "get": {
+        "operationId": "ChatsController_scheduled",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Отложенные (≤ 100)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Мои отложенные сообщения в чате (чужие не видны), ближайшие первыми",
+        "tags": [
+          "Чаты"
+        ]
+      },
+      "post": {
+        "operationId": "ChatsController_schedule",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleMessageDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Сообщение поставлено в очередь"
+          },
+          "400": {
+            "description": "BAD_REQUEST — превышен лимит отложенных в чате"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — время в прошлом или дальше года"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отложить сообщение на будущее (только текст, без вложений)",
         "tags": [
           "Чаты"
         ]
@@ -22913,6 +23471,62 @@
           }
         ],
         "summary": "Открепить чат",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/unread": {
+      "post": {
+        "operationId": "ChatsController_markUnread",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Чат помечен"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "«Пометить как новое» (у себя; снимается любым прочтением)",
+        "tags": [
+          "Чаты"
+        ]
+      },
+      "delete": {
+        "operationId": "ChatsController_unmarkUnread",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Пометка снята"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Снять пометку «как новое»",
         "tags": [
           "Чаты"
         ]
@@ -34871,10 +35485,57 @@
               "minLength": 1
             },
             "maxItems": 200
+          },
+          "emoji": {
+            "type": "string",
+            "nullable": true
+          },
+          "color": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6,
+            "nullable": true
+          },
+          "excludedChatIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "maxItems": 200
+          },
+          "includeContacts": {
+            "type": "boolean"
+          },
+          "includeNonContacts": {
+            "type": "boolean"
+          },
+          "includeGroups": {
+            "type": "boolean"
           }
         },
         "required": [
           "name"
+        ],
+        "additionalProperties": false
+      },
+      "ChatFoldersOrderDto": {
+        "type": "object",
+        "properties": {
+          "folderIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "minItems": 1,
+            "maxItems": 20
+          }
+        },
+        "required": [
+          "folderIds"
         ],
         "additionalProperties": false
       },
@@ -34898,6 +35559,49 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 20
+          },
+          "emoji": {
+            "type": "string",
+            "nullable": true
+          },
+          "color": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6,
+            "nullable": true
+          },
+          "excludedChatIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "maxItems": 200
+          },
+          "includeContacts": {
+            "type": "boolean"
+          },
+          "includeNonContacts": {
+            "type": "boolean"
+          },
+          "includeGroups": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ChatFolderMuteDto": {
+        "type": "object",
+        "properties": {
+          "minutes": {
+            "type": "integer",
+            "minimum": 0,
+            "exclusiveMinimum": true,
+            "maximum": 525600
+          },
+          "importantOnly": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -34957,6 +35661,59 @@
           "type",
           "memberIds"
         ],
+        "additionalProperties": false
+      },
+      "MarkChatsReadDto": {
+        "type": "object",
+        "properties": {
+          "chatIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "minItems": 1,
+            "maxItems": 200
+          }
+        },
+        "required": [
+          "chatIds"
+        ],
+        "additionalProperties": false
+      },
+      "PinnedChatsOrderDto": {
+        "type": "object",
+        "properties": {
+          "chatIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "minItems": 1,
+            "maxItems": 100
+          }
+        },
+        "required": [
+          "chatIds"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateScheduledMessageDto": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "scheduledAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
         "additionalProperties": false
       },
       "CreateChatPollDto": {
@@ -35078,6 +35835,26 @@
           "uploadId",
           "from",
           "to"
+        ],
+        "additionalProperties": false
+      },
+      "ChatAttachmentMultipartAbortDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "key",
+          "uploadId"
         ],
         "additionalProperties": false
       },
@@ -35430,6 +36207,37 @@
         "required": [
           "provider",
           "id"
+        ],
+        "additionalProperties": false
+      },
+      "ScheduleMessageDto": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "replyToId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replyQuote": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "silent": {
+            "type": "boolean"
+          },
+          "scheduledAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "content",
+          "scheduledAt"
         ],
         "additionalProperties": false
       },
