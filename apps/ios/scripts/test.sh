@@ -73,6 +73,15 @@ fi
 log "Генерация проекта (XcodeGen)"
 xcodegen generate --quiet
 
+# Точные версии пакетов (IOS_RULES 14.1.2). Проект генерируется и не коммитится, его
+# Package.resolved — тоже, поэтому кладём закоммиченный: Xcode берёт закреплённые версии
+# транзитивных пакетов (Starscream) как есть. Строгий -disableAutomaticPackageResolution не
+# годится: в этом файле нет Sentry (его нет в Package.swift), и Xcode счёл бы файл устаревшим.
+# Вместо этого после сборки проверяем, что Xcode не взял ничего сверх закреплённого.
+XCODE_RESOLVED="StudentHub.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+mkdir -p "$(dirname "$XCODE_RESOLVED")"
+cp Package.resolved "$XCODE_RESOLVED"
+
 # --- Симулятор ---------------------------------------------------------------------
 # Имя + последняя доступная iOS (или SH_TEST_OS). UDID, а не имя в -destination: на
 # раннере одно имя бывает у нескольких рантаймов, и xcodebuild выбирает не тот.
@@ -131,6 +140,13 @@ if [[ $BUILD_STATUS -ne 0 ]]; then
     grep -E "error:" "$OUTPUT/build.log" | head -40
     echo '```'
   } >>"$OUTPUT/summary.md"
+  [[ -n "${GITHUB_STEP_SUMMARY:-}" ]] && cat "$OUTPUT/summary.md" >>"$GITHUB_STEP_SUMMARY"
+  exit 1
+fi
+
+log "Версии пакетов"
+if ! python3 "$ROOT/scripts/check_packages.py" "$XCODE_RESOLVED"; then
+  echo "## iOS: Xcode взял не те версии пакетов (scripts/check_packages.py)" >>"$OUTPUT/summary.md"
   [[ -n "${GITHUB_STEP_SUMMARY:-}" ]] && cat "$OUTPUT/summary.md" >>"$GITHUB_STEP_SUMMARY"
   exit 1
 fi

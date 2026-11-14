@@ -52,11 +52,11 @@ jobs:
       - name: Поставить XcodeGen
         uses: ./.github/actions/setup-xcodegen
 
-      # Ключ — только блок `packages` из project.yml: подъём версии или номера сборки
-      # пакеты не меняет и кеш сбрасывать не должен.
+      # Ключ — блок `packages` из project.yml и Package.resolved: подъём версии или номера
+      # сборки пакеты не меняет и кеш сбрасывать не должен.
       - name: Ключ кеша пакетов
         id: spm-key
-        run: echo "hash=$(sed -n '/^packages:/,/^[a-z]/p' project.yml | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
+        run: echo "hash=$({ sed -n '/^packages:/,/^[a-z]/p' project.yml; cat Package.resolved; } | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
 
       - name: Кеш пакетов Swift
         uses: actions/cache@v6
@@ -80,3 +80,4 @@ jobs:
           name: ios-nightly-results
           path: apps/ios/build/test-output
           retention-days: 30
+

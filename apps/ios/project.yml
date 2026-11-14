@@ -28,19 +28,23 @@ settings:
 # Внешние зависимости. Каждая согласована отдельно (план, «Архитектурные решения»:
 # строки со звёздочкой).
 #
-# `Package.resolved` в репозиторий не попадает: он лежит внутри .xcodeproj, а проект
-# генерируется и не коммитится. Значит сборка берёт свежую версию в пределах мажора —
-# понадобится воспроизводимость до патча, тут меняется `from` на `exactVersion`.
+# Версии точные (IOS_RULES 14.1.2): сборка не должна сама взять новый патч пакета, который
+# никто не смотрел. Те же версии — в Package.swift (сборка xtool), транзитивные (Starscream у
+# Socket.IO) — в закоммиченном Package.resolved. Сгенерированный .xcodeproj не коммитится,
+# поэтому scripts/test.sh кладёт этот Package.resolved в проект перед сборкой и после неё
+# сверяет, что Xcode взял те же версии (scripts/check_packages.py). Обновления — PR
+# Dependabot в Package.swift и Package.resolved; версию здесь поднимают в том же PR —
+# иначе проверка «Пакеты» в ios.yml падает.
 packages:
   GRDB:
     url: https://github.com/groue/GRDB.swift
-    from: "7.0.0"
+    exactVersion: "7.12.0"
   SocketIO:
     url: https://github.com/socketio/socket.io-client-swift
-    from: "16.1.0"
+    exactVersion: "16.1.1"
   Sentry:
     url: https://github.com/getsentry/sentry-cocoa
-    from: "8.40.0"
+    exactVersion: "8.58.4"
 
 targets:
   StudentHub:

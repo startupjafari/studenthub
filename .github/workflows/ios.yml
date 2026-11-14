@@ -99,15 +99,21 @@ jobs:
       - name: Слои
         run: scripts/check_layers.sh
 
+      # Точные версии пакетов (IOS_RULES 14.1.2): Package.swift, project.yml и
+      # Package.resolved согласованы. Dependabot правит Package.swift и Package.resolved —
+      # версию в project.yml поднимают в том же PR, иначе здесь красное.
+      - name: Пакеты
+        run: scripts/check_packages.py
+
       # Точная версия с проверкой суммы — см. .github/actions/setup-xcodegen.
       - name: Поставить XcodeGen
         uses: ./.github/actions/setup-xcodegen
 
-      # Ключ — только блок `packages` из project.yml: подъём версии или номера сборки
-      # пакеты не меняет и кеш сбрасывать не должен.
+      # Ключ — блок `packages` из project.yml и Package.resolved: подъём версии или номера
+      # сборки пакеты не меняет и кеш сбрасывать не должен.
       - name: Ключ кеша пакетов
         id: spm-key
-        run: echo "hash=$(sed -n '/^packages:/,/^[a-z]/p' project.yml | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
+        run: echo "hash=$({ sed -n '/^packages:/,/^[a-z]/p' project.yml; cat Package.resolved; } | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
 
       # Пакеты Swift (GRDB, Socket.IO, Sentry) — из кеша: без него каждый прогон
       # клонирует их заново.

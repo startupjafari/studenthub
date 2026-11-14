@@ -27,9 +27,8 @@ fastlane/screenshots/
 TestResults.xcresult/
 
 # Сборка на iPhone через xtool (scripts/device.sh): сгенерированные Info.plist и
-# таблицы строк, собранное приложение, конфиг LSP и зафиксированные версии пакетов —
-# у сборки Xcode Package.resolved тоже не коммитится (project.yml)
+# таблицы строк, собранное приложение, конфиг LSP. Package.resolved коммитится —
+# точные версии пакетов, включая транзитивные (IOS_RULES 14.1.2, project.yml).
 .device/
 /xtool/
 .bsp/
-Package.resolved
