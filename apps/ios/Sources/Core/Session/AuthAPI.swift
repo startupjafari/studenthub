@@ -145,3 +145,16 @@ struct AuthAPI: SessionRefreshing, SessionIssuing {
         let challengeToken: String?
     }
 }
+
+extension AuthSession: RedactedDescription {
+    var redactedDescription: String { "AuthSession(accessToken: \(SecretMask.hidden))" }
+}
+
+extension LoginOutcome: RedactedDescription {
+    var redactedDescription: String {
+        switch self {
+        case .session: "LoginOutcome.session(\(SecretMask.hidden))"
+        case .twoFactorRequired: "LoginOutcome.twoFactorRequired(challengeToken: \(SecretMask.hidden))"
+        }
+    }
+}

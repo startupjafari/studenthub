@@ -193,3 +193,13 @@ enum LocalData {
         await BadgeCounter().reset()
     }
 }
+
+extension AppSessionModel.State: RedactedDescription {
+    var redactedDescription: String {
+        switch self {
+        case .restoring: "State.restoring"
+        case .signedOut: "State.signedOut"
+        case .signedIn(let token): "State.signedIn(\(token))"
+        }
+    }
+}

@@ -500,3 +500,19 @@ extension APIError {
         }
     }
 }
+
+extension SessionRestoration: RedactedDescription {
+    var redactedDescription: String {
+        switch self {
+        case .active(let token): "SessionRestoration.active(\(token))"
+        case .cached(let token): "SessionRestoration.cached(\(token))"
+        case .none: "SessionRestoration.none"
+        }
+    }
+}
+
+extension PendingLogout: RedactedDescription {
+    var redactedDescription: String {
+        "PendingLogout(refreshToken: \(SecretMask.hidden), deviceToken: \(SecretMask.optional(deviceToken)))"
+    }
+}
