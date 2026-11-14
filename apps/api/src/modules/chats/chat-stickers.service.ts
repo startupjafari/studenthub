@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
 import {
+  FAVORITE_STICKERS_MAX,
   STICKER_LIMITS,
   type ChatStickerSendInput,
   type StickerSetCreateInput,
@@ -11,6 +12,7 @@ import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { AuditService } from '../../common/audit/audit.service'
 import { signingWindow } from '../../common/minio/stable-sign'
+import { RealtimeGateway } from '../../common/realtime'
 import type { EnvVars } from '../../config/env.schema'
 import { FileService } from '../files/file.service'
 import { ChatsService, type MessageRow } from './chats.service'
@@ -82,6 +84,7 @@ export class ChatStickersService {
     private readonly chats: ChatsService,
     private readonly audit: AuditService,
     private readonly config: ConfigService<EnvVars, true>,
+    private readonly realtime: RealtimeGateway,
   ) {}
 
   // ── Каталог для клиентов ────────────────────────────────────────────────────
@@ -136,6 +139,62 @@ export class ChatStickersService {
       nonce: input.nonce,
       data: { stickerId: sticker.id },
     })
+  }
+
+  // ── Избранные стикеры (Telegram-стиль) ──────────────────────────────────────
+  //
+  // Личный список: свежие сверху, не больше FAVORITE_STICKERS_MAX. Своим устройствам —
+  // сигнал `stickers:favorites-changed`, клиент перечитывает список.
+
+  /** Мои избранные — только из опубликованных наборов, в форме стикера каталога. */
+  async listFavorites(userId: string): Promise<StickerDto[]> {
+    const rows = await this.prisma.favoriteSticker.findMany({
+      // Снятый с публикации набор из выдачи уходит, строка остаётся: вернут набор — вернётся
+      // и избранное, как было.
+      where: { userId, sticker: { set: { isPublished: true } } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: FAVORITE_STICKERS_MAX,
+      select: { sticker: { select: STICKER_SELECT } },
+    })
+    const signed = await this.sign(rows.map((row) => row.sticker))
+    return rows.flatMap((row) => signed.get(row.sticker.id) ?? [])
+  }
+
+  /**
+   * Добавить в избранное (повтор поднимает наверх). Сверх лимита вытесняется самый давний —
+   * в той же транзакции, чтобы параллельные добавления не оставили список длиннее лимита
+   * дольше, чем на один запрос.
+   */
+  async addFavorite(userId: string, stickerId: string): Promise<void> {
+    const sticker = await this.prisma.sticker.findFirst({
+      where: { id: stickerId, set: { isPublished: true } },
+      select: { id: true },
+    })
+    if (!sticker) throw new AppException('NOT_FOUND', 'Стикер не найден')
+    await this.prisma.$transaction(async (tx) => {
+      await tx.favoriteSticker.upsert({
+        where: { userId_stickerId: { userId, stickerId } },
+        create: { userId, stickerId },
+        update: { createdAt: new Date() },
+      })
+      const overflow = await tx.favoriteSticker.findMany({
+        where: { userId },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: FAVORITE_STICKERS_MAX,
+        take: FAVORITE_STICKERS_MAX,
+        select: { id: true },
+      })
+      if (overflow.length > 0) {
+        await tx.favoriteSticker.deleteMany({ where: { id: { in: overflow.map((r) => r.id) } } })
+      }
+    })
+    this.realtime.emitToUser(userId, 'stickers:favorites-changed', {})
+  }
+
+  /** Убрать из избранного. Идемпотентно: убирать нечего — тоже успех. */
+  async removeFavorite(userId: string, stickerId: string): Promise<void> {
+    await this.prisma.favoriteSticker.deleteMany({ where: { userId, stickerId } })
+    this.realtime.emitToUser(userId, 'stickers:favorites-changed', {})
   }
 
   // ── Управление каталогом (PLATFORM_ADMIN) ───────────────────────────────────
