@@ -8,9 +8,12 @@ enum MessageMenuAction: Hashable, Identifiable {
     case forward
     case readers(count: Int)
     case report, delete, select
+    /// Сообщение-стикер: добавить его в избранные стикеры или убрать оттуда.
+    case favoriteSticker(isFavorite: Bool)
 
     var id: String {
         switch self {
+        case .favoriteSticker: "favoriteSticker"
         case .reply: "reply"
         case .copy: "copy"
         case .edit: "edit"
@@ -38,6 +41,10 @@ enum MessageMenuAction: Hashable, Identifiable {
         case .report: String(localized: "feed.report", defaultValue: "Пожаловаться")
         case .delete: String(localized: "feed.delete", defaultValue: "Удалить")
         case .select: String(localized: "chats.selection.select", defaultValue: "Выбрать")
+        case .favoriteSticker(let isFavorite):
+            isFavorite
+                ? String(localized: "chats.stickers.unfavorite", defaultValue: "Удалить из избранного")
+                : String(localized: "chats.stickers.favorite", defaultValue: "Добавить в избранное")
         }
     }
 
@@ -52,6 +59,7 @@ enum MessageMenuAction: Hashable, Identifiable {
         case .report: "exclamationmark.bubble"
         case .delete: "trash"
         case .select: "checkmark.circle"
+        case .favoriteSticker(let isFavorite): isFavorite ? "star.slash" : "star"
         }
     }
 
@@ -59,12 +67,14 @@ enum MessageMenuAction: Hashable, Identifiable {
 
     /// Что доступно для сообщения. Удалить у себя можно любое дошедшее до сервера, у всех
     /// — по правам (`capabilities.canDelete`): какой вариант, спросит подтверждение.
+    /// `favoriteSticker` — сообщение-стикер и в избранном ли он (`nil` — не стикер).
     static func available(
         for message: MessageRecord,
         isOwn: Bool,
         isGroup: Bool,
         capabilities: MessageCapabilities,
-        readCount: Int
+        readCount: Int,
+        favoriteSticker: Bool? = nil
     ) -> [MessageMenuAction] {
         if message.deletedAt != nil || message.systemType != nil {
             return [.select]
@@ -78,6 +88,8 @@ enum MessageMenuAction: Hashable, Identifiable {
             return local + [.select]
         }
         var actions: [MessageMenuAction] = [.reply]
+        // Стикер — сразу под «Ответить», как в Telegram.
+        if let favoriteSticker { actions.append(.favoriteSticker(isFavorite: favoriteSticker)) }
         if hasText { actions.append(.copy) }
         if capabilities.canEdit { actions.append(.edit) }
         actions.append(.pin(isPinned: message.pinnedAt != nil))

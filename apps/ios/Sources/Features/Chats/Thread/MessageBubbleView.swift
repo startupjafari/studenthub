@@ -46,6 +46,8 @@ enum MessageAction {
     case readers
     /// Крестик на загружаемом вложении: отменить отправку.
     case cancelUpload
+    /// Крестик на плитке загружаемого альбома: убрать из отправки только этот файл.
+    case cancelUploadFile(AttachmentRecord)
     /// Войти в режим выбора с этим сообщением и переключить его отметку в режиме.
     case select, toggleSelection
     case react(String)
@@ -235,7 +237,7 @@ struct MessageBubbleView: View {
                 // Снимок без подписи повторяет углы пузыря; своя неудачная отправка — круг
                 // «повторить» прямо на снимке, как в Telegram.
                 if mediaAttachments.count > 1 {
-                    ChatMediaMosaic(items: mediaAttachments, upload: mediaUpload) { attachment in
+                    ChatMediaMosaic(items: mediaAttachments, upload: mediaUpload, tileUpload: tileUpload) { attachment in
                         onAction(.openAttachment(attachment))
                     }
                     .environment(\.chatMediaCorners, isMediaOnly ? mediaCorners : nil)
@@ -400,6 +402,18 @@ struct MessageBubbleView: View {
         }
         return AttachmentUploadState(fraction: AttachmentUploads.shared.progress[message.id] ?? 0) {
             onAction(.cancelUpload)
+        }
+    }
+
+    /// Кольцо и крестик на каждой плитке своего альбома в пути, как в Telegram: у
+    /// каждого файла своя доля, крестик убирает из отправки только его.
+    private var tileUpload: ((AttachmentRecord) -> AttachmentUploadState)? {
+        guard upload != nil else { return nil }
+        let progress = AttachmentUploads.shared.fileProgress
+        return { attachment in
+            AttachmentUploadState(fraction: progress[attachment.id] ?? 0) {
+                onAction(.cancelUploadFile(attachment))
+            }
         }
     }
 

@@ -418,6 +418,23 @@ final class ChatThreadModel {
         }
     }
 
+    /// Крестик на плитке своего альбома: этот файл не уходит, остальные едут дальше.
+    /// Последний оставшийся — то же, что отмена всего сообщения.
+    @MainActor
+    func cancelUpload(_ file: AttachmentRecord, in message: MessageRecord) async {
+        guard message.remoteId == nil else { return }
+        let files = days.lazy.flatMap(\.items).first(where: { $0.message.id == message.id })?.attachments ?? []
+        guard files.count > 1, files.contains(where: { $0.id == file.id }) else {
+            await cancelUpload(message)
+            return
+        }
+        let uploads = AttachmentUploads.shared
+        // Идёт или ждёт очереди — сначала загрузке: поздно (файлы в хранилище, сообщение
+        // уже отправляется) — ничего не трогаем, сервер запишет его целиком.
+        if uploads.runningIDs.contains(message.id), !uploads.removeFile(file.id, from: message.id) { return }
+        await uploader.removeFile(file.id, messageID: message.id)
+    }
+
     private static func action(for mime: String, name: String?) -> String {
         if mime.hasPrefix("audio/") { return "RECORDING_VOICE" }
         if mime.hasPrefix("image/") { return "UPLOADING_PHOTO" }
@@ -1045,6 +1062,43 @@ final class ChatThreadModel {
             try await store.removeHidden(remoteIDs: hidden, chatID: chatID)
         } catch {
             actionFailure = self.message(for: error)
+        }
+    }
+
+    /// Сообщение по серверному id — из ленты, иначе из базы (просмотр медиа листает и
+    /// далёкую историю).
+    @MainActor
+    func message(remoteID: String) async -> MessageRecord? {
+        if let shown = messages.first(where: { $0.remoteId == remoteID }) { return shown }
+        let chatID = chatID
+        return try? await database.reader.read { db in
+            try MessageRecord
+                .filter(MessageRecord.Columns.chatId == chatID)
+                .filter(MessageRecord.Columns.remoteId == remoteID)
+                .fetchOne(db)
+        }
+    }
+
+    /// Удаление из просмотра медиа. Сообщение в базе — тем же путём, что из меню; нет
+    /// его там (далёкая история, до которой лента не доходила) — запросом к серверу.
+    /// Ответ — текст ошибки для показа или `nil`.
+    @MainActor
+    func delete(remoteID: String, forEveryone: Bool) async -> String? {
+        if forEveryone, let record = await message(remoteID: remoteID) {
+            guard canDelete(record) else { return nil }
+            await delete(record)
+            return nil
+        }
+        do {
+            if forEveryone {
+                _ = try await actions.deleteForEveryone(messageIDs: [remoteID], chatID: chatID)
+            } else {
+                let hidden = try await actions.hide(messageIDs: [remoteID], chatID: chatID).hiddenIds
+                try await store.removeHidden(remoteIDs: hidden, chatID: chatID)
+            }
+            return nil
+        } catch {
+            return self.message(for: error)
         }
     }
 
