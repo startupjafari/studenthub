@@ -492,7 +492,8 @@ struct ChatThreadView: View {
             othersReadAt: model.chat?.othersReadAt,
             readMarks: isGroup ? model.readMarks : [],
             viewerID: viewerID,
-            highlight: search?.isActive == true ? search?.term : nil
+            highlight: search?.isActive == true ? search?.term : nil,
+            requestIncoming: model.chat?.requestIncoming == true
         )
     }
 

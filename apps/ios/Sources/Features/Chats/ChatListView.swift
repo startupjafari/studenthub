@@ -1085,7 +1085,8 @@ private struct ChatPeekView: View {
                         context: BubbleContext(
                             isGroup: row.kind != .private && row.kind != .saved,
                             othersReadAt: row.othersReadAt,
-                            viewerID: viewerID
+                            viewerID: viewerID,
+                            requestIncoming: row.requestIncoming
                         ),
                         // Копия в превью: без якорей, иначе она перехватит у пузыря
                         // в ленте место, из которого растёт меню.

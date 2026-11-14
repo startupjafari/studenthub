@@ -337,6 +337,7 @@ final class MessageListViewController: UIViewController {
         let contextChanged = context.isGroup != oldContext.isGroup
             || context.viewerID != oldContext.viewerID
             || context.highlight != oldContext.highlight
+            || context.requestIncoming != oldContext.requestIncoming
         let readChanged = !contextChanged
             && (context.othersReadAt != oldContext.othersReadAt || context.readMarks != oldContext.readMarks)
         bubbleContext = context
@@ -687,6 +688,8 @@ final class MessageListViewController: UIViewController {
         hasher.combine(item)
         hasher.combine(selection != nil)
         hasher.combine(bubbleContext.isGroup)
+        // Непринятый запрос прячет превью ссылок — высота строки другая.
+        hasher.combine(bubbleContext.requestIncoming)
         return MessageHeightKey(
             id: id,
             revision: hasher.finalize(),
@@ -742,6 +745,7 @@ final class MessageListViewController: UIViewController {
             hasher.combine(item)
             hasher.combine(self.selection != nil)
             hasher.combine(self.bubbleContext.isGroup)
+            hasher.combine(self.bubbleContext.requestIncoming)
             return MessageHeightKey(
                 id: id,
                 revision: hasher.finalize(),
