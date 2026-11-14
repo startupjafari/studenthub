@@ -1,0 +1,14 @@
+# Проект генерируется XcodeGen из project.yml
+*.xcodeproj/
+*.xcworkspace/
+build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+.build/
+.swiftpm/
+.DS_Store
+*.ipa
+# Сборка xtool
+/xtool/
+.bsp/
