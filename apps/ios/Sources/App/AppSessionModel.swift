@@ -185,6 +185,7 @@ enum LocalData {
         RichText.clearCache()
         LQIP.clearCache()
         MessageCodeBlocks.clearCache()
+        MessageTextBlocks.clearCache()
         // Трансляции геопозиции прежнего человека — встают и забываются: иначе GPS
         // продолжал бы слать точки в его переписку уже под чужой сессией.
         LiveLocationSharing.shared.erase()

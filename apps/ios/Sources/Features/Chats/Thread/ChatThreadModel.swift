@@ -1059,13 +1059,21 @@ final class ChatThreadModel {
         return messages.filter { selection.contains($0.id) }
     }
 
-    /// Тексты выбранных по времени, через пустую строку. Без текста (фото, удалённое)
-    /// не дают пустых абзацев.
+    /// Видимые тексты выбранных по времени, через пустую строку — без разметки, как в
+    /// пузырях (IOS_RULES 7.7.8). Без текста (фото, удалённое) не дают пустых абзацев.
     var selectedText: String {
+        selectedContents.map(MessagePreview.visibleText).joined(separator: "\n\n")
+    }
+
+    /// Исходный Markdown выбранных — своим типом в буфере для вставки в поле ввода.
+    var selectedMarkdown: String {
+        selectedContents.joined(separator: "\n\n")
+    }
+
+    private var selectedContents: [String] {
         selectedMessages
             .filter { $0.deletedAt == nil && !$0.content.isEmpty }
             .map(\.content)
-            .joined(separator: "\n\n")
     }
 
     var canForwardSelection: Bool {

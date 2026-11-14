@@ -397,7 +397,7 @@ struct ChatThreadView: View {
                         canForward: model.canForwardSelection,
                         canDelete: model.canDeleteSelection,
                         onCopy: {
-                            UIPasteboard.general.string = model.selectedText
+                            MessageClipboard.copy(markdown: model.selectedMarkdown, visible: model.selectedText)
                             copiedTick += 1
                             endSelection(model)
                         },
@@ -492,7 +492,8 @@ struct ChatThreadView: View {
             othersReadAt: model.chat?.othersReadAt,
             readMarks: isGroup ? model.readMarks : [],
             viewerID: viewerID,
-            highlight: search?.isActive == true ? search?.term : nil
+            highlight: search?.isActive == true ? search?.term : nil,
+            requestIncoming: model.chat?.requestIncoming == true
         )
     }
 
@@ -819,7 +820,7 @@ struct ChatThreadView: View {
         case .pin:
             Task { await model.togglePin(message) }
         case .copy:
-            UIPasteboard.general.string = message.content
+            MessageClipboard.copy(message.content)
         case .copyText(let text):
             UIPasteboard.general.string = text
             copiedTick += 1

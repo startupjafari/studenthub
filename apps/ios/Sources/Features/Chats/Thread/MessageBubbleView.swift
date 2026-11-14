@@ -14,6 +14,10 @@ struct BubbleContext: Hashable {
     var viewerID = ""
     /// Поиск в переписке: найденное подсвечивается в тексте пузырей.
     var highlight: String?
+    /// Чат — входящий запрос на переписку, ещё не принятый (IOS_RULES 10.4.12): в чужих
+    /// сообщениях ссылки и упоминания — простой текст, превью ссылок нет. «Принять»
+    /// сбрасывает флаг локально, и лента перерисовывается как обычно.
+    var requestIncoming = false
 
     /// Сколько других участников группы дочитали до этого момента.
     func readCount(at date: Date) -> Int {
@@ -296,8 +300,7 @@ struct MessageBubbleView: View {
                 textBlock
             }
 
-            // У карточки профиля превью той же ссылки было бы повтором.
-            if let preview = extras.linkPreview, !isDeleted, profileShare == nil {
+            if let preview = linkPreview {
                 LinkPreviewCard(preview: preview, isOwn: item.isOwn)
                     .bubbleControl(enabled: !isMenuPreview)
                     .layoutValue(key: ChatStretches.self, value: true)
@@ -483,9 +486,27 @@ struct MessageBubbleView: View {
     }
 
     /// «Имя\nссылка на профиль» — так уходит «Поделиться профилем»; рисуем карточкой.
+    /// В непринятом запросе — текстом: карточка открывала бы профиль по ссылке.
     private var profileShare: ProfileShare? {
-        guard !isDeleted, item.attachments.isEmpty else { return nil }
+        guard !isDeleted, item.attachments.isEmpty, !plainLinks else { return nil }
         return ProfileShare.parse(message.content)
+    }
+
+    /// Чужое сообщение в непринятом запросе на переписку (IOS_RULES 10.4.12): ссылки и
+    /// упоминания — простым текстом, без превью ссылки.
+    private var plainLinks: Bool {
+        context.requestIncoming && !item.isOwn
+    }
+
+    /// Превью ссылки под текстом. У карточки профиля оно было бы повтором.
+    private var linkPreview: MessageExtras.LinkPreview? {
+        guard !isDeleted, !plainLinks, profileShare == nil else { return nil }
+        return extras.linkPreview
+    }
+
+    /// Как выглядит строка текста: разметка, недоверенные ссылки, подсветка поиска.
+    private var textStyle: BubbleTextStyle {
+        BubbleTextStyle(isOwn: item.isOwn, highlight: context.highlight, plainLinks: plainLinks)
     }
 
     /// Снимки и ролики — плитками (одиночной или альбомом), остальное — строками.
@@ -511,10 +532,20 @@ struct MessageBubbleView: View {
     }
 
     /// Время встаёт в последнюю строку текста, если текст — последний в пузыре. Текст,
-    /// который кончается блоком кода, времени не несёт: оно уходит на свою строку.
+    /// который кончается блоком кода или цитатой, времени не несёт: оно уходит на свою
+    /// строку.
     private var textCarriesMeta: Bool {
-        hasText && !showsReactions && (extras.linkPreview == nil || isDeleted)
-            && codeSegments?.last?.isCode != true
+        guard hasText, !showsReactions, linkPreview == nil else { return false }
+        if isDeleted { return true }
+        guard let last = codeSegments?.last else { return textBlocks?.last?.isQuote != true }
+        guard case .text(let text) = last else { return false }
+        return MessageTextBlocks.carriesMeta(text)
+    }
+
+    /// Цитаты и списки без блоков кода — по блокам; `nil` — обычный текст одной строкой
+    /// `Text`, как раньше (предфильтр — проход по началам строк, разбор кешируется).
+    private var textBlocks: [MessageTextBlocks.Block]? {
+        isDeleted || isUnsupportedKind ? nil : MessageTextBlocks.blocks(ifAny: message.content)
     }
 
     /// Текст с блоками кода ```` ``` ```` — по сегментам; `nil` — обычный текст (разбор
@@ -528,7 +559,7 @@ struct MessageBubbleView: View {
         !isDeleted && !hasText && !showsReactions && !item.attachments.isEmpty
             && item.attachments.allSatisfy(\.showsAsMedia)
             && extras.poll == nil && extras.sharedPost == nil && extras.sharedStory == nil && !hasSpecialContent
-            && extras.linkPreview == nil && message.replyToId == nil && !extras.isForwarded
+            && linkPreview == nil && message.replyToId == nil && !extras.isForwarded
             && !(context.isGroup && !item.isOwn && item.isFirstInGroup)
     }
 
@@ -541,8 +572,17 @@ struct MessageBubbleView: View {
                 textColor: textColor,
                 tint: item.isOwn ? Palette.primaryForeground : Palette.primary,
                 highlight: context.highlight,
+                plainLinks: plainLinks,
                 metaPlaceholder: textCarriesMeta ? metaPlaceholder : nil,
                 onCopy: { onAction(.copyText($0)) }
+            )
+        } else if let blocks = textBlocks {
+            MessageTextBlocksView(
+                blocks: blocks,
+                style: textStyle,
+                textColor: textColor,
+                tint: item.isOwn ? Palette.primaryForeground : Palette.primary,
+                metaPlaceholder: textCarriesMeta ? metaPlaceholder : nil
             )
         } else {
             plainTextBlock
@@ -563,13 +603,10 @@ struct MessageBubbleView: View {
             .accessibilityLabel(Text(placeholder ?? message.content))
     }
 
-    /// Текст с разметкой и — в режиме поиска — с подсвеченными совпадениями.
+    /// Текст с разметкой и — в режиме поиска — с подсвеченными совпадениями; в
+    /// непринятом запросе — без ссылок.
     private var highlightedContent: AttributedString {
-        var text = RichText.attributed(message.content)
-        if let term = context.highlight {
-            SearchHighlight.apply(term, to: &text, background: item.isOwn ? SearchHighlight.outgoing : SearchHighlight.incoming)
-        }
-        return text
+        textStyle.attributed(message.content)
     }
 
     private var time: String {

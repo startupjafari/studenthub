@@ -135,6 +135,8 @@ struct MessageCodeText: View {
     let tint: Color
     /// Поиск в переписке: найденное подсвечивается и в коде.
     let highlight: String?
+    /// Входящее в чате-запросе: ссылки и упоминания — простой текст (IOS_RULES 10.4.12).
+    var plainLinks = false
     /// Невидимая подпись времени в конце последнего абзаца — время встаёт в его строку.
     /// `nil`, если текст кончается кодом: тогда время уходит на свою строку.
     let metaPlaceholder: Text?
@@ -160,23 +162,36 @@ struct MessageCodeText: View {
         }
     }
 
+    /// Абзац между блоками кода; цитаты и списки в нём — тем же видом, что в пузыре без кода.
+    @ViewBuilder
     private func paragraph(_ text: String, isLast: Bool) -> some View {
-        let body = Text(highlighted(text, rich: true)).font(Typography.body)
-        let line = isLast ? metaPlaceholder.map { body + $0 } ?? body : body
-        return line
-            .foregroundStyle(textColor)
-            .tint(tint)
-            .fixedSize(horizontal: false, vertical: true)
+        if let blocks = MessageTextBlocks.blocks(ifAny: text) {
+            MessageTextBlocksView(
+                blocks: blocks,
+                style: style,
+                textColor: textColor,
+                tint: tint,
+                metaPlaceholder: isLast ? metaPlaceholder : nil
+            )
             .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityLabel(Text(text))
+        } else {
+            let body = Text(highlighted(text, rich: true)).font(Typography.body)
+            let line = isLast ? metaPlaceholder.map { body + $0 } ?? body : body
+            line
+                .foregroundStyle(textColor)
+                .tint(tint)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel(Text(text))
+        }
+    }
+
+    private var style: BubbleTextStyle {
+        BubbleTextStyle(isOwn: isOwn, highlight: highlight, plainLinks: plainLinks)
     }
 
     private func highlighted(_ text: String, rich: Bool) -> AttributedString {
-        var result = rich ? RichText.attributed(text) : AttributedString(text)
-        if let highlight {
-            SearchHighlight.apply(highlight, to: &result, background: isOwn ? SearchHighlight.outgoing : SearchHighlight.incoming)
-        }
-        return result
+        style.attributed(text, rich: rich)
     }
 }
 
