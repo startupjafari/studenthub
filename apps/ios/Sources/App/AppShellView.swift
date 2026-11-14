@@ -65,6 +65,11 @@ struct AppShellView: View {
                 // Чат замеров из убранного раздела «Разработка» — не оставлять в списке.
                 try? await PerfFixture.remove()
             #endif
+            // Замер плавности ленты (`ScrollBenchmark`, только Debug): чат открывается сам —
+            // ссылка через `simctl openurl` упиралась в системный вопрос «Открыть в…».
+            if let chat = ScrollBenchmark.chatToOpen {
+                _ = router.open(.chat(id: chat), for: role)
+            }
             // Разрешение спрашиваем здесь, а не на экране входа: до входа уведомлять
             // человека не о чем, и запрос выглядел бы попрошайничеством.
             await PushRegistrar().requestAuthorization()

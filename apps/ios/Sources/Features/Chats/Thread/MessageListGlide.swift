@@ -114,4 +114,8 @@ final class MessageCollectionView: UICollectionView {
             onContentHeightChange?(oldValue.height)
         }
     }
+
+    override func layoutSubviews() {
+        ScrollJankMonitor.shared.measure(.layout) { super.layoutSubviews() }
+    }
 }

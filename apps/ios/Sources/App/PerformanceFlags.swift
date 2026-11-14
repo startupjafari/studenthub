@@ -21,10 +21,6 @@ enum PerformanceFlags {
     /// сообщений и всё непрочитанное) и расширяет его при прокрутке вверх, а не читает
     /// весь чат на каждое изменение базы. `false` — прежнее наблюдение всего чата.
     static let chatWindowedObservation = true
-    /// Каждой строке ленты — своя ожидаемая высота (замер из кеша или оценка по
-    /// содержимому) вместо общих 44 pt. Убирает скачки при быстрой прокрутке через ни разу
-    /// не показанные строки. `false` — прежний список с оценкой 44 pt.
-    static let chatEstimatedHeights = true
 
     // MARK: - Вторая волна: проверяется автоматически в обоих положениях
 
@@ -34,6 +30,11 @@ enum PerformanceFlags {
     /// Шаг 2.5. Своя раскладка ленты с кешем высот (`MessageStackLayout`): высота строки
     /// известна до показа.
     static var chatHeightCache: Bool { isOn(.chatHeightCache) }
+    /// Каждой строке ленты — своя ожидаемая высота (замер из кеша или оценка по
+    /// содержимому) вместо общих 44 pt. Убирает скачки при быстрой прокрутке через ни разу
+    /// не показанные строки. `false` — прежний список с оценкой 44 pt. Переключается,
+    /// чтобы замер плавности (`ScrollSmoothnessTests`) сравнил оба положения.
+    static var chatEstimatedHeights: Bool { isOn(.chatEstimatedHeights) }
     /// Шаг 2.6. `ChatBubbleStack` запоминает замеры детей между `sizeThatFits` и
     /// `placeSubviews` при той же ширине — каждый ребёнок меряется раз, а не 2–3.
     static var chatBubbleLayoutCache: Bool { isOn(.chatBubbleLayoutCache) }
@@ -50,6 +51,7 @@ enum PerformanceFlags {
     enum Switch: String, CaseIterable, Sendable {
         case chatThinHistoryShortWait
         case chatHeightCache
+        case chatEstimatedHeights
         case chatBubbleLayoutCache
         case chatBubbleFlatShadow
 
@@ -58,6 +60,7 @@ enum PerformanceFlags {
             // Прошли сравнение в обоих положениях (`MessageBubbleSnapshotTests`,
             // `PerformanceFlagUITests`).
             case .chatThinHistoryShortWait: true
+            case .chatEstimatedHeights: true
             case .chatBubbleLayoutCache: true
             case .chatBubbleFlatShadow: true
             // Дыры между пузырями у верха ленты — `testHeightCacheKeepsChatTheSame`.

@@ -360,48 +360,50 @@ final class MessageListViewController: UIViewController {
         let itemCount = snapshot.numberOfItems
         ScrollProbe.note("apply items \(previousOrder.count) -> \(itemCount) firstChanged=\(previousOrder.first != snapshot.itemIdentifiers.first) lastChanged=\(previousOrder.last != snapshot.itemIdentifiers.last) reconfigured=\(changed.count) tracking=\(collectionView.isTracking) decelerating=\(collectionView.isDecelerating)")
         applyingSnapshot = true
-        dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
-            Signposts.chats.endInterval("SnapshotApply", signpost, "items: \(itemCount)")
-            guard let self else { return }
-            self.applyingSnapshot = false
-            defer {
-                // Срез мог дописать ленту снизу без прокрутки — «у низа» пересчитываем.
-                self.reportBottom()
-                self.requestOlderIfScreenNotFilled()
-                self.updateFloatingDate()
-            }
+        ScrollJankMonitor.shared.measure(.apply) {
+            dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
+                Signposts.chats.endInterval("SnapshotApply", signpost, "items: \(itemCount)")
+                guard let self else { return }
+                self.applyingSnapshot = false
+                defer {
+                    // Срез мог дописать ленту снизу без прокрутки — «у низа» пересчитываем.
+                    self.reportBottom()
+                    self.requestOlderIfScreenNotFilled()
+                    self.updateFloatingDate()
+                }
 
-            if self.needsInitialPosition {
-                self.positionInitiallyIfPossible()
-                return
-            }
-            // Палец на ленте или она ещё катится по инерции — сама она никуда не едет:
-            // иначе каждая страница, синхронизация и отметка о прочтении утягивали ленту
-            // к низу из-под пальца, как только человек оказывался рядом с ним.
-            let interacting = self.collectionView.isTracking || self.collectionView.isDecelerating
-            // Пузырь сменил высоту на месте (строка реакций, правка) — соседи под ним
-            // доезжают пружиной вместе с ним, а не прыгают на всю разницу разом.
-            if inPlace, !interacting, !self.reduceMotion { self.animateLayout() }
-            // Сменилась высота пузыря у низа — низ держим и в окне истории: новых
-            // сообщений этот срез не принёс, уезжать некуда.
-            let keepsBottom = wasAtBottom && (followed || inPlace)
-            if !interacting, self.sticksToBottom || keepsBottom {
-                if followed { self.sticksToBottom = self.sticksToBottom || wasAtBottom }
-                // Плавно — новое сообщение в хвосте и смена высоты пузыря (реакция): строка
-                // реакций растёт в пузыре пружиной, и лента поднимается вместе с ней, а не
-                // прыгает. Остальное (прочтение, догрузка) держит низ без анимации. Идущую
-                // к низу прокрутку (своя отправка) срез не обрывает — она едет к новому низу.
-                let tailGrew = snapshot.itemIdentifiers.last != previousOrder.last
-                let animated = (tailGrew && !replaced) || inPlace || self.animatingToBottom
-                self.scrollToBottom(animated: animated && !self.reduceMotion)
-                return
-            }
-            if let pinned, self.restore(pinned) { return }
-            let grown = self.collectionView.contentSize.height - oldHeight
-            if grown > 0, oldOffset < grown {
-                // Выросло сверху — компенсируем, иначе лента прыгнет под пальцем.
-                ScrollProbe.note("grown compensation +\(Int(grown))")
-                self.collectionView.contentOffset.y = oldOffset + grown
+                if self.needsInitialPosition {
+                    self.positionInitiallyIfPossible()
+                    return
+                }
+                // Палец на ленте или она ещё катится по инерции — сама она никуда не едет:
+                // иначе каждая страница, синхронизация и отметка о прочтении утягивали ленту
+                // к низу из-под пальца, как только человек оказывался рядом с ним.
+                let interacting = self.collectionView.isTracking || self.collectionView.isDecelerating
+                // Пузырь сменил высоту на месте (строка реакций, правка) — соседи под ним
+                // доезжают пружиной вместе с ним, а не прыгают на всю разницу разом.
+                if inPlace, !interacting, !self.reduceMotion { self.animateLayout() }
+                // Сменилась высота пузыря у низа — низ держим и в окне истории: новых
+                // сообщений этот срез не принёс, уезжать некуда.
+                let keepsBottom = wasAtBottom && (followed || inPlace)
+                if !interacting, self.sticksToBottom || keepsBottom {
+                    if followed { self.sticksToBottom = self.sticksToBottom || wasAtBottom }
+                    // Плавно — новое сообщение в хвосте и смена высоты пузыря (реакция): строка
+                    // реакций растёт в пузыре пружиной, и лента поднимается вместе с ней, а не
+                    // прыгает. Остальное (прочтение, догрузка) держит низ без анимации. Идущую
+                    // к низу прокрутку (своя отправка) срез не обрывает — она едет к новому низу.
+                    let tailGrew = snapshot.itemIdentifiers.last != previousOrder.last
+                    let animated = (tailGrew && !replaced) || inPlace || self.animatingToBottom
+                    self.scrollToBottom(animated: animated && !self.reduceMotion)
+                    return
+                }
+                if let pinned, self.restore(pinned) { return }
+                let grown = self.collectionView.contentSize.height - oldHeight
+                if grown > 0, oldOffset < grown {
+                    // Выросло сверху — компенсируем, иначе лента прыгнет под пальцем.
+                    ScrollProbe.note("grown compensation +\(Int(grown))")
+                    self.collectionView.contentOffset.y = oldOffset + grown
+                }
             }
         }
     }
@@ -455,6 +457,7 @@ final class MessageListViewController: UIViewController {
         let items = dataSource.snapshot().numberOfItems
         Signposts.chats.emitEvent("FirstContentFrame", "items: \(items)")
         scheduleHeaderHide()
+        ScrollBenchmark.startIfRequested(on: collectionView)
     }
 
     /// Показать ленту после первой расстановки.
@@ -528,6 +531,8 @@ final class MessageListViewController: UIViewController {
         list.onContentHeightChange = { [weak self] old in self?.contentHeightChanged(from: old) }
         collectionView = list
         collectionView.accessibilityIdentifier = "chat.messages"
+        ScrollJankMonitor.shared.reportTarget = collectionView
+        ScrollJankMonitor.shared.auditVisible = { [weak self] in self?.auditVisibleHeights() ?? [] }
         collectionView.backgroundColor = .clear
         collectionView.keyboardDismissMode = .interactive
         // Короткая переписка тоже тянется: жест к началу ленты есть всегда.
@@ -578,6 +583,10 @@ final class MessageListViewController: UIViewController {
     /// на экране — лента скакала. `nil` — флаг выключен или секции нет.
     private func estimatedSection(_ index: Int) -> NSCollectionLayoutSection? {
         guard PerformanceFlags.chatEstimatedHeights, sectionItemIDs.indices.contains(index) else { return nil }
+        return ScrollJankMonitor.shared.measure(.section) { buildEstimatedSection(index) }
+    }
+
+    private func buildEstimatedSection(_ index: Int) -> NSCollectionLayoutSection? {
         let ids = sectionItemIDs[index]
         guard !ids.isEmpty else { return nil }
         let width = collectionView?.bounds.width ?? 0
@@ -616,6 +625,25 @@ final class MessageListViewController: UIViewController {
         }
         guard let item = itemsByID[id] else { return 44 }
         return CGFloat(MessageHeightEstimate.estimate(estimateInput(for: item), metrics: Self.estimateMetrics(width: width)))
+    }
+
+    /// Видимые строки, чья высота в раскладке разошлась с содержимым (`ScrollJankMonitor`):
+    /// содержимое меряется от нулевой высоты, как его мерила бы сама ячейка без подсказки.
+    private func auditVisibleHeights() -> [String] {
+        let width = collectionView.bounds.width
+        return collectionView.indexPathsForVisibleItems.sorted().compactMap { indexPath in
+            guard let cell = collectionView.cellForItem(at: indexPath),
+                let id = dataSource.itemIdentifier(for: indexPath)
+            else { return nil }
+            let fitted = cell.contentView.systemLayoutSizeFitting(
+                CGSize(width: width, height: 0),
+                withHorizontalFittingPriority: .required,
+                verticalFittingPriority: .fittingSizeLevel
+            ).height
+            let laid = cell.frame.height
+            guard abs(laid - fitted) > 2 else { return nil }
+            return "\(id):\(Int(laid))/\(Int(fitted))"
+        }
     }
 
     /// Ячейка измерила себя — запоминаем: в следующий раз строка встанет сразу своей высоты.
@@ -683,34 +711,39 @@ final class MessageListViewController: UIViewController {
         )
     }
 
+    private func configure(_ cell: MessageCell, id: String) {
+        guard let item = itemsByID[id] else { return }
+        cell.contentConfiguration = UIHostingConfiguration {
+            MessageBubbleView(
+                item: item,
+                context: bubbleContext,
+                capabilities: capabilities?(item.message) ?? MessageCapabilities(),
+                selecting: selection != nil,
+                isSelected: selection?.contains(id) ?? false
+            ) { [weak self] action in
+                if case .menu = action {
+                    self?.onMenu?(item)
+                } else {
+                    self?.onAction?(action, item.message)
+                }
+            }
+        }
+        // Как в Telegram: пузыри почти у краёв экрана, внутри группы — вплотную.
+        .margins(.horizontal, Spacing.md)
+        .margins(.vertical, item.isLastInGroup ? 5 : 1)
+        cell.backgroundConfiguration = .clear()
+    }
+
     private func configureDataSource() {
         let cell = UICollectionView.CellRegistration<MessageCell, String> {
             [weak self] cell, _, id in
-            guard let item = self?.itemsByID[id] else { return }
-            cell.contentConfiguration = UIHostingConfiguration {
-                MessageBubbleView(
-                    item: item,
-                    context: self?.bubbleContext ?? BubbleContext(),
-                    capabilities: self?.capabilities?(item.message) ?? MessageCapabilities(),
-                    selecting: self?.selection != nil,
-                    isSelected: self?.selection?.contains(id) ?? false
-                ) { [weak self] action in
-                    if case .menu = action {
-                        self?.onMenu?(item)
-                    } else {
-                        self?.onAction?(action, item.message)
-                    }
-                }
-            }
-            // Как в Telegram: пузыри почти у краёв экрана, внутри группы — вплотную.
-            .margins(.horizontal, Spacing.md)
-            .margins(.vertical, item.isLastInGroup ? 5 : 1)
-            cell.backgroundConfiguration = .clear()
+            ScrollJankMonitor.shared.measure(.configure) { self?.configure(cell, id: id) }
         }
+
 
         // Обычная ячейка, не строка списка: у прилипшего заголовка списка система рисует
         // подложку во всю ширину — полосу под датой. Здесь видна только капсула даты.
-        let header = UICollectionView.SupplementaryRegistration<UICollectionViewCell>(
+        let header = UICollectionView.SupplementaryRegistration<DaySeparatorCell>(
             elementKind: UICollectionView.elementKindSectionHeader
         ) { [weak self] view, _, indexPath in
             guard let day = self?.dataSource.sectionIdentifier(for: indexPath.section) else { return }
@@ -1213,6 +1246,10 @@ extension MessageListViewController: UICollectionViewDataSourcePrefetching {
 
 extension MessageListViewController: UICollectionViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        ScrollJankMonitor.shared.measure(.scrollHandler) { handleScroll(scrollView) }
+    }
+
+    private func handleScroll(_ scrollView: UIScrollView) {
         #if DEBUG
             let jump = scrollView.contentOffset.y - probeLastOffset
             if abs(jump) > 200 {
@@ -1248,6 +1285,7 @@ extension MessageListViewController: UICollectionViewDelegate {
 
     /// Человек взял ленту пальцем — программа больше не ведёт её к низу и к цели.
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        ScrollJankMonitor.shared.begin()
         sticksToBottom = false
         glide.stop()
         pendingFocus = nil
@@ -1256,10 +1294,14 @@ extension MessageListViewController: UICollectionViewDelegate {
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        if !decelerate { scheduleHeaderHide() }
+        if !decelerate {
+            ScrollJankMonitor.shared.end()
+            scheduleHeaderHide()
+        }
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        ScrollJankMonitor.shared.end()
         scheduleHeaderHide()
     }
 
@@ -1446,6 +1488,14 @@ final class FloatingDateView: UIView {
 /// реакции и отправке, пока сам пузырь рос плавно. Низ держит лента пружиной
 /// (`MessageListViewController.contentHeightChanged`).
 final class MessageListLayout: UICollectionViewCompositionalLayout {
+    override func prepare() {
+        ScrollJankMonitor.shared.measure(.layoutQuery) { super.prepare() }
+    }
+
+    override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
+        ScrollJankMonitor.shared.measure(.layoutQuery) { super.layoutAttributesForElements(in: rect) }
+    }
+
     /// Ячейка измерила себя (высота — её настоящая). Для кеша ожидаемых высот.
     var onMeasured: ((IndexPath, CGFloat) -> Void)?
 
@@ -1478,7 +1528,9 @@ final class MessageListLayout: UICollectionViewCompositionalLayout {
         Signposts.chats.emitEvent("CellRemeasure")
         let inset = collectionView.adjustedContentInset
         let offset = collectionView.contentOffset.y
-        guard original.frame.minY < offset + inset.top - 0.5 else { return context }
+        let above = original.frame.minY < offset + inset.top - 0.5
+        ScrollJankMonitor.shared.noteRemeasure(above: above)
+        guard above else { return context }
         // Не выше начала ленты.
         context.contentOffsetAdjustment = CGPoint(x: 0, y: max(delta, -(offset + inset.top)))
         ScrollProbe.note("remeasure above top \(Int(original.frame.height)) -> \(Int(preferred.frame.height)) adjust=\(Int(context.contentOffsetAdjustment.y))")
@@ -1492,9 +1544,17 @@ final class MessageListLayout: UICollectionViewCompositionalLayout {
 /// растянуться, возвращало её обратно. Завышенная оценка так и оставалась дырой под
 /// пузырём (`PerformanceFlagUITests` ловит это сравнением ленты с флагом и без).
 final class MessageCell: UICollectionViewListCell {
+    override func layoutSubviews() {
+        ScrollJankMonitor.shared.measure(.cellLayout) { super.layoutSubviews() }
+    }
+
     override func preferredLayoutAttributesFitting(
         _ layoutAttributes: UICollectionViewLayoutAttributes
     ) -> UICollectionViewLayoutAttributes {
+        ScrollJankMonitor.shared.measure(.sizing) { fit(layoutAttributes) }
+    }
+
+    private func fit(_ layoutAttributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
         let attributes = super.preferredLayoutAttributesFitting(layoutAttributes)
         guard PerformanceFlags.chatHeightCache else { return attributes }
         let fitted = contentView.systemLayoutSizeFitting(
@@ -1504,5 +1564,13 @@ final class MessageCell: UICollectionViewListCell {
         )
         attributes.frame.size = CGSize(width: layoutAttributes.size.width, height: ceil(fitted.height))
         return attributes
+    }
+}
+
+/// Строка даты дня. Своим классом — чтобы замер (`ScrollJankMonitor`) видел её раскладку
+/// отдельно от пузырей.
+final class DaySeparatorCell: UICollectionViewCell {
+    override func layoutSubviews() {
+        ScrollJankMonitor.shared.measure(.headerLayout) { super.layoutSubviews() }
     }
 }
