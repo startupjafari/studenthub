@@ -71,4 +71,9 @@ final class MessageCodeBlocksTests: XCTestCase {
             [.code(language: "py", code: "def f():\n    return 1")]
         )
     }
+
+    /// Язык приводится к одному виду при разборе (IOS_RULES 7.6.15).
+    func testLanguageIsNormalized() {
+        XCTAssertEqual(MessageCodeBlocks.parse("```Swift \nlet a = 1\n```"), [.code(language: "swift", code: "let a = 1")])
+    }
 }

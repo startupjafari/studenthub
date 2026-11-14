@@ -167,6 +167,8 @@ struct ComposerEditorView: View {
                             } label: {
                                 Label(format.title, systemImage: format.symbol)
                             }
+                            // Внутри кода — только «Блок кода» (IOS_RULES 7.4.3).
+                            .disabled(!editor.context.allows(format))
                         }
                     } label: {
                         toolIcon("textformat")

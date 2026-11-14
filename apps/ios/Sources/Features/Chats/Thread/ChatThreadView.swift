@@ -1237,7 +1237,7 @@ private struct PinnedBar: View {
                         .foregroundStyle(Palette.primary)
                     Text(message.content.isEmpty
                         ? String(localized: "chats.attachmentPreview", defaultValue: "Вложение")
-                        : message.content)
+                        : MessagePreview.text(message.content))
                         .font(Typography.meta)
                         .foregroundStyle(Palette.foreground)
                         .lineLimit(1)

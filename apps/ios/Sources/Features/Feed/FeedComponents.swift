@@ -438,9 +438,11 @@ enum RichText {
             else { continue }
             text[attributed].link = url
         }
+        // Упоминание выделено весом, но не цветом ссылки: открыть профиль по логину
+        // приложению нечем (ни адреса, ни запроса по логину), а цвет ссылки обещал бы
+        // касание, которое ничего не делает (IOS_RULES 7.6.5).
         for match in mention?.matches(in: plain, range: whole) ?? [] {
             guard let range = Range(match.range, in: plain), let attributed = Range(range, in: text) else { continue }
-            text[attributed].foregroundColor = Palette.primary
             text[attributed].font = Typography.body.weight(.medium)
         }
     }

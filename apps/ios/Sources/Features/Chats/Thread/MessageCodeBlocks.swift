@@ -11,6 +11,10 @@ import UIKit
 /// - блок — между парой ```` ``` ````; незакрытая тройная кавычка остаётся текстом;
 /// - первая строка блока — язык, если это одно короткое слово (`swift`, `c++`, `objective-c`);
 ///   иначе она — часть кода; пустая первая строка (перенос сразу после ```` ``` ````) отбрасывается;
+/// - язык приводится к нижнему регистру здесь, при разборе, а не при отрисовке: `Swift` и
+///   `swift` — один ключ для подписи и будущей подсветки (IOS_RULES 7.6.15, 7.1.9);
+/// - этим же разбором делит текст статья (`CommunityMarkdownView`) и превью сообщения
+///   (`MessagePreview`): один синтаксис — один разборщик (7.6.2);
 /// - перевод строки перед закрывающей ```` ``` ```` и вокруг блока не рисуется: блок и так
 ///   стоит своей строкой;
 /// - пустой блок (одни пробелы) остаётся текстом как есть — рисовать пустую плашку незачем.
@@ -78,7 +82,7 @@ enum MessageCodeBlocks {
             if head.isEmpty {
                 body = body[body.index(after: newline)...]
             } else if isLanguage(head) {
-                language = head
+                language = head.lowercased()
                 body = body[body.index(after: newline)...]
             }
         }
@@ -190,7 +194,7 @@ struct MessageCodeBlockView: View {
             HStack(spacing: Spacing.sm) {
                 if let language {
                     Text(verbatim: language)
-                        .font(.caption.weight(.semibold))
+                        .font(Typography.codeLabel)
                         .foregroundStyle(accent)
                         .lineLimit(1)
                 }
@@ -199,7 +203,7 @@ struct MessageCodeBlockView: View {
                     onCopy(plain)
                 } label: {
                     Image(systemName: "doc.on.doc")
-                        .font(.caption.weight(.semibold))
+                        .font(Typography.codeLabel)
                         .foregroundStyle(accent)
                         .frame(width: ControlHeight.sm, height: ControlHeight.sm, alignment: .trailing)
                         .contentShape(Rectangle())
@@ -213,7 +217,7 @@ struct MessageCodeBlockView: View {
             .frame(height: Spacing.lg)
 
             Text(code)
-                .font(.system(.subheadline, design: .monospaced))
+                .font(Typography.messageCode)
                 .foregroundStyle(textColor)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)

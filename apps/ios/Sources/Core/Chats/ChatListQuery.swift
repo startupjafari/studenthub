@@ -126,13 +126,14 @@ struct ChatListRow: FetchableRecord, Decodable, Identifiable, Equatable {
         return nil
     }
 
-    /// Что показать второй строкой.
+    /// Что показать второй строкой. Текст — без разметки, одной строкой: та же функция,
+    /// что в панелях ответа и закрепа (IOS_RULES 7.7.1).
     var preview: String? {
-        if let draftText, !draftText.isEmpty { return draftText }
+        if let draftText, !draftText.isEmpty { return MessagePreview.text(draftText) }
         if lastDeletedAt != nil {
             return String(localized: "chats.deletedMessage", defaultValue: "Сообщение удалено")
         }
-        if let lastContent, !lastContent.isEmpty { return lastContent }
+        if let lastContent, !lastContent.isEmpty { return MessagePreview.text(lastContent) }
         return attachmentPreview
     }
 }

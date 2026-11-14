@@ -358,10 +358,25 @@ struct CommunityMarkdownView: View {
         case code(String)
     }
 
+    /// Блоки кода делит тот же разбор, что и в пузыре сообщения (`MessageCodeBlocks`,
+    /// IOS_RULES 7.6.2): один и тот же код выглядит в статье и в переписке одинаково.
+    /// Прежний построчный разбор отличался: однострочный ```` ```ls``` ```` открывал блок,
+    /// который съедал весь текст до конца статьи, а незакрытая ```` ``` ```` делала кодом
+    /// остаток статьи — теперь она остаётся текстом, как в пузыре.
     private var blocks: [Block] {
+        guard let segments = MessageCodeBlocks.segments(ifAny: source) else { return Self.textBlocks(source) }
+        return segments.flatMap { segment -> [Block] in
+            switch segment {
+            case .text(let text): return Self.textBlocks(text)
+            case .code(_, let code): return [.code(code)]
+            }
+        }
+    }
+
+    /// Абзацы, заголовки, списки и цитаты текста без блоков кода.
+    private static func textBlocks(_ source: String) -> [Block] {
         var result: [Block] = []
         var paragraph: [String] = []
-        var code: [String]?
         func flush() {
             if !paragraph.isEmpty {
                 result.append(.paragraph(paragraph.joined(separator: "\n")))
@@ -370,20 +385,6 @@ struct CommunityMarkdownView: View {
         }
         for raw in source.components(separatedBy: "\n") {
             let line = raw.trimmingCharacters(in: .whitespaces)
-            if line.hasPrefix("```") {
-                if let lines = code {
-                    result.append(.code(lines.joined(separator: "\n")))
-                    code = nil
-                } else {
-                    flush()
-                    code = []
-                }
-                continue
-            }
-            if code != nil {
-                code?.append(raw)
-                continue
-            }
             if line.isEmpty {
                 flush()
             } else if line.hasPrefix("#") {
@@ -410,7 +411,6 @@ struct CommunityMarkdownView: View {
                 paragraph.append(line)
             }
         }
-        if let code { result.append(.code(code.joined(separator: "\n"))) }
         flush()
         return result
     }
@@ -420,7 +420,7 @@ struct CommunityMarkdownView: View {
         switch block {
         case .heading(let text, let level):
             Text(RichText.attributed(text))
-                .font(level <= 1 ? .title2.weight(.bold) : level == 2 ? .title3.weight(.semibold) : .headline)
+                .font(Typography.articleHeading(level: level))
                 .foregroundStyle(Palette.foreground)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, level <= 2 ? Spacing.md : Spacing.xs)
@@ -471,7 +471,7 @@ struct CommunityMarkdownView: View {
         case .code(let text):
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(verbatim: text)
-                    .font(.system(.footnote, design: .monospaced))
+                    .font(Typography.articleCode)
                     .foregroundStyle(Palette.foreground)
                     .padding(Spacing.lg)
             }

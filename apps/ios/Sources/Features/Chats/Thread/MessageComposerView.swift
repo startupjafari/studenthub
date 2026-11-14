@@ -56,7 +56,7 @@ struct MessageComposerView: View {
                 if let editing = model.editing {
                     ReplyBar(
                         title: String(localized: "chats.editing", defaultValue: "Редактирование"),
-                        text: editing.content,
+                        text: MessagePreview.text(editing.content),
                         symbol: "pencil"
                     ) { model.cancelEdit() }
                     .transition(barTransition)
@@ -67,7 +67,7 @@ struct MessageComposerView: View {
                         } ?? String(localized: "chats.replyingTo", defaultValue: "Ответ"),
                         text: replyTo.content.isEmpty
                             ? String(localized: "chats.attachmentPreview", defaultValue: "Вложение")
-                            : replyTo.content,
+                            : MessagePreview.text(replyTo.content),
                         symbol: "arrowshape.turn.up.left"
                     ) { model.cancelReply() }
                     // Ответ на другое сообщение — новая полоса, а не правка текста старой.
