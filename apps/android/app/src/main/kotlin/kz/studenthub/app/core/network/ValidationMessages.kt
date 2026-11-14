@@ -74,6 +74,8 @@ object ValidationMessages {
         "validation.chats.contactEmpty" to R.string.validation_chats_contactEmpty,
         "validation.chats.stickerSlug" to R.string.validation_chats_stickerSlug,
         "validation.chats.livePeriod" to R.string.validation_chats_livePeriod,
+        "validation.chats.folderEmoji" to R.string.validation_chats_folderEmoji,
+        "validation.chats.folderChatExcluded" to R.string.validation_chats_folderChatExcluded,
         "validation.documents.typeCode" to R.string.validation_documents_typeCode,
         "validation.library.isbn" to R.string.validation_library_isbn,
         "validation.library.copiesOrCount" to R.string.validation_library_copiesOrCount,

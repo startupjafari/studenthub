@@ -5570,6 +5570,8 @@
     <string name="validation_chats_contactEmpty">Укажите хотя бы один телефон или адрес почты</string>
     <string name="validation_chats_emptyMessage">Сообщение не может быть пустым</string>
     <string name="validation_chats_livePeriod">Трансляция: 15 минут, 1 час или 8 часов</string>
+    <string name="validation_chats_folderEmoji">Значок папки — один эмодзи</string>
+    <string name="validation_chats_folderChatExcluded">Чат не может быть одновременно в папке и в исключениях</string>
     <string name="validation_chats_nothingToChange">Нечего менять: укажите название или описание</string>
     <string name="validation_chats_privateOneMember">Личный чат создаётся ровно с одним собеседником</string>
     <string name="validation_chats_quoteWithoutReply">Цитата возможна только вместе с ответом на сообщение</string>

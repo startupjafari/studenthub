@@ -19,6 +19,8 @@
     <string name="validation_chats_contactEmpty">Add at least one phone number or email address</string>
     <string name="validation_chats_emptyMessage">The message cannot be empty</string>
     <string name="validation_chats_livePeriod">Live location: 15 minutes, 1 hour or 8 hours</string>
+    <string name="validation_chats_folderEmoji">Folder icon must be a single emoji</string>
+    <string name="validation_chats_folderChatExcluded">A chat cannot be both included in and excluded from a folder</string>
     <string name="validation_chats_nothingToChange">Nothing to change: enter a title or a description</string>
     <string name="validation_chats_privateOneMember">A private chat is created with exactly one person</string>
     <string name="validation_chats_quoteWithoutReply">A quote is only possible together with a reply</string>
