@@ -1,4 +1,3 @@
-import GRDB
 import SwiftUI
 
 /// Что открыть в листе папки: существующую папку или новую — с уже отмеченными чатами,
@@ -428,11 +427,7 @@ struct ChatFolderEditorView: View {
     /// Чаты для выбора — из базы, как и список: архивные нужны, чтобы показать их в
     /// составе, но предлагаются только живые (у архива и запросов свои вкладки).
     private func loadChats() async {
-        let all = ChatListQuery.rows(for: .all)
-        let archived = ChatListQuery.rows(for: .archive)
-        chats = (try? await AppServices.database.reader.read { db in
-            try all.fetchAll(db) + archived.fetchAll(db)
-        }) ?? []
+        chats = (try? await ChatListQueries(database: AppServices.database).fetchFolderCandidates()) ?? []
     }
 
     private func save() async {
