@@ -597,14 +597,29 @@ struct MessageBubbleView: View {
         }
         text = text + Text(verbatim: time)
         if item.isOwn {
-            text = text + Text(verbatim: " ") + Text(Image(systemName: "checkmark")) + Text(Image(systemName: "checkmark"))
-            if readCount > 0 {
-                text = text + Text(verbatim: " \(readCount.formatted())")
-            }
+            text = text + Text(verbatim: " ") + stateMarkPlaceholder
         }
         return text
             .font(Typography.tabular(.caption2))
             .foregroundStyle(Color.clear)
+    }
+
+    /// Копия `stateMark` для места под время: тот же знак, что нарисуется сверху. Две
+    /// галочки там, где видна одна, оставляли зазор, а часы и «!» уже галочек.
+    private var stateMarkPlaceholder: Text {
+        switch message.sendState {
+        case .sent:
+            // Вторая галочка у видимой метки сдвинута на полширины, копия берёт её
+            // целиком: резерв чуть шире, но время на текст не наедет.
+            var checks = Text(Image(systemName: "checkmark"))
+            if isRead { checks = checks + Text(Image(systemName: "checkmark")) }
+            checks = checks.font(.caption2.weight(.bold))
+            return readCount > 0 ? checks + Text(verbatim: " \(readCount.formatted())") : checks
+        case .pending:
+            return Text(Image(systemName: "clock"))
+        case .failed:
+            return Text(Image(systemName: "exclamationmark.circle.fill"))
+        }
     }
 
     // MARK: Реакции
