@@ -42,6 +42,9 @@ final class ChatThreadModel {
     }
     /// На какое сообщение отвечаем.
     private(set) var replyTo: MessageRecord?
+    /// Ответ, выбранный до начала правки: панель правки его заменяет, но не отменяет — после
+    /// правки он возвращается, как черновик в поле (IOS_RULES 9.8.6, `composeInputState`).
+    @ObservationIgnored private var replyBeforeEdit: MessageRecord?
     /// Какое своё сообщение правим: поле ввода держит его текст (`input.editText`),
     /// «отправить» — сохранить.
     private(set) var editing: MessageRecord?
@@ -86,6 +89,9 @@ final class ChatThreadModel {
     private let uploader: AttachmentUploader
     private let realtime: RealtimeCoordinator
     private let actions: ChatActing
+    /// Строка чата для списка — когда её нет в базе (IOS_RULES 9.4.18).
+    private let chats: ChatsFetching
+    private let chatStore: ChatStore
 
     private var messagesTask: Task<Void, Never>?
     private var chatTask: Task<Void, Never>?
@@ -160,7 +166,8 @@ final class ChatThreadModel {
         outbox: MessageOutbox? = nil,
         uploader: AttachmentUploader? = nil,
         realtime: RealtimeCoordinator = AppServices.realtime,
-        actions: ChatActing = ChatsAPI()
+        actions: ChatActing = ChatsAPI(),
+        chats: ChatsFetching = ChatsAPI()
     ) {
         self.chatID = chatID
         self.viewerID = viewerID
@@ -171,6 +178,8 @@ final class ChatThreadModel {
         self.uploader = uploader ?? AttachmentUploader(database: database)
         self.realtime = realtime
         self.actions = actions
+        self.chats = chats
+        self.chatStore = ChatStore(database: database)
         self.scheduled = ChatScheduledMessages(chatID: chatID, api: actions)
     }
 
@@ -241,6 +250,12 @@ final class ChatThreadModel {
     /// в базу последнее сообщение каждого чата, и лента показала бы одно сообщение.
     @MainActor
     func open() async {
+        // Чат открыт по пушу или ссылке, а в базе его строки нет: первая страница списка
+        // его не принесла. Без строки нет заголовка, счётчика и якоря непрочитанного —
+        // читаем её саму, не дожидаясь списка (IOS_RULES 9.4.18). Параллельно с лентой.
+        if await !chatStore.hasChat(id: chatID) {
+            Task { [chatStore, chats, chatID] in await chatStore.refresh(chatID: chatID, api: chats) }
+        }
         if let mark = pendingWindowReset {
             await resumeAfterDetachedWindow(mark)
         } else {
@@ -521,6 +536,8 @@ final class ChatThreadModel {
     @MainActor
     func beginEdit(_ message: MessageRecord) {
         guard canEdit(message) else { return }
+        // Правка поверх правки — ответ уже отложен первой.
+        if let replyTo { replyBeforeEdit = replyTo }
         replyTo = nil
         editing = message
         // Черновик чата не трогаем: текст правки — отдельно, после правки черновик
@@ -532,6 +549,15 @@ final class ChatThreadModel {
     func cancelEdit() {
         editing = nil
         input.endEdit()
+        restoreReplyAfterEdit()
+    }
+
+    /// Правка закончилась — отложенный ответ снова в панели, если за время правки не
+    /// выбрали другой.
+    @MainActor
+    private func restoreReplyAfterEdit() {
+        if replyTo == nil { replyTo = replyBeforeEdit }
+        replyBeforeEdit = nil
     }
 
     /// Правка уходит сокетом; текст в базе меняется сразу, а подтверждение придёт
@@ -544,6 +570,7 @@ final class ChatThreadModel {
     private func saveEdit(of message: MessageRecord, text: String) async {
         editing = nil
         input.endEdit()
+        restoreReplyAfterEdit()
         guard text != message.content, let remoteID = message.remoteId else { return }
         let id = message.id
         try? await store.saveLocalEdit(messageID: id, text: text)

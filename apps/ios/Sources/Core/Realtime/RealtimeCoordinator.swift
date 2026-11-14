@@ -78,6 +78,10 @@ final class RealtimeCoordinator {
     /// Чат, открытый на экране: его сообщения не увеличивают счётчик непрочитанного.
     private var openChatID: String?
     private var listRefresh: Task<Void, Never>?
+    /// Чаты, чьи строки ждут перечитывания (`chat:activity`, смена членства): копятся за
+    /// паузу и читаются по одной (IOS_RULES 9.4.18).
+    private var pendingRows: Set<String> = []
+    private var rowRefresh: Task<Void, Never>?
     /// Отметки прочтения, правки и удаления, сделанные без соединения: socket.io без него
     /// событие молча отбрасывает, а в базе изменение уже есть. Досылаются на `.connected`
     /// (IOS_RULES 9.4.16). Прочтение — последнее на чат, правка — последний текст.
@@ -159,6 +163,9 @@ final class RealtimeCoordinator {
         applicationStatus = nil
         listRefresh?.cancel()
         listRefresh = nil
+        rowRefresh?.cancel()
+        rowRefresh = nil
+        pendingRows = []
         pinnedVersions = [:]
         pollVersions = [:]
         checklists = [:]
@@ -378,7 +385,12 @@ final class RealtimeCoordinator {
                 try chat.update(db)
             }
 
-        case .chatActivity, .blockChanged:
+        case .chatActivity(let chatID):
+            // Строку самого чата, а не первую страницу: чат за её пределами (давний, в
+            // архиве, только что добавивший меня) иначе не обновился бы (IOS_RULES 9.4.18).
+            scheduleRowRefresh(chatID)
+
+        case .blockChanged:
             scheduleListRefresh()
 
         case .chatListChanged:
@@ -462,6 +474,34 @@ final class RealtimeCoordinator {
     /// не ответит по существу, не придёт новая просьба или не выйдет человек (IOS_RULES
     /// 9.3.1) — иначе счётчики и порядок списка стояли бы до следующего события.
     @MainActor
+    /// Больше чатов за паузу — одна страница списка дешевле запроса на каждый.
+    static let rowRefreshLimit = 5
+
+    private func scheduleRowRefresh(_ chatID: String) {
+        pendingRows.insert(chatID)
+        guard rowRefresh == nil else { return }
+        rowRefresh = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(700))
+            guard let self, !Task.isCancelled else { return }
+            let ids = self.pendingRows
+            self.pendingRows = []
+            self.rowRefresh = nil
+            guard self.active else { return }
+            guard ids.count <= Self.rowRefreshLimit else {
+                self.scheduleListRefresh()
+                return
+            }
+            let api = self.api ?? ChatsAPI()
+            var missed = false
+            for id in ids {
+                if await !self.store.refresh(chatID: id, api: api) { missed = true }
+            }
+            // Строку не дали (нет сети, сервер без `GET /chats/:id`, чат скрыт) — как
+            // раньше, первая страница списка.
+            if missed { self.scheduleListRefresh() }
+        }
+    }
+
     private func scheduleListRefresh() {
         listRefresh?.cancel()
         listRefresh = Task { @MainActor [weak self] in

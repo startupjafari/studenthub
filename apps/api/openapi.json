@@ -21582,7 +21582,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Новые сообщения (created), изменённые (mutated), удалённые (deletedIds), актуальный latestSeq. overflow=true — разрыв больше лимита, историю нужно перезапросить целиком"
+            "description": "Новые сообщения (created), изменённые (mutated), удалённые (deletedIds), актуальный latestSeq. overflow=true — новых, правок или удалений больше лимита, историю нужно перезапросить целиком"
           },
           "403": {
             "description": "WRONG_SCOPE — не участник"
@@ -24065,6 +24065,36 @@
       }
     },
     "/chats/{id}": {
+      "get": {
+        "operationId": "ChatsController_getChat",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ data: элемент списка чатов }"
+          },
+          "404": {
+            "description": "NOT_FOUND — не участник, забанен, скрыл чат или пустой чужой запрос"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Один чат — тот же элемент, что в GET /chats (только участник)",
+        "tags": [
+          "Чаты"
+        ]
+      },
       "patch": {
         "operationId": "ChatsController_editChat",
         "parameters": [

@@ -9,6 +9,7 @@
 | Любая задача | `docs/PROJECT.md` (концепция, данные, контракты) |
 | Бэкенд (`apps/api`, `prisma/`) | `docs/BACKEND_RULES.md` |
 | Фронтенд (`apps/web`) | `docs/FRONTEND_RULES.md` |
+| iOS (`apps/ios`) | `apps/ios/README.md`, `docs/IOS_RULES.md` (правила по образцу Telegram-iOS; приоритет у AGENTS.md и решений владельца) |
 | Планирование, выбор следующего шага | `docs/IMPLEMENTATION_PLAN.md` |
 
 Правила в `docs/*_RULES.md` имеют приоритет над плагин-скиллами `sevenhillskz:*`. Отклонения перечислены в §0 каждого файла правил — не «исправляй» проект под конвенции скиллов.

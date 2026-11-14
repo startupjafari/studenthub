@@ -409,6 +409,29 @@ describe('ChatsService.editMessage / deleteMessage — только автор',
     expect(prisma.message.update).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['опрос', { poll: { id: 'p1' } }],
+    ['чек-лист', { checklist: { id: 'cl1' } }],
+    ['стикер', { stickerId: 's1' }],
+    ['геопозиция', { location: { messageId: 'm1' } }],
+    ['контакт', { contact: { messageId: 'm1' } }],
+    ['системное событие', { systemType: 'member_added' }],
+  ])('правка сообщения-%s → VALIDATION_ERROR', async (_label, kind) => {
+    const { service, prisma } = setup()
+    prisma.message.findFirst.mockResolvedValue({
+      id: 'm1',
+      chatId: 'c1',
+      senderId: 'u1',
+      createdAt: new Date(),
+      content: '',
+      ...kind,
+    })
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1', bannedAt: null })
+    const err = await service.editMessage('u1', 'm1', 'текст').catch((e) => e)
+    expect(err.code).toBe('VALIDATION_ERROR')
+    expect(prisma.message.update).not.toHaveBeenCalled()
+  })
+
   it('правка своего старого сообщения (>10 мин) → BAD_REQUEST', async () => {
     const { service, prisma } = setup()
     prisma.message.findFirst.mockResolvedValue({
@@ -1710,6 +1733,98 @@ describe('ChatsService.listChats — последнее сообщение', () 
   })
 })
 
+describe('ChatsService.getChat — один чат в виде элемента списка', () => {
+  const at = new Date('2026-10-01T10:00:00Z')
+  const privateRow = (over: Record<string, unknown> = {}) => ({
+    id: 'c1',
+    type: 'PRIVATE',
+    title: null,
+    description: null,
+    avatarUrl: null,
+    createdById: 'u1',
+    groupId: null,
+    facultyId: null,
+    universityId: null,
+    subject: null,
+    requestPendingForId: null,
+    updatedAt: at,
+    members: [
+      {
+        lastReadAt: null,
+        mutedAt: null,
+        mutedUntil: null,
+        muteImportantOnly: false,
+        isAdmin: false,
+        clearedAt: null,
+        clearedRanges: null,
+        draft: null,
+        pinnedAt: at,
+        pinnedOrder: 2,
+        markedUnreadAt: at,
+        archivedAt: null,
+      },
+    ],
+    _count: { members: 2 },
+    ...over,
+  })
+
+  function mockPeer(prisma: ReturnType<typeof setup>['prisma']) {
+    // Последних сообщений нет; собеседник u2 — друг.
+    prisma.$queryRaw.mockResolvedValue([])
+    Object.assign(prisma.chatMember, { groupBy: jest.fn().mockResolvedValue([]) })
+    prisma.chatMember.findMany.mockResolvedValue([
+      { chatId: 'c1', userId: 'u2', user: { avatarUrl: null, firstName: 'Ия', lastName: 'Ли' } },
+    ])
+    prisma.friendship.findMany.mockResolvedValue([{ requesterId: 'u1', addresseeId: 'u2' }])
+  }
+
+  it('отдаёт тот же элемент, что GET /chats, с markedUnread / pinnedOrder / isFriend', async () => {
+    const { service, prisma } = setup()
+    mockPeer(prisma)
+    prisma.chat.findMany.mockResolvedValue([privateRow()])
+    prisma.chat.findFirst.mockResolvedValue(privateRow())
+
+    const page = await service.listChats(user('u1'), { limit: 20, cursor: 'c0' })
+    const item = await service.getChat(user('u1'), 'c1')
+
+    expect(item).toEqual(page.items[0])
+    expect(item).toMatchObject({
+      id: 'c1',
+      title: 'Ли Ия',
+      markedUnread: true,
+      pinned: true,
+      pinnedOrder: 2,
+      isFriend: true,
+    })
+    // Чтение одно — по id и тем же условиям видимости, что у списка.
+    expect(prisma.chat.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: 'c1',
+          members: { some: { userId: 'u1', bannedAt: null, hiddenAt: null } },
+        }),
+      }),
+    )
+  })
+
+  it('не участник, забанен или скрыл чат → NOT_FOUND', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValue(null)
+    const err = (await service.getChat(user('u1'), 'c1').catch((e: unknown) => e)) as AppException
+    expect(err).toBeInstanceOf(AppException)
+    expect(err.code).toBe('NOT_FOUND')
+    expect(prisma.message.findMany).not.toHaveBeenCalled()
+  })
+
+  it('пустая оболочка чужого запроса на переписку (§50) → NOT_FOUND, как в списке', async () => {
+    const { service, prisma } = setup()
+    mockPeer(prisma)
+    prisma.chat.findFirst.mockResolvedValue(privateRow({ requestPendingForId: 'u1' }))
+    const err = (await service.getChat(user('u1'), 'c1').catch((e: unknown) => e)) as AppException
+    expect(err.code).toBe('NOT_FOUND')
+  })
+})
+
 // BUG-175: курсор Prisma по id брал updatedAt чата-курсора на момент следующего запроса —
 // сообщение в нём уводило чат наверх, и вторая страница начиналась с начала списка.
 describe('ChatsService.listChats — курсор', () => {
@@ -2649,6 +2764,46 @@ describe('ChatsService.getUpdates — дельта догона', () => {
     expect(res.overflow).toBe(true)
     expect(res.created).toEqual([])
     expect(res.latestSeq).toBe(201)
+  })
+
+  it.each([
+    ['правок', 1],
+    ['удалений', 2],
+  ])('%s больше лимита → overflow, список усечён до лимита', async (_label, call) => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue(member)
+    const rows = Array.from({ length: 201 }, (_, i) => ({ id: `m${i}`, seq: i + 1 }))
+    prisma.message.findMany
+      .mockResolvedValueOnce([]) // created
+      .mockResolvedValueOnce(call === 1 ? rows : []) // mutated
+      .mockResolvedValueOnce(call === 2 ? rows : []) // deleted
+    prisma.chat.findUnique.mockResolvedValueOnce({ lastSeq: 300 })
+
+    const res = await service.getUpdates(user('u1'), 'c1', {
+      since: 300,
+      sinceTs: '2026-08-19T10:00:00.000Z',
+    })
+
+    expect(res.overflow).toBe(true)
+    // limit + 1 — чтобы отличить «ровно лимит» от переполнения.
+    expect(prisma.message.findMany.mock.calls[call][0].take).toBe(201)
+    expect(call === 1 ? res.mutated : res.deletedIds).toHaveLength(200)
+  })
+
+  it('ровно лимит правок — не overflow', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue(member)
+    const rows = Array.from({ length: 200 }, (_, i) => ({ id: `m${i}`, seq: i + 1 }))
+    prisma.message.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce(rows)
+    prisma.chat.findUnique.mockResolvedValueOnce({ lastSeq: 300 })
+
+    const res = await service.getUpdates(user('u1'), 'c1', {
+      since: 300,
+      sinceTs: '2026-08-19T10:00:00.000Z',
+    })
+
+    expect(res.overflow).toBe(false)
+    expect(res.mutated).toHaveLength(200)
   })
 
   it('очищенная «у себя» история ограничивает дельту по clearedAt', async () => {

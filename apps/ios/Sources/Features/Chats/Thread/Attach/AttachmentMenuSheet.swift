@@ -508,6 +508,10 @@ struct AttachmentMenuSheet: View {
                     .focused($captionFocused)
                     .padding(.leading, Spacing.lg)
                     .padding(.vertical, 10)
+                    // Подпись уходит текстом сообщения — тот же лимит 4000, что у поля
+                    // ввода: счётчик у края, сверх лимита «Отправить» неактивна.
+                    ComposerLengthCounter(text: caption)
+                        .padding(.vertical, 12)
                     Button {
                         if showsEmoji {
                             captionFocused = true
@@ -541,6 +545,8 @@ struct AttachmentMenuSheet: View {
                         .contentShape(Circle())
                 }
                 .buttonStyle(.pressable)
+                .disabled(!captionFits)
+                .opacity(captionFits ? 1 : 0.5)
                 .accessibilityLabel(Text(String(localized: "chats.send", defaultValue: "Отправить")))
             }
             .padding(.horizontal, Spacing.lg)
@@ -554,8 +560,11 @@ struct AttachmentMenuSheet: View {
         .padding(.bottom, Spacing.sm)
     }
 
+    /// Сервер не примет подпись длиннее лимита — и вложения не уйдут вместе с ней.
+    private var captionFits: Bool { OutgoingText.remaining(caption) >= 0 }
+
     private func send(_ mode: AttachmentSendRequest.Mode) {
-        guard !selection.isEmpty else { return }
+        guard !selection.isEmpty, captionFits else { return }
         pick(.send(AttachmentSendRequest(assets: selection, caption: caption, mode: mode, spoiler: spoiler)))
     }
 

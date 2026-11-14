@@ -31,6 +31,9 @@ enum AppServices {
     /// Ссылки на вложения: кэш по id файла, а не по адресу.
     static let attachmentURLs = AttachmentURLProvider()
 
+    /// Результаты опросов: один запрос на опрос и дроссель при прокрутке (IOS_RULES 9.8.22).
+    @MainActor static let pollResults = PollResultsCache()
+
     /// Реальное время. Транспорт — единственное место, знающее про socket.io.
     static let realtime = RealtimeCoordinator(transport: UITestHooks.realtimeTransport())
 

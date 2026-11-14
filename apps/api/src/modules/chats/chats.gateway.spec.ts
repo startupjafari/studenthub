@@ -334,6 +334,8 @@ describe('ChatGateway.onMessageSend — «пустой» текст', () => {
     ['нулевой ширины пробел', '​'],
     ['word joiner и BOM', '⁠﻿'],
     ['одни переводы строки', '\n\n\n'],
+    // Вставка из буфера iOS оставляет U+FFFC на месте картинки.
+    ['знак замены объекта', '\ufffc'],
   ])('%s → VALIDATION_ERROR, сообщение не создаётся', async (_label, content) => {
     const createMessage = jest.fn()
     const { gateway, serverEmit } = setup({ createMessage })

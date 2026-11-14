@@ -10,6 +10,8 @@ import SwiftUI
 /// превращает каждое фото в марку. Нажатие открывает полноэкранный просмотр.
 struct PostMediaView: View {
     let media: [PostDTO.Media]
+    /// Пост медиа: по нему ролик получает свежую ссылку взамен истёкшей.
+    var postID: String?
 
     @State private var selection = 0
     @State private var viewerIndex: Int?
@@ -26,11 +28,11 @@ struct PostMediaView: View {
                 .frame(maxWidth: .infinity)
                 .overlay {
                     if items.count == 1 {
-                        MediaTile(media: items[0]) { viewerIndex = 0 }
+                        MediaTile(media: items[0], postID: postID) { viewerIndex = 0 }
                     } else {
                         TabView(selection: $selection) {
                             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                                MediaTile(media: item) { viewerIndex = index }
+                                MediaTile(media: item, postID: postID) { viewerIndex = index }
                                     .tag(index)
                             }
                         }
@@ -55,7 +57,9 @@ struct PostMediaView: View {
                     get: { viewerIndex.map(ViewerTarget.init) },
                     set: { viewerIndex = $0?.index }
                 )) { target in
-                    MediaViewer(media: items, start: target.index)
+                    MediaViewer(media: items, start: target.index, resign: postID.map { postID in
+                        { VideoRecovery.post(postID, fileID: $0.id) }
+                    })
                 }
         }
     }
@@ -83,13 +87,14 @@ private struct ViewerTarget: Identifiable {
 /// Плитка вложения: фото или обложка видео.
 private struct MediaTile: View {
     let media: PostDTO.Media
+    let postID: String?
     let open: () -> Void
 
     private var width: CGFloat { cardImagePoints }
 
     var body: some View {
         if media.isVideo {
-            InlineVideoView(media: media, width: width)
+            InlineVideoView(media: media, width: width, resign: postID.map { VideoRecovery.post($0, fileID: media.id) })
         } else {
             Button(action: open) {
                 ZStack {
@@ -208,6 +213,7 @@ final class VideoPlaybackCenter {
 struct InlineVideoView: View {
     let media: PostDTO.Media
     let width: CGFloat
+    var resign: VideoRecovery.Resign?
 
     @State private var player: AVPlayer?
     private let center = VideoPlaybackCenter.shared
@@ -254,24 +260,30 @@ struct InlineVideoView: View {
             }
         }
         .onChange(of: center.activeID) { _, active in
-            if active != media.id { player?.pause() }
+            if active != media.id { recovery?.pause() }
         }
         .onDisappear {
             // Плеер у просмотра (лента ушла под полноэкранный показ) — ролик там играет.
-            if center.lentID != media.id { player?.pause() }
+            if center.lentID != media.id { recovery?.pause() }
             center.deactivate(media.id)
         }
     }
 
     private func play() {
         guard let url = media.playbackURL else { return }
+        let current = player ?? AVPlayer(url: url)
         if player == nil {
-            let created = AVPlayer(url: url)
-            player = created
-            center.register(created, for: media.id)
+            player = current
+            center.register(current, for: media.id)
         }
         center.activate(media.id)
-        player?.play()
+        VideoRecovery.attach(to: current, resign: resign).play()
+    }
+
+    /// Повтор после сбоя сети и переподпись ссылки (IOS_RULES 9.6.13); пауза — через него же,
+    /// чтобы отложенный повтор не запустил ролик, ушедший с экрана.
+    private var recovery: VideoRecovery? {
+        player.map { VideoRecovery.attach(to: $0, resign: resign) }
     }
 }
 

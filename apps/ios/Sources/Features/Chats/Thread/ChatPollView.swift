@@ -18,6 +18,7 @@ struct ChatPollView: View {
 
     private let api: ChatActing = ChatsAPI()
     private var realtime: RealtimeCoordinator { AppServices.realtime }
+    private var cache: PollResultsCache { AppServices.pollResults }
 
     private var voted: Bool { !(results?.myOptionIds.isEmpty ?? true) }
     private var closed: Bool { results?.closed ?? poll.closed ?? false }
@@ -92,7 +93,14 @@ struct ChatPollView: View {
         .foregroundStyle(isOwn ? Palette.primaryForeground : Palette.foreground)
         .frame(minWidth: 220, alignment: .leading)
         .sensoryFeedback(.selection, trigger: voteTick)
-        .task(id: realtime.pollSignal(poll.id).version) { await load() }
+        // Ключ — опрос и его версия: у переиспользованной ячейки с другим опросом той же
+        // версии задача иначе не перезапустилась бы, и пузырь показал бы чужие результаты.
+        .task(id: PollKey(id: poll.id, version: realtime.pollSignal(poll.id).version)) { await load() }
+    }
+
+    private struct PollKey: Hashable {
+        let id: String
+        let version: Int
     }
 
     private var caption: String {
@@ -155,8 +163,19 @@ struct ChatPollView: View {
         .accessibilityAddTraits(mine || selected ? .isSelected : [])
     }
 
-    private func load() async {
-        if let loaded = try? await api.poll(id: poll.id) { results = loaded }
+    /// Результаты через общий кэш (IOS_RULES 9.8.22): при прокрутке — не чаще раза в 5 с
+    /// без `poll:updated`, один запрос на опрос для всех его пузырей.
+    private func load(force: Bool = false) async {
+        let pollID = poll.id
+        if results?.id != pollID {
+            results = cache.cached(pollID)
+            selection = []
+        }
+        let api = api
+        let loaded = await cache.load(pollID, version: realtime.pollSignal(pollID).version, force: force) {
+            try await api.poll(id: pollID)
+        }
+        if let loaded, poll.id == pollID { results = loaded }
     }
 
     private func close() async {
@@ -165,7 +184,7 @@ struct ChatPollView: View {
         do {
             try await api.closePoll(id: poll.id)
             failure = nil
-            await load()
+            await load(force: true)
         } catch {
             failure = error.userMessage
         }
@@ -179,11 +198,11 @@ struct ChatPollView: View {
             selection = []
             voteTick += 1
             failure = nil
-            await load()
+            await load(force: true)
         } catch {
             // Голос не принят (опрос закрыли, нет сети) — результаты прежние, причина видна.
             failure = error.userMessage
-            await load()
+            await load(force: true)
         }
     }
 }

@@ -219,7 +219,7 @@ export class ChatsController {
     status: 200,
     description:
       'Новые сообщения (created), изменённые (mutated), удалённые (deletedIds), актуальный latestSeq. ' +
-      'overflow=true — разрыв больше лимита, историю нужно перезапросить целиком',
+      'overflow=true — новых, правок или удалений больше лимита, историю нужно перезапросить целиком',
   })
   @ApiResponse({ status: 403, description: 'WRONG_SCOPE — не участник' })
   updates(
@@ -1025,6 +1025,19 @@ export class ChatsController {
   @ApiOperation({ summary: 'Список заблокированных мной пользователей' })
   listBlocked(@CurrentUser() user: CurrentUserData) {
     return this.chats.listBlocked(user.sub)
+  }
+
+  // Голый `:id` — после всех статических GET (`search`, `unread`, `saved`, `blocks`…): Fastify
+  // и так ставит статический сегмент выше параметра, но порядок в файле не даёт в этом усомниться.
+  @Get(':id')
+  @ApiOperation({ summary: 'Один чат — тот же элемент, что в GET /chats (только участник)' })
+  @ApiResponse({ status: 200, description: '{ data: элемент списка чатов }' })
+  @ApiResponse({
+    status: 404,
+    description: 'NOT_FOUND — не участник, забанен, скрыл чат или пустой чужой запрос',
+  })
+  getChat(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.chats.getChat(user, id)
   }
 
   @Patch(':id')
