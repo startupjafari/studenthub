@@ -74,6 +74,12 @@ final class RealtimeCoordinator {
     /// Чат, открытый на экране: его сообщения не увеличивают счётчик непрочитанного.
     private var openChatID: String?
     private var listRefresh: Task<Void, Never>?
+    /// Отметки прочтения, правки и удаления, сделанные без соединения: socket.io без него
+    /// событие молча отбрасывает, а в базе изменение уже есть. Досылаются на `.connected`
+    /// (IOS_RULES 9.4.16). Прочтение — последнее на чат, правка — последний текст.
+    private var unsentReads: [String: String] = [:]
+    private var unsentEdits: [(messageID: String, content: String)] = []
+    private var unsentDeletes: [String] = []
     private let api: ChatsFetching?
 
     init(
@@ -138,6 +144,10 @@ final class RealtimeCoordinator {
         presenceMarks = [:]
         memberReads = [:]
         openChatID = nil
+        // Чужие отметки и правки следующему человеку не досылаем.
+        unsentReads = [:]
+        unsentEdits = []
+        unsentDeletes = []
         applicationStatus = nil
         listRefresh?.cancel()
         listRefresh = nil
@@ -185,6 +195,10 @@ final class RealtimeCoordinator {
 
     @MainActor
     func markRead(chatID: String, messageID: String) async {
+        guard isConnected else {
+            unsentReads[chatID] = messageID
+            return
+        }
         await transport.markRead(chatID: chatID, messageID: messageID)
     }
 
@@ -195,12 +209,44 @@ final class RealtimeCoordinator {
 
     @MainActor
     func edit(messageID: String, content: String) async {
+        guard isConnected else {
+            unsentEdits.removeAll { $0.messageID == messageID }
+            unsentEdits.append((messageID, content))
+            return
+        }
         await transport.edit(messageID: messageID, content: content)
     }
 
     @MainActor
     func delete(messageID: String) async {
+        guard isConnected else {
+            unsentEdits.removeAll { $0.messageID == messageID }
+            if !unsentDeletes.contains(messageID) { unsentDeletes.append(messageID) }
+            return
+        }
         await transport.delete(messageID: messageID)
+    }
+
+    /// Дослать сделанное без соединения. Сначала правки и удаления, потом прочтения —
+    /// порядок между ними серверу безразличен, но так собеседник не увидит «прочитано»
+    /// раньше исправленного текста.
+    @MainActor
+    private func flushUnsent() async {
+        let edits = unsentEdits
+        let deletes = unsentDeletes
+        let reads = unsentReads
+        unsentEdits = []
+        unsentDeletes = []
+        unsentReads = [:]
+        for edit in edits {
+            await transport.edit(messageID: edit.messageID, content: edit.content)
+        }
+        for id in deletes {
+            await transport.delete(messageID: id)
+        }
+        for (chatID, messageID) in reads {
+            await transport.markRead(chatID: chatID, messageID: messageID)
+        }
     }
 
     /// Свой ответ сервера на правку списка — сразу всем пузырям с этим списком.
@@ -224,6 +270,7 @@ final class RealtimeCoordinator {
             connectionEpoch += 1
             // Комнату после переподключения сервер не помнит — входим заново.
             if let openChatID { await transport.join(chatID: openChatID) }
+            await flushUnsent()
             // Переподключение, а не первое подключение: за время обрыва события мимо
             // прошли, и не только по открытому чату — его догоняет сам экран, а список
             // и счётчики догоняются здесь (P0-3 аудита). Первой страницы хватает:

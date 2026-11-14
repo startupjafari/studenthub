@@ -43,6 +43,27 @@ final class RealtimeCoordinatorTests: XCTestCase {
         XCTAssertEqual(signals.gapVersion, 1)
     }
 
+    /// Отметка прочтения и правка без соединения не теряются: досылаются на `.connected`
+    /// (socket.io без соединения событие отбрасывает, IOS_RULES 9.4.16).
+    func testReadAndEditWithoutConnectionAreSentOnConnect() async throws {
+        let (_, coordinator, transport) = try await make()
+
+        await coordinator.markRead(chatID: "c-1", messageID: "m-1")
+        await coordinator.markRead(chatID: "c-1", messageID: "m-2")
+        await coordinator.edit(messageID: "m-1", content: "черновик")
+        await coordinator.edit(messageID: "m-1", content: "итог")
+        var reads = await transport.reads
+        XCTAssertEqual(reads, [])
+
+        await transport.emit(.connected)
+        await settle()
+
+        reads = await transport.reads
+        let edits = await transport.edits
+        XCTAssertEqual(reads, ["m-2"])
+        XCTAssertEqual(edits, ["итог"])
+    }
+
     /// Повторный `message:new` для уже сохранённой строки счётчик не удваивает.
     func testRepeatedMessageDoesNotCountTwice() async throws {
         let (database, coordinator, transport) = try await make()
@@ -279,6 +300,7 @@ private actor StubTransport: RealtimeTransport {
     private(set) var leaves: [String] = []
     private(set) var reads: [String] = []
     private(set) var actions: [String?] = []
+    private(set) var edits: [String] = []
 
     init() {
         (events, continuation) = AsyncStream<RealtimeEvent>.makeStream()
@@ -295,7 +317,7 @@ private actor StubTransport: RealtimeTransport {
     func leave(chatID: String) async { leaves.append(chatID) }
     func markRead(chatID: String, messageID: String) async { reads.append(messageID) }
     func send(action: String?, chatID: String) async { actions.append(action) }
-    func edit(messageID: String, content: String) async {}
+    func edit(messageID: String, content: String) async { edits.append(content) }
     func delete(messageID: String) async {}
 }
 
