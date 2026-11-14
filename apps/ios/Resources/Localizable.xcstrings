@@ -936,23 +936,6 @@
         }
       }
     },
-    "auth.twoFactorCodeLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Код подтверждения"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Растау коды"
-          }
-        }
-      }
-    },
     "auth.twoFactorPrompt": {
       "extractionState": "manual",
       "localizations": {
@@ -60091,23 +60074,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Хаттағы сілтеме немесе код"
-          }
-        }
-      }
-    },
-    "career.signup.paste": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вставить из буфера"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Буферден кірістіру"
           }
         }
       }
