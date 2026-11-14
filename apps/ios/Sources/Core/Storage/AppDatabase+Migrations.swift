@@ -228,6 +228,34 @@ extension AppDatabase {
             }
         }
 
+        migrator.registerMigration("listFolders_chatFlagsAndFolderRules") { db in
+            // Список как в Telegram: «пометить как новое», ручной порядок закреплённых,
+            // друзья для правил папок. Старые строки получают значения по умолчанию и
+            // дозаполняются следующей страницей списка.
+            try db.alter(table: ChatRecord.databaseTableName) { table in
+                table.add(column: "markedUnread", .boolean).notNull().defaults(to: false)
+                table.add(column: "pinnedOrder", .integer)
+                table.add(column: "isFriend", .boolean).notNull().defaults(to: false)
+            }
+            // Папка: значок, цвет тега и типы чатов. Состав по-прежнему в `folderChat`,
+            // исключения — рядом своей таблицей.
+            try db.alter(table: FolderRecord.databaseTableName) { table in
+                table.add(column: "emoji", .text)
+                table.add(column: "color", .integer)
+                table.add(column: "includeContacts", .boolean).notNull().defaults(to: false)
+                table.add(column: "includeNonContacts", .boolean).notNull().defaults(to: false)
+                table.add(column: "includeGroups", .boolean).notNull().defaults(to: false)
+            }
+            try db.create(table: FolderExcludedChatRecord.databaseTableName) { table in
+                table.column("folderId", .text)
+                    .notNull()
+                    .references(FolderRecord.databaseTableName, onDelete: .cascade)
+                // Без внешнего ключа на чат — как и у состава: папка приходит раньше страниц.
+                table.column("chatId", .text).notNull()
+                table.primaryKey(["folderId", "chatId"])
+            }
+        }
+
         return migrator
     }
 }

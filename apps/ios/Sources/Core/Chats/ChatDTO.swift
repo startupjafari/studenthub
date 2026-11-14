@@ -32,6 +32,11 @@ struct ChatListItemDTO: Decodable, Equatable {
     /// Я заблокировал собеседника / он меня.
     var blocked: Bool? = nil
     var blockedBy: Bool? = nil
+    /// Пометка «как новое», место среди закреплённых и «собеседник в друзьях». Старый
+    /// сервер их не присылает — поля необязательны, значения по умолчанию у записи.
+    var markedUnread: Bool? = nil
+    var pinnedOrder: Int? = nil
+    var isFriend: Bool? = nil
 }
 
 /// Вложение сообщения. Вид (картинка, файл, голосовое) выводится при рендере из
@@ -294,12 +299,70 @@ struct MessageExtras: Codable, Hashable {
     var sticker: Sticker?
 }
 
-/// Папка чатов (§2 эпика «Чаты»): имя, позиция вкладки и состав.
+/// Папка чатов (§2 эпика «Чаты»): имя, позиция вкладки, состав и правила как в Telegram —
+/// типы чатов, исключения, значок и цвет тега.
+///
+/// Разбор терпимый: старый сервер новых полей не присылает, и папка с ним остаётся
+/// прежней — только явные чаты, без значка и цвета.
 struct ChatFolderDTO: Decodable, Equatable, Identifiable {
-    let id: String
-    let name: String
-    let position: Int
-    let chatIds: [String]
+    var id: String
+    var name: String
+    var position: Int
+    var chatIds: [String]
+    var excludedChatIds: [String] = []
+    var emoji: String? = nil
+    var color: Int? = nil
+    var includeContacts = false
+    var includeNonContacts = false
+    var includeGroups = false
+
+    init(
+        id: String,
+        name: String,
+        position: Int,
+        chatIds: [String],
+        excludedChatIds: [String] = [],
+        emoji: String? = nil,
+        color: Int? = nil,
+        includeContacts: Bool = false,
+        includeNonContacts: Bool = false,
+        includeGroups: Bool = false
+    ) {
+        self.id = id
+        self.name = name
+        self.position = position
+        self.chatIds = chatIds
+        self.excludedChatIds = excludedChatIds
+        self.emoji = emoji
+        self.color = color
+        self.includeContacts = includeContacts
+        self.includeNonContacts = includeNonContacts
+        self.includeGroups = includeGroups
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, position, chatIds, excludedChatIds, emoji, color
+        case includeContacts, includeNonContacts, includeGroups
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        position = try container.decodeIfPresent(Int.self, forKey: .position) ?? 0
+        chatIds = try container.decodeIfPresent([String].self, forKey: .chatIds) ?? []
+        excludedChatIds = try container.decodeIfPresent([String].self, forKey: .excludedChatIds) ?? []
+        emoji = try container.decodeIfPresent(String.self, forKey: .emoji)
+        // Цвет вне палитры (новая сборка сервера) — без цвета, а не падение разбора.
+        color = (try? container.decodeIfPresent(Int.self, forKey: .color)).flatMap { $0 }
+            .flatMap { (0..<ChatFolderPalette.count).contains($0) ? $0 : nil }
+        includeContacts = try container.decodeIfPresent(Bool.self, forKey: .includeContacts) ?? false
+        includeNonContacts = try container.decodeIfPresent(Bool.self, forKey: .includeNonContacts) ?? false
+        includeGroups = try container.decodeIfPresent(Bool.self, forKey: .includeGroups) ?? false
+    }
+
+    /// Хоть один тип чатов включён — папка собирается не только из явного выбора.
+    var includesTypes: Bool { includeContacts || includeNonContacts || includeGroups }
 }
 
 /// Лимиты папок — те же, что проверяет сервер (`CHAT_FOLDER_LIMITS`). Клиент упирается в
@@ -308,4 +371,12 @@ enum ChatFolderLimits {
     static let folders = 20
     static let chatsPerFolder = 200
     static let nameLength = 40
+    /// Исключений — столько же, сколько явных чатов (§C контракта).
+    static let excludedPerFolder = 200
+}
+
+/// Палитра цветов папки (§C контракта): синий, зелёный, оранжевый, красный, фиолетовый,
+/// бирюзовый, розовый. Сервер хранит индекс; сами цвета — у экрана (`ChatFolderPalette.colors`).
+enum ChatFolderPalette {
+    static let count = 7
 }
