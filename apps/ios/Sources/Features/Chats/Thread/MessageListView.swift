@@ -462,7 +462,12 @@ final class MessageListViewController: UIViewController {
         glide.stop()
         sticksToBottom = target == nil
         reportBottom()
-        reveal()
+        // Переход к сообщению до первой расстановки: цель уже на месте — подсветить её,
+        // когда лента проявится.
+        let focus = pendingFocus
+        reveal { [weak self] in
+            if let focus { self?.finishFocusIfPending(focus) }
+        }
         // Переписка показала первое содержимое — конец «открытия чата» для человека.
         // Число — заранее: строка метки — автозамыкание, и `self` в ней пришлось бы писать явно.
         let items = dataSource.snapshot().numberOfItems
@@ -472,8 +477,11 @@ final class MessageListViewController: UIViewController {
     }
 
     /// Показать ленту после первой расстановки.
-    private func reveal() {
-        guard collectionView.alpha < 1 else { return }
+    private func reveal(completion: @escaping () -> Void = {}) {
+        guard collectionView.alpha < 1 else {
+            completion()
+            return
+        }
         onFirstShown?()
         guard !reduceMotion else {
             collectionView.alpha = 1
@@ -802,9 +810,10 @@ final class MessageListViewController: UIViewController {
         sticksToBottom = false
         pendingFocus = request
         if needsInitialPosition {
-            // Ленту ещё не расставили: цель и станет первой позицией.
+            // Ленту ещё не расставили: цель и станет первой позицией, подсветка — после
+            // показа ленты (`positionInitiallyIfPossible`). Таймер — только страховка.
             initialAnchor = request.id
-            scheduleFocusFinish(for: request, after: .milliseconds(300))
+            scheduleFocusFinish(for: request, after: Self.focusFallback)
             return
         }
         glide.stop()
@@ -817,12 +826,35 @@ final class MessageListViewController: UIViewController {
         let animated = !recentlyReplaced && !reduceMotion && near
         if !near, !recentlyReplaced {
             crossfade { self.collectionView.scrollToItem(at: indexPath, at: Self.position(for: request), animated: false) }
+        } else if animated {
+            // Куда приедет лента, узнаём заранее: прокрутка без анимации и возврат в одном
+            // проходе (кадра между ними нет). Стоит на месте — конца прокрутки не будет,
+            // подсвечиваем сразу; едет — подсветит `scrollViewDidEndScrollingAnimation`.
+            let start = collectionView.contentOffset
+            collectionView.scrollToItem(at: indexPath, at: Self.position(for: request), animated: false)
+            let target = collectionView.contentOffset
+            collectionView.contentOffset = start
+            if abs(target.y - start.y) < 0.5 {
+                DispatchQueue.main.async { [weak self] in self?.finishFocusIfPending(request) }
+            } else {
+                collectionView.setContentOffset(target, animated: true)
+                scheduleFocusFinish(for: request, after: Self.focusFallback)
+            }
+            return
         } else {
-            collectionView.scrollToItem(at: indexPath, at: Self.position(for: request), animated: animated)
+            collectionView.scrollToItem(at: indexPath, at: Self.position(for: request), animated: false)
         }
-        // Сообщение могло уже стоять на месте — тогда конца прокрутки не будет, и
-        // подсветку запускает таймер.
-        scheduleFocusFinish(for: request, after: .milliseconds(animated ? 450 : 30))
+        // Без анимации лента уже на месте: подсветка — после текущего прохода раскладки.
+        DispatchQueue.main.async { [weak self] in self?.finishFocusIfPending(request) }
+    }
+
+    /// Страховка перехода к сообщению: если конца прокрутки или первого показа ленты так
+    /// и не случилось, подсветка всё равно придёт. Обычный путь — по завершению.
+    private static let focusFallback: Swift.Duration = .seconds(1)
+
+    private func finishFocusIfPending(_ request: MessageFocus) {
+        guard pendingFocus == request else { return }
+        finishFocus()
     }
 
     private static func position(for request: MessageFocus) -> UICollectionView.ScrollPosition {
@@ -832,8 +864,7 @@ final class MessageListViewController: UIViewController {
     private func scheduleFocusFinish(for request: MessageFocus, after delay: Swift.Duration) {
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: delay)
-            guard let self, self.pendingFocus == request else { return }
-            self.finishFocus()
+            self?.finishFocusIfPending(request)
         }
     }
 
