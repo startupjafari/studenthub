@@ -1,6 +1,5 @@
 import CoreLocation
 import Foundation
-import GRDB
 import Observation
 import os
 
@@ -80,7 +79,6 @@ final class ChatThreadModel {
     let scheduled: ChatScheduledMessages
 
     private let viewerID: String
-    private let database: AppDatabase
     private let queries: ChatThreadQueries
     private let api: ChatMessagesFetching
     private let store: MessageStore
@@ -166,7 +164,6 @@ final class ChatThreadModel {
     ) {
         self.chatID = chatID
         self.viewerID = viewerID
-        self.database = database
         self.queries = ChatThreadQueries(database: database)
         self.api = api
         self.store = store ?? MessageStore(database: database)
@@ -549,12 +546,7 @@ final class ChatThreadModel {
         input.endEdit()
         guard text != message.content, let remoteID = message.remoteId else { return }
         let id = message.id
-        try? await database.writer.write { db in
-            guard var row = try MessageRecord.fetchOne(db, key: id) else { return }
-            row.content = text
-            row.editedAt = (row.editedAt ?? row.createdAt).addingTimeInterval(0.001)
-            try row.update(db)
-        }
+        try? await store.saveLocalEdit(messageID: id, text: text)
         await realtime.edit(messageID: remoteID, content: text)
     }
 
@@ -565,14 +557,10 @@ final class ChatThreadModel {
         guard canDelete(message) else { return }
         let id = message.id
         if message.remoteId == nil {
-            _ = try? await database.writer.write { db in try MessageRecord.deleteOne(db, key: id) }
+            try? await store.deleteLocal(messageID: id)
             return
         }
-        try? await database.writer.write { db in
-            guard var row = try MessageRecord.fetchOne(db, key: id) else { return }
-            row.deletedAt = Date()
-            try row.update(db)
-        }
+        try? await store.markDeleted(messageID: id)
         if let remoteID = message.remoteId {
             await realtime.delete(messageID: remoteID)
         }
@@ -585,7 +573,7 @@ final class ChatThreadModel {
         guard let remoteID = message.remoteId, message.deletedAt == nil else { return }
         do {
             let updated = try await actions.react(messageID: remoteID, emoji: emoji)
-            try await database.writer.write { db in try MessageStore.upsert(updated, in: db) }
+            try await store.save(message: updated)
         } catch {
             actionFailure = self.message(for: error)
         }
@@ -1089,7 +1077,7 @@ final class ChatThreadModel {
     func hide(_ chosen: [MessageRecord]) async {
         let local = chosen.filter { $0.remoteId == nil }.map(\.id)
         if !local.isEmpty {
-            _ = try? await database.writer.write { db in try MessageRecord.deleteAll(db, keys: local) }
+            try? await store.deleteLocal(messageIDs: local)
         }
         let remote = chosen.compactMap(\.remoteId)
         guard !remote.isEmpty else { return }
@@ -1111,13 +1099,7 @@ final class ChatThreadModel {
     @MainActor
     func message(remoteID: String) async -> MessageRecord? {
         if let shown = messages.first(where: { $0.remoteId == remoteID }) { return shown }
-        let chatID = chatID
-        return try? await database.reader.read { db in
-            try MessageRecord
-                .filter(MessageRecord.Columns.chatId == chatID)
-                .filter(MessageRecord.Columns.remoteId == remoteID)
-                .fetchOne(db)
-        }
+        return try? await queries.message(remoteID: remoteID, chatID: chatID)
     }
 
     /// Удаление из просмотра медиа. Сообщение в базе — тем же путём, что из меню; нет

@@ -73,6 +73,16 @@ struct ChatThreadQueries: Sendable {
         )
     }
 
+    /// Сообщение чата по серверному id — и из истории, до которой лента не доходила.
+    func message(remoteID: String, chatID: String) async throws -> MessageRecord? {
+        try await database.reader.read { db in
+            try MessageRecord
+                .filter(MessageRecord.Columns.chatId == chatID)
+                .filter(MessageRecord.Columns.remoteId == remoteID)
+                .fetchOne(db)
+        }
+    }
+
     // MARK: - Строка чата
 
     /// Строка чата по мере изменений. Запись в строку другого чата (счётчик, прочтение)
