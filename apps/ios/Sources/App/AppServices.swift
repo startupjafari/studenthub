@@ -20,6 +20,9 @@ enum AppServices {
 
     /// Что делать по тихому пушу.
     static let pushSync = PushSync()
+    /// Регистрация пушей с настоящей системной частью (`UIApplication`); в ядре она за
+    /// протоколом `RemoteNotificationRegistration`.
+    static let pushRegistrar = PushRegistrar(client: api, system: UIKitRemoteNotifications())
 
     /// Непрочитанные уведомления: одно число для колокольчика, бейджа иконки и догона
     /// по пушу (п. 18 аудита).

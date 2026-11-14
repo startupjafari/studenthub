@@ -94,6 +94,11 @@ jobs:
         with:
           persist-credentials: false
 
+      # Страж слоёв (IOS_RULES 9.1.2, 9.1.3): GRDB только в Core, Core без UIKit/SwiftUI.
+      # Секунды и без Xcode — до сборки, чтобы нарушение не ждало её конца.
+      - name: Слои
+        run: scripts/check_layers.sh
+
       # Точная версия с проверкой суммы — см. .github/actions/setup-xcodegen.
       - name: Поставить XcodeGen
         uses: ./.github/actions/setup-xcodegen

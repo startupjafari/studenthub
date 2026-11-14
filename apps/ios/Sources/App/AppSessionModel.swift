@@ -128,12 +128,12 @@ final class AppSessionModel {
         // сервер прежней версии) и вместе с выходом — тот без сети откладывается и
         // досылается без access-токена.
         let deviceToken = PushRegistrar.deviceToken
-        await PushRegistrar().unregister()
+        await AppServices.pushRegistrar.unregister()
         let delivered = await store.signOut(deviceToken: deviceToken)
         if !delivered {
             // Сервер о выходе пока не знает и шлёт пуши прежнего человека. Пока выход не
             // дослан, телефон их просто не принимает; следующий вход включит доставку.
-            PushRegistrar.stopDelivery()
+            AppServices.pushRegistrar.stopDelivery()
         }
         // Данные прежнего человека не должны достаться следующему (как clearAllTables
         // в Android): список чатов читается из базы и только дописывается.

@@ -25,8 +25,10 @@ struct DecodedImage: @unchecked Sendable {
 /// Декодирование с уменьшением прямо при чтении (`CGImageSource`): из JPEG в 12 Мп для
 /// плитки в 360 pt получается копия под плитку, а не 48 МБ распакованного кадра.
 ///
-/// Только чистые функции без состояния — зовутся вне главного потока.
-enum ImageDownsampler {
+/// Только чистые функции без состояния — зовутся вне главного потока. Сам тип и размер
+/// оригинала — в ядре (`Core/Images/ImageDownsampler.swift`): размер нужен загрузчику, а
+/// ядро не знает `UIImage` (`docs/IOS_RULES.md` 9.1.3); здесь — сборка `UIImage`.
+extension ImageDownsampler {
     static func decode(_ data: Data, target: ImageTarget?) -> DecodedImage? {
         let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
@@ -48,17 +50,5 @@ enum ImageDownsampler {
         ]
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
         return DecodedImage(image: UIImage(cgImage: image), isFullResolution: side >= longest)
-    }
-
-    /// Размер оригинала с учётом поворота из EXIF: снимок «на боку» хранится шириной
-    /// вместо высоты, а копия строится уже повёрнутой.
-    static func pixelSize(of source: CGImageSource) -> (width: Int, height: Int) {
-        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
-            return (0, 0)
-        }
-        let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue ?? 0
-        let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue ?? 0
-        let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
-        return orientation >= 5 ? (height, width) : (width, height)
     }
 }

@@ -4,7 +4,6 @@ import Foundation
 #if canImport(Sentry)
     import Sentry
 #endif
-import UIKit
 
 /// Наблюдаемость приложения (задача 5.5 плана).
 ///

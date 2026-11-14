@@ -1,5 +1,4 @@
 import Foundation
-import UIKit
 import UserNotifications
 
 /// Регистрация устройства для пушей (план iOS, Задача 1.8).
@@ -9,9 +8,14 @@ import UserNotifications
 /// однократно при первом согласии.
 struct PushRegistrar: Sendable {
     private let client: APIClient
+    /// Системная часть (`UIApplication`) — за протоколом: ядро без UIKit. В приложении —
+    /// `AppServices.pushRegistrar` с настоящей; по умолчанию пустышка, как у
+    /// `SessionStore` с `BackgroundActivity`.
+    private let system: RemoteNotificationRegistration
 
-    init(client: APIClient = AppServices.api) {
+    init(client: APIClient = AppServices.api, system: RemoteNotificationRegistration = NoRemoteNotificationRegistration()) {
         self.client = client
+        self.system = system
     }
 
     /// Спросить разрешение и, если дали, попросить систему о токене.
@@ -25,7 +29,7 @@ struct PushRegistrar: Sendable {
         let center = UNUserNotificationCenter.current()
         let granted = (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) ?? false
         guard granted else { return }
-        UIApplication.shared.registerForRemoteNotifications()
+        system.registerForRemoteNotifications()
     }
 
     /// Отдать серверу токен, который прислала система.
@@ -59,8 +63,8 @@ struct PushRegistrar: Sendable {
     /// ещё считает телефон устройством прежнего человека. `requestAuthorization` при
     /// следующем входе регистрирует устройство заново.
     @MainActor
-    static func stopDelivery() {
-        UIApplication.shared.unregisterForRemoteNotifications()
+    func stopDelivery() {
+        system.unregisterForRemoteNotifications()
     }
 
     /// Последний отданный серверу токен. В `UserDefaults`, а не в связке ключей:
