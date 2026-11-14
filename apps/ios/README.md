@@ -50,10 +50,12 @@ TestFlight вручную. Выпуск — `docs/RELEASE_IOS.md`.
 
 ## Тесты
 
-Одна команда на любом Mac с Xcode 26 и `xcodegen` — та же, что гоняет CI:
+Одна команда на любом Mac с Xcode 26 и `xcodegen` — та же, что гоняет CI. На PR CI только
+собирает проект; тесты идут в `ios-nightly.yml` после вливания iOS в develop и ночью:
 
 ```sh
-scripts/test.sh            # как PR: unit + snapshot + ui
+scripts/test.sh build      # как PR: только сборка приложения и тестов
+scripts/test.sh            # unit + snapshot + ui
 scripts/test.sh full       # + все UI-сценарии и замеры производительности
 scripts/test.sh snapshot --record   # переснять эталоны снимков
 ```
@@ -77,7 +79,7 @@ scripts/test.sh snapshot --record   # переснять эталоны сним
 `student@test.local` / `Test1234!`. Прод-секретов в тестах нет.
 
 **Флаги производительности** второй волны (`PerformanceFlags.Switch`) включаются не «на
-глаз»: `MessageBubbleSnapshotTests` и `PerformanceFlagUITests` на каждом PR сравнивают
+глаз»: `MessageBubbleSnapshotTests` и `PerformanceFlagUITests` после каждого вливания в develop сравнивают
 вид с флагом и без него (пузыри во всей матрице снимков, лента переписки внизу, наверху и
 после возврата, приход истории при медленной сети). Весь прогон можно пустить в нужном
 положении: `SH_PERF_FLAGS=all=0 scripts/test.sh` (или `chatHeightCache=1,…`; в CI — поле
