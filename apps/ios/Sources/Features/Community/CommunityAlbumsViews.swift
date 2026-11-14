@@ -67,11 +67,16 @@ struct CommunityMediaUploadButton: View {
 /// Загрузка выбранных фото и видео в профиль — по одному; ошибка одного не
 /// останавливает остальные. Общая для кнопки «Загрузить» и плавающей кнопки альбома.
 enum CommunityMediaUpload {
+    /// `progress` — доля обработанных файлов после каждого, 0…1.
     @MainActor
-    static func upload(_ items: [PhotosPickerItem]) async -> (done: [ProfileMediaDTO], failure: String?) {
+    static func upload(
+        _ items: [PhotosPickerItem],
+        progress: (Double) -> Void = { _ in }
+    ) async -> (done: [ProfileMediaDTO], failure: String?) {
         var done: [ProfileMediaDTO] = []
         var failure: String?
-        for item in items {
+        for (index, item) in items.enumerated() {
+            defer { progress(Double(index + 1) / Double(items.count)) }
             do {
                 let prepared = try await MediaPreparation.prepare(item)
                 done.append(try await CommunityAPI().uploadProfileMedia(prepared.data, mime: prepared.mime, filename: prepared.filename))
@@ -111,61 +116,54 @@ struct CommunityAlbumsView: View {
     var body: some View {
         // Загрузка фото — «+» на вкладке «Фото» профиля; здесь только альбомы, без
         // полосы загрузки над списком.
-        List {
+        // Сетка карточек в два столбца, как альбомы «Фото»: мозаика первых снимков,
+        // под ней название и число. Переименовать и удалить — в меню по удержанию, там же
+        // предпросмотр снимков крупно.
+        ScrollView {
             if let albums, !albums.isEmpty {
-                if let failure {
-                    StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets())
-                }
-                Section {
-                    ForEach(albums) { album in
-                        NavigationLink(value: AppRoute.community(.album(id: album.id, userID: ownerID))) {
-                            CommunityAlbumLine(album: album, previews: previews[album.id] ?? [])
-                        }
-                        .swipeActions {
-                            if isMine {
-                                Button(role: .destructive) {
-                                    deleting = album
-                                } label: {
-                                    Label(String(localized: "feed.delete", defaultValue: "Удалить"), systemImage: "trash")
-                                }
+                VStack(alignment: .leading, spacing: Spacing.lg) {
+                    if let failure {
+                        StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
+                    }
+                    LazyVGrid(
+                        columns: Array(repeating: GridItem(.flexible(), spacing: Spacing.lg, alignment: .top), count: 2),
+                        spacing: Spacing.xl
+                    ) {
+                        ForEach(albums) { album in
+                            NavigationLink(value: AppRoute.community(.album(id: album.id, userID: ownerID))) {
+                                CommunityAlbumCard(album: album, previews: previews[album.id] ?? [])
+                            }
+                            .buttonStyle(.pressable)
+                            .contextMenu {
                                 Button {
-                                    renameTitle = album.title
-                                    renaming = album
+                                    AppServices.router.push(.community(.album(id: album.id, userID: ownerID)))
                                 } label: {
-                                    Label(String(localized: "community.albums.rename", defaultValue: "Переименовать"), systemImage: "pencil")
+                                    Label(String(localized: "community.albums.open", defaultValue: "Открыть"), systemImage: "photo.on.rectangle.angled")
                                 }
-                            }
-                        }
-                        // Удержание — первые снимки крупно, как предпросмотр альбома.
-                        .contextMenu {
-                            Button {
-                                AppServices.router.push(.community(.album(id: album.id, userID: ownerID)))
-                            } label: {
-                                Label(String(localized: "community.albums.open", defaultValue: "Открыть"), systemImage: "photo.on.rectangle.angled")
-                            }
-                            if isMine {
-                                Button {
-                                    renameTitle = album.title
-                                    renaming = album
-                                } label: {
-                                    Label(String(localized: "community.albums.rename", defaultValue: "Переименовать"), systemImage: "pencil")
+                                if isMine {
+                                    Button {
+                                        renameTitle = album.title
+                                        renaming = album
+                                    } label: {
+                                        Label(String(localized: "community.albums.rename", defaultValue: "Переименовать"), systemImage: "pencil")
+                                    }
+                                    Button(role: .destructive) {
+                                        deleting = album
+                                    } label: {
+                                        Label(String(localized: "feed.delete", defaultValue: "Удалить"), systemImage: "trash")
+                                    }
                                 }
-                                Button(role: .destructive) {
-                                    deleting = album
-                                } label: {
-                                    Label(String(localized: "feed.delete", defaultValue: "Удалить"), systemImage: "trash")
-                                }
+                            } preview: {
+                                CommunityAlbumPreview(album: album, items: previews[album.id] ?? [])
                             }
-                        } preview: {
-                            CommunityAlbumPreview(album: album, items: previews[album.id] ?? [])
                         }
                     }
                 }
+                .padding(.horizontal, Spacing.xl)
+                .padding(.vertical, Spacing.md)
             }
         }
-        .compactListStyle()
+        .background(Palette.background)
         .screenState(albums?.isEmpty != false) {
             if albums != nil {
                 EmptyStateView(
@@ -247,47 +245,75 @@ struct CommunityAlbumsView: View {
         await remote.load { try await api.albums(userID: ownerID) }
         if let media = await media {
             previews = Dictionary(grouping: media.filter { $0.albumId != nil }) { $0.albumId ?? "" }
-                .mapValues { Array($0.prefix(CommunityAlbumLine.previewCount)) }
+                .mapValues { Array($0.prefix(CommunityAlbumCard.previewCount)) }
         }
     }
 }
 
-/// Строка альбома: название и число снимков, под ними — первые три снимка. Альбом без
-/// снимков (или пока снимки не пришли) — обложкой или значком, как раньше.
-private struct CommunityAlbumLine: View {
+/// Карточка альбома: квадратная обложка-мозаика со скруглением, под ней название и
+/// число снимков.
+private struct CommunityAlbumCard: View {
     static let previewCount = 3
 
     let album: CommunityAlbumDTO
     let previews: [ProfileMediaDTO]
 
     var body: some View {
-        if previews.isEmpty {
-            HStack(spacing: Spacing.lg) {
-                cover
-                    .frame(width: 56, height: 56)
-                    .clipShape(RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
-                titles
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            CommunityAlbumMosaic(album: album, previews: previews)
+                .aspectRatio(1, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+                        .strokeBorder(Palette.border.opacity(0.6), lineWidth: 0.5)
+                )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(album.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Palette.foreground)
+                    .lineLimit(1)
+                Text(String(localized: "community.albums.count", defaultValue: "Снимков: \((album.count ?? 0).formatted())"))
+                    .font(Typography.meta)
+                    .foregroundStyle(Palette.mutedForeground)
             }
-        } else {
-            VStack(alignment: .leading, spacing: Spacing.md) {
-                titles
-                HStack(spacing: Spacing.xs) {
-                    ForEach(0..<Self.previewCount, id: \.self) { index in
-                        tile(index < previews.count ? previews[index] : nil)
+            .padding(.horizontal, Spacing.xs)
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Обложка альбома из первых снимков: три — крупный слева и два справа друг над
+/// другом, два — пополам, один — целиком. Снимков нет — обложка альбома или значок.
+private struct CommunityAlbumMosaic: View {
+    let album: CommunityAlbumDTO
+    let previews: [ProfileMediaDTO]
+
+    var body: some View {
+        GeometryReader { proxy in
+            let size = proxy.size
+            switch previews.count {
+            case 0:
+                cover
+            case 1:
+                tile(previews[0])
+            case 2:
+                HStack(spacing: 2) {
+                    tile(previews[0])
+                    tile(previews[1])
+                }
+            default:
+                HStack(spacing: 2) {
+                    tile(previews[0])
+                        .frame(width: (size.width - 2) * 0.62)
+                    VStack(spacing: 2) {
+                        tile(previews[1])
+                        tile(previews[2])
                     }
                 }
             }
-            .padding(.vertical, Spacing.xs)
         }
-    }
-
-    private var titles: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(album.title).font(Typography.body).foregroundStyle(Palette.foreground)
-            Text(String(localized: "community.albums.count", defaultValue: "Снимков: \((album.count ?? 0).formatted())"))
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
-        }
+        .background(Palette.muted)
     }
 
     @ViewBuilder
@@ -297,22 +323,18 @@ private struct CommunityAlbumLine: View {
         } else {
             ZStack {
                 Palette.muted
-                Image(systemName: "photo.stack").foregroundStyle(Palette.mutedForeground)
+                Image(systemName: "photo.stack")
+                    .font(.title)
+                    .foregroundStyle(Palette.mutedForeground)
             }
         }
     }
 
-    /// Квадратная плитка снимка; пустая — когда в альбоме меньше трёх.
-    private func tile(_ item: ProfileMediaDTO?) -> some View {
+    private func tile(_ item: ProfileMediaDTO) -> some View {
         Palette.muted
-            .aspectRatio(1, contentMode: .fit)
-            .overlay {
-                if let item {
-                    RemoteImage(url: item.thumbnailURL, cacheKey: "profile-media:\(item.id)")
-                }
-            }
+            .overlay { RemoteImage(url: item.thumbnailURL, cacheKey: "profile-media:\(item.id)") }
             .overlay(alignment: .bottomLeading) {
-                if item?.isVideo == true {
+                if item.isVideo {
                     Image(systemName: "play.fill")
                         .font(.caption2)
                         .foregroundStyle(.white)
@@ -321,7 +343,7 @@ private struct CommunityAlbumLine: View {
                         .padding(Spacing.xs)
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+            .clipped()
             .accessibilityHidden(true)
     }
 }
@@ -404,8 +426,8 @@ struct CommunityAlbumView: View {
     /// Выбор фото для загрузки — по плавающей кнопке.
     @State private var picking = false
     @State private var picks: [PhotosPickerItem] = []
-    /// Сколько файлов сейчас уходит; 0 — загрузки нет.
-    @State private var uploadingCount = 0
+    /// Доля загруженного, 0…1; `nil` — загрузки нет. Кольцом слева от заголовка.
+    @State private var uploadProgress: Double?
 
     private let api = CommunityAPI()
     private var isMine: Bool { userID == viewerID }
@@ -425,17 +447,6 @@ struct CommunityAlbumView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.lg) {
-                if uploadingCount > 0 {
-                    // Загрузка идёт — строкой над снимками, плавно появляется и уходит.
-                    HStack(spacing: Spacing.md) {
-                        ProgressView()
-                        Text(String(localized: "community.albums.uploading", defaultValue: "Загружаем: \(uploadingCount.formatted())"))
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.mutedForeground)
-                    }
-                    .padding(.horizontal, Spacing.xl)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                }
                 if let all {
                     if let failure {
                         StaleDataBanner(message: failure, isOffline: isOffline) { await load() }
@@ -456,10 +467,9 @@ struct CommunityAlbumView: View {
                 }
             }
             .padding(.vertical, Spacing.md)
-            .animation(Motion.calm, value: uploadingCount > 0)
         }
         .background(Palette.background)
-        .navigationTitle(Text(album?.title ?? CommunityScreen.album(id: albumID, userID: userID).title))
+        .navigationTitle(album?.title ?? CommunityScreen.album(id: albumID, userID: userID).title, progress: uploadProgress)
         .navigationBarTitleDisplayMode(.inline)
         // Свои снимки из профиля — значком в панели навигации; загрузка новых — синей
         // плавающей кнопкой справа внизу, как «Новый альбом» в списке альбомов.
@@ -476,7 +486,7 @@ struct CommunityAlbumView: View {
             }
         }
         .communityFloatingAction(
-            isMine && uploadingCount == 0,
+            isMine && uploadProgress == nil,
             String(localized: "community.albums.uploadHere", defaultValue: "Загрузить"),
             symbol: "square.and.arrow.up"
         ) {
@@ -558,12 +568,12 @@ struct CommunityAlbumView: View {
 
     /// Выбранное уходит в профиль и сразу раскладывается в этот альбом.
     private func upload(_ items: [PhotosPickerItem]) async {
-        uploadingCount = items.count
+        uploadProgress = 0
         defer {
-            uploadingCount = 0
+            uploadProgress = nil
             picks = []
         }
-        let result = await CommunityMediaUpload.upload(items)
+        let result = await CommunityMediaUpload.upload(items) { uploadProgress = $0 }
         if let failure = result.failure { actionFailure = failure }
         guard !result.done.isEmpty else { return }
         do {
