@@ -243,10 +243,18 @@ final class ComposerUITextView: UITextView {
 
     /// Картинки из буфера — в лист отправки вложений (как в Telegram), текст — в поле как
     /// обычно. Чтение буфера по «Вставить» человек начал сам — вопроса о вставке нет.
+    ///
+    /// Скопированное из нашего же пузыря несёт исходный Markdown своим типом
+    /// (`MessageClipboard`, IOS_RULES 7.7.8): в поле вставляется он, и форматирование не
+    /// теряется. `insertText` идёт через тот же шлюз ввода, что набор (7.2.1).
     override func paste(_ sender: Any?) {
         let board = UIPasteboard.general
         if let onPasteImages, board.hasImages, let images = board.images, !images.isEmpty {
             onPasteImages(images)
+            return
+        }
+        if let markdown = MessageClipboard.markdown(in: board) {
+            insertText(markdown)
             return
         }
         super.paste(sender)
