@@ -230,7 +230,7 @@ struct DashboardRouteButton<Content: View>: View {
             label()
         }
         // В строке списка без своего стиля нажатие уходило бы всей строке, а не плитке.
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
     }
 }
 
@@ -314,7 +314,7 @@ struct DashboardShortcutsSection: View {
                 .contentShape(RoundedRectangle(cornerRadius: DashboardMetrics.tileRadius, style: .continuous))
                 .accessibilityElement(children: .combine)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pressable)
         }
         .listRowBackground(Color.clear)
         .listRowInsets(EdgeInsets())

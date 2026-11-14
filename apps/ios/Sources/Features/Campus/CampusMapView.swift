@@ -206,7 +206,7 @@ private struct FloorPicker: View {
                             }
                             .contentShape(Circle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pressableIcon)
                     .accessibilityLabel(Text(String(localized: "campus.floorNamed", defaultValue: "Этаж \(floor.title)")))
                     .accessibilityAddTraits(isOn ? .isSelected : [])
                 }
@@ -255,7 +255,7 @@ private struct RoomCard: View {
                     .frame(width: 30, height: 30)
                     .glassSurface(in: Circle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pressableIcon)
             .accessibilityLabel(Text(String(localized: "common.close", defaultValue: "Закрыть")))
         }
         .padding(Spacing.lg)

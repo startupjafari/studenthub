@@ -1005,7 +1005,7 @@ struct StoryComposerView: View {
                                                 Circle().strokeBorder(Palette.foreground, lineWidth: background == key ? 2 : 0)
                                             )
                                     }
-                                    .buttonStyle(.plain)
+                                    .buttonStyle(.pressableIcon)
                                     .accessibilityLabel(Text(verbatim: key))
                                     .accessibilityAddTraits(background == key ? .isSelected : [])
                                 }

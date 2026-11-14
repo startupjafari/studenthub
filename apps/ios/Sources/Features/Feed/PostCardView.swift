@@ -316,7 +316,7 @@ struct RepostContentView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable)
             } else {
                 Label(
                     String(localized: "feed.originalUnavailable", defaultValue: "Публикация недоступна"),

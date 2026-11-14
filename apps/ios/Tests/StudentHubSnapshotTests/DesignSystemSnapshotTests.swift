@@ -86,7 +86,8 @@ final class DesignSystemSnapshotTests: SnapshotTestCase {
         let view = FilterChipsHost()
             .padding(.vertical)
             .background(Palette.background)
-        assertSnapshots(of: view, named: "filter-chips", height: 120)
+        // Полоса фильтров — на стекле: блик по её краю плавает между запусками.
+        assertSnapshots(of: view, named: "filter-chips", height: 120, tolerance: .glass)
     }
 
     func testHeroHeader() {

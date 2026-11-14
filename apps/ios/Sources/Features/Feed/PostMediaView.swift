@@ -202,7 +202,7 @@ struct InlineVideoView: View {
                         .frame(width: 56, height: 56)
                         .floatingGlass(in: Circle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressableIcon)
                 .disabled(media.playbackURL == nil)
                 .accessibilityLabel(Text(String(localized: "feed.video.play", defaultValue: "Воспроизвести видео")))
 

@@ -85,7 +85,11 @@ final class MessageListViewController: UIViewController {
     private var bubbleContext = BubbleContext()
     private var selection: Set<String>?
     private var appliedBottomToken = 0
-    private var reportedAtBottom = true
+    /// Последнее сообщённое «у низа ли лента»; `nil` — ещё ни разу. Первое состояние
+    /// сообщается всегда (с первой расстановки): чат, открытый сразу у низа, — уже
+    /// увиденный до конца, и счётчик на кнопке «вниз» после прокрутки вверх не должен
+    /// вспоминать старое непрочитанное.
+    private var reportedAtBottom: Bool?
     private var appliedFocus: MessageFocus?
     /// Номер последней применённой ленты; `nil` — ещё ни одной.
     private var appliedRevision: Int?
@@ -680,7 +684,7 @@ final class MessageListViewController: UIViewController {
     }
 
     private func configureDataSource() {
-        let cell = UICollectionView.CellRegistration<UICollectionViewListCell, String> {
+        let cell = UICollectionView.CellRegistration<MessageCell, String> {
             [weak self] cell, _, id in
             guard let item = self?.itemsByID[id] else { return }
             cell.contentConfiguration = UIHostingConfiguration {
@@ -871,6 +875,9 @@ final class MessageListViewController: UIViewController {
     /// Сообщить SwiftUI, у низа ли лента. Только при смене и вне текущего прохода
     /// обновления: прокрутка случается и внутри `updateUIViewController`.
     private func reportBottom() {
+        // До первой расстановки лента ещё не там, где её увидят (низ или первое
+        // непрочитанное): первое сообщённое состояние — уже с неё.
+        guard hasContent, !needsInitialPosition else { return }
         let atBottom = isNearBottom
         guard atBottom != reportedAtBottom else { return }
         reportedAtBottom = atBottom
@@ -1476,5 +1483,26 @@ final class MessageListLayout: UICollectionViewCompositionalLayout {
         context.contentOffsetAdjustment = CGPoint(x: 0, y: max(delta, -(offset + inset.top)))
         ScrollProbe.note("remeasure above top \(Int(original.frame.height)) -> \(Int(preferred.frame.height)) adjust=\(Int(context.contentOffsetAdjustment.y))")
         return context
+    }
+}
+
+/// Ячейка сообщения. С кешем высот (`MessageStackLayout`, флаг `chatHeightCache`) она
+/// меряет себя сама от минимальной высоты: стандартный замер ячейки отталкивается от
+/// предложенной раскладкой высоты — оценки, — и содержимое SwiftUI, способное
+/// растянуться, возвращало её обратно. Завышенная оценка так и оставалась дырой под
+/// пузырём (`PerformanceFlagUITests` ловит это сравнением ленты с флагом и без).
+final class MessageCell: UICollectionViewListCell {
+    override func preferredLayoutAttributesFitting(
+        _ layoutAttributes: UICollectionViewLayoutAttributes
+    ) -> UICollectionViewLayoutAttributes {
+        let attributes = super.preferredLayoutAttributesFitting(layoutAttributes)
+        guard PerformanceFlags.chatHeightCache else { return attributes }
+        let fitted = contentView.systemLayoutSizeFitting(
+            CGSize(width: layoutAttributes.size.width, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+        attributes.frame.size = CGSize(width: layoutAttributes.size.width, height: ceil(fitted.height))
+        return attributes
     }
 }

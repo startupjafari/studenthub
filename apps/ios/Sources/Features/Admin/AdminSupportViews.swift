@@ -347,7 +347,7 @@ struct AdminSupportTicketView: View {
                             .padding(.vertical, Spacing.xs)
                             .chatCapsuleSurface()
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pressable)
                     .foregroundStyle(Palette.primary)
                     .padding(.bottom, Spacing.sm)
                 }
@@ -408,7 +408,7 @@ struct AdminSupportTicketView: View {
                     }
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pressable)
             .disabled(ticket.author == nil)
             .accessibilityHint(Text(String(localized: "admin.support.openAuthor", defaultValue: "Профиль автора")))
 
@@ -498,7 +498,7 @@ struct AdminSupportTicketView: View {
                             .frame(width: ControlHeight.lg, height: ControlHeight.lg)
                             .glassSurface(tint: Palette.primary, in: Circle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.pressableIcon)
                         .disabled(isSending || reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .opacity(reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1)
                         .accessibilityLabel(Text(String(localized: "admin.support.send", defaultValue: "Отправить")))

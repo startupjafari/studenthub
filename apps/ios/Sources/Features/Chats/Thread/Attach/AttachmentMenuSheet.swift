@@ -208,7 +208,7 @@ struct AttachmentMenuSheet: View {
             .floatingGlass(in: Capsule())
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
         .disabled(!canSend || isSending)
     }
 

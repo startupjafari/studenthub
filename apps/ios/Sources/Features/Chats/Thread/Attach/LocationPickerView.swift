@@ -203,7 +203,7 @@ struct LocationPickerView: View {
             .background(Palette.primary.opacity(provider.location == nil ? 0.5 : 1), in: Capsule())
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
         .disabled(provider.location == nil)
     }
 

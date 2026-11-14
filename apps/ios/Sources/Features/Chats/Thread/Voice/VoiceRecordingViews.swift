@@ -188,7 +188,7 @@ struct VoiceMicButton: View {
                     .frame(width: 40, height: 40)
                     .floatingGlass(in: Circle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pressableIcon)
             // Касание «стоп» не прячет клавиатуру — как и вся панель ввода.
             .keepsKeyboardOnTap()
             .offset(y: -(ControlHeight.lg + Spacing.lg))
@@ -358,7 +358,7 @@ private struct VoicePreviewStrip: View {
                     .frame(width: 28, height: 28)
                     .background(Palette.primary, in: Circle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pressableIcon)
             .accessibilityLabel(Text(player.isPlaying
                 ? String(localized: "chats.voice.pause", defaultValue: "Пауза")
                 : String(localized: "chats.voice.play", defaultValue: "Слушать")))

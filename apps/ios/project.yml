@@ -116,6 +116,10 @@ targets:
           UIColorName: LaunchBackground
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+        # ProMotion (120 Гц): без этого ключа iPhone держит анимации, которые рисует само
+        # приложение (пружины SwiftUI, CADisplayLink ленты), на 60 кадрах, а 120 получает
+        # только системная прокрутка. Telegram ставит его по той же причине.
+        CADisableMinimumFrameDurationOnPhone: true
         # Адрес API приходит из xcconfig, а не из кода: у Debug и Release он разный.
         SHAPIBaseURL: $(API_BASE_URL)
         # Адрес веба — для «Поделиться» и «Копировать ссылку» на пост.

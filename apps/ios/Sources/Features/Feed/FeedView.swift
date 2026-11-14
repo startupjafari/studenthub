@@ -273,7 +273,7 @@ private struct FriendRequestsCard: View {
                             .frame(width: ControlHeight.xl, height: ControlHeight.xl)
                             .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pressableIcon)
                     .accessibilityLabel(Text(String(localized: "friends.decline", defaultValue: "Отклонить")))
                     Button {
                         Task { await model.accept(request) }
@@ -285,7 +285,7 @@ private struct FriendRequestsCard: View {
                             .frame(width: ControlHeight.xl, height: ControlHeight.xl)
                             .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pressableIcon)
                     .sensoryFeedback(.success, trigger: model.friendRequests.count)
                     .accessibilityLabel(Text(String(localized: "friends.accept", defaultValue: "Принять")))
                 }
@@ -321,7 +321,7 @@ private struct ComposerLauncher: View {
             .padding(Spacing.lg)
             .cardSurface()
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
         .accessibilityLabel(Text(String(localized: "composer.title", defaultValue: "Новая публикация")))
     }
 }

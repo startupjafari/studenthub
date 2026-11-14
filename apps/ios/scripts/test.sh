@@ -14,7 +14,8 @@
 #   perf         StudentHubPerfTests — запуск, прокрутка, переходы; сверка с baseline
 #
 # Переменные: SH_TEST_DEVICE (iPhone 17 Pro), SH_TEST_OS (последняя доступная iOS),
-# SH_TEST_OUTPUT (build/test-output). Результаты:
+# SH_TEST_OUTPUT (build/test-output), SH_PERF_FLAGS (положение флагов второй волны для
+# всего прогона: `all=0`, `all=1`, `chatHeightCache=1,…`). Результаты:
 #   <output>/<набор>.xcresult      — открыть в Xcode или `xcrun xcresulttool`
 #   <output>/artifacts/<набор>/    — вложения тестов (скриншоты, снимки), видео
 #   <output>/snapshot-diffs/       — reference/actual/diff расходящихся снимков
@@ -144,6 +145,7 @@ run_suite() {
   [[ "$suite" == perf ]] && perf=1
   env TEST_RUNNER_SNAPSHOT_STRICT=1 \
     TEST_RUNNER_SH_PERF="$perf" \
+    TEST_RUNNER_SH_PERF_FLAGS="${SH_PERF_FLAGS:-}" \
     TEST_RUNNER_SNAPSHOT_RECORD="$RECORD" \
     TEST_RUNNER_SNAPSHOT_ARTIFACTS="$OUTPUT/snapshot-diffs" \
     xcodebuild test-without-building \

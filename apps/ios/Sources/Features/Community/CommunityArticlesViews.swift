@@ -295,7 +295,7 @@ struct CommunityArticleView: View {
                                     .cardSurface(padding: Spacing.lg)
                                     .contentShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.pressable)
                             .padding(.top, Spacing.md)
                         }
                     }
@@ -356,7 +356,7 @@ struct CommunityArticleView: View {
                         .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                         .contentShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable)
                 .accessibilityLabel(Text(String(localized: "community.article.openCover", defaultValue: "Обложка статьи, открыть на весь экран")))
                 .padding(.bottom, Spacing.xs)
             }
@@ -464,7 +464,7 @@ struct CommunityArticleView: View {
             .accessibilityLabel(Text(String(localized: "saved.title", defaultValue: "Сохранённое")))
             .accessibilityAddTraits(bookmarked ? .isSelected : [])
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressableIcon)
         .padding(.horizontal, Spacing.sm)
         .padding(.vertical, Spacing.xs)
         .background(Palette.card, in: Capsule())
@@ -517,7 +517,7 @@ struct CommunityArticleView: View {
             .cardSurface(padding: Spacing.lg)
             .contentShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
     }
 
     // MARK: Комментарии
@@ -617,7 +617,7 @@ struct CommunityArticleView: View {
                 .frame(width: ControlHeight.xl, height: ControlHeight.xl)
                 .contentShape(Circle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pressableIcon)
             .disabled(!hasText || isSending)
             .animation(.easeOut(duration: Motion.Duration.feedback), value: hasText)
             .accessibilityLabel(Text(String(localized: "community.comment.send", defaultValue: "Отправить")))
@@ -1058,7 +1058,7 @@ struct CommunityArticleEditor: View {
                                 .strokeBorder(Palette.border, style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
                         }
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pressable)
                     .disabled(isUploadingCover)
                 }
             }
@@ -1113,7 +1113,7 @@ struct CommunityArticleEditor: View {
             }
             .accessibilityLabel(Text(String(localized: "community.article.removeCover", defaultValue: "Убрать обложку")))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressableIcon)
         .foregroundStyle(Palette.foreground)
         .disabled(isUploadingCover)
     }

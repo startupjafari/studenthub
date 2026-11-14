@@ -154,7 +154,7 @@ struct GlassCloseButton: View {
                 .floatingGlass(in: Circle())
                 .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressableIcon)
         .accessibilityIdentifier("sheet.close")
         .accessibilityLabel(Text(String(localized: "common.close", defaultValue: "Закрыть")))
     }

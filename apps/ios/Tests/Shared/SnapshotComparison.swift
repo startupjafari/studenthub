@@ -31,6 +31,10 @@ enum SnapshotComparison {
         static let strict = Tolerance()
         /// Полноэкранные снимки из XCUITest: курсор ввода и сглаживание теней.
         static let screen = Tolerance(channel: 10, fraction: 0.002)
+        /// Компоненты на системном стекле iOS 26 (`glassEffect`): блик по краю стекла
+        /// система рисует от запуска к запуску по-разному — тонкая дуга в пару сотен
+        /// пикселей. Сменённый текст или раскладка — это тысячи, их допуск не прячет.
+        static let glass = Tolerance(channel: 6, fraction: 0.002)
     }
 
     struct Mismatch: CustomStringConvertible {

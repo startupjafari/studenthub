@@ -310,7 +310,7 @@ struct CommunityUniversityView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .cardSurface()
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.pressable)
                         .padding(.horizontal, Spacing.xl)
                     }
                 }
@@ -449,7 +449,7 @@ struct CommunityAlbumRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
 
         if let link {
-            NavigationLink(value: link) { label.cardSurface() }.buttonStyle(.plain)
+            NavigationLink(value: link) { label.cardSurface() }.buttonStyle(.pressable)
         } else {
             label.cardSurface()
         }

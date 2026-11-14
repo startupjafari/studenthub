@@ -273,7 +273,7 @@ private struct CommentInputBar: View {
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pressableIcon)
                     .accessibilityLabel(Text(String(localized: "feed.reply.cancel", defaultValue: "Отменить ответ")))
                 }
                 .font(Typography.meta)
@@ -312,7 +312,7 @@ private struct CommentInputBar: View {
                         .frame(width: ControlHeight.lg, height: ControlHeight.lg)
                         .glassSurface(tint: Palette.primary, in: Circle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pressableIcon)
                     .disabled(isEmpty || model.isSending)
                     .opacity(isEmpty ? 0.5 : 1)
                     .sensoryFeedback(.success, trigger: model.comments.count)
