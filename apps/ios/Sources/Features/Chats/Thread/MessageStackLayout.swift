@@ -111,6 +111,7 @@ final class MessageStackLayout: UICollectionViewLayout {
         Signposts.chats.emitEvent("CellRemeasure")
         // Выросла строка целиком выше видимого — то, что под пальцем, не двигается.
         let top = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
+        ScrollJankMonitor.shared.noteRemeasure(above: original.frame.minY < top - 0.5)
         let shift = MessageStackGeometry.offsetAdjustment(itemMinY: Double(original.frame.minY), delta: delta, visibleTop: Double(top))
         if shift != 0 {
             context.contentOffsetAdjustment = CGPoint(x: 0, y: max(CGFloat(shift), -(collectionView.contentOffset.y + collectionView.adjustedContentInset.top)))
