@@ -135,6 +135,12 @@ jobs:
           # shellcheck disable=SC2086
           scripts/test.sh $SUITES $RECORD
 
+      # Страж предупреждений (IOS_RULES 4.2.x): число предупреждений Swift в логе чистой
+      # сборки не больше базы scripts/warnings-baseline.txt; стало меньше — уменьшить базу.
+      # Глобальный «предупреждения = ошибки» не включаем: накопленные сделали бы сборку красной.
+      - name: Предупреждения
+        run: scripts/check_warnings.sh build/test-output/build.log
+
       - name: Сохранить результаты
         if: always()
         uses: actions/upload-artifact@v7
