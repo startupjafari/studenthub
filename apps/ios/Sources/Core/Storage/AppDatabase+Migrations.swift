@@ -267,6 +267,15 @@ extension AppDatabase {
             try db.execute(sql: "UPDATE \(ChatRecord.databaseTableName) SET syncSeq = lastSeq")
         }
 
+        migrator.registerMigration("dataSync_messageSendRejected") { db in
+            // Отказ сервера по существу отдельно от «не дошло»: такую строку очередь сама
+            // не повторяет (IOS_RULES 9.3.1). Старые неудачи считаем временными — у
+            // старой базы различия нет, и лишний повтор безвреднее потерянного сообщения.
+            try db.alter(table: MessageRecord.databaseTableName) { table in
+                table.add(column: "sendRejected", .boolean).notNull().defaults(to: false)
+            }
+        }
+
         return migrator
     }
 }
