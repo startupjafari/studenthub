@@ -509,6 +509,10 @@ final class ChatThreadModel {
 
     /// Правка уходит сокетом; текст в базе меняется сразу, а подтверждение придёт
     /// событием `message:updated` и перепишет строку серверной версией.
+    ///
+    /// Метка правки — на миг позже прежней серверной, а не часы телефона: поздний ответ
+    /// страницы (со старой меткой) её не откатит, а серверное подтверждение (позже по
+    /// часам сервера) примется, даже если часы телефона спешат (IOS_RULES 9.5.1).
     @MainActor
     private func saveEdit(of message: MessageRecord, text: String) async {
         editing = nil
@@ -518,7 +522,7 @@ final class ChatThreadModel {
         try? await database.writer.write { db in
             guard var row = try MessageRecord.fetchOne(db, key: id) else { return }
             row.content = text
-            row.editedAt = Date()
+            row.editedAt = (row.editedAt ?? row.createdAt).addingTimeInterval(0.001)
             try row.update(db)
         }
         await realtime.edit(messageID: remoteID, content: text)

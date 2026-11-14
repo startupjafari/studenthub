@@ -253,12 +253,10 @@ struct MessageStore: Sendable {
         {
             let before = local
             local.seq = message.seq ?? local.seq
-            local.content = message.content
-            local.editedAt = message.editedAt
-            local.deletedAt = message.deletedAt
             local.pinnedAt = message.pinnedAt
             local.sendState = .sent
             local.absorb(message)
+            local.keepFresherState(than: message)
             // Только изменённые столбцы и только если они есть: страница списка и догон
             // приносят те же сообщения снова, и пустая запись будила бы ленту и список.
             try local.updateChanges(db, from: before)
@@ -283,8 +281,14 @@ struct MessageStore: Sendable {
             return
         }
 
-        let arrived = MessageRecord(server: message)
+        var arrived = MessageRecord(server: message)
         if let known = try MessageRecord.fetchOne(db, key: message.id) {
+            // Сравнение с текущей строкой — внутри той же записи, а не со снимком на
+            // начало запроса: событие сокета могло лечь, пока ответ был в пути.
+            arrived.content = known.content
+            arrived.editedAt = known.editedAt
+            arrived.deletedAt = known.deletedAt
+            arrived.keepFresherState(than: message)
             try arrived.updateChanges(db, from: known)
         } else {
             try arrived.insert(db)
@@ -413,6 +417,27 @@ extension MessageRecord {
 
     /// Автор и подробности из ответа сервера. Реакции, превью ссылки и опрос меняются
     /// у уже сохранённого сообщения — поэтому переписываются при каждом приходе.
+    /// Принять текст и удаление из ответа сервера, не откатив более свежее (IOS_RULES 9.5.1,
+    /// 9.5.2). Ответ страницы или догона мог уйти раньше события сокета:
+    /// - удаление только ставится — сервер удалённых не отдаёт, и `nil` в ответе значит
+    ///   «на момент чтения ещё было», а не «восстановлено»;
+    /// - правка применяется, только если её `editedAt` не старее текущей: ответ без
+    ///   правки или со старой правкой не возвращает прежний текст.
+    mutating func keepFresherState(than message: ChatMessageDTO) {
+        if deletedAt == nil { deletedAt = message.deletedAt }
+        if Self.isEdit(message.editedAt, atLeastAsFreshAs: editedAt) {
+            content = message.content
+            editedAt = message.editedAt
+        }
+    }
+
+    /// Свежесть правки по серверным меткам. Без правки (`nil`) — самое старое состояние.
+    static func isEdit(_ incoming: Date?, atLeastAsFreshAs current: Date?) -> Bool {
+        guard let current else { return true }
+        guard let incoming else { return false }
+        return incoming >= current
+    }
+
     mutating func absorb(_ message: ChatMessageDTO) {
         if let sender = message.sender {
             senderName = sender.name
