@@ -92276,6 +92276,91 @@
         }
       }
     },
+    "chats.attach.captionPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить подпись…"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жазба қосу…"
+          }
+        }
+      }
+    },
+    "chats.attach.sendHighQuality": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить в высоком качестве"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жоғары сапада жіберу"
+          }
+        }
+      }
+    },
+    "chats.attach.sendOptions": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Способ отправки"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жіберу тәсілі"
+          }
+        }
+      }
+    },
+    "chats.attach.sendUncompressed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить без сжатия"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сығусыз жіберу"
+          }
+        }
+      }
+    },
+    "chats.attach.sendUngrouped": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить без группировки"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Топтамай жіберу"
+          }
+        }
+      }
+    },
     "chats.attach.remove": {
       "extractionState": "manual",
       "localizations": {
@@ -94992,23 +95077,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Геолокация"
-          }
-        }
-      }
-    },
-    "chats.attach.next": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Далее · %lld"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Әрі қарай · %lld"
           }
         }
       }

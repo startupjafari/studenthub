@@ -18,6 +18,28 @@ enum AttachmentPick {
     case contact
     /// Контакт из списка в листе — сразу на подтверждение.
     case contactCard(ContactCardDraft)
+    /// Снимки из сетки с подписью — отправить сразу, как в Telegram, без листа отправки.
+    case send(AttachmentSendRequest)
+}
+
+/// Отправка выбранного прямо из листа вложений: подпись и способ — из меню «⋯».
+struct AttachmentSendRequest {
+    enum Mode {
+        /// Альбомом, обычное сжатие.
+        case standard
+        /// «Отправить без сжатия» — файлами.
+        case files
+        /// «Отправить в высоком качестве».
+        case highQuality
+        /// «Отправить без группировки» — каждое своим сообщением.
+        case ungrouped
+    }
+
+    let assets: [PHAsset]
+    let caption: String
+    let mode: Mode
+    /// «Скрыть под спойлер».
+    let spoiler: Bool
 }
 
 /// Лист вложений как в Telegram: сверху — крестик и название раздела, ниже — его
@@ -58,6 +80,8 @@ struct AttachmentMenuSheet: View {
 
     /// Опрос есть только там, где есть кому голосовать (как в вебе).
     let allowsPoll: Bool
+    /// Начатый в поле ввода чата текст — подписью к снимкам, как в Telegram.
+    var initialCaption = ""
     let albumLimit: Int
     let onPick: (AttachmentPick) -> Void
     let onSendLocation: (_ coordinate: CLLocationCoordinate2D, _ title: String?, _ address: String?) async -> Bool
@@ -79,6 +103,14 @@ struct AttachmentMenuSheet: View {
     /// Клавиатура поднята (печатают опрос или список) — капсула разделов уходит, как в
     /// Telegram: над клавиатурой она закрывала бы поля.
     @State private var keyboardShown = false
+    /// Подпись к выбранным снимкам — в нижней строке листа, как в Telegram.
+    @State private var caption = ""
+    @FocusState private var captionFocused: Bool
+    /// Вместо клавиатуры под подписью — emoji.
+    @State private var showsEmoji = false
+    @State private var spoiler = false
+
+    private var isSelecting: Bool { section == .gallery && !selection.isEmpty }
 
     private var sections: [Section] {
         Section.allCases.filter { $0 != .poll || allowsPoll }
@@ -93,9 +125,9 @@ struct AttachmentMenuSheet: View {
         // Полоса плавает над содержимым: сетка и списки прокручиваются из-под неё.
         .safeAreaInset(edge: .bottom, spacing: 0) {
             ZStack {
-                if section == .gallery, !selection.isEmpty {
-                    sendSelectionBar
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                if isSelecting {
+                    captionBar
+                        .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .bottom)))
                 } else if !keyboardShown {
                     sectionBar
                         .transition(.opacity)
@@ -110,30 +142,116 @@ struct AttachmentMenuSheet: View {
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             keyboardShown = false
         }
+        .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: showsEmoji)
         .presentationDetents([.medium, .large], selection: $detent)
         .presentationDragIndicator(.visible)
         .presentationContentInteraction(.scrolls)
+        .onAppear { caption = initialCaption }
+        // Подпись печатают во весь экран: лист раскрывается, как в Telegram.
+        .onChange(of: captionFocused) { _, focused in
+            if focused {
+                showsEmoji = false
+                withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) { detent = .large }
+            }
+        }
+        .onChange(of: selection.isEmpty) { _, empty in
+            if empty {
+                captionFocused = false
+                showsEmoji = false
+                spoiler = false
+            }
+        }
     }
 
+    /// Шапка как в Telegram: крестик, при выборе снимков — зелёная капсула «✓ N» рядом с
+    /// ним и «⋯» со способами отправки справа; по центру — альбом или раздел.
     private var header: some View {
-        HStack {
-            GlassCloseButton { dismiss() }
-            Spacer()
-            if section == .gallery, selection.isEmpty, !albums.albums.isEmpty {
+        ZStack {
+            HStack(spacing: Spacing.sm) {
+                GlassCloseButton { dismiss() }
+                if isSelecting {
+                    selectedBadge
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
+                }
+                Spacer()
+                if isSelecting {
+                    sendOptionsMenu
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
+                } else {
+                    trailingAction
+                }
+            }
+            if section == .gallery, !albums.albums.isEmpty {
                 albumMenu
             } else {
-                Text(section == .gallery && !selection.isEmpty
-                    ? String(localized: "chats.attach.selected", defaultValue: "Выбрано: \(selection.count)")
-                    : section.title)
+                Text(section.title)
                     .font(.headline)
-                    .contentTransition(.numericText())
             }
-            Spacer()
-            trailingAction
         }
         .padding(.horizontal, Spacing.lg)
         .padding(.top, Spacing.lg)
         .padding(.bottom, Spacing.sm)
+        .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: isSelecting)
+    }
+
+    /// «✓ N» — сколько снимков выбрано; касание снимает выбор.
+    private var selectedBadge: some View {
+        Button {
+            selection = []
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "checkmark")
+                    .font(.caption.weight(.heavy))
+                Text(selection.count.formatted())
+                    .font(.subheadline.weight(.bold))
+                    .contentTransition(.numericText())
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, Spacing.md)
+            .frame(height: ControlHeight.xl)
+            .background(Palette.success, in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.pressable)
+        .animation(Motion.respecting(Motion.snappy, reduceMotion: reduceMotion), value: selection.count)
+        .accessibilityLabel(Text(String(localized: "chats.attach.selected", defaultValue: "Выбрано: \(selection.count)")))
+        .accessibilityHint(Text(String(localized: "chats.attach.clearSelection", defaultValue: "Сбросить")))
+    }
+
+    /// «⋯» — способы отправки, как в Telegram: каждый пункт отправляет сразу, спойлер —
+    /// переключатель.
+    private var sendOptionsMenu: some View {
+        Menu {
+            Button {
+                send(.files)
+            } label: {
+                Label(String(localized: "chats.attach.sendUncompressed", defaultValue: "Отправить без сжатия"), systemImage: "doc")
+            }
+            Button {
+                send(.highQuality)
+            } label: {
+                Label(String(localized: "chats.attach.sendHighQuality", defaultValue: "Отправить в высоком качестве"), systemImage: "sparkles")
+            }
+            if selection.count > 1 {
+                Button {
+                    send(.ungrouped)
+                } label: {
+                    Label(String(localized: "chats.attach.sendUngrouped", defaultValue: "Отправить без группировки"), systemImage: "square.on.square.dashed")
+                }
+            }
+            Divider()
+            Toggle(isOn: $spoiler) {
+                Label(String(localized: "chats.attach.spoiler", defaultValue: "Скрыть под спойлер"), systemImage: "eye.slash")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Palette.foreground)
+                .frame(width: ControlHeight.xl, height: ControlHeight.xl)
+                .floatingGlass(in: Circle())
+                .contentShape(Circle())
+        }
+        .accessibilityLabel(Text(String(localized: "chats.attach.sendOptions", defaultValue: "Способ отправки")))
     }
 
     /// Заголовок «Галереи» — выбор альбома, как в Telegram: «Недавние ⌄», в меню —
@@ -374,24 +492,71 @@ struct AttachmentMenuSheet: View {
 
     private static let barSpace = "attachSections"
 
-    /// Выбраны снимки — вместо разделов «Отправить N»: дальше лист с подписью и
-    /// предпросмотром.
-    private var sendSelectionBar: some View {
-        HStack(spacing: Spacing.md) {
-            Button(String(localized: "chats.attach.clearSelection", defaultValue: "Сбросить")) {
-                selection = []
+    /// Выбраны снимки — вместо капсулы разделов строка подписи, как в Telegram:
+    /// «Добавить подпись…», emoji и зелёная «Отправить». Отправка — сразу отсюда. Под
+    /// строкой по кнопке emoji — панель emoji вместо клавиатуры.
+    private var captionBar: some View {
+        VStack(spacing: Spacing.sm) {
+            HStack(alignment: .bottom, spacing: Spacing.sm) {
+                HStack(alignment: .bottom, spacing: Spacing.xs) {
+                    TextField(
+                        String(localized: "chats.attach.captionPlaceholder", defaultValue: "Добавить подпись…"),
+                        text: $caption,
+                        axis: .vertical
+                    )
+                    .lineLimit(1...6)
+                    .focused($captionFocused)
+                    .padding(.leading, Spacing.lg)
+                    .padding(.vertical, 10)
+                    Button {
+                        if showsEmoji {
+                            captionFocused = true
+                        } else {
+                            captionFocused = false
+                            showsEmoji = true
+                            withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) { detent = .large }
+                        }
+                    } label: {
+                        Image(systemName: showsEmoji ? "keyboard" : "face.smiling")
+                            .font(.title3)
+                            .foregroundStyle(Palette.mutedForeground)
+                            .frame(width: 40, height: 40)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text(showsEmoji
+                        ? String(localized: "chats.panel.keyboard", defaultValue: "Клавиатура")
+                        : String(localized: "chats.panel.emoji", defaultValue: "Эмодзи")))
+                }
+                .floatingGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+
+                Button {
+                    send(.standard)
+                } label: {
+                    Image(systemName: "paperplane.fill")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .background(Palette.primary, in: Circle())
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.pressable)
+                .accessibilityLabel(Text(String(localized: "chats.send", defaultValue: "Отправить")))
             }
-            .glassButton()
-            Button {
-                pick(.assets(selection))
-            } label: {
-                Text(String(localized: "chats.attach.next", defaultValue: "Далее · \(selection.count)"))
-                    .frame(maxWidth: .infinity)
+            .padding(.horizontal, Spacing.lg)
+
+            if showsEmoji {
+                EmojiBrowser(columns: 8, bottomInset: 0) { emoji in caption += emoji }
+                    .frame(height: 300)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            .glassProminentButton()
         }
-        .padding(.horizontal, Spacing.lg)
         .padding(.bottom, Spacing.sm)
+    }
+
+    private func send(_ mode: AttachmentSendRequest.Mode) {
+        guard !selection.isEmpty else { return }
+        pick(.send(AttachmentSendRequest(assets: selection, caption: caption, mode: mode, spoiler: spoiler)))
     }
 
     private func select(_ item: Section) {

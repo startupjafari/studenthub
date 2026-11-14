@@ -20,6 +20,8 @@ struct MessageComposerView: View {
     @State private var showsAttachMenu = false
     /// Выбор в листе вложений ждёт, пока лист закроется.
     @State private var pendingPick: AttachmentPick?
+    /// Снимки из листа вложений не подготовились к отправке.
+    @State private var attachFailure: String?
     @State private var showsScanner = false
     /// Вместо клавиатуры открыта панель emoji, стикеров и GIF.
     @State private var showsPanel = false
@@ -234,6 +236,7 @@ struct MessageComposerView: View {
             CameraPicker { image in captured = image }
                 .ignoresSafeArea()
         }
+        .actionFailureAlert($attachFailure)
         .sheet(item: $sending, onDismiss: closeDraft) { draft in
             AttachmentSendSheet(draft: draft) {
                 send(draft)
@@ -242,6 +245,7 @@ struct MessageComposerView: View {
         .sheet(isPresented: $showsAttachMenu, onDismiss: runPendingPick) {
             AttachmentMenuSheet(
                 allowsPoll: allowsPoll,
+                initialCaption: model.editing == nil ? model.draft : "",
                 albumLimit: AttachmentUploader.albumLimit,
                 onPick: { pendingPick = $0 },
                 onSendLocation: { coordinate, title, address in
@@ -406,7 +410,33 @@ struct MessageComposerView: View {
             pickingContact = true
         case .contactCard(let contact):
             contactToSend = contact
+        case .send(let request):
+            Task { await send(request) }
         }
+    }
+
+    /// Отправка прямо из листа вложений, как в Telegram: снимки готовятся и уходят сразу,
+    /// без листа отправки. Способ — из меню «⋯» листа.
+    private func send(_ request: AttachmentSendRequest) async {
+        let draft = AttachmentDraft(caption: request.caption)
+        draft.asFiles = request.mode == .files
+        await draft.add(assets: request.assets, highQuality: request.mode == .highQuality)
+        if request.spoiler { draft.setSpoilerAll(true) }
+        let files = draft.outgoing
+        guard !files.isEmpty else {
+            attachFailure = draft.failure
+            return
+        }
+        // Копии файлов теперь у загрузчика.
+        draft.isSent = true
+        sentTick += 1
+        await model.send(
+            attachments: files,
+            caption: request.caption,
+            asFiles: draft.showsAsFiles,
+            grouped: request.mode != .ungrouped
+        )
+        if let failure = draft.failure { attachFailure = failure }
     }
 
     /// Лист вложений: уже открытый (выбранное добавляется к нему) или новый. Начатый в
