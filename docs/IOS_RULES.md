@@ -21,9 +21,9 @@ Telegram не копируем (в том числе `tools/animation_sheet.py`)
 (одно правило часто встречается в нескольких файлах Telegram) осталось 958 правил в 15 разделах. Сверка с нашим
 кодом нашла 150 мест, где код расходится с правилом: они перечислены в приложении А.
 
-**Откуда «Сейчас у нас».** Это выводы из чтения кода ветки `develop` (коммит `1f595d20`, 14.11.2026). На iPhone
-они не воспроизводились, тесты под них не писались. Пометка «проверить на iPhone» значит, что по коду судить
-нельзя.
+**Откуда «Сейчас у нас».** Это выводы из чтения кода ветки `develop` (коммит `1f595d20`, 14.11.2026; статусы обновлены
+после #499). На iPhone они не воспроизводились, тесты под них не писались. Пометка «проверить на iPhone» значит, что по
+коду судить нельзя.
 
 **Формат правила.**
 
@@ -248,10 +248,8 @@ gitlab-runner запускается без Homebrew в PATH, поэтому и�
 проверки ничего не доказывает.
 **Почему.** У Telegram `simctl install` с тем же номером сборки молча оставлял старое приложение. Старая сборка
 запускалась и работала нормально, и фикс «не работал» три прогона подряд.
-**Сейчас у нас.** расходится: `CFBundleVersion` берётся из постоянного `CURRENT_PROJECT_VERSION: "1"`
-(`project.yml:133`, `scripts/device_bundle.py:61`). Настройки показывают `0.1.0 (1)`
-(`Features/Settings/SettingsView.swift:168`), поэтому вчерашнюю сборку не отличить от сегодняшней. Если путаница
-повторится, добавь в отладочную сборку метку коммита или времени сборки — отдельной задачей, по согласованию.
+**Сейчас у нас.** соблюдено (#499): номер сборки — время сборки UTC, коммит — в ключе `SHBuildCommit` Info.plist,
+`device.sh` печатает строку со сборкой.
 *Источник: `CLAUDE.md` («Updating the running simulator after a rebuild»); `docs/superpowers/2026-10-14-navbar-transitions-handoff.md` («Build, test, install»: «A same-build-number `simctl install` silently keeps the old app»); `Tests/WidgetHarness/CLAUDE.md` («Build, test, run»); `Tests/ComposerHarness/CLAUDE.md` («The reused test simulator can run a STALE host app»)*
 **Применимость.** частично — симулятора нет, переносится принцип «сначала докажи свежесть установки».
 
@@ -282,8 +280,8 @@ gitlab-runner запускается без Homebrew в PATH, поэтому и�
 **Почему.** У Telegram сборку берут только из `bazel-bin`, а не `find` по каталогу всех конфигураций: можно
 взять сборку для устройства вместо симулятора. Без проверки источника перед `rm -rf` оставался симулятор без
 приложения. Каталог упаковки после инкрементальной сборки хранит прежние бинарники с поддельными датами.
-**Сейчас у нас.** расходится: `run_bench` ищет приложение через `find "$DERIVED/Build/Products" … | head -1`
-(`scripts/test.sh:220`). Если в DerivedData окажется несколько конфигураций, возьмётся первая попавшаяся.
+**Сейчас у нас.** соблюдено (#499): `run_bench` берёт конкретный `Debug-iphonesimulator/StudentHub.app`, а не первое
+найденное.
 *Источник: `CLAUDE.md` («Updating the running simulator…»: bazel-bin vs bazel-out, guard перед `rm -rf`, terminate, уборка staging, `Telegram_archive-root/`)*
 **Применимость.** частично — симулятора нет, принципы переносятся на артефакты CI и скрипты.
 
@@ -356,8 +354,7 @@ XCTest не грузится на хосте, файлы тестов хотя �
 его безопасно: он только собирает логи, и прогон сразу вернёт настоящий результат.
 **Почему.** У Telegram при падении xcodebuild по умолчанию собирает `simctl diagnose … --timeout=600` — до 10 минут
 простоя после последнего теста. Проходящий прогон не зависает, упавший — почти всегда.
-**Сейчас у нас.** расходится: `run_suite` в `scripts/test.sh:173` этот флаг не передаёт. Упавший ui/perf-набор
-может съесть до 10 минут из `timeout-minutes: 75` (`ios.yml`) или 120 (`ios-nightly.yml`). Добавить отдельной задачей.
+**Сейчас у нас.** соблюдено (#499): `run_suite` передаёт `-collect-test-diagnostics never`.
 *Источник: `CLAUDE.md` («Running tests», абзац про `simctl diagnose`); `build-system/bazel-patches/CLAUDE.md` («xctestrunner-collect-test-diagnostics.patch», последний абзац); `submodules/TelegramUI/Components/CoreList/CLAUDE.md` («Build / Test»); `submodules/TelegramUI/Components/MediaGrid/CLAUDE.md` (команды сборки и тестов)*
 
 #### 2.1.7 Без параллельности и пересекающихся прогонов на одном симуляторе
@@ -366,8 +363,7 @@ XCTest не грузится на хосте, файлы тестов хотя �
 (`-test-iterations N`), а не параллельными копиями.
 **Почему.** У Telegram параллельные повторы на одном симуляторе убивают друг друга, и провал ничего не говорит о
 тесте. Параллельный прогон ломал проверки анимаций.
-**Сейчас у нас.** частично: `scripts/test.sh` гоняет наборы строго по очереди на одном UDID, схема XcodeGen по
-умолчанию не параллельна, но явного флага в `run_suite` (`scripts/test.sh:173`) нет. Добавить вместе с 2.1.6.
+**Сейчас у нас.** соблюдено (#499): `run_suite` передаёт явный `-parallel-testing-enabled NO`.
 *Источник: `submodules/TelegramUI/Components/RichTextEditor/Host/Engine/AGENTS.md` («Xcode simulator testing»); `Tests/ComposerHarness/CLAUDE.md` («Repeat a test with a shell loop…, never `--runs_per_test`»); `submodules/TelegramUI/Components/CoreList/CLAUDE.md` («Build / Test»); `submodules/TelegramUI/Components/MediaGrid/CLAUDE.md`; `Tests/WidgetHarness/CLAUDE.md` («The conformance set»: «one at a time»)*
 
 #### 2.1.8 Опция xcodebuild — двумя аргументами, и проверить, что она читается
@@ -1020,17 +1016,16 @@ U+2044, punycode-двойник, markdown с чужим адресом.
 константами, а перед действием проверяй видимый признак того, что сценарий применился.
 **Почему.** У Telegram опечатка в аргументе сценария молча давала сценарий по умолчанию, поэтому тест сначала
 проверяет метку на экране.
-**Сейчас у нас.** расходится: неизвестное значение `SH_UITEST_SCENARIO` молча превращается в `.signedOut`
-(`App/UITesting/UITestEnvironment.swift:35`).
+**Сейчас у нас.** соблюдено (#499): неизвестный `SH_UITEST_SCENARIO` в DEBUG роняет запуск (`preconditionFailure`) с
+перечнем известных сценариев.
 *Источник: `Tests/ComposerHarness/CLAUDE.md` («The arrange channel»)*
 
 #### 2.7.9 Аргументы и переменные запуска разбираются строго
 **Правило.** Неизвестный ключ или значение в `SH_UITEST_*` и `SH_PERF_FLAGS` должны быть заметны: лог или падение в
 DEBUG, а не молчаливый пропуск.
 **Почему.** У Telegram аргумент с двумя дефисами (`--widget-set`) молча игнорировался.
-**Сейчас у нас.** расходится: `PerformanceFlags.parse` (`App/PerformanceFlags.swift:85–96`) молча пропускает пару с
-неверным значением (`:89`) и неизвестное имя флага (`:92`). Опечатка в `SH_PERF_FLAGS` даёт прогон «как в коде», и
-матрица флагов (2.4.8) тихо проверяет не то.
+**Сейчас у нас.** соблюдено (#499): неизвестный флаг или значение не 0/1 в `SH_PERF_FLAGS` в DEBUG роняет запуск с
+перечнем известных имён.
 *Источник: `Tests/WidgetHarness/CLAUDE.md` («The arrange channel»: «One leading dash»)*
 
 #### 2.7.10 Состояние экрана для тестов — табло доступности; формат — контракт
@@ -1260,9 +1255,7 @@ Linux `ffmpeg` и `ffprobe` есть в `/usr/bin`.
 На iPhone координатных касаний из Linux нет, жест делает владелец. Попросить его: начать запись, подождать секунду,
 сделать жест, подождать секунду, остановить.
 **Почему.** Касание должно лечь в известный момент записи. SIGINT корректно закрывает файл.
-**Сейчас у нас.** расходится: `recordVideo … &` и затем `sleep 1` вместо ожидания строки в логе
-(`apps/ios/scripts/test.sh:158-160`). Если запись стартует медленно, первые движения теста теряются. SIGINT есть
-(`test.sh:183`).
+**Сейчас у нас.** соблюдено (#499): запись видео стартует по строке «Recording started», перед `SIGINT` — секунда.
 **Применимость.** частично: `axe touch` и локальный симулятор у нас недоступны. Переносится принцип «известный
 момент + SIGINT».
 *Источник: `AGENTS.md` («2. Record», блок команд и пункт про `axe touch`)*
@@ -1572,15 +1565,8 @@ height is replaced from scratch each pass)*
 **Почему.** У Telegram завершение пружины приходит намного позже видимого конца: ≈1,3 с против ≈0,7 с. Действие из
 завершения ждёт лишнее, а снятие по таймеру раньше конца обрывает видимое затухание. При передаче после завершения
 нельзя дать мелькнуть кадру.
-**Сейчас у нас.** расходится в двух местах:
-- `MessageMenuOverlay.dismiss` убирает оверлей по фиксированному таймеру 230 мс
-  (`Features/Chats/Thread/Menu/MessageMenuOverlay.swift:450`). `Motion.snappy` критически задемпфирована и
-  успокаивается за ≈0,3–0,4 с, так что снятие обрывает ещё видимое затухание. Действие `pendingMenuAction`
-  запускается после ухода оверлея (`ChatThreadView.swift:943`). Для подтверждений это нужно, но не ставить туда
-  ничего мгновенного.
-- `focus(_:)` доводит прокрутку и подсвечивает цель по таймеру `scheduleFocusFinish` (300/450/30 мс,
-  `Features/Chats/Thread/MessageListView.swift:783,801,808`) параллельно с `scrollViewDidEndScrollingAnimation`
-  (`:1327`).
+**Сейчас у нас.** соблюдено (#499): оверлей меню снимается по завершению пружины (`completionCriteria`), подсветка
+перехода к сообщению — по концу прокрутки (`scrollViewDidEndScrollingAnimation`); таймер 1 с остался только страховкой.
 *Источник: `docs/context-menu-liquid-morph.md` («Dismissal during presentation»: «Still open… waits for the close to
 settle»; «Frame rate»; «Closing handoff»); handoff (Rulings: Transition clock — «Endings come from Core Animation's
 completions, not timers»)*
@@ -1773,8 +1759,8 @@ stop animating»)*
 момент. Хранить её в `MessageMenuRequest`. Уход клавиатуры не должен двигать уже открытое меню.
 **Почему.** У Telegram меню занимает место источника, привязывается к краю по половине экрана и ограничивается
 краями. Позиция фиксируется при открытии, даже если источник потом перекладывается.
-**Сейчас у нас.** расходится: прямоугольники сняты при открытии, но `layout(in:)` на каждом проходе читает живой
-`KeyboardFrame.shared.top` (`Features/Chats/Thread/Menu/MessageMenuOverlay.swift:213`).
+**Сейчас у нас.** соблюдено (#499): верх клавиатуры снимается при открытии меню, уход клавиатуры открытое меню не
+двигает.
 *Источник: `docs/context-menu-liquid-morph.md` («Which menus morph»: «The placement is decided when the menu opens and
 kept for its lifetime»)*
 
@@ -2573,9 +2559,8 @@ iPhone с iOS 27, а не `hitTest` в тесте.
 Одиночный тап по кнопке не должен ждать второго.
 **Почему.** У Telegram касание внутри живого виджета отдаётся виджету: быстрый двойной тап по его кнопке не
 превращается в реакцию, а меню завершает касание виджета отменой.
-**Сейчас у нас.** Расходится: `.onTapGesture(count: 2)` висит на всём пузыре
-(`MessageBubbleView.swift:153`). Проверить на iPhone двойной тап по опросу и чек-листу и задержку
-одиночного тапа.
+**Сейчас у нас.** соблюдено (#499): двойной тап — `UITapGestureRecognizer` ленты рядом с долгим нажатием; живые элементы
+помечены `bubbleControl`, одиночный тап по ним второго не ждёт.
 *Источник: `submodules/TelegramUI/Components/MessageWidget/CLAUDE.md` («Touches»); `docs/superpowers/specs/2026-10-13-message-widgets-design.md` §5 «Touches and the bridge» (`.ignore`, `hasLongTapAction: false`); `docs/superpowers/plans/2026-10-13-message-widgets.md` (Task 14); `docs/superpowers/specs/2026-10-19-message-widgets-v0.1.0-client-design.md` §9*
 
 #### 5.4.2 У строки один владелец долгого нажатия
@@ -2752,8 +2737,7 @@ iPhone с iOS 27, а не `hitTest` в тесте.
 (расстановка) не переполнит строку.
 **Почему.** У Telegram каждая кнопка заранее ограничена шириной ряда, поэтому жадная упаковка не
 переполняет строку.
-**Сейчас у нас.** Расходится: `ChatFlowLayout` мерит детей `sizeThatFits(.unspecified)`
-(`Features/Chats/ChatChrome.swift:327,344`). Элемент шире пузыря вылезет.
+**Сейчас у нас.** соблюдено (#499): `ChatFlowLayout` предлагает детям ширину контейнера вместо `.unspecified`.
 *Источник: `docs/instantpage-richtext.md` (Inline buttons: «Pass 1's maxWidth is what makes pass 2 safe»)*
 
 #### 5.6.4 Замер и отрисовка берут одни константы
@@ -2761,9 +2745,8 @@ iPhone с iOS 27, а не `hitTest` в тесте.
 высоты частей пузыря она берёт из тех же токенов (`Spacing`, метрики пузыря), что и вид, а не из
 продублированных чисел. Общую геометрию отрисовки и замера считать одной функцией.
 **Почему.** У Telegram две независимые конструкции однажды разошлись в том, входят ли поля в размер.
-**Сейчас у нас.** Расходится: в `MessageHeightEstimate.Metrics` значения `bubblePadding` = 14,
-`nameHeight` = 18, `replyHeight` = 44, `reactionsHeight` = 30 и `fileRowHeight` = 52 заданы литералами
-(`Thread/MessageStackGeometry.swift:74-78`).
+**Сейчас у нас.** соблюдено (#499): отступы пузыря в `ChatBubbleMetrics`, вид и `MessageHeightEstimate` читают их
+оттуда.
 *Источник: `docs/instantpage-richtext.md` (Inline buttons: «…is the ONLY construction path», «instantPageButtonLabelOrigin is shared…»)*
 
 #### 5.6.5 Значение раскладки несёт только геометрию
@@ -2938,9 +2921,8 @@ iPhone с iOS 26/27.
 типа, который ищут поиск источника меню и сэмплер нажатия. У одного элемента один владелец.
 **Почему.** `BubbleAnchors` — реестр по `(id, part)`, и в нём выигрывает последний, кто зарегистрировался.
 Копия под тем же id перехватывает якорь у настоящего пузыря.
-**Сейчас у нас.** Расходится: `ChatPeekView` (превью чата по долгому нажатию в `ChatListView`) создаёт
-`MessageBubbleView` без `isMenuPreview` (`Features/Chats/ChatListView.swift:1084`). `MessageMenuOverlay.swift:270`
-и `ChatPinnedListView.swift:99` передают флаг правильно.
+**Сейчас у нас.** соблюдено (#499): `ChatPeekView` рисует копии пузырей с `isMenuPreview` и якоря ленты не
+перехватывает.
 *Источник: `docs/superpowers/plans/2026-10-15-navbar-split-right-buttons.md` (Task 5 Step 4); `submodules/TelegramUI/Components/News/CLAUDE.md` (floating avatar: «two avatars»)*
 
 #### 5.7.8 Смена темы обновляет всё, что от неё зависит
@@ -3441,8 +3423,8 @@ animated: false)` гасит взмах). Поправку при перемер
 компенсацию. `topVisibleItem()` не учитывает оттяжку у верха (смещение меньше `−contentInset.top`).
 **Почему.** У Telegram при сохранении видимого держится строка на краю, а при её удалении — ближайшая выжившая;
 отскок никогда не влияет на выбор якоря и направление.
-**Сейчас у нас.** Расходится: `restore(pinned)` (`MessageListView.swift:486`) возвращает `false` для удалённого
-якоря, и тогда работает компенсация по росту высоты (`grown compensation`).
+**Сейчас у нас.** соблюдено (#499): кандидаты в якорь — верхнее видимое, видимые под ним и три над ним; при удалении
+держится ближайшее выжившее.
 *Источник: `submodules/TelegramUI/Components/CoreList/CLAUDE.md` (Virtual content and settled window: `.preserveVisibleContent`, mutation anchors)*
 
 #### 6.4.10 Первую позицию ставить после размеров и содержимого
@@ -3639,7 +3621,8 @@ owes a content-offset report»)*
 назад: останавливай их в начале ухода, учитывая отменённый свайп назад (экран остаётся).
 **Почему.** У Telegram подавить колбэк ≠ подавить движение: уезжающий снимок должен и остановиться, и перестать
 принимать касания.
-**Сейчас у нас.** Расходится: `glide.stop()` при уходе — только в `viewDidDisappear` (`MessageListView.swift:188`).
+**Сейчас у нас.** соблюдено (#499): `glide.stop()` в `viewWillDisappear`; при отменённом свайпе назад пружина доезжает в
+`viewDidAppear`.
 **Применимость.** Частично — сам переход делает система; переносится остановка своих движений.
 *Источник: `docs/chat/corelist-chat-history-backend.md` (Overscroll actions, `globalIgnoreScrollingEvents`)*
 
@@ -3665,8 +3648,8 @@ owes a content-offset report»)*
 прочтение и анимации реакций. Строка под панелью сверху не в счёт (тест
 `ChatControllerInteractionTests.chatHistoryMaxVisibleReadIndex`). У нас лента уходит под панели
 (`contentInsetAdjustmentBehavior = .never`).
-**Сейчас у нас.** Расходится: `ChatThreadModel.markRead()` (`ChatThreadModel.swift:1247`) отмечает последнее чужое
-сообщение с `remoteId`, пока чат открыт, — независимо от того, видно ли оно. Неотправленные исключены (соблюдено).
+**Сейчас у нас.** соблюдено (#499): лента сообщает нижнюю строку, видимую между панелями и полем ввода; `markRead` не
+отмечает ниже неё.
 **Применимость.** Частично — автовоспроизведения в ленте чата нет.
 *Источник: `docs/app-unit-tests.md` (`ChatControllerInteractionTests`); `docs/chat/corelist-chat-history-backend.md`
 (Item visibility; Item-node enumeration)*
@@ -3752,9 +3735,7 @@ owes a content-offset report»)*
 время, состояние отправки, число прочитавших. Новый элемент метки добавляй в обе сразу; лучше собрать обе из одного
 описания.
 **Почему.** У Telegram якорь даты в замере обязан совпадать с якорем при отрисовке, иначе дату обрезает или сдвигает.
-**Сейчас у нас.** Расходится: при `sendState == .pending/.failed` видимая метка — часы/восклицательный знак
-(`stateMark`, `MessageBubbleView.swift:678`), а копия (`metaPlaceholder`, `MessageBubbleView.swift:577`) — всегда две
-галочки (+ число прочитавших).
+**Сейчас у нас.** соблюдено (#499): невидимая копия времени держит место под тот же знак, что рисует `stateMark`.
 *Источник: `docs/instantpage-richtext.md` (Status node positioning, «statusAnchorY… must mirror statusFrameY…»)*
 
 #### 6.7.3 Нижний отступ пузыря одинаков во всех состояниях
@@ -3950,13 +3931,15 @@ alignment); `submodules/TelegramUI/Sources/CLAUDE.md` (Contract rules)*
 #### 7.1.6 Что уйдёт при отправке, решает одна функция
 **Правило.** Заведите одну чистую функцию «текст к отправке»: обрезка пробелов и удаление невидимых `U+200B…U+200D`, `U+2060`, `U+FEFF`, как `messageText()` в `packages/shared-schemas/src/chats.ts`. Вызывайте её из кнопки «Отправить», из самой отправки, из счётчика длины и из `StudentHubTests`. Копировать её логику в тест нельзя.
 **Почему.** Маршрут отправки и разбиение текста у Telegram вынесены в общий модуль, который вызывают и чат, и оракул тестов. Копия логики в тесте проверяет саму себя.
-**Сейчас у нас.** Расходится: проверка и обрезка продублированы в `ChatThreadModel.send` (`ChatThreadModel.swift:285`, `:318`, `:681`), `ComposerEditorView.canSend` (`ComposerEditorView.swift:264`) и панели ввода (`MessageComposerView.swift:588`). Невидимые символы клиент не снимает.
+**Сейчас у нас.** соблюдено (#499): что уйдёт на сервер, решает одна функция `OutgoingText`, она же снимает невидимые
+символы.
 *Источник: `docs/richtext-composer.md` (§5 «Send», `chatComposerSendRoute`/`chatComposerTextMessages`); `submodules/TelegramUI/Components/RichTextEditor/CLAUDE.md` (Composer bridge and chat contracts)*
 
 #### 7.1.7 Счётчик длины считает то, что уйдёт, и предупреждает до отправки
 **Правило.** Введите в поле счётчик по функции из 7.1.6. Считайте в UTF-16 (`utf16.count`, как JS `length`), потому что сервер принимает до 4000 единиц после очистки (`messageText(max = 4000)`, `SaveDraftSchema`). Показывайте счётчик у края лимита и блокируйте «Отправить» сверх него. Текст молча не обрезайте. Разбиение на несколько сообщений — только по решению владельца.
 **Почему.** У Telegram длина в панели — это длина того, что отправит текстовый маршрут, вместе с кодом и цитатами; длинное делится на части по 4096.
-**Сейчас у нас.** Расходится: в iOS-поле нет ни лимита, ни счётчика. Длинный текст отклоняет сервер (`validation.*`), а `PUT draft` длиннее 4000 молча не сохраняется.
+**Сейчас у нас.** соблюдено (#499): лимит 4000 (UTF-16, как `messageText`), счётчик у края лимита, «Отправить» неактивна
+сверх него.
 *Источник: `docs/richtext-composer.md` (§2, §5 «the panel's length counter counts what the text route sends»); `submodules/TelegramUI/Components/RichTextEditor/CLAUDE.md` (Composer bridge…, `HarnessLengthCounterCodeBlockTests`)*
 
 #### 7.1.8 Служебная разметка — одна пара функций «закодировать/распознать»
@@ -3974,19 +3957,20 @@ alignment); `submodules/TelegramUI/Sources/CLAUDE.md` (Contract rules)*
 #### 7.2.1 Каждая дверь ввода проходит один шлюз
 **Правило.** Нормализацию, лимит длины и продолжение маркеров делайте в одном месте — `textView(_:shouldChangeTextIn:replacementText:)`. Его проходят набор, вставка, диктовка и перетаскивание. Второе место — путь внешней установки в `updateUIView`. Не размазывайте эту логику по `paste(_:)` и кнопкам.
 **Почему.** У Telegram набор, вставка, marked text, диктовка и сброс перетаскиванием идут через один шлюз решений; новая дверь подключается к нему, а не получает свою копию правил.
-**Сейчас у нас.** Делегат `shouldChangeTextIn` в `ComposerTextView.Coordinator` не реализован: шлюза пока нет.
+**Сейчас у нас.** соблюдено (#499): `shouldChangeTextIn` в `ComposerTextView` — единый шлюз ввода.
 *Источник: `submodules/TelegramUI/Components/RichTextEditor/Sources/RichTextEngineEditor/CLAUDE.md` (Keystrokes are decided at the surface gate)*
 
 #### 7.2.2 Один нормализатор переводов строк на всех входах
 **Правило.** Заведите одну функцию, которая превращает CRLF, CR, `U+2028`, `U+2029` и NEL в `\n`. `U+2028` у нас тоже перевод: в Markdown это обычный перенос. Зовите её при вставке (через шлюз 7.2.1), при внешней установке текста (черновик с сервера, правка) и перед отправкой. Нормализация может укоротить строку — позиции курсора после неё пересчитывайте.
 **Почему.** Telegram нормализует переводы строк на каждой двери в редактор и пересчитывает длину после нормализации.
-**Сейчас у нас.** Расходится: нормализации нет.
+**Сейчас у нас.** соблюдено (#499): шлюз ввода, внешняя установка текста и отправка нормализуют CRLF, CR, U+2028/2029 и
+NEL.
 *Источник: `submodules/TelegramUI/Components/RichTextEditor/CLAUDE.md` (Core model, «One line-break normaliser»); `submodules/TelegramUI/Components/RichTextEditor/Sources/RichTextEngineEditor/CLAUDE.md` (Clipboard and drag)*
 
 #### 7.2.3 В тексте не бывает символа-заглушки `U+FFFC`
 **Правило.** Удаляйте `U+FFFC` в той же нормализации, что и переводы строк (7.2.2).
 **Почему.** У Telegram голый `U+FFFC` не попадает ни в сеть, ни в буфер: вставка сводится к тому, что несёт модель, без вложений и чужих цветов.
-**Сейчас у нас.** Расходится: при вставке RTFD с картинкой в `UITextView` в строке может остаться `U+FFFC`, а сервер его не вычищает (`INVISIBLE_RE` в `shared-schemas/src/chats.ts:37` его не содержит).
+**Сейчас у нас.** соблюдено (#499): `U+FFFC` снимается в шлюзе ввода и перед отправкой.
 *Источник: `submodules/TelegramUI/Components/RichTextEditor/CLAUDE.md` (Fragments, paste and RTF); `docs/richtext-composer.md` (§4); `submodules/TelegramUI/Components/RichTextEditor/Sources/RichTextEngineEditor/CLAUDE.md` (Clipboard and drag)*
 
 #### 7.2.4 Поиск перевода строки — литеральный
@@ -3997,7 +3981,8 @@ alignment); `submodules/TelegramUI/Sources/CLAUDE.md` (Contract rules)*
 #### 7.2.5 Однострочные значения ссылки не держат переводов строк; разметка экранируется
 **Правило.** Адрес и подпись в `[подпись](адрес)` — однострочные значения. Схлопывайте в них переводы строк в один пробел. В подписи экранируйте `[` и `]`, в адресе кодируйте пробелы и `)` (`%20`, `%29`).
 **Почему.** В однострочных полях Telegram (язык кода, автор, заголовок) любой пробельный отрезок с переводом строки становится одним пробелом на каждой двери, иначе блок раскалывается. У нас иначе ломается Markdown в пузыре и на вебе.
-**Сейчас у нас.** Расходится: `askLink` обрезает только края адреса (`ComposerTextView.swift:379`), а `ComposerFormat.apply(.link)` подставляет подпись и адрес без экранирования (`ComposerFormatting.swift:61-64`). Выделение с переводом строки или `]` даёт сломанную ссылку.
+**Сейчас у нас.** соблюдено (#499): подпись и адрес ссылки однострочные, `[ ]` экранируются, пробел и скобки в адресе
+кодируются.
 *Источник: `submodules/TelegramUI/Components/RichTextEditor/Sources/RichTextEngineEditor/CLAUDE.md` (One-line fields hold no line break of any kind, on every door)*
 
 #### 7.2.6 Вставка из чужого приложения — только текст, одинаково во всех полях
@@ -4071,7 +4056,7 @@ alignment); `submodules/TelegramUI/Sources/CLAUDE.md` (Contract rules)*
 #### 7.3.5 `onChange` — ровно один раз на правку
 **Правило.** Не зовите `onChange?()` вручную после `insertText`/`replace`, если `UITextView` сам пришлёт `textViewDidChange`. Прежде чем обернуть метод, посмотрите, не шлёт ли он уведомление сам.
 **Почему.** Хост Telegram раскладывается на каждом `onChange`, поэтому дубль — лишний проход. Обёртка вокруг метода, который сам шлёт уведомления, удваивает их.
-**Сейчас у нас.** Расходится, пока безвредно: `ComposerTextController.insert`, `replaceSelection`, `toggleList` после правки зовут `onChange?()` (`ComposerTextView.swift:277`, `:309`, `:349`), и `pushText` выполняется дважды. Сейчас это гасят проверки на равенство. Как только в `pushText` появится неидемпотентная работа (счётчик, запрос), ручной вызов надо убрать.
+**Сейчас у нас.** соблюдено (#499): `onChange` досылается, только если `UITextView` не прислал `textViewDidChange`.
 *Источник: `submodules/TelegramUI/Components/RichTextEditor/Sources/RichTextEngineEditor/CLAUDE.md` (Host integration, «`onChange` fires exactly once per edit»); `docs/superpowers/richtext-seam-stage2-inheritance.md` (D35)*
 
 #### 7.3.6 Фокус меняется только на настоящем переходе
@@ -4108,19 +4093,20 @@ alignment); `submodules/TelegramUI/Sources/CLAUDE.md` (Contract rules)*
 #### 7.4.2 Правки по выделению расширять до границ составных символов
 **Правило.** Перед `format.apply` прогоняйте выделение через `(text as NSString).rangeOfComposedCharacterSequences(for: range)`. Все диапазоны — в UTF-16 (`NSRange`), не в `Character.count`. Маркеры `ComposerFormat` — ASCII, там это безопасно.
 **Почему.** Команды Telegram над выделением сначала расширяют диапазон до границ графем, иначе половина суррогатной пары остаётся мусорным кодом.
-**Сейчас у нас.** Расходится: `ComposerTextController.replaceSelection` берёт `view.selectedRange` как есть (`ComposerTextView.swift:341`).
+**Сейчас у нас.** соблюдено (#499): выделение расширяется до границ составных символов перед форматированием.
 *Источник: `submodules/TelegramUI/Components/RichTextEditor/Sources/RichTextEditorUIKit/CLAUDE.md` (Grapheme safety; Left/right arrow navigation…); `submodules/TelegramUI/Components/RichTextEditor/Sources/RichTextEngineEditor/CLAUDE.md` (Typing attributes…, «Inline format ranges widen to composed characters»)*
 
 #### 7.4.3 Внутри кода — без форматирования и автокоррекции
 **Правило.** Когда выделение внутри ```` ``` ```` или `` ` ``, отключайте пункты «Форматирования», кроме «Блок кода». «Ссылку» не применяйте к моноширинному, моноширинный — к ссылке. При курсоре внутри блока кода выключайте автокоррекцию: `autocorrectionType = .no` и `reloadInputViews()`, потому что система кеширует эти признаки.
 **Почему.** У Telegram в коде нет автокоррекции и проверки орфографии, встроенные форматы в коде не применяются и отключены в меню, а моноширинный поверх ссылки и ссылка поверх кода ничего не делают.
-**Сейчас у нас.** Расходится: `ComposerFormat` оборачивает выделение внутри кода, и в отправленном сообщении маркеры видны буквально.
+**Сейчас у нас.** соблюдено (#499): внутри кода доступен только «Блок кода», автокоррекция, орфография и умные кавычки в
+коде выключены.
 *Источник: `submodules/TelegramUI/Components/RichTextEditor/Sources/RichTextEditorUIKit/CLAUDE.md` (Code blocks and the language line); `submodules/TelegramUI/Components/RichTextEditor/Sources/RichTextEngineEditor/CLAUDE.md` (A code block is plain text; Inline exclusions)*
 
 #### 7.4.4 Ссылка, текст которой и есть адрес, — не ссылка
 **Правило.** При пустом выделении «Ссылка» вставляет голый адрес. При выделении, равном адресу (с допусками на схему, конечный `/` и процент-кодирование), — тоже голый адрес. Вставка из буфера — всегда простой текст.
 **Почему.** Telegram превращает такие ссылки в обычный текст: голый URL получатель распознаёт сам.
-**Сейчас у нас.** Расходится: при пустом выделении `ComposerFormat.apply(.link)` вставляет `[адрес](адрес)` (`ComposerFormatting.swift:62-63`).
+**Сейчас у нас.** соблюдено (#499): ссылка без выделения или с подписью, равной адресу, вставляется голым адресом.
 *Источник: `docs/richtext-composer.md` (§7 «Self-referential links are stripped»); `submodules/TelegramUI/Components/RichTextEditor/CLAUDE.md` (RTF import, `strippingSelfReferentialLinks`)*
 
 #### 7.4.5 Никогда не давать `[](url)`
@@ -4132,7 +4118,7 @@ alignment); `submodules/TelegramUI/Sources/CLAUDE.md` (Contract rules)*
 #### 7.4.6 Многострочная цитата — один блок, пустая строка внутри остаётся цитатой
 **Правило.** `ComposerFormat.quote` префиксует каждую строку `"> "`, включая пустые. Не «оптимизируйте» пустые строки в голое `""` — это рвёт цитату на две в вебе и в пузыре. Две разные цитаты разделяет строка вне цитаты. Снятие цитаты должно узнавать и строку `">"` без пробела.
 **Почему.** У Telegram разрезание цитаты по `\n` давало на экране N отдельных цитат: многострочная цитата обязана быть непрерывным блоком.
-**Сейчас у нас.** Префиксы соблюдены. Расходится снятие: `allSatisfy { $0.hasPrefix("> ") }` (`ComposerFormatting.swift:67`) не узнаёт строку `">"`.
+**Сейчас у нас.** соблюдено (#499): снятие цитаты узнаёт строку `">"` без пробела.
 *Источник: `docs/richtext-composer.md` (§2 «Contiguity is load-bearing for quotes»)*
 
 #### 7.4.7 Одиночный перевод строки — перевод строки везде
@@ -4233,7 +4219,7 @@ alignment); `submodules/TelegramUI/Sources/CLAUDE.md` (Contract rules)*
 #### 7.5.12 Одна таблица стилей на пузырь, предпросмотр и редактор
 **Правило.** Стили тела, кода и заголовков пузыря и статьи держите в `DesignSystem/Typography`, а не литералами в видах.
 **Почему.** У Telegram три копии таблицы стилей разошлись, и предпросмотр отправки перестал совпадать с пузырём. Их свели в общую таблицу; победили значения пузыря, потому что его видит получатель. Тесты паритета вызывают функции рендерера.
-**Сейчас у нас.** Расходится: `MessageCodeBlockView` задаёт `.caption`, `.subheadline` на месте (`MessageCodeBlocks.swift:188`, `:197`, `:210`), `CommunityMarkdownView` — `.title2`, `.title3`, `.headline`, `.footnote` (`CommunityCommon.swift:423`, `:474`).
+**Сейчас у нас.** соблюдено (#499): стили кода, подписи языка и заголовков статьи — токены `Typography`.
 *Источник: `docs/instantpage-richtext.md` (The chat-message text categories, and editor layout parity)*
 
 #### 7.5.13 Правка общего стиля двигает и редактор — снимать обе стороны
@@ -4268,7 +4254,7 @@ alignment); `submodules/TelegramUI/Sources/CLAUDE.md` (Contract rules)*
 #### 7.6.2 Один разборщик на каждый синтаксис; классификатор зовёт настоящий разбор
 **Правило.** Решение «есть ли разметка» принимает тот же разборщик, что рисует. Дешёвый предфильтр может давать лишний разбор, но не должен пропускать. Образец — `MessageCodeBlocks.segments(ifAny:)`: предфильтр `contains("```")`, затем настоящий разбор. Новый синтаксис вводите одним разборщиком на все места.
 **Почему.** У Telegram «что включает богатый режим» решает тот же разборщик, что рисует, поэтому решение не расходится с отрисовкой.
-**Сейчас у нас.** Расходится: ```` ``` ```` разбирают два разборщика с разными правилами — `MessageCodeBlocks.parse` (пузырь) и построчный `CommunityMarkdownView.blocks` (статья, `CommunityCommon.swift:373`); различаются однострочный ```` ```ls``` ```` и язык. Расхождения надо записать.
+**Сейчас у нас.** соблюдено (#499): статья делит код через `MessageCodeBlocks`, как пузырь.
 *Источник: `docs/instantpage-richtext.md` (Markdown send, «Approach A (parse-then-inspect)»)*
 
 #### 7.6.3 Смена семантики разбора — записанное изменение поведения
@@ -4284,7 +4270,7 @@ alignment); `submodules/TelegramUI/Sources/CLAUDE.md` (Contract rules)*
 #### 7.6.5 Выглядит нажимаемым — нажимается, и наоборот
 **Правило.** Либо дайте упоминанию `@login` ссылку на профиль (внутренняя схема и перехват `openURL`), либо не красьте его как ссылку. Вид и действие любой сущности — безусловные.
 **Почему.** У Telegram цвет ссылки и обработчик тапа даты зависели от формата, который почти всегда пуст, и даты стали «мёртвым» текстом.
-**Сейчас у нас.** Расходится: `RichText.decorate` красит упоминание `Palette.primary` и весом, но не ставит `link` (`FeedComponents.swift:429-432`) — выглядит нажимаемым, а не нажимается.
+**Сейчас у нас.** соблюдено (#499): упоминание выделено весом, но без цвета ссылки, раз не нажимается.
 *Источник: `docs/instantpage-richtext.md` (Inline custom emoji, «A RichText.textDate renders as a LINK in V2 whatever its format»)*
 
 #### 7.6.6 Вид и тап читают один и тот же атрибут
@@ -4340,7 +4326,7 @@ alignment); `submodules/TelegramUI/Sources/CLAUDE.md` (Contract rules)*
 #### 7.6.15 Подпись языка — обычный текст со стилем, нормализованный при разборе
 **Правило.** Подпись языка — текстовый стиль (`.caption.weight(.semibold)`), без ручных размеров. Приводите язык к одному виду (`lowercased()`, обрезка пробелов) в разборе `MessageCodeBlocks.split`, а не при отрисовке.
 **Почему.** У Telegram подпись языка была единственным шрифтом мимо общей раскладки, и через неё протекал масштаб. Теперь это обычный текстовый элемент, регистр приводится при раскладке.
-**Сейчас у нас.** Стиль соблюдён. Расходится: регистр языка не приводится (`MessageCodeBlocks.swift:81`).
+**Сейчас у нас.** соблюдено (#499): язык блока приводится к нижнему регистру при разборе.
 *Источник: `docs/instantpage-richtext.md` (InstantPage V2 code block, «The language line is a real laid-out text item»)*
 
 #### 7.6.16 Перенос слов — по правилам Unicode, а не по пробелам
@@ -4366,7 +4352,8 @@ alignment); `submodules/TelegramUI/Sources/CLAUDE.md` (Contract rules)*
 #### 7.7.1 Однострочное превью сообщения — одна функция для всех поверхностей
 **Правило.** Заведите одну функцию «превью сообщения»: снимает разметку, блок кода заменяет на «Код», вложения — подписью. Вызывайте её в списке чатов, панели ответа, закрепе, поиске и пушах.
 **Почему.** У Telegram одна функция строит превью, и список чатов, панели ответа и закрепа, пересылка и уведомление получают одно и то же.
-**Сейчас у нас.** Расходится: `ChatListRow.preview` отдаёт `lastContent` как есть (`Core/Chats/ChatListQuery.swift:130-135`), и в списке чатов видны `**`, `` ` `` и ```` ``` ````.
+**Сейчас у нас.** соблюдено (#499): `MessagePreview` снимает строчный Markdown, блок кода заменяет словом «Код»; её
+зовут список чатов, панели ответа и правки, закреп.
 *Источник: `docs/instantpage-richtext.md` (Editing rich messages, «previewText() lives in TelegramStringFormatting»; Compact InstantPage previews)*
 
 #### 7.7.2 Превью ограничено по графемам и по объёму чтения
@@ -4432,7 +4419,8 @@ alignment); `submodules/TelegramUI/Sources/CLAUDE.md` (Contract rules)*
 #### 7.7.13 Известная потеря при правке — явный запрет, а не `default:`
 **Правило.** Сообщения, которые нельзя править без потерь (опрос, чек-лист, стикер, геопозиция), не должны показывать «Редактировать». Скрывайте пункт явной проверкой вида и закрепите это в `MessageMenuTests`.
 **Почему.** У Telegram правка сообщения с кнопками теряла их. Исправление — положительная проверка `containsButtons`, выключающая правку, а не ветка по умолчанию.
-**Сейчас у нас.** Расходится: `ChatThreadModel.canEdit` проверяет автора, срок, удаление, системность и пересылку, но не вид (`ChatThreadModel.swift:473-480`). Своё свежее сообщение с опросом, чек-листом, стикером или геопозицией получает «Редактировать» (`MessageMenuOverlay.swift:94`). Сервер (`editMessage` в `apps/api/src/modules/chats/chats.service.ts:3332`) вид тоже не проверяет.
+**Сейчас у нас.** соблюдено (#499): `canEdit` явно проверяет вид (`isEditableKind`), тест в `MessageMenuTests`; сервер
+вид при правке пока не проверяет.
 *Источник: `docs/instantpage-richtext.md` (Editing rich messages, «Known limitation»; Inline buttons, «KNOWN LOSSY, deferred…»)*
 
 #### 7.7.14 Открывать вложение по названному id, а не «первое подходящее»
@@ -4598,8 +4586,7 @@ are counted separately»)*
 на плитке.
 **Почему.** Живое размытие — лишний проход вне экрана на каждой плитке и каждом кадре прокрутки; у Telegram крошечное
 превью декодируется и размывается один раз вне главного потока.
-**Сейчас у нас.** Расходится: `ChatMediaThumb.placeholder` в `ChatSharedContentView.swift:645-649` вешает
-`.blur(radius: 12)` на каждую плитку сетки «Медиа». `RemoteImage` и `PostMediaView` уже используют `LQIP.blurred`.
+**Сейчас у нас.** соблюдено (#499): плитки «Медиа» показывают готовое размытое LQIP без живого `.blur`.
 *Источник: `PeerInfoVisualMediaPaneNode/CLAUDE.md` («Images», `blurredImmediateThumbnail`);
 `docs/superpowers/specs/2026-10-28-shared-media-grid-design.md` («Instant placeholder»)*
 
@@ -4742,8 +4729,8 @@ are counted separately»)*
 Менять — с проверкой на iPhone с медиатекой в iCloud.
 **Почему.** У Telegram миниатюры берутся локально без сети; сеть для iCloud-снимков — отдельная полоса на 2 запроса,
 только когда сетка стоит и не идут чёткие запросы.
-**Сейчас у нас.** Расходится: `AssetTile.thumbnail()` (`RecentMediaGrid.swift:284-287`) просит `.highQualityFormat` с
-`isNetworkAccessAllowed = true` на каждую плитку — прокрутка сетки запускает загрузки из iCloud.
+**Сейчас у нас.** соблюдено (#499): миниатюры только с устройства; из iCloud качается видимая плитка в покое, не больше
+двух сразу.
 *Источник: `submodules/TelegramUI/Components/MediaGrid/CLAUDE.md` (абзац про iCloud, «Thumbnail store, filler…»)*
 
 #### 8.4.4 `PHCachingImageManager` — греть окно впереди тем же размером, или не использовать
@@ -4751,8 +4738,7 @@ are counted separately»)*
 (`140 * displayScale`), `contentMode` и опциями, что у запроса плитки, либо честно используй `PHImageManager.default()`.
 **Почему.** Кеш с другим размером цели бесполезен; у Telegram прогрев идёт на окно впереди движения, по одному вызову
 на серию одинаковых размеров.
-**Сейчас у нас.** Расходится: `RecentMediaGrid.swift:25` создаёт `PHCachingImageManager`, но `startCachingImages` нигде
-не вызывается.
+**Сейчас у нас.** соблюдено (#499): окно сетки прогревается `PHCachingImageManager` тем же размером.
 *Источник: `submodules/TelegramUI/Components/MediaGrid/CLAUDE.md` («Level-1 rows differ in pixel size…»);
 `docs/superpowers/specs/2026-10-27-media-picker-grid-design.md` («`startCachingImages` is never called»)*
 
@@ -4772,8 +4758,7 @@ are counted separately»)*
 держи на месте, всю сетку не пересоздавай.
 **Почему.** У Telegram `apply(removed/inserted/changed)` идёт в том же обороте, где источник уже отдаёт новый список;
 несходящиеся счётчики — перезагрузка.
-**Сейчас у нас.** Расходится: наблюдения нет — снимок, сделанный камерой из листа или удалённый в «Фото», появится
-только при следующем открытии.
+**Сейчас у нас.** соблюдено (#499): `PHPhotoLibraryChangeObserver` обновляет сетку, удалённые снимки снимаются с выбора.
 *Источник: `submodules/TelegramUI/Components/MediaGrid/CLAUDE.md` («Library changes»); `submodules/MediaPickerUI/CLAUDE.md`;
 `docs/superpowers/plans/2026-10-27-media-grid-stage1.md` (Task 11)*
 
@@ -4782,8 +4767,7 @@ are counted separately»)*
 из упорядоченного списка выбора, при любой смене альбома и изменении медиатеки.
 **Почему.** После перевыборки альбома или медиатеки объекты `PHAsset` новые; у Telegram выбор живёт в контексте выбора
 и читается по идентификатору.
-**Сейчас у нас.** Расходится: `selection: [PHAsset]` (`AttachmentMenuSheet.swift:95`), номер и снятие — через
-`selection.firstIndex(of: asset)` (`RecentMediaGrid.swift:94, 201`), то есть по равенству объекта.
+**Сейчас у нас.** соблюдено (#499): выбор хранится и сравнивается по `localIdentifier`.
 *Источник: `submodules/MediaPickerUI/CLAUDE.md` («Selection»); `docs/superpowers/plans/2026-10-27-media-picker-grid-stage2.md`
 (Review Focus 2)*
 
@@ -4820,16 +4804,15 @@ are counted separately»)*
 копия 840 pt.
 **Почему.** У Telegram входящий уровень получает заглушки до первого кадра перехода и берёт чёткую картинку уходящей
 ячейки, если она подходит по размеру.
-**Сейчас у нас.** Расходится: `ZoomableImage` (`MediaViewer.swift:822`) ищет в памяти только `media.cacheKey(840)`
-(`"<id>:<ширина>"`), а плитка переписки лежит под `att:<id>:<points>`, «Медиа» — под `chatmedia:<id>`: просмотр с уже
-загруженной плитки первым кадром показывает размытое LQIP.
+**Сейчас у нас.** соблюдено (#499): плитки записывают ключ своей картинки по id файла, просмотр показывает её, пока
+грузится копия 840 pt.
 *Источник: `submodules/TelegramUI/Components/MediaGrid/CLAUDE.md` («A zoom's incoming cells get thumbnails before the first transition frame…»)*
 
 #### 8.5.2 Из встроенного видео в просмотр — тот же плеер
 **Правило.** Передавай играющий `AVPlayer` (или хотя бы `currentTime()`) из `InlineVideoView` в просмотр и обратно.
 **Почему.** У Telegram просмотр забирает уже играющий узел — нового плеера и чёрного кадра нет, кадр растёт из пузыря.
-**Сейчас у нас.** Расходится: `InlineVideoView` держит свой `AVPlayer` (`PostMediaView.swift:240`), а `ViewerVideo`
-создаёт новый `AVPlayer(url:)` (`MediaViewer.swift:900`) — ролик грузится заново и начинается с нуля.
+**Сейчас у нас.** соблюдено (#499): `ViewerVideo` берёт уже созданный `AVPlayer` карточки
+(`VideoPlaybackCenter.borrow`).
 *Источник: `docs/native-hls-player.md` («Bubble to gallery: the gallery takes over the playing node»)*
 
 #### 8.5.3 Открытие видео с позиции — позиция до старта
@@ -4861,9 +4844,7 @@ are counted separately»)*
 предзагрузкой не качать никогда.
 **Почему.** У Telegram предзагрузчики качали начало или весь оригинал HLS-видео (2,5 МБ и 21 МБ лишнего при открытии
 «Избранного»), хотя плеер его не читает.
-**Сейчас у нас.** Расходится: `ChatMediaPrefetcher.prefetch` зовёт `ChatMediaImages.load`, который для видео без
-постера берёт первый кадр самого файла (`ChatVideoFrames.shared.frame(of: media.url…)`, `AttachmentView.swift:1011`) —
-читает оригинал ради невидимой плитки.
+**Сейчас у нас.** соблюдено (#499): предзагрузка видео берёт только постер, оригинал не читает.
 *Источник: `submodules/HLSPlayback/CLAUDE.md` («The chat prefetchers skip an HLS video's original file»); `docs/native-hls-player.md`*
 
 #### 8.6.2 Видимое загружается раньше упреждающего; один файл — одна загрузка
@@ -5020,11 +5001,8 @@ are counted separately»)*
 зависимость: либо настоящая обёртка с узким API в `Core`, либо честный тип.
 **Почему.** У Telegram сгенерированный API импортирует только ядро (в другом месте скомпилируется, но запрещено), ядро
 не реэкспортирует Postbox, а псевдонимы на зонтичные типы названы переименованием без инкапсуляции.
-**Сейчас у нас.** расходится: `import GRDB` в `Features` — 11 файлов, а не один, как утверждала одна из записей:
-модели (`ChatListModel`, `ChatFoldersModel`, `ChatBadgeModel`, `Thread/ChatThreadModel`, `Study/ScheduleModel`,
-`Thread/Attach/LiveLocationSharing`) и даже view-файлы (`ChatListView.swift`, `ChatFoldersView.swift`,
-`ChatSearchViews.swift`, `Settings/AccountSupportViews.swift`, `Study/LessonDetailView.swift`). Не множить; при
-правке этих файлов — выносить запросы в `Core`.
+**Сейчас у нас.** соблюдено (#499): GRDB только в `Core` (запросы в `Core/*/…Queries`, `AsyncValues` в `Core/Storage`),
+страж `apps/ios/scripts/check_layers.sh` в CI без исключений.
 **Применимость.** частично — Postbox/TelegramEngine нет, переносится принцип «слой хранения не протекает в UI».
 *Источник: `CLAUDE.md` («Subsystem guides»: TelegramApi; «Postbox → TelegramEngine», правила 1–2)*
 
@@ -5033,9 +5011,8 @@ are counted separately»)*
 системные сервисы — за протоколом (как `BackgroundActivity` в `SessionStore`).
 **Почему.** TelegramCore общий с macOS — ни UIKit, ни Display в нём нет; помощники с UIKit живут у потребителя. У нас
 `Package.swift` объявляет и `.macOS(.v14)`, а ядро без UI проще тестировать.
-**Сейчас у нас.** расходится (наследие): `import UIKit` в 5 файлах `Core` (`Observability/Observability.swift`,
-`Push/PushRegistrar.swift`, `Images/DataURLImage.swift`, `Images/ImageDecoding.swift`, `Images/ImageMemoryCache.swift`)
-и `import SwiftUI` в `Navigation/Workspace.swift`. Новых не добавлять.
+**Сейчас у нас.** соблюдено (#499): `Core` без UIKit и SwiftUI (картинки — в `DesignSystem/Images`, пуши за протоколом),
+страж `apps/ios/scripts/check_layers.sh`.
 **Применимость.** частично — общего с macOS кода нет, переносится требование к новому коду.
 *Источник: `CLAUDE.md` («Postbox → TelegramEngine», правило 7)*
 
@@ -5334,14 +5311,8 @@ chat-list fill = `ChatStore.save(chats:)`; notification extension = тихий �
 **Почему.** Правило владельца Telegram: «мы никогда не бросаем синхронизацию и загрузку истории» — временная ошибка
 даёт повтор с растущей паузой без конечной ветки «сдаёмся»; повтор заканчивает только ответ сервера по существу или
 выход.
-**Сейчас у нас.** соблюдено: `scheduleReconnect` (до минуты, без предела попыток), `OutboxService`. Расходится:
-- `ChatThreadModel.catchUp` при ошибке ставит `failure` и больше не догоняет до следующего переподключения или входа в
-  чат (`Features/Chats/Thread/ChatThreadModel.swift:1472–1495`);
-- `RealtimeCoordinator.scheduleListRefresh` глотает ошибку через `try?` без повтора
-  (`Core/Realtime/RealtimeCoordinator.swift:379–388`);
-- обратное нарушение: `MessageSender.deliver` любую ошибку превращает в `.failed`, а `OutboxService` повторяет её
-  бесконечно, включая отказы по существу; `flush` останавливается на первой неудаче, так что одна отвергнутая строка
-  держит всю очередь чата (`Core/Chats/MessageSender.swift:134,162–181`).
+**Сейчас у нас.** соблюдено (#499): `catchUp` и обновление списка после переподключения повторяют временную ошибку с
+паузой 2 → 60 с; 403/422 при отправке помечают строку `sendRejected` без автоповтора, очередь идёт дальше.
 *Источник: `CLAUDE.md` («Subsystem guides»: Account state sync); `submodules/TelegramCore/Sources/State/CLAUDE.md`
 («Never give up»); `docs/state-sync.md` (инвариант 12); `docs/superpowers/handoffs/2026-10-16-state-sync-handoff.md`
 (§2 «Owner rules»); `docs/superpowers/specs/2026-10-26-message-widgets-v0.2-design.md` (§6)*
@@ -5355,11 +5326,8 @@ chat-list fill = `ChatStore.save(chats:)`; notification extension = тихий �
 разрывом `seq > lastSeq + 1` и догонять.
 **Почему.** У Telegram обновление с `pts` применяется, только если локальное значение ровно `pts − pts_count`; всё
 остальное — разрыв, который закрывает запрос разницы. Позиция двигается только применённым.
-**Сейчас у нас.** расходится: `save` делает `if seq > chat.lastSeq { chat.lastSeq = seq }` без проверки непрерывности
-(`Core/Realtime/RealtimeCoordinator.swift:361`). Если догон упал, а следом по сокету пришло новое сообщение, следующий
-догон пойдёт от нового `lastSeq` — пропуск останется навсегда (выведено из кода, тестом не подтверждено). Утверждение
-одной из записей, что события сокета «применяются последовательно по `seq`», неверно: порядок по `seq` нигде не
-проверяется.
+**Сейчас у нас.** соблюдено (#499): сокет двигает позицию догона (`syncSeq`) только по порядку; сообщение через разрыв
+сохраняется, открытый чат догоняет по `gapVersion`.
 *Источник: `CLAUDE.md` («Subsystem guides»: Account state sync); `docs/state-sync.md` («Interpretation and sequencing»,
 «Channel pts rule»); `docs/state-sync-audit-2026-10.md` (§5 «Gap detection»); `submodules/TgVoipWebrtc/CLAUDE.md`
 («classified on receipt … applied one at a time»)*
@@ -5369,10 +5337,8 @@ chat-list fill = `ChatStore.save(chats:)`; notification extension = тихий �
 координаторе до обработки следующих событий (или чини корнем по 9.3.2).
 **Почему.** У Telegram продолжение догона ставится в голову очереди в том же блоке, где закончился шаг; пуши, пришедшие
 во время запроса, применяются после — иначе «дыра» и лишний запрос.
-**Сейчас у нас.** расходится (гонка, выведена из кода, на устройстве не воспроизведена): `catchUpAfterReconnect` читает
-`lastSeq` в отдельной задаче из `.onChange(of: realtime.connectionEpoch)` (`Features/Chats/Thread/ChatThreadView.swift:545`,
-`ChatThreadModel.swift:205`), а насос тем временем пишет `message:new` и поднимает `lastSeq`. Если свежее сообщение
-успело раньше чтения, пропущенное между ними не придёт никогда.
+**Сейчас у нас.** соблюдено (#499): чинено корнем по 9.3.2 — позиция `syncSeq` не перескакивает разрыв, и событие насоса
+не может сдвинуть её мимо пропущенного.
 *Источник: `docs/state-sync.md` (инварианты 4 и 11, `DifferenceCharacterizationTests.testSliceContinuationRunsBeforeGroupsPushedMidPoll`)*
 
 #### 9.3.4 Страница списка чатов не двигает позицию догона
@@ -5383,10 +5349,7 @@ chat-list fill = `ChatStore.save(chats:)`; notification extension = тихий �
 **Почему.** У Telegram заполнение списка чатов позиции не двигает — иначе всё между старой позицией и последним
 сообщением теряется навсегда; оно оставляет «дыру», которую закроет загрузка истории. Прогон с моделью сервера нашёл
 «призрака» за первой страницей диалогов.
-**Сейчас у нас.** расходится (выведено из кода, на устройстве не проверялось): `ChatStore.upsert` поднимает `lastSeq` по
-превью страницы списка (`Core/Chats/ChatStore.swift:265`, `max(known.lastSeq, item.lastMessage.seq)`), и
-`syncOnOpen`/`catchUpAfterReconnect` догоняют от последнего сообщения: пришедшее за время офлайна между ними не
-скачивается, а лента сортирует по времени и разрыв не видит.
+**Сейчас у нас.** соблюдено (#499): позиция догона — отдельная колонка `syncSeq`, страница списка её не двигает.
 *Источник: `submodules/TelegramCore/Sources/State/CLAUDE.md` (сброс `differenceTooLong`); `docs/state-sync.md`
 (инварианты 14, 28); `docs/superpowers/reports/2026-10-25-state-sync-truth-run.md` (§9)*
 
@@ -5398,9 +5361,7 @@ chat-list fill = `ChatStore.save(chats:)`; notification extension = тихий �
 `deletedIds` режутся `take: 200` без признака переполнения — неполную дельту клиент примет за полную.
 **Почему.** У Telegram границы проверки строятся по минимуму/максимуму id (импортированная история идёт не по времени),
 а новая позиция берётся из самого ответа, а не отдельным запросом.
-**Сейчас у нас.** расходится: `ChatUpdatesDTO` не декодирует `syncedAt` (`Core/Chats/ChatMessagesAPI.swift:7–13`), хотя
-сервер его отдаёт (`apps/api/src/modules/chats/chats.service.ts:1745–1822`); `catchUp` берёт `createdAt`
-(`ChatThreadModel.swift:1477`).
+**Сейчас у нас.** соблюдено (#499): `sinceTs` берётся из `syncedAt` ответа сервера.
 *Источник: `docs/superpowers/reports/2026-10-15-difference-too-long-exploration.md` («Build min_id/max_id from the min
 and max ids», «take pts from the constructor»)*
 
@@ -5445,8 +5406,7 @@ and max ids», «take pts from the constructor»)*
 строки вне окна и выстави позицию. Не вышла страница — история остаётся как была.
 **Почему.** У Telegram сброс сначала получает всё нужное, затем одной транзакцией перестраивает хранилище и ставит
 позицию; процесс, убитый посередине, просто повторяет сброс.
-**Сейчас у нас.** расходится: `catchUp` сначала стирает историю (`store.clearHistory`), потом качает (`loadLatest`)
-(`ChatThreadModel.swift:1479–1486`) — без сети человек остаётся с пустым чатом без офлайн-истории.
+**Сейчас у нас.** соблюдено (#499): на overflow сначала качается последняя страница, потом заменяется история.
 *Источник: `docs/state-sync.md` («`differenceTooLong` and the account reset», инварианты 11, 15);
 `docs/superpowers/reports/2026-10-15-difference-too-long-exploration.md` («Ordering to copy from Android»)*
 
@@ -5467,8 +5427,8 @@ and max ids», «take pts from the constructor»)*
 **Почему.** У Telegram отсутствующее в ответе удаляется только после ответа по существу и только если строку не
 переписали, пока шёл запрос (решения владельца: «не вернувшееся считается удалённым», «написанное во время проверки
 остаётся под своей дырой»).
-**Сейчас у нас.** расходится: `MessageStore.save(messages:)` только дописывает — сообщение, удалённое или очищенное за
-время, которое догон не покрыл, остаётся в ленте навсегда.
+**Сейчас у нас.** соблюдено (#499): подтверждённые строки внутри диапазона страницы, которых нет в ответе, получают
+`deletedAt`.
 **Применимость.** частично — механизма сверки нет, правило для его введения.
 *Источник: `submodules/TelegramCore/Sources/State/CLAUDE.md` («A history fill … confirms first»); `docs/state-sync.md`
 («Holes and history fills», инвариант 14); `docs/superpowers/handoffs/2026-10-16-state-sync-handoff.md` (§6e–6h)*
@@ -5589,9 +5549,7 @@ extension»); `docs/superpowers/handoffs/2026-10-16-state-sync-handoff.md` (§2)
 `MessageStore.upsert` должен возвращать признак вставки.
 **Почему.** У Telegram уведомление — только для сообщения, которого в базе не было до записи, иначе повтор уведомляет
 дважды.
-**Сейчас у нас.** расходится: `RealtimeCoordinator.save` прибавляет `unreadCount += 1` на каждое `message:new`, даже если
-строка уже была — повтор события после переподключения, сообщение уже пришло догоном
-(`Core/Realtime/RealtimeCoordinator.swift:367–370`).
+**Сейчас у нас.** соблюдено (#499): повторный `message:new` не удваивает счётчик непрочитанного.
 *Источник: `docs/state-sync.md` (инвариант 22)*
 
 #### 9.4.9 Эфемерное не хранится и истекает
@@ -5606,9 +5564,7 @@ extension»); `docs/superpowers/handoffs/2026-10-16-state-sync-handoff.md` (§2)
 id). Ответы сервера применяй в порядке массива (`created + mutated` по `seq`), не перекладывая в `Set`.
 **Почему.** Порядок обхода `Set`/`Dictionary` в Swift свой в каждом процессе; Telegram явно фиксирует типы контейнеров,
 от которых зависит порядок слияния.
-**Сейчас у нас.** расходится (мелко): `RealtimeCoordinator.activity(for:)` и `syncActivity` берут
-`actions[chatID]?.values.first` — при двух печатающих подпись выбирается случайно и может мигать
-(`Core/Realtime/RealtimeCoordinator.swift:419,468`).
+**Сейчас у нас.** соблюдено (#499): «печатает» показывается по последнему начавшему.
 *Источник: `submodules/TelegramCore/Sources/State/CLAUDE.md` («Keep the container types whose iteration order decides an
 order»); `docs/state-sync.md` (инвариант 27, «Container order»)*
 
@@ -5660,11 +5616,8 @@ order»); `docs/state-sync.md` (инвариант 27, «Container order»)*
 уходящих сокетом (`realtime.edit`).
 **Почему.** У Telegram «прочитать» из списка читает до последнего сообщения сервера, иначе непрочитанное, которого
 устройство не видело, возвращает чат в непрочитанные.
-**Сейчас у нас.** соблюдено для списка. Расходится в открытом чате: `ChatThreadModel.markRead` запоминает `lastReadSent`
-до отправки (`ChatThreadModel.swift:1264`) и шлёт `socket.emit` (`Core/Realtime/RealtimeTransport.swift:86`), а
-socket.io-client-swift без соединения событие отбрасывает (`SocketIOClient.swift:309–312`: «Tried emitting when not
-connected»). Отметка пропадает и больше не уйдёт, чат вернётся непрочитанным со следующей страницей. Так же теряется
-правка из `saveEdit` → `realtime.edit`, хотя в базе текст уже изменён (`ChatThreadModel.swift:503–516`).
+**Сейчас у нас.** соблюдено (#499): отметки прочтения, правки и удаления без соединения копятся в координаторе и уходят
+на `.connected`.
 *Источник: `submodules/TelegramCore/Sources/TelegramEngine/Messages/CLAUDE.md` («Marking a whole chat read from the chat
 list», issue #98)*
 
@@ -5673,9 +5626,7 @@ list», issue #98)*
 окна и не ставить разделитель непрочитанного, пока окно не дошло до свежего.
 **Почему.** У Telegram представление вокруг одного сообщения до загрузки окружения не утверждает ничего о прочтении
 (`maxReadIndex = nil`) и не дёргает перезагрузку.
-**Сейчас у нас.** расходится: в `ChatThreadModel.markRead` проверки `isDetached` нет (`ChatThreadModel.swift:1247`), а
-вызывается он и на входе в чат, и на каждое новое входящее. Последствия зависят от того, двигает ли сервер отметку
-назад, — проверить.
+**Сейчас у нас.** соблюдено (#499): `markRead` молчит в окне истории и не отмечает ниже видимой строки.
 *Источник: `submodules/TelegramCore/Sources/State/CLAUDE.md` («Opening a post from the News feed»)*
 
 #### 9.4.18 Нет серверного прочтения — нет и счётчика; сменилось членство — перечитать строку чата
@@ -5702,8 +5653,8 @@ list», issue #98)*
 `validateBatch` подменял сохранённое при любом расхождении дат, даже если сохранённое новее. Урок прогона: чем упорнее
 повторы («не бросать»), тем чаще запрос в пути во время правки — защита обязательна. Новое состояние виджета пишется как
 правка, чтобы догоняющая загрузка не вернула старое.
-**Сейчас у нас.** расходится: `MessageStore.upsert` переписывает `content`/`editedAt`/`pinnedAt`/`extras` ответом без
-сравнения (`Core/Chats/MessageStore.swift:183–190`, для чужих — `arrived.updateChanges` на 214–216).
+**Сейчас у нас.** соблюдено (#499): `MessageStore.upsert` внутри записи сравнивает с текущей строкой: текст и `editedAt`
+— только если правка не старее.
 *Источник: `submodules/TelegramCore/Sources/State/CLAUDE.md` («An answer message edited after the request went out …»);
 `docs/state-sync.md` (инвариант 14); `docs/superpowers/reports/2026-10-25-state-sync-truth-run.md` (§5);
 `docs/superpowers/reports/2026-10-15-difference-too-long-exploration.md` («validateBatch replaces …»);
@@ -5715,10 +5666,8 @@ screen»); `docs/message-widgets-native-runtime.md` («Divergences… v0.4.0»)*
 Журнал недавних удалений не нужен — хватает монотонности поля.
 **Почему.** У Telegram удаление, пришедшее, пока ответ страницы был в пути, не отменяется этим ответом (журнал на
 5 минут); без этого 4 из 500 сеансов модели сервера кончались «призраками».
-**Сейчас у нас.** расходится: сервер не отдаёт удалённых (`deletedAt: null` в выборках), значит в страницах
-`ChatMessageDTO.deletedAt` всегда `nil`, а `MessageStore.upsert` пишет `local.deletedAt = message.deletedAt`
-(`Core/Chats/MessageStore.swift:186`; для чужих строк — через `MessageRecord(server:)` и `updateChanges`, 214–216).
-Страница или превью, начатые до `message:deleted`, возвращают удалённое в ленту до следующего догона.
+**Сейчас у нас.** соблюдено (#499): `MessageStore.upsert` `deletedAt` только ставит, поздний ответ удалённое не
+воскрешает.
 *Источник: `submodules/TelegramCore/Sources/State/CLAUDE.md` («A history fill and its follow-up store no message deleted
 in the last few minutes»); `docs/state-sync.md` (инвариант 14); `docs/superpowers/reports/2026-10-25-state-sync-truth-run.md`
 (§3)*
@@ -5788,10 +5737,7 @@ subscriptions»)*
 работать в памяти этот запуск, файл не трогать. Не удалять прежнюю резервную копию, пока новая не подтверждена.
 **Почему.** У Telegram занятость, I/O, нехватка места, защита до разблокировки — не вердикт; база удаляется только после
 третьего подряд неудачного открытия и только при ошибках, которые удаление может исправить.
-**Сейчас у нас.** соблюдено: защита до разблокировки не трогает файл (`isLocked`). Расходится: `DatabaseHolder.open`
-откладывает базу на любую ошибку `AppDatabase.onDisk()` (`Core/Storage/DatabaseHolder.swift:66–78`), а `moveStoreAside`
-удаляет прежнюю резервную копию (`Core/Storage/AppDatabase.swift:62–70`) — две такие ошибки подряд теряют черновики и
-неотправленное навсегда.
+**Сейчас у нас.** соблюдено (#499): база откладывается только при порче или ошибке миграции, прежние копии хранятся.
 *Источник: `submodules/Postbox/CLAUDE.md` («The schema probe gives no verdict on transient errors», «The one valve is a
 failed `sqlite3_open_v2`»)*
 
@@ -5843,8 +5789,8 @@ failed `sqlite3_open_v2`»)*
 завершения.
 **Почему.** У Telegram ошибка диапазонной загрузки превращалась в «завершение», поэтому успех проверяют по байтам на
 диске.
-**Сейчас у нас.** соблюдено частично: `ImageDownloads` отсекает не-2xx и `text/html`. Расходится: на диск ответ
-кладётся до какой-либо проверки декодированием (`Core/Images/ImageDownloads.swift:99–102`).
+**Сейчас у нас.** соблюдено (#499): перед записью в `ImageDiskCache` ответ проверяется через `CGImageSource` (формат и
+размеры кадра).
 *Источник: `docs/native-hls-player.md` («A segment load whose fetch completed with bytes still missing has failed»,
 `fetchedResourceRangeUntilOnDisk`)*
 
@@ -5946,8 +5892,8 @@ opener's», «A comment link fetches its thread once»); `submodules/TgVoipWebrt
 уходе с экрана задачи отменяются.
 **Почему.** У Telegram загрузка, закончившаяся ничем, в тихом чате не перезапускалась никогда — исправлено таймером на
 20 с с переоценкой.
-**Сейчас у нас.** расходится: `PagedLoader.retryMore` вызывается только действием человека
-(`Core/Network/PagedLoader.swift:150`).
+**Сейчас у нас.** соблюдено (#499): `PagedLoader.loadMore` после временного сбоя повторяет с паузой 2 → 60 с, пока
+строка на экране; отказ по существу ждёт «Повторить».
 *Источник: `docs/state-sync.md` («Holes and history fills», `ManagedMessageHistoryHolesContext`);
 `docs/superpowers/handoffs/2026-10-16-state-sync-handoff.md` (§6h)*
 
@@ -6045,12 +5991,7 @@ exported»)*
 завершения.
 **Почему.** У Telegram ключи пишет один координатор и только если состояние не изменилось с начала операции
 (compare-and-set; токен пишется, только если постоянный ключ всё ещё тот, под которым шёл импорт).
-**Сейчас у нас.** соблюдено: единственный писатель — актор `SessionStore`, одно продление в полёте
-(`startRefresh`/`inFlightRefresh`). Расходится: `refreshNow()` вызывает `adopt(...)` безусловно
-(`Core/Session/SessionStore.swift:314`), а `signOut` → `forgetSession` (`SessionStore.swift:237–254, 342–349`) продление
-в полёте не отменяет и эпохи не меняет (`refreshGeneration` снимает только флаг полёта). Продление, начатое до «Выйти»
-или до входа другого человека, по возвращении запишет `sessionPresent`, `lastAccessToken` и refresh-токен прежнего
-человека: следующий холодный старт откроет его сессию.
+**Сейчас у нас.** соблюдено (#499): у сессии эпоха — продление, начатое до «Выйти», сессию не воскрешает.
 *Источник: `submodules/MTProtoRustEngine/CLAUDE.md` («`MTContext` stays the one coordinator and the only writer»)*
 
 #### 9.7.2 Повтор после потерянного ответа обязан попасть в окно грации сервера
@@ -6061,9 +6002,7 @@ exported»)*
 (как `testLostRefreshResponseIsRetriedOnce`, но с задержкой ответа больше окна).
 **Почему.** У Telegram после сбоя переноса авторизации уже экспортированные байты не пересылаются вслепую — делается
 один свежий экспорт.
-**Сейчас у нас.** расходится: `AuthAPI.refreshTimeout = 60` с (`Core/Session/AuthAPI.swift:90`), `lossRetryDelay =
-2,5 с` (`SessionStore.swift:50`), окно 10 с (`apps/api/src/config/env.schema.ts:66`). Если ротация прошла, а ответ
-«повис», повтор через ~62 с гарантированно попадает в «кражу» и даёт ложный выход.
+**Сейчас у нас.** соблюдено (#499): повтор продления укладывается в окно грации сервера.
 *Источник: `submodules/MTProtoRustEngine/CLAUDE.md` («a transfer never resends exported bytes after a failure»);
 `docs/BACKEND_RULES.md` (§6.2)*
 
@@ -6143,10 +6082,8 @@ make»); `docs/instantpage-richtext.md` (Rich reply quotes, «A resend keeps a r
 `persistDraft` при `editing != nil` не вызывай.
 **Почему.** У Telegram состояние ввода правки (`editMessage.inputState`) и черновик нового сообщения
 (`composeInputState`) — разные значения; синхронизация одного не затирает другое.
-**Сейчас у нас.** расходится: `beginEdit` пишет `draft = message.content`, а `draftChanged` (вызывается из
-`MessageComposerView.swift:150` без проверки `editing`) сохраняет текст правки как черновик чата в базу и на сервер
-(виден в вебе); `cancelEdit`/`saveEdit` ставят `draft = ""` — исходный неотправленный черновик теряется
-(`Features/Chats/Thread/ChatThreadModel.swift:487–506, 1304–1312`).
+**Сейчас у нас.** соблюдено (#499): текст правки хранится отдельно от черновика (`ComposerInput`), после правки в поле
+возвращается прежний черновик.
 *Источник: `docs/richtext-composer.md` (§6, «Invariant — `ChatInterfaceState.parse` … does NOT override
 `editMessage.inputState`»)*
 
@@ -6232,9 +6169,7 @@ path too»)*
 (`AppDatabase.writer.write`); память — только сигнал для открытого экрана.
 **Почему.** У Telegram новое общее состояние записывается в сохранённую медиа сообщения тем же путём, что серверное
 обновление; в памяти — только расписание опроса.
-**Сейчас у нас.** соблюдено для `location:updated` (`LiveLocations.apply` пишет `extras.location`). Расходится:
-`checklist:updated` живёт только в памяти (`RealtimeCoordinator.remember` → словарь `checklists`,
-`Core/Realtime/RealtimeCoordinator.swift:208–211, 340–341`) — после перезапуска пузырь покажет устаревший список из базы.
+**Сейчас у нас.** соблюдено (#499): `checklist:updated` и свой ответ ложатся в `extras` сохранённого сообщения.
 *Источник: `docs/superpowers/specs/2026-10-26-message-widgets-v0.2-design.md` (§4 «My calls», п. 3)*
 
 #### 9.8.18 Изменение данных не пересоздаёт карточку; другое сообщение — пересоздаёт
@@ -6406,8 +6341,7 @@ reasons too…»; «Any answer to that call, an error included, keeps the accoun
 ошибка и не неверная попытка. Главный случай — продление сессии: результат, пришедший после смены эпохи, отбрасывается.
 **Почему.** У Telegram синхронная проверка может закончиться после отмены вызывающим, и потребитель обязан отбросить
 поздний успех; отмена биометрии не идёт по пути «неверный PIN».
-**Сейчас у нас.** расходится: `Features/Auth/QRSignInView.swift:198–201` принимает сессию сразу после
-`claimQRSession` без проверки отмены; `Features/Auth/LoginModel.swift:62, 92` — так же для входа и второго шага.
+**Сейчас у нас.** соблюдено (#499): после claim QR и ответов входа/2FA проверяется, что поток ещё текущий.
 *Источник: `docs/passcode.md` («Biometric failures and cancellations do not run the incorrect-PIN path…»; «rejecting a
 result made stale while the OS prompt was outstanding»)*
 
@@ -6426,8 +6360,7 @@ result»)*
 `RealtimeCoordinator`, предзагрузки, живые трансляции геопозиции (`LiveLocationSharing`) — и отбрасывай её результаты,
 пришедшие после (`AppSessionModel.signOut`, `LocalData.erase`, `AppServices.router.reset()`).
 **Почему.** У Telegram локальные полномочия узкие, короткие и отзываются при смене учётных данных и аккаунта.
-**Сейчас у нас.** расходится: `App/StudentHubApp.swift:23` на старте зовёт `LiveLocationSharing.shared.resume()`, а
-выход трансляции не останавливает — трансляции прежнего человека могут возобновиться под следующим.
+**Сейчас у нас.** соблюдено (#499): выход останавливает трансляции геопозиции.
 **Применимость.** частично — локальных полномочий со сроком у нас нет (права в JWT); переносится «смена аккаунта
 отзывает всё».
 *Источник: `docs/passcode.md` («Sessions and authorization checks»; «Credential changes, account changes… revoke
@@ -6438,10 +6371,7 @@ authorization»)*
 `LocalData.erase()` (`App/AppSessionModel.swift`) в том же PR.
 **Почему.** У Telegram хранилище виджета лежит в производных атрибутах сообщения и уходит вместе с сообщением, чатом и
 аккаунтом; превью держит его только в памяти.
-**Сейчас у нас.** расходится: `LocalData.erase()` (`App/AppSessionModel.swift:162`) не чистит ключ `chats.liveLocations`
-(`Features/Chats/Thread/Attach/LiveLocationSharing.swift:33`) и кеш `MessageCodeBlocks`
-(`Features/Chats/Thread/MessageCodeBlocks.swift:106` — тексты сообщений прежнего человека), хотя `RichText.clearCache()`
-и `LQIP.clearCache()` чистит.
+**Сейчас у нас.** соблюдено (#499): выход чистит `chats.liveLocations` и кеш `MessageCodeBlocks`.
 *Источник: `docs/message-widgets-native-runtime.md` («Storage»); `docs/superpowers/specs/2026-10-19-message-widgets-v0.1.0-client-design.md` (§4 п. 7)*
 
 #### 10.1.12 Связка ключей переживает удаление приложения
@@ -6459,7 +6389,7 @@ authorization»)*
 заводи, показывай ответ сервера. Локальные сроки (истечение QR, пауза «отправить код ещё раз») считай по
 `ContinuousClock`/`SuspendingClock`, а не по `Date()`, чтобы перевод часов их не сбивал.
 **Почему.** У Telegram сроки блокировки меряются по аптайму, и перезагрузка их не снимает.
-**Сейчас у нас.** расходится: срок QR в `Features/Auth/QRSignInView.swift:186, 193` считается по `Date()`.
+**Сейчас у нас.** соблюдено (#499): срок QR считается по `ContinuousClock`.
 *Источник: `docs/passcode.md` («Verification, attempts, and locking»)*
 
 ### 10.2 Секреты, логи и телеметрия
@@ -6481,8 +6411,7 @@ disabled…»)*
 **Почему.** Если ротированный refresh-токен не записался, после выгрузки приложения в связке останется старый, уже
 погашенный: следующий запуск пошлёт его вне окна грации, и сервер порвёт цепочку. Telegram открывает новую обёртку и
 сверяет её с ключом до того, как сделать единственной.
-**Сейчас у нас.** расходится: `Keychain.set` (`Core/Session/SecretStore.swift:80–86`) игнорирует результат
-`SecItemAdd`.
+**Сейчас у нас.** соблюдено (#499): `Keychain.set` проверяет результат записи в связку ключей.
 *Источник: `docs/passcode.md` («A newly created wrapper is opened and compared with the original key before being
 committed»)*
 
@@ -6515,9 +6444,7 @@ committed»)*
 без секретов (роль, `sub`, срок — можно). Значения в `Logger` — с `privacy: .private`, кроме исхода.
 **Почему.** Синтезированное описание обходит любое редактирование логгера: `"\(state)"`, `dump`, `print`, хлебная
 крошка Sentry выдадут JWT или refresh-токен. У Telegram `Api`-перечисления печатают только имя конструктора.
-**Сейчас у нас.** расходится: синтезированное описание у `AccessToken` (`Core/Session/AccessToken.swift:8`, поле `raw`),
-`AuthSession` (`Core/Session/AuthAPI.swift:8`), `SessionRestoration` и `PendingLogout`
-(`Core/Session/SessionStore.swift:353, 363`), `AppSessionModel.State` (`App/AppSessionModel.swift:17`).
+**Сейчас у нас.** соблюдено (#499): типы с токенами описывают себя без секретов.
 *Источник: `submodules/TelegramApi/CLAUDE.md` («`Api` enums print their constructor name only… `"\(value)"` bypasses
 the logger's redaction»)*
 
@@ -6530,8 +6457,7 @@ the logger's redaction»)*
 запрет.
 **Почему.** У Telegram логгер записывает тип, домен, код и класс ошибки, а не её содержимое; секретов нет ни в ошибках,
 ни в контексте лога.
-**Сейчас у нас.** расходится: `Core/Observability/Observability.swift:84` кладёт в крошку `error.localizedDescription`
-(свободный текст).
+**Сейчас у нас.** соблюдено (#499): в крошку идут только домен и код ошибки, без `localizedDescription`.
 *Источник: `CLAUDE.md` (Code Style Guidelines — Error Handling); `docs/passcode.md` («WalletLogger records error type,
 domain, code, and classified kind…»)*
 
@@ -6542,9 +6468,7 @@ domain, code, and classified kind…»)*
 **Почему.** У Telegram всё, что уходит в телеметрию, проходит белый список, закреплённый тестом
 (`testReportedFieldsAreAllowlisted`): имена методов — из описания функции, тексты ошибок — константы, числа и токены
 вырезаны, размеры округлены.
-**Сейчас у нас.** расходится: в `Observability.start()` (`Core/Observability/Observability.swift:28–47`) сетевые крошки
-не выключены и `beforeBreadcrumb` нет — Sentry Cocoa по умолчанию пишет полный URL запросов (`chats/<id>/…`, параметры
-поиска).
+**Сейчас у нас.** соблюдено (#499): сетевые крошки Sentry без адресов.
 *Источник: `submodules/TelegramCore/Sources/Network/CLAUDE.md` («Anonymization is enforced by tests»)*
 
 #### 10.2.9 Секрет не пересекает границу
@@ -6604,11 +6528,8 @@ through»; «The `0x70` marked secret…»); `CLAUDE.md` (Subsystem guides, «Sm
 подтверждение. Любой новый путь открытия ссылок — через этот открыватель.
 **Почему.** В `https://telegram.org∕test∕@evil.org` знак `∕` — не слэш, ссылка ведёт на evil.org. Telegram ставит
 проверку в единственную точку, через которую уходит каждая внешняя ссылка.
-**Сейчас у нас.** расходится: единого открывателя нет — ссылки уходят через SwiftUI `Link` (`LinkPreviewCard`,
-`Features/Chats/Thread/MessageBubbleView.swift:854`), ссылки текста (`RichText` в `Features/Feed/FeedComponents.swift`
-→ системный `openURL`), `ChatInAppBrowser.open` и `UIApplication.shared.open` (`MessageKindViews.swift`,
-`CommunityEventViews.swift`, `ChatSharedContentView.swift`); `ChatInAppBrowser.open`
-(`Features/Chats/ChatSharedContentView.swift:775–777`) отдаёт не-http(s) схемы системе без вопроса.
+**Сейчас у нас.** соблюдено (#499): все ссылки — через единый `ExternalLinkOpener` (`openURL` в корне приложения),
+контакт и встреча тоже.
 *Источник: `submodules/UrlWhitelist/CLAUDE.md` («Links with a login part»; «The check runs in the external-URL opener…»);
 `docs/message-widgets-native-runtime.md` («The SDK… Links»: `checkLink`, одна confirmation за раз);
 `docs/superpowers/specs/2026-10-13-message-widgets-design.md` (§5 «openLink»)*
@@ -6619,8 +6540,7 @@ through»; «The `0x70` marked secret…»); `CLAUDE.md` (Subsystem guides, «Sm
 написана. Согласие на адрес запоминай на время сессии.
 **Почему.** `og:site_name` пишет чужой сайт и может назваться кем угодно («StudentHub», «Kaspi»). Telegram в каждом
 подтверждении и меню показывает адрес без «логина», а подтверждённый адрес не спрашивает дважды.
-**Сейчас у нас.** расходится: `LinkPreviewCard` подписывает карточку `preview.siteName ?? url.host()`
-(`Features/Chats/Thread/MessageBubbleView.swift:860`).
+**Сейчас у нас.** соблюдено (#499): подпись превью ссылки — хост из самого адреса, а не `og:site_name`.
 *Источник: `submodules/UrlWhitelist/CLAUDE.md` («Every prompt, and the title of every long-press link menu…»);
 `docs/message-widgets-native-runtime.md` («The SDK… Links»)*
 
@@ -6630,8 +6550,8 @@ through»; «The `0x70` marked secret…»); `CLAUDE.md` (Subsystem guides, «Sm
 **Почему.** Видимый текст может быть «studenthub.kz», а адрес — чужим. Telegram помечает такие ссылки и всегда
 спрашивает «Открыть ссылку?» для ссылок из чужого содержимого (флаг `forceConcealed`, который обязан уважать любой новый
 открыватель).
-**Сейчас у нас.** расходится: `RichText` (`Features/Feed/FeedComponents.swift:393–406`) снимает опасные схемы, но
-скрытые ссылки открываются системным `openURL` без вопроса.
+**Сейчас у нас.** соблюдено (#499): markdown-ссылка, чей текст похож на другой адрес, открывается после подтверждения с
+настоящим адресом.
 *Источник: `submodules/UrlWhitelist/CLAUDE.md` («The prompts in `openUserGeneratedUrl` and `TextLinkHandling` also flag
 such links»); `submodules/TelegramUI/Components/MessageWidget/CLAUDE.md` («The prompt»)*
 
@@ -7108,8 +7028,8 @@ VoiceOver. Значение поля не подменять: это слома�
 которые есть, только когда переход возможен.
 **Почему.** У Telegram история под VoiceOver в конце не уходит сама. Навигация — свайпом вверх и вниз по
 регулируемому элементу.
-**Сейчас у нас.** Расходится: `paused` не учитывает VoiceOver (`StoriesViews.swift:192`), и таймер
-переключает историю (`:305`).
+**Сейчас у нас.** соблюдено (#499): под VoiceOver таймер историй стоит; страница — регулируемый элемент «История N из
+M», переход к автору — действия.
 *Источник: `docs/accessibility/voiceover-inventory.md` (`story-viewer`)*
 
 #### 11.3.5 В пейджерах и списках читается только текущее
@@ -7349,10 +7269,7 @@ VoiceOver. Значение поля не подменять: это слома�
 экранов из-за чужого содержимого.
 **Почему.** У Telegram высота виджета зажата в 50…600 pt (в спецификации 24…900), а сверх неё работает
 жёсткая обрезка по высоте пузыря.
-**Сейчас у нас.** Расходится для чек-листа: сервер разрешает до 50 пунктов
-(`packages/shared-schemas/src/chats.ts:670`, `CHAT_CHECKLIST_LIMITS.ITEMS_MAX`), а `ChecklistMessageView`
-рисует все (`Features/Chats/Thread/MessageKindViews.swift:265`). У опроса не больше 10 вариантов
-(`chats.ts:415`), это терпимо.
+**Сейчас у нас.** соблюдено (#499): в пузыре видно первые 10 пунктов чек-листа и «Показать все (N)» / «Свернуть».
 *Источник: `docs/message-widgets-native-runtime.md` («The size is the layout width»); `docs/superpowers/specs/2026-10-13-message-widgets-design.md` §3*
 
 #### 12.4.3 Краевая карточка обрезается формой пузыря, без своих отступов и своего скругления
@@ -7411,13 +7328,13 @@ VoiceOver. Значение поля не подменять: это слома�
 #### 13.1.4 Крупную картинку готовить к показу вне главного потока
 **Правило.** Всё, что отдаётся в `Image(uiImage:)` крупнее примерно 512×512, предварительно прогоняйте через `byPreparingForDisplay()`/`preparingForDisplay()` вне главного. Это касается картинок из PhotoKit (`AssetTile`), кадров видео (`ChatVideoFrames`, `ChatMediaThumbnails.firstFrame` на `AVAssetImageGenerator`) и всего нового.
 **Почему.** У Telegram картинки от 512×512 перерисовываются вне главного до выдачи, иначе первая отрисовка стоила около 7 мс на каждую.
-**Сейчас у нас.** Сеть и диск соблюдены: декодирование в фоне с `kCGImageSourceShouldCacheImmediately` (`ImageDownsampler`), `preparingForDisplay()` в `Core/Images/ImageDecoding.swift:38` и у LQIP (`FeedComponents.swift:204`). Расходится: кадры видео отдаются без подготовки (`ChatSharedContentView.swift:743`, `Thread/AttachmentView.swift:1096`), PhotoKit-плитки тоже (`Attach/RecentMediaGrid.swift:291`).
+**Сейчас у нас.** соблюдено (#499): кадры видео и точные миниатюры PhotoKit готовятся к показу вне главного.
 *Источник: `submodules/TelegramUI/Components/MediaGrid/CLAUDE.md` («redraws images of 512×512 px or more off the main thread … ~7 ms each on main»)*
 
 #### 13.1.5 Ничего пропорционального медиатеке — на главном потоке
 **Правило.** Всё, что растёт с размером медиатеки (счёт альбомов, выборка ассетов, разбор изменений), выполняйте в `Task.detached` или на фоновой очереди. На главный — только готовый результат.
 **Почему.** У Telegram чтение пропорций, префиксные суммы и разбор изменений идут вне главного; на главном — O(1).
-**Сейчас у нас.** Расходится: `PhotoAlbumsModel.load()` помечен `@MainActor` (`Attach/PhotoAssets.swift:177-181`) и зовёт `PhotoAssets.albums()`, где `PHAsset.fetchAssets(in:).count` считается для каждого альбома (`:114-132`) — на главном, при открытии листа. `reloadAssets` тоже на главном перечисляет до 300 объектов через `PhotoAssets.recent()` (`Attach/RecentMediaGrid.swift:214-216`).
+**Сейчас у нас.** соблюдено (#499): альбомы и выборка снимков считаются вне главного потока.
 *Источник: `submodules/TelegramUI/Components/MediaGrid/CLAUDE.md` (Level 1); `docs/superpowers/specs/2026-10-27-media-picker-grid-design.md` (Success measures)*
 
 #### 13.1.6 Работа «после первого кадра»: `DispatchQueue.main.async` не выносит её из коммита
@@ -7433,13 +7350,14 @@ VoiceOver. Значение поля не подменять: это слома�
 #### 13.1.8 Разбор ответов сети — вне общего актора
 **Правило.** В акторе `APIClient` оставьте только отправку и учёт токена. Разбор JSON выносите в `nonisolated` функцию над `Data`.
 **Почему.** У Telegram на последовательной очереди сетевого движка — только короткая запись под блокировкой, подсчёт — пачками на служебной очереди. Лишняя работа на этой очереди стоила −33 %, −13 % и −10 % в разных замерах.
-**Сейчас у нас.** Расходится: `JSONCoding.decoder.decode` выполняется внутри актора (`Core/Network/APIClient.swift:25`, `:66`, `:78`), и большая страница задерживает все остальные запросы. Влияние не замерено.
+**Сейчас у нас.** соблюдено (#499): `send(_:as:)` и `page(_:of:)` разбирают JSON вне актора `APIClient` (`nonisolated`).
 *Источник: `submodules/TelegramCore/Sources/Network/CLAUDE.md` (Keep per-request work off the engines' serial queues)*
 
 #### 13.1.9 Разбор событий realtime — не на главном потоке
 **Правило.** Задайте `SocketManager` в `RealtimeTransport` опцию `.handleQueue` с фоновой очередью. На главный передавайте только готовое событие.
 **Почему.** У Telegram весь разбор обновлений шёл на общей очереди, которую главный поток ждал синхронно, и большие пачки давали рывки.
-**Сейчас у нас.** Расходится, проверить замером: `config` без `.handleQueue` (`Core/Realtime/RealtimeTransport.swift:54`), поэтому socket.io-client-swift обрабатывает события на главной очереди. Разбор словарей в `RealtimeEvent` и `ChatMessageDTO` идёт на главном, а после переподключения приходит пачка.
+**Сейчас у нас.** соблюдено (#499): `SocketManager` с `.handleQueue`: события разбираются на своей очереди, на главный
+уходит готовое.
 *Источник: `docs/state-sync-audit-2026-10.md` (G7)*
 
 #### 13.1.10 Бюджет работы за один ход главного цикла
@@ -7768,11 +7686,9 @@ VoiceOver. Значение поля не подменять: это слома�
 «зависимости» из `AGENTS.md`, только по согласованию с владельцем.
 **Почему.** У Telegram кеш отдаёт архив только по его sha256. Без суммы каждая эфемерная VM качает заново из интернета
 и не укладывается в таймаут. Новая версия инструмента без фиксации может молча поменять результат.
-**Сейчас у нас.** расходится:
-- `brew install xcodegen` без версии и суммы во всех четырёх iOS-workflow (`ios.yml:98`, `ios-nightly.yml:52`,
-  `ios-snapshots.yml:42`, `ios-release.yml:35`). Новая версия XcodeGen может молча поменять генерацию проекта.
-- Пакеты в `project.yml:34-43` и `Package.swift:21-22` объявлены через `from:`, а `Package.resolved` не коммитится
-  (`apps/ios/.gitignore`, комментарий в `project.yml:31-33`). Сборка CI берёт свежий минор GRDB, Socket.IO и Sentry.
+**Сейчас у нас.** частично (#499): XcodeGen ставится точной версии с проверкой sha256
+(`.github/actions/setup-xcodegen`); пакеты по-прежнему через `from:`, `Package.resolved` не коммитится — решение
+владельца (14.1.2).
 **Применимость.** частично: Bazel-кеша у нас нет, переносится требование фиксации.
 *Источник: `CLAUDE.md` («CI builds and external downloads»); `build-system/Make/CLAUDE.md` («CI builds in tart VMs»)*
 
@@ -7811,11 +7727,8 @@ SQLITE_VERSION`… rather than trusting the archive name»)*
 §4.1.
 **Почему.** У Telegram подъём Rust означает обновить словарь сумм в `MODULE.bazel`: rules_rust знает суммы только до
 своей версии.
-**Сейчас у нас.** расходится:
-- `ios-release.yml` собирает на `runs-on: macos-15` без `DEVELOPER_DIR` (`ios-release.yml:24`), то есть Xcode по
-  умолчанию из образа. Остальные workflow — на `macos-26` с `Xcode_26.6` (`ios.yml:85`, `ios-nightly.yml:37`,
-  `ios-snapshots.yml:29`). Релиз собирается не тем Xcode, на котором прошли тесты.
-- Локальный Swift 6.4.2 новее, чем в Xcode CI.
+**Сейчас у нас.** частично (#499): `ios-release.yml` собирает на `macos-26` с тем же `Xcode_26.6`, что тесты; локальный
+Swift 6.4.2 новее, чем в Xcode CI, — решение владельца (4.1.1).
 *Источник: `CLAUDE.md` («CI builds…», Rust 1.98.1)*
 
 ### 14.2 Кеш и прогоны CI
@@ -7825,9 +7738,7 @@ SQLITE_VERSION`… rather than trusting the archive name»)*
 сборки на релизе подставлять параметром `xcodebuild`, а не правкой `project.yml`.
 **Почему.** У Telegram номер сборки меняется каждый конвейер. Вшитый в шаг компиляции, он перезапускал бы его каждый
 раз (~4 мин). Поэтому версию подставляют отдельным дешёвым шагом и проверяют, что ключ компиляции не изменился.
-**Сейчас у нас.** расходится: ключ кеша — `ios-spm-${{ hashFiles('apps/ios/project.yml') }}` (`ios.yml:106`,
-`ios-nightly.yml:58`, `ios-snapshots.yml:48`). Любой подъём версии или номера сборки в `project.yml` зря сбрасывает
-кеш пакетов.
+**Сейчас у нас.** соблюдено (#499): ключ кеша SPM — только блок `packages` из `project.yml`.
 **Применимость.** частично: раздельной компиляции Bazel у нас нет, переносится принцип ключа кеша.
 *Источник: `Telegram/CLAUDE.md` («Keep the version out of the compile action; that is the split's whole value»)*
 
@@ -8601,8 +8512,8 @@ iPhone под рукой, нет роли или данных на Railway, то
 Release, иконки нет, `Package.resolved` не закреплён, пуши и Sentry не проверяются отладочной копией.
 **Почему.** У Telegram статус подсистемы перечисляет непроверенное до App Store (подпись, профиль распространения,
 release-сборка, `--validate-app`, закоммиченный `Package.resolved`).
-**Сейчас у нас.** расходится: `docs/RELEASE_IOS.md` упоминает только заглушку `api.example.invalid`; `Package.resolved`
-игнорируется (`apps/ios/.gitignore:35`), иконки в каталоге ассетов нет (`apps/ios/README.md:246`).
+**Сейчас у нас.** соблюдено: в `docs/RELEASE_IOS.md` раздел «Что открыто до выпуска» (адрес API, `Package.resolved`,
+пуши, Sentry, иконка, подпись); закреплять ли `Package.resolved` — решение владельца (14.1.2).
 *Источник: `Telegram/CLAUDE.md` («Status: verified only with development signing… Open before App Store shipping»)*
 
 #### 15.7.9 Записка о передаче долгой задачи
@@ -8751,69 +8662,70 @@ release-сборка не запускалась.
 ## Приложение А. Расхождения кода с правилами
 
 Всё ниже — выводы из чтения кода `develop` (`1f595d20`, 14.11.2026). На iPhone не воспроизводилось. Пометки:
-**расходится** — код противоречит правилу; **проверить на iPhone** — по коду не решить; **решение владельца** —
-выбор продуктовый. Пока владелец не решил, ничего из этого не чинится.
+**расходится** — код противоречит правилу; **проверить на iPhone** — по коду не решить; **решение владельца** — выбор
+продуктовый. Пока владелец не решил, ничего из этого не чинится. **[исправлено, #499]** — пункт исправлен волнами 1–3
+(PR #499), строка оставлена для истории; статус в теле правила — «соблюдено (#499)».
 
 ### А.1 Сначала — то, что грозит потерей данных или ложным выходом
 
 Эти пункты независимо нашли несколько агентов.
 
 1. **Продление токена, начатое до «Выйти», воскрешает сессию.** `Core/Session/SessionStore.swift:314`: `adopt`
-   без сверки. Следующий холодный старт откроет сессию вышедшего человека. Правило 9.7.1.
+   без сверки. Следующий холодный старт откроет сессию вышедшего человека. Правило 9.7.1. [исправлено, #499]
 2. **Повтор продления не укладывается в окно грации сервера.** Таймаут 60 с (`Core/Session/AuthAPI.swift:90`)
    плюс пауза 2,5 с (`SessionStore.swift:50`) против окна 10 с на сервере. Сервер сочтёт повтор кражей и выкинет
-   пользователя со всех устройств. Правило 9.7.2.
+   пользователя со всех устройств. Правило 9.7.2. [исправлено, #499]
 3. **`Keychain.set` не проверяет результат `SecItemAdd`.** `Core/Session/SecretStore.swift:80–86`. Если
-   ротированный refresh-токен не записался, после перезапуска уйдёт погашенный, и это ложный выход. Правило 10.2.2.
+   ротированный refresh-токен не записался, после перезапуска уйдёт погашенный, и это ложный выход. Правило 10.2.2. [исправлено, #499]
 4. **Догон теряет сообщения.** Найдено четыре причины:
    - `lastSeq` поднимается без проверки непрерывности (`Core/Realtime/RealtimeCoordinator.swift:361`), правило 9.3.2;
    - страница списка чатов двигает позицию догона (`Core/Chats/ChatStore.swift:265`), правило 9.3.4;
    - `sinceTs` берётся с часов телефона, `syncedAt` сервера не декодируется, правило 9.3.5;
-   - `catchUp` сдаётся после первой ошибки (`ChatThreadModel.swift:1472–1495`), правило 9.3.1.
+   - `catchUp` сдаётся после первой ошибки (`ChatThreadModel.swift:1472–1495`), правило 9.3.1. [исправлено, #499]
 5. **Поздний ответ откатывает правку и воскрешает удалённое.** `Core/Chats/MessageStore.swift:183–190, 214–216`.
-   Правила 9.5.1 и 9.5.2. На `overflow` история к тому же стирается раньше, чем скачана новая (правила 9.3.10 и 9.3.13).
+   Правила 9.5.1 и 9.5.2. На `overflow` история к тому же стирается раньше, чем скачана новая (правила 9.3.10 и 9.3.13). [исправлено, #499]
 6. **База откладывается в резервную копию на любую ошибку открытия, прежняя копия удаляется.**
    `Core/Storage/DatabaseHolder.swift:66–78`. Две временные ошибки подряд — черновики и неотправленное потеряны.
-   Правило 9.5.10.
+   Правило 9.5.10. [исправлено, #499]
 7. **Без соединения отметка прочтения и правка сообщения пропадают.** socket.io-client-swift отбрасывает `emit`
-   без соединения (`Core/Realtime/RealtimeTransport.swift:86`). Правило 9.4.16.
+   без соединения (`Core/Realtime/RealtimeTransport.swift:86`). Правило 9.4.16. [исправлено, #499]
 8. **Выход не останавливает трансляцию геопозиции.** Не чистятся `chats.liveLocations` и кеш `MessageCodeBlocks`,
-   а `StudentHubApp` на старте возобновляет трансляцию — уже под следующим пользователем. Правило 10.1.11.
+   а `StudentHubApp` на старте возобновляет трансляцию — уже под следующим пользователем. Правило 10.1.11. [исправлено, #499]
 9. **Типы с токенами печатаются вместе с токенами, а сетевые следы Sentry пишут полные адреса.** Описания
-   синтезированы автоматически. Правила 10.2.6 и 10.2.8.
+   синтезированы автоматически. Правила 10.2.6 и 10.2.8. [исправлено, #499]
 10. **Ссылки открываются без проверки.** Нет единой точки открытия ссылок. Ссылки не на http(s) уходят системе без
     вопроса. Подпись превью берётся из `og:site_name` чужого сайта. Скрытые markdown-ссылки открываются без
-    подтверждения. Правила 10.3.4 и 10.3.5.
-11. **Правка сообщения затирает черновик чата.** `ChatThreadModel.swift:487–506`. Правило 9.8.6.
-12. **В поле ввода нет лимита в 4000 символов и счётчика**, хотя сервер принимает не больше. Правило 7.1.7.
+    подтверждения. Правила 10.3.4 и 10.3.5. [исправлено, #499]
+11. **Правка сообщения затирает черновик чата.** `ChatThreadModel.swift:487–506`. Правило 9.8.6. [исправлено, #499]
+12. **В поле ввода нет лимита в 4000 символов и счётчика**, хотя сервер принимает не больше. Правило 7.1.7. [исправлено, #499]
 13. **Прочитанным отмечается последнее сообщение, даже если его не видно на экране.**
-    `ChatThreadModel.swift:1247`. Правила 6.6.1 и 9.4.17.
+    `ChatThreadModel.swift:1247`. Правила 6.6.1 и 9.4.17. [исправлено, #499]
 14. **Release-сборка невоспроизводима и собирается другим Xcode, чем тесты.** `ios-release.yml` работает на
     `macos-15` без `DEVELOPER_DIR`. XcodeGen ставится без версии, `Package.resolved` в `.gitignore`. Правила
-    14.1.1 и 14.1.2.
+    14.1.1 и 14.1.2. [частично исправлено, #499: XcodeGen и Xcode релиза; `Package.resolved` — решение владельца]
 
 ### А.2 Полный список по разделам
 
 #### §1. Сборка и окружение
 
-- **Номер сборки постоянный — свежую установку на iPhone не отличить от старой** — `apps/ios/project.yml:133` (`CURRENT_PROJECT_VERSION: "1"`), `apps/ios/scripts/device_bundle.py:61`, `apps/ios/Sources/Features/Settings/SettingsView.swift:168` (показывает `0.1.0 (1)`) — правило 1.4.1. Проверка «исправлено/не исправлено» на телефоне может идти на вчерашней сборке, а метки коммита или времени сборки нет. [расходится]
-- **`run_bench` берёт первое найденное приложение** — `apps/ios/scripts/test.sh:220` (`find … | head -1`) — правило 1.4.4. Если в DerivedData несколько конфигураций, замер плавности может пойти не на той сборке. [расходится]
+- **Номер сборки постоянный — свежую установку на iPhone не отличить от старой** — `apps/ios/project.yml:133` (`CURRENT_PROJECT_VERSION: "1"`), `apps/ios/scripts/device_bundle.py:61`, `apps/ios/Sources/Features/Settings/SettingsView.swift:168` (показывает `0.1.0 (1)`) — правило 1.4.1. Проверка «исправлено/не исправлено» на телефоне может идти на вчерашней сборке, а метки коммита или времени сборки нет. [расходится] [исправлено, #499]
+- **`run_bench` берёт первое найденное приложение** — `apps/ios/scripts/test.sh:220` (`find … | head -1`) — правило 1.4.4. Если в DerivedData несколько конфигураций, замер плавности может пойти не на той сборке. [расходится] [исправлено, #499]
 #### §2. Тесты
 
-- **Нет `-collect-test-diagnostics never`** — `apps/ios/scripts/test.sh:173` (`run_suite`, `xcodebuild test-without-building`) — правило 2.1.6. Упавший ui/perf-набор может висеть до 10 минут в `simctl diagnose`, съедая лимит `timeout-minutes` (75 в `ios.yml`, 120 в `ios-nightly.yml`). [расходится]
-- **Нет явного `-parallel-testing-enabled NO`** — `apps/ios/scripts/test.sh:173` — правило 2.1.7. Сейчас держится на умолчании схемы XcodeGen: смена умолчания или ручной `-parallel-testing-enabled YES` даст взаимные убийства прогонов на одном симуляторе. [расходится]
-- **`SH_PERF_FLAGS` с опечаткой молча игнорируется** — `apps/ios/Sources/App/PerformanceFlags.swift:89`, `:92` — правило 2.7.9. Матрица «оба положения флага» (2.4.8) тихо прогоняет положение «как в коде». [расходится]
-- **Неизвестный `SH_UITEST_SCENARIO` молча становится `.signedOut`** — `apps/ios/Sources/App/UITesting/UITestEnvironment.swift:35` — правило 2.7.8. Опечатка в сценарии даёт тест экрана входа вместо нужного, и падение выглядит как баг продукта. [расходится]
+- **Нет `-collect-test-diagnostics never`** — `apps/ios/scripts/test.sh:173` (`run_suite`, `xcodebuild test-without-building`) — правило 2.1.6. Упавший ui/perf-набор может висеть до 10 минут в `simctl diagnose`, съедая лимит `timeout-minutes` (75 в `ios.yml`, 120 в `ios-nightly.yml`). [расходится] [исправлено, #499]
+- **Нет явного `-parallel-testing-enabled NO`** — `apps/ios/scripts/test.sh:173` — правило 2.1.7. Сейчас держится на умолчании схемы XcodeGen: смена умолчания или ручной `-parallel-testing-enabled YES` даст взаимные убийства прогонов на одном симуляторе. [расходится] [исправлено, #499]
+- **`SH_PERF_FLAGS` с опечаткой молча игнорируется** — `apps/ios/Sources/App/PerformanceFlags.swift:89`, `:92` — правило 2.7.9. Матрица «оба положения флага» (2.4.8) тихо прогоняет положение «как в коде». [расходится] [исправлено, #499]
+- **Неизвестный `SH_UITEST_SCENARIO` молча становится `.signedOut`** — `apps/ios/Sources/App/UITesting/UITestEnvironment.swift:35` — правило 2.7.8. Опечатка в сценарии даёт тест экрана входа вместо нужного, и падение выглядит как баг продукта. [расходится] [исправлено, #499]
 - **Дублёры сети в тестах синхронизации без журнала запросов и удержания ответа** — `apps/ios/Tests/StudentHubTests/RealtimeCoordinatorTests.swift:270`, `apps/ios/Tests/StudentHubTests/OptimisticSyncTests.swift:333` (только счётчик `calls`) — правило 2.5.1. Гонки «событие сокета пришло, пока запрос в пути» тестом не закрепить. [расходится]
 #### §3. Визуальная проверка и анимации
 
-- **Запись видео на CI стартует по `sleep 1`, а не по «Recording started»** — `apps/ios/scripts/test.sh:158-160` — правило 3.2.5. При медленном старте записи первые движения теста не попадают в `run.mp4`. [расходится]
+- **Запись видео на CI стартует по `sleep 1`, а не по «Recording started»** — `apps/ios/scripts/test.sh:158-160` — правило 3.2.5. При медленном старте записи первые движения теста не попадают в `run.mp4`. [расходится] [исправлено, #499]
 - **Нет своего инструмента листов кадров и метрик** — `apps/ios/scripts/` — правила 3.3.1–3.3.2. Анимации разбираются вручную, без `gap`/`jump`/треков, поэтому вывод «едут вместе» не подкреплён числом. [расходится]
 - **README не отсылает к процедуре визуальной проверки** — `apps/ios/README.md:106` — правило 3.1.9. Агенты, начинающие с README, не найдут требование «кадры, а не сборка». [расходится]
-- **Меню сообщения пересчитывает место по живой клавиатуре** — `apps/ios/Sources/Features/Chats/Thread/Menu/MessageMenuOverlay.swift:213` — правило 3.7.1. Уход клавиатуры при открытом меню сдвигает меню. [расходится]
+- **Меню сообщения пересчитывает место по живой клавиатуре** — `apps/ios/Sources/Features/Chats/Thread/Menu/MessageMenuOverlay.swift:213` — правило 3.7.1. Уход клавиатуры при открытом меню сдвигает меню. [расходится] [исправлено, #499]
 - **Источник меню не скрыт: под копией пузыря виден размытый двойник** — `apps/ios/Sources/Features/Chats/Thread/ChatThreadView.swift:854-893`, `Menu/MessageMenuOverlay.swift:270` — правило 3.7.3. Когда меню сдвигает пузырь, на экране два пузыря. [расходится]
-- **Оверлей меню снимается по таймеру 230 мс, раньше конца пружины** — `apps/ios/Sources/Features/Chats/Thread/Menu/MessageMenuOverlay.swift:450` — правило 3.5.5. Видимое затухание обрывается на последнем кадре. [расходится]
-- **Переход к сообщению завершается по таймерам 300/450/30 мс** — `apps/ios/Sources/Features/Chats/Thread/MessageListView.swift:783,801,808` — правило 3.5.5. Подсветка цели может прийти до конца прокрутки или после неё. [расходится]
+- **Оверлей меню снимается по таймеру 230 мс, раньше конца пружины** — `apps/ios/Sources/Features/Chats/Thread/Menu/MessageMenuOverlay.swift:450` — правило 3.5.5. Видимое затухание обрывается на последнем кадре. [расходится] [исправлено, #499]
+- **Переход к сообщению завершается по таймерам 300/450/30 мс** — `apps/ios/Sources/Features/Chats/Thread/MessageListView.swift:783,801,808` — правило 3.5.5. Подсветка цели может прийти до конца прокрутки или после неё. [расходится] [исправлено, #499]
 - **`RemoteImage` растворяет заглушку и картинку навстречу** — `apps/ios/Sources/Features/Feed/FeedComponents.swift:54` — правило 3.8.2. В середине перехода проступает фон (у Telegram это давало +17–23 яркости). [расходится]
 - **PiP включён без фонового режима `audio`** — `apps/ios/Sources/Features/Feed/MediaViewer.swift:912`, `apps/ios/project.yml:83-87` — правило 3.4.7. Картинка в картинке и звук в фоне, вероятно, не работают. [проверить на iPhone]
 - **Нулевая длительность вместо прямого присваивания** — `apps/ios/Sources/Features/Chats/Thread/MessageListView.swift:829` (`flash`), `apps/ios/Sources/Features/Chats/Thread/SwipeToReply.swift:79` — правило 3.5.1. Асинхронное завершение может перебить следующее состояние при «Уменьшении движения». [проверить на iPhone]
@@ -8830,10 +8742,10 @@ release-сборка не запускалась.
 - **Release собирается только при выпуске** — `.github/workflows/ios-release.yml` (ручной запуск) — правило 4.1.2. Падения компилятора, которые бывают только в Release (`SimplifyCFG`, `-Osize`), всплывут в день отправки. [решение владельца]
 #### §5. UIKit и SwiftUI
 
-- **Превью чата регистрирует якоря пузырей под настоящими id** — `apps/ios/Sources/Features/Chats/ChatListView.swift:1084` — правило 5.7.7. `ChatPeekView` создаёт `MessageBubbleView` без `isMenuPreview: true`, поэтому его копия может перехватить якорь `BubbleAnchors` у пузыря в ленте, и меню вырастет не из того места. [расходится]
-- **Двойной тап-реакция висит на всём пузыре** — `apps/ios/Sources/Features/Chats/Thread/MessageBubbleView.swift:153` — правило 5.4.1. Двойной тап по варианту опроса или пункту чек-листа может поставить реакцию, а одиночный тап по кнопке ждёт второго. [расходится]
-- **`ChatFlowLayout` мерит детей без ограничения ширины** — `apps/ios/Sources/Features/Chats/ChatChrome.swift:327,344` — правило 5.6.3. `sizeThatFits(.unspecified)` даёт элементу, который шире пузыря, вылезти за край. [расходится]
-- **Оценка высоты пузыря дублирует отступы числами** — `apps/ios/Sources/Features/Chats/Thread/MessageStackGeometry.swift:74-78` — правило 5.6.4. Литералы 14/18/44/30/52 разойдутся с видом при правке дизайна, и кеш высот ленты начнёт ошибаться (прыжки). [расходится]
+- **Превью чата регистрирует якоря пузырей под настоящими id** — `apps/ios/Sources/Features/Chats/ChatListView.swift:1084` — правило 5.7.7. `ChatPeekView` создаёт `MessageBubbleView` без `isMenuPreview: true`, поэтому его копия может перехватить якорь `BubbleAnchors` у пузыря в ленте, и меню вырастет не из того места. [расходится] [исправлено, #499]
+- **Двойной тап-реакция висит на всём пузыре** — `apps/ios/Sources/Features/Chats/Thread/MessageBubbleView.swift:153` — правило 5.4.1. Двойной тап по варианту опроса или пункту чек-листа может поставить реакцию, а одиночный тап по кнопке ждёт второго. [расходится] [исправлено, #499]
+- **`ChatFlowLayout` мерит детей без ограничения ширины** — `apps/ios/Sources/Features/Chats/ChatChrome.swift:327,344` — правило 5.6.3. `sizeThatFits(.unspecified)` даёт элементу, который шире пузыря, вылезти за край. [расходится] [исправлено, #499]
+- **Оценка высоты пузыря дублирует отступы числами** — `apps/ios/Sources/Features/Chats/Thread/MessageStackGeometry.swift:74-78` — правило 5.6.4. Литералы 14/18/44/30/52 разойдутся с видом при правке дизайна, и кеш высот ленты начнёт ошибаться (прыжки). [расходится] [исправлено, #499]
 - **Прокрутка ленты ждёт отказа свайпа «ответить»** — `apps/ios/Sources/Features/Chats/Thread/SwipeToReply.swift:32` — правило 5.3.1. `require(toFail:)` на панораму ленты может задерживать касание и давать «лимб» долгого нажатия. [проверить на iPhone]
 - **Старт свайпа не отменяет меню явно** — `apps/ios/Sources/Features/Chats/Thread/MessageListView.swift:553` (`menuPress`) и `SwipeToReply.swift` — правило 5.3.2. У Telegram меню открывалось на 0,23 с каждого свайпа; у нас это держится только на умолчаниях UIKit. [проверить на iPhone]
 - **Свои распознаватели ленты с `delaysTouchesEnded = true`** — `apps/ios/Sources/Features/Chats/Thread/SwipeToReply.swift` (`pan`), `MessageListView.swift:553` (`menuPress`) — правило 5.3.4. Кнопки в пузырях могут получать отпускание с задержкой. [проверить на iPhone]
@@ -8845,113 +8757,113 @@ release-сборка не запускалась.
 - **Ручка выделения у края экрана** — поле чата и листы (`ComposerTextView`, `.sheet`) — правило 5.5.3. Перетаскивание левой ручки может увести экран назад или потянуть лист. [проверить на iPhone]
 #### §6. Списки и лента чата
 
-- **Прочтение отмечается без учёта видимости** — `apps/ios/Sources/Features/Chats/Thread/ChatThreadModel.swift:1247` — правило 6.6.1. `markRead()` отмечает последнее чужое сообщение, пока чат открыт, даже если человек читает середину или оно под полем ввода: собеседник видит «прочитано» раньше времени. [расходится]
-- **Невидимая копия времени не совпадает с видимой меткой** — `apps/ios/Sources/Features/Chats/Thread/MessageBubbleView.swift:577` (видимая — `stateMark`, `:678`) — правило 6.7.2. Для `.pending/.failed` копия держит место под две галочки, а рисуются часы или «!»: резерв не совпадает с меткой, и в последней строке остаётся лишний зазор или перенос не там. [расходится]
+- **Прочтение отмечается без учёта видимости** — `apps/ios/Sources/Features/Chats/Thread/ChatThreadModel.swift:1247` — правило 6.6.1. `markRead()` отмечает последнее чужое сообщение, пока чат открыт, даже если человек читает середину или оно под полем ввода: собеседник видит «прочитано» раньше времени. [расходится] [исправлено, #499]
+- **Невидимая копия времени не совпадает с видимой меткой** — `apps/ios/Sources/Features/Chats/Thread/MessageBubbleView.swift:577` (видимая — `stateMark`, `:678`) — правило 6.7.2. Для `.pending/.failed` копия держит место под две галочки, а рисуются часы или «!»: резерв не совпадает с меткой, и в последней строке остаётся лишний зазор или перенос не там. [расходится] [исправлено, #499]
 - **Поправка смещения при перемере строки во время инерции** — `apps/ios/Sources/Features/Chats/Thread/MessageListView.swift:1512`, `apps/ios/Sources/Features/Chats/Thread/MessageStackLayout.swift:111` — правило 6.4.4. `contentOffsetAdjustment` ставится без проверки `isTracking`/`isDecelerating`; если это гасит бросок — рывки и возможная причина проблем флага `chatHeightCache`. [проверить на iPhone]
-- **Удалённый верхний якорь заменяется грубой компенсацией** — `apps/ios/Sources/Features/Chats/Thread/MessageListView.swift:486` — правило 6.4.9. `restore(pinned)` возвращает `false`, и лента сдвигается по росту высоты, а не держит соседнее сообщение: при удалении сообщения на экране текст под глазами уезжает. [расходится]
+- **Удалённый верхний якорь заменяется грубой компенсацией** — `apps/ios/Sources/Features/Chats/Thread/MessageListView.swift:486` — правило 6.4.9. `restore(pinned)` возвращает `false`, и лента сдвигается по росту высоты, а не держит соседнее сообщение: при удалении сообщения на экране текст под глазами уезжает. [расходится] [исправлено, #499]
 - **Первое непрочитанное может уйти под появившиеся панели** — `apps/ios/Sources/Features/Chats/Thread/MessageListView.swift:241` (`applyTopInset`) — правило 6.4.11. При открытии чата с непрочитанным и закреплённым `applyTopInset` держит только низ; разделитель непрочитанного может оказаться под плашкой закрепа. [проверить на iPhone]
 - **Кнопка «вниз» может мигать во время своей прокрутки** — `apps/ios/Sources/Features/Chats/Thread/MessageListView.swift:910` (`reportBottom`) — правило 6.5.9. Считает по текущему смещению посреди пружины `MessageListGlide`; сценарии: своя отправка, нажатие «вниз», открытие клавиатуры у низа. [проверить на iPhone]
 - **Нет закрытия «листается» при программной остановке инерции** — `apps/ios/Sources/Features/Chats/Thread/MessageListView.swift:1303` — правило 6.5.3. Если `scrollToBottom`/`crossfade`/`restore` прерывают инерцию, `scrollViewDidEndDecelerating` может не прийти: плавающая дата не гаснет, `ScrollJankMonitor` не закрывает замер. [проверить на iPhone]
-- **Пружина ленты останавливается только после ухода экрана** — `apps/ios/Sources/Features/Chats/Thread/MessageListView.swift:188` — правило 6.5.14. `glide.stop()` в `viewDidDisappear`: во время свайпа назад лента ещё может ехать сама. [расходится]
+- **Пружина ленты останавливается только после ухода экрана** — `apps/ios/Sources/Features/Chats/Thread/MessageListView.swift:188` — правило 6.5.14. `glide.stop()` в `viewDidDisappear`: во время свайпа назад лента ещё может ехать сама. [расходится] [исправлено, #499]
 - **Открытый свайп в списке чатов при перестановке строк** — `apps/ios/Sources/Features/Chats/ChatListView.swift:539` — правило 6.5.15. Новое сообщение переставляет чаты; открытые кнопки могут остаться над чужой строкой или сработать не для того чата. [проверить на iPhone]
 - **Раскрытие длинного поста в ленте** — `apps/ios/Sources/Features/Feed/PostCardView.swift:254` (`PostTextView`) — правило 6.4.15. Нижние посты `LazyVStack` могут мигнуть или пропасть на кадр, верх поста — сдвинуться. [проверить на iPhone]
 #### §7. Поле ввода и текст
 
-- **Нет лимита и счётчика длины в поле** — `apps/ios/Sources/Features/Chats/Thread/MessageComposerView.swift:588` (и `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerEditorView.swift:264`) — правило 7.1.7. Текст длиннее 4000 UTF-16 отклоняет сервер после нажатия «Отправить», черновик длиннее 4000 молча не сохраняется. [расходится]
-- **«Можно отправить» и обрезка продублированы в трёх местах, невидимые символы не снимаются** — `apps/ios/Sources/Features/Chats/Thread/ChatThreadModel.swift:285` (`:318`, `:681`), `apps/ios/Sources/Features/Chats/Thread/MessageComposerView.swift:588`, `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerEditorView.swift:264` — правило 7.1.6. Кнопка может быть активна для текста из одних `U+200B`, который сервер отклонит; копии разъедутся. [расходится]
-- **Ссылка без выделения вставляется как `[адрес](адрес)`** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerFormatting.swift:62-63` — правило 7.4.4. Лишняя разметка вместо голого URL, который получатель распознал бы сам. [расходится]
-- **Подпись и адрес ссылки не экранируются, переводы строк не схлопываются** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerFormatting.swift:61-64`, `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerTextView.swift:379` — правило 7.2.5. Выделение с `\n` или `]`, адрес с пробелом или `)` ломают Markdown в пузыре и на вебе. [расходится]
-- **Форматирование применяется внутри кода, автокоррекция в коде включена** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerFormatting.swift:50-59`, `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerTextView.swift:339-350` — правило 7.4.3. Маркеры `**` и `_` внутри блока кода видны получателю буквально; автокоррекция портит код. [расходится]
-- **Нет нормализатора переводов строк** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerTextView.swift:206-213` (`paste`), `:70-71` (внешняя установка) — правило 7.2.2. CRLF, `U+2028`/`U+2029` из чужих приложений уходят на сервер как есть и по-разному рисуются на трёх клиентах. [расходится]
-- **`U+FFFC` может уйти на сервер** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerTextView.swift:206-213`; `packages/shared-schemas/src/chats.ts:37` (`INVISIBLE_RE` его не содержит) — правило 7.2.3. Мусорный символ-заглушка в сообщении после вставки RTFD с картинкой. [расходится]
-- **Нет единого шлюза ввода (`shouldChangeTextIn`)** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerTextView.swift:123-164` (`Coordinator`) — правило 7.2.1. Нормализацию, лимит и продолжение списков некуда поставить, кроме как размазать по дверям. [расходится]
-- **Выделение не расширяется до границ графем перед форматированием** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerTextView.swift:341` — правило 7.4.2. Разрезанная суррогатная пара или ZWJ-последовательность превращается в мусорный код. [расходится]
+- **Нет лимита и счётчика длины в поле** — `apps/ios/Sources/Features/Chats/Thread/MessageComposerView.swift:588` (и `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerEditorView.swift:264`) — правило 7.1.7. Текст длиннее 4000 UTF-16 отклоняет сервер после нажатия «Отправить», черновик длиннее 4000 молча не сохраняется. [расходится] [исправлено, #499]
+- **«Можно отправить» и обрезка продублированы в трёх местах, невидимые символы не снимаются** — `apps/ios/Sources/Features/Chats/Thread/ChatThreadModel.swift:285` (`:318`, `:681`), `apps/ios/Sources/Features/Chats/Thread/MessageComposerView.swift:588`, `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerEditorView.swift:264` — правило 7.1.6. Кнопка может быть активна для текста из одних `U+200B`, который сервер отклонит; копии разъедутся. [расходится] [исправлено, #499]
+- **Ссылка без выделения вставляется как `[адрес](адрес)`** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerFormatting.swift:62-63` — правило 7.4.4. Лишняя разметка вместо голого URL, который получатель распознал бы сам. [расходится] [исправлено, #499]
+- **Подпись и адрес ссылки не экранируются, переводы строк не схлопываются** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerFormatting.swift:61-64`, `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerTextView.swift:379` — правило 7.2.5. Выделение с `\n` или `]`, адрес с пробелом или `)` ломают Markdown в пузыре и на вебе. [расходится] [исправлено, #499]
+- **Форматирование применяется внутри кода, автокоррекция в коде включена** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerFormatting.swift:50-59`, `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerTextView.swift:339-350` — правило 7.4.3. Маркеры `**` и `_` внутри блока кода видны получателю буквально; автокоррекция портит код. [расходится] [исправлено, #499]
+- **Нет нормализатора переводов строк** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerTextView.swift:206-213` (`paste`), `:70-71` (внешняя установка) — правило 7.2.2. CRLF, `U+2028`/`U+2029` из чужих приложений уходят на сервер как есть и по-разному рисуются на трёх клиентах. [расходится] [исправлено, #499]
+- **`U+FFFC` может уйти на сервер** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerTextView.swift:206-213`; `packages/shared-schemas/src/chats.ts:37` (`INVISIBLE_RE` его не содержит) — правило 7.2.3. Мусорный символ-заглушка в сообщении после вставки RTFD с картинкой. [расходится] [исправлено, #499]
+- **Нет единого шлюза ввода (`shouldChangeTextIn`)** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerTextView.swift:123-164` (`Coordinator`) — правило 7.2.1. Нормализацию, лимит и продолжение списков некуда поставить, кроме как размазать по дверям. [расходится] [исправлено, #499]
+- **Выделение не расширяется до границ графем перед форматированием** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerTextView.swift:341` — правило 7.4.2. Разрезанная суррогатная пара или ZWJ-последовательность превращается в мусорный код. [расходится] [исправлено, #499]
 - **Внешняя установка текста во время IME-составления теряется** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerTextView.swift:70` (+ `textViewDidChange` → `pushText`, `:141-143`) — правило 7.3.3. Очистка поля после «Отправить» посреди японского или китайского набора может вернуть отправленный текст в черновик. [проверить на iPhone]
 - **Отмена посреди IME-составления в полноэкранном редакторе** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerTextView.swift:312-320` — правило 7.3.4. Возможен сбой или порча текста при ⌘Z/«Отменить» поверх marked text. [проверить на iPhone]
 - **Изоляция `undoManager` поля и полноэкранного редактора не проверена** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerTextView.swift:255`, `:313`, `:324` — правило 7.3.1. При общем менеджере «Отменить» в редакторе может откатить правку другого поля. [проверить на iPhone]
-- **`onChange` вызывается дважды на одну правку** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerTextView.swift:277`, `:286`, `:309`, `:349` — правило 7.3.5. Пока безвредно; любая неидемпотентная работа в `pushText` (счётчик, запрос) выполнится дважды. [расходится]
+- **`onChange` вызывается дважды на одну правку** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerTextView.swift:277`, `:286`, `:309`, `:349` — правило 7.3.5. Пока безвредно; любая неидемпотентная работа в `pushText` (счётчик, запрос) выполнится дважды. [расходится] [исправлено, #499]
 - **Число строк поля считается делением высоты на `lineHeight`** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerTextView.swift:335`, `:107` — правило 7.5.5. На строках из emoji или арабского счёт строк и порог кнопки ⛶ ошибаются. [проверить на iPhone]
-- **Снятие цитаты не узнаёт строку `">"` без пробела** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerFormatting.swift:67` — правило 7.4.6. Повторное нажатие «Цитата» на такой цитате добавит второй уровень вместо снятия. [расходится]
+- **Снятие цитаты не узнаёт строку `">"` без пробела** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerFormatting.swift:67` — правило 7.4.6. Повторное нажатие «Цитата» на такой цитате добавит второй уровень вместо снятия. [расходится] [исправлено, #499]
 - **Код 2FA не приводится к ASCII-цифрам** — `apps/ios/Sources/Features/Auth/LoginModel.swift:81` — правило 7.2.12. Код, набранный арабскими или полноширинными цифрами, сервер отклонит как неверный. [расходится]
-- **Упоминание `@login` выглядит ссылкой, но не нажимается** — `apps/ios/Sources/Features/Feed/FeedComponents.swift:429-432` — правило 7.6.5. Человек жмёт на «ссылку», и ничего не происходит. [расходится]
-- **Превью в списке чатов показывает сырой Markdown** — `apps/ios/Sources/Core/Chats/ChatListQuery.swift:130-135` — правило 7.7.1. В списке видны `**`, `` ` ``, ```` ``` ````; превью в ответе, закрепе и пушах может разойтись. [расходится]
-- **«Редактировать» доступно для опроса, чек-листа, стикера и геопозиции** — `apps/ios/Sources/Features/Chats/Thread/ChatThreadModel.swift:473-480`; `apps/ios/Sources/Features/Chats/Thread/Menu/MessageMenuOverlay.swift:94`; сервер `apps/api/src/modules/chats/chats.service.ts:3332` — правило 7.7.13. Правка затрагивает только `content` и может испортить сообщение особого вида. [расходится]
-- **Два разборщика ```` ``` ```` с разными правилами** — `apps/ios/Sources/Features/Chats/Thread/MessageCodeBlocks.swift` (`parse`) и `apps/ios/Sources/Features/Community/CommunityCommon.swift:373` — правило 7.6.2. Один и тот же код по-разному выглядит в пузыре и в статье. [расходится]
-- **Стили кода и заголовков заданы литералами в видах** — `apps/ios/Sources/Features/Chats/Thread/MessageCodeBlocks.swift:188`, `:197`, `:210`; `apps/ios/Sources/Features/Community/CommunityCommon.swift:423`, `:474` — правило 7.5.12. Поле, предпросмотр и пузырь разойдутся при первой правке типографики. [расходится]
-- **Язык блока кода не нормализуется при разборе** — `apps/ios/Sources/Features/Chats/Thread/MessageCodeBlocks.swift:81` — правило 7.6.15. `Swift` и `swift` — разные ключи для будущей подсветки и кешей. [расходится]
+- **Упоминание `@login` выглядит ссылкой, но не нажимается** — `apps/ios/Sources/Features/Feed/FeedComponents.swift:429-432` — правило 7.6.5. Человек жмёт на «ссылку», и ничего не происходит. [расходится] [исправлено, #499]
+- **Превью в списке чатов показывает сырой Markdown** — `apps/ios/Sources/Core/Chats/ChatListQuery.swift:130-135` — правило 7.7.1. В списке видны `**`, `` ` ``, ```` ``` ````; превью в ответе, закрепе и пушах может разойтись. [расходится] [исправлено, #499]
+- **«Редактировать» доступно для опроса, чек-листа, стикера и геопозиции** — `apps/ios/Sources/Features/Chats/Thread/ChatThreadModel.swift:473-480`; `apps/ios/Sources/Features/Chats/Thread/Menu/MessageMenuOverlay.swift:94`; сервер `apps/api/src/modules/chats/chats.service.ts:3332` — правило 7.7.13. Правка затрагивает только `content` и может испортить сообщение особого вида. [расходится] [исправлено, #499]
+- **Два разборщика ```` ``` ```` с разными правилами** — `apps/ios/Sources/Features/Chats/Thread/MessageCodeBlocks.swift` (`parse`) и `apps/ios/Sources/Features/Community/CommunityCommon.swift:373` — правило 7.6.2. Один и тот же код по-разному выглядит в пузыре и в статье. [расходится] [исправлено, #499]
+- **Стили кода и заголовков заданы литералами в видах** — `apps/ios/Sources/Features/Chats/Thread/MessageCodeBlocks.swift:188`, `:197`, `:210`; `apps/ios/Sources/Features/Community/CommunityCommon.swift:423`, `:474` — правило 7.5.12. Поле, предпросмотр и пузырь разойдутся при первой правке типографики. [расходится] [исправлено, #499]
+- **Язык блока кода не нормализуется при разборе** — `apps/ios/Sources/Features/Chats/Thread/MessageCodeBlocks.swift:81` — правило 7.6.15. `Swift` и `swift` — разные ключи для будущей подсветки и кешей. [расходится] [исправлено, #499]
 - **Веб распознаёт формулы грубой эвристикой** — `apps/web/src/entities/chat/ui/message-content-markdown.tsx:56` — правило 7.6.8. Цены вида `$5-$10` превращаются в формулы. [расходится]
 - **iOS-пузырь рисует только строчный Markdown, веб — полный GFM** — `apps/ios/Sources/Features/Feed/FeedComponents.swift:400`; `apps/web/src/entities/chat/ui/message-content-markdown.tsx` — правило 7.6.1. Таблица или заголовок с веба на iPhone видны сырой разметкой; контракт не записан в `docs/PROJECT.md`. [решение владельца]
 - **«Копировать» кладёт исходный Markdown** — `apps/ios/Sources/Features/Chats/Thread/ChatThreadView.swift:810` — правило 7.7.8. В буфер попадают `**` и ```` ``` ````; нужно решить, исходник или видимый текст. [решение владельца]
 #### §8. Медиа
 
-- **Плитки пикера качают оригиналы из iCloud** — `apps/ios/Sources/Features/Chats/Thread/Attach/RecentMediaGrid.swift:284-287` — правило 8.4.3. `AssetTile.thumbnail()` просит `.highQualityFormat` с `isNetworkAccessAllowed = true` на каждую плитку: при медиатеке в iCloud прокрутка листа вложений гонит сеть и батарею, плитки долго пустые. [расходится]
-- **`PHCachingImageManager` без прогрева** — `apps/ios/Sources/Features/Chats/Thread/Attach/RecentMediaGrid.swift:25` — правило 8.4.4. `startCachingImages` нигде не вызывается: кеширующий менеджер работает как обычный, предзагрузки плиток нет. [расходится]
-- **Лист вложений не видит изменений медиатеки** — `apps/ios/Sources/Features/Chats/Thread/Attach/RecentMediaGrid.swift` — правило 8.4.6. Нет `PHPhotoLibraryChangeObserver`: снятый из листа или удалённый в «Фото» снимок появится или пропадёт только при следующем открытии; удалённый может остаться в выборе. [расходится]
-- **Выбор снимков сравнивается по объекту `PHAsset`** — `apps/ios/Sources/Features/Chats/Thread/Attach/AttachmentMenuSheet.swift:95`, `RecentMediaGrid.swift:94, 201` — правило 8.4.7. `firstIndex(of:)` по экземпляру: после перевыборки альбома номер на плитке и снятие выбора могут не сработать. [расходится]
-- **Живое размытие на каждой плитке «Медиа»** — `apps/ios/Sources/Features/Chats/ChatSharedContentView.swift:645-649` — правило 8.2.6. `LQIP.image(from:)` + `.blur(radius: 12)` вместо `LQIP.blurred(from:)`: лишний проход вне экрана на каждом кадре прокрутки сетки. [расходится]
-- **Просмотр не берёт уже загруженную картинку плитки** — `apps/ios/Sources/Features/Feed/MediaViewer.swift:822` — правило 8.5.1. `ZoomableImage` ищет только `media.cacheKey(840)`, а плитка чата лежит под `att:<id>:<points>`/`chatmedia:<id>`: при открытии первым кадром — размытое LQIP вместо чёткой картинки. [расходится]
-- **Встроенное видео и просмотр — разные плееры** — `apps/ios/Sources/Features/Feed/MediaViewer.swift:900`, `apps/ios/Sources/Features/Feed/PostMediaView.swift:240` — правило 8.5.2. `ViewerVideo` создаёт новый `AVPlayer(url:)`: ролик грузится заново и стартует с нуля, возможен чёрный кадр. [расходится]
-- **Предзагрузка читает оригинал видео без постера** — `apps/ios/Sources/Features/Chats/Thread/AttachmentView.swift:1011` (через `ChatMediaPrefetcher.swift`) — правило 8.6.1. Для видео без постера `ChatMediaImages.load` берёт первый кадр из самого файла по сети ради невидимой плитки — лишний трафик и нагрузка на MinIO. [расходится]
+- **Плитки пикера качают оригиналы из iCloud** — `apps/ios/Sources/Features/Chats/Thread/Attach/RecentMediaGrid.swift:284-287` — правило 8.4.3. `AssetTile.thumbnail()` просит `.highQualityFormat` с `isNetworkAccessAllowed = true` на каждую плитку: при медиатеке в iCloud прокрутка листа вложений гонит сеть и батарею, плитки долго пустые. [расходится] [исправлено, #499]
+- **`PHCachingImageManager` без прогрева** — `apps/ios/Sources/Features/Chats/Thread/Attach/RecentMediaGrid.swift:25` — правило 8.4.4. `startCachingImages` нигде не вызывается: кеширующий менеджер работает как обычный, предзагрузки плиток нет. [расходится] [исправлено, #499]
+- **Лист вложений не видит изменений медиатеки** — `apps/ios/Sources/Features/Chats/Thread/Attach/RecentMediaGrid.swift` — правило 8.4.6. Нет `PHPhotoLibraryChangeObserver`: снятый из листа или удалённый в «Фото» снимок появится или пропадёт только при следующем открытии; удалённый может остаться в выборе. [расходится] [исправлено, #499]
+- **Выбор снимков сравнивается по объекту `PHAsset`** — `apps/ios/Sources/Features/Chats/Thread/Attach/AttachmentMenuSheet.swift:95`, `RecentMediaGrid.swift:94, 201` — правило 8.4.7. `firstIndex(of:)` по экземпляру: после перевыборки альбома номер на плитке и снятие выбора могут не сработать. [расходится] [исправлено, #499]
+- **Живое размытие на каждой плитке «Медиа»** — `apps/ios/Sources/Features/Chats/ChatSharedContentView.swift:645-649` — правило 8.2.6. `LQIP.image(from:)` + `.blur(radius: 12)` вместо `LQIP.blurred(from:)`: лишний проход вне экрана на каждом кадре прокрутки сетки. [расходится] [исправлено, #499]
+- **Просмотр не берёт уже загруженную картинку плитки** — `apps/ios/Sources/Features/Feed/MediaViewer.swift:822` — правило 8.5.1. `ZoomableImage` ищет только `media.cacheKey(840)`, а плитка чата лежит под `att:<id>:<points>`/`chatmedia:<id>`: при открытии первым кадром — размытое LQIP вместо чёткой картинки. [расходится] [исправлено, #499]
+- **Встроенное видео и просмотр — разные плееры** — `apps/ios/Sources/Features/Feed/MediaViewer.swift:900`, `apps/ios/Sources/Features/Feed/PostMediaView.swift:240` — правило 8.5.2. `ViewerVideo` создаёт новый `AVPlayer(url:)`: ролик грузится заново и стартует с нуля, возможен чёрный кадр. [расходится] [исправлено, #499]
+- **Предзагрузка читает оригинал видео без постера** — `apps/ios/Sources/Features/Chats/Thread/AttachmentView.swift:1011` (через `ChatMediaPrefetcher.swift`) — правило 8.6.1. Для видео без постера `ChatMediaImages.load` берёт первый кадр из самого файла по сети ради невидимой плитки — лишний трафик и нагрузка на MinIO. [расходится] [исправлено, #499]
 - **«Змейка» при открытии вкладки «Медиа»** — `apps/ios/Sources/Features/Chats/ChatSharedContentView.swift:759-760` — правило 8.3.7. Очередь `ChatMediaThumbnails` — LIFO на 4 слота, плитки встают в порядке появления: экран может заполняться снизу вверх. [проверить на iPhone]
 #### §9. Данные, синхронизация, сеть, realtime
 
 Пути — от `apps/ios/Sources` (кроме `apps/api/…`). Всё ниже выведено чтением кода ветки develop на 14.11.2026; тестами и
 на устройстве не подтверждалось, если не сказано иное.
 
-- **Догон чата сдаётся на первой ошибке** — `Features/Chats/Thread/ChatThreadModel.swift:1472–1495` — правило 9.3.1. После сбоя `catchUp` ставит `failure` и не повторяет до переподключения или повторного входа в чат: чат «замерзает». [расходится]
-- **Обновление списка после переподключения глотает ошибку** — `Core/Realtime/RealtimeCoordinator.swift:379–388` — правило 9.3.1. `try?` без повтора: счётчики и порядок списка остаются устаревшими до следующего события. [расходится]
-- **Outbox бесконечно повторяет отказ по существу и блокирует очередь чата** — `Core/Chats/MessageSender.swift:134,162–181` — правило 9.3.1. 403/422 становятся `.failed` и повторяются вечно, а `flush` встаёт на первой неудаче — одно отвергнутое сообщение держит все следующие в этом чате. [расходится]
-- **`lastSeq` поднимается без проверки непрерывности** — `Core/Realtime/RealtimeCoordinator.swift:361` (также `Core/Chats/MessageStore.swift:296`) — правило 9.3.2. Пропуск между упавшим догоном и новым сообщением по сокету теряется навсегда. [расходится]
-- **Позиция догона читается после того, как насос мог её сдвинуть** — `Features/Chats/Thread/ChatThreadView.swift:545`, `ChatThreadModel.swift:205` — правило 9.3.3. Гонка: сообщения, пропущенные за обрыв, могут не догнаться никогда. [расходится]
-- **Страница списка чатов двигает позицию догона** — `Core/Chats/ChatStore.swift:265` — правило 9.3.4. Офлайн-пропуск между старой позицией и превью списка не скачивается; лента разрыв не видит. [расходится]
-- **`sinceTs` берётся с часов телефона, `syncedAt` сервера не декодируется** — `Core/Chats/ChatMessagesAPI.swift:7–13`, `ChatThreadModel.swift:1477` (сервер отдаёт `syncedAt`: `apps/api/src/modules/chats/chats.service.ts:1745–1822`) — правило 9.3.5. Правки и удаления в окне расхождения часов пропадают; плюс `take: 200` у `mutated`/`deletedIds` без признака переполнения — вопрос к серверу. [расходится]
-- **На overflow история стирается до скачивания новой** — `ChatThreadModel.swift:1479–1486` — правило 9.3.10. Без сети человек остаётся с пустым чатом без офлайн-истории. [расходится]
-- **Страница истории только дописывает** — `Core/Chats/MessageStore.swift:17–25` — правило 9.3.12. Удалённое за непокрытое догоном время остаётся в ленте навсегда. [расходится]
+- **Догон чата сдаётся на первой ошибке** — `Features/Chats/Thread/ChatThreadModel.swift:1472–1495` — правило 9.3.1. После сбоя `catchUp` ставит `failure` и не повторяет до переподключения или повторного входа в чат: чат «замерзает». [расходится] [исправлено, #499]
+- **Обновление списка после переподключения глотает ошибку** — `Core/Realtime/RealtimeCoordinator.swift:379–388` — правило 9.3.1. `try?` без повтора: счётчики и порядок списка остаются устаревшими до следующего события. [расходится] [исправлено, #499]
+- **Outbox бесконечно повторяет отказ по существу и блокирует очередь чата** — `Core/Chats/MessageSender.swift:134,162–181` — правило 9.3.1. 403/422 становятся `.failed` и повторяются вечно, а `flush` встаёт на первой неудаче — одно отвергнутое сообщение держит все следующие в этом чате. [расходится] [исправлено, #499]
+- **`lastSeq` поднимается без проверки непрерывности** — `Core/Realtime/RealtimeCoordinator.swift:361` (также `Core/Chats/MessageStore.swift:296`) — правило 9.3.2. Пропуск между упавшим догоном и новым сообщением по сокету теряется навсегда. [расходится] [исправлено, #499]
+- **Позиция догона читается после того, как насос мог её сдвинуть** — `Features/Chats/Thread/ChatThreadView.swift:545`, `ChatThreadModel.swift:205` — правило 9.3.3. Гонка: сообщения, пропущенные за обрыв, могут не догнаться никогда. [расходится] [исправлено, #499]
+- **Страница списка чатов двигает позицию догона** — `Core/Chats/ChatStore.swift:265` — правило 9.3.4. Офлайн-пропуск между старой позицией и превью списка не скачивается; лента разрыв не видит. [расходится] [исправлено, #499]
+- **`sinceTs` берётся с часов телефона, `syncedAt` сервера не декодируется** — `Core/Chats/ChatMessagesAPI.swift:7–13`, `ChatThreadModel.swift:1477` (сервер отдаёт `syncedAt`: `apps/api/src/modules/chats/chats.service.ts:1745–1822`) — правило 9.3.5. Правки и удаления в окне расхождения часов пропадают; плюс `take: 200` у `mutated`/`deletedIds` без признака переполнения — вопрос к серверу. [расходится] [исправлено, #499]
+- **На overflow история стирается до скачивания новой** — `ChatThreadModel.swift:1479–1486` — правило 9.3.10. Без сети человек остаётся с пустым чатом без офлайн-истории. [расходится] [исправлено, #499]
+- **Страница истории только дописывает** — `Core/Chats/MessageStore.swift:17–25` — правило 9.3.12. Удалённое за непокрытое догоном время остаётся в ленте навсегда. [расходится] [исправлено, #499]
 - **Стирать или помечать «требует сверки» на overflow** — `ChatThreadModel.swift:1479` — правило 9.3.13. Выбор между стиранием (сейчас) и ленивой сверкой видимого окна. [решение владельца]
 
-- **Непрочитанное растёт на повторное событие** — `Core/Realtime/RealtimeCoordinator.swift:367–370` — правило 9.4.8. Повтор `message:new` после переподключения или после догона завышает счётчик. [расходится]
-- **«Печатает» выбирается из словаря случайно** — `Core/Realtime/RealtimeCoordinator.swift:419,468` — правило 9.4.10. При двух печатающих подпись может мигать между ними. [расходится]
-- **Отметка прочтения и правка теряются без соединения** — `ChatThreadModel.swift:1264`, `ChatThreadModel.swift:503–516`, `Core/Realtime/RealtimeTransport.swift:86` (socket.io-client-swift отбрасывает `emit` без соединения: `SocketIOClient.swift:309–312`) — правило 9.4.16. Чат возвращается непрочитанным; правка видна только локально и не уходит на сервер. [расходится]
-- **Прочтение шлётся из окна истории** — `ChatThreadModel.swift:1247` — правило 9.4.17. В `markRead` нет проверки `isDetached`; последствия зависят от того, двигает ли сервер отметку назад — проверить. [расходится]
+- **Непрочитанное растёт на повторное событие** — `Core/Realtime/RealtimeCoordinator.swift:367–370` — правило 9.4.8. Повтор `message:new` после переподключения или после догона завышает счётчик. [расходится] [исправлено, #499]
+- **«Печатает» выбирается из словаря случайно** — `Core/Realtime/RealtimeCoordinator.swift:419,468` — правило 9.4.10. При двух печатающих подпись может мигать между ними. [расходится] [исправлено, #499]
+- **Отметка прочтения и правка теряются без соединения** — `ChatThreadModel.swift:1264`, `ChatThreadModel.swift:503–516`, `Core/Realtime/RealtimeTransport.swift:86` (socket.io-client-swift отбрасывает `emit` без соединения: `SocketIOClient.swift:309–312`) — правило 9.4.16. Чат возвращается непрочитанным; правка видна только локально и не уходит на сервер. [расходится] [исправлено, #499]
+- **Прочтение шлётся из окна истории** — `ChatThreadModel.swift:1247` — правило 9.4.17. В `markRead` нет проверки `isDetached`; последствия зависят от того, двигает ли сервер отметку назад — проверить. [расходится] [исправлено, #499]
 - **Смена членства обновляет только первую страницу списка** — `Core/Realtime/RealtimeCoordinator.swift:313` — правило 9.4.18. Чат за пределами первой страницы не обновится. [расходится]
 
-- **Поздний ответ откатывает правку** — `Core/Chats/MessageStore.swift:183–190, 214–216` — правило 9.5.1. Страница или догон, ушедшие до `message:updated`, возвращают старый текст. [расходится]
-- **Поздний ответ воскрешает удалённое** — `Core/Chats/MessageStore.swift:186, 214–216` — правило 9.5.2. `deletedAt = message.deletedAt` (всегда `nil` в ответах) снимает удаление до следующего догона. [расходится]
-- **База откладывается на любую ошибку открытия, прежняя копия удаляется** — `Core/Storage/DatabaseHolder.swift:66–78`, `Core/Storage/AppDatabase.swift:62–70` — правило 9.5.10. `SQLITE_FULL`/`BUSY`/`IOERR` дважды подряд — черновики и неотправленное потеряны навсегда. [расходится]
+- **Поздний ответ откатывает правку** — `Core/Chats/MessageStore.swift:183–190, 214–216` — правило 9.5.1. Страница или догон, ушедшие до `message:updated`, возвращают старый текст. [расходится] [исправлено, #499]
+- **Поздний ответ воскрешает удалённое** — `Core/Chats/MessageStore.swift:186, 214–216` — правило 9.5.2. `deletedAt = message.deletedAt` (всегда `nil` в ответах) снимает удаление до следующего догона. [расходится] [исправлено, #499]
+- **База откладывается на любую ошибку открытия, прежняя копия удаляется** — `Core/Storage/DatabaseHolder.swift:66–78`, `Core/Storage/AppDatabase.swift:62–70` — правило 9.5.10. `SQLITE_FULL`/`BUSY`/`IOERR` дважды подряд — черновики и неотправленное потеряны навсегда. [расходится] [исправлено, #499]
 - **Ключ вложения — только `id` медиа** — `Core/Storage/AppDatabase+Migrations.swift:127–129` — правило 9.5.12. Если сервер повторяет id медиа в пересланной копии, `saveAttachments` упрётся в уникальность и сорвёт запись — проверить на сервере. [расходится]
-- **На диск кеша кладётся непроверенный ответ** — `Core/Images/ImageDownloads.swift:99–102` — правило 9.5.16. Не-картинка с правильным `Content-Type` живёт на диске до 7 дней. [расходится]
-- **`import GRDB` в 11 файлах `Features`, включая view** — `Features/Chats/ChatListView.swift:1`, `ChatFoldersView.swift:1`, `ChatSearchViews.swift:1`, `Settings/AccountSupportViews.swift:1`, `Study/LessonDetailView.swift:1` и 6 моделей — правило 9.1.2. Слой хранения протекает в UI; запись в черновике правил («один файл») была неверной. [расходится]
-- **`UIKit`/`SwiftUI` в `Core`** — `Core/Observability/Observability.swift`, `Core/Push/PushRegistrar.swift`, `Core/Images/DataURLImage.swift`, `Core/Images/ImageDecoding.swift`, `Core/Images/ImageMemoryCache.swift`, `Core/Navigation/Workspace.swift` — правило 9.1.3. Наследие; новых не добавлять. [расходится]
+- **На диск кеша кладётся непроверенный ответ** — `Core/Images/ImageDownloads.swift:99–102` — правило 9.5.16. Не-картинка с правильным `Content-Type` живёт на диске до 7 дней. [расходится] [исправлено, #499]
+- **`import GRDB` в 11 файлах `Features`, включая view** — `Features/Chats/ChatListView.swift:1`, `ChatFoldersView.swift:1`, `ChatSearchViews.swift:1`, `Settings/AccountSupportViews.swift:1`, `Study/LessonDetailView.swift:1` и 6 моделей — правило 9.1.2. Слой хранения протекает в UI; запись в черновике правил («один файл») была неверной. [расходится] [исправлено, #499]
+- **`UIKit`/`SwiftUI` в `Core`** — `Core/Observability/Observability.swift`, `Core/Push/PushRegistrar.swift`, `Core/Images/DataURLImage.swift`, `Core/Images/ImageDecoding.swift`, `Core/Images/ImageMemoryCache.swift`, `Core/Navigation/Workspace.swift` — правило 9.1.3. Наследие; новых не добавлять. [расходится] [исправлено, #499]
 
-- **Подгрузка страницы повторяется только по кнопке** — `Core/Network/PagedLoader.swift:150` — правило 9.6.9. В тихом экране дыра после сбоя остаётся, пока человек не нажмёт «Повторить». [расходится]
+- **Подгрузка страницы повторяется только по кнопке** — `Core/Network/PagedLoader.swift:150` — правило 9.6.9. В тихом экране дыра после сбоя остаётся, пока человек не нажмёт «Повторить». [расходится] [исправлено, #499]
 - **Видео не повторяет загрузку и не переподписывает ссылку** — `Features/Feed/PostMediaView.swift:181–240` (`InlineVideoView`), `Features/Feed/MediaViewer.swift:891–900` (`ViewerVideo`) — правило 9.6.13. Истёкший токен `?t=` или обрыв — вечная ошибка воспроизведения. [расходится]
 
-- **Продление в полёте переживает выход и вход другого человека** — `Core/Session/SessionStore.swift:314` (`adopt` без сверки), `237–254`, `342–349` — правило 9.7.1. Следующий холодный старт откроет сессию вышедшего; вошедший после него может получить чужой токен. [расходится]
-- **Повтор продления не укладывается в окно грации** — `Core/Session/AuthAPI.swift:90` (60 с), `Core/Session/SessionStore.swift:50` (2,5 с), окно 10 с — `apps/api/src/config/env.schema.ts:66` — правило 9.7.2. «Повисший» ответ после ротации даёт ложную «кражу»: выход на всех устройствах. [расходится]
+- **Продление в полёте переживает выход и вход другого человека** — `Core/Session/SessionStore.swift:314` (`adopt` без сверки), `237–254`, `342–349` — правило 9.7.1. Следующий холодный старт откроет сессию вышедшего; вошедший после него может получить чужой токен. [расходится] [исправлено, #499]
+- **Повтор продления не укладывается в окно грации** — `Core/Session/AuthAPI.swift:90` (60 с), `Core/Session/SessionStore.swift:50` (2,5 с), окно 10 с — `apps/api/src/config/env.schema.ts:66` — правило 9.7.2. «Повисший» ответ после ротации даёт ложную «кражу»: выход на всех устройствах. [расходится] [исправлено, #499]
 
 - **Пустое сообщение неизвестного вида — пустой пузырь** — `Core/Chats/ChatListQuery.swift:113`, `Features/Chats/Thread/MessageBubbleView.swift:992` — правило 9.2.8. Старая сборка покажет пустой пузырь и пустое превью вместо «обновите приложение». [расходится]
-- **Правка затирает черновик чата** — `Features/Chats/Thread/ChatThreadModel.swift:487–506, 1304–1312`, `Features/Chats/Thread/MessageComposerView.swift:150` — правило 9.8.6. Текст правки уходит черновиком на сервер (виден в вебе), исходный черновик теряется. [расходится]
-- **Состояние чек-листа из сокета не сохраняется** — `Core/Realtime/RealtimeCoordinator.swift:208–211, 340–341` — правило 9.8.17. После перезапуска пузырь покажет устаревший список из базы. [расходится]
+- **Правка затирает черновик чата** — `Features/Chats/Thread/ChatThreadModel.swift:487–506, 1304–1312`, `Features/Chats/Thread/MessageComposerView.swift:150` — правило 9.8.6. Текст правки уходит черновиком на сервер (виден в вебе), исходный черновик теряется. [расходится] [исправлено, #499]
+- **Состояние чек-листа из сокета не сохраняется** — `Core/Realtime/RealtimeCoordinator.swift:208–211, 340–341` — правило 9.8.17. После перезапуска пузырь покажет устаревший список из базы. [расходится] [исправлено, #499]
 - **Переиспользованная ячейка опроса может показать чужие результаты** — `Features/Chats/Thread/ChatPollView.swift:95` — правило 9.8.18. `task(id:)` по версии сигнала (обычно 0 у всех) не различает опросы. [проверить на iPhone]
 - **Результаты опроса перечитываются на каждом появлении** — `Features/Chats/Thread/ChatPollView.swift:95` — правило 9.8.22. Лишние запросы при прокрутке и двойная загрузка одного опроса в двух пузырях. [расходится]
 #### §10. Безопасность, приватность, вход и выход, ссылки
 
-- **Принятие сессии после QR и пароля без проверки, что поток ещё актуален** — `apps/ios/Sources/Features/Auth/QRSignInView.swift:198–201`, `apps/ios/Sources/Features/Auth/LoginModel.swift:62, 92` — правило 10.1.8. Закрытый лист или «Назад» не мешают позднему `session.adopt`: человек окажется внутри после отмены. [расходится]
-- **Выход не останавливает трансляции геопозиции, старт их возобновляет** — `apps/ios/Sources/App/StudentHubApp.swift:23` — правило 10.1.10. Трансляция прежнего человека может продолжиться под следующим аккаунтом. [расходится]
-- **`LocalData.erase()` не чистит `chats.liveLocations` и кеш `MessageCodeBlocks`** — `apps/ios/Sources/App/AppSessionModel.swift:162`, `apps/ios/Sources/Features/Chats/Thread/Attach/LiveLocationSharing.swift:33`, `apps/ios/Sources/Features/Chats/Thread/MessageCodeBlocks.swift:106` — правило 10.1.11. Данные и тексты прежнего человека переживают явный выход. [расходится]
+- **Принятие сессии после QR и пароля без проверки, что поток ещё актуален** — `apps/ios/Sources/Features/Auth/QRSignInView.swift:198–201`, `apps/ios/Sources/Features/Auth/LoginModel.swift:62, 92` — правило 10.1.8. Закрытый лист или «Назад» не мешают позднему `session.adopt`: человек окажется внутри после отмены. [расходится] [исправлено, #499]
+- **Выход не останавливает трансляции геопозиции, старт их возобновляет** — `apps/ios/Sources/App/StudentHubApp.swift:23` — правило 10.1.10. Трансляция прежнего человека может продолжиться под следующим аккаунтом. [расходится] [исправлено, #499]
+- **`LocalData.erase()` не чистит `chats.liveLocations` и кеш `MessageCodeBlocks`** — `apps/ios/Sources/App/AppSessionModel.swift:162`, `apps/ios/Sources/Features/Chats/Thread/Attach/LiveLocationSharing.swift:33`, `apps/ios/Sources/Features/Chats/Thread/MessageCodeBlocks.swift:106` — правило 10.1.11. Данные и тексты прежнего человека переживают явный выход. [расходится] [исправлено, #499]
 - **Сессия переживает удаление и переустановку приложения** — `apps/ios/Sources/Core/Session/SessionStore.swift:89` — правило 10.1.12. Человек, удаливший приложение «чтобы выйти», после установки снова внутри. [решение владельца]
-- **Срок QR-входа считается по `Date()`** — `apps/ios/Sources/Features/Auth/QRSignInView.swift:186, 193` — правило 10.1.13. Перевод часов сдвигает истечение кода. [расходится]
-- **`Keychain.set` игнорирует результат `SecItemAdd`** — `apps/ios/Sources/Core/Session/SecretStore.swift:80–86` — правило 10.2.2. Незаписанный ротированный refresh-токен → следующий запуск пошлёт погашенный, сервер порвёт цепочку (ложный выход). [расходится]
-- **Синтезированное описание у типов с токенами** — `apps/ios/Sources/Core/Session/AccessToken.swift:8`, `apps/ios/Sources/Core/Session/AuthAPI.swift:8`, `apps/ios/Sources/Core/Session/SessionStore.swift:353, 363`, `apps/ios/Sources/App/AppSessionModel.swift:17` — правило 10.2.6. Любой `"\(state)"`, `dump`, `print` или крошка Sentry выдаст JWT/refresh-токен. [расходится]
-- **Свободный текст ошибки в хлебной крошке** — `apps/ios/Sources/Core/Observability/Observability.swift:84` — правило 10.2.7. `error.localizedDescription` может нести адрес и детали, уходит в Sentry. [расходится]
-- **Сетевые крошки Sentry не выключены, нет `beforeBreadcrumb`** — `apps/ios/Sources/Core/Observability/Observability.swift:28–47` — правило 10.2.8. Sentry Cocoa по умолчанию пишет полные URL запросов (id чатов, поисковые строки) — утечка в трекер. [расходится]
-- **Нет единого открывателя ссылок; не-http(s) схемы уходят системе без вопроса** — `apps/ios/Sources/Features/Chats/Thread/MessageBubbleView.swift:854`, `apps/ios/Sources/Features/Feed/FeedComponents.swift` (`RichText`), `apps/ios/Sources/Features/Chats/ChatSharedContentView.swift:775–777` — правило 10.3.4. Проверку «логина» в адресе и подтверждение негде поставить; ссылка из сообщения может молча открыть чужое приложение. [расходится]
-- **Подпись превью ссылки берётся из `og:site_name`** — `apps/ios/Sources/Features/Chats/Thread/MessageBubbleView.swift:860` — правило 10.3.5. Чужой сайт может назваться «StudentHub» или банком — фишинг. [расходится]
-- **Скрытые markdown-ссылки открываются без подтверждения** — `apps/ios/Sources/Features/Feed/FeedComponents.swift:393–406` — правило 10.3.6. Текст «studenthub.kz» может вести на чужой адрес. [расходится]
+- **Срок QR-входа считается по `Date()`** — `apps/ios/Sources/Features/Auth/QRSignInView.swift:186, 193` — правило 10.1.13. Перевод часов сдвигает истечение кода. [расходится] [исправлено, #499]
+- **`Keychain.set` игнорирует результат `SecItemAdd`** — `apps/ios/Sources/Core/Session/SecretStore.swift:80–86` — правило 10.2.2. Незаписанный ротированный refresh-токен → следующий запуск пошлёт погашенный, сервер порвёт цепочку (ложный выход). [расходится] [исправлено, #499]
+- **Синтезированное описание у типов с токенами** — `apps/ios/Sources/Core/Session/AccessToken.swift:8`, `apps/ios/Sources/Core/Session/AuthAPI.swift:8`, `apps/ios/Sources/Core/Session/SessionStore.swift:353, 363`, `apps/ios/Sources/App/AppSessionModel.swift:17` — правило 10.2.6. Любой `"\(state)"`, `dump`, `print` или крошка Sentry выдаст JWT/refresh-токен. [расходится] [исправлено, #499]
+- **Свободный текст ошибки в хлебной крошке** — `apps/ios/Sources/Core/Observability/Observability.swift:84` — правило 10.2.7. `error.localizedDescription` может нести адрес и детали, уходит в Sentry. [расходится] [исправлено, #499]
+- **Сетевые крошки Sentry не выключены, нет `beforeBreadcrumb`** — `apps/ios/Sources/Core/Observability/Observability.swift:28–47` — правило 10.2.8. Sentry Cocoa по умолчанию пишет полные URL запросов (id чатов, поисковые строки) — утечка в трекер. [расходится] [исправлено, #499]
+- **Нет единого открывателя ссылок; не-http(s) схемы уходят системе без вопроса** — `apps/ios/Sources/Features/Chats/Thread/MessageBubbleView.swift:854`, `apps/ios/Sources/Features/Feed/FeedComponents.swift` (`RichText`), `apps/ios/Sources/Features/Chats/ChatSharedContentView.swift:775–777` — правило 10.3.4. Проверку «логина» в адресе и подтверждение негде поставить; ссылка из сообщения может молча открыть чужое приложение. [расходится] [исправлено, #499]
+- **Подпись превью ссылки берётся из `og:site_name`** — `apps/ios/Sources/Features/Chats/Thread/MessageBubbleView.swift:860` — правило 10.3.5. Чужой сайт может назваться «StudentHub» или банком — фишинг. [расходится] [исправлено, #499]
+- **Скрытые markdown-ссылки открываются без подтверждения** — `apps/ios/Sources/Features/Feed/FeedComponents.swift:393–406` — правило 10.3.6. Текст «studenthub.kz» может вести на чужой адрес. [расходится] [исправлено, #499]
 - **Сообщения запроса на переписку рисуются с активными ссылками и упоминаниями** — `apps/ios/Sources/Features/Chats/Thread/ChatThreadView.swift:413` (флаг читает только панель, `MessageBubbleView` — нет) — правило 10.4.12. Незнакомец получает кликабельные ссылки до принятия запроса. [решение владельца]
 #### §11. Доступность
 
-- **Истории переключаются по таймеру и под VoiceOver** — `apps/ios/Sources/Features/Feed/StoriesViews.swift:192` (`paused` без учёта VoiceOver), `:305` — правило 11.3.4. Незрячий не успевает дослушать историю, и её уносит таймер. [расходится]
+- **Истории переключаются по таймеру и под VoiceOver** — `apps/ios/Sources/Features/Feed/StoriesViews.swift:192` (`paused` без учёта VoiceOver), `:305` — правило 11.3.4. Незрячий не успевает дослушать историю, и её уносит таймер. [расходится] [исправлено, #499]
 - **Графики дашбордов без описания для VoiceOver** — `apps/ios/Sources/Features/Admin/AdminDashboardViews.swift:387,414`, `UniversityAdmin/UAdminDashboardView.swift:332,508`, `Dean/DeanDashboardView.swift`, `Career/CareerStaffViews.swift` — правило 11.2.7. `accessibilityChartDescriptor` нигде не задан, и смысл графика может не читаться. [проверить на iPhone]
 - **Ошибки входа, возможно, не объявляются** — `apps/ios/Sources/Features/Auth/` (объявления есть только в `DesignSystem/ActionToast.swift:40` и `Chats/Thread/ChatThreadView.swift:243`) — правило 11.3.3. Ошибку, показанную текстом или тряской, VoiceOver может не произнести. [проверить на iPhone]
 - **Полоска папок чатов** — `apps/ios/Sources/Features/Chats/ChatListView.swift` / `ChatFoldersModel.swift` — правило 11.2.1. Бейдж непрочитанных может читаться отдельным числом, а не значением вкладки. [проверить на iPhone]
@@ -8959,28 +8871,28 @@ release-сборка не запускалась.
 #### §12. Раскладка под устройства
 
 - **`UIScreen.main` в раскладке** — `apps/ios/Sources/Features/Chats/Thread/Menu/KeyboardFrame.swift:27`, `apps/ios/Sources/Features/Feed/StoriesViews.swift:321`, `apps/ios/Sources/Features/Chats/Thread/Attach/PhotoAssets.swift:187` — правило 12.1.1. API устарел с iOS 16; на внешнем экране или в другой сцене рамка клавиатуры и размер медиа посчитаются не для того экрана. [расходится]
-- **Чек-лист в пузыре без предела высоты** — `apps/ios/Sources/Features/Chats/Thread/MessageKindViews.swift:265` (сервер допускает 50 пунктов: `packages/shared-schemas/src/chats.ts:670`) — правило 12.4.2. Один чек-лист растягивает пузырь на несколько экранов и раздувает ленту. [расходится]
+- **Чек-лист в пузыре без предела высоты** — `apps/ios/Sources/Features/Chats/Thread/MessageKindViews.swift:265` (сервер допускает 50 пунктов: `packages/shared-schemas/src/chats.ts:670`) — правило 12.4.2. Один чек-лист растягивает пузырь на несколько экранов и раздувает ленту. [расходится] [исправлено, #499]
 #### §13. Производительность
 
-- **Счёт альбомов и выборка снимков на главном потоке** — `apps/ios/Sources/Features/Chats/Thread/Attach/PhotoAssets.swift:114-132`, `:177-181` (`PhotoAlbumsModel.load` под `@MainActor`); `apps/ios/Sources/Features/Chats/Thread/Attach/RecentMediaGrid.swift:214-216` (`reloadAssets` → `PhotoAssets.recent()`, до 300 объектов) — правило 13.1.5. При большой медиатеке и множестве альбомов открытие листа вложений подвисает. [расходится]
-- **Разбор JSON внутри актора `APIClient`** — `apps/ios/Sources/Core/Network/APIClient.swift:25`, `:66`, `:78` — правило 13.1.8. Большая страница (история, список чатов) задерживает все остальные запросы приложения; влияние не замерено. [расходится]
-- **События socket.io обрабатываются на главной очереди** — `apps/ios/Sources/Core/Realtime/RealtimeTransport.swift:52-54` (`config` без `.handleQueue`) — правило 13.1.9. После переподключения пачка событий разбирается на главном и может давать рывки ленты. [расходится, проверить замером]
-- **Кадры видео и PhotoKit-плитки отдаются в `Image` без `preparingForDisplay`** — `apps/ios/Sources/Features/Chats/ChatSharedContentView.swift:743`, `apps/ios/Sources/Features/Chats/Thread/AttachmentView.swift:1096`, `apps/ios/Sources/Features/Chats/Thread/Attach/RecentMediaGrid.swift:291` — правило 13.1.4. Первая отрисовка крупного кадра декодирует его на главном (у Telegram ~7 мс на картинку). [расходится]
+- **Счёт альбомов и выборка снимков на главном потоке** — `apps/ios/Sources/Features/Chats/Thread/Attach/PhotoAssets.swift:114-132`, `:177-181` (`PhotoAlbumsModel.load` под `@MainActor`); `apps/ios/Sources/Features/Chats/Thread/Attach/RecentMediaGrid.swift:214-216` (`reloadAssets` → `PhotoAssets.recent()`, до 300 объектов) — правило 13.1.5. При большой медиатеке и множестве альбомов открытие листа вложений подвисает. [расходится] [исправлено, #499]
+- **Разбор JSON внутри актора `APIClient`** — `apps/ios/Sources/Core/Network/APIClient.swift:25`, `:66`, `:78` — правило 13.1.8. Большая страница (история, список чатов) задерживает все остальные запросы приложения; влияние не замерено. [расходится] [исправлено, #499]
+- **События socket.io обрабатываются на главной очереди** — `apps/ios/Sources/Core/Realtime/RealtimeTransport.swift:52-54` (`config` без `.handleQueue`) — правило 13.1.9. После переподключения пачка событий разбирается на главном и может давать рывки ленты. [расходится, проверить замером] [исправлено, #499]
+- **Кадры видео и PhotoKit-плитки отдаются в `Image` без `preparingForDisplay`** — `apps/ios/Sources/Features/Chats/ChatSharedContentView.swift:743`, `apps/ios/Sources/Features/Chats/Thread/AttachmentView.swift:1096`, `apps/ios/Sources/Features/Chats/Thread/Attach/RecentMediaGrid.swift:291` — правило 13.1.4. Первая отрисовка крупного кадра декодирует его на главном (у Telegram ~7 мс на картинку). [расходится] [исправлено, #499]
 - **Цвета поля ввода переприсваиваются на каждом проходе SwiftUI** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerTextView.swift:63-65` — правило 13.2.6. Лишняя перекраска `textStorage` на каждом обновлении панели, риск оборвать IME-составление. [расходится, проверить на iPhone]
 - **Остановка `CADisplayLink` при уходе из чата посреди пружины не проверена** — `apps/ios/Sources/Features/Chats/Thread/MessageListGlide.swift:18`, `:43-49`, `:90-98` — правило 13.2.3. Убегающий display link держит CPU и батарею после закрытия экрана. [проверить на iPhone]
 - **Фиксированные 120 Гц для пружины ленты не опробованы** — `apps/ios/Sources/Features/Chats/Thread/MessageListGlide.swift:43` — правило 13.2.2. С диапазоном 60…120 система может опускать частоту примерно до 80 Гц, и пружина на глаз медленнее. [проверить на iPhone]
 - **Нет переключателя «принудительный overflow» догона** — `apps/ios/Sources/App/UITesting/MockAPIProtocol.swift:346` (mock всегда отдаёт `overflow: false`); ветка обработки — `apps/ios/Sources/Features/Chats/Thread/ChatThreadModel.swift:1479` — правило 13.7.3. Редкий путь переполнения догона нельзя воспроизвести в приложении по требованию. [расходится]
 #### §14. CI, зависимости, внешние загрузки
 
-- **XcodeGen ставится без версии и суммы** — `.github/workflows/ios.yml:98`, `ios-nightly.yml:52`, `ios-snapshots.yml:42`, `ios-release.yml:35` — правило 14.1.1. Новая версия XcodeGen может молча изменить сгенерированный проект. [расходится]
+- **XcodeGen ставится без версии и суммы** — `.github/workflows/ios.yml:98`, `ios-nightly.yml:52`, `ios-snapshots.yml:42`, `ios-release.yml:35` — правило 14.1.1. Новая версия XcodeGen может молча изменить сгенерированный проект. [расходится] [исправлено, #499]
 - **Версии SPM-пакетов не зафиксированы** — `apps/ios/.gitignore` (`Package.resolved`), `apps/ios/project.yml:31-43`, `apps/ios/Package.swift:21-22` (`from:`) — правила 14.1.1, 14.1.2. CI и локальная сборка берут свежие миноры GRDB, Socket.IO и Sentry, поэтому сборки невоспроизводимы. [решение владельца]
-- **Release собирается другим Xcode, чем тесты** — `.github/workflows/ios-release.yml:24` (`macos-15`, без `DEVELOPER_DIR`) против `Xcode_26.6` в `ios.yml:85`, `ios-nightly.yml:37`, `ios-snapshots.yml:29` — правило 14.1.5. TestFlight-сборка не проходила тот компилятор и SDK, на которых прошли тесты, а для стекла iOS 26 нужен SDK Xcode 26. [расходится]
-- **Ключ кеша SPM зависит от всего `project.yml`** — `.github/workflows/ios.yml:106`, `ios-nightly.yml:58`, `ios-snapshots.yml:48` — правило 14.2.1. Любая правка версии или номера сборки зря сбрасывает кеш пакетов. [расходится]
+- **Release собирается другим Xcode, чем тесты** — `.github/workflows/ios-release.yml:24` (`macos-15`, без `DEVELOPER_DIR`) против `Xcode_26.6` в `ios.yml:85`, `ios-nightly.yml:37`, `ios-snapshots.yml:29` — правило 14.1.5. TestFlight-сборка не проходила тот компилятор и SDK, на которых прошли тесты, а для стекла iOS 26 нужен SDK Xcode 26. [расходится] [исправлено, #499]
+- **Ключ кеша SPM зависит от всего `project.yml`** — `.github/workflows/ios.yml:106`, `ios-nightly.yml:58`, `ios-snapshots.yml:48` — правило 14.2.1. Любая правка версии или номера сборки зря сбрасывает кеш пакетов. [расходится] [исправлено, #499]
 - **Нет стражей со списками исключений** — `apps/ios/scripts/` — правило 14.4.1. Переводы кода (GRDB вне `Core/`, `URLSession`, открытие ссылок) могут незаметно откатываться назад. [решение владельца]
 - **Нет удалённого выключателя рискованных функций** — `apps/ios/Sources/App/PerformanceFlags.swift` — правило 14.5.1. Откатить сломанную функцию у пользователей можно только новым выпуском. [решение владельца]
 #### §15. Документация, процесс, работа агентов
 
-- **Список «открыто до выпуска» неполный, `Package.resolved` не закреплён** — `docs/RELEASE_IOS.md:12`, `apps/ios/.gitignore:35`, `apps/ios/README.md:246` — правило 15.7.8. В релизном документе только заглушка `api.example.invalid`; незакреплённые версии SPM и отсутствие иконки всплывут при первой выкладке. [расходится]
+- **Список «открыто до выпуска» неполный, `Package.resolved` не закреплён** — `docs/RELEASE_IOS.md:12`, `apps/ios/.gitignore:35`, `apps/ios/README.md:246` — правило 15.7.8. В релизном документе только заглушка `api.example.invalid`; незакреплённые версии SPM и отсутствие иконки всплывут при первой выкладке. [расходится] [список дополнен; `Package.resolved` — решение владельца]
 - **Нет карты синхронизации** — `apps/ios/Sources/Core/Realtime/RealtimeCoordinator.swift`, `apps/ios/Sources/Core/Chats/MessageStore.swift`, `apps/ios/Sources/Core/Chats/OutboxService.swift` — правило 15.1.5. Инварианты догона (`lastSeq`, `sinceTs`) размазаны по комментариям, правка синхронизации не обязана их обновлять. [решение владельца]
 
 ---
