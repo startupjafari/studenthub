@@ -40,6 +40,8 @@ struct MessageCapabilities: Hashable {
 /// Действие из пузыря или его меню.
 enum MessageAction {
     case reply, edit, delete, pin, copy, forward, report, retry
+    /// Скопировать кусок сообщения (блок кода) — с подтверждением, как «Скопировать».
+    case copyText(String)
     /// Кто прочитал своё сообщение в группе.
     case readers
     /// Крестик на загружаемом вложении: отменить отправку.
@@ -471,9 +473,17 @@ struct MessageBubbleView: View {
         extras.location != nil || extras.contact != nil || extras.checklist != nil || extras.sticker != nil
     }
 
-    /// Время встаёт в последнюю строку текста, если текст — последний в пузыре.
+    /// Время встаёт в последнюю строку текста, если текст — последний в пузыре. Текст,
+    /// который кончается блоком кода, времени не несёт: оно уходит на свою строку.
     private var textCarriesMeta: Bool {
         hasText && !showsReactions && (extras.linkPreview == nil || isDeleted)
+            && codeSegments?.last?.isCode != true
+    }
+
+    /// Текст с блоками кода ```` ``` ```` — по сегментам; `nil` — обычный текст (разбор
+    /// не трогается, проверка — одна `contains`, сам разбор кешируется).
+    private var codeSegments: [MessageCodeBlocks.Segment]? {
+        isDeleted ? nil : MessageCodeBlocks.segments(ifAny: message.content)
     }
 
     /// Только фото без подписи — время поверх снимка, в тёмной капсуле.
@@ -485,7 +495,24 @@ struct MessageBubbleView: View {
             && !(context.isGroup && !item.isOwn && item.isFirstInGroup)
     }
 
+    @ViewBuilder
     private var textBlock: some View {
+        if let segments = codeSegments {
+            MessageCodeText(
+                segments: segments,
+                isOwn: item.isOwn,
+                textColor: textColor,
+                tint: item.isOwn ? Palette.primaryForeground : Palette.primary,
+                highlight: context.highlight,
+                metaPlaceholder: textCarriesMeta ? metaPlaceholder : nil,
+                onCopy: { onAction(.copyText($0)) }
+            )
+        } else {
+            plainTextBlock
+        }
+    }
+
+    private var plainTextBlock: some View {
         let body = Text(isDeleted ? AttributedString(deletedText) : highlightedContent)
             .font(Typography.body)
         let line = textCarriesMeta ? body + metaPlaceholder : body

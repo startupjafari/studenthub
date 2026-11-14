@@ -649,6 +649,10 @@ struct ChatThreadView: View {
             Task { await model.togglePin(message) }
         case .copy:
             UIPasteboard.general.string = message.content
+        case .copyText(let text):
+            UIPasteboard.general.string = text
+            copiedTick += 1
+            showToast(String(localized: "chats.code.copied", defaultValue: "Код скопирован"))
         case .forward:
             forwarding = ForwardBatch(messages: [message], fromSelection: false)
         case .select:

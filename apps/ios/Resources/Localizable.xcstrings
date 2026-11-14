@@ -2602,6 +2602,40 @@
         }
       }
     },
+    "chats.code.copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать код"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кодты көшіру"
+          }
+        }
+      }
+    },
+    "chats.code.copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Код скопирован"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Код көшірілді"
+          }
+        }
+      }
+    },
     "chats.placeholder": {
       "extractionState": "manual",
       "localizations": {
