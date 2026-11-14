@@ -499,7 +499,20 @@ final class ChatThreadModel {
             && message.deletedAt == nil
             && message.systemType == nil
             && message.extras?.isForwarded != true
+            && Self.isEditableKind(message.extras)
             && now.timeIntervalSince(message.createdAt) < Self.editWindow
+    }
+
+    /// Сообщения особого вида правка испортила бы: она меняет только `content`, а опрос,
+    /// чек-лист, стикер, геопозиция и контакт живут в своих полях. Явный запрет по виду,
+    /// а не ветка по умолчанию (IOS_RULES 7.7.13): новый особый вид добавляется сюда.
+    static func isEditableKind(_ extras: MessageExtras?) -> Bool {
+        guard let extras else { return true }
+        return extras.poll == nil
+            && extras.checklist == nil
+            && extras.sticker == nil
+            && extras.location == nil
+            && extras.contact == nil
     }
 
     func canDelete(_ message: MessageRecord) -> Bool {
