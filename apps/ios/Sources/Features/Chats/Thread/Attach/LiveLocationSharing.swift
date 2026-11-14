@@ -1,6 +1,5 @@
 import CoreLocation
 import Foundation
-import GRDB
 import Observation
 
 /// Живая геопозиция: пока человек сам включил трансляцию (на 15 минут, час или 8 часов),
@@ -229,12 +228,6 @@ final class LiveLocationSharing: NSObject, CLLocationManagerDelegate {
 /// перерисуется сам. Источник — свой ответ сервера или событие `location:updated`.
 enum LiveLocations {
     static func apply(_ location: MessageExtras.Location, messageID: String) async {
-        try? await AppServices.database.writer.write { db in
-            guard var row = try MessageRecord.filter(MessageRecord.Columns.remoteId == messageID).fetchOne(db) else { return }
-            var extras = row.extras ?? MessageExtras()
-            extras.location = location
-            row.extras = extras
-            try row.update(db)
-        }
+        try? await LiveLocationQueries(database: AppServices.database).updateLocation(location, messageID: messageID)
     }
 }
