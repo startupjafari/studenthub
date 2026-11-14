@@ -1716,27 +1716,37 @@ final class ChatThreadModel {
         let attachments = snapshot.attachments
         let viewer = viewerID
         let onScreen = Self.preparedOnScreen
-        // В сборку уходят только значения (записи базы и строки), ссылок на модель нет;
-        // `self` — слабо и только на главном потоке, после сборки.
+        // В сборку уходят только значения (записи базы и строки), ссылок на модель нет:
+        // модель не Sendable, и даже слабая ссылка на неё в отсоединённой задаче — гонка
+        // по мнению компилятора. Модель держит главная задача, она же отменяет сборку.
         buildTask?.cancel()
-        buildTask = Task.detached(priority: .userInitiated) { [weak self] in
-            guard !Task.isCancelled else { return }
+        let build = Task.detached(priority: .userInitiated) { () -> ([MessageTimeline.Day], [String])? in
+            guard !Task.isCancelled else { return nil }
             let signpost = Signposts.chats.beginInterval("TimelineBuild")
             let built = MessageTimeline.build(from: visible, attachments: attachments, viewerID: viewer)
             Signposts.chats.endInterval("TimelineBuild", signpost, "messages: \(visible.count)")
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return nil }
             // Разбор текста — здесь же, вне главного потока (п. 3): сначала то, что у
             // свежего края и встанет на экран первым, — до показа, потом остальное.
             // Разобранное уже лежит в кеше, повторная сборка только сверяет ключи.
             let texts = visible.map(\.content)
             RichText.prepare(texts.suffix(onScreen))
-            guard !Task.isCancelled else { return }
-            await MainActor.run { [weak self] in
-                guard let self, self.buildGeneration == generation else { return }
-                self.days = built
-                self.daysRevision &+= 1
+            guard !Task.isCancelled else { return nil }
+            return (built, texts)
+        }
+        buildTask = Task { @MainActor [weak self] in
+            let result = await withTaskCancellationHandler {
+                await build.value
+            } onCancel: {
+                build.cancel()
             }
-            RichText.prepare(texts.dropLast(onScreen).reversed())
+            guard case let (built, texts)? = result, !Task.isCancelled,
+                  let self, self.buildGeneration == generation else { return }
+            self.days = built
+            self.daysRevision &+= 1
+            Task.detached(priority: .userInitiated) {
+                RichText.prepare(texts.dropLast(onScreen).reversed())
+            }
         }
     }
 
