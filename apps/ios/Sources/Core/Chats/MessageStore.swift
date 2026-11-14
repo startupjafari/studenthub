@@ -196,6 +196,24 @@ struct MessageStore: Sendable {
         }
     }
 
+    /// Свежее состояние общего списка из `checklist:updated` — в сохранённые сообщения с
+    /// ним (IOS_RULES 9.8.17). Id сообщения событие не несёт: ищем по id списка в `extras`,
+    /// а `LIKE` лишь сужает выборку — совпадение проверяется разобранной моделью.
+    /// Неизменённое не пишем: повтор того же события не будит ленту.
+    func save(checklist: MessageExtras.Checklist, chatID: String?) async throws {
+        try await database.writer.write { db in
+            var request = MessageRecord.filter(sql: "extras LIKE '%' || ? || '%'", arguments: [checklist.id])
+            if let chatID {
+                request = request.filter(MessageRecord.Columns.chatId == chatID)
+            }
+            for var row in try request.fetchAll(db) where row.extras?.checklist?.id == checklist.id {
+                guard row.extras?.checklist != checklist else { continue }
+                row.extras?.checklist = checklist
+                try row.update(db)
+            }
+        }
+    }
+
     /// Убрать сообщения, удалённые «у меня» (своим действием или с другого устройства).
     func removeHidden(remoteIDs: [String], chatID: String) async throws {
         guard !remoteIDs.isEmpty else { return }

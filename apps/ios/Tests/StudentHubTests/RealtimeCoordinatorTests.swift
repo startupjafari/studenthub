@@ -144,6 +144,26 @@ final class RealtimeCoordinatorTests: XCTestCase {
         XCTAssertNil(coordinator.actions["c-1"])
     }
 
+    /// Двое печатают — подпись по последнему начавшему, а не по порядку словаря; он
+    /// закончил — подпись переходит к оставшемуся (IOS_RULES 9.4.10).
+    func testActivityFollowsLastStarter() async throws {
+        let (_, coordinator, transport) = try await make()
+        let activity = coordinator.activity(for: "c-1")
+
+        await transport.emit(.action(chatID: "c-1", userID: "u-a", action: "TYPING"))
+        await transport.emit(.action(chatID: "c-1", userID: "u-b", action: "RECORDING_VOICE"))
+        await settle()
+        XCTAssertEqual(activity.action, "RECORDING_VOICE")
+
+        await transport.emit(.action(chatID: "c-1", userID: "u-a", action: "TYPING"))
+        await settle()
+        XCTAssertEqual(activity.action, "TYPING")
+
+        await transport.emit(.action(chatID: "c-1", userID: "u-a", action: nil))
+        await settle()
+        XCTAssertEqual(activity.action, "RECORDING_VOICE")
+    }
+
     func testPresenceIsTracked() async throws {
         let (_, coordinator, transport) = try await make()
 

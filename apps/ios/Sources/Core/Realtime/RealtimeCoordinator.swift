@@ -17,6 +17,10 @@ final class RealtimeCoordinator {
     private(set) var connectionEpoch = 0
     /// Кто что делает: чат → (пользователь → действие).
     private(set) var actions: [String: [String: String]] = [:]
+    /// Кто в каком порядке начал: последний — в конце. Подпись берёт последнего начавшего,
+    /// а не первого из словаря: порядок обхода словаря свой в каждом процессе, и при двух
+    /// печатающих подпись мигала бы (IOS_RULES 9.4.10).
+    @ObservationIgnored private var actionOrder: [String: [String]] = [:]
     /// То же по чату отдельными наблюдаемыми объектами — для строк списка чатов: строка
     /// следит только за своим чатом, и «печатает…» в одном чате не пересчитывает
     /// остальные строки и весь список.
@@ -80,6 +84,9 @@ final class RealtimeCoordinator {
     private var unsentReads: [String: String] = [:]
     private var unsentEdits: [(messageID: String, content: String)] = []
     private var unsentDeletes: [String] = []
+    /// Запись свежего состояния списков в базу — цепочкой: следующая ждёт предыдущую,
+    /// иначе две быстрые правки могли бы лечь в обратном порядке.
+    private var checklistWrite: Task<Void, Never>?
     private let api: ChatsFetching?
 
     init(
@@ -127,6 +134,7 @@ final class RealtimeCoordinator {
         connectedAt = nil
         isConnected = false
         actions = [:]
+        actionOrder = [:]
         // Выход из аккаунта: строки списка прежнего аккаунта уже ушли, их объекты не
         // нужны следующему. Погашены — на случай, если чей-то вид ещё держит ссылку.
         for activity in activities.values { activity.action = nil }
@@ -154,6 +162,8 @@ final class RealtimeCoordinator {
         pinnedVersions = [:]
         pollVersions = [:]
         checklists = [:]
+        checklistWrite?.cancel()
+        checklistWrite = nil
         for task in expiry.values { task.cancel() }
         expiry = [:]
         await transport.disconnect()
@@ -250,10 +260,21 @@ final class RealtimeCoordinator {
     }
 
     /// Свой ответ сервера на правку списка — сразу всем пузырям с этим списком.
+    ///
+    /// Память — только сигнал открытому экрану; само состояние ложится в сохранённое
+    /// сообщение, иначе после перезапуска пузырь показал бы список из базы, устаревший
+    /// (IOS_RULES 9.8.17).
     @MainActor
-    func remember(_ checklist: MessageExtras.Checklist) {
+    func remember(_ checklist: MessageExtras.Checklist, chatID: String? = nil) {
         checklists[checklist.id] = checklist
         checklistSignals[checklist.id]?.checklist = checklist
+        let previous = checklistWrite
+        let store = MessageStore(database: database)
+        checklistWrite = Task { @MainActor [weak self] in
+            await previous?.value
+            guard let self, self.active, !Task.isCancelled else { return }
+            try? await store.save(checklist: checklist, chatID: chatID)
+        }
     }
 
     // MARK: - События
@@ -384,8 +405,8 @@ final class RealtimeCoordinator {
             pollVersions[pollID, default: 0] += 1
             pollSignals[pollID]?.version += 1
 
-        case .checklistUpdated(let checklist, _):
-            remember(checklist)
+        case .checklistUpdated(let checklist, let chatID):
+            remember(checklist, chatID: chatID)
 
         case .locationUpdated(let location, let messageID, _):
             await LiveLocations.apply(location, messageID: messageID)
@@ -471,14 +492,17 @@ final class RealtimeCoordinator {
         expiry[key]?.cancel()
         expiry[key] = nil
 
+        actionOrder[chatID]?.removeAll { $0 == userID }
         guard let action else {
             actions[chatID]?.removeValue(forKey: userID)
             if actions[chatID]?.isEmpty == true { actions[chatID] = nil }
+            if actionOrder[chatID]?.isEmpty == true { actionOrder[chatID] = nil }
             syncActivity(of: chatID)
             return
         }
 
         actions[chatID, default: [:]][userID] = action
+        actionOrder[chatID, default: []].append(userID)
         syncActivity(of: chatID)
         expiry[key] = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(4))
@@ -492,7 +516,7 @@ final class RealtimeCoordinator {
     func activity(for chatID: String) -> ChatActivity {
         if let known = activities[chatID] { return known }
         let made = ChatActivity()
-        made.action = actions[chatID]?.values.first
+        made.action = currentAction(in: chatID)
         activities[chatID] = made
         return made
     }
@@ -541,8 +565,15 @@ final class RealtimeCoordinator {
     @MainActor
     private func syncActivity(of chatID: String) {
         guard let activity = activities[chatID] else { return }
-        let current = actions[chatID]?.values.first
+        let current = currentAction(in: chatID)
         if activity.action != current { activity.action = current }
+    }
+
+    /// Действие последнего начавшего — одно и то же при любом порядке словаря.
+    @MainActor
+    private func currentAction(in chatID: String) -> String? {
+        guard let userID = actionOrder[chatID]?.last else { return nil }
+        return actions[chatID]?[userID]
     }
 
     @MainActor
