@@ -95744,6 +95744,40 @@
         }
       }
     },
+    "chats.checklist.showAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать все (%lld)"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Барлығын көрсету (%lld)"
+          }
+        }
+      }
+    },
+    "chats.checklist.collapse": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Свернуть"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жию"
+          }
+        }
+      }
+    },
     "chats.checklist.remove": {
       "extractionState": "manual",
       "localizations": {
