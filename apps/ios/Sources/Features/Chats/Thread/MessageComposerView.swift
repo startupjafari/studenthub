@@ -10,7 +10,13 @@ import UniformTypeIdentifiers
 struct MessageComposerView: View {
     @Bindable var model: ChatThreadModel
 
-    @FocusState private var isFocused: Bool
+    /// Фокус поля. Не `@FocusState`: поле — `UITextView` (`ComposerTextView`), его
+    /// первый ответчик сверяется с этим флагом в обе стороны.
+    @State private var isFocused = false
+    /// Курсор, выделение, отмена поля — для emoji с панели и форматирования.
+    @State private var editor = ComposerTextController()
+    /// Полноэкранный редактор (кнопка ⛶).
+    @State private var editorPresenter = ComposerEditorPresenter()
     @State private var recorder = VoiceRecorder()
     /// Смещение пальца на микрофоне во время записи.
     @State private var micOffset: CGSize = .zero
@@ -88,32 +94,44 @@ struct MessageComposerView: View {
                     .accessibilityIdentifier("chat.attach")
                     .accessibilityLabel(Text(String(localized: "chats.attach", defaultValue: "Вложение")))
 
-                    TextField(
+                    ComposerTextView(
                         text: $model.draft,
-                        // Во время записи подсказки нет: стекло контейнера не гасит
-                        // прозрачность поля, и «Сообщение» проступало сквозь полосу записи.
-                        prompt: Text(verbatim: recorder.machine.isActive
-                            ? ""
-                            : String(localized: "chats.placeholder", defaultValue: "Сообщение")),
-                        axis: .vertical
-                    ) {
-                        Text(verbatim: String(localized: "chats.placeholder", defaultValue: "Сообщение"))
+                        isFocused: $isFocused,
+                        controller: editor,
+                        // Во время записи текст и курсор гаснут — клавиатура при этом
+                        // остаётся, черновик не трогается.
+                        isMuted: recorder.machine.isActive,
+                        accessibilityLabel: placeholder,
+                        onPasteImages: pasteImages
+                    )
+                    // Подсказки во время записи нет: стекло контейнера не гасит
+                    // прозрачность поля, и «Сообщение» проступало сквозь полосу записи.
+                    .overlay(alignment: .leading) {
+                        if model.draft.isEmpty, !recorder.machine.isActive {
+                            Text(verbatim: placeholder)
+                                .font(Typography.body)
+                                .foregroundStyle(Color(uiColor: .placeholderText))
+                                .lineLimit(1)
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                        }
                     }
-                    .labelsHidden()
-                    .lineLimit(1...6)
-                    .font(Typography.body)
-                    .foregroundStyle(recorder.machine.isActive ? Color.clear : Palette.foreground)
-                    // Курсор тоже гаснет на время записи — клавиатура при этом остаётся.
-                    .tint(recorder.machine.isActive ? Color.clear : Palette.primary)
-                    .focused($isFocused)
-                    .accessibilityIdentifier("chat.composer")
                     .padding(.leading, Spacing.lg)
-                    // Справа — место под кнопку emoji внутри поля.
-                    .padding(.trailing, ControlHeight.lg)
+                    // Справа — место под кнопку emoji внутри поля (и ⛶ рядом с ней, пока
+                    // текст короче трёх строк).
+                    .padding(.trailing, ControlHeight.lg * (expandsInline ? 2 : 1))
                     .padding(.vertical, Spacing.md)
                     .frame(minHeight: ControlHeight.lg)
                     .overlay(alignment: .bottomTrailing) {
-                        if !recorder.machine.isActive { expressionButton }
+                        if !recorder.machine.isActive {
+                            HStack(spacing: 0) {
+                                if expandsInline { expandButton }
+                                expressionButton
+                            }
+                        }
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        if !recorder.machine.isActive, showsExpand, !expandsInline { expandButton }
                     }
                     // Радиус — половина высоты одной строки: в одну строку поле — капсула,
                     // в несколько — скруглённый прямоугольник, как в Telegram.
@@ -162,9 +180,13 @@ struct MessageComposerView: View {
             // Панель emoji, стикеров и GIF — на месте клавиатуры и той же высоты.
             if showsPanel {
                 ExpressionPanel(
-                    onEmoji: { model.draft += $0 },
+                    // В место курсора, как в Telegram, а не в конец; поле ещё не
+                    // создано — в конец черновика.
+                    onEmoji: { emoji in
+                        if !editor.insert(emoji) { model.draft += emoji }
+                    },
                     onBackspace: {
-                        guard !model.draft.isEmpty else { return }
+                        guard !editor.deleteBackward(), !model.draft.isEmpty else { return }
                         model.draft.removeLast()
                     },
                     onSticker: { sticker in
@@ -222,6 +244,8 @@ struct MessageComposerView: View {
             recorder.onAnnounce = { [model] on in model.announceVoice(on) }
         }
         .onDisappear {
+            // Редактор поверх ушедшего экрана свернуть уже некому.
+            editorPresenter.dismiss(.collapse)
             // Ушли из чата посреди записи — недописанное не уходит само. Не `delete()`:
             // его машина в фазе «палец держит» не принимает, и у собеседников так и висело
             // «записывает голосовое…», а кнопка «вниз» в ленте пропадала.
@@ -359,8 +383,7 @@ struct MessageComposerView: View {
 
     private var sendButton: some View {
         Button {
-            sentTick += 1
-            Task { await model.send() }
+            sendDraft()
         } label: {
             Image(systemName: model.editing == nil ? "arrow.up" : "checkmark")
                 .font(Typography.body.weight(.bold))
@@ -374,6 +397,88 @@ struct MessageComposerView: View {
         .accessibilityLabel(Text(model.editing == nil
             ? String(localized: "chats.send", defaultValue: "Отправить")
             : String(localized: "common.save", defaultValue: "Сохранить")))
+    }
+
+    /// Отправка текста или сохранение правки — общая для кнопки панели ввода и
+    /// полноэкранного редактора. Здесь же — место для отложенной и тихой отправки.
+    private func sendDraft() {
+        sentTick += 1
+        Task { await model.send() }
+    }
+
+    // MARK: Полноэкранный редактор
+
+    private var placeholder: String {
+        String(localized: "chats.placeholder", defaultValue: "Сообщение")
+    }
+
+    /// ⛶ — с трёх строк текста или в правке, как в Telegram.
+    private var showsExpand: Bool {
+        editor.lineCount >= 3 || model.editing != nil
+    }
+
+    /// Пока строк меньше трёх, ⛶ стоит рядом со смайликом, а не над ним: в поле
+    /// высотой в строку-две две кнопки друг над другом не помещаются.
+    private var expandsInline: Bool {
+        showsExpand && editor.lineCount < 3
+    }
+
+    private var expandButton: some View {
+        Button(action: openEditor) {
+            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(Palette.mutedForeground)
+                .frame(width: ControlHeight.lg, height: ControlHeight.lg)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("chat.expand")
+        .accessibilityLabel(Text(String(localized: "chats.editor.open", defaultValue: "Развернуть редактор")))
+    }
+
+    private func openEditor() {
+        showsPanel = false
+        let editor = ComposerEditorView(
+            model: model,
+            close: { [editorPresenter] exit in editorPresenter.dismiss(exit) },
+            send: sendDraft,
+            sendSticker: { sticker in
+                sentTick += 1
+                Task { await model.sendSticker(id: sticker.id) }
+            },
+            sendGif: { choice in
+                sentTick += 1
+                switch choice {
+                case .recent(let gif): Task { await model.sendGif(fileID: gif.fileId) }
+                case .external(let gif): Task { await model.sendExternalGif(id: gif.id) }
+                }
+            },
+            reduceMotion: reduceMotion
+        )
+        editorPresenter.present(editor) { exit in
+            switch exit {
+            case .collapse:
+                // Свернули — продолжаем в поле, с клавиатурой, как в Telegram.
+                isFocused = true
+            case .sent:
+                break
+            case .attach:
+                showsAttachMenu = true
+            case .pasteImages(let images):
+                pasteImages(images)
+            }
+        }
+    }
+
+    /// «Вставить» с картинками в буфере — лист отправки вложений с ними; набранный
+    /// текст становится подписью, как у любого выбора из галереи.
+    private func pasteImages(_ images: [UIImage]) {
+        let draft = openDraft()
+        Task {
+            for image in images.prefix(AttachmentUploader.albumLimit) {
+                await draft.add(image: image)
+            }
+        }
     }
 
     /// Опрос — в группах и официальных чатах, не в личных и не в «Избранном» (как в
@@ -491,8 +596,8 @@ struct MessageComposerView: View {
     }
 }
 
-/// Полоска «отвечаю на…» или «редактирую» над полем ввода.
-private struct ReplyBar: View {
+/// Полоска «отвечаю на…» или «редактирую» над полем ввода (и в полноэкранном редакторе).
+struct ReplyBar: View {
     let title: String
     let text: String
     var symbol = "arrowshape.turn.up.left"
