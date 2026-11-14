@@ -36,6 +36,9 @@ struct RemoteImage: View {
     /// Размер вида в точках — из него цель считается в теле, с текущими масштабом
     /// экрана и `contentMode`.
     @State private var viewSize: CGSize = .zero
+    /// Ключ, для которого картинка сейчас проявляется: заглушка под ней держится
+    /// непрозрачной до конца растворения и уходит по его завершении (правило 3.8.2).
+    @State private var revealingKey: String?
     @Environment(\.motionReduced) private var reduceMotion
     @Environment(\.displayScale) private var displayScale
 
@@ -50,23 +53,18 @@ struct RemoteImage: View {
         let shown = own ?? ImageMemoryCache.shared.image(for: cacheKey) ?? interim
         let showsFailure = stateKey == cacheKey && failed
         ZStack {
+            // Заглушка стоит под картинкой и не гаснет навстречу ей: если растворять оба
+            // слоя (1→0 и 0→1), в середине сквозь них проступает фон. Убирается без
+            // анимации, когда картинка уже проявилась целиком.
+            if shown == nil || revealingKey == cacheKey {
+                placeholderLayer(showsFailure: showsFailure && shown == nil)
+                    .transition(.identity)
+            }
             if let shown {
                 Image(uiImage: shown)
                     .resizable()
                     .aspectRatio(contentMode: contentMode)
                     .transition(.opacity)
-            } else if let preview = LQIP.blurred(from: placeholder) {
-                // Превью уже размыто при разборе: размытие на каждом кадре прокрутки —
-                // лишний проход вне экрана на каждую плитку.
-                Image(uiImage: preview)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } else if let emptyFill {
-                Rectangle().fill(emptyFill)
-                if showsFailure {
-                    Image(systemName: "photo")
-                        .foregroundStyle(Palette.mutedForeground)
-                }
             }
         }
         .clipped()
@@ -84,6 +82,26 @@ struct RemoteImage: View {
         // подписанную ссылку (403), а свежий ответ — новую с тем же ключом файла.
         .task(id: RemoteImageLoad(key: cacheKey, target: target, retryURL: showsFailure ? url : nil)) {
             await load()
+        }
+    }
+
+    /// Размытое превью или ровная подложка — то, что видно до картинки.
+    @ViewBuilder
+    private func placeholderLayer(showsFailure: Bool) -> some View {
+        if let preview = LQIP.blurred(from: placeholder) {
+            // Превью уже размыто при разборе: размытие на каждом кадре прокрутки —
+            // лишний проход вне экрана на каждую плитку.
+            Image(uiImage: preview)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+        } else if let emptyFill {
+            ZStack {
+                Rectangle().fill(emptyFill)
+                if showsFailure {
+                    Image(systemName: "photo")
+                        .foregroundStyle(Palette.mutedForeground)
+                }
+            }
         }
     }
 
@@ -124,10 +142,22 @@ struct RemoteImage: View {
             failed = false
             return
         }
-        withAnimation(Motion.respecting(.easeOut(duration: Motion.Duration.feedback), reduceMotion: reduceMotion)) {
+        guard let animation = Motion.respecting(.easeOut(duration: Motion.Duration.feedback), reduceMotion: reduceMotion)
+        else {
             image = loaded
             stateKey = key
             failed = false
+            return
+        }
+        // Заглушку оставляем под картинкой на всё растворение (вне анимации, чтобы она
+        // не получила переход), а снимаем по его завершении — если ключ тот же.
+        revealingKey = key
+        withAnimation(animation, completionCriteria: .removed) {
+            image = loaded
+            stateKey = key
+            failed = false
+        } completion: {
+            if revealingKey == key { revealingKey = nil }
         }
     }
 
