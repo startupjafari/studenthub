@@ -844,21 +844,26 @@ private struct ReplyQuoteView: View {
     }
 }
 
-/// Превью ссылки под текстом.
+/// Превью ссылки под текстом. Подпись — хост из самого адреса, а не `siteName`: его
+/// пишет чужой сайт и может назваться кем угодно («StudentHub», банк). Переход — через
+/// `ExternalLinkOpener`, с подтверждением для чужих адресов.
 private struct LinkPreviewCard: View {
     let preview: MessageExtras.LinkPreview
     let isOwn: Bool
 
     var body: some View {
         if let url = URL(string: preview.url) {
-            Link(destination: url) {
+            Button {
+                ExternalLinkOpener.open(url)
+            } label: {
                 HStack(spacing: Spacing.md) {
                     Rectangle()
                         .fill(isOwn ? Palette.primaryForeground.opacity(0.6) : Palette.primary)
                         .frame(width: 2)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(preview.siteName ?? url.host() ?? preview.url)
+                        Text(verbatim: ExternalLink.displayHost(url) ?? preview.url)
                             .font(Typography.meta.weight(.semibold))
+                            .lineLimit(1)
                         if let title = preview.title, !title.isEmpty {
                             Text(title)
                                 .font(Typography.meta.weight(.medium))
@@ -877,6 +882,7 @@ private struct LinkPreviewCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.plain)
+            .accessibilityAddTraits(.isLink)
         }
     }
 }

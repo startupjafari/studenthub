@@ -357,6 +357,140 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertFalse(pending)
     }
 
+    // MARK: - Эпоха сессии, окно грации, запись в связку ключей
+
+    /// Правило 9.7.1: «Выйти» посреди продления — продление по возвращении ничего не
+    /// записывает, и холодный старт не откроет сессию вышедшего.
+    func testSignOutDuringRefreshDiscardsItsResult() async throws {
+        let secrets = MemorySecrets()
+        secrets.set("rt-1", for: .refreshToken)
+        secrets.set("1", for: .sessionPresent)
+        let cookies = MemoryCookies(value: "rt-1")
+        let auth = StubAuth(token: longLivedToken)
+        await auth.delayNext(by: .milliseconds(200))
+        await auth.rotate(into: cookies, value: "rt-2")
+        let store = makeStore(auth: auth, secrets: secrets, cookies: cookies)
+
+        let refresh = Task { await store.refreshedAccessToken() }
+        try await Task.sleep(for: .milliseconds(50))
+        await store.signOut()
+        let refreshed = await refresh.value
+
+        XCTAssertNil(refreshed)
+        let hasSession = await store.hasStoredSession
+        XCTAssertFalse(hasSession)
+        XCTAssertNil(secrets.value(for: .refreshToken))
+        XCTAssertNil(secrets.value(for: .lastAccessToken))
+        XCTAssertNil(cookies.value())
+        let token = await store.accessToken()
+        XCTAssertNil(token)
+    }
+
+    /// Вошёл другой человек, пока продлевалась сессия прежнего: остаются его токен и
+    /// его refresh-cookie, а не ротированные прежнего.
+    func testSignInDuringRefreshKeepsTheNewSession() async throws {
+        let secrets = MemorySecrets()
+        secrets.set("rt-old", for: .refreshToken)
+        secrets.set("1", for: .sessionPresent)
+        let cookies = MemoryCookies(value: "rt-old")
+        let auth = StubAuth(token: longLivedToken)
+        await auth.delayNext(by: .milliseconds(200))
+        await auth.rotate(into: cookies, value: "rt-old-2")
+        let store = makeStore(auth: auth, secrets: secrets, cookies: cookies)
+        let newcomer = makeToken(expiringIn: 3600)
+
+        let refresh = Task { await store.refreshedAccessToken() }
+        try await Task.sleep(for: .milliseconds(50))
+        cookies.restore("rt-new")
+        await store.adopt(AuthSession(accessToken: newcomer))
+        _ = await refresh.value
+
+        let current = await store.currentToken
+        XCTAssertEqual(current?.raw, newcomer)
+        XCTAssertEqual(secrets.value(for: .refreshToken), "rt-new")
+        XCTAssertEqual(secrets.value(for: .lastAccessToken), newcomer)
+        XCTAssertEqual(cookies.value(), "rt-new")
+    }
+
+    /// Отказ сервера в продлении прежней сессии не гасит сессию вошедшего после.
+    func testStaleRejectionDoesNotEndTheNewSession() async throws {
+        let secrets = MemorySecrets()
+        secrets.set("rt-old", for: .refreshToken)
+        secrets.set("1", for: .sessionPresent)
+        let cookies = MemoryCookies(value: "rt-old")
+        let auth = StubAuth(token: longLivedToken)
+        await auth.delayNext(by: .milliseconds(200))
+        await auth.failNext(
+            with: .server(code: .tokenExpired, message: "Сессия истекла", details: [], statusCode: 401)
+        )
+        let store = makeStore(auth: auth, secrets: secrets, cookies: cookies)
+        let ended = Flag()
+        await store.onSessionEnded { ended.raise() }
+
+        let refresh = Task { await store.refreshedAccessToken() }
+        try await Task.sleep(for: .milliseconds(50))
+        cookies.restore("rt-new")
+        await store.adopt(AuthSession(accessToken: makeToken(expiringIn: 3600)))
+        _ = await refresh.value
+
+        XCTAssertFalse(ended.isRaised)
+        let hasSession = await store.hasStoredSession
+        XCTAssertTrue(hasSession)
+        XCTAssertEqual(secrets.value(for: .refreshToken), "rt-new")
+    }
+
+    /// Правило 9.7.2: ответ «повис» дольше окна грации — повтор старым токеном сервер
+    /// счёл бы кражей, поэтому вслепую его не шлём.
+    func testLostRefreshPastReuseGraceIsNotRetried() async throws {
+        let secrets = MemorySecrets()
+        secrets.set("rt-1", for: .refreshToken)
+        secrets.set("1", for: .sessionPresent)
+        let auth = StubAuth(token: longLivedToken)
+        await auth.delayNext(by: .milliseconds(200))
+        await auth.failNext(with: .transport(URLError(.timedOut)))
+        let store = makeStore(
+            auth: auth, secrets: secrets, lossRetryDelay: .milliseconds(50), lossRetryBudget: .milliseconds(150)
+        )
+
+        let first = await store.refreshedAccessToken()
+        XCTAssertNil(first)
+        try await Task.sleep(for: .milliseconds(400))
+
+        let calls = await auth.refreshCalls
+        XCTAssertEqual(calls, 1)
+    }
+
+    /// Таймаут продления и пауза повтора укладываются в окно грации сервера с запасом.
+    func testRefreshTimeoutAndRetryFitServerGrace() {
+        let worstCase = Duration.seconds(AuthAPI.refreshTimeout) + SessionStore.defaultLossRetryDelay
+        XCTAssertLessThanOrEqual(worstCase, SessionStore.lossRetryBudget)
+        XCTAssertLessThan(SessionStore.lossRetryBudget, SessionStore.serverReuseGrace)
+    }
+
+    /// Правило 10.2.2: ротированный refresh-токен не записался — погашенный прежний не
+    /// остаётся в связке ключей, а запись повторяется после разблокировки.
+    func testFailedRefreshTokenWriteDropsTheStaleOne() async {
+        let secrets = MemorySecrets()
+        secrets.set("rt-1", for: .refreshToken)
+        secrets.set("1", for: .sessionPresent)
+        let cookies = MemoryCookies(value: "rt-1")
+        let auth = StubAuth(token: longLivedToken)
+        await auth.rotate(into: cookies, value: "rt-2")
+        let store = makeStore(auth: auth, secrets: secrets, cookies: cookies)
+        secrets.failWrites(to: .refreshToken)
+
+        let refreshed = await store.refreshedAccessToken()
+
+        XCTAssertEqual(refreshed, longLivedToken)
+        XCTAssertNil(secrets.value(for: .refreshToken))
+        XCTAssertEqual(cookies.value(), "rt-2")
+
+        secrets.failWrites(to: nil)
+        await store.resumeAfterUnlock()
+
+        XCTAssertEqual(secrets.value(for: .refreshToken), "rt-2")
+    }
+
     /// Токен с заданным сроком — для проверок «скоро истечёт».
     private func makeToken(expiringIn seconds: TimeInterval, issuedAgo: TimeInterval? = nil) -> String {
         func encode(_ json: String) -> String {
@@ -379,13 +513,15 @@ final class SessionStoreTests: XCTestCase {
         auth: StubAuth? = nil,
         secrets: MemorySecrets = MemorySecrets(),
         cookies: MemoryCookies = MemoryCookies(),
-        lossRetryDelay: Duration = .seconds(60)
+        lossRetryDelay: Duration = .seconds(60),
+        lossRetryBudget: Duration = .seconds(120)
     ) -> SessionStore {
         SessionStore(
             auth: auth ?? StubAuth(token: longLivedToken),
             secrets: secrets,
             cookies: cookies,
-            lossRetryDelay: lossRetryDelay
+            lossRetryDelay: lossRetryDelay,
+            lossRetryBudget: lossRetryBudget
         )
     }
 }
@@ -398,20 +534,32 @@ private actor StubAuth: SessionRefreshing {
     private let token: String
     private var nextFailure: APIError?
     private var nextEndFailure: APIError?
+    private var nextDelay: Duration?
+    private var rotation: (jar: MemoryCookies, value: String)?
 
     init(token: String) { self.token = token }
 
     func failNext(with error: APIError) { nextFailure = error }
     func failNextEnd(with error: APIError) { nextEndFailure = error }
+    /// Ответ на следующее продление задержится — «повис» в сети.
+    func delayNext(by delay: Duration) { nextDelay = delay }
+    /// Успешное продление кладёт в банку новую cookie — как `Set-Cookie` ответа,
+    /// который `APIClient` впитывает до того, как хранилище увидит ответ.
+    func rotate(into jar: MemoryCookies, value: String) { rotation = (jar, value) }
 
     func refresh() async throws -> AuthSession {
         refreshCalls += 1
         // Пауза, чтобы вызовы действительно наложились, а не выстроились в ряд.
         try? await Task.sleep(for: .milliseconds(20))
+        if let nextDelay {
+            self.nextDelay = nil
+            try? await Task.sleep(for: nextDelay)
+        }
         if let nextFailure {
             self.nextFailure = nil
             throw nextFailure
         }
+        if let rotation { rotation.jar.restore(rotation.value) }
         return AuthSession(accessToken: token)
     }
 
@@ -451,8 +599,20 @@ private final class MemorySecrets: SecretStore, @unchecked Sendable {
         lock.withLock { isLockedValue ? nil : storage[key.rawValue] }
     }
 
-    func set(_ value: String, for key: SecretKey) {
-        lock.withLock { storage[key.rawValue] = value }
+    private var failing: Set<SecretKey> = []
+
+    /// Записи по ключу отклоняются, как у связки ключей при сбое: прежнее значение остаётся.
+    func failWrites(to key: SecretKey?) {
+        lock.withLock { failing = key.map { [$0] } ?? [] }
+    }
+
+    @discardableResult
+    func set(_ value: String, for key: SecretKey) -> Bool {
+        lock.withLock {
+            guard !failing.contains(key) else { return false }
+            storage[key.rawValue] = value
+            return true
+        }
     }
 
     func remove(_ key: SecretKey) {

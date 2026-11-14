@@ -95,7 +95,7 @@ struct MessageComposerView: View {
                     .accessibilityLabel(Text(String(localized: "chats.attach", defaultValue: "Вложение")))
 
                     ComposerTextView(
-                        text: $model.draft,
+                        text: $model.composerText,
                         isFocused: $isFocused,
                         controller: editor,
                         // Во время записи текст и курсор гаснут — клавиатура при этом
@@ -109,7 +109,7 @@ struct MessageComposerView: View {
                     // Подсказки во время записи нет: стекло контейнера не гасит
                     // прозрачность поля, и «Сообщение» проступало сквозь полосу записи.
                     .overlay(alignment: .leading) {
-                        if model.draft.isEmpty, !recorder.machine.isActive {
+                        if model.composerText.isEmpty, !recorder.machine.isActive {
                             Text(verbatim: placeholder)
                                 .font(Typography.body)
                                 .foregroundStyle(Color(uiColor: .placeholderText))
@@ -146,7 +146,7 @@ struct MessageComposerView: View {
                         in: RoundedRectangle(cornerRadius: ControlHeight.lg / 2, style: .continuous),
                         isVisible: !recorder.machine.isActive
                     )
-                    .onChange(of: model.draft) {
+                    .onChange(of: model.composerText) {
                         model.draftChanged()
                     }
                 }
@@ -177,6 +177,14 @@ struct MessageComposerView: View {
                     }
                 }
                 .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: canSend)
+                // Счётчик — над «Отправить», как в Telegram: у края лимита поле уже
+                // многострочное, и место над кнопкой свободно.
+                .overlay(alignment: .top) {
+                    if !recorder.machine.isActive {
+                        ComposerLengthCounter(text: model.composerText)
+                            .alignmentGuide(.top) { $0[.bottom] + Spacing.xs }
+                    }
+                }
             }
             .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: recorder.phase)
             .padding(.horizontal, Spacing.xl)
@@ -190,11 +198,11 @@ struct MessageComposerView: View {
                     // В место курсора, как в Telegram, а не в конец; поле ещё не
                     // создано — в конец черновика.
                     onEmoji: { emoji in
-                        if !editor.insert(emoji) { model.draft += emoji }
+                        if !editor.insert(emoji) { model.composerText += emoji }
                     },
                     onBackspace: {
-                        guard !editor.deleteBackward(), !model.draft.isEmpty else { return }
-                        model.draft.removeLast()
+                        guard !editor.deleteBackward(), !model.composerText.isEmpty else { return }
+                        model.composerText.removeLast()
                     },
                     onSticker: { sticker in
                         sentTick += 1
@@ -276,7 +284,7 @@ struct MessageComposerView: View {
         .sheet(isPresented: $showsAttachMenu, onDismiss: runPendingPick) {
             AttachmentMenuSheet(
                 allowsPoll: allowsPoll,
-                initialCaption: model.editing == nil ? model.draft : "",
+                initialCaption: model.editing == nil ? model.composerText : "",
                 albumLimit: AttachmentUploader.albumLimit,
                 onPick: { pendingPick = $0 },
                 onSendLocation: { coordinate, title, address in
@@ -399,6 +407,9 @@ struct MessageComposerView: View {
                 .glassSurface(tint: Palette.primary, in: Circle())
         }
         .buttonStyle(.pressableIcon)
+        // Сверх лимита сервер текст не примет — кнопка гаснет, счётчик говорит почему.
+        .disabled(!fitsLimit)
+        .opacity(fitsLimit ? 1 : 0.5)
         .transition(buttonTransition)
         .accessibilityIdentifier("chat.send")
         .accessibilityLabel(Text(model.editing == nil
@@ -557,7 +568,7 @@ struct MessageComposerView: View {
     /// поле ввода текст становится подписью — как в Telegram.
     private func openDraft() -> AttachmentDraft {
         if let sending { return sending }
-        let draft = AttachmentDraft(caption: model.editing == nil ? model.draft : "")
+        let draft = AttachmentDraft(caption: model.editing == nil ? model.composerText : "")
         sending = draft
         openedDraft = draft
         return draft
@@ -584,8 +595,14 @@ struct MessageComposerView: View {
         draft.discardAll()
     }
 
+    /// Есть что отправить — на месте микрофона «Отправить».
     private var canSend: Bool {
-        !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !OutgoingText.isBlank(model.composerText)
+    }
+
+    /// Сервер примет текст: по той же функции, что и сама отправка.
+    private var fitsLimit: Bool {
+        OutgoingText.sendable(model.composerText) != nil
     }
 
     /// Что сейчас над полем: правка, ответ (на какое сообщение), запись. Смена — повод

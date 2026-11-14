@@ -15,7 +15,18 @@ final class AppDatabase: Sendable {
 
     init(_ writer: any DatabaseWriter) throws {
         self.writer = writer
-        try Self.migrator.migrate(writer)
+        do {
+            try Self.migrator.migrate(writer)
+        } catch {
+            // Помечаем отдельно: упавшая миграция — повод отложить базу (схему уже не
+            // догнать), а такая же ошибка при открытии файла — нет (`StoreOpenFailure`).
+            throw MigrationFailure(underlying: error)
+        }
+    }
+
+    /// Мигратор не довёл схему до текущей версии.
+    struct MigrationFailure: Error {
+        let underlying: any Error
     }
 
     /// База приложения.
@@ -54,26 +65,46 @@ final class AppDatabase: Sendable {
 
     /// Отложить хранилище в резервную копию с датой — путь для базы, которая не
     /// открылась (повреждение, ошибка миграции). Не удаляем: в ней черновики и
-    /// неотправленное, а резервную копию можно достать при разборе. Резервная — одна:
-    /// прежняя удаляется, чтобы копии не копились.
+    /// неотправленное, а резервную копию можно достать при разборе.
     ///
     /// Переносим каталог, а не один файл: рядом с базой лежат `-wal` и `-shm`, и
     /// оставленный журнал воскресил бы ровно ту поломку, из-за которой мы сюда пришли.
     static func moveStoreAside(fileManager: FileManager = .default, now: Date = Date()) throws {
-        let folder = try storeFolder(fileManager: fileManager)
+        try moveAside(folder: storeFolder(fileManager: fileManager), fileManager: fileManager, now: now)
+    }
+
+    /// Сколько резервных копий хранить: каждая — целая база, копить их без счёта нельзя,
+    /// но и одна мало — вторая поломка подряд стёрла бы первую копию.
+    static let backupsKept = 3
+
+    /// Перенос каталога `folder` в соседний `<имя>-backup-<UTC-время>`. Прежние копии
+    /// не трогаем, пока новая не легла на место; после — оставляем `keep` самых новых.
+    static func moveAside(folder: URL, fileManager: FileManager, now: Date, keep: Int = backupsKept) throws {
         guard fileManager.fileExists(atPath: folder.path) else { return }
         let parent = folder.deletingLastPathComponent()
         let prefix = folder.lastPathComponent + backupMarker
-        let existing = (try? fileManager.contentsOfDirectory(at: parent, includingPropertiesForKeys: nil)) ?? []
-        for old in existing where old.lastPathComponent.hasPrefix(prefix) {
-            try? fileManager.removeItem(at: old)
-        }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "UTC")
         formatter.dateFormat = "yyyyMMdd-HHmmss"
         let stamp = formatter.string(from: now)
-        try fileManager.moveItem(at: folder, to: parent.appendingPathComponent(prefix + stamp, isDirectory: true))
+
+        // Две поломки в одну секунду не должны затереть друг друга.
+        var target = parent.appendingPathComponent(prefix + stamp, isDirectory: true)
+        var attempt = 1
+        while fileManager.fileExists(atPath: target.path) {
+            attempt += 1
+            target = parent.appendingPathComponent("\(prefix)\(stamp)-\(attempt)", isDirectory: true)
+        }
+        try fileManager.moveItem(at: folder, to: target)
+
+        // Имя с временем сортируется как время: новые — в начале.
+        let backups = ((try? fileManager.contentsOfDirectory(at: parent, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.lastPathComponent.hasPrefix(prefix) }
+            .sorted { $0.lastPathComponent > $1.lastPathComponent }
+        for old in backups.dropFirst(max(keep, 1)) {
+            try? fileManager.removeItem(at: old)
+        }
     }
 
     private static let backupMarker = "-backup-"

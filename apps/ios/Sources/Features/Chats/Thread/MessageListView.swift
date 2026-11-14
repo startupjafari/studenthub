@@ -43,6 +43,8 @@ struct MessageListView: UIViewControllerRepresentable {
     var onMenu: (MessageTimeline.Item) -> Void = { _ in }
     /// Лента впервые показана человеку (конец замера `ChatOpen`).
     var onFirstShown: () -> Void = {}
+    /// Сменилась нижняя реально видимая строка — по ней отмечается прочтение.
+    var onLowestVisible: (String?) -> Void = { _ in }
 
     func makeUIViewController(context: Context) -> MessageListViewController {
         let controller = MessageListViewController()
@@ -69,6 +71,7 @@ struct MessageListView: UIViewControllerRepresentable {
         controller.onDayTap = onDayTap
         controller.followsBottom = followsBottom
         controller.onFirstShown = onFirstShown
+        controller.onLowestVisible = onLowestVisible
     }
 }
 
@@ -82,6 +85,7 @@ final class MessageListViewController: UIViewController {
     var capabilities: ((MessageRecord) -> MessageCapabilities)?
     var onBottomChange: ((Bool) -> Void)?
     var onFirstShown: (() -> Void)?
+    var onLowestVisible: ((String?) -> Void)?
     private var bubbleContext = BubbleContext()
     private var selection: Set<String>?
     private var appliedBottomToken = 0
@@ -90,6 +94,8 @@ final class MessageListViewController: UIViewController {
     /// увиденный до конца, и счётчик на кнопке «вниз» после прокрутки вверх не должен
     /// вспоминать старое непрочитанное.
     private var reportedAtBottom: Bool?
+    /// Последняя сообщённая нижняя видимая строка — сообщаем только смену.
+    private var reportedLowestVisible: String?
     private var appliedFocus: MessageFocus?
     /// Номер последней применённой ленты; `nil` — ещё ни одной.
     private var appliedRevision: Int?
@@ -727,6 +733,10 @@ final class MessageListViewController: UIViewController {
                     self?.onAction?(action, item.message)
                 }
             }
+            // Ссылки текста (markdown, автоссылки) — через единый открыватель, а не в
+            // систему: окружение SwiftUI в ячейки `UIHostingConfiguration` не доходит,
+            // поэтому ставим здесь, у каждого пузыря.
+            .environment(\.openURL, ExternalLinkOpener.action)
         }
         // Как в Telegram: пузыри почти у краёв экрана, внутри группы — вплотную.
         .margins(.horizontal, Spacing.md)
@@ -911,11 +921,32 @@ final class MessageListViewController: UIViewController {
         // До первой расстановки лента ещё не там, где её увидят (низ или первое
         // непрочитанное): первое сообщённое состояние — уже с неё.
         guard hasContent, !needsInitialPosition else { return }
+        reportLowestVisible()
         let atBottom = isNearBottom
         guard atBottom != reportedAtBottom else { return }
         reportedAtBottom = atBottom
         DispatchQueue.main.async { [weak self] in
             self?.onBottomChange?(atBottom)
+        }
+    }
+
+    /// Нижняя строка, видимая между панелями сверху и полем ввода (IOS_RULES 6.6.1): не
+    /// `visibleCells` целиком — в них и строки под шапкой, и запас предзагрузки.
+    private func reportLowestVisible() {
+        let top = collectionView.contentOffset.y + collectionView.contentInset.top
+        let bottom = collectionView.contentOffset.y + collectionView.bounds.height - collectionView.contentInset.bottom
+        guard bottom > top else { return }
+        let frames = collectionView.indexPathsForVisibleItems.compactMap { indexPath -> ReadVisibility.Frame? in
+            guard let id = dataSource.itemIdentifier(for: indexPath),
+                let frame = collectionView.layoutAttributesForItem(at: indexPath)?.frame
+            else { return nil }
+            return ReadVisibility.Frame(id: id, minY: frame.minY, maxY: frame.maxY)
+        }
+        let lowest = ReadVisibility.lowestVisible(frames, band: top...bottom)
+        guard lowest != reportedLowestVisible else { return }
+        reportedLowestVisible = lowest
+        DispatchQueue.main.async { [weak self] in
+            self?.onLowestVisible?(lowest)
         }
     }
 

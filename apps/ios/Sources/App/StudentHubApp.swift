@@ -19,8 +19,6 @@ struct StudentHubApp: App {
                 .appearanceTheme(theme)
                 // Уменьшение движения — одно значение на всё дерево (`Motion`).
                 .motionPolicy()
-                // Незакончившаяся трансляция геопозиции продолжается после перезапуска.
-                .task { LiveLocationSharing.shared.resume() }
         }
     }
 }

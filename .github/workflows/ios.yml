@@ -94,8 +94,9 @@ jobs:
         with:
           persist-credentials: false
 
+      # Точная версия с проверкой суммы — см. .github/actions/setup-xcodegen.
       - name: Поставить XcodeGen
-        run: brew install xcodegen
+        uses: ./.github/actions/setup-xcodegen
 
       # Пакеты Swift (GRDB, Socket.IO, Sentry) — из кеша: без него каждый прогон
       # клонирует их заново.

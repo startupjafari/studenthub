@@ -290,7 +290,8 @@ struct ChatThreadView: View {
                     onReachBottom: { Task { await model.loadNewer() } },
                     onAction: { action, message in handle(action, message: message, model: model) },
                     onMenu: { item in openMenu(item, model: model) },
-                    onFirstShown: { ChatOpenSignpost.end(chatID: chatID) }
+                    onFirstShown: { ChatOpenSignpost.end(chatID: chatID) },
+                    onLowestVisible: { id in model.noteVisible(lowest: id) }
                 )
                 .overlay {
                     // Открытие ждёт первую страницу: вместо одинокого превью — индикатор.
@@ -554,6 +555,10 @@ struct ChatThreadView: View {
         }
         .onChange(of: realtime.signals(for: chatID).scheduledVersion) {
             Task { await model?.scheduled.load() }
+        }
+        .onChange(of: realtime.signals(for: chatID).gapVersion) {
+            // Сообщение пришло через разрыв по `seq` — догнать пропущенное.
+            Task { await model?.catchUpAfterReconnect() }
         }
         .onChange(of: model?.newestIncomingID) {
             // Пришло новое — пока чат открыт, оно прочитано.

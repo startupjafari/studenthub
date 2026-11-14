@@ -6,8 +6,8 @@ import Observation
 /// Живая геопозиция: пока человек сам включил трансляцию (на 15 минут, час или 8 часов),
 /// точка в сообщении двигается за ним — и в фоне, с синим индикатором системы.
 ///
-/// Трансляции переживают перезапуск приложения: сроки лежат в настройках, и при запуске
-/// незакончившиеся продолжаются. Сервер не принимает обновления чаще раза в три секунды,
+/// Трансляции переживают перезапуск приложения: сроки лежат в настройках, и после
+/// подъёма сессии незакончившиеся продолжаются — только у того же человека, кто их начал. Сервер не принимает обновления чаще раза в три секунды,
 /// поэтому шлём не чаще раза в пять, а стоя на месте — раз в полминуты.
 @MainActor
 @Observable
@@ -18,6 +18,9 @@ final class LiveLocationSharing: NSObject, CLLocationManagerDelegate {
         let messageID: String
         let chatID: String
         let until: Date
+        /// Кто транслирует (`sub` токена). `nil` — запись сборки до этого поля: чья она,
+        /// неизвестно, и после перезапуска она не продолжается.
+        var ownerID: String?
     }
 
     /// Идущие трансляции по id сообщения.
@@ -29,6 +32,8 @@ final class LiveLocationSharing: NSObject, CLLocationManagerDelegate {
     @ObservationIgnored private var inFlight: Set<String> = []
     @ObservationIgnored private let api: ChatMessaging = ChatsAPI()
     @ObservationIgnored private var expiry: Task<Void, Never>?
+    /// Чья сессия открыта сейчас: новые трансляции записываются на него.
+    @ObservationIgnored private var owner: String?
 
     private static let storageKey = "chats.liveLocations"
     private static let minInterval: TimeInterval = 5
@@ -59,20 +64,50 @@ final class LiveLocationSharing: NSObject, CLLocationManagerDelegate {
         sessions[messageID].map { $0.until > Date() } ?? false
     }
 
-    /// Продолжить незаконченные трансляции после запуска приложения.
-    func resume() {
+    /// Сессия `userID` поднялась (холодный старт или вход): продолжить его незаконченные
+    /// трансляции. Чужие — того, кто был в приложении до него, — не продолжаются
+    /// никогда: геопозиция нового человека ушла бы в переписку прежнего.
+    func resume(for userID: String) {
+        owner = userID
         guard sessions.isEmpty,
             let data = UserDefaults.standard.data(forKey: Self.storageKey),
             let stored = try? JSONDecoder().decode([Session].self, from: data)
         else { return }
-        let alive = stored.filter { $0.until > Date() }
-        sessions = Dictionary(uniqueKeysWithValues: alive.map { ($0.messageID, $0) })
+        let alive = Self.resumable(stored, owner: userID, now: Date())
+        sessions = Dictionary(alive.map { ($0.messageID, $0) }, uniquingKeysWith: { first, _ in first })
         persist()
         updateTracking()
     }
 
+    /// Что из сохранённого продолжить: только трансляции этого человека и только
+    /// незакончившиеся.
+    static func resumable(_ stored: [Session], owner: String, now: Date) -> [Session] {
+        stored.filter { $0.ownerID == owner && $0.until > now }
+    }
+
+    /// Сессия кончилась без выхода (сервер отказал в продлении): трансляции встают —
+    /// точки без токена всё равно не уйдут, а синий индикатор горел бы зря. Сохранённое
+    /// не стираем: войдёт тот же человек — `resume(for:)` их продолжит.
+    func suspend() {
+        expiry?.cancel()
+        expiry = nil
+        manager.stopUpdatingLocation()
+        manager.allowsBackgroundLocationUpdates = false
+        sessions = [:]
+        lastSent = [:]
+        failure = nil
+        owner = nil
+    }
+
+    /// Выход или вход другого человека (`LocalData.erase`): трансляции останавливаются
+    /// и забываются — и сроки в настройках, и отправленные точки.
+    func erase() {
+        suspend()
+        UserDefaults.standard.removeObject(forKey: Self.storageKey)
+    }
+
     func start(messageID: String, chatID: String, until: Date) {
-        sessions[messageID] = Session(messageID: messageID, chatID: chatID, until: until)
+        sessions[messageID] = Session(messageID: messageID, chatID: chatID, until: until, ownerID: owner)
         failure = nil
         persist()
         updateTracking()

@@ -23,6 +23,52 @@ final class AppDatabaseTests: XCTestCase {
         XCTAssertNoThrow(try AppDatabase(queue))
     }
 
+    // MARK: - Открытие базы: что считать поломкой
+
+    /// Нехватка места, занятость, I/O — не вердикт: файл с черновиками трогать нельзя.
+    func testTransientOpenErrorsKeepTheStore() {
+        for code in [ResultCode.SQLITE_FULL, .SQLITE_BUSY, .SQLITE_IOERR, .SQLITE_CANTOPEN, .SQLITE_LOCKED] {
+            XCTAssertEqual(StoreOpenFailure(DatabaseError(resultCode: code)), .transient, "\(code)")
+        }
+        XCTAssertEqual(StoreOpenFailure(CocoaError(.fileWriteOutOfSpace)), .transient)
+    }
+
+    func testCorruptStoreIsDamaged() {
+        XCTAssertEqual(StoreOpenFailure(DatabaseError(resultCode: .SQLITE_CORRUPT)), .damaged)
+        XCTAssertEqual(StoreOpenFailure(DatabaseError(resultCode: .SQLITE_NOTADB)), .damaged)
+    }
+
+    /// Миграция, упавшая на схеме, — поломка; упавшая на нехватке места — нет.
+    func testMigrationFailureIsDamagedUnlessTransient() {
+        let schema = AppDatabase.MigrationFailure(underlying: DatabaseError(resultCode: .SQLITE_ERROR, message: "no such column"))
+        let full = AppDatabase.MigrationFailure(underlying: DatabaseError(resultCode: .SQLITE_FULL))
+        XCTAssertEqual(StoreOpenFailure(schema), .damaged)
+        XCTAssertEqual(StoreOpenFailure(full), .transient)
+    }
+
+    /// Резервные копии не затирают друг друга, лишние удаляются только после переноса новой.
+    func testMoveAsideKeepsPreviousBackups() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        let folder = root.appendingPathComponent("Store", isDirectory: true)
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+
+        for step in 0..<4 {
+            try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+            try AppDatabase.moveAside(folder: folder, fileManager: fileManager, now: start.addingTimeInterval(Double(step)), keep: 3)
+        }
+        // Та же секунда — отдельная копия рядом, а не перезапись.
+        try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+        try AppDatabase.moveAside(folder: folder, fileManager: fileManager, now: start.addingTimeInterval(3), keep: 3)
+
+        let names = try fileManager.contentsOfDirectory(atPath: root.path).sorted()
+        XCTAssertFalse(names.contains("Store"))
+        XCTAssertEqual(names.count, 3)
+        XCTAssertTrue(names.allSatisfy { $0.hasPrefix("Store-backup-") })
+        XCTAssertEqual(names.filter { $0.hasSuffix("-2") }.count, 1)
+    }
+
     func testChatAndMessageRoundTrip() throws {
         let database = try AppDatabase.inMemory()
         let chat = makeChat(id: "c-1", title: "Группа ИС-21")
