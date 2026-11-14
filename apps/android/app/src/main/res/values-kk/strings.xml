@@ -3,6 +3,9 @@
     <string name="auth_qrScanStart">QR-кодты сканерлеу</string>
     <string name="auth_qrScannerUnavailable">Сканер қолжетімсіз: телефонда Google Play қызметтері жоқ немесе оларды жаңарту қажет.</string>
 
+    <!-- Поле кода 2FA: в iOS вместо подписи — ячейки под цифры, ключ из каталога iOS убран -->
+    <string name="auth_twoFactorCodeLabel">Растау коды</string>
+
     <!-- Кнопка «назад» в заголовке: в iOS её подпись даёт система -->
     <string name="common_back">Артқа</string>
 
