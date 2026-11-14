@@ -653,6 +653,21 @@ final class ChatThreadModel {
         }
     }
 
+    /// «Открепить все сообщения»: права — как у открепления одного, решает сервер. Плашка
+    /// пустеет сразу; события `message:unpinned` по каждому сообщению снимут булавки в ленте.
+    @MainActor
+    func unpinAll() async -> Bool {
+        do {
+            _ = try await actions.unpinAll(chatID: chatID)
+            pinned = []
+            await loadPinned()
+            return true
+        } catch {
+            actionFailure = self.message(for: error)
+            return false
+        }
+    }
+
     /// Перейти к сообщению: если оно уже в ленте — прокрутить, иначе скачать окно
     /// истории вокруг него и показать вместо переписки.
     @MainActor
@@ -911,8 +926,8 @@ final class ChatThreadModel {
         selection = [message.id]
     }
 
-    /// Касание пузыря в режиме выбора. Сняли последнюю отметку — режим закрывается,
-    /// как в вебе: пустой выбор ни к чему не ведёт.
+    /// Касание пузыря в режиме выбора. Сняли последнюю отметку — режим остаётся, как в
+    /// Telegram: в шапке «Выберите сообщения», выход — «Отмена».
     @MainActor
     func toggleSelection(of message: MessageRecord) {
         guard var current = selection, Self.isSelectable(message) else { return }
@@ -921,7 +936,7 @@ final class ChatThreadModel {
         } else {
             current.insert(message.id)
         }
-        selection = current.isEmpty ? nil : current
+        selection = current
     }
 
     /// Выбранное исчезло из базы (удалено, неотправленное стёрто) — снимаем отметку,
@@ -931,7 +946,7 @@ final class ChatThreadModel {
         guard let selection else { return }
         let alive = selection.intersection(messages.map(\.id))
         guard alive != selection else { return }
-        self.selection = alive.isEmpty ? nil : alive
+        self.selection = alive
     }
 
     @MainActor

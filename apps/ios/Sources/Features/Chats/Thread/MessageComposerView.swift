@@ -580,6 +580,9 @@ struct MessageSelectionBar: View {
     let onCopy: () -> Void
     let onForward: () -> Void
     let onDelete: () -> Void
+    /// «Поделиться» системным листом (текст и скачанные файлы); `nil` — кнопки нет.
+    var canShare = false
+    var onShare: (() -> Void)?
 
     var body: some View {
         GlassGroup(spacing: Spacing.md) {
@@ -592,6 +595,15 @@ struct MessageSelectionBar: View {
                     perform: onDelete
                 )
                 Spacer(minLength: 0)
+                if let onShare {
+                    action(
+                        String(localized: "chats.selection.share", defaultValue: "Поделиться"),
+                        symbol: "square.and.arrow.up",
+                        tint: Palette.primary,
+                        enabled: canShare,
+                        perform: onShare
+                    )
+                }
                 action(
                     String(localized: "chats.selection.copy", defaultValue: "Копировать"),
                     symbol: "doc.on.doc",

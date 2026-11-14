@@ -2602,6 +2602,193 @@
         }
       }
     },
+    "chats.pinnedList.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закреплено %lld"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бекітілген: %lld"
+          }
+        }
+      }
+    },
+    "chats.pinnedList.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закреплённых сообщений нет"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бекітілген хабарламалар жоқ"
+          }
+        }
+      }
+    },
+    "chats.pinned.showAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать все сообщения"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Барлық хабарламаны көрсету"
+          }
+        }
+      }
+    },
+    "chats.pinned.unpinAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открепить все сообщения"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Барлық хабарламаны босату"
+          }
+        }
+      }
+    },
+    "chats.pinned.unpinAll.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открепить все сообщения?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Барлық хабарламаны босату керек пе?"
+          }
+        }
+      }
+    },
+    "chats.selection.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите сообщения"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хабарламаларды таңдаңыз"
+          }
+        }
+      }
+    },
+    "chats.selection.share": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поделиться"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бөлісу"
+          }
+        }
+      }
+    },
+    "chats.thread.search.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск в чате"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чаттан іздеу"
+          }
+        }
+      }
+    },
+    "chats.thread.search.results.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ результат"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ нәтиже"
+          }
+        }
+      }
+    },
+    "chats.thread.search.results.few": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ результата"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ нәтиже"
+          }
+        }
+      }
+    },
+    "chats.thread.search.results.many": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ результатов"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ нәтиже"
+          }
+        }
+      }
+    },
     "chats.code.copy": {
       "extractionState": "manual",
       "localizations": {
@@ -93659,7 +93846,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Поиск в чате"
+            "value": "Искать в чате"
           }
         },
         "kk": {
@@ -93802,23 +93989,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Келесі сәйкестік"
-          }
-        }
-      }
-    },
-    "chats.thread.search.nothing": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ничего не найдено"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ештеңе табылмады"
           }
         }
       }
