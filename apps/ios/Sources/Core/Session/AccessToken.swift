@@ -77,3 +77,10 @@ struct AccessToken: Equatable {
         return Data(base64Encoded: normalized)
     }
 }
+
+/// Без `raw`: подписанный JWT в логе — это готовый ключ к API на 15 минут.
+extension AccessToken: RedactedDescription {
+    var redactedDescription: String {
+        "AccessToken(sub: \(subject), role: \(role.rawValue), exp: \(expiresAt), raw: \(SecretMask.hidden))"
+    }
+}

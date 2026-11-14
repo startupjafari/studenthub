@@ -227,8 +227,10 @@ private final class MemorySecrets: SecretStore, @unchecked Sendable {
         lock.withLock { storage[key.rawValue] }
     }
 
-    func set(_ value: String, for key: SecretKey) {
+    @discardableResult
+    func set(_ value: String, for key: SecretKey) -> Bool {
         lock.withLock { storage[key.rawValue] = value }
+        return true
     }
 
     func remove(_ key: SecretKey) {

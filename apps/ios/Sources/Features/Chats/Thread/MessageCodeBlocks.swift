@@ -102,6 +102,11 @@ enum MessageCodeBlocks {
         init(_ value: [Segment]?) { self.value = value }
     }
 
+    /// Разобранные тексты сообщений прежнего человека — тоже его данные (`LocalData.erase`).
+    static func clearCache() {
+        cache.removeAllObjects()
+    }
+
     /// `NSCache` потокобезопасен; разбор зовут и с главного потока (ячейка), и из тестов.
     private static let cache: NSCache<NSString, Parsed> = {
         let cache = NSCache<NSString, Parsed>()
