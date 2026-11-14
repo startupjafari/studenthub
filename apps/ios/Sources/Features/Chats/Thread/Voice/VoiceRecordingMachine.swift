@@ -16,9 +16,10 @@ struct VoiceRecordingMachine: Equatable {
         /// Палец держит микрофон. Сессия звука может ещё включаться — жест уже ведёт
         /// запись, звук пойдёт в файл, как только она будет готова.
         case recording
-        /// Свайп вверх: запись идёт без пальца.
+        /// Свайп вверх или короткое касание микрофона: запись идёт без пальца.
         case lockedRecording
-        /// Остановлено с замком или прервано системой: прослушать, удалить, отправить.
+        /// Пауза в записи с замком или прервано системой: прослушать, обрезать, удалить,
+        /// отправить или продолжить запись.
         case stopped
         /// Файл дописывается и читается перед отправкой.
         case preparing
@@ -49,6 +50,11 @@ struct VoiceRecordingMachine: Equatable {
         case finishRecording(send: Bool)
         /// Отправить уже остановленную запись (из прослушивания).
         case sendStopped
+        /// Дописать к остановленной записи: выбранный обрезкой фрагмент становится
+        /// началом, новый звук пойдёт следом.
+        case resumeRecording
+        /// Продолжение не запустилось — вернуть прежнюю запись на прослушивание.
+        case restoreStopped
         case discardRecording
         case haptic(Haptic)
         case showHint(Hint)
@@ -67,12 +73,15 @@ struct VoiceRecordingMachine: Equatable {
         case drag(CGSize)
         /// Палец отпущен; `duration` — сколько уже записано, `held` — сколько палец
         /// держал микрофон. Они расходятся, когда сессия звука включалась долго.
-        case release(duration: TimeInterval, held: TimeInterval = 0)
+        /// `held` короче `minimumDuration` — касание, а не удержание.
+        case release(duration: TimeInterval, held: TimeInterval)
         /// Система забрала касание (звонок, уведомление поверх).
         case touchCancelled(duration: TimeInterval)
         case tapStop(duration: TimeInterval)
         case tapSend
         case tapDelete
+        /// Микрофон в прослушивании: продолжить запись (обрезку человек уже подтвердил).
+        case tapResume
         /// Прервала аудиосессия или приложение ушло в фон.
         case interrupted(duration: TimeInterval)
         case prepared(ok: Bool)
@@ -86,10 +95,14 @@ struct VoiceRecordingMachine: Equatable {
     static let cancelDistance: CGFloat = 110
     /// Насколько поднять палец, чтобы закрепить запись.
     static let lockDistance: CGFloat = 72
-    /// Короче — это не голосовое, а случайное касание.
+    /// Короче — это не голосовое, а случайное касание. Палец, отпущенный быстрее, —
+    /// касание: запись продолжается с замком, как в Telegram.
     static let minimumDuration: TimeInterval = 0.5
 
     private(set) var phase: Phase = .idle
+    /// Идущая запись — продолжение остановленной: её сбой возвращает прежнюю на
+    /// прослушивание, а не стирает всё записанное.
+    private(set) var isContinuation = false
 
     var isRecording: Bool { phase == .recording || phase == .lockedRecording }
     /// Поле ввода уступает место записи.
@@ -115,6 +128,7 @@ struct VoiceRecordingMachine: Equatable {
             switch permission {
             case .granted:
                 phase = .recording
+                isContinuation = false
                 return [.startRecording, .haptic(.start), .announce(true)]
             case .undetermined:
                 phase = .requestingPermission
@@ -127,6 +141,10 @@ struct VoiceRecordingMachine: Equatable {
         case (.requestingPermission, .permissionResolved(let granted)):
             phase = granted ? .idle : .failed(.permissionDenied)
             return granted ? [.showHint(.holdToRecord)] : []
+
+        case (.lockedRecording, .recordingFailed) where isContinuation:
+            phase = .stopped
+            return [.restoreStopped, .announce(false)]
 
         case (.recording, .recordingFailed), (.lockedRecording, .recordingFailed):
             phase = .failed(.couldNotStart)
@@ -146,13 +164,17 @@ struct VoiceRecordingMachine: Equatable {
             return []
 
         case (.recording, .release(let duration, let held)):
+            // Касание, а не удержание: запись уже идёт — оставляем её без пальца, с
+            // «Отмена» и большой кнопкой отправки (как замок свайпом вверх).
+            if held < Self.minimumDuration {
+                phase = .lockedRecording
+                return [.haptic(.lock)]
+            }
             guard duration >= Self.minimumDuration else {
+                // Палец держал, а звука почти нет (сессия включалась дольше удержания):
+                // запись не начата, подсказка была бы неправдой — человек как раз держал.
                 phase = .idle
-                // Подсказка — только на короткое касание. Палец держал, а звука почти
-                // нет (сессия включалась дольше удержания) — «удерживайте» было бы
-                // неправдой: человек как раз держал.
-                let hint: [Effect] = held < Self.minimumDuration ? [.showHint(.holdToRecord)] : []
-                return [.discardRecording] + hint + [.announce(false)]
+                return [.discardRecording, .announce(false)]
             }
             phase = .preparing
             return [.finishRecording(send: true), .haptic(.send), .announce(false)]
@@ -183,6 +205,11 @@ struct VoiceRecordingMachine: Equatable {
         case (.stopped, .tapSend):
             phase = .preparing
             return [.sendStopped, .haptic(.send)]
+
+        case (.stopped, .tapResume):
+            phase = .lockedRecording
+            isContinuation = true
+            return [.resumeRecording, .haptic(.start), .announce(true)]
 
         case (.lockedRecording, .tapDelete):
             phase = .idle
