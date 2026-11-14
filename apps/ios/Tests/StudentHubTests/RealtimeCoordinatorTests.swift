@@ -234,6 +234,29 @@ final class RealtimeCoordinatorTests: XCTestCase {
         _ = coordinator
     }
 
+    /// Активность в чате (сообщение, смена членства) перечитывает строку этого чата, а не
+    /// первую страницу: чат за её пределами иначе не обновился бы (IOS_RULES 9.4.18).
+    func testChatActivityRefreshesThatRowOnly() async throws {
+        let api = CountingChats()
+        let (database, coordinator, transport) = try await make(api: api)
+
+        await transport.emit(.connected)
+        try? await Task.sleep(for: .milliseconds(1_000))
+        let pagesAfterConnect = await api.calls
+
+        await transport.emit(.chatActivity(chatID: "far-away"))
+        await transport.emit(.chatActivity(chatID: "far-away"))
+        try? await Task.sleep(for: .milliseconds(1_000))
+
+        let rows = await api.rowCalls
+        XCTAssertEqual(rows, ["far-away"])
+        let pages = await api.calls
+        XCTAssertEqual(pages, pagesAfterConnect)
+        let title = try await database.reader.read { db in try ChatRecord.fetchOne(db, key: "far-away")?.title }
+        XCTAssertEqual(title, "Строка far-away")
+        _ = coordinator
+    }
+
     /// События пишутся в объекты своего ключа: прочтение в одном чате и «в сети» одного
     /// человека не трогают сигналы других (P1-4 аудита).
     func testKeyedSignalsChangeOnlyForTheirKey() async throws {
@@ -344,10 +367,21 @@ private actor StubTransport: RealtimeTransport {
 /// Список чатов, который только считает обращения.
 private actor CountingChats: ChatsFetching {
     private(set) var calls = 0
+    private(set) var rowCalls: [String] = []
 
     func chats(cursor: String?, limit: Int) async throws -> Page<ChatListItemDTO> {
         calls += 1
         return Page(items: [], meta: nil)
+    }
+
+    func chat(id: String) async throws -> ChatListItemDTO {
+        rowCalls.append(id)
+        return ChatListItemDTO(
+            id: id, type: "GROUP", title: "Строка \(id)", avatarUrl: nil, description: nil, subject: nil,
+            memberCount: 3, unreadCount: 2, muted: nil, mutedImportantOnly: nil, draft: nil, pinnedAt: nil,
+            archived: nil, othersReadAt: nil, requestIncoming: nil, requestOutgoing: nil, lastMessage: nil,
+            updatedAt: Date()
+        )
     }
 
     func folders() async throws -> [ChatFolderDTO] { [] }
