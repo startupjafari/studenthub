@@ -318,7 +318,9 @@ struct StoryViewer: View {
             let next = rings[ringIndex + 1]
             if let first = next.stories.first(where: { $0.seen != true }) ?? next.stories.first { neighbours.append(first) }
         }
-        let width = UIScreen.main.bounds.width
+        // Ширина самого просмотра, а не `UIScreen.main`: на внешнем экране и в окне
+        // другого размера кадр нужен под своё место.
+        let width = viewSize.width
         for story in neighbours {
             guard let media = story.media, media.mime?.hasPrefix("video/") != true else { continue }
             guard let url = (media.sources?.best(forPoints: width)?.url ?? media.url).flatMap(URL.init(string:)) else { continue }
