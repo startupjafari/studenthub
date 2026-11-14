@@ -1,7 +1,8 @@
 name: iOS nightly
 
 # Расширенный прогон: все UI-сценарии (включая живой сервер, если в секретах есть
-# учётка) и замеры производительности против Tests/perf-baseline.json. На PR не идёт:
+# учётка) и замеры производительности против Tests/perf-baseline.json, плюс сборка
+# Release без подписи. На PR не идёт:
 # замеры шумные и долгие, а регрессию между соседними прогонами видно по сводке и
 # артефакту metrics.json.
 #
@@ -73,11 +74,32 @@ jobs:
           TEST_RUNNER_SH_UITEST_PASSWORD: ${{ secrets.IOS_UITEST_PASSWORD }}
         run: scripts/test.sh full
 
+      # Release без подписи (IOS_RULES 4.1.2): PR и тесты собирают только Debug, а код под
+      # `#if DEBUG`, оптимизатор и strip ломают как раз Release — узнать об этом хочется
+      # ночью, а не в день выпуска. Устройство (generic iOS), как у ios-release.yml.
+      - name: Сборка Release без подписи
+        if: ${{ !cancelled() }}
+        run: |
+          xcodegen generate --quiet
+          resolved=StudentHub.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          mkdir -p "$(dirname "$resolved")"
+          cp Package.resolved "$resolved"
+          mkdir -p build/release-output
+          set -o pipefail
+          xcodebuild build \
+            -project StudentHub.xcodeproj -scheme StudentHub -configuration Release \
+            -destination 'generic/platform=iOS' -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO \
+            | tee build/release-output/release.log | grep -E "error:|BUILD (SUCCEEDED|FAILED)|\*\* "
+          scripts/check_packages.py "$resolved"
+
       - name: Сохранить результаты
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: ios-nightly-results
-          path: apps/ios/build/test-output
+          path: |
+            apps/ios/build/test-output
+            apps/ios/build/release-output
           retention-days: 30
 
