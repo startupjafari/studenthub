@@ -96729,6 +96729,91 @@
           }
         }
       }
+    },
+    "chats.stickers.favorites": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Избранные стикеры"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Таңдаулы стикерлер"
+          }
+        }
+      }
+    },
+    "chats.stickers.favorite": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить в избранное"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Таңдаулыларға қосу"
+          }
+        }
+      }
+    },
+    "chats.stickers.unfavorite": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить из избранного"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Таңдаулылардан өшіру"
+          }
+        }
+      }
+    },
+    "chats.stickers.favorited": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стикер добавлен в избранное"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стикер таңдаулыларға қосылды"
+          }
+        }
+      }
+    },
+    "chats.stickers.unfavorited": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стикер удалён из избранного"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стикер таңдаулылардан өшірілді"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

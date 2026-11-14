@@ -415,6 +415,9 @@ struct ChatThreadView: View {
             guard model == nil else { return }
             ChatOpenSignpost.begin(chatID: chatID)
             KeyboardFrame.shared.start()
+            // Избранные стикеры — для пункта меню сообщения-стикера: без них «в избранном
+            // ли» отвечало бы «нет» у каждого.
+            Task { await StickerCatalog.shared.loadFavorites() }
             hiddenPinned = UserDefaults.standard.string(forKey: Self.hiddenPinnedKey(chatID))
             let created = ChatThreadModel(chatID: chatID, viewerID: viewerID, api: Self.messagesAPI(for: chatID))
             model = created
@@ -713,7 +716,8 @@ struct ChatThreadView: View {
                 isOwn: item.isOwn,
                 isGroup: context.isGroup,
                 capabilities: capabilities,
-                readCount: readCount
+                readCount: readCount,
+                favoriteSticker: message.extras?.sticker.map { StickerCatalog.shared.isFavorite($0.id) }
             ),
             canReact: message.remoteId != nil && message.deletedAt == nil && message.systemType == nil
         )
@@ -776,6 +780,32 @@ struct ChatThreadView: View {
         case .report: handle(.report, message: message, model: model)
         case .delete: handle(.delete, message: message, model: model)
         case .select: handle(.select, message: message, model: model)
+        case .favoriteSticker(let isFavorite): toggleFavorite(stickerOf: message, isFavorite: isFavorite)
+        }
+    }
+
+    /// Стикер из сообщения — в избранное или из него. Картинка в избранном ищется по
+    /// каталогу; стикера нет в загруженных наборах — запись без ссылки, она подпишется
+    /// по id, когда панель её покажет.
+    private func toggleFavorite(stickerOf message: MessageRecord, isFavorite: Bool) {
+        guard let sticker = message.extras?.sticker else { return }
+        let catalog = StickerCatalog.shared
+        let entry = catalog.sticker(id: sticker.id) ?? StickerSetDTO.Sticker(
+            id: sticker.id,
+            emoji: sticker.emoji,
+            width: sticker.width,
+            height: sticker.height,
+            url: "",
+            expiresAt: nil
+        )
+        Task {
+            if let failure = await catalog.setFavorite(!isFavorite, sticker: entry) {
+                model?.actionFailure = failure
+            } else {
+                showToast(isFavorite
+                    ? String(localized: "chats.stickers.unfavorited", defaultValue: "Стикер удалён из избранного")
+                    : String(localized: "chats.stickers.favorited", defaultValue: "Стикер добавлен в избранное"))
+            }
         }
     }
 

@@ -49,6 +49,15 @@ struct StickerSetDTO: Decodable, Equatable, Identifiable, Sendable {
     let stickers: [Sticker]
 }
 
+/// Элемент списка, который не роняет весь ответ: не разобрался — `nil`, и его пропускают.
+private struct LossyElement<Value: Decodable>: Decodable {
+    let value: Value?
+
+    init(from decoder: Decoder) throws {
+        value = try? Value(from: decoder)
+    }
+}
+
 struct SignedURLDTO: Decodable, Equatable {
     let url: String
     let expiresAt: Date?
@@ -108,6 +117,10 @@ protocol ChatMessaging: Sendable {
     func stickerSets() async throws -> [StickerSetDTO]
     func stickerURL(id: String) async throws -> SignedURLDTO
     func sendSticker(chatID: String, stickerID: String, replyToID: String?, nonce: String) async throws -> ChatMessageDTO
+    /// Избранные стикеры — свежие сверху, не больше 30 (сервер вытесняет самый старый).
+    func favoriteStickers() async throws -> [StickerSetDTO.Sticker]
+    /// Добавить в избранное (повтор поднимает наверх) или убрать.
+    func setFavoriteSticker(_ favorite: Bool, stickerID: String) async throws
     func recentGifs() async throws -> [RecentGifDTO]
     func sendGif(chatID: String, fileID: String, replyToID: String?, nonce: String) async throws -> ChatMessageDTO
 }
@@ -329,6 +342,16 @@ extension ChatsAPI: ChatMessaging {
             try .post("chats/\(chatID)/sticker", json: Body(stickerId: stickerID, replyToId: replyToID, nonce: nonce)),
             as: ChatMessageDTO.self
         )
+    }
+
+    func favoriteStickers() async throws -> [StickerSetDTO.Sticker] {
+        // Терпимо к чужим строкам: стикер без id или ссылки пропускаем, а не роняем всё.
+        try await client.send(.get("chats/stickers/favorites"), as: [LossyElement<StickerSetDTO.Sticker>].self).compactMap(\.value)
+    }
+
+    func setFavoriteSticker(_ favorite: Bool, stickerID: String) async throws {
+        let path = "chats/stickers/favorites/\(stickerID)"
+        try await client.send(favorite ? .post(path) : Endpoint(method: .delete, path: path))
     }
 
     func recentGifs() async throws -> [RecentGifDTO] {

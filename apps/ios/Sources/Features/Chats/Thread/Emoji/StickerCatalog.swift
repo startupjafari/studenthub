@@ -34,7 +34,72 @@ final class StickerCatalog {
         for set in sets {
             if let found = set.stickers.first(where: { $0.id == id }) { return found }
         }
-        return nil
+        return favorites.first { $0.id == id }
+    }
+
+    // MARK: Избранные
+
+    /// Избранные стикеры — свежие сверху, как отдаёт сервер (не больше 30).
+    private(set) var favorites: [StickerSetDTO.Sticker] = []
+    private var favoritesLoaded = false
+    private var isLoadingFavorites = false
+    /// Порядковый номер правки: ответ загрузки, начатой до оптимистичной правки, её не
+    /// перетирает.
+    private var favoritesRevision = 0
+
+    static let favoritesLimit = 30
+
+    func isFavorite(_ id: String) -> Bool {
+        favorites.contains { $0.id == id }
+    }
+
+    func loadFavorites(force: Bool = false) async {
+        guard !isLoadingFavorites, force || !favoritesLoaded else { return }
+        isLoadingFavorites = true
+        defer { isLoadingFavorites = false }
+        let revision = favoritesRevision
+        do {
+            let loaded = try await api.favoriteStickers()
+            guard revision == favoritesRevision else { return }
+            favorites = loaded
+            favoritesLoaded = true
+        } catch {
+            // Не загрузилось — панель просто без секции; повторим при следующем открытии.
+            return
+        }
+    }
+
+    /// Добавить в избранное или убрать — сразу на экране, затем на сервере; отказ
+    /// сервера возвращает как было. Ответ — текст ошибки для показа или `nil`.
+    @discardableResult
+    func setFavorite(_ favorite: Bool, sticker: StickerSetDTO.Sticker) async -> String? {
+        let before = favorites
+        favoritesRevision += 1
+        favorites = Self.applying(favorite, sticker: sticker, to: favorites)
+        do {
+            try await api.setFavoriteSticker(favorite, stickerID: sticker.id)
+            return nil
+        } catch is CancellationError {
+            return nil
+        } catch {
+            favoritesRevision += 1
+            favorites = before
+            return error.userMessage
+        }
+    }
+
+    /// Избранное после правки — как его держит сервер: добавленный (и повторно
+    /// добавленный) встаёт наверх, сверх лимита вытесняется самый старый.
+    static func applying(
+        _ favorite: Bool,
+        sticker: StickerSetDTO.Sticker,
+        to list: [StickerSetDTO.Sticker]
+    ) -> [StickerSetDTO.Sticker] {
+        var result = list.filter { $0.id != sticker.id }
+        guard favorite else { return result }
+        result.insert(sticker, at: 0)
+        if result.count > favoritesLimit { result.removeLast(result.count - favoritesLimit) }
+        return result
     }
 }
 
