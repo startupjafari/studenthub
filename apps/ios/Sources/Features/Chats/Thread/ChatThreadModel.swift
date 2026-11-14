@@ -81,6 +81,7 @@ final class ChatThreadModel {
 
     private let viewerID: String
     private let database: AppDatabase
+    private let queries: ChatThreadQueries
     private let api: ChatMessagesFetching
     private let store: MessageStore
     private let outbox: MessageOutbox
@@ -166,6 +167,7 @@ final class ChatThreadModel {
         self.chatID = chatID
         self.viewerID = viewerID
         self.database = database
+        self.queries = ChatThreadQueries(database: database)
         self.api = api
         self.store = store ?? MessageStore(database: database)
         self.outbox = outbox ?? MessageOutbox(database: database)
@@ -836,12 +838,7 @@ final class ChatThreadModel {
     /// и сразу после неё последний срез в модели ещё старый.
     @MainActor
     private func freshSnapshot() async -> ThreadSnapshot? {
-        let request = store.messages(chatID: chatID, from: floor)
-        let id = chatID
-        let floor = floor
-        return try? await database.reader.read { db in
-            try ChatThreadModel.readSnapshot(request, chatID: id, floor: floor, in: db)
-        }
+        try? await queries.fetchSnapshot(chatID: chatID, floor: floor)
     }
 
     /// Окно сменилось: показать базу как она есть сейчас, вместе с новой границей.
@@ -1627,55 +1624,19 @@ final class ChatThreadModel {
     @MainActor
     private func observeMessages() {
         messagesTask?.cancel()
-        let request = store.messages(chatID: chatID, from: floor)
         let id = chatID
         let floor = floor
-        // Сообщения и вложения читаем одним наблюдением: раздельные дали бы кадр,
-        // где картинка уже пришла, а сообщения под неё ещё нет.
-        // Наблюдение будит любая запись в `message`/`attachment`, в том числе в чужом
-        // чате: одинаковый срез отсеивается вне главного потока и до ленты не доходит.
-        let observation = ValueObservation.tracking { db -> ThreadSnapshot in
-            try ChatThreadModel.readSnapshot(request, chatID: id, floor: floor, in: db)
-        }
-        .removeDuplicates()
+        // Сообщения и вложения — одним наблюдением, одинаковый срез отсеивается до
+        // главного потока (`ChatThreadQueries.observeSnapshot`).
         // Сильная ссылка живёт только на шаг цикла: держи её задача весь бесконечный
         // поток, модель (и её наблюдения) не освободились бы и после ухода из чата.
-        messagesTask = Task { @MainActor [weak self, database] in
-            for await snapshot in AsyncValues.stream(of: observation, in: database.reader) {
+        messagesTask = Task { @MainActor [weak self, queries] in
+            for await snapshot in queries.observeSnapshot(chatID: id, floor: floor) {
                 guard let self else { return }
                 self.snapshot = snapshot
                 self.applySnapshot()
             }
         }
-    }
-
-    /// Срез переписки: сообщения в порядке ленты и их вложения.
-    private static func readSnapshot(
-        _ request: QueryInterfaceRequest<MessageRecord>,
-        chatID: String,
-        floor: Int?,
-        in db: Database
-    ) throws -> ThreadSnapshot {
-        let signpost = Signposts.chats.beginInterval("ThreadSnapshotRead")
-        let messages = try request.fetchAll(db)
-        // Вложения — только сообщений окна, та же граница, что у запроса сообщений.
-        let attachments = try AttachmentRecord.fetchAll(
-            db,
-            sql: """
-                SELECT a.* FROM attachment a
-                JOIN message m ON m.id = a.messageId
-                WHERE m.chatId = ? AND (? IS NULL OR m.seq >= ? OR m.seq IS NULL)
-                """,
-            arguments: [chatID, floor, floor]
-        )
-        Signposts.chats.endInterval(
-            "ThreadSnapshotRead", signpost,
-            "messages: \(messages.count), attachments: \(attachments.count)"
-        )
-        return ThreadSnapshot(
-            messages: messages,
-            attachments: Dictionary(grouping: attachments, by: \.messageId)
-        )
     }
 
     /// Пересобрать ленту из среза базы. В окне истории — только то, что не новее его
@@ -1742,10 +1703,8 @@ final class ChatThreadModel {
         chatTask?.cancel()
         let id = chatID
         // Запись в строку другого чата (счётчик, прочтение) эту строку не меняет.
-        let observation = ValueObservation.tracking { db in try ChatRecord.fetchOne(db, key: id) }
-            .removeDuplicates()
-        chatTask = Task { @MainActor [weak self, database] in
-            for await chat in AsyncValues.stream(of: observation, in: database.reader) {
+        chatTask = Task { @MainActor [weak self, queries] in
+            for await chat in queries.observeChat(id: id) {
                 guard let self else { return }
                 self.chat = chat
                 self.title = chat?.title
@@ -1824,39 +1783,6 @@ enum DetachedWindows {
         guard let data = UserDefaults.standard.data(forKey: key) else { return [:] }
         return (try? JSONDecoder().decode([String: Mark].self, from: data)) ?? [:]
     }
-}
-
-/// Поток значений наблюдения GRDB.
-///
-/// Общий для всех экранов: ошибка чтения локальной базы не повод падать — список и
-/// лента просто перестают обновляться, а показывают то, что уже прочитали.
-enum AsyncValues {
-    static func stream<Reducer: ValueReducer>(
-        of observation: ValueObservation<Reducer>,
-        in reader: any DatabaseReader
-    ) -> AsyncStream<Reducer.Value> {
-        AsyncStream { continuation in
-            let cancellable = observation.start(
-                in: reader,
-                scheduling: .async(onQueue: .main),
-                onError: { _ in continuation.finish() },
-                onChange: { value in
-                    // Значение наблюдения дошло до главного потока (после отсева, если
-                    // он есть): сколько раз экран будят изменения базы.
-                    Signposts.chats.emitEvent("DBChangeObserved", "\(String(describing: type(of: value)), privacy: .public)")
-                    continuation.yield(value)
-                }
-            )
-            continuation.onTermination = { _ in cancellable.cancel() }
-        }
-    }
-}
-
-
-/// Срез переписки: сообщения и их вложения, прочитанные одним запросом.
-struct ThreadSnapshot: Equatable {
-    let messages: [MessageRecord]
-    let attachments: [String: [AttachmentRecord]]
 }
 
 /// Участник группы, прочитавший сообщение, — строка листа «Прочитали».
