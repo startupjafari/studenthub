@@ -79,21 +79,46 @@ enum PerformanceFlags {
     #if DEBUG
         /// Подмена для тестов. Стартовое значение — из `SH_PERF_FLAGS` запускаемого
         /// приложения: `all=1`, `all=0` или `chatHeightCache=1,chatBubbleFlatShadow=0`.
-        nonisolated(unsafe) static var overrides: [Switch: Bool] = parse(
-            ProcessInfo.processInfo.environment["SH_PERF_FLAGS"] ?? "")
+        /// Опечатка роняет запуск с понятным текстом: иначе матрица «оба положения флага»
+        /// молча гоняла бы положение «как в коде» (`docs/IOS_RULES.md` 2.7.9).
+        nonisolated(unsafe) static var overrides: [Switch: Bool] = {
+            let spec = ProcessInfo.processInfo.environment["SH_PERF_FLAGS"] ?? ""
+            let parsed = parseReporting(spec)
+            if !parsed.problems.isEmpty {
+                preconditionFailure("SH_PERF_FLAGS=\"\(spec)\": \(parsed.problems.joined(separator: "; "))")
+            }
+            return parsed.flags
+        }()
 
         static func parse(_ spec: String) -> [Switch: Bool] {
+            parseReporting(spec).flags
+        }
+
+        /// Разбор с перечнем того, что не понято: неизвестное имя, значение не `0`/`1`,
+        /// пара без `=`. Понятые пары применяются и при ошибках в соседних.
+        static func parseReporting(_ spec: String) -> (flags: [Switch: Bool], problems: [String]) {
             var result: [Switch: Bool] = [:]
+            var problems: [String] = []
             for pair in spec.split(separator: ",") {
                 let parts = pair.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-                guard parts.count == 2, let value = ["1": true, "0": false][parts[1]] else { continue }
+                guard parts.count == 2 else {
+                    problems.append("«\(pair)» без значения, нужно имя=0 или имя=1")
+                    continue
+                }
+                guard let value = ["1": true, "0": false][parts[1]] else {
+                    problems.append("«\(pair)»: значение только 0 или 1")
+                    continue
+                }
                 if parts[0] == "all" {
                     for flag in Switch.allCases { result[flag] = value }
                 } else if let flag = Switch(rawValue: parts[0]) {
                     result[flag] = value
+                } else {
+                    let known = (["all"] + Switch.allCases.map(\.rawValue)).joined(separator: ", ")
+                    problems.append("неизвестный флаг «\(parts[0])», известны: \(known)")
                 }
             }
-            return result
+            return (result, problems)
         }
     #endif
 }
