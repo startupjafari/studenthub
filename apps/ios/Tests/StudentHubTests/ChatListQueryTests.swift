@@ -77,6 +77,37 @@ final class ChatListQueryTests: XCTestCase {
         XCTAssertEqual(row?.preview, "Сообщение удалено")
     }
 
+    /// Пустое сообщение неизвестного вида — заглушка «обновите приложение», а не пустая
+    /// строка; известный вид без текста (стикер) — своё превью (IOS_RULES 9.2.8).
+    func testUnknownEmptyMessageIsPreviewedAsUnsupported() throws {
+        let database = try AppDatabase.inMemory()
+        try database.writer.write { db in
+            try chat(id: "c-1").insert(db)
+            var unknown = message(id: "m-1", chatId: "c-1", seq: 1)
+            unknown.content = ""
+            try unknown.insert(db)
+            try db.execute(sql: "UPDATE chat SET lastMessageId = 'm-1' WHERE id = 'c-1'")
+            try chat(id: "c-2").insert(db)
+            var sticker = message(id: "m-2", chatId: "c-2", seq: 1)
+            sticker.content = ""
+            var extras = MessageExtras()
+            extras.sticker = MessageExtras.Sticker(id: "s-1", emoji: "🙂")
+            sticker.extras = extras
+            try sticker.insert(db)
+            try db.execute(sql: "UPDATE chat SET lastMessageId = 'm-2' WHERE id = 'c-2'")
+        }
+
+        let rows = try database.reader.read { db in
+            try ChatListQuery.rows(for: .all).fetchAll(db)
+        }
+
+        XCTAssertEqual(
+            rows.first { $0.id == "c-1" }?.preview,
+            "Сообщение не поддерживается этой версией — обновите приложение"
+        )
+        XCTAssertEqual(rows.first { $0.id == "c-2" }?.preview, "🙂 Стикер")
+    }
+
     /// Пустые вкладки не показываем: «Архив» без архива занимает место и ничего не
     /// сообщает.
     func testTabsAppearOnlyWhenTheyHaveContent() throws {
