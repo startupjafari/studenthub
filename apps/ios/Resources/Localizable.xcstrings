@@ -96729,6 +96729,108 @@
           }
         }
       }
+    },
+    "chats.voice.keepFragmentTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оставить только выбранный фрагмент?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тек таңдалған үзіндіні қалдыру керек пе?"
+          }
+        }
+      }
+    },
+    "chats.voice.keepFragmentContinue": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продолжить"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жалғастыру"
+          }
+        }
+      }
+    },
+    "chats.voice.keepFragmentMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всё, кроме выделенного фрагмента, будет удалено. Запись сообщения продолжится сразу после нажатия кнопки."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Белгіленген үзіндіден басқасының бәрі жойылады. Түймені басқан соң хабарды жазу бірден жалғасады."
+          }
+        }
+      }
+    },
+    "chats.voice.resume": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продолжить запись"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жазуды жалғастыру"
+          }
+        }
+      }
+    },
+    "chats.voice.trimStart": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Начало фрагмента"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Үзіндінің басы"
+          }
+        }
+      }
+    },
+    "chats.voice.trimEnd": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Конец фрагмента"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Үзіндінің соңы"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
