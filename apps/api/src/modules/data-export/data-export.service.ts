@@ -1320,6 +1320,9 @@ export const USER_RELATIONS: Readonly<Record<string, { section: string } | { exc
       excluded: 'карточка контакта, которую отправил другой человек; сервер поле не заполняет',
     },
     'StickerSet.createdById': { excluded: STAFF_WORK },
+    'FavoriteSticker.userId': {
+      excluded: 'служебная настройка интерфейса: только id стикеров каталога платформы',
+    },
     'ScheduledMessage.senderId': { section: 'scheduledMessages' },
     'Event.organizerId': { section: 'eventsOrganized' },
     'EventParticipant.userId': { section: 'events' },
