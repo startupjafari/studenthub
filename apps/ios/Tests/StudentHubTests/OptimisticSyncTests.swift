@@ -328,45 +328,32 @@ final class OptimisticSyncTests: XCTestCase {
 }
 
 /// Отправка, которую тест отпускает сам: так видно, что происходит, пока запрос в полёте.
+///
+/// Поверх общего сценарного сервера (IOS_RULES 2.5.1): каждая отправка придержана до
+/// `succeed`/`fail`. Отмену сервер не учитывает — сброс движка (`reset`) снимает задачу,
+/// а тест всё равно доставляет поздний ответ и проверяет, что он не применился.
 @MainActor
 final class ScriptedSends<Value: Sendable> {
     private(set) var calls: [(from: Value, to: Value)] = []
-    private var continuations: [CheckedContinuation<Value?, Error>] = []
+    let server = ScriptedServer(honorsCancellation: false)
 
-    var waiting: Int { continuations.count }
+    init() {
+        server.holdEverything()
+    }
+
+    var waiting: Int { server.waiting() }
 
     func send(_ from: Value, _ to: Value) async throws -> Value? {
         calls.append((from, to))
-        return try await withCheckedThrowingContinuation { continuations.append($0) }
+        let request = ScriptedServer.Request(method: "PUT", path: "optimistic", fields: ["from": "\(from)", "to": "\(to)"])
+        return try await server.respond(to: request) { nil }
     }
 
-    func succeed(_ value: Value? = nil) {
-        guard !continuations.isEmpty else { return XCTFail("нечего отпускать") }
-        continuations.removeFirst().resume(returning: value)
+    func succeed(_ value: Value? = nil, file: StaticString = #filePath, line: UInt = #line) {
+        server.release(with: value.map { ScriptedServer.Reply.value($0) } ?? .scripted, file: file, line: line)
     }
 
-    func fail(_ error: Error) {
-        guard !continuations.isEmpty else { return XCTFail("нечего отпускать") }
-        continuations.removeFirst().resume(throwing: error)
+    func fail(_ error: Error, file: StaticString = #filePath, line: UInt = #line) {
+        server.release(with: .failure(error), file: file, line: line)
     }
-}
-
-/// Дождаться условия, уступая главный поток задачам движка. Без часов: тест не зависит
-/// от скорости машины, а зависшее условие падает, а не висит.
-@MainActor
-func waitUntil(
-    _ condition: () -> Bool,
-    file: StaticString = #filePath,
-    line: UInt = #line
-) async {
-    for _ in 0..<2_000 {
-        if condition() { return }
-        await Task.yield()
-    }
-    // Пауза перед отправкой (тесты с debounce) — дождёмся её честно.
-    for _ in 0..<100 {
-        if condition() { return }
-        try? await Task.sleep(for: .milliseconds(10))
-    }
-    XCTFail("условие так и не выполнилось", file: file, line: line)
 }

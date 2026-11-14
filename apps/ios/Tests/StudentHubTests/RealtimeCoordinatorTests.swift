@@ -220,8 +220,8 @@ final class RealtimeCoordinatorTests: XCTestCase {
     /// Переподключение догоняет список чатов (события за время обрыва никто не
     /// переприсылает), а первое подключение — нет: список и так грузится при входе.
     func testReconnectRefreshesChatListOnce() async throws {
-        let api = CountingChats()
-        let (_, coordinator, transport) = try await make(api: api)
+        let server = ScriptedServer()
+        let (_, coordinator, transport) = try await make(server: server, api: ScriptedChats(server: server))
 
         await transport.emit(.connected)
         await transport.emit(.disconnected)
@@ -229,8 +229,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
         // Обновление списка ждёт пачку событий 0,7 с.
         try? await Task.sleep(for: .milliseconds(1_000))
 
-        let calls = await api.calls
-        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(server.matching("GET", "chats").count, 1)
         _ = coordinator
     }
 
@@ -273,8 +272,9 @@ final class RealtimeCoordinatorTests: XCTestCase {
 
     private func make(
         unread: Int = 0,
+        server: ScriptedServer = ScriptedServer(),
         api: ChatsFetching? = nil
-    ) async throws -> (AppDatabase, RealtimeCoordinator, StubTransport) {
+    ) async throws -> (AppDatabase, RealtimeCoordinator, ScriptedTransport) {
         let database = try AppDatabase.inMemory()
         try await database.writer.write { db in
             try ChatRecord(
@@ -285,7 +285,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
                 updatedAt: Date(timeIntervalSince1970: 1_800_000_000), syncSeq: 1
             ).insert(db)
         }
-        let transport = StubTransport()
+        let transport = ScriptedTransport(server: server)
         let coordinator = RealtimeCoordinator(
             transport: transport,
             session: SessionStore(auth: SilentAuth(), secrets: MemoryKeys(), cookies: MemoryJar()),
@@ -312,49 +312,6 @@ final class RealtimeCoordinatorTests: XCTestCase {
 }
 
 // MARK: - Дублёры
-
-private actor StubTransport: RealtimeTransport {
-    nonisolated let events: AsyncStream<RealtimeEvent>
-    private let continuation: AsyncStream<RealtimeEvent>.Continuation
-    private(set) var joins: [String] = []
-    private(set) var leaves: [String] = []
-    private(set) var reads: [String] = []
-    private(set) var actions: [String?] = []
-    private(set) var edits: [String] = []
-
-    init() {
-        (events, continuation) = AsyncStream<RealtimeEvent>.makeStream()
-    }
-
-    func emit(_ event: RealtimeEvent) {
-        continuation.yield(event)
-    }
-
-    func connect(token: String) async {}
-    func disconnect() async {}
-    func refresh(token: String) async {}
-    func join(chatID: String) async { joins.append(chatID) }
-    func leave(chatID: String) async { leaves.append(chatID) }
-    func markRead(chatID: String, messageID: String) async { reads.append(messageID) }
-    func send(action: String?, chatID: String) async { actions.append(action) }
-    func edit(messageID: String, content: String) async { edits.append(content) }
-    func delete(messageID: String) async {}
-}
-
-/// Список чатов, который только считает обращения.
-private actor CountingChats: ChatsFetching {
-    private(set) var calls = 0
-
-    func chats(cursor: String?, limit: Int) async throws -> Page<ChatListItemDTO> {
-        calls += 1
-        return Page(items: [], meta: nil)
-    }
-
-    func folders() async throws -> [ChatFolderDTO] { [] }
-    func setPinned(_ pinned: Bool, chatID: String) async throws {}
-    func setArchived(_ archived: Bool, chatID: String) async throws {}
-    func setMuted(_ muted: Bool, chatID: String) async throws {}
-}
 
 private struct SilentAuth: SessionRefreshing {
     func refresh() async throws -> AuthSession { throw APIError.malformedResponse(statusCode: 0) }
