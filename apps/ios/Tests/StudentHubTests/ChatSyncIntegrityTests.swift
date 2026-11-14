@@ -122,7 +122,90 @@ final class ChatSyncIntegrityTests: XCTestCase {
         }
     }
 
+    // MARK: - Поздний ответ
+
+    /// Страница, ушедшая до `message:deleted`, не возвращает удалённое (IOS_RULES 9.5.2).
+    func testLateAnswerDoesNotResurrectDeleted() async throws {
+        let database = try AppDatabase.inMemory()
+        try await seedChat(in: database, syncSeq: 1)
+        let store = MessageStore(database: database)
+        try await store.save(messages: [dto(id: "m-1", seq: 1)], chatID: "c-1")
+        try await database.writer.write { db in
+            try db.execute(sql: "UPDATE message SET deletedAt = ? WHERE id = 'm-1'", arguments: [Date()])
+        }
+
+        try await store.save(messages: [dto(id: "m-1", seq: 1)], chatID: "c-1")
+
+        let stored = try await database.reader.read { db in try MessageRecord.fetchOne(db, key: "m-1") }
+        XCTAssertNotNil(stored?.deletedAt)
+    }
+
+    /// Ответ со старой правкой (или без неё) не откатывает свежую (IOS_RULES 9.5.1), а
+    /// более новая — применяется.
+    func testLateAnswerDoesNotRollBackEdit() async throws {
+        let database = try AppDatabase.inMemory()
+        try await seedChat(in: database, syncSeq: 1)
+        let store = MessageStore(database: database)
+        let edited = Date(timeIntervalSince1970: 1_800_000_500)
+        try await store.save(messages: [dto(id: "m-1", seq: 1, content: "новое", editedAt: edited)], chatID: "c-1")
+
+        try await store.save(messages: [dto(id: "m-1", seq: 1, content: "старое")], chatID: "c-1")
+        try await store.save(
+            messages: [dto(id: "m-1", seq: 1, content: "раньше", editedAt: edited.addingTimeInterval(-60))],
+            chatID: "c-1"
+        )
+        var stored = try await database.reader.read { db in try MessageRecord.fetchOne(db, key: "m-1") }
+        XCTAssertEqual(stored?.content, "новое")
+        XCTAssertEqual(stored?.editedAt, edited)
+
+        try await store.save(
+            messages: [dto(id: "m-1", seq: 1, content: "свежее", editedAt: edited.addingTimeInterval(60))],
+            chatID: "c-1"
+        )
+        stored = try await database.reader.read { db in try MessageRecord.fetchOne(db, key: "m-1") }
+        XCTAssertEqual(stored?.content, "свежее")
+    }
+
+    // MARK: - Прочтение по видимому
+
+    /// Строка под шапкой и за полем ввода не видна; краешек — тоже.
+    func testLowestVisibleRespectsBand() {
+        let frames = [
+            ReadVisibility.Frame(id: "a", minY: 0, maxY: 100),
+            ReadVisibility.Frame(id: "b", minY: 100, maxY: 300),
+            ReadVisibility.Frame(id: "c", minY: 300, maxY: 400),
+            ReadVisibility.Frame(id: "d", minY: 400, maxY: 500),
+        ]
+        // Полоса 120…410: «d» торчит на 10 pt — не в счёт.
+        XCTAssertEqual(ReadVisibility.lowestVisible(frames, band: 120...410), "c")
+        XCTAssertEqual(ReadVisibility.lowestVisible(frames, band: 120...500), "d")
+        XCTAssertNil(ReadVisibility.lowestVisible([], band: 0...100))
+    }
+
+    /// Отметка — последнее чужое подтверждённое не ниже видимого; своё и неотправленное
+    /// не в счёт.
+    func testReadMarkStopsAtLowestVisible() {
+        let rows = [
+            row(id: "m-1", sender: "u-1"),
+            row(id: "m-2", sender: "u-me"),
+            row(id: "m-3", sender: "u-1"),
+            row(id: "local", sender: "u-me", remote: false),
+        ]
+        XCTAssertEqual(ReadVisibility.readMark(in: rows, lowestVisible: "m-2", viewerID: "u-me"), "m-1")
+        XCTAssertEqual(ReadVisibility.readMark(in: rows, lowestVisible: "local", viewerID: "u-me"), "m-3")
+        XCTAssertNil(ReadVisibility.readMark(in: rows, lowestVisible: nil, viewerID: "u-me"))
+        XCTAssertNil(ReadVisibility.readMark(in: rows, lowestVisible: "нет", viewerID: "u-me"))
+    }
+
     // MARK: - Помощники
+
+    private func row(id: String, sender: String, remote: Bool = true) -> MessageRecord {
+        MessageRecord(
+            id: id, remoteId: remote ? id : nil, chatId: "c-1", seq: nil, senderId: sender, content: "текст",
+            replyToId: nil, replyQuote: nil, systemType: nil, editedAt: nil, deletedAt: nil,
+            pinnedAt: nil, createdAt: Date(timeIntervalSince1970: 1_800_000_000), sendState: remote ? .sent : .pending
+        )
+    }
 
     private func seedChat(in database: AppDatabase, syncSeq: Int) async throws {
         try await database.writer.write { db in

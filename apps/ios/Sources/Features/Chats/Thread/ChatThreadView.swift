@@ -290,7 +290,8 @@ struct ChatThreadView: View {
                     onReachBottom: { Task { await model.loadNewer() } },
                     onAction: { action, message in handle(action, message: message, model: model) },
                     onMenu: { item in openMenu(item, model: model) },
-                    onFirstShown: { ChatOpenSignpost.end(chatID: chatID) }
+                    onFirstShown: { ChatOpenSignpost.end(chatID: chatID) },
+                    onLowestVisible: { id in model.noteVisible(lowest: id) }
                 )
                 .overlay {
                     // Открытие ждёт первую страницу: вместо одинокого превью — индикатор.

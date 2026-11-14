@@ -96,6 +96,9 @@ final class ChatThreadModel {
     private var catchUpRetry: Task<Void, Never>?
     private var catchUpDelay = OutboxService.firstRetryDelay
     private var lastReadSent: String?
+    /// Нижняя строка, реально видимая в ленте (`MessageListView`). Прочитанным считается
+    /// только она и что выше; `nil` — лента ещё не показана, отмечать нечего.
+    private var lowestVisibleID: String?
     private var lastReadAt: Date?
     private var lastActionAt: Date?
     private var voiceAnnouncer: Task<Void, Never>?
@@ -1253,15 +1256,25 @@ final class ChatThreadModel {
 
     // MARK: - Черновик
 
-    /// Отметить прочитанным до последнего чужого сообщения.
+    /// Лента сообщила нижнюю видимую строку — отметить прочитанным до неё.
+    @MainActor
+    func noteVisible(lowest id: String?) {
+        guard id != lowestVisibleID else { return }
+        lowestVisibleID = id
+        Task { await markRead() }
+    }
+
+    /// Отметить прочитанным до последнего чужого сообщения, реально видимого в ленте
+    /// (IOS_RULES 6.6.1).
     ///
     /// Шлём не чаще раза в 800 мс и только то, что действительно новее прошлой
     /// отметки: сервер двигает её только вперёд, а лишние события — это трафик на
-    /// каждом прокруте.
+    /// каждом прокруте. Из окна истории не шлём вовсе: оно не свежее, и отметка по нему
+    /// утверждала бы о прочтении того, чего лента не показывала (9.4.17).
     @MainActor
     func markRead() async {
-        guard let last = messages.last(where: { $0.senderId != viewerID && $0.remoteId != nil }),
-            let id = last.remoteId,
+        guard !isDetached,
+            let id = ReadVisibility.readMark(in: messages, lowestVisible: lowestVisibleID, viewerID: viewerID),
             id != lastReadSent
         else { return }
         if let sentAt = lastReadAt, Date().timeIntervalSince(sentAt) < 0.8 {
