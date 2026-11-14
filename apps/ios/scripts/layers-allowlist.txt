@@ -1,7 +1,41 @@
-# Исключения стража слоёв (scripts/check_layers.sh, IOS_RULES 9.1.2, 9.1.3): путь от apps/ios
-# на строку. Список только сужается — новые пути сюда не добавляются; файл, переставший
-# нарушать правило, вычёркивается (иначе проверка падает).
+# Исключения стража слоёв (scripts/check_layers.sh, IOS_RULES 9.1.2, 9.1.3, 14.4.1): строка
+# `<правило> <путь от apps/ios>`, правила — grdb, ui, urlsession, openurl. Список только
+# сужается — новые строки сюда не добавляются; исключение, переставшее быть нужным,
+# вычёркивается (иначе проверка падает).
 
-# а) import GRDB вне Core — нет (перенесено в типы запросов Core, волна 3).
+# grdb — import GRDB вне Core: нет (перенесено в типы запросов Core, волна 3).
 
-# б) import UIKit/SwiftUI в Core — нет.
+# ui — import UIKit/SwiftUI в Core: нет.
+
+# urlsession — URLSession вне Core/Network/APIClient.swift. Все — файлы по presigned-адресам
+# хранилища (MinIO), а не запросы к API: токен им не нужен. Загрузка на сервер:
+urlsession Sources/Core/Chats/AttachmentUploader.swift
+urlsession Sources/Core/StudentStudy/StudentStudyAPI.swift
+# Скачивание: картинки, файлы чата и «Поделиться», голосовые, GIF, сохранение медиа.
+# Цель — общий загрузчик в Core (как ImageDownloads), экраны без своего URLSession.
+urlsession Sources/Core/Images/ImageDownloads.swift
+urlsession Sources/DesignSystem/Toolkit.swift
+urlsession Sources/Features/Chats/ChatSharedContentView.swift
+urlsession Sources/Features/Chats/Thread/ChatFileDownloads.swift
+urlsession Sources/Features/Chats/Thread/Emoji/ExpressionPanel.swift
+urlsession Sources/Features/Chats/Thread/MessageKindViews.swift
+urlsession Sources/Features/Chats/Thread/VoicePlayback.swift
+urlsession Sources/Features/Feed/MediaViewer.swift
+
+# openurl — `openURL(` / `UIApplication.shared.open(` вне App/ExternalLinkOpener.swift.
+# `openURL` экранов — действие окружения, которое StudentHubApp уже подменил на
+# ExternalLinkOpener.action, так что проверка ссылки идёт; новый код зовёт
+# ExternalLinkOpener.open(url) прямо. Сайт, почта, звонок в карточках вуза, компании,
+# кандидата, сотрудника и аудитории; ссылки заданий, материалов и встреч:
+openurl Sources/Features/Admin/AdminUniversitiesViews.swift
+openurl Sources/Features/Career/CareerEmployerViews.swift
+openurl Sources/Features/Career/CareerSeekerViews.swift
+openurl Sources/Features/Career/CareerStaffViews.swift
+openurl Sources/Features/Community/CommunityUniversityView.swift
+openurl Sources/Features/Dean/DeanPeopleViews.swift
+openurl Sources/Features/Security/SecurityRoomsView.swift
+openurl Sources/Features/Staff/StaffEventsViews.swift
+openurl Sources/Features/Study/AssignmentsView.swift
+openurl Sources/Features/Teaching/TeachingMaterialsView.swift
+# Ссылка на App Store из обязательного обновления — адрес от сервера проверки версии.
+openurl Sources/Features/Update/ForcedUpdateView.swift
