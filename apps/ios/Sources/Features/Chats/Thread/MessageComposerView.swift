@@ -102,7 +102,9 @@ struct MessageComposerView: View {
                         // остаётся, черновик не трогается.
                         isMuted: recorder.machine.isActive,
                         accessibilityLabel: placeholder,
-                        onPasteImages: pasteImages
+                        // В правке вложений не добавить — картинки из буфера вставляются
+                        // как обычно (системой), без листа отправки.
+                        onPasteImages: model.editing == nil ? pasteImages : nil
                     )
                     // Подсказки во время записи нет: стекло контейнера не гасит
                     // прозрачность поля, и «Сообщение» проступало сквозь полосу записи.

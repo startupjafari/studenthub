@@ -50,7 +50,7 @@ struct ComposerEditorView: View {
                 maxLines: nil,
                 accessibilityID: "chat.composer.editor",
                 accessibilityLabel: placeholder,
-                onPasteImages: { close(.pasteImages($0)) }
+                onPasteImages: model.editing == nil ? { close(.pasteImages($0)) } : nil
             )
             .overlay(alignment: .topLeading) {
                 if model.draft.isEmpty {
