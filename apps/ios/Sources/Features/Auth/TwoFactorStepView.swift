@@ -10,8 +10,9 @@ import SwiftUI
 /// приложения — шесть цифр: цифровая клавиатура, подстановка из «Паролей» и SMS
 /// (`.oneTimeCode`). Резервный код — восемь символов 0–9 и A–F (`randomBytes(4)` на
 /// сервере), обычная клавиатура, ячейки группами по четыре; переключатель под формой, а
-/// вставленный из буфера код с буквами переключает режим сам. Оба уходят сами, как
-/// только заполнены все ячейки.
+/// вставленный код с буквами переключает режим сам. Оба уходят сами, как только
+/// заполнены все ячейки. Отдельной кнопки вставки нет: код подставляет клавиатура, а
+/// скопированный вставляется долгим нажатием на ячейки — под ними настоящее поле.
 struct TwoFactorStepView: View {
     @Bindable var model: LoginModel
     let session: AppSessionModel
@@ -75,13 +76,7 @@ struct TwoFactorStepView: View {
             isFocused: $isCodeFocused,
             isDisabled: model.isBusy,
             submit: submit
-        ) {
-            // Системный элемент вставки не спрашивает разрешения на чтение буфера: человек
-            // сам его коснулся.
-            ClipboardPasteButton { paste($0) }
-                .frame(width: 44, height: 44)
-                .disabled(model.isBusy)
-        }
+        )
         // Тип клавиатуры у поля в фокусе система не меняет на лету — при смене режима
         // поле создаётся заново, ячейки сменяются плавно.
         .id(usesBackupCode)
@@ -100,6 +95,18 @@ struct TwoFactorStepView: View {
     /// вставка приносят и «123 456», и «Ваш код: 123456», и «abcd-1234».
     private func codeChanged(_ code: String) {
         model.clearError(for: .code)
+        // Буквы бывают только в резервном коде: вставили его в режиме кода из
+        // приложения — переходим в резервный с этим кодом.
+        if !usesBackupCode, code.contains(where: \.isLetter) {
+            let backup = Self.backupSymbols(in: code)
+            if backup.count == Self.backupCodeLength {
+                withAnimation(AuthMotion.layout(reduceMotion: reduceMotion)) { usesBackupCode = true }
+                model.code = backup
+                // Поле пересоздаётся под новую клавиатуру — фокус в новое.
+                Task { @MainActor in isCodeFocused = true }
+                return
+            }
+        }
         let clean = usesBackupCode ? Self.backupSymbols(in: code) : Self.digits(in: code)
         guard clean == code else {
             model.code = clean
@@ -111,16 +118,6 @@ struct TwoFactorStepView: View {
             autoSubmitted = clean
             submit()
         }
-    }
-
-    private func paste(_ text: String) {
-        let pasted = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Буквы бывают только в резервном коде.
-        if !usesBackupCode, pasted.contains(where: \.isLetter) {
-            usesBackupCode = true
-        }
-        // Уйдёт сам, когда заполнит все ячейки (`codeChanged`).
-        model.code = usesBackupCode ? Self.backupSymbols(in: pasted) : Self.digits(in: pasted)
     }
 
     private func switchMode() {
