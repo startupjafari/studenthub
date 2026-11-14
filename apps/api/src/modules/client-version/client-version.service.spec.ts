@@ -2,7 +2,7 @@ import { ConfigService } from '@nestjs/config'
 import { ClientVersionService } from './client-version.service'
 import type { EnvVars } from '../../config/env.schema'
 
-const serviceWith = (env: Record<string, string | undefined>): ClientVersionService =>
+const serviceWith = (env: Record<string, string | string[] | undefined>): ClientVersionService =>
   new ClientVersionService({
     get: (key: string) => env[key],
   } as unknown as ConfigService<EnvVars, true>)
@@ -18,6 +18,7 @@ describe('ClientVersionService', () => {
       platform: 'ios',
       minimumVersion: '1.2.0',
       storeUrl: 'https://apps.apple.com/app/id1',
+      disabledFeatures: [],
     })
   })
 
@@ -25,7 +26,11 @@ describe('ClientVersionService', () => {
   it('без ссылки на магазин не выдумывает её', () => {
     const service = serviceWith({ IOS_MIN_SUPPORTED_VERSION: '1.2.0' })
 
-    expect(service.info('ios')).toEqual({ platform: 'ios', minimumVersion: '1.2.0' })
+    expect(service.info('ios')).toEqual({
+      platform: 'ios',
+      minimumVersion: '1.2.0',
+      disabledFeatures: [],
+    })
   })
 
   // Значение по умолчанию задаёт схема env: '0.0.0' означает «никого не блокируем».
@@ -49,6 +54,30 @@ describe('ClientVersionService', () => {
       platform: 'android',
       minimumVersion: '1.1.0',
       storeUrl: 'https://play.google.com/store/apps/details?id=kz.studenthub.app',
+      disabledFeatures: [],
     })
+  })
+
+  // Выключатель: общий список гасит функцию везде, платформенный — только у своей
+  // платформы; повтор имени в обоих списках в ответ не дублируется.
+  it('выключенные функции — объединение общего списка и списка платформы', () => {
+    const service = serviceWith({
+      IOS_MIN_SUPPORTED_VERSION: '1.0.0',
+      ANDROID_MIN_SUPPORTED_VERSION: '1.0.0',
+      CLIENT_DISABLED_FEATURES: ['liveLocation', 'gifSearch'],
+      IOS_DISABLED_FEATURES: ['chatVideoUpload', 'liveLocation'],
+      ANDROID_DISABLED_FEATURES: ['stickers'],
+    })
+
+    expect(service.info('ios').disabledFeatures).toEqual([
+      'liveLocation',
+      'gifSearch',
+      'chatVideoUpload',
+    ])
+    expect(service.info('android').disabledFeatures).toEqual([
+      'liveLocation',
+      'gifSearch',
+      'stickers',
+    ])
   })
 })

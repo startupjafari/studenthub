@@ -27210,6 +27210,7 @@
     },
     "/client-version": {
       "get": {
+        "description": "Плюс `disabledFeatures` — удалённо выключенные функции клиента (имена — docs/PROJECT.md). Пустой список — всё включено.",
         "operationId": "ClientVersionController_info",
         "parameters": [
           {
@@ -27227,7 +27228,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Версия и ссылка на магазин"
+            "description": "Версия, ссылка на магазин и выключенные функции"
           }
         },
         "summary": "Минимальная поддерживаемая версия мобильного клиента",
