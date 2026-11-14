@@ -109,8 +109,11 @@ jobs:
           SUITES: ${{ inputs.suites || 'pr' }}
           RECORD: ${{ inputs.record_snapshots && '--record' || '' }}
           SH_PERF_FLAGS: ${{ inputs.perf_flags }}
-        # shellcheck disable=SC2086 — наборы через пробел.
-        run: scripts/test.sh $SUITES $RECORD
+        # Директива shellcheck работает только внутри скрипта: комментарий YAML над `run:`
+        # actionlint не видит. Без кавычек намеренно — наборы идут через пробел.
+        run: |
+          # shellcheck disable=SC2086
+          scripts/test.sh $SUITES $RECORD
 
       - name: Сохранить результаты
         if: always()
