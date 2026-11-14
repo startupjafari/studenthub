@@ -1786,6 +1786,40 @@
         }
       }
     },
+    "chats.composer.overLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лимит превышен на %lld"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шектен %lld артық"
+          }
+        }
+      }
+    },
+    "chats.composer.remaining": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Осталось символов: %lld"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қалған таңба: %lld"
+          }
+        }
+      }
+    },
     "chats.editing": {
       "extractionState": "manual",
       "localizations": {

@@ -31,12 +31,20 @@ final class ChatThreadModel {
     /// раз: дальше человек управляет сам.
     private(set) var openingAnchor: String?
 
-    /// Текст в поле ввода. Черновик пишется в базу с задержкой: человек печатает
-    /// быстрее, чем имеет смысл ходить в хранилище, но потерять написанное нельзя.
-    var draft = ""
+    /// Черновик чата и текст правки — порознь (IOS_RULES 9.8.6). Черновик пишется в базу
+    /// с задержкой: человек печатает быстрее, чем имеет смысл ходить в хранилище, но
+    /// потерять написанное нельзя.
+    private(set) var input = ComposerInput()
+    /// Текст в поле ввода — к нему привязано поле. При правке это текст правки, иначе
+    /// черновик чата.
+    var composerText: String {
+        get { input.text }
+        set { input.text = newValue }
+    }
     /// На какое сообщение отвечаем.
     private(set) var replyTo: MessageRecord?
-    /// Какое своё сообщение правим: поле ввода держит его текст, «отправить» — сохранить.
+    /// Какое своё сообщение правим: поле ввода держит его текст (`input.editText`),
+    /// «отправить» — сохранить.
     private(set) var editing: MessageRecord?
     /// Строка чата — для шапки (тип, участники, онлайн) и галочек прочтения.
     private(set) var chat: ChatRecord?
@@ -282,8 +290,7 @@ final class ChatThreadModel {
     /// `silent` — «Отправить без звука»: доставка без уведомления и пуша у получателей.
     @MainActor
     func send(silent: Bool = false) async {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard let text = OutgoingText.sendable(composerText) else { return }
         if let editing {
             await saveEdit(of: editing, text: text)
             return
@@ -292,7 +299,7 @@ final class ChatThreadModel {
         // Поле и полоса ответа пустеют сразу, до сети: человек видит, что нажатие
         // принято, даже если возврат из окна истории ещё скачивает последнюю страницу.
         let answering = replyTo?.remoteId
-        draft = ""
+        input.draft = ""
         replyTo = nil
         draftTask?.cancel()
 
@@ -315,14 +322,17 @@ final class ChatThreadModel {
     /// в вебе, отдельной формы для подписи нет.
     @MainActor
     func attach(_ attachment: OutgoingAttachment) async {
-        let caption = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        // В правке подписью черновик не становится: он ждёт конца правки в поле.
+        let caption = editing == nil ? OutgoingText.normalized(input.draft) : ""
         let answering = replyTo?.remoteId
-        draft = ""
         replyTo = nil
-        draftTask?.cancel()
+        if editing == nil {
+            input.draft = ""
+            draftTask?.cancel()
+            Task { @MainActor [weak self] in await self?.persistDraft("") }
+        }
         await returnToLatest()
         bottomRequests += 1
-        Task { @MainActor [weak self] in await self?.persistDraft("") }
 
         // Подпись о загрузке — не сразу: сжатый снимок улетает за доли секунды, и
         // она успела бы только мигнуть (PROJECT.md §9.1a).
@@ -356,11 +366,11 @@ final class ChatThreadModel {
     /// `grouped: false` — «Отправить без группировки»: каждое вложение своим сообщением.
     func send(attachments: [OutgoingAttachment], caption: String, asFiles: Bool, grouped: Bool = true) async {
         guard !attachments.isEmpty else { return }
-        let text = caption.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = OutgoingText.normalized(caption)
         let answering = replyTo?.remoteId
         replyTo = nil
         if editing == nil {
-            draft = ""
+            input.draft = ""
             draftTask?.cancel()
             Task { @MainActor [weak self] in await self?.persistDraft("") }
         }
@@ -488,13 +498,15 @@ final class ChatThreadModel {
         guard canEdit(message) else { return }
         replyTo = nil
         editing = message
-        draft = message.content
+        // Черновик чата не трогаем: текст правки — отдельно, после правки черновик
+        // вернётся в поле.
+        input.beginEdit(message.content)
     }
 
     @MainActor
     func cancelEdit() {
         editing = nil
-        draft = ""
+        input.endEdit()
     }
 
     /// Правка уходит сокетом; текст в базе меняется сразу, а подтверждение придёт
@@ -502,7 +514,7 @@ final class ChatThreadModel {
     @MainActor
     private func saveEdit(of message: MessageRecord, text: String) async {
         editing = nil
-        draft = ""
+        input.endEdit()
         guard text != message.content, let remoteID = message.remoteId else { return }
         let id = message.id
         try? await database.writer.write { db in
@@ -678,10 +690,9 @@ final class ChatThreadModel {
     /// поле пустеет только после ответа сервера — при ошибке написанное не теряется.
     @MainActor
     func scheduleDraft(at date: Date, silent: Bool = false) async throws {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, editing == nil else { return }
+        guard editing == nil, let text = OutgoingText.sendable(input.draft) else { return }
         try await scheduled.schedule(text, at: date, replyToID: replyTo?.remoteId, silent: silent)
-        draft = ""
+        input.draft = ""
         replyTo = nil
         draftTask?.cancel()
         Task { @MainActor [weak self] in await self?.persistDraft("") }
@@ -1303,8 +1314,11 @@ final class ChatThreadModel {
     @MainActor
     func draftChanged() {
         noteTyping()
+        // Правка — не черновик: ни в базу, ни на сервер, иначе её текст был бы виден в вебе
+        // черновиком чата. Отложенную запись настоящего черновика тоже не отменяем — она
+        // донесёт набранное до правки.
+        guard let text = input.draftToPersist else { return }
         draftTask?.cancel()
-        let text = draft
         draftTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(400))
             guard !Task.isCancelled else { return }
@@ -1346,8 +1360,8 @@ final class ChatThreadModel {
             let stored = try? await database.reader.read { db in
                 try DraftRecord.fetchOne(db, key: chatID)
             }
-            guard let self, self.draft.isEmpty, let stored else { return }
-            self.draft = stored.text
+            guard let self, self.input.draft.isEmpty, let stored else { return }
+            self.input.draft = stored.text
         }
     }
 
@@ -1370,7 +1384,9 @@ final class ChatThreadModel {
         }
         // Серверу — чтобы черновик был виден в вебе, а после отправки (пустой текст)
         // не вернулся старым серверным при следующей синхронизации списка. Не вышло —
-        // запись остаётся несинхронизированной, следующий набор повторит.
+        // запись остаётся несинхронизированной, следующий набор повторит. Длиннее лимита
+        // сервер черновик не примет — его не шлём, он живёт в базе, пока его не сократят.
+        guard OutgoingText.draftFits(text) else { return }
         guard (try? await actions.saveDraft(chatID: chatID, text: text)) != nil, !text.isEmpty else { return }
         try? await database.writer.write { db in
             guard var record = try DraftRecord.fetchOne(db, key: chatID), record.text == text else { return }
