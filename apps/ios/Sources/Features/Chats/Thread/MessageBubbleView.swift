@@ -193,7 +193,7 @@ struct MessageBubbleView: View {
     }
 
     private var bubble: some View {
-        ChatBubbleStack(spacing: Spacing.xs) {
+        ChatBubbleStack(spacing: ChatBubbleMetrics.partSpacing) {
             if context.isGroup, !item.isOwn, item.isFirstInGroup, let name = message.senderName, !name.isEmpty {
                 Text(name)
                     .font(.subheadline.weight(.semibold))
@@ -334,7 +334,7 @@ struct MessageBubbleView: View {
         }
         .padding(.leading, padding(leading: true))
         .padding(.trailing, padding(leading: false))
-        .padding(.vertical, isMediaOnly ? 3 : Spacing.sm)
+        .padding(.vertical, isMediaOnly ? ChatBubbleMetrics.mediaOnlyVerticalPadding : ChatBubbleMetrics.verticalPadding)
         .background {
             if PerformanceFlags.chatBubbleFlatShadow {
                 // Та же тень без размытия: подложка со сдвигом вниз под заливкой пузыря.
@@ -643,7 +643,7 @@ struct MessageBubbleView: View {
                         }
                     }
                     .padding(.horizontal, Spacing.md)
-                    .padding(.vertical, 3)
+                    .padding(.vertical, ChatBubbleMetrics.reactionVerticalPadding)
                     .foregroundStyle(reactionForeground(mine: mine))
                     .background(reactionBackground(mine: mine), in: Capsule())
                     // Своя реакция поставлена или снята — капсула коротко «вздыхает».
@@ -859,7 +859,7 @@ private struct ReplyQuoteView: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, Spacing.xs)
+        .padding(.vertical, ChatBubbleMetrics.replyVerticalPadding)
         .padding(.trailing, Spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(

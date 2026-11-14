@@ -726,7 +726,8 @@ final class MessageListViewController: UIViewController {
         return MessageHeightEstimate.Metrics(
             textWidth: Double(min(width * 0.78, 360) - 24),
             lineHeight: Double(body.lineHeight),
-            charWidth: Double(body.pointSize * 0.52)
+            charWidth: Double(body.pointSize * 0.52),
+            captionLineHeight: Double(UIFont.preferredFont(forTextStyle: .subheadline).lineHeight)
         )
     }
 
@@ -753,7 +754,7 @@ final class MessageListViewController: UIViewController {
         }
         // Как в Telegram: пузыри почти у краёв экрана, внутри группы — вплотную.
         .margins(.horizontal, Spacing.md)
-        .margins(.vertical, item.isLastInGroup ? 5 : 1)
+        .margins(.vertical, ChatBubbleMetrics.rowMargin(isLastInGroup: item.isLastInGroup))
         cell.backgroundConfiguration = .clear()
     }
 
