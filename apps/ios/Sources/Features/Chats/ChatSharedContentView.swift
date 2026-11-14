@@ -1,5 +1,4 @@
 import AVFoundation
-import SafariServices
 import SwiftUI
 import UIKit
 
@@ -765,39 +764,8 @@ final class ChatMediaThumbnails {
     }
 }
 
-/// Ссылки из материалов чата — во встроенном Safari (`SFSafariViewController`) поверх
-/// приложения, как в Telegram: «Готово» возвращает в информацию о чате. Показывается
-/// самым верхним контроллером окна — так он встаёт поверх и листа, и стека. Адрес не
-/// http(s) Safari-вид не откроет — такой отдаём системе.
-@MainActor
-enum ChatInAppBrowser {
-    static func open(_ url: URL) {
-        let scheme = url.scheme?.lowercased()
-        guard scheme == "http" || scheme == "https", let presenter = topController() else {
-            UIApplication.shared.open(url)
-            return
-        }
-        let safari = SFSafariViewController(url: url)
-        safari.preferredControlTintColor = UIColor(Palette.primary)
-        safari.dismissButtonStyle = .close
-        presenter.present(safari, animated: true)
-    }
-
-    private static func topController() -> UIViewController? {
-        let window = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows)
-            .first(where: \.isKeyWindow)
-        var top = window?.rootViewController
-        while let presented = top?.presentedViewController, !presented.isBeingDismissed {
-            top = presented
-        }
-        return top
-    }
-}
-
-/// Строка ссылки: касание открывает её во встроенном Safari поверх приложения, как в
-/// Telegram, — человек не уходит из чата. Сервер отдаёт только сообщения с превью;
+/// Строка ссылки: касание открывает её через `ExternalLinkOpener` — во встроенном Safari
+/// поверх приложения, как в Telegram, человек не уходит из чата. Сервер отдаёт только сообщения с превью;
 /// адрес, который не разобрать, — просто текстом.
 private struct ChatLinkRow: View {
     let link: ChatLinkItemDTO
@@ -805,7 +773,7 @@ private struct ChatLinkRow: View {
     var body: some View {
         if let url = link.url {
             Button {
-                ChatInAppBrowser.open(url)
+                ExternalLinkOpener.open(url)
             } label: {
                 label(url: url)
             }

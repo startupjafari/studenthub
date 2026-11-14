@@ -24,11 +24,9 @@ struct ProfileShare: Equatable {
     }
 
     private static func isOurWeb(_ url: URL) -> Bool {
-        guard let scheme = url.scheme?.lowercased(), let host = url.host()?.lowercased() else { return false }
+        guard let scheme = url.scheme?.lowercased(), url.host() != nil else { return false }
         guard let base = AppConfiguration.webBaseURL else { return scheme == "https" }
-        return host == base.host()?.lowercased()
-            && scheme == base.scheme?.lowercased()
-            && url.port == base.port
+        return ExternalLink.isSameOrigin(url, as: base)
     }
 
     /// `/profile/<id>` или `/profile/<id>/`; id — буквы, цифры, «-» и «_», как в вебе.

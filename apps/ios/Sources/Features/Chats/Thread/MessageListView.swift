@@ -727,6 +727,10 @@ final class MessageListViewController: UIViewController {
                     self?.onAction?(action, item.message)
                 }
             }
+            // Ссылки текста (markdown, автоссылки) — через единый открыватель, а не в
+            // систему: окружение SwiftUI в ячейки `UIHostingConfiguration` не доходит,
+            // поэтому ставим здесь, у каждого пузыря.
+            .environment(\.openURL, ExternalLinkOpener.action)
         }
         // Как в Telegram: пузыри почти у краёв экрана, внутри группы — вплотную.
         .margins(.horizontal, Spacing.md)
