@@ -313,6 +313,17 @@ final class RealtimeCoordinator {
         case .chatActivity, .blockChanged:
             scheduleListRefresh()
 
+        case .chatListChanged:
+            // Что именно поменялось, событие не говорит — первая страница списка несёт
+            // закреплённые и свежие чаты, остальное догонит обновление списка.
+            scheduleListRefresh()
+
+        case .foldersChanged:
+            let api = api ?? ChatsAPI()
+            if let folders = try? await api.folders() {
+                try? await store.save(folders: folders)
+            }
+
         case .chatPinned(let chatID):
             pinnedVersions[chatID, default: 0] += 1
             chatSignals[chatID]?.pinnedVersion += 1

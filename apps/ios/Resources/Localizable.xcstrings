@@ -97307,6 +97307,52 @@
           }
         }
       }
+    },
+    "validation.chats.folderEmoji": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Значок папки — один эмодзи"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қалта белгішесі — бір эмодзи"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folder icon must be a single emoji"
+          }
+        }
+      }
+    },
+    "validation.chats.folderChatExcluded": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат не может быть одновременно в папке и в исключениях"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат бір мезгілде қалтада да, ерекшеліктерде де бола алмайды"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A chat cannot be both included in and excluded from a folder"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

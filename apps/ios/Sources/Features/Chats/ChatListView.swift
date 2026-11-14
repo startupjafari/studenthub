@@ -856,7 +856,6 @@ struct ChatRowView: View {
                     }
                     ForEach(tags.prefix(2), id: \.folderID) { tag in
                         ChatFolderTagLabel(tag: tag)
-                            .alignmentGuide(.firstTextBaseline) { $0[.firstTextBaseline] }
                     }
                     Spacer(minLength: Spacing.md)
                     if let isRead = readState {
@@ -1252,13 +1251,16 @@ private struct ChatPreviewThumbnail: View {
 
     @Environment(\.displayScale) private var displayScale
     @ScaledMetric(relativeTo: .subheadline) private var side: CGFloat = 18
-    @State private var image: UIImage?
+    /// Загруженная копия вместе с id файла: строка переиспользуется под новое последнее
+    /// сообщение, и чужой снимок не должен мелькнуть у него.
+    @State private var loaded: (id: String, image: UIImage)?
 
     /// Ключ — тот же, что у плитки на 40 pt: мелкая копия общая с превью переписки.
     private static let points: CGFloat = 40
 
     var body: some View {
         let key = ChatMediaTile.cacheKey(attachment, points: Self.points)
+        let image = loaded?.id == attachment.id ? loaded?.image : nil
         let shown = image ?? ImageMemoryCache.shared.image(for: key) ?? ChatMediaImages.preview(for: attachment)
         ZStack {
             if let shown {
@@ -1280,11 +1282,12 @@ private struct ChatPreviewThumbnail: View {
         .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
         .accessibilityHidden(true)
         .task(id: attachment.id) {
-            guard !attachment.spoiler, image == nil, ImageMemoryCache.shared.image(for: key) == nil else { return }
-            if case .loaded(let loaded) = await ChatMediaImages.load(
+            guard !attachment.spoiler, ImageMemoryCache.shared.image(for: key) == nil else { return }
+            let id = attachment.id
+            if case .loaded(let image) = await ChatMediaImages.load(
                 attachment, points: Self.points, scale: displayScale, key: key
             ) {
-                image = loaded
+                loaded = (id, image)
             }
         }
     }

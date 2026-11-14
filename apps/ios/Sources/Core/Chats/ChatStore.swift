@@ -82,12 +82,14 @@ struct ChatStore: Sendable {
         try await database.writer.write { db in
             let pinned = try ChatRecord.filter(ChatRecord.Columns.pinnedAt != nil).fetchAll(db)
             let previous = Dictionary(uniqueKeysWithValues: pinned.map { ($0.id, $0.pinnedOrder) })
-            let place = Dictionary(uniqueKeysWithValues: ids.enumerated().map { ($1, $0) })
+            let listed = Set(ids)
+            // Не перечисленные закреплённые встают ниже перечисленных в прежнем порядке
+            // списка — так их ставит и сервер (§B.2 контракта): после вызова место есть
+            // у всех закреплённых.
+            let rest = try ChatListQuery.pinnedChatIDs(in: db).filter { !listed.contains($0) }
+            let place = Dictionary((ids + rest).enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
             for var chat in pinned {
-                // Не перечисленные закреплённые остаются ниже перечисленных — так их
-                // ставит и сервер (§B.2 контракта).
-                let order = place[chat.id] ?? ids.count + (chat.pinnedOrder ?? 0)
-                guard chat.pinnedOrder != order else { continue }
+                guard let order = place[chat.id], chat.pinnedOrder != order else { continue }
                 chat.pinnedOrder = order
                 try chat.update(db)
             }
