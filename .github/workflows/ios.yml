@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       suites:
-        description: 'Наборы scripts/test.sh (build, pr, unit, snapshot, ui, ui-extended, perf, scroll, full)'
+        description: 'Наборы scripts/test.sh (build, pr, unit, snapshot, ui, ui-extended, perf, scroll, bench, full)'
         default: build
         type: string
       record_snapshots:

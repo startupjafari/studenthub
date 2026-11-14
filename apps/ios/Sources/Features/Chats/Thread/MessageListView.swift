@@ -457,6 +457,7 @@ final class MessageListViewController: UIViewController {
         let items = dataSource.snapshot().numberOfItems
         Signposts.chats.emitEvent("FirstContentFrame", "items: \(items)")
         scheduleHeaderHide()
+        ScrollBenchmark.startIfRequested(on: collectionView)
     }
 
     /// Показать ленту после первой расстановки.
