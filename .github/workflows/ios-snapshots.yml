@@ -38,8 +38,9 @@ jobs:
         with:
           persist-credentials: false
 
+      # Точная версия с проверкой суммы — см. .github/actions/setup-xcodegen.
       - name: Поставить XcodeGen
-        run: brew install xcodegen
+        uses: ./.github/actions/setup-xcodegen
 
       - name: Кеш пакетов Swift
         uses: actions/cache@v6
