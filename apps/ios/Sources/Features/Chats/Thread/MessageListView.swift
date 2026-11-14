@@ -365,7 +365,7 @@ final class MessageListViewController: UIViewController {
         followedBottom = followsBottom
         let oldHeight = collectionView.contentSize.height
         let oldOffset = collectionView.contentOffset.y
-        let pinned = topVisibleItem()
+        let anchors = anchorCandidates(order: previousOrder)
         let isFirstFill = !hasContent && !days.isEmpty
         // Прежний низ ленты пропал — значит, сменилось всё окно, а не пришло новое.
         let replaced = previousOrder.last.map { itemsByID[$0] == nil } ?? false
@@ -428,7 +428,10 @@ final class MessageListViewController: UIViewController {
                     self.scrollToBottom(animated: animated && !self.reduceMotion)
                     return
                 }
-                if let pinned, self.restore(pinned) { return }
+                // Держим верхнее видимое; удалено — ближайшее выжившее ниже, затем выше.
+                if let anchor = anchors.first(where: { self.itemsByID[$0.id] != nil }), self.restore(anchor) {
+                    return
+                }
                 let grown = self.collectionView.contentSize.height - oldHeight
                 if grown > 0, oldOffset < grown {
                     // Выросло сверху — компенсируем, иначе лента прыгнет под пальцем.
@@ -505,20 +508,38 @@ final class MessageListViewController: UIViewController {
         onFirstShown?()
         guard !reduceMotion else {
             collectionView.alpha = 1
+            completion()
             return
         }
         UIView.animate(withDuration: Motion.Duration.feedback, delay: 0, options: [.allowUserInteraction]) {
             self.collectionView.alpha = 1
+        } completion: { _ in
+            completion()
         }
     }
 
-    /// Верхнее видимое сообщение и его расстояние от верха видимой области.
-    private func topVisibleItem() -> (id: String, distance: CGFloat)? {
-        guard let indexPath = collectionView.indexPathsForVisibleItems.min(),
-            let id = dataSource.itemIdentifier(for: indexPath),
-            let frame = collectionView.layoutAttributesForItem(at: indexPath)?.frame
-        else { return nil }
-        return (id, frame.minY - collectionView.contentOffset.y)
+    /// Смещение ленты без оттяжки у верха: отскок не должен попадать в расстояния якорей.
+    private var settledOffset: CGFloat {
+        max(collectionView.contentOffset.y, -collectionView.adjustedContentInset.top)
+    }
+
+    /// Кого держать на месте при смене среза, по порядку: верхнее видимое сообщение,
+    /// видимые под ним, затем несколько над ним — каждое с расстоянием от верха. Если
+    /// верхнее удалят, держится ближайшее выжившее, а не грубая поправка по росту высоты.
+    private func anchorCandidates(order: [String]) -> [(id: String, distance: CGFloat)] {
+        let visible = collectionView.indexPathsForVisibleItems.sorted()
+        guard let top = visible.first, let topID = dataSource.itemIdentifier(for: top),
+            let index = order.firstIndex(of: topID)
+        else { return [] }
+        let below = order[(index + 1)..<min(order.count, index + max(visible.count, 1))]
+        let above = order[max(0, index - 3)..<index].reversed()
+        let offset = settledOffset
+        return ([topID] + below + above).compactMap { id in
+            guard let indexPath = dataSource.indexPath(for: id),
+                let frame = collectionView.layoutAttributesForItem(at: indexPath)?.frame
+            else { return nil }
+            return (id, frame.minY - offset)
+        }
     }
 
     /// Вернуть сообщение на прежнее место экрана. `false` — его больше нет в ленте.
@@ -530,7 +551,9 @@ final class MessageListViewController: UIViewController {
         let lowest = -inset.top
         let highest = max(lowest, collectionView.contentSize.height - collectionView.bounds.height + inset.bottom)
         let target = min(max(frame.minY - pinned.distance, lowest), highest)
-        if abs(target - collectionView.contentOffset.y) > 0.5 {
+        // Сравниваем со смещением без оттяжки: тянутую у верха ленту не сдёргиваем, если
+        // якорь не сдвинулся.
+        if abs(target - settledOffset) > 0.5 {
             ScrollProbe.note("restore pinned \(Int(collectionView.contentOffset.y)) -> \(Int(target)) decelerating=\(collectionView.isDecelerating)")
             collectionView.contentOffset.y = target
         }
@@ -1337,6 +1360,15 @@ extension MessageListViewController: UIGestureRecognizerDelegate {
         guard gestureRecognizer === menuPress else { return true }
         return menuItem(at: gestureRecognizer.location(in: collectionView)) != nil
     }
+
+    /// Двойной тап не спорит с жестами SwiftUI в ячейке: живые элементы он отсекает сам
+    /// (`reactionItem`), а без одновременности его гасило бы любое касание внутри.
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+    ) -> Bool {
+        gestureRecognizer === reactionTap
+    }
 }
 
 extension MessageListViewController: UICollectionViewDataSourcePrefetching {
@@ -1360,15 +1392,6 @@ extension MessageListViewController: UICollectionViewDataSourcePrefetching {
             guard media.count == 1, let only = media.first, only.chatKind == .photo else { return nil }
             return only
         }
-    }
-
-    /// Двойной тап не спорит с жестами SwiftUI в ячейке: живые элементы он отсекает сам
-    /// (`reactionItem`), а без одновременности его гасило бы любое касание внутри.
-    func gestureRecognizer(
-        _ gestureRecognizer: UIGestureRecognizer,
-        shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
-    ) -> Bool {
-        gestureRecognizer === reactionTap
     }
 }
 
