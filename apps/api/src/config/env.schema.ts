@@ -23,6 +23,39 @@ const booleanFromString = z
 const optionalEnv = <T extends z.ZodTypeAny>(schema: T) =>
   z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), schema.optional())
 
+/**
+ * Список имён функций клиента через запятую (`chatVideoUpload,liveLocation`) — для
+ * удалённого выключателя (`GET /client-version`, docs/PROJECT.md).
+ *
+ * Пустая строка и отсутствие переменной — пустой список: по умолчанию выключено
+ * ничего. Пробелы вокруг имён и пустые элементы (`a,,b`, хвостовая запятая) прощаем —
+ * их оставляет ручная правка в панели хостинга; а вот имя не в camelCase — отказ
+ * старта: опечатку вроде `chat-video` клиент молча пропустил бы, и функция осталась бы
+ * включённой у всех, хотя человек считает её выключенной.
+ */
+const featureListEnv = (name: string) =>
+  z
+    .string()
+    .default('')
+    .transform((v) =>
+      v
+        .split(',')
+        .map((item) => item.trim())
+        .filter((item) => item !== ''),
+    )
+    .pipe(
+      z
+        .array(
+          z
+            .string()
+            .regex(
+              /^[a-z][A-Za-z0-9]{0,63}$/,
+              `${name}: имена функций в camelCase через запятую, например chatVideoUpload,liveLocation`,
+            ),
+        )
+        .max(50, `${name}: не больше 50 имён`),
+    )
+
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3001),
@@ -316,6 +349,17 @@ export const envSchema = z.object({
     .default('0.0.0'),
   /** Адрес приложения в Google Play — для кнопки «Обновить». Не задан — кнопки не будет. */
   ANDROID_STORE_URL: optionalEnv(z.string().url()),
+
+  /**
+   * Удалённый выключатель рискованных функций мобильных клиентов (IOS_RULES 14.5.1).
+   *
+   * `CLIENT_DISABLED_FEATURES` выключает функцию на всех платформах, `IOS_…`/`ANDROID_…`
+   * — только на своей: сломаться функция может в одной сборке, и гасить её у всех
+   * было бы лишним. В ответ уходит объединение. Пусто — выключено ничего.
+   */
+  CLIENT_DISABLED_FEATURES: featureListEnv('CLIENT_DISABLED_FEATURES'),
+  IOS_DISABLED_FEATURES: featureListEnv('IOS_DISABLED_FEATURES'),
+  ANDROID_DISABLED_FEATURES: featureListEnv('ANDROID_DISABLED_FEATURES'),
 
   // Медиа-ретранслятор камер (docs/PROJECT.md §3.10). Без них просмотр камер выключен:
   // запрос просмотра отвечает 409 (`details.field=relay`), агенты потоки не отдают.

@@ -7,6 +7,23 @@ struct ClientVersionInfo: Codable, Equatable {
     /// Адрес в App Store. Не задан на сервере — кнопки «Обновить» не будет: кнопка,
     /// ведущая в никуда, хуже её отсутствия.
     let storeUrl: URL?
+    /// Удалённо выключенные функции (`RemoteFeatures`). Едут в этом же ответе, чтобы
+    /// клиент не делал второй запрос при каждом запуске; незнакомые имена отброшены.
+    var disabledFeatures: [RemoteFeature] = []
+}
+
+extension ClientVersionInfo {
+    /// Своё декодирование ради одного поля: `disabledFeatures` разбирается терпимо, и
+    /// ответ старого сервера или кеш прежней сборки (поля нет) читается как «всё
+    /// включено», а не как отказ, который отключил бы и проверку версии. Остальные поля
+    /// — как раньше, строго. Кодирование — синтезированное.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        platform = try container.decode(String.self, forKey: .platform)
+        minimumVersion = try container.decode(String.self, forKey: .minimumVersion)
+        storeUrl = try container.decodeIfPresent(URL.self, forKey: .storeUrl)
+        disabledFeatures = RemoteFeature.decodeList(from: container, forKey: .disabledFeatures)
+    }
 }
 
 protocol ClientVersionChecking: Sendable {

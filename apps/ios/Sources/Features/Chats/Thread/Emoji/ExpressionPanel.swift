@@ -8,7 +8,16 @@ import UIKit
 /// него свой поиск; внизу плавает капсула вкладок «GIF · Стикеры · Эмодзи», справа от
 /// неё у emoji — «стереть».
 struct ExpressionPanel: View {
-    enum Tab: Hashable, CaseIterable { case gifs, stickers, emoji }
+    enum Tab: Hashable, CaseIterable {
+        case gifs, stickers, emoji
+
+        /// Вкладки, которые сейчас показываются. Стикеры выключены с сервера
+        /// (`RemoteFeature.stickers`) — вкладки нет вовсе; emoji не выключаются никогда:
+        /// ими панель открывается, и без них она пустая.
+        static func visible(disabled: Set<RemoteFeature>) -> [Tab] {
+            allCases.filter { $0 != .stickers || !disabled.contains(.stickers) }
+        }
+    }
 
     let onEmoji: (String) -> Void
     let onBackspace: () -> Void
@@ -24,10 +33,17 @@ struct ExpressionPanel: View {
     /// Запас под плавающей капсулой вкладок: последний ряд прокручивается из-под неё.
     private static let barClearance: CGFloat = ControlHeight.xl + Spacing.md * 2
 
+    /// Вкладки с учётом удалённого выключателя; чтение из `body` подписывает панель на
+    /// его изменения.
+    private var tabs: [Tab] { Tab.visible(disabled: RemoteFeatures.shared.disabled) }
+
+    /// Выбранная вкладка, если её не выключили, пока панель была открыта.
+    private var currentTab: Tab { tabs.contains(tab) ? tab : .emoji }
+
     var body: some View {
         ZStack(alignment: .bottom) {
             Group {
-                switch tab {
+                switch currentTab {
                 case .emoji:
                     EmojiBrowser(columns: 8, bottomInset: Self.barClearance, onPick: pickEmoji)
                 case .stickers:
@@ -53,7 +69,7 @@ struct ExpressionPanel: View {
             Spacer(minLength: 0)
             tabPicker
             Spacer(minLength: 0)
-            if tab == .emoji {
+            if currentTab == .emoji {
                 Button(action: onBackspace) {
                     Image(systemName: "delete.left")
                         .font(.body.weight(.medium))
@@ -76,8 +92,8 @@ struct ExpressionPanel: View {
     /// Капсула вкладок: выбранная — светлая подложка, которая переезжает пружиной.
     /// Вкладку выбирают и скольжением пальца по капсуле (`slideSelection`).
     private var tabPicker: some View {
-        let items = Tab.allCases
-        let shown = hoveredTab.flatMap { items.indices.contains($0) ? items[$0] : nil } ?? tab
+        let items = tabs
+        let shown = hoveredTab.flatMap { items.indices.contains($0) ? items[$0] : nil } ?? currentTab
         return HStack(spacing: 0) {
             ForEach(Array(items.enumerated()), id: \.element) { index, item in
                 let isCurrent = shown == item
@@ -480,22 +496,35 @@ private struct GifBrowser: View {
     @State private var failure: String?
     private let api: ChatMessaging = ChatsAPI()
 
+    /// Каталог выключен с нашего сервера (`RemoteFeature.gifSearch`): поля поиска нет,
+    /// свои недавние GIF остаются — они уже лежат у нас и каталога не касаются.
+    private var remoteOff: Bool { !RemoteFeatures.shared.isEnabled(.gifSearch) }
+
+    /// Каталога нет — по выключателю или потому, что сервер не настроил GIPHY.
+    private var catalogOff: Bool { searchDisabled || remoteOff }
+
     var body: some View {
         VStack(spacing: Spacing.sm) {
-            ExpressionSearchField(
-                query: $query,
-                prompt: String(localized: "chats.panel.searchGif", defaultValue: "Поиск GIF")
-            )
-            .padding(.horizontal, Spacing.md)
-            .padding(.top, Spacing.sm)
+            if !remoteOff {
+                ExpressionSearchField(
+                    query: $query,
+                    prompt: String(localized: "chats.panel.searchGif", defaultValue: "Поиск GIF")
+                )
+                .padding(.horizontal, Spacing.md)
+                .padding(.top, Spacing.sm)
+            }
             results
         }
+    }
+
+    private var searchOffNote: String {
+        String(localized: "chats.gifs.searchOff", defaultValue: "Поиск GIF временно недоступен")
     }
 
     /// Сетки нет (грузится, пусто, ничего не нашлось, сбой) — пояснение по центру панели,
     /// а не прижатым к поиску.
     private var hasTiles: Bool {
-        (query.trimmingCharacters(in: .whitespaces).isEmpty && !recent.isEmpty) || (!searchDisabled && !found.isEmpty)
+        (query.trimmingCharacters(in: .whitespaces).isEmpty && !recent.isEmpty) || (!catalogOff && !found.isEmpty)
     }
 
     @ViewBuilder
@@ -505,6 +534,8 @@ private struct GifBrowser: View {
                 ProgressView()
             } else if let failure {
                 note(failure, isError: true)
+            } else if remoteOff {
+                note(searchOffNote)
             } else if searchDisabled {
                 note(String(
                     localized: "chats.gifs.empty",
@@ -540,7 +571,7 @@ private struct GifBrowser: View {
                     sectionTitle(String(localized: "emoji.recent", defaultValue: "Недавние"))
                     grid(recent.map { GifTile(id: "r-\($0.fileId)", url: $0.url, choice: .recent($0)) })
                 }
-                if !searchDisabled {
+                if !catalogOff {
                     if !found.isEmpty {
                         sectionTitle(query.trimmingCharacters(in: .whitespaces).isEmpty
                             ? String(localized: "chats.gifs.trending", defaultValue: "Популярные")
@@ -562,6 +593,8 @@ private struct GifBrowser: View {
                         .foregroundStyle(Palette.mutedForeground)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, Spacing.xs)
+                } else if remoteOff {
+                    note(searchOffNote)
                 } else if recent.isEmpty {
                     note(String(
                         localized: "chats.gifs.empty",
@@ -623,7 +656,7 @@ private struct GifBrowser: View {
     }
 
     private func search() async {
-        guard !searchDisabled else { return }
+        guard !catalogOff else { return }
         isLoading = true
         defer { isLoading = false }
         // Популярные из прошлого открытия остаются на экране, пока не придут свежие.
