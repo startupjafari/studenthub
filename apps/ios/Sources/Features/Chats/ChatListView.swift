@@ -1087,7 +1087,10 @@ private struct ChatPeekView: View {
                             isGroup: row.kind != .private && row.kind != .saved,
                             othersReadAt: row.othersReadAt,
                             viewerID: viewerID
-                        )
+                        ),
+                        // Копия в превью: без якорей, иначе она перехватит у пузыря
+                        // в ленте место, из которого растёт меню.
+                        isMenuPreview: true
                     )
                 }
             }

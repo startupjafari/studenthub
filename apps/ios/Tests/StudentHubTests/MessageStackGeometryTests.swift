@@ -82,7 +82,7 @@ final class MessageStackGeometryTests: XCTestCase {
 
     /// Оценка растёт с длиной текста, медиа и реакциями.
     func testEstimateGrowsWithContent() {
-        let metrics = MessageHeightEstimate.Metrics(textWidth: 250, lineHeight: 22, charWidth: 8)
+        let metrics = MessageHeightEstimate.Metrics(textWidth: 250, lineHeight: 22, charWidth: 8, captionLineHeight: 20)
         let short = MessageHeightEstimate.estimate(.init(textLength: 10), metrics: metrics)
         let long = MessageHeightEstimate.estimate(.init(textLength: 300), metrics: metrics)
         var photo = MessageHeightEstimate.Input()
@@ -90,9 +90,19 @@ final class MessageStackGeometryTests: XCTestCase {
         var reacted = MessageHeightEstimate.Input(textLength: 10)
         reacted.hasReactions = true
 
-        XCTAssertEqual(short, 14 + 22 + 2)
+        // Поля пузыря 6 + 6, строка внутри группы 1 + 1, реакции 20 + 3 + 3 + зазор 4.
+        XCTAssertEqual(short, 12 + 22 + 2)
         XCTAssertGreaterThan(long, short + 22 * 8)
-        XCTAssertEqual(MessageHeightEstimate.estimate(photo, metrics: metrics), 14 + 180 + 2)
+        XCTAssertEqual(MessageHeightEstimate.estimate(photo, metrics: metrics), 12 + 180 + 2)
         XCTAssertEqual(MessageHeightEstimate.estimate(reacted, metrics: metrics), short + 30)
+    }
+
+    /// Оценка берёт отступы из тех же констант, что и вид, а не свои числа.
+    func testEstimateUsesBubbleMetrics() {
+        let metrics = MessageHeightEstimate.Metrics(textWidth: 250, lineHeight: 22, charWidth: 8, captionLineHeight: 20)
+        XCTAssertEqual(metrics.bubblePadding, Double(ChatBubbleMetrics.verticalPadding * 2))
+        XCTAssertEqual(metrics.groupGap, Double(ChatBubbleMetrics.rowMargin(isLastInGroup: false) * 2))
+        XCTAssertEqual(metrics.lastGap, Double(ChatBubbleMetrics.rowMargin(isLastInGroup: true) * 2))
+        XCTAssertEqual(metrics.fileRowHeight, Double(ChatBubbleMetrics.fileRowHeight + ChatBubbleMetrics.partSpacing))
     }
 }

@@ -20,7 +20,9 @@ import pathlib
 import plistlib
 import re
 import shutil
+import subprocess
 import sys
+import time
 
 IOS = pathlib.Path(__file__).resolve().parents[1]
 CATALOG = IOS / "Resources/Localizable.xcstrings"
@@ -41,6 +43,27 @@ def project_setting(name: str) -> str:
     return match.group(1)
 
 
+def build_number() -> str:
+    """Номер сборки — время сборки по UTC (`202611141530`), а не постоянная «1» из
+    project.yml: в «Настройки → Версия» сразу видно, что на iPhone сегодняшняя сборка, а
+    не вчерашняя (`docs/IOS_RULES.md` 1.4.1). Число растёт с каждой сборкой, как и
+    требует `CFBundleVersion`.
+    """
+    return time.strftime("%Y%m%d%H%M", time.gmtime())
+
+
+def build_commit() -> str:
+    """Коммит сборки для отчёта о проверке: короткий хэш и «+», если в дереве правки."""
+    try:
+        head = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"], cwd=IOS, capture_output=True, text=True, check=True
+        ).stdout.strip()
+        dirty = subprocess.run(["git", "status", "--porcelain", "--", "."], cwd=IOS, capture_output=True, text=True)
+        return head + ("+" if dirty.stdout.strip() else "")
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+
+
 def info_plist(api_base_url: str, web_base_url: str) -> dict:
     """Копия `info.properties` из project.yml. Расходится намеренно в трёх местах:
 
@@ -58,7 +81,9 @@ def info_plist(api_base_url: str, web_base_url: str) -> dict:
         # Живая геопозиция в чате продолжается в фоне (синий индикатор системы).
         "UIBackgroundModes": ["location"],
         "CFBundleShortVersionString": project_setting("MARKETING_VERSION"),
-        "CFBundleVersion": project_setting("CURRENT_PROJECT_VERSION"),
+        "CFBundleVersion": build_number(),
+        # Не системный ключ: смотреть `plutil -p .device/Info.plist` и называть в отчёте.
+        "SHBuildCommit": build_commit(),
         "ITSAppUsesNonExemptEncryption": False,
         "CFBundleURLTypes": [
             {"CFBundleURLName": "kz.studenthub.app", "CFBundleURLSchemes": ["studenthub"]},
@@ -133,8 +158,9 @@ def main() -> None:
 
     shutil.rmtree(OUT, ignore_errors=True)
     OUT.mkdir()
+    info = info_plist(api_base_url, web_base_url)
     with open(OUT / "Info.plist", "wb") as file:
-        plistlib.dump(info_plist(api_base_url, web_base_url), file, fmt=plistlib.FMT_XML)
+        plistlib.dump(info, file, fmt=plistlib.FMT_XML)
     for icon in sorted(ICONS.glob("AppIcon60x60@*.png")):
         shutil.copy(icon, OUT / icon.name)
     for language, table in string_tables().items():
@@ -146,6 +172,11 @@ def main() -> None:
             plistlib.dump(info_strings(language), file, fmt=plistlib.FMT_BINARY)
         print(f"{language}.lproj: {len(table)} строк")
     print(f"Info.plist: SHAPIBaseURL = {api_base_url}, SHWebBaseURL = {web_base_url}")
+    # Что искать на телефоне: «Настройки → Версия» должна показать этот номер.
+    print(
+        f"Сборка {info['CFBundleShortVersionString']} ({info['CFBundleVersion']}), "
+        f"коммит {info['SHBuildCommit']}"
+    )
 
 
 if __name__ == "__main__":

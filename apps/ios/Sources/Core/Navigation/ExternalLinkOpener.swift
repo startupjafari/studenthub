@@ -58,11 +58,60 @@ enum ExternalLink: Equatable {
         url.user() != nil || url.password() != nil
     }
 
+    /// Видимый текст ссылки сам похож на адрес, а ведёт она на другой хост:
+    /// `[studenthub.kz](https://evil.org)`. Такую открываем только после подтверждения
+    /// с настоящим адресом, даже если хост уже одобряли (`docs/IOS_RULES.md` 10.3.6).
+    /// Не-http(s) схемы сюда не попадают: их и так всегда подтверждают.
+    static func isConcealed(text: String, url: URL) -> Bool {
+        let scheme = url.scheme?.lowercased()
+        guard scheme == "http" || scheme == "https" else { return false }
+        let shown = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !shown.isEmpty, !shown.contains(where: \.isWhitespace) else { return false }
+        let candidate = shown.contains("://") ? shown : "https://" + shown
+        guard let shownURL = URL(string: candidate), let shownHost = displayHost(shownURL),
+              looksLikeDomain(shownHost)
+        else { return false }
+        return withoutWWW(shownHost) != displayHost(url).map(withoutWWW)
+    }
+
+    /// Хост из букв и цифр с точкой и буквенной зоной: «studenthub.kz», но не «1.5»,
+    /// не «т.е.» и не одно слово.
+    private static func looksLikeDomain(_ host: String) -> Bool {
+        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard labels.count >= 2, labels.allSatisfy({ !$0.isEmpty }), let zone = labels.last else { return false }
+        return zone.count >= 2 && zone.allSatisfy(\.isLetter)
+    }
+
+    private static func withoutWWW(_ host: String) -> String {
+        host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+
     /// Та же схема, хост и порт, что у `base`.
     static func isSameOrigin(_ url: URL, as base: URL) -> Bool {
         url.scheme?.lowercased() == base.scheme?.lowercased()
             && url.host()?.lowercased() == base.host()?.lowercased()
             && url.port == base.port
+    }
+}
+
+/// Ссылки текста, у которых видимый текст выдаёт себя за другой адрес. `OpenURLAction`
+/// получает только URL, поэтому разбор текста (`RichText`) отмечает их здесь, а
+/// открыватель сверяется. Разбор идёт и фоном — отсюда замок. Растёт только на такие
+/// ссылки (их единицы); чистится вместе с кешем разобранных текстов при выходе.
+enum ConcealedLinks {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var marked: Set<String> = []
+
+    static func mark(_ url: URL) {
+        _ = lock.withLock { marked.insert(url.absoluteString) }
+    }
+
+    static func contains(_ url: URL) -> Bool {
+        lock.withLock { marked.contains(url.absoluteString) }
+    }
+
+    static func clear() {
+        lock.withLock { marked.removeAll() }
     }
 }
 
@@ -78,37 +127,54 @@ enum ExternalLinkOpener {
     /// спрашиваем. Только в памяти: новый запуск — новое согласие.
     private static var approvedHosts: Set<String> = []
 
-    /// `OpenURLAction` для `.environment(\.openURL, …)`: markdown-ссылки текста и
-    /// SwiftUI `Link` внутри уходят сюда, а не в систему.
+    /// Схемы, которые зовут только наши же кнопки («Позвонить», «Открыть настройки»,
+    /// App Store): разбор текста `RichText` их из содержимого снимает, а звонок система
+    /// и так подтверждает сама. Второй вопрос поверх системного был бы лишним.
+    private static let systemSchemes: Set<String> = ["tel", "app-settings", "itms-apps"]
+
+    /// `OpenURLAction` для `.environment(\.openURL, …)` в корне приложения и в ячейках
+    /// ленты чата: markdown-ссылки текста, SwiftUI `Link` и `openURL` экранов уходят
+    /// сюда, а не в систему.
     static var action: OpenURLAction {
         OpenURLAction { url in
+            if let scheme = url.scheme?.lowercased(), systemSchemes.contains(scheme) {
+                return .systemAction
+            }
             open(url)
             return .handled
         }
     }
 
-    static func open(_ url: URL) {
+    /// - Parameter confirmed: человек уже выбрал этот адрес в нашем окне, где адрес был
+    ///   виден целиком (меню контакта «Позвонить +7…», «Написать на …»): второй раз
+    ///   не спрашиваем. Опасные схемы и тогда не открываем.
+    static func open(_ url: URL, confirmed: Bool = false) {
+        // Текст ссылки выдаёт себя за другой адрес — спрашиваем всегда, даже про наш
+        // веб и уже одобренный хост: человек шёл не туда, куда ведёт ссылка.
+        let concealed = !confirmed && ConcealedLinks.contains(url)
         switch ExternalLink(url) {
         case .ourWeb:
-            let router = AppServices.router
-            if router.open(url, for: router.currentRole) { return }
-            // Наш веб, но раздела нет в приложении — та же страница во встроенном Safari.
-            if isWeb(url) { presentSafari(url) }
+            if concealed {
+                confirm(title: confirmTitle, message: confirmMessage(url)) { openOurWeb(url) }
+            } else {
+                openOurWeb(url)
+            }
         case .web(let host):
             // Адрес с логином спрашиваем всякий раз: согласие на хост не про него.
             let remember = !ExternalLink.hasUserInfo(url)
-            if remember, approvedHosts.contains(host) {
+            if confirmed || (remember && !concealed && approvedHosts.contains(host)) {
                 presentSafari(url)
                 return
             }
-            confirm(
-                title: String(localized: "links.confirm.title", defaultValue: "Открыть ссылку?"),
-                message: "\(host)\n\n\(url.absoluteString)"
-            ) {
+            confirm(title: confirmTitle, message: confirmMessage(url)) {
                 if remember { approvedHosts.insert(host) }
                 presentSafari(url)
             }
         case .otherScheme:
+            if confirmed {
+                UIApplication.shared.open(url)
+                return
+            }
             confirm(
                 title: String(localized: "links.confirm.otherApp", defaultValue: "Открыть в другом приложении?"),
                 message: url.absoluteString
@@ -118,6 +184,24 @@ enum ExternalLinkOpener {
         case .refused:
             break
         }
+    }
+
+    private static var confirmTitle: String {
+        String(localized: "links.confirm.title", defaultValue: "Открыть ссылку?")
+    }
+
+    /// Хост из самого URL (без логина) и полный адрес — ни подпись превью, ни текст
+    /// ссылки сюда не попадают.
+    private static func confirmMessage(_ url: URL) -> String {
+        let host = ExternalLink.displayHost(url) ?? ""
+        return host.isEmpty ? url.absoluteString : "\(host)\n\n\(url.absoluteString)"
+    }
+
+    private static func openOurWeb(_ url: URL) {
+        let router = AppServices.router
+        if router.open(url, for: router.currentRole) { return }
+        // Наш веб, но раздела нет в приложении — та же страница во встроенном Safari.
+        if isWeb(url) { presentSafari(url) }
     }
 
     private static func isWeb(_ url: URL) -> Bool {
@@ -136,7 +220,7 @@ enum ExternalLinkOpener {
         let safari = SFSafariViewController(url: url)
         safari.preferredControlTintColor = UIColor(Palette.primary)
         safari.dismissButtonStyle = .close
-        presenter.present(safari, animated: true)
+        present(safari, over: presenter)
     }
 
     /// Алерт UIKit, а не SwiftUI: открыватель зовут и из ячеек ленты на
@@ -157,7 +241,20 @@ enum ExternalLinkOpener {
                 onOpen()
             }
         )
-        presenter.present(alert, animated: true)
+        present(alert, over: presenter)
+    }
+
+    /// Открыватель зовут и из кнопок системных окон («Скопировать и открыть», меню
+    /// контакта), пока те ещё закрываются. Показ поверх уходящего окна UIKit молча
+    /// отбрасывает — и «одно подтверждение» зависло бы навсегда. Ждём конца ухода.
+    private static func present(_ controller: UIViewController, over presenter: UIViewController) {
+        if let leaving = presenter.presentedViewController, let coordinator = leaving.transitionCoordinator {
+            coordinator.animate(alongsideTransition: nil) { _ in
+                presenter.present(controller, animated: true)
+            }
+        } else {
+            presenter.present(controller, animated: true)
+        }
     }
 
     private static func topController() -> UIViewController? {

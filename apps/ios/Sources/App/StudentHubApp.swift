@@ -19,6 +19,9 @@ struct StudentHubApp: App {
                 .appearanceTheme(theme)
                 // Уменьшение движения — одно значение на всё дерево (`Motion`).
                 .motionPolicy()
+                // Каждая ссылка — из текста ленты, материалов, `Link` — через один
+                // открыватель с проверкой адреса, а не молча в систему (10.3.4).
+                .environment(\.openURL, ExternalLinkOpener.action)
         }
     }
 }

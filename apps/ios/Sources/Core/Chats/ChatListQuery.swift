@@ -126,14 +126,31 @@ struct ChatListRow: FetchableRecord, Decodable, Identifiable, Equatable {
         return nil
     }
 
-    /// Что показать второй строкой.
+    /// Что показать второй строкой. Текст — без разметки, одной строкой: та же функция,
+    /// что в панелях ответа и закрепа (IOS_RULES 7.7.1).
     var preview: String? {
-        if let draftText, !draftText.isEmpty { return draftText }
+        if let draftText, !draftText.isEmpty { return MessagePreview.text(draftText) }
         if lastDeletedAt != nil {
             return String(localized: "chats.deletedMessage", defaultValue: "Сообщение удалено")
         }
-        if let lastContent, !lastContent.isEmpty { return lastContent }
-        return attachmentPreview
+        if let lastContent, !lastContent.isEmpty { return MessagePreview.text(lastContent) }
+        if let attachment = attachmentPreview { return attachment }
+        return isUnsupportedKind
+            ? String(localized: "chats.preview.unsupported", defaultValue: "Сообщение не поддерживается этой версией — обновите приложение")
+            : nil
+    }
+
+    /// Последнее сообщение без текста, файлов и известного вида — новый вид, которого эта
+    /// сборка не знает. Пустое превью выглядело бы как сбой; заглушка просит обновиться,
+    /// как «Событие в чате» у неизвестного `systemType` (IOS_RULES 9.2.8).
+    private var isUnsupportedKind: Bool {
+        guard lastCreatedAt != nil, lastSystemType == nil, lastAttachmentMime == nil,
+              lastContent?.isEmpty != false
+        else { return false }
+        guard let extras = lastExtras else { return true }
+        return extras.sharedPost == nil && extras.sharedStory == nil && extras.poll == nil
+            && extras.location == nil && extras.contact == nil && extras.checklist == nil
+            && extras.sticker == nil
     }
 }
 

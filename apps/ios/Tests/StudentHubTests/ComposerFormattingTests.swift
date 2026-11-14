@@ -34,6 +34,50 @@ final class ComposerFormattingTests: XCTestCase {
         XCTAssertEqual(result.selection, NSRange(location: 1, length: 4))
     }
 
+    /// Пустое выделение и подпись, равная адресу, — голый адрес (IOS_RULES 7.4.4).
+    func testSelfReferentialLinkIsBareAddress() {
+        let empty = ComposerFormat.link.apply(to: "", url: "https://example.com")
+        XCTAssertEqual(empty.text, "https://example.com")
+        XCTAssertEqual(empty.selection, NSRange(location: 19, length: 0))
+        XCTAssertEqual(ComposerFormat.link.apply(to: "Example.com/", url: "https://example.com").text, "https://example.com")
+        XCTAssertEqual(ComposerFormat.link.apply(to: "www.example.com/a%20b", url: "http://example.com/a b").text, "http://example.com/a%20b")
+    }
+
+    /// Подпись и адрес однострочные, разметка экранируется (IOS_RULES 7.2.5).
+    func testLinkEscapesLabelAndAddress() {
+        let result = ComposerFormat.link.apply(to: "раз\n  [два]", url: "https://example.com/a b(c)")
+        XCTAssertEqual(result.text, "[раз \\[два\\]](https://example.com/a%20b%28c%29)")
+        XCTAssertEqual(result.selection, NSRange(location: 1, length: 11))
+    }
+
+    /// Снятие цитаты узнаёт и `>` без пробела (IOS_RULES 7.4.6).
+    func testQuoteUnwrapsBareMarker() {
+        XCTAssertEqual(ComposerFormat.quote.apply(to: "> раз\n>\n>два").text, "раз\n\nдва")
+    }
+
+    /// Внутри кода — только «Блок кода»; ссылка и моноширинный не накладываются (7.4.3).
+    func testFormattingInsideCode() {
+        let block = "текст\n```\nlet x = 1\n```\nпосле"
+        let inBlock = ComposerContext.at(NSRange(location: 15, length: 3), in: block)
+        XCTAssertTrue(inBlock.inCodeBlock)
+        XCTAssertFalse(inBlock.allows(.bold))
+        XCTAssertTrue(inBlock.allows(.codeBlock))
+        XCTAssertFalse(ComposerContext.at(NSRange(location: 0, length: 5), in: block).inCode)
+        XCTAssertFalse(ComposerContext.at(NSRange(location: 24, length: 5), in: block).inCode)
+        // Незакрытый блок — код: его ещё пишут.
+        XCTAssertTrue(ComposerContext.at(NSRange(location: 6, length: 0), in: "```\nlet").inCodeBlock)
+
+        let inline = "вызов `run()` тут"
+        XCTAssertTrue(ComposerContext.at(NSRange(location: 7, length: 3), in: inline).inInlineCode)
+        XCTAssertFalse(ComposerContext.at(NSRange(location: 14, length: 3), in: inline).inCode)
+        // Ссылку на моноширинный не кладём, моноширинный на ссылку — тоже.
+        XCTAssertFalse(ComposerContext.at(NSRange(location: 6, length: 7), in: inline).allows(.link))
+        let link = "[сайт](https://a.kz)"
+        XCTAssertFalse(ComposerContext.at(NSRange(location: 1, length: 4), in: link).allows(.monospace))
+        XCTAssertFalse(ComposerContext.at(NSRange(location: 0, length: 20), in: link).allows(.monospace))
+        XCTAssertTrue(ComposerContext.at(NSRange(location: 1, length: 4), in: link).allows(.bold))
+    }
+
     func testQuoteEveryLineAndBack() {
         let quoted = ComposerFormat.quote.apply(to: "раз\nдва").text
         XCTAssertEqual(quoted, "> раз\n> два")

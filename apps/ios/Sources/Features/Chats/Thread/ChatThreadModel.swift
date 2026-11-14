@@ -499,7 +499,20 @@ final class ChatThreadModel {
             && message.deletedAt == nil
             && message.systemType == nil
             && message.extras?.isForwarded != true
+            && Self.isEditableKind(message.extras)
             && now.timeIntervalSince(message.createdAt) < Self.editWindow
+    }
+
+    /// Сообщения особого вида правка испортила бы: она меняет только `content`, а опрос,
+    /// чек-лист, стикер, геопозиция и контакт живут в своих полях. Явный запрет по виду,
+    /// а не ветка по умолчанию (IOS_RULES 7.7.13): новый особый вид добавляется сюда.
+    static func isEditableKind(_ extras: MessageExtras?) -> Bool {
+        guard let extras else { return true }
+        return extras.poll == nil
+            && extras.checklist == nil
+            && extras.sticker == nil
+            && extras.location == nil
+            && extras.contact == nil
     }
 
     func canDelete(_ message: MessageRecord) -> Bool {
@@ -854,13 +867,15 @@ final class ChatThreadModel {
         isLoadingNewer = true
         defer { isLoadingNewer = false }
         do {
+            // Отметка — до запроса: сверка страницы не трогает пришедшее, пока она в пути.
+            let mark = try? await store.reconcileMark()
             let page = try await api.newerMessages(chatID: chatID, after: cursor, limit: ChatsAPI.messagePageLimit)
             guard generation == windowGeneration else { return }
             // Страница и сдвиг границы — одним кадром: срез со страницей, но со старой
             // границей, на миг показал бы окно без неё.
             snapshotHolds += 1
             do {
-                try await store.save(messages: page.items, chatID: chatID)
+                try await store.save(messages: page.items, chatID: chatID, reconcilingUpTo: mark)
             } catch {
                 releaseSnapshot()
                 throw error
@@ -1435,6 +1450,7 @@ final class ChatThreadModel {
         let generation = windowGeneration
 
         do {
+            let mark = try? await store.reconcileMark()
             let page = try await api.messages(
                 chatID: chatID,
                 cursor: olderCursor,
@@ -1442,7 +1458,7 @@ final class ChatThreadModel {
             )
             // Пока страница шла, ленту заменили окном: она из другого места истории.
             guard generation == windowGeneration else { return }
-            try await store.save(messages: page.items, chatID: chatID)
+            try await store.save(messages: page.items, chatID: chatID, reconcilingUpTo: mark)
             olderCursor = page.meta?.cursor
             reachedBeginning = page.meta?.hasNext != true
             // Страница легла ниже окна — окно опускается до неё, иначе её не было бы видно.
@@ -1509,8 +1525,9 @@ final class ChatThreadModel {
     /// Последняя страница чата.
     @MainActor
     private func fetchLatest() async throws {
+        let mark = try? await store.reconcileMark()
         let page = try await api.messages(chatID: chatID, cursor: nil, limit: ChatsAPI.messagePageLimit)
-        try await store.save(messages: page.items, chatID: chatID, isHead: true)
+        try await store.save(messages: page.items, chatID: chatID, isHead: true, reconcilingUpTo: mark)
         olderCursor = page.meta?.cursor
         reachedBeginning = page.meta?.hasNext != true
     }

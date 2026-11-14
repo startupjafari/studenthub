@@ -209,7 +209,7 @@ struct MediaViewer: View {
         if item.isVideo, let url = item.playbackURL {
             // Видео — под панелью, а не под ней: контролы плеера и кнопки панели не
             // перекрывают друг друга.
-            ViewerVideo(url: url, isActive: selection == item.id)
+            ViewerVideo(id: item.id, url: url, isActive: selection == item.id)
                 .safeAreaPadding(.top, MediaViewerBar.height)
                 .safeAreaPadding(.bottom, MediaViewerBar.height)
         } else {
@@ -821,9 +821,18 @@ private struct ZoomableImage: View {
                 url: media.imageURL(width: Self.copyPoints),
                 cacheKey: media.cacheKey(Self.copyPoints),
                 placeholder: media.placeholder,
-                contentMode: .fit
+                contentMode: .fit,
+                interim: tileImage
             )
         }
+    }
+
+    /// Картинка плитки, с которой открыли просмотр: первым кадром — она, чёткая, а не
+    /// размытое превью, пока грузится копия 840 pt. Плитка чата и «Медиа» записывают
+    /// свой ключ (`noteTile`), плитка ленты лежит под ключом копии ширины карточки.
+    private var tileImage: UIImage? {
+        ImageMemoryCache.shared.tileImage(forFile: media.id)
+            ?? ImageMemoryCache.shared.image(for: media.cacheKey(cardImagePoints))
     }
 
     private var magnify: some Gesture {
@@ -888,7 +897,11 @@ private struct ZoomableImage: View {
 
 /// Ролик в системном плеере. `AVPlayer` создаётся один раз на страницу и не
 /// пересоздаётся при перерисовке экрана; уходя со страницы, ролик встаёт на паузу.
+/// Ролик уже запускали в карточке ленты — берём её плеер (`VideoPlaybackCenter.borrow`):
+/// та же позиция и уже скачанное начало, без новой загрузки и чёрного кадра; вернувшись
+/// в ленту, карточка продолжит с того же места.
 private struct ViewerVideo: View {
+    let id: String
     let url: URL
     let isActive: Bool
 
@@ -897,13 +910,16 @@ private struct ViewerVideo: View {
     var body: some View {
         SystemPlayer(player: player)
             .onAppear {
-                if player == nil { player = AVPlayer(url: url) }
+                if player == nil { player = VideoPlaybackCenter.shared.borrow(id) ?? AVPlayer(url: url) }
                 if isActive { player?.play() }
             }
             .onChange(of: isActive) { _, active in
                 if active { player?.play() } else { player?.pause() }
             }
-            .onDisappear { player?.pause() }
+            .onDisappear {
+                player?.pause()
+                VideoPlaybackCenter.shared.giveBack(id)
+            }
     }
 }
 

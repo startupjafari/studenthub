@@ -324,8 +324,7 @@ struct ChatFlowLayout: Layout {
         var y = bounds.minY
         for row in arrange(subviews, width: bounds.width) {
             var x = bounds.minX
-            for index in row.indices {
-                let size = subviews[index].sizeThatFits(.unspecified)
+            for (index, size) in zip(row.indices, row.sizes) {
                 subviews[index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
                 x += size.width + spacing
             }
@@ -335,15 +334,21 @@ struct ChatFlowLayout: Layout {
 
     private struct Row {
         var indices: [Int] = []
+        /// Размеры детей из замера: расстановка берёт их же, а не мерит заново иначе.
+        var sizes: [CGSize] = []
         var width: CGFloat = 0
         var height: CGFloat = 0
     }
 
     private func arrange(_ subviews: Subviews, width: CGFloat) -> [Row] {
+        // Ребёнка мерим шириной контейнера, а не `.unspecified`: элемент шире пузыря
+        // переносится или сжимается внутри него, а не вылезает за край.
+        let limit = ProposedViewSize(width: width.isFinite ? width : nil, height: nil)
         var rows: [Row] = []
         var current = Row()
         for index in subviews.indices {
-            let size = subviews[index].sizeThatFits(.unspecified)
+            var size = subviews[index].sizeThatFits(limit)
+            if width.isFinite { size.width = min(size.width, width) }
             let needed = current.indices.isEmpty ? size.width : current.width + spacing + size.width
             if needed > width, !current.indices.isEmpty {
                 rows.append(current)
@@ -352,6 +357,7 @@ struct ChatFlowLayout: Layout {
             current.width = current.indices.isEmpty ? size.width : current.width + spacing + size.width
             current.height = max(current.height, size.height)
             current.indices.append(index)
+            current.sizes.append(size)
         }
         if !current.indices.isEmpty { rows.append(current) }
         return rows

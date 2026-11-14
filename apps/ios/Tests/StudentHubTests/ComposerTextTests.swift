@@ -11,6 +11,17 @@ final class OutgoingTextTests: XCTestCase {
         XCTAssertEqual(OutgoingText.normalized("\u{200D}\u{200C} \n"), "")
     }
 
+    /// Один нормализатор переводов строк: CRLF, CR, U+2028, U+2029, NEL — в `\n`,
+    /// заглушка вложения U+FFFC — прочь (IOS_RULES 7.2.2, 7.2.3).
+    func testLineBreaksNormalized() {
+        XCTAssertEqual(OutgoingText.normalizingLineBreaks("а\r\nб\rв\u{2028}г\u{2029}д\u{85}е"), "а\nб\nв\nг\nд\nе")
+        XCTAssertEqual(OutgoingText.normalizingLineBreaks("фото\u{FFFC}\r\n\r\n"), "фото\n\n")
+        XCTAssertEqual(OutgoingText.normalized("\u{FFFC} привет\r\nмир "), "привет\nмир")
+        XCTAssertNil(OutgoingText.sendable("\u{FFFC}"))
+        let plain = "без изменений\n"
+        XCTAssertEqual(OutgoingText.normalizingLineBreaks(plain), plain)
+    }
+
     /// Только невидимое и пробелы — отправлять нечего: микрофон, а не «Отправить».
     func testBlankAfterCleaning() {
         XCTAssertTrue(OutgoingText.isBlank(" \u{200B}\n"))

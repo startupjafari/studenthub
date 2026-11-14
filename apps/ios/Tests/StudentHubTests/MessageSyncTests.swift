@@ -355,6 +355,47 @@ final class MessageOutboxTests: XCTestCase {
         XCTAssertEqual(api.nonces, [row.id, row.id])
     }
 
+    /// Отказ по существу (422) не повторяется сам и не держит очередь чата: следующее
+    /// сообщение уходит, отвергнутое остаётся «не отправлено» до кнопки (IOS_RULES 9.3.1).
+    func testRejectedMessageDoesNotBlockQueueAndIsNotRetriedAutomatically() async throws {
+        let database = try AppDatabase.inMemory()
+        try await seedChat(in: database)
+        let api = StubSender()
+        api.failure = .transport(URLError(.notConnectedToInternet))
+        let outbox = MessageOutbox(database: database, api: api)
+        await outbox.send(text: "плохое", chatID: "c-1", senderID: "u-me", replyToID: nil)
+        await outbox.send(text: "хорошее", chatID: "c-1", senderID: "u-me", replyToID: nil)
+
+        api.failure = nil
+        api.failuresByText["плохое"] = .server(code: .validationError, message: "", details: [], statusCode: 422)
+        api.answer = echo(id: "server-2", content: "хорошее")
+        let drained = await outbox.flush(chatID: "c-1")
+
+        XCTAssertTrue(drained, "повторять нечего — сервису незачем ставить таймер")
+        XCTAssertEqual(Array(api.sent.suffix(2)), ["плохое", "хорошее"])
+        let rows = try await database.reader.read { db in
+            try MessageRecord.order(MessageRecord.Columns.createdAt.asc).fetchAll(db)
+        }
+        XCTAssertEqual(rows.map(\.sendState), [.failed, .sent])
+        XCTAssertEqual(rows.first?.sendRejected, true)
+
+        let attempts = api.sent.count
+        await outbox.flush(chatID: "c-1")
+        XCTAssertEqual(api.sent.count, attempts, "отвергнутое само не повторяется")
+        let stuck = await outbox.stuckChatIDs()
+        XCTAssertEqual(stuck, [])
+
+        // Кнопка «Повторить» возвращает строку в очередь: временная неудача после неё —
+        // снова повод для автоповтора.
+        api.failuresByText = [:]
+        api.failure = .transport(URLError(.timedOut))
+        await outbox.retry(try XCTUnwrap(rows.first))
+        let retried = try await database.reader.read { db in try MessageRecord.fetchOne(db, key: rows[0].id) }
+        XCTAssertEqual(retried?.sendRejected, false)
+        let stuckAgain = await outbox.stuckChatIDs()
+        XCTAssertEqual(stuckAgain, ["c-1"])
+    }
+
     /// Два одинаковых «ок» подряд: эхо с ключом подтверждает именно свою строку, а не
     /// самую раннюю с тем же текстом.
     func testEchoWithNonceConfirmsItsOwnRow() async throws {
@@ -446,6 +487,8 @@ private final class StubSender: ChatMessageSending, @unchecked Sendable {
     private let lock = NSLock()
     var answer: ChatMessageDTO?
     var failure: APIError?
+    /// Отказ для отдельного текста — поверх общего `failure`.
+    var failuresByText: [String: APIError] = [:]
     private(set) var sent: [String] = []
     private(set) var nonces: [String] = []
 
@@ -453,7 +496,7 @@ private final class StubSender: ChatMessageSending, @unchecked Sendable {
         let outcome: (APIError?, ChatMessageDTO?) = lock.withLock {
             sent.append(text)
             nonces.append(nonce)
-            return (failure, answer)
+            return (failuresByText[text] ?? failure, answer)
         }
         if let error = outcome.0 { throw error }
         guard let answer = outcome.1 else { throw APIError.malformedResponse(statusCode: 0) }

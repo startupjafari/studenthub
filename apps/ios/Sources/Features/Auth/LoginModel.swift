@@ -28,6 +28,9 @@ final class LoginModel {
     private(set) var codeError: String?
 
     private var challengeToken: String?
+    /// Поколение потока входа. «Назад» со второго шага его меняет: ответ, пришедший на
+    /// уже брошенную попытку, сессию не открывает (`docs/IOS_RULES.md` 10.1.8).
+    private var attempt = 0
     private let auth: SessionIssuing
 
     init(auth: SessionIssuing = AppServices.auth) {
@@ -55,9 +58,12 @@ final class LoginModel {
 
         isBusy = true
         defer { isBusy = false }
+        let current = attempt
 
         do {
-            switch try await auth.signIn(identifier: login, password: password) {
+            let result = try await auth.signIn(identifier: login, password: password)
+            guard isCurrent(current) else { return }
+            switch result {
             case .session(let issued):
                 await adopt(issued, into: session)
             case .twoFactorRequired(let challenge):
@@ -66,6 +72,7 @@ final class LoginModel {
                 step = .twoFactor
             }
         } catch {
+            guard isCurrent(current) else { return }
             handle(error)
         }
     }
@@ -86,11 +93,14 @@ final class LoginModel {
 
         isBusy = true
         defer { isBusy = false }
+        let current = attempt
 
         do {
             let issued = try await auth.verifyTwoFactor(challengeToken: challengeToken, code: entered)
+            guard isCurrent(current) else { return }
             await adopt(issued, into: session)
         } catch let error as APIError where error.code == .unauthorized {
+            guard isCurrent(current) else { return }
             // UNAUTHORIZED на втором шаге — не неверный код, а мёртвый challenge: три
             // промаха или пять минут ожидания. Любой следующий код, даже верный, его не
             // оживит (§8.3 Auth) — возвращаем к паролю и говорим почему, как веб.
@@ -100,6 +110,7 @@ final class LoginModel {
                 defaultValue: "Время на ввод кода истекло или попытки закончились — введите пароль ещё раз"
             )
         } catch {
+            guard isCurrent(current) else { return }
             handle(error)
         }
     }
@@ -124,6 +135,7 @@ final class LoginModel {
     /// живёт считаные минуты — возвращаться к нему всё равно нельзя.
     @MainActor
     func startOver() {
+        attempt += 1
         step = .credentials
         challengeToken = nil
         code = ""
@@ -132,6 +144,13 @@ final class LoginModel {
     }
 
     // MARK: - Внутреннее
+
+    /// Ответ ещё про текущую попытку: человек не ушёл «Назад» и задача не отменена.
+    /// Отмена — не ошибка и не неверная попытка: просто молча отбрасываем ответ.
+    @MainActor
+    private func isCurrent(_ snapshot: Int) -> Bool {
+        snapshot == attempt && !Task.isCancelled
+    }
 
     @MainActor
     private func adopt(_ issued: AuthSession, into session: AppSessionModel) async {

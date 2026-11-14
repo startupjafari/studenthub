@@ -168,10 +168,37 @@ final class VideoPlaybackCenter {
 
     private(set) var activeID: String?
 
+    /// Плееры встроенных роликов по id файла — слабо: держит их сама карточка. Просмотр
+    /// забирает уже созданный плеер, а не грузит ролик заново с нуля и с чёрным кадром.
+    @ObservationIgnored private var players: [String: WeakPlayer] = [:]
+    /// Ролик, чей плеер сейчас у просмотра: уходящая карточка его не останавливает.
+    @ObservationIgnored private(set) var lentID: String?
+
+    private final class WeakPlayer {
+        weak var player: AVPlayer?
+        init(_ player: AVPlayer) { self.player = player }
+    }
+
     func activate(_ id: String) { activeID = id }
 
     func deactivate(_ id: String) {
         if activeID == id { activeID = nil }
+    }
+
+    func register(_ player: AVPlayer, for id: String) {
+        players = players.filter { $0.value.player != nil }
+        players[id] = WeakPlayer(player)
+    }
+
+    /// Плеер карточки для просмотра — с той же позицией и уже скачанным началом.
+    func borrow(_ id: String) -> AVPlayer? {
+        guard let player = players[id]?.player else { return nil }
+        lentID = id
+        return player
+    }
+
+    func giveBack(_ id: String) {
+        if lentID == id { lentID = nil }
     }
 }
 
@@ -230,14 +257,19 @@ struct InlineVideoView: View {
             if active != media.id { player?.pause() }
         }
         .onDisappear {
-            player?.pause()
+            // Плеер у просмотра (лента ушла под полноэкранный показ) — ролик там играет.
+            if center.lentID != media.id { player?.pause() }
             center.deactivate(media.id)
         }
     }
 
     private func play() {
         guard let url = media.playbackURL else { return }
-        if player == nil { player = AVPlayer(url: url) }
+        if player == nil {
+            let created = AVPlayer(url: url)
+            player = created
+            center.register(created, for: media.id)
+        }
         center.activate(media.id)
         player?.play()
     }

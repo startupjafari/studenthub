@@ -50,6 +50,15 @@ final class ImageMemoryCache: @unchecked Sendable {
         return cache
     }()
 
+    /// Id файла → ключ последней показанной плитки этого файла. Ключ плитки зависит от
+    /// её размера (`att:<id>:<точки>`, `chatmedia:<id>`), и просмотр без этой записи не
+    /// нашёл бы уже загруженную картинку: открылся бы с размытого превью.
+    private let tileKeys: NSCache<NSString, NSString> = {
+        let cache = NSCache<NSString, NSString>()
+        cache.countLimit = 1000
+        return cache
+    }()
+
     private let lock = NSLock()
     private var generation = 0
 
@@ -73,6 +82,19 @@ final class ImageMemoryCache: @unchecked Sendable {
     func removeAll() {
         lock.withLock { generation += 1 }
         cache.removeAllObjects()
+        tileKeys.removeAllObjects()
+    }
+
+    /// Плитка файла `id` держит картинку под ключом `key`: просмотр возьмёт её первым
+    /// кадром, пока грузится своя копия.
+    func noteTile(_ key: String, forFile id: String) {
+        tileKeys.setObject(key as NSString, forKey: id as NSString)
+    }
+
+    /// Картинка последней плитки файла, если она ещё в памяти.
+    func tileImage(forFile id: String) -> UIImage? {
+        guard let key = tileKeys.object(forKey: id as NSString) else { return nil }
+        return image(for: key as String)
     }
 
     /// Положить готовую картинку как есть (кадр видео, превью): заменяет прежнюю.

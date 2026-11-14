@@ -154,15 +154,33 @@ run_suite() {
 
   local video_pid=""
   if [[ "$suite" == ui* || "$suite" == perf || "$suite" == scroll ]]; then
-    # Видео прогона: --force перезаписывает, SIGINT корректно закрывает файл.
-    xcrun simctl io "$UDID" recordVideo --codec h264 --force "$artifacts/run.mp4" >/dev/null 2>&1 &
+    # Видео прогона: --force перезаписывает, SIGINT корректно закрывает файл. Тест
+    # стартует только после «Recording started» в журнале записи, а не по паузе: при
+    # медленном старте записи первые движения теста иначе в видео не попадут.
+    xcrun simctl io "$UDID" recordVideo --codec h264 --force "$artifacts/run.mp4" \
+      >"$artifacts/record.log" 2>&1 &
     video_pid=$!
-    sleep 1
+    local started=0
+    for _ in $(seq 1 100); do
+      if grep -q "Recording started" "$artifacts/record.log" 2>/dev/null; then
+        started=1
+        break
+      fi
+      kill -0 "$video_pid" 2>/dev/null || break
+      sleep 0.1
+    done
+    if [[ $started -eq 0 ]]; then
+      echo "Запись видео не началась за 10 с — начало прогона может не попасть в run.mp4" >&2
+      cat "$artifacts/record.log" >&2 || true
+    fi
   fi
 
   log "Набор: $suite"
   set +e
   # Окружение раннеру — с префиксом TEST_RUNNER_ (xcodebuild снимает его сам).
+  # Без `-collect-test-diagnostics never` упавший набор до 10 минут висит в `simctl
+  # diagnose`, съедая `timeout-minutes` задачи. Без параллельности: копии раннера на
+  # одном симуляторе убивают друг друга, и провал ничего не говорит о тесте.
   local perf=0
   [[ "$suite" == perf || "$suite" == scroll ]] && perf=1
   env TEST_RUNNER_SNAPSHOT_STRICT=1 \
@@ -174,12 +192,16 @@ run_suite() {
     -project StudentHub.xcodeproj -scheme StudentHub \
     -destination "$DESTINATION" -derivedDataPath "$DERIVED" \
     -resultBundlePath "$result" \
+    -collect-test-diagnostics never \
+    -parallel-testing-enabled NO \
     "$@" 2>&1 | tee "$artifacts/xcodebuild.log" \
     | grep -E "Test (Suite|Case) .*(passed|failed|skipped)|error:|Executed|\*\* TEST" | grep -vE "Test Case .*passed"
   local status=${PIPESTATUS[0]}
   set -e
 
   if [[ -n "$video_pid" ]]; then
+    # Секунда на успокоение: последний кадр теста должен попасть в видео.
+    sleep 1
     kill -INT "$video_pid" 2>/dev/null || true
     wait "$video_pid" 2>/dev/null || true
   fi
@@ -217,8 +239,10 @@ run_bench() {
   mkdir -p "$artifacts"
   log "Набор: bench"
   local app bundle="kz.studenthub.app" status=0
-  app="$(find "$DERIVED/Build/Products" -maxdepth 2 -name StudentHub.app -path '*iphonesimulator*' | head -1)"
-  if [[ -z "$app" ]]; then
+  # Путь — конкретный, ровно тот, что собрал `build-for-testing` выше (конфигурация
+  # Debug схемы), а не первый попавшийся в DerivedData: там может лежать и другая.
+  app="$DERIVED/Build/Products/Debug-iphonesimulator/StudentHub.app"
+  if [[ ! -d "$app" ]]; then
     echo "Нет собранного StudentHub.app в $DERIVED" >&2
     FAILED+=(bench)
     return 0

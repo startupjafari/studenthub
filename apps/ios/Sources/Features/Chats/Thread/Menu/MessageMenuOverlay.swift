@@ -131,6 +131,9 @@ struct MessageMenuOverlay: View {
     /// панель, подсветка идёт за ним вверх и вниз, отпустил — действие.
     @State private var pressed: MessageMenuAction?
     @State private var rowFrames: [String: CGRect] = [:]
+    /// Верх клавиатуры в момент открытия: место меню решается один раз, и уход
+    /// клавиатуры при открытом меню его не двигает.
+    @State private var keyboardTop = KeyboardFrame.shared.top
     @Environment(\.motionReduced) private var reduceMotion
     @Environment(\.displayScale) private var displayScale
     @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 44
@@ -209,8 +212,9 @@ struct MessageMenuOverlay: View {
         let size = proxy.size
         let insets = Self.windowInsets
         let safeTop = insets.top + Self.edge
-        // Открытая клавиатура остаётся поверх меню — раскладываемся над ней.
-        let floor = min(size.height - insets.bottom, KeyboardFrame.shared.top ?? .infinity)
+        // Открытая клавиатура остаётся поверх меню — раскладываемся над ней (над той,
+        // что была при открытии).
+        let floor = min(size.height - insets.bottom, keyboardTop ?? .infinity)
         let safeBottom = floor - Self.edge
         let row = request.rowRect
         // Пузырь внутри строки может начинаться ниже (имя автора, отступы).
@@ -442,12 +446,12 @@ struct MessageMenuOverlay: View {
 
     private func dismiss() {
         guard shown else { return }
-        withAnimation(Motion.respecting(Motion.snappy, reduceMotion: reduceMotion)) {
+        // Оверлей снимается по завершению затухания, а не по таймеру: 230 мс обрывали
+        // ещё видимый хвост пружины.
+        withAnimation(Motion.respecting(Motion.snappy, reduceMotion: reduceMotion), completionCriteria: .logicallyComplete) {
             shown = false
             expanded = false
-        }
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(reduceMotion ? 50 : 230))
+        } completion: {
             onDismiss()
         }
     }

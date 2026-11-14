@@ -12360,6 +12360,23 @@
         }
       }
     },
+    "stories.nextAuthor": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Следующий автор"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Келесі автор"
+          }
+        }
+      }
+    },
     "stories.pickMedia": {
       "extractionState": "manual",
       "localizations": {
@@ -12407,6 +12424,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Алдыңғы сторис"
+          }
+        }
+      }
+    },
+    "stories.previousAuthor": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предыдущий автор"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Алдыңғы автор"
+          }
+        }
+      }
+    },
+    "stories.position": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "История %lld из %lld"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сторис: %2$lld ішінен %1$lld"
           }
         }
       }
@@ -95693,6 +95744,40 @@
         }
       }
     },
+    "chats.checklist.showAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать все (%lld)"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Барлығын көрсету (%lld)"
+          }
+        }
+      }
+    },
+    "chats.checklist.collapse": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Свернуть"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жию"
+          }
+        }
+      }
+    },
     "chats.checklist.remove": {
       "extractionState": "manual",
       "localizations": {
@@ -96050,6 +96135,23 @@
         }
       }
     },
+    "chats.preview.code": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Код"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Код"
+          }
+        }
+      }
+    },
     "chats.preview.sticker": {
       "extractionState": "manual",
       "localizations": {
@@ -96063,6 +96165,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Стикер"
+          }
+        }
+      }
+    },
+    "chats.preview.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сообщение не поддерживается этой версией — обновите приложение"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бұл хабарламаны қолданбаның осы нұсқасы көрсете алмайды — қолданбаны жаңартыңыз"
           }
         }
       }

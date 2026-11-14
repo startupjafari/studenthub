@@ -79,3 +79,47 @@ extension View {
         }
     }
 }
+
+/// Живой элемент внутри пузыря: вариант опроса, пункт чек-листа, вложение, цитата,
+/// реакции. Двойной тап по нему реакцию не ставит (правило «двойной тап — по
+/// неинтерактивной части»): лента ищет такие виды под пальцем в ячейке.
+final class BubbleControlZone: UIView {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        backgroundColor = .clear
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    /// Лежит ли точка (в координатах `view`) на живом элементе внутри `view`.
+    static func contains(_ point: CGPoint, in view: UIView) -> Bool {
+        for sub in view.subviews where !sub.isHidden {
+            if let zone = sub as? BubbleControlZone, zone.window != nil,
+                zone.bounds.contains(zone.convert(point, from: view))
+            {
+                return true
+            }
+            if contains(sub.convert(point, from: view), in: sub) { return true }
+        }
+        return false
+    }
+}
+
+private struct BubbleControlZoneView: UIViewRepresentable {
+    func makeUIView(context: Context) -> BubbleControlZone { BubbleControlZone() }
+    func updateUIView(_ view: BubbleControlZone, context: Context) {}
+}
+
+extension View {
+    /// Отметить живой элемент пузыря: двойной тап по нему не ставит реакцию. На `Group`
+    /// метка ложится на каждый элемент отдельно.
+    func bubbleControl(enabled: Bool = true) -> some View {
+        background {
+            if enabled {
+                BubbleControlZoneView().accessibilityHidden(true)
+            }
+        }
+    }
+}

@@ -147,8 +147,9 @@ final class QRSignInModel {
     }
 
     private(set) var state: State = .loading
-    /// Когда код перестанет действовать — для обратного отсчёта.
-    private(set) var expiresAt: Date?
+    /// Когда код перестанет действовать — для обратного отсчёта. Монотонные часы, а не
+    /// `Date()`: перевод часов на телефоне не должен ни продлевать код, ни гасить его раньше.
+    private(set) var expiresAt: ContinuousClock.Instant?
     /// Связь пропала, пока код на экране. Код ещё действует: показываем его дальше и
     /// переспрашиваем сервер — подтверждение с телефона не потеряется.
     private(set) var isReconnecting = false
@@ -183,19 +184,22 @@ final class QRSignInModel {
             )
             return
         }
-        let deadline = Date().addingTimeInterval(TimeInterval(ticket.expiresIn))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(ticket.expiresIn))
         expiresAt = deadline
         state = .waiting(drawing)
 
         while !Task.isCancelled {
             try? await Task.sleep(for: pollInterval)
             guard !Task.isCancelled else { return }
-            if Date() >= deadline {
+            if ContinuousClock.now >= deadline {
                 state = .expired
                 return
             }
             do {
                 let issued = try await api.claimQRSession(ticket)
+                // Ответ мог прийти, когда лист уже закрыли: поздний успех не впускает
+                // человека, который от входа отказался.
+                guard !Task.isCancelled else { return }
                 isReconnecting = false
                 state = .signingIn
                 if await session.adopt(issued) { return }
@@ -393,8 +397,10 @@ struct QRSignInView: View {
                     }
                 }
                 if let expiresAt = model.expiresAt {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        let left = max(0, Int(expiresAt.timeIntervalSince(context.date)))
+                    // Отсчёт — по тем же монотонным часам, что и срок; `context.date` только
+                    // будит перерисовку раз в секунду.
+                    TimelineView(.periodic(from: .now, by: 1)) { _ in
+                        let left = max(0, Int((expiresAt - ContinuousClock.now).components.seconds))
                         Text(String(
                             localized: "auth.qr.expiresIn",
                             defaultValue: "Код действует ещё \(DisplayFormat.minutesSeconds(left))"
