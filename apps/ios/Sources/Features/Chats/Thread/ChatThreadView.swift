@@ -641,6 +641,31 @@ struct ChatThreadView: View {
                 }
             }
         }
+        .sheet(isPresented: Binding(
+            get: { model?.scheduled.isPickingTime == true },
+            set: { model?.scheduled.isPickingTime = $0 }
+        )) {
+            ScheduleMessageSheet { _, date in
+                do {
+                    try await model?.scheduleDraft(at: date)
+                    showToast(String(
+                        localized: "chats.scheduled.done",
+                        defaultValue: "Отправится \(ScheduleMessageSheet.title(for: date).lowercased())"
+                    ))
+                    return nil
+                } catch {
+                    return error.userMessage
+                }
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { model?.scheduled.showsList == true },
+            set: { model?.scheduled.showsList = $0 }
+        )) {
+            if let model {
+                ChatScheduledListView(model: model)
+            }
+        }
         .sheet(item: $sharing) { share in
             ShareSheet(items: share.items)
                 .presentationDetents([.medium, .large])
