@@ -1,11 +1,83 @@
 'use client'
 
-import { Children, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Children, useMemo, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { MessageContentMath } from './message-content-math'
-import { MarkdownImage } from '../../../shared/ui'
 import { MD_CLASS } from './message-content-style'
+
+/**
+ * Контракт разметки сообщения (PROJECT.md §3.6 «Разметка сообщения чата») — набор Telegram:
+ * жирный, курсив, моно, зачёркнутый, ссылка, цитата, блок кода, списки. Его же рисуют iOS и
+ * Android; всё, что сверх него, веб показывает исходным текстом, иначе одно сообщение выглядело
+ * бы по-разному у собеседников на разных клиентах.
+ *
+ * Лишние конструкции выключаем при РАЗБОРЕ, а не прячем при отрисовке: выключенная конструкция
+ * остаётся буквами как написана (`# заголовок`, `| a | b |`). Скрытие тега (`unwrapDisallowed`)
+ * съело бы `#` и черту таблицы и склеило бы ячейки в кашу.
+ */
+const OFF_CONSTRUCTS = [
+  'headingAtx', // # заголовок
+  'setextUnderline', // заголовок подчёркиванием === / ---
+  'thematicBreak', // горизонтальная линия
+  'codeIndented', // код отступом: в чате отступ — это просто отступ, код — только ```
+  'htmlFlow',
+  'htmlText',
+  'definition', // [a]: url — строка иначе исчезает целиком
+  'table', // gfm
+  'gfmFootnoteDefinition',
+  'gfmFootnoteCall',
+  'gfmPotentialFootnoteCall',
+  'tasklistCheck', // - [ ] чекбокс
+]
+
+// Что вообще может дойти до DOM. Страховка поверх OFF_CONSTRUCTS: если очередная версия gfm
+// принесёт новую конструкцию, её тег развернётся в текст, а не нарисуется.
+const ALLOWED_ELEMENTS = [
+  'p',
+  'br',
+  'strong',
+  'em',
+  'del',
+  'code',
+  'pre',
+  'a',
+  'blockquote',
+  'ul',
+  'ol',
+  'li',
+]
+
+interface MdNode {
+  type: string
+  value?: string
+  children?: MdNode[]
+  position?: { start: { offset?: number }; end: { offset?: number } }
+}
+
+/**
+ * Картинку `![подпись](url)` возвращаем исходным текстом. Выключить её при разборе нельзя:
+ * без `![` остаток `[подпись](url)` стал бы ссылкой — другой конструкцией, а не текстом.
+ * Заодно внешняя картинка в сообщении — трекинг-пиксель для каждого участника чата.
+ */
+function imagesToText(node: MdNode, source: string) {
+  node.children?.forEach((child, i, list) => {
+    const start = child.position?.start.offset
+    const end = child.position?.end.offset
+    if (child.type === 'image' && start !== undefined && end !== undefined) {
+      list[i] = { type: 'text', value: source.slice(start, end), position: child.position }
+    } else {
+      imagesToText(child, source)
+    }
+  })
+}
+
+function remarkChatContract(this: { data(): object }) {
+  const data = this.data() as { micromarkExtensions?: object[] }
+  ;(data.micromarkExtensions ??= []).push({ disable: { null: OFF_CONSTRUCTS } })
+  return (tree: MdNode, file: { value: unknown }) => imagesToText(tree, String(file.value))
+}
+
+const REMARK_PLUGINS = [remarkGfm, remarkChatContract]
 
 // Подсветка совпадений поиска (§3): режем строковые дети по вхождению term (без регистра) и
 // оборачиваем в <mark>. Нестроковые дети (вложенный markdown) пропускаем как есть — не ломаем разметку.
@@ -48,12 +120,7 @@ const MD_COMPONENTS: Components = {
    * жёсткий перенос в markdown), поэтому гасим тег, а не символ.
    */
   br: () => null,
-  // Внешняя картинка из сообщения — трекинг-пиксель для каждого участника чата.
-  img: MarkdownImage,
 }
-
-// Грубая эвристика наличия формулы: $…$ или $$…$$ (не одиночный «$5»).
-const MATH_RE = /\$\$?[^$\n]+\$\$?/
 
 export function MessageContentMarkdown({
   content,
@@ -62,15 +129,6 @@ export function MessageContentMarkdown({
   content: string
   highlight?: string
 }) {
-  const hasMath = content ? MATH_RE.test(content) : false
-  const [MathRenderer, setMathRenderer] = useState<typeof MessageContentMath | null>(null)
-
-  useEffect(() => {
-    if (hasMath && !MathRenderer) {
-      void import('./message-content-math').then((m) => setMathRenderer(() => m.MessageContentMath))
-    }
-  }, [hasMath, MathRenderer])
-
   // При активной подсветке поиска оборачиваем строковые дети текстовых узлов в <mark>.
   const components = useMemo<Components>(() => {
     if (!highlight) return MD_COMPONENTS
@@ -82,24 +140,21 @@ export function MessageContentMarkdown({
       li: ({ node: _n, children, ...props }) => (
         <li {...props}>{highlightChildren(children, highlight)}</li>
       ),
-      td: ({ node: _n, children, ...props }) => (
-        <td {...props}>{highlightChildren(children, highlight)}</td>
-      ),
     }
   }, [highlight])
 
   if (!content) return null
   return (
     <div className={MD_CLASS}>
-      {hasMath && MathRenderer ? (
-        // Формула есть и рендерер загружен — рисуем с katex.
-        <MathRenderer content={content} components={components} />
-      ) : (
-        // Обычный путь (нет формул) + короткий момент загрузки math-рендерера: gfm без katex.
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-          {content}
-        </ReactMarkdown>
-      )}
+      {/* Формулы `$…$` вне контракта — остаются текстом, katex чату не нужен. */}
+      <ReactMarkdown
+        remarkPlugins={REMARK_PLUGINS}
+        allowedElements={ALLOWED_ELEMENTS}
+        unwrapDisallowed
+        components={components}
+      >
+        {content}
+      </ReactMarkdown>
     </div>
   )
 }
