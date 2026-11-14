@@ -715,7 +715,7 @@ struct ChatInfoView: View {
     // MARK: Загрузка и действия
 
     private func reloadChat() async {
-        chat = try? await AppServices.database.reader.read { db in try ChatRecord.fetchOne(db, key: chatID) }
+        chat = try? await ChatListQueries(database: AppServices.database).fetchChat(id: chatID)
     }
 
     private func loadMembers() async {
@@ -760,11 +760,7 @@ struct ChatInfoView: View {
         guard let peer, let chat else { return }
         let blocked = !chat.blocked
         await run { try await api.setBlocked(blocked, userID: peer.id) }
-        try? await AppServices.database.writer.write { db in
-            guard var row = try ChatRecord.fetchOne(db, key: chatID) else { return }
-            row.blocked = blocked
-            try row.update(db)
-        }
+        try? await ChatStore(database: AppServices.database).setBlocked(blocked, chatID: chatID)
         await reloadChat()
     }
 
@@ -839,7 +835,7 @@ struct ChatInfoView: View {
     private func leave() async {
         do {
             try await api.deleteChat(chatID: chatID)
-            _ = try? await AppServices.database.writer.write { db in try ChatRecord.deleteOne(db, key: chatID) }
+            try? await ChatStore(database: AppServices.database).deleteChat(id: chatID)
             AppServices.router.popToRoot(.chats)
         } catch {
             failure = (error as? APIError)?.displayMessage
@@ -1068,13 +1064,11 @@ private struct GroupEditSheet: View {
         let newDescription = String(description.prefix(1000))
         do {
             try await api.updateGroup(chatID: chat.id, title: newTitle, description: newDescription)
-            let id = chat.id
-            try? await AppServices.database.writer.write { db in
-                guard var row = try ChatRecord.fetchOne(db, key: id) else { return }
-                row.title = newTitle
-                row.chatDescription = newDescription
-                try row.update(db)
-            }
+            try? await ChatStore(database: AppServices.database).setGroupInfo(
+                title: newTitle,
+                description: newDescription,
+                chatID: chat.id
+            )
             await saved()
             dismiss()
         } catch {
