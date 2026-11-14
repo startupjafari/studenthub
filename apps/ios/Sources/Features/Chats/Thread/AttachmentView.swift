@@ -990,7 +990,10 @@ enum ChatMediaImages {
             let local = isVideo
                 ? await ChatVideoFrames.shared.frame(of: file, key: key, maxPixelSize: pixels)
                 : await ImageMemoryCache.shared.load(file, key: key, maxPixelSize: pixels)
-            if let local { return .loaded(local) }
+            if let local {
+                if !isVideo { ImageMemoryCache.shared.noteTile(key, forFile: attachment.id) }
+                return .loaded(local)
+            }
             // Своя копия не прочиталась — дальше по сети, если файл уже на сервере.
         }
         let urls = AppServices.attachmentURLs
@@ -1019,6 +1022,8 @@ enum ChatMediaImages {
             let variant = media.sources.best(forPoints: points, scale: scale).flatMap { URL.apiRooted($0.url) }
             for url in [variant, media.url].compactMap({ $0 }) {
                 if let image = await ImageMemoryCache.shared.load(url, key: key, maxPixelSize: pixels, progress: progress) {
+                    // Просмотр откроется с этой картинки, а не с размытого превью.
+                    ImageMemoryCache.shared.noteTile(key, forFile: attachment.id)
                     return .loaded(image)
                 }
                 if Task.isCancelled { return .failed(retryable: true) }

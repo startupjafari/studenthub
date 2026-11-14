@@ -729,7 +729,10 @@ final class ChatMediaThumbnails {
             return frame
         }
         let url = signed.sources.best(forPoints: Self.points).flatMap { URL(string: $0.url) } ?? signed.url
-        return await ImageMemoryCache.shared.load(url, key: key, maxPixelSize: pixels)
+        let image = await ImageMemoryCache.shared.load(url, key: key, maxPixelSize: pixels)
+        // Просмотр, открытый с плитки, первым кадром покажет её картинку.
+        if image != nil { ImageMemoryCache.shared.noteTile(key, forFile: item.id) }
+        return image
     }
 
     /// Первый кадр ролика по ссылке. Допуск по времени оставлен системным: ближайший

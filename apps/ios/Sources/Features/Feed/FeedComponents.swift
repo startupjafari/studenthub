@@ -24,6 +24,9 @@ struct RemoteImage: View {
     /// Подложка, пока картинки нет. `nil` — прозрачно: под картинкой своя заглушка
     /// (обложка книги со значком).
     var emptyFill: Color? = Palette.muted
+    /// Уже загруженная картинка того же файла под другим ключом (плитка, с которой
+    /// открыли просмотр): показывается вместо размытого превью, пока грузится своя копия.
+    var interim: UIImage?
 
     @State private var image: UIImage?
     @State private var failed = false
@@ -44,7 +47,7 @@ struct RemoteImage: View {
     var body: some View {
         // Готовая копия из памяти — уже в первом кадре, без ожидания `.task`.
         let own = stateKey == cacheKey ? image : nil
-        let shown = own ?? ImageMemoryCache.shared.image(for: cacheKey)
+        let shown = own ?? ImageMemoryCache.shared.image(for: cacheKey) ?? interim
         let showsFailure = stateKey == cacheKey && failed
         ZStack {
             if let shown {
@@ -96,7 +99,7 @@ struct RemoteImage: View {
         }
         // Приблизительная копия этого же файла (своя или из памяти) — держим её, пока
         // грузится точная, и оставляем, если точная не пришла.
-        let approximate = (stateKey == key ? image : nil) ?? ImageMemoryCache.shared.image(for: key)
+        let approximate = (stateKey == key ? image : nil) ?? ImageMemoryCache.shared.image(for: key) ?? interim
         guard let url else {
             settle(approximate, for: key)
             return

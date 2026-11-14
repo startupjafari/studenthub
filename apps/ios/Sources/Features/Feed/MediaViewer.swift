@@ -821,9 +821,18 @@ private struct ZoomableImage: View {
                 url: media.imageURL(width: Self.copyPoints),
                 cacheKey: media.cacheKey(Self.copyPoints),
                 placeholder: media.placeholder,
-                contentMode: .fit
+                contentMode: .fit,
+                interim: tileImage
             )
         }
+    }
+
+    /// Картинка плитки, с которой открыли просмотр: первым кадром — она, чёткая, а не
+    /// размытое превью, пока грузится копия 840 pt. Плитка чата и «Медиа» записывают
+    /// свой ключ (`noteTile`), плитка ленты лежит под ключом копии ширины карточки.
+    private var tileImage: UIImage? {
+        ImageMemoryCache.shared.tileImage(forFile: media.id)
+            ?? ImageMemoryCache.shared.image(for: media.cacheKey(cardImagePoints))
     }
 
     private var magnify: some Gesture {
