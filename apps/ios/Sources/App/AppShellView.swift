@@ -61,6 +61,10 @@ struct AppShellView: View {
             Task { await AppServices.outbox.kick() }
             // Пуш, нажатый на холодном старте, ждал роли — теперь она есть.
             router.openPending(for: role)
+            #if DEBUG
+                // Чат замеров из убранного раздела «Разработка» — не оставлять в списке.
+                try? await PerfFixture.remove()
+            #endif
             // Разрешение спрашиваем здесь, а не на экране входа: до входа уведомлять
             // человека не о чем, и запрос выглядел бы попрошайничеством.
             await PushRegistrar().requestAuthorization()
