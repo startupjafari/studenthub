@@ -1247,6 +1247,7 @@
     <string name="chats_cancelAction">Отменить</string>
     <string name="chats_checklist_add">Добавить пункт</string>
     <string name="chats_checklist_addShort">Добавить</string>
+    <string name="chats_checklist_collapse">Свернуть</string>
     <string name="chats_checklist_done">Выполнено</string>
     <string name="chats_checklist_item">Пункт %1$s</string>
     <string name="chats_checklist_itemPlaceholder">Что сделать</string>
@@ -1256,6 +1257,7 @@
     <string name="chats_checklist_othersCanMark">Другие могут отмечать выполненное</string>
     <string name="chats_checklist_progress">Выполнено %1$s из %2$s</string>
     <string name="chats_checklist_remove">Убрать пункт</string>
+    <string name="chats_checklist_showAll">Показать все (%1$s)</string>
     <string name="chats_checklist_titlePlaceholder">Например, «Что взять на практику»</string>
     <string name="chats_checklist_titleSection">Название</string>
     <string name="chats_clear">Очистить историю</string>
@@ -1271,6 +1273,8 @@
     <string name="chats_clearPeriod_to">По</string>
     <string name="chats_code_copied">Код скопирован</string>
     <string name="chats_code_copy">Скопировать код</string>
+    <string name="chats_composer_overLimit">Лимит превышен на %1$s</string>
+    <string name="chats_composer_remaining">Осталось символов: %1$s</string>
     <string name="chats_contact_call">Позвонить %1$s</string>
     <string name="chats_contact_copy">Скопировать</string>
     <string name="chats_contact_emails">Почта</string>
@@ -1529,10 +1533,12 @@
     <string name="chats_poll_vote">Голосовать</string>
     <string name="chats_poll_votes">Голосов: %1$s</string>
     <string name="chats_preview_audio">Аудио</string>
+    <string name="chats_preview_code">Код</string>
     <string name="chats_preview_file">Файл</string>
     <string name="chats_preview_gif">GIF</string>
     <string name="chats_preview_photo">Фото</string>
     <string name="chats_preview_sticker">Стикер</string>
+    <string name="chats_preview_unsupported">Сообщение не поддерживается этой версией — обновите приложение</string>
     <string name="chats_preview_video">Видео</string>
     <string name="chats_preview_voice">Голосовое сообщение</string>
     <string name="chats_profileCard_label">Профиль</string>
@@ -3171,6 +3177,9 @@
     <string name="library_statusReturned">Возвращена</string>
     <string name="library_tabMine">Мои книги</string>
     <string name="library_title">Библиотека</string>
+    <string name="links_confirm_open">Открыть</string>
+    <string name="links_confirm_otherApp">Открыть в другом приложении?</string>
+    <string name="links_confirm_title">Открыть ссылку?</string>
     <string name="media_copied">Скопировано</string>
     <string name="media_copyImage">Скопировать изображение</string>
     <string name="media_copyLink">Скопировать ссылку</string>
@@ -4504,9 +4513,12 @@
     <string name="stories_mute">Не показывать истории автора</string>
     <string name="stories_new">Новая история</string>
     <string name="stories_next">Следующая история</string>
+    <string name="stories_nextAuthor">Следующий автор</string>
     <string name="stories_pickMedia">Фото или видео</string>
     <string name="stories_poll_votes">Голосов: %1$s</string>
+    <string name="stories_position">История %1$s из %2$s</string>
     <string name="stories_previous">Предыдущая история</string>
+    <string name="stories_previousAuthor">Предыдущий автор</string>
     <string name="stories_publish">Опубликовать</string>
     <string name="stories_replaceMedia">Заменить</string>
     <string name="stories_reply">Ответить автору</string>
