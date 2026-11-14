@@ -8,7 +8,7 @@ import os
 /// по-прежнему разговаривает с `UIApplicationDelegate`: токен устройства, тихие
 /// доставки и нажатие на уведомление приходят только сюда.
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
-    private let registrar = PushRegistrar()
+    private let registrar = AppServices.pushRegistrar
     /// Тихий пуш пришёл до первой разблокировки: догон отложен до неё.
     private var deferredSync = false
 

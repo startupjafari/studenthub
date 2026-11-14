@@ -6,8 +6,11 @@ import SwiftUI
 /// живая камера, на плитке — кружок с номером выбора, у ролика — длительность. Альбом
 /// выбирают в шапке листа (`albums`).
 ///
-/// Миниатюры — через `PHCachingImageManager` по размеру плитки: полный кадр ради
-/// плитки в сотню точек не раскодируем.
+/// Миниатюры — по размеру плитки и только с устройства (`PhotoThumbnails`): полный кадр
+/// ради плитки в сотню точек не раскодируем, iCloud ради прокрутки не трогаем. Снимки
+/// выбираются в фоне, изменения «Фото» при открытом листе применяются на месте
+/// (`PhotoLibraryFeed`). Выбор сравнивается по `localIdentifier`: после перечитывания
+/// альбома объекты `PHAsset` новые, и сравнение по экземпляру теряло номер на плитке.
 struct RecentMediaGrid: View {
     @Binding var selection: [PHAsset]
     let albums: PhotoAlbumsModel
@@ -22,7 +25,10 @@ struct RecentMediaGrid: View {
     /// окно «Фото» из строки теряло хозяина и висело на «Загрузке»).
     @State private var pickingAll = false
     @Environment(\.displayScale) private var displayScale
-    @State private var manager = PHCachingImageManager()
+    @State private var thumbnails = PhotoThumbnails()
+    @State private var library = PhotoLibraryFeed()
+    /// Верхняя видимая плитка: снимок, добавленный в «Фото», не сдвигает её из-под глаз.
+    @State private var anchor: String?
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
 
@@ -57,7 +63,13 @@ struct RecentMediaGrid: View {
             }
         }
         .onAppear(perform: reload)
-        .onChange(of: albums.selected) { reloadAssets() }
+        .task {
+            for await update in library.changes() { apply(update) }
+        }
+        .onChange(of: albums.selected) {
+            anchor = nil
+            reloadAssets()
+        }
         .photosPicker(isPresented: $pickingAll, selection: $picked, maxSelectionCount: limit, matching: .any(of: [.images, .videos]))
         .onChange(of: picked) {
             guard !picked.isEmpty else { return }
@@ -85,23 +97,27 @@ struct RecentMediaGrid: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Text(String(localized: "chats.attachCamera", defaultValue: "Камера")))
+                    .id(Self.cameraID)
                 }
                 ForEach(assets, id: \.localIdentifier) { asset in
                     AssetTile(
                         asset: asset,
-                        manager: manager,
-                        side: 140 * displayScale,
-                        order: selection.firstIndex(of: asset).map { $0 + 1 }
+                        thumbnails: thumbnails,
+                        order: order(of: asset)
                     ) {
                         toggle(asset)
                     }
                 }
             }
+            .scrollTargetLayout()
             .padding(.horizontal, 2)
             moreOptions
                 .padding(Spacing.lg)
         }
+        .scrollPosition(id: $anchor)
     }
+
+    private static let cameraID = "camera"
 
     /// Под сеткой — карточка, как «Файл» в листе вложений: системный выбор всего, чего
     /// нет среди недавних, а при частичном доступе — добавить снимки и открыть доступ ко
@@ -197,8 +213,13 @@ struct RecentMediaGrid: View {
             .clipped()
     }
 
+    /// Номер на плитке — место в упорядоченном списке выбора.
+    private func order(of asset: PHAsset) -> Int? {
+        selection.firstIndex { $0.localIdentifier == asset.localIdentifier }.map { $0 + 1 }
+    }
+
     private func toggle(_ asset: PHAsset) {
-        if let index = selection.firstIndex(of: asset) {
+        if let index = selection.firstIndex(where: { $0.localIdentifier == asset.localIdentifier }) {
             selection.remove(at: index)
         } else if selection.count < limit {
             selection.append(asset)
@@ -211,17 +232,40 @@ struct RecentMediaGrid: View {
         reloadAssets()
     }
 
+    /// Снимки альбома — выборкой в фоне; ответ на уже сменённый альбом не применяется.
     private func reloadAssets() {
         guard status == .authorized || status == .limited else { return }
-        assets = albums.selected.map { PhotoAssets.assets(in: $0) } ?? PhotoAssets.recent()
+        let album = albums.selected
+        Task {
+            let fresh = await library.load(album)
+            guard album == albums.selected else { return }
+            assets = fresh
+            thumbnails.reset(fresh, side: 140 * displayScale)
+        }
+    }
+
+    /// Изменение «Фото» при открытом листе — одной операцией: новый список альбома (сетка
+    /// сверяет плитки по id и не пересоздаётся), удалённые снимки — вон из выбора,
+    /// изменённые — свежими объектами на своих местах.
+    private func apply(_ update: PhotoLibraryFeed.Update) {
+        if let fresh = update.assets {
+            assets = fresh
+            thumbnails.reset(fresh, side: 140 * displayScale)
+        }
+        var touched = false
+        let kept = selection.compactMap { asset -> PHAsset? in
+            guard let details = update.change.changeDetails(for: asset) else { return asset }
+            touched = true
+            return details.objectWasDeleted ? nil : details.objectAfterChanges ?? asset
+        }
+        if touched { selection = kept }
     }
 }
 
 /// Плитка снимка: миниатюра, кружок выбора с номером, длительность ролика.
 private struct AssetTile: View {
     let asset: PHAsset
-    let manager: PHCachingImageManager
-    let side: CGFloat
+    let thumbnails: PhotoThumbnails
     let order: Int?
     let onTap: () -> Void
 
@@ -276,30 +320,32 @@ private struct AssetTile: View {
             ? String(localized: "chats.attach.video", defaultValue: "Видео")
             : String(localized: "chats.attach.photo", defaultValue: "Фото")))
         .accessibilityAddTraits(order != nil ? .isSelected : [])
-        .task(id: asset.localIdentifier) {
-            image = await thumbnail()
+        .onAppear { thumbnails.appeared(asset.localIdentifier) }
+        .onDisappear { thumbnails.disappeared(asset.localIdentifier) }
+        // Снимок отредактировали в «Фото» — миниатюра перечитывается.
+        .task(id: "\(asset.localIdentifier)|\(asset.modificationDate?.timeIntervalSince1970 ?? 0)") {
+            await load()
         }
     }
 
-    private func thumbnail() async -> UIImage? {
-        let options = PHImageRequestOptions()
-        options.deliveryMode = .highQualityFormat
-        options.isNetworkAccessAllowed = true
-        options.resizeMode = .fast
-        return await withCheckedContinuation { continuation in
-            var resumed = false
-            manager.requestImage(
-                for: asset,
-                targetSize: CGSize(width: side, height: side),
-                contentMode: .aspectFill,
-                options: options
-            ) { result, _ in
-                // `highQualityFormat` отвечает один раз; страховка от второго вызова.
-                guard !resumed else { return }
-                resumed = true
-                continuation.resume(returning: result)
+    private func load() async {
+        var inCloud = false
+        for await delivery in thumbnails.images(for: asset) {
+            switch delivery {
+            case .image(let picture, let isFinal):
+                // Точную миниатюру раскодируем здесь, вне главного: иначе это сделает её
+                // первая отрисовка. Грубая крошечная — как есть.
+                image = isFinal ? await picture.byPreparingForDisplay() ?? picture : picture
+            case .inCloud:
+                inCloud = true
             }
         }
+        // Снимок только в iCloud: качаем, лишь если плитка постояла на экране — при
+        // быстрой прокрутке `.task` снимется раньше и сеть не тронет.
+        guard inCloud else { return }
+        try? await Task.sleep(for: .milliseconds(400))
+        guard !Task.isCancelled, let picture = await thumbnails.cloudImage(for: asset), !Task.isCancelled else { return }
+        image = await picture.byPreparingForDisplay() ?? picture
     }
 
     static func duration(_ seconds: TimeInterval) -> String {

@@ -1,0 +1,30 @@
+name: Поставить XcodeGen
+description: XcodeGen точной версии из релиза GitHub, с проверкой sha256 архива.
+
+# Не `brew install xcodegen`: Homebrew ставит последнюю версию, и новая версия XcodeGen
+# может молча поменять сгенерированный проект между двумя одинаковыми прогонами. Версия и
+# сумма записаны здесь один раз на все iOS-workflow (docs/IOS_RULES.md 14.1.1).
+#
+# Обновление: поменять версию и сумму вместе. Сумма — поле `digest` у `xcodegen.zip` в
+# https://api.github.com/repos/yonaskolb/XcodeGen/releases или `shasum -a 256 xcodegen.zip`.
+# Архив не тот, что записан, — шаг падает, а не ставит что пришло.
+
+runs:
+  using: composite
+  steps:
+    - name: Скачать, сверить сумму, распаковать
+      shell: bash
+      env:
+        XCODEGEN_VERSION: 2.46.0
+        XCODEGEN_SHA256: 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
+      run: |
+        set -euo pipefail
+        archive="$RUNNER_TEMP/xcodegen-$XCODEGEN_VERSION.zip"
+        curl -fsSL --retry 3 -o "$archive" \
+          "https://github.com/yonaskolb/XcodeGen/releases/download/$XCODEGEN_VERSION/xcodegen.zip"
+        echo "$XCODEGEN_SHA256  $archive" | shasum -a 256 -c -
+        # Запуск из распакованного каталога: рядом с bin/ лежит share/xcodegen с
+        # пресетами настроек, которые XcodeGen ищет относительно себя.
+        unzip -q -o "$archive" -d "$RUNNER_TEMP"
+        echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
+        "$RUNNER_TEMP/xcodegen/bin/xcodegen" --version

@@ -6,7 +6,7 @@ import Foundation
 /// - `SH_UITEST_MOCK=1` — сеть отвечает из фикстур (`MockAPIProtocol`), реального
 ///   времени и запроса пушей нет, состояние на старте чистое;
 /// - `SH_UITEST_SCENARIO` — `signedOut` (экран входа, по умолчанию) или `student`
-///   (сразу вошёл студентом);
+///   (сразу вошёл студентом); неизвестное имя роняет запуск;
 /// - `SH_UITEST_LARGE=1` — большие фикстуры для замеров прокрутки: сотни чатов, тысячи
 ///   сообщений, сотни постов;
 /// - `SH_UITEST_REDUCE_MOTION=1` — уменьшение движения, не трогая настройки симулятора.
@@ -14,7 +14,7 @@ import Foundation
 /// Тип есть и в релизной сборке — его читают `Motion` и места подключения, — но там
 /// всё выключено: окружение процесса не читается вовсе, а кода mock в сборке нет.
 struct UITestEnvironment: Sendable {
-    enum Scenario: String, Sendable {
+    enum Scenario: String, CaseIterable, Sendable {
         case signedOut
         case student
     }
@@ -32,7 +32,7 @@ struct UITestEnvironment: Sendable {
             let isMock = environment["SH_UITEST_MOCK"] == "1"
             return UITestEnvironment(
                 isMock: isMock,
-                scenario: environment["SH_UITEST_SCENARIO"].flatMap(Scenario.init(rawValue:)) ?? .signedOut,
+                scenario: UITestEnvironment.scenario(environment["SH_UITEST_SCENARIO"]),
                 isLarge: isMock && environment["SH_UITEST_LARGE"] == "1",
                 reduceMotion: environment["SH_UITEST_REDUCE_MOTION"] == "1"
             )
@@ -40,6 +40,16 @@ struct UITestEnvironment: Sendable {
             return .off
         #endif
     }()
+
+    /// Имя сценария — контракт с тестами. Нет переменной — экран входа; опечатка роняет
+    /// запуск с перечнем известных имён: иначе тест молча проверял бы экран входа, а
+    /// падение выглядело бы багом продукта (`docs/IOS_RULES.md` 2.7.8).
+    static func scenario(_ raw: String?) -> Scenario {
+        guard let raw, !raw.isEmpty else { return .signedOut }
+        if let scenario = Scenario(rawValue: raw) { return scenario }
+        let known = Scenario.allCases.map(\.rawValue).joined(separator: ", ")
+        preconditionFailure("SH_UITEST_SCENARIO=\"\(raw)\" неизвестен, известны: \(known)")
+    }
 }
 
 /// Точки подключения тестового режима к сборке зависимостей. В Release — настоящие

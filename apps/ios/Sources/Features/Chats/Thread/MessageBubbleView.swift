@@ -150,13 +150,10 @@ struct MessageBubbleView: View {
                 }
             }
                 .bubbleAnchor(message.id, part: .bubble, enabled: !isMenuPreview)
-                .onTapGesture(count: 2) {
-                    guard !isMenuPreview, !isDeleted, message.remoteId != nil else { return }
-                    reactionTick += 1
-                    onAction(.react(ChatReactions.doubleTap))
-                }
-                // Долгое нажатие ловит лента (UIKit), а не пузырь: то же касание ведёт
-                // и открывшееся меню — к пункту, не отрывая пальца (`MessageMenuTouch`).
+                // Долгое нажатие и двойной тап-реакцию ловит лента (UIKit), а не пузырь:
+                // то же касание ведёт открывшееся меню к пункту, не отрывая пальца
+                // (`MessageMenuTouch`), а двойной тап не ждёт второго касания у кнопок
+                // внутри пузыря и не срабатывает на них (`bubbleControl`).
                 .sensoryFeedback(.impact(weight: .light), trigger: reactionTick)
                 .accessibilityAction(named: Text(String(localized: "chats.menu.actions", defaultValue: "Действия"))) {
                     onAction(.menu)
@@ -196,7 +193,7 @@ struct MessageBubbleView: View {
     }
 
     private var bubble: some View {
-        ChatBubbleStack(spacing: Spacing.xs) {
+        ChatBubbleStack(spacing: ChatBubbleMetrics.partSpacing) {
             if context.isGroup, !item.isOwn, item.isFirstInGroup, let name = message.senderName, !name.isEmpty {
                 Text(name)
                     .font(.subheadline.weight(.semibold))
@@ -228,6 +225,7 @@ struct MessageBubbleView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .bubbleControl(enabled: !isMenuPreview)
                 .layoutValue(key: ChatStretches.self, value: true)
             }
 
@@ -240,43 +238,53 @@ struct MessageBubbleView: View {
                     ChatMediaMosaic(items: mediaAttachments, upload: mediaUpload, tileUpload: tileUpload) { attachment in
                         onAction(.openAttachment(attachment))
                     }
+                    .bubbleControl(enabled: !isMenuPreview)
                     .environment(\.chatMediaCorners, isMediaOnly ? mediaCorners : nil)
                 } else if let single = mediaAttachments.first {
                     AttachmentView(attachment: single, isOwn: item.isOwn, upload: mediaUpload) {
                         onAction(.openAttachment(single))
                     }
+                    .bubbleControl(enabled: !isMenuPreview)
                     .environment(\.chatMediaCorners, isMediaOnly ? mediaCorners : nil)
                 }
                 ForEach(otherAttachments, id: \.id) { attachment in
                     AttachmentView(attachment: attachment, isOwn: item.isOwn, upload: upload) {
                         onAction(.openAttachment(attachment))
                     }
+                    .bubbleControl(enabled: !isMenuPreview)
                 }
                 if let share = profileShare {
                     ProfileShareCard(share: share, isOwn: item.isOwn)
+                        .bubbleControl(enabled: !isMenuPreview)
                         .id(share.userID)
                 }
                 if let post = extras.sharedPost {
                     SharedPostCard(post: post, isOwn: item.isOwn) { onAction(.openPost(post.id)) }
+                        .bubbleControl(enabled: !isMenuPreview)
                         .layoutValue(key: ChatStretches.self, value: true)
                 }
                 if let story = extras.sharedStory {
                     SharedStoryCard(story: story, isOwn: item.isOwn)
+                        .bubbleControl(enabled: !isMenuPreview)
                         .layoutValue(key: ChatStretches.self, value: true)
                 }
                 if let poll = extras.poll {
                     ChatPollView(poll: poll, isOwn: item.isOwn)
+                        .bubbleControl(enabled: !isMenuPreview)
                 }
                 if let location = extras.location {
                     LocationMessageView(location: location, isOwn: item.isOwn, messageID: message.remoteId)
+                        .bubbleControl(enabled: !isMenuPreview)
                 }
                 if let contact = extras.contact {
                     ContactMessageView(contact: contact, isOwn: item.isOwn)
+                        .bubbleControl(enabled: !isMenuPreview)
                 }
                 if let checklist = extras.checklist {
                     ChecklistMessageView(
                         checklist: checklist, isOwn: item.isOwn, isAuthor: item.isOwn, viewerID: context.viewerID
                     )
+                    .bubbleControl(enabled: !isMenuPreview)
                 }
             }
 
@@ -287,6 +295,7 @@ struct MessageBubbleView: View {
             // У карточки профиля превью той же ссылки было бы повтором.
             if let preview = extras.linkPreview, !isDeleted, profileShare == nil {
                 LinkPreviewCard(preview: preview, isOwn: item.isOwn)
+                    .bubbleControl(enabled: !isMenuPreview)
                     .layoutValue(key: ChatStretches.self, value: true)
             }
 
@@ -295,6 +304,7 @@ struct MessageBubbleView: View {
             if showsReactions {
                 HStack(alignment: .bottom, spacing: Spacing.md) {
                     reactions
+                        .bubbleControl(enabled: !isMenuPreview)
                     meta(metaColor).hidden()
                 }
                 // Первая реакция всплывает пружинкой из угла, как в Telegram.
@@ -324,7 +334,7 @@ struct MessageBubbleView: View {
         }
         .padding(.leading, padding(leading: true))
         .padding(.trailing, padding(leading: false))
-        .padding(.vertical, isMediaOnly ? 3 : Spacing.sm)
+        .padding(.vertical, isMediaOnly ? ChatBubbleMetrics.mediaOnlyVerticalPadding : ChatBubbleMetrics.verticalPadding)
         .background {
             if PerformanceFlags.chatBubbleFlatShadow {
                 // Та же тень без размытия: подложка со сдвигом вниз под заливкой пузыря.
@@ -354,6 +364,7 @@ struct MessageBubbleView: View {
                         .foregroundStyle(Palette.destructive)
                 }
                 .buttonStyle(.plain)
+                .bubbleControl(enabled: !isMenuPreview)
                 .offset(x: item.isOwn ? -(Spacing.xxl + Spacing.xs) : Spacing.xxl + Spacing.xs)
                 .accessibilityLabel(Text(String(localized: "chats.retrySend", defaultValue: "Отправить ещё раз")))
             }
@@ -378,6 +389,7 @@ struct MessageBubbleView: View {
                     .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
                 }
                 .buttonStyle(.plain)
+                .bubbleControl(enabled: !isMenuPreview)
             }
             StickerMessageView(sticker: sticker)
                 .overlay(alignment: .bottomTrailing) {
@@ -390,6 +402,7 @@ struct MessageBubbleView: View {
                 reactions
                     .padding(Spacing.xs)
                     .background(item.isOwn ? Palette.primary : Palette.card, in: Capsule())
+                    .bubbleControl(enabled: !isMenuPreview)
             }
         }
         .contentShape(Rectangle())
@@ -584,14 +597,29 @@ struct MessageBubbleView: View {
         }
         text = text + Text(verbatim: time)
         if item.isOwn {
-            text = text + Text(verbatim: " ") + Text(Image(systemName: "checkmark")) + Text(Image(systemName: "checkmark"))
-            if readCount > 0 {
-                text = text + Text(verbatim: " \(readCount.formatted())")
-            }
+            text = text + Text(verbatim: " ") + stateMarkPlaceholder
         }
         return text
             .font(Typography.tabular(.caption2))
             .foregroundStyle(Color.clear)
+    }
+
+    /// Копия `stateMark` для места под время: тот же знак, что нарисуется сверху. Две
+    /// галочки там, где видна одна, оставляли зазор, а часы и «!» уже галочек.
+    private var stateMarkPlaceholder: Text {
+        switch message.sendState {
+        case .sent:
+            // Вторая галочка у видимой метки сдвинута на полширины, копия берёт её
+            // целиком: резерв чуть шире, но время на текст не наедет.
+            var checks = Text(Image(systemName: "checkmark"))
+            if isRead { checks = checks + Text(Image(systemName: "checkmark")) }
+            checks = checks.font(.caption2.weight(.bold))
+            return readCount > 0 ? checks + Text(verbatim: " \(readCount.formatted())") : checks
+        case .pending:
+            return Text(Image(systemName: "clock"))
+        case .failed:
+            return Text(Image(systemName: "exclamationmark.circle.fill"))
+        }
     }
 
     // MARK: Реакции
@@ -615,7 +643,7 @@ struct MessageBubbleView: View {
                         }
                     }
                     .padding(.horizontal, Spacing.md)
-                    .padding(.vertical, 3)
+                    .padding(.vertical, ChatBubbleMetrics.reactionVerticalPadding)
                     .foregroundStyle(reactionForeground(mine: mine))
                     .background(reactionBackground(mine: mine), in: Capsule())
                     // Своя реакция поставлена или снята — капсула коротко «вздыхает».
@@ -831,7 +859,7 @@ private struct ReplyQuoteView: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, Spacing.xs)
+        .padding(.vertical, ChatBubbleMetrics.replyVerticalPadding)
         .padding(.trailing, Spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
@@ -844,21 +872,26 @@ private struct ReplyQuoteView: View {
     }
 }
 
-/// Превью ссылки под текстом.
+/// Превью ссылки под текстом. Подпись — хост из самого адреса, а не `siteName`: его
+/// пишет чужой сайт и может назваться кем угодно («StudentHub», банк). Переход — через
+/// `ExternalLinkOpener`, с подтверждением для чужих адресов.
 private struct LinkPreviewCard: View {
     let preview: MessageExtras.LinkPreview
     let isOwn: Bool
 
     var body: some View {
         if let url = URL(string: preview.url) {
-            Link(destination: url) {
+            Button {
+                ExternalLinkOpener.open(url)
+            } label: {
                 HStack(spacing: Spacing.md) {
                     Rectangle()
                         .fill(isOwn ? Palette.primaryForeground.opacity(0.6) : Palette.primary)
                         .frame(width: 2)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(preview.siteName ?? url.host() ?? preview.url)
+                        Text(verbatim: ExternalLink.displayHost(url) ?? preview.url)
                             .font(Typography.meta.weight(.semibold))
+                            .lineLimit(1)
                         if let title = preview.title, !title.isEmpty {
                             Text(title)
                                 .font(Typography.meta.weight(.medium))
@@ -877,6 +910,7 @@ private struct LinkPreviewCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.plain)
+            .accessibilityAddTraits(.isLink)
         }
     }
 }

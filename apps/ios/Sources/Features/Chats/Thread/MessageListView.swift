@@ -43,6 +43,8 @@ struct MessageListView: UIViewControllerRepresentable {
     var onMenu: (MessageTimeline.Item) -> Void = { _ in }
     /// Лента впервые показана человеку (конец замера `ChatOpen`).
     var onFirstShown: () -> Void = {}
+    /// Сменилась нижняя реально видимая строка — по ней отмечается прочтение.
+    var onLowestVisible: (String?) -> Void = { _ in }
 
     func makeUIViewController(context: Context) -> MessageListViewController {
         let controller = MessageListViewController()
@@ -69,6 +71,7 @@ struct MessageListView: UIViewControllerRepresentable {
         controller.onDayTap = onDayTap
         controller.followsBottom = followsBottom
         controller.onFirstShown = onFirstShown
+        controller.onLowestVisible = onLowestVisible
     }
 }
 
@@ -82,6 +85,7 @@ final class MessageListViewController: UIViewController {
     var capabilities: ((MessageRecord) -> MessageCapabilities)?
     var onBottomChange: ((Bool) -> Void)?
     var onFirstShown: (() -> Void)?
+    var onLowestVisible: ((String?) -> Void)?
     private var bubbleContext = BubbleContext()
     private var selection: Set<String>?
     private var appliedBottomToken = 0
@@ -90,6 +94,8 @@ final class MessageListViewController: UIViewController {
     /// увиденный до конца, и счётчик на кнопке «вниз» после прокрутки вверх не должен
     /// вспоминать старое непрочитанное.
     private var reportedAtBottom: Bool?
+    /// Последняя сообщённая нижняя видимая строка — сообщаем только смену.
+    private var reportedLowestVisible: String?
     private var appliedFocus: MessageFocus?
     /// Номер последней применённой ленты; `nil` — ещё ни одной.
     private var appliedRevision: Int?
@@ -161,6 +167,11 @@ final class MessageListViewController: UIViewController {
     /// Долгое нажатие на пузырь — меню; то же касание дальше выбирает в нём пункт.
     private let menuPress = UILongPressGestureRecognizer()
     private let menuFeedback = UIImpactFeedbackGenerator(style: .medium)
+    /// Двойной тап по неинтерактивной части пузыря — реакция. Здесь, а не жестом SwiftUI
+    /// на пузыре: тот висел на всём пузыре, ставил реакцию с варианта опроса и пункта
+    /// чек-листа и заставлял одиночный тап по кнопке внутри ждать второго.
+    private let reactionTap = UITapGestureRecognizer()
+    private let reactionFeedback = UIImpactFeedbackGenerator(style: .light)
 
     private struct Entrance {
         let own: Bool
@@ -185,8 +196,28 @@ final class MessageListViewController: UIViewController {
         }
     }
 
+    /// Пружина к низу шла, когда экран начал уходить: если свайп назад отменят, она
+    /// доедет.
+    private var glideInterruptedByLeave = false
+
+    /// Лента замирает с начала ухода, а не после него: во время свайпа назад она не
+    /// должна ехать сама под пальцем.
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        glideInterruptedByLeave = glide.isRunning
+        glide.stop()
+    }
+
+    /// Свайп назад отменён — экран остался: довести прерванную пружину.
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if glideInterruptedByLeave, sticksToBottom { glide.start() }
+        glideInterruptedByLeave = false
+    }
+
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        glideInterruptedByLeave = false
         glide.stop()
     }
 
@@ -334,7 +365,7 @@ final class MessageListViewController: UIViewController {
         followedBottom = followsBottom
         let oldHeight = collectionView.contentSize.height
         let oldOffset = collectionView.contentOffset.y
-        let pinned = topVisibleItem()
+        let anchors = anchorCandidates(order: previousOrder)
         let isFirstFill = !hasContent && !days.isEmpty
         // Прежний низ ленты пропал — значит, сменилось всё окно, а не пришло новое.
         let replaced = previousOrder.last.map { itemsByID[$0] == nil } ?? false
@@ -397,7 +428,10 @@ final class MessageListViewController: UIViewController {
                     self.scrollToBottom(animated: animated && !self.reduceMotion)
                     return
                 }
-                if let pinned, self.restore(pinned) { return }
+                // Держим верхнее видимое; удалено — ближайшее выжившее ниже, затем выше.
+                if let anchor = anchors.first(where: { self.itemsByID[$0.id] != nil }), self.restore(anchor) {
+                    return
+                }
                 let grown = self.collectionView.contentSize.height - oldHeight
                 if grown > 0, oldOffset < grown {
                     // Выросло сверху — компенсируем, иначе лента прыгнет под пальцем.
@@ -451,7 +485,12 @@ final class MessageListViewController: UIViewController {
         glide.stop()
         sticksToBottom = target == nil
         reportBottom()
-        reveal()
+        // Переход к сообщению до первой расстановки: цель уже на месте — подсветить её,
+        // когда лента проявится.
+        let focus = pendingFocus
+        reveal { [weak self] in
+            if let focus { self?.finishFocusIfPending(focus) }
+        }
         // Переписка показала первое содержимое — конец «открытия чата» для человека.
         // Число — заранее: строка метки — автозамыкание, и `self` в ней пришлось бы писать явно.
         let items = dataSource.snapshot().numberOfItems
@@ -461,25 +500,46 @@ final class MessageListViewController: UIViewController {
     }
 
     /// Показать ленту после первой расстановки.
-    private func reveal() {
-        guard collectionView.alpha < 1 else { return }
+    private func reveal(completion: @escaping () -> Void = {}) {
+        guard collectionView.alpha < 1 else {
+            completion()
+            return
+        }
         onFirstShown?()
         guard !reduceMotion else {
             collectionView.alpha = 1
+            completion()
             return
         }
         UIView.animate(withDuration: Motion.Duration.feedback, delay: 0, options: [.allowUserInteraction]) {
             self.collectionView.alpha = 1
+        } completion: { _ in
+            completion()
         }
     }
 
-    /// Верхнее видимое сообщение и его расстояние от верха видимой области.
-    private func topVisibleItem() -> (id: String, distance: CGFloat)? {
-        guard let indexPath = collectionView.indexPathsForVisibleItems.min(),
-            let id = dataSource.itemIdentifier(for: indexPath),
-            let frame = collectionView.layoutAttributesForItem(at: indexPath)?.frame
-        else { return nil }
-        return (id, frame.minY - collectionView.contentOffset.y)
+    /// Смещение ленты без оттяжки у верха: отскок не должен попадать в расстояния якорей.
+    private var settledOffset: CGFloat {
+        max(collectionView.contentOffset.y, -collectionView.adjustedContentInset.top)
+    }
+
+    /// Кого держать на месте при смене среза, по порядку: верхнее видимое сообщение,
+    /// видимые под ним, затем несколько над ним — каждое с расстоянием от верха. Если
+    /// верхнее удалят, держится ближайшее выжившее, а не грубая поправка по росту высоты.
+    private func anchorCandidates(order: [String]) -> [(id: String, distance: CGFloat)] {
+        let visible = collectionView.indexPathsForVisibleItems.sorted()
+        guard let top = visible.first, let topID = dataSource.itemIdentifier(for: top),
+            let index = order.firstIndex(of: topID)
+        else { return [] }
+        let below = order[(index + 1)..<min(order.count, index + max(visible.count, 1))]
+        let above = order[max(0, index - 3)..<index].reversed()
+        let offset = settledOffset
+        return ([topID] + below + above).compactMap { id in
+            guard let indexPath = dataSource.indexPath(for: id),
+                let frame = collectionView.layoutAttributesForItem(at: indexPath)?.frame
+            else { return nil }
+            return (id, frame.minY - offset)
+        }
     }
 
     /// Вернуть сообщение на прежнее место экрана. `false` — его больше нет в ленте.
@@ -491,7 +551,9 @@ final class MessageListViewController: UIViewController {
         let lowest = -inset.top
         let highest = max(lowest, collectionView.contentSize.height - collectionView.bounds.height + inset.bottom)
         let target = min(max(frame.minY - pinned.distance, lowest), highest)
-        if abs(target - collectionView.contentOffset.y) > 0.5 {
+        // Сравниваем со смещением без оттяжки: тянутую у верха ленту не сдёргиваем, если
+        // якорь не сдвинулся.
+        if abs(target - settledOffset) > 0.5 {
             ScrollProbe.note("restore pinned \(Int(collectionView.contentOffset.y)) -> \(Int(target)) decelerating=\(collectionView.isDecelerating)")
             collectionView.contentOffset.y = target
         }
@@ -554,6 +616,14 @@ final class MessageListViewController: UIViewController {
         menuPress.addTarget(self, action: #selector(handleMenuPress(_:)))
         menuPress.delegate = self
         collectionView.addGestureRecognizer(menuPress)
+        reactionTap.numberOfTapsRequired = 2
+        // Касания идут в пузырь как шли: кнопки внутри срабатывают сразу, не дожидаясь,
+        // будет ли второй тап.
+        reactionTap.cancelsTouchesInView = false
+        reactionTap.delaysTouchesEnded = false
+        reactionTap.addTarget(self, action: #selector(handleReactionTap(_:)))
+        reactionTap.delegate = self
+        collectionView.addGestureRecognizer(reactionTap)
         collectionView.delegate = self
         collectionView.prefetchDataSource = self
         collectionView.translatesAutoresizingMaskIntoConstraints = false
@@ -707,7 +777,8 @@ final class MessageListViewController: UIViewController {
         return MessageHeightEstimate.Metrics(
             textWidth: Double(min(width * 0.78, 360) - 24),
             lineHeight: Double(body.lineHeight),
-            charWidth: Double(body.pointSize * 0.52)
+            charWidth: Double(body.pointSize * 0.52),
+            captionLineHeight: Double(UIFont.preferredFont(forTextStyle: .subheadline).lineHeight)
         )
     }
 
@@ -727,10 +798,14 @@ final class MessageListViewController: UIViewController {
                     self?.onAction?(action, item.message)
                 }
             }
+            // Ссылки текста (markdown, автоссылки) — через единый открыватель, а не в
+            // систему: окружение SwiftUI в ячейки `UIHostingConfiguration` не доходит,
+            // поэтому ставим здесь, у каждого пузыря.
+            .environment(\.openURL, ExternalLinkOpener.action)
         }
         // Как в Telegram: пузыри почти у краёв экрана, внутри группы — вплотную.
         .margins(.horizontal, Spacing.md)
-        .margins(.vertical, item.isLastInGroup ? 5 : 1)
+        .margins(.vertical, ChatBubbleMetrics.rowMargin(isLastInGroup: item.isLastInGroup))
         cell.backgroundConfiguration = .clear()
     }
 
@@ -778,9 +853,10 @@ final class MessageListViewController: UIViewController {
         sticksToBottom = false
         pendingFocus = request
         if needsInitialPosition {
-            // Ленту ещё не расставили: цель и станет первой позицией.
+            // Ленту ещё не расставили: цель и станет первой позицией, подсветка — после
+            // показа ленты (`positionInitiallyIfPossible`). Таймер — только страховка.
             initialAnchor = request.id
-            scheduleFocusFinish(for: request, after: .milliseconds(300))
+            scheduleFocusFinish(for: request, after: Self.focusFallback)
             return
         }
         glide.stop()
@@ -793,12 +869,35 @@ final class MessageListViewController: UIViewController {
         let animated = !recentlyReplaced && !reduceMotion && near
         if !near, !recentlyReplaced {
             crossfade { self.collectionView.scrollToItem(at: indexPath, at: Self.position(for: request), animated: false) }
+        } else if animated {
+            // Куда приедет лента, узнаём заранее: прокрутка без анимации и возврат в одном
+            // проходе (кадра между ними нет). Стоит на месте — конца прокрутки не будет,
+            // подсвечиваем сразу; едет — подсветит `scrollViewDidEndScrollingAnimation`.
+            let start = collectionView.contentOffset
+            collectionView.scrollToItem(at: indexPath, at: Self.position(for: request), animated: false)
+            let target = collectionView.contentOffset
+            collectionView.contentOffset = start
+            if abs(target.y - start.y) < 0.5 {
+                DispatchQueue.main.async { [weak self] in self?.finishFocusIfPending(request) }
+            } else {
+                collectionView.setContentOffset(target, animated: true)
+                scheduleFocusFinish(for: request, after: Self.focusFallback)
+            }
+            return
         } else {
-            collectionView.scrollToItem(at: indexPath, at: Self.position(for: request), animated: animated)
+            collectionView.scrollToItem(at: indexPath, at: Self.position(for: request), animated: false)
         }
-        // Сообщение могло уже стоять на месте — тогда конца прокрутки не будет, и
-        // подсветку запускает таймер.
-        scheduleFocusFinish(for: request, after: .milliseconds(animated ? 450 : 30))
+        // Без анимации лента уже на месте: подсветка — после текущего прохода раскладки.
+        DispatchQueue.main.async { [weak self] in self?.finishFocusIfPending(request) }
+    }
+
+    /// Страховка перехода к сообщению: если конца прокрутки или первого показа ленты так
+    /// и не случилось, подсветка всё равно придёт. Обычный путь — по завершению.
+    private static let focusFallback: Swift.Duration = .seconds(1)
+
+    private func finishFocusIfPending(_ request: MessageFocus) {
+        guard pendingFocus == request else { return }
+        finishFocus()
     }
 
     private static func position(for request: MessageFocus) -> UICollectionView.ScrollPosition {
@@ -808,8 +907,7 @@ final class MessageListViewController: UIViewController {
     private func scheduleFocusFinish(for request: MessageFocus, after delay: Swift.Duration) {
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: delay)
-            guard let self, self.pendingFocus == request else { return }
-            self.finishFocus()
+            self?.finishFocusIfPending(request)
         }
     }
 
@@ -911,11 +1009,32 @@ final class MessageListViewController: UIViewController {
         // До первой расстановки лента ещё не там, где её увидят (низ или первое
         // непрочитанное): первое сообщённое состояние — уже с неё.
         guard hasContent, !needsInitialPosition else { return }
+        reportLowestVisible()
         let atBottom = isNearBottom
         guard atBottom != reportedAtBottom else { return }
         reportedAtBottom = atBottom
         DispatchQueue.main.async { [weak self] in
             self?.onBottomChange?(atBottom)
+        }
+    }
+
+    /// Нижняя строка, видимая между панелями сверху и полем ввода (IOS_RULES 6.6.1): не
+    /// `visibleCells` целиком — в них и строки под шапкой, и запас предзагрузки.
+    private func reportLowestVisible() {
+        let top = collectionView.contentOffset.y + collectionView.contentInset.top
+        let bottom = collectionView.contentOffset.y + collectionView.bounds.height - collectionView.contentInset.bottom
+        guard bottom > top else { return }
+        let frames = collectionView.indexPathsForVisibleItems.compactMap { indexPath -> ReadVisibility.Frame? in
+            guard let id = dataSource.itemIdentifier(for: indexPath),
+                let frame = collectionView.layoutAttributesForItem(at: indexPath)?.frame
+            else { return nil }
+            return ReadVisibility.Frame(id: id, minY: frame.minY, maxY: frame.maxY)
+        }
+        let lowest = ReadVisibility.lowestVisible(frames, band: top...bottom)
+        guard lowest != reportedLowestVisible else { return }
+        reportedLowestVisible = lowest
+        DispatchQueue.main.async { [weak self] in
+            self?.onLowestVisible?(lowest)
         }
     }
 
@@ -1081,6 +1200,26 @@ final class MessageListViewController: UIViewController {
         }
     }
 
+    // MARK: - Реакция двойным тапом
+
+    /// Сообщение под пальцем, если двойной тап по этому месту ставит реакцию: пузырь
+    /// дошёл до сервера, не удалён, а палец не на живом элементе (`bubbleControl`).
+    private func reactionItem(at point: CGPoint) -> MessageTimeline.Item? {
+        guard let item = menuItem(at: point),
+            item.message.remoteId != nil, item.message.deletedAt == nil,
+            let indexPath = collectionView.indexPathForItem(at: point),
+            let cell = collectionView.cellForItem(at: indexPath),
+            !BubbleControlZone.contains(collectionView.convert(point, to: cell), in: cell)
+        else { return nil }
+        return item
+    }
+
+    @objc private func handleReactionTap(_ tap: UITapGestureRecognizer) {
+        guard tap.state == .ended, let item = reactionItem(at: tap.location(in: collectionView)) else { return }
+        reactionFeedback.impactOccurred()
+        onAction?(.react(ChatReactions.doubleTap), item.message)
+    }
+
     // MARK: - Ответ свайпом
 
     /// Строка под пальцем, если на её сообщение можно ответить: не в режиме выбора, не
@@ -1215,8 +1354,20 @@ final class MessageListViewController: UIViewController {
 
 extension MessageListViewController: UIGestureRecognizerDelegate {
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        if gestureRecognizer === reactionTap {
+            return reactionItem(at: gestureRecognizer.location(in: collectionView)) != nil
+        }
         guard gestureRecognizer === menuPress else { return true }
         return menuItem(at: gestureRecognizer.location(in: collectionView)) != nil
+    }
+
+    /// Двойной тап не спорит с жестами SwiftUI в ячейке: живые элементы он отсекает сам
+    /// (`reactionItem`), а без одновременности его гасило бы любое касание внутри.
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+    ) -> Bool {
+        gestureRecognizer === reactionTap
     }
 }
 

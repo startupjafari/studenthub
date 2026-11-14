@@ -168,7 +168,7 @@ struct ChatThreadView: View {
         do {
             try await ChatsAPI().deleteChat(chatID: chatID)
             let id = chatID
-            _ = try? await AppServices.database.writer.write { db in try ChatRecord.deleteOne(db, key: id) }
+            try? await ChatThreadQueries().removeChat(id: id)
             model?.endSelection()
             AppServices.router.popToRoot(.chats)
         } catch {
@@ -290,7 +290,8 @@ struct ChatThreadView: View {
                     onReachBottom: { Task { await model.loadNewer() } },
                     onAction: { action, message in handle(action, message: message, model: model) },
                     onMenu: { item in openMenu(item, model: model) },
-                    onFirstShown: { ChatOpenSignpost.end(chatID: chatID) }
+                    onFirstShown: { ChatOpenSignpost.end(chatID: chatID) },
+                    onLowestVisible: { id in model.noteVisible(lowest: id) }
                 )
                 .overlay {
                     // Открытие ждёт первую страницу: вместо одинокого превью — индикатор.
@@ -554,6 +555,10 @@ struct ChatThreadView: View {
         }
         .onChange(of: realtime.signals(for: chatID).scheduledVersion) {
             Task { await model?.scheduled.load() }
+        }
+        .onChange(of: realtime.signals(for: chatID).gapVersion) {
+            // Сообщение пришло через разрыв по `seq` — догнать пропущенное.
+            Task { await model?.catchUpAfterReconnect() }
         }
         .onChange(of: model?.newestIncomingID) {
             // Пришло новое — пока чат открыт, оно прочитано.
@@ -1232,7 +1237,7 @@ private struct PinnedBar: View {
                         .foregroundStyle(Palette.primary)
                     Text(message.content.isEmpty
                         ? String(localized: "chats.attachmentPreview", defaultValue: "Вложение")
-                        : message.content)
+                        : MessagePreview.text(message.content))
                         .font(Typography.meta)
                         .foregroundStyle(Palette.foreground)
                         .lineLimit(1)
@@ -1340,9 +1345,7 @@ private struct ChatRequestBar: View {
                     Task {
                         do {
                             try await api.declineRequest(chatID: chatID)
-                            try? await AppServices.database.writer.write { db in
-                                _ = try ChatRecord.deleteOne(db, key: chatID)
-                            }
+                            try? await ChatThreadQueries().removeChat(id: chatID)
                             dismiss()
                         } catch {
                             failure = (error as? APIError)?.displayMessage
@@ -1354,11 +1357,7 @@ private struct ChatRequestBar: View {
                     Task {
                         do {
                             try await api.acceptRequest(chatID: chatID)
-                            try? await AppServices.database.writer.write { db in
-                                guard var chat = try ChatRecord.fetchOne(db, key: chatID) else { return }
-                                chat.requestIncoming = false
-                                try chat.update(db)
-                            }
+                            try? await ChatThreadQueries().acceptRequest(chatID: chatID)
                         } catch {
                             failure = (error as? APIError)?.displayMessage
                         }

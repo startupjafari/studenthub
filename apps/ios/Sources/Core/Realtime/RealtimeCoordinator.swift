@@ -17,6 +17,10 @@ final class RealtimeCoordinator {
     private(set) var connectionEpoch = 0
     /// Кто что делает: чат → (пользователь → действие).
     private(set) var actions: [String: [String: String]] = [:]
+    /// Кто в каком порядке начал: последний — в конце. Подпись берёт последнего начавшего,
+    /// а не первого из словаря: порядок обхода словаря свой в каждом процессе, и при двух
+    /// печатающих подпись мигала бы (IOS_RULES 9.4.10).
+    @ObservationIgnored private var actionOrder: [String: [String]] = [:]
     /// То же по чату отдельными наблюдаемыми объектами — для строк списка чатов: строка
     /// следит только за своим чатом, и «печатает…» в одном чате не пересчитывает
     /// остальные строки и весь список.
@@ -74,6 +78,15 @@ final class RealtimeCoordinator {
     /// Чат, открытый на экране: его сообщения не увеличивают счётчик непрочитанного.
     private var openChatID: String?
     private var listRefresh: Task<Void, Never>?
+    /// Отметки прочтения, правки и удаления, сделанные без соединения: socket.io без него
+    /// событие молча отбрасывает, а в базе изменение уже есть. Досылаются на `.connected`
+    /// (IOS_RULES 9.4.16). Прочтение — последнее на чат, правка — последний текст.
+    private var unsentReads: [String: String] = [:]
+    private var unsentEdits: [(messageID: String, content: String)] = []
+    private var unsentDeletes: [String] = []
+    /// Запись свежего состояния списков в базу — цепочкой: следующая ждёт предыдущую,
+    /// иначе две быстрые правки могли бы лечь в обратном порядке.
+    private var checklistWrite: Task<Void, Never>?
     private let api: ChatsFetching?
 
     init(
@@ -121,6 +134,7 @@ final class RealtimeCoordinator {
         connectedAt = nil
         isConnected = false
         actions = [:]
+        actionOrder = [:]
         // Выход из аккаунта: строки списка прежнего аккаунта уже ушли, их объекты не
         // нужны следующему. Погашены — на случай, если чей-то вид ещё держит ссылку.
         for activity in activities.values { activity.action = nil }
@@ -138,12 +152,18 @@ final class RealtimeCoordinator {
         presenceMarks = [:]
         memberReads = [:]
         openChatID = nil
+        // Чужие отметки и правки следующему человеку не досылаем.
+        unsentReads = [:]
+        unsentEdits = []
+        unsentDeletes = []
         applicationStatus = nil
         listRefresh?.cancel()
         listRefresh = nil
         pinnedVersions = [:]
         pollVersions = [:]
         checklists = [:]
+        checklistWrite?.cancel()
+        checklistWrite = nil
         for task in expiry.values { task.cancel() }
         expiry = [:]
         await transport.disconnect()
@@ -185,6 +205,10 @@ final class RealtimeCoordinator {
 
     @MainActor
     func markRead(chatID: String, messageID: String) async {
+        guard isConnected else {
+            unsentReads[chatID] = messageID
+            return
+        }
         await transport.markRead(chatID: chatID, messageID: messageID)
     }
 
@@ -195,19 +219,62 @@ final class RealtimeCoordinator {
 
     @MainActor
     func edit(messageID: String, content: String) async {
+        guard isConnected else {
+            unsentEdits.removeAll { $0.messageID == messageID }
+            unsentEdits.append((messageID, content))
+            return
+        }
         await transport.edit(messageID: messageID, content: content)
     }
 
     @MainActor
     func delete(messageID: String) async {
+        guard isConnected else {
+            unsentEdits.removeAll { $0.messageID == messageID }
+            if !unsentDeletes.contains(messageID) { unsentDeletes.append(messageID) }
+            return
+        }
         await transport.delete(messageID: messageID)
     }
 
-    /// Свой ответ сервера на правку списка — сразу всем пузырям с этим списком.
+    /// Дослать сделанное без соединения. Сначала правки и удаления, потом прочтения —
+    /// порядок между ними серверу безразличен, но так собеседник не увидит «прочитано»
+    /// раньше исправленного текста.
     @MainActor
-    func remember(_ checklist: MessageExtras.Checklist) {
+    private func flushUnsent() async {
+        let edits = unsentEdits
+        let deletes = unsentDeletes
+        let reads = unsentReads
+        unsentEdits = []
+        unsentDeletes = []
+        unsentReads = [:]
+        for edit in edits {
+            await transport.edit(messageID: edit.messageID, content: edit.content)
+        }
+        for id in deletes {
+            await transport.delete(messageID: id)
+        }
+        for (chatID, messageID) in reads {
+            await transport.markRead(chatID: chatID, messageID: messageID)
+        }
+    }
+
+    /// Свой ответ сервера на правку списка — сразу всем пузырям с этим списком.
+    ///
+    /// Память — только сигнал открытому экрану; само состояние ложится в сохранённое
+    /// сообщение, иначе после перезапуска пузырь показал бы список из базы, устаревший
+    /// (IOS_RULES 9.8.17).
+    @MainActor
+    func remember(_ checklist: MessageExtras.Checklist, chatID: String? = nil) {
         checklists[checklist.id] = checklist
         checklistSignals[checklist.id]?.checklist = checklist
+        let previous = checklistWrite
+        let store = MessageStore(database: database)
+        checklistWrite = Task { @MainActor [weak self] in
+            await previous?.value
+            guard let self, self.active, !Task.isCancelled else { return }
+            try? await store.save(checklist: checklist, chatID: chatID)
+        }
     }
 
     // MARK: - События
@@ -224,6 +291,7 @@ final class RealtimeCoordinator {
             connectionEpoch += 1
             // Комнату после переподключения сервер не помнит — входим заново.
             if let openChatID { await transport.join(chatID: openChatID) }
+            await flushUnsent()
             // Переподключение, а не первое подключение: за время обрыва события мимо
             // прошли, и не только по открытому чату — его догоняет сам экран, а список
             // и счётчики догоняются здесь (P0-3 аудита). Первой страницы хватает:
@@ -337,8 +405,8 @@ final class RealtimeCoordinator {
             pollVersions[pollID, default: 0] += 1
             pollSignals[pollID]?.version += 1
 
-        case .checklistUpdated(let checklist, _):
-            remember(checklist)
+        case .checklistUpdated(let checklist, let chatID):
+            remember(checklist, chatID: chatID)
 
         case .locationUpdated(let location, let messageID, _):
             await LiveLocations.apply(location, messageID: messageID)
@@ -355,35 +423,64 @@ final class RealtimeCoordinator {
     private func save(_ message: ChatMessageDTO, nonce: String? = nil, countsAsUnread: Bool) async {
         let viewerID = await session.currentToken?.subject
         let isOpen = openChatID == message.chatId
-        try? await database.writer.write { db in
+        let step = try? await database.writer.write { db -> SyncPosition.Step in
+            // Строка уже была (догон или страница успели раньше, сервер прислал событие
+            // повторно) — счётчик второй раз не растёт.
+            let known = try MessageRecord
+                .filter(MessageRecord.Columns.remoteId == message.id)
+                .fetchCount(db) > 0
             try MessageStore.upsert(message, nonce: nonce, in: db)
-            guard var chat = try ChatRecord.fetchOne(db, key: message.chatId) else { return }
+            guard var chat = try ChatRecord.fetchOne(db, key: message.chatId) else { return .stay }
+            let before = chat
             if let seq = message.seq, seq > chat.lastSeq {
                 chat.lastSeq = seq
                 chat.lastMessageId = message.id
                 chat.updatedAt = message.createdAt
             }
+            // Позиция догона — только по порядку: через разрыв сообщение сохранено, но
+            // позиция стоит, и догон пойдёт с неё (IOS_RULES 9.3.2).
+            let step = SyncPosition.step(from: chat.syncSeq, seqs: message.seq.map { [$0] } ?? [])
+            if case .advance(let position) = step { chat.syncSeq = position }
             // Счётчик растёт только от чужого и только в закрытом чате: читаемое
             // прямо сейчас непрочитанным не бывает.
-            if countsAsUnread, !isOpen, message.senderId != viewerID {
+            if countsAsUnread, !known, !isOpen, message.senderId != viewerID {
                 chat.unreadCount += 1
             }
-            try chat.update(db)
+            try chat.updateChanges(db, from: before)
+            return step
         }
+        // Разрыв в открытом чате догоняет его экран. Закрытый догонится при открытии —
+        // с той же непродвинутой позиции.
+        if step == .gap { chatSignals[message.chatId]?.gapVersion += 1 }
     }
 
     /// Обновить верх списка: в одном из чатов что-то произошло. События идут пачками
     /// (сообщение, затем прочтение), поэтому запрос — после короткой паузы, один на
     /// пачку. Первой страницы хватает: изменившийся чат поднимается наверх.
+    ///
+    /// Временная ошибка не глотается: повтор с паузой 2 → 60 с с разбросом, пока сервер
+    /// не ответит по существу, не придёт новая просьба или не выйдет человек (IOS_RULES
+    /// 9.3.1) — иначе счётчики и порядок списка стояли бы до следующего события.
     @MainActor
     private func scheduleListRefresh() {
         listRefresh?.cancel()
         listRefresh = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(700))
-            guard let self, !Task.isCancelled else { return }
-            let api = self.api ?? ChatsAPI()
-            guard let page = try? await api.chats(cursor: nil, limit: 50) else { return }
-            try? await self.store.save(chats: page.items)
+            var wait: Duration = .milliseconds(700)
+            var delay = OutboxService.firstRetryDelay
+            while true {
+                try? await Task.sleep(for: wait)
+                guard !Task.isCancelled, let self, self.active else { return }
+                let api = self.api ?? ChatsAPI()
+                do {
+                    let page = try await api.chats(cursor: nil, limit: 50)
+                    try await self.store.save(chats: page.items)
+                    return
+                } catch {
+                    guard ActionFailureKind(error) == .transient else { return }
+                }
+                wait = OutboxService.jittered(delay)
+                delay = min(delay * 2, OutboxService.maxRetryDelay)
+            }
         }
     }
 
@@ -395,14 +492,17 @@ final class RealtimeCoordinator {
         expiry[key]?.cancel()
         expiry[key] = nil
 
+        actionOrder[chatID]?.removeAll { $0 == userID }
         guard let action else {
             actions[chatID]?.removeValue(forKey: userID)
             if actions[chatID]?.isEmpty == true { actions[chatID] = nil }
+            if actionOrder[chatID]?.isEmpty == true { actionOrder[chatID] = nil }
             syncActivity(of: chatID)
             return
         }
 
         actions[chatID, default: [:]][userID] = action
+        actionOrder[chatID, default: []].append(userID)
         syncActivity(of: chatID)
         expiry[key] = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(4))
@@ -416,7 +516,7 @@ final class RealtimeCoordinator {
     func activity(for chatID: String) -> ChatActivity {
         if let known = activities[chatID] { return known }
         let made = ChatActivity()
-        made.action = actions[chatID]?.values.first
+        made.action = currentAction(in: chatID)
         activities[chatID] = made
         return made
     }
@@ -465,8 +565,15 @@ final class RealtimeCoordinator {
     @MainActor
     private func syncActivity(of chatID: String) {
         guard let activity = activities[chatID] else { return }
-        let current = actions[chatID]?.values.first
+        let current = currentAction(in: chatID)
         if activity.action != current { activity.action = current }
+    }
+
+    /// Действие последнего начавшего — одно и то же при любом порядке словаря.
+    @MainActor
+    private func currentAction(in chatID: String) -> String? {
+        guard let userID = actionOrder[chatID]?.last else { return nil }
+        return actions[chatID]?[userID]
     }
 
     @MainActor
@@ -536,6 +643,9 @@ final class ChatSignals {
     var pinnedVersion = 0
     /// Растёт с каждым `chat:scheduled-changed`: экран перечитывает свои отложенные.
     var scheduledVersion = 0
+    /// Растёт, когда сообщение пришло через разрыв по `seq`: открытый чат догоняет
+    /// пропущенное (IOS_RULES 9.3.2).
+    var gapVersion = 0
     var memberReads: [String: Date] = [:]
 }
 

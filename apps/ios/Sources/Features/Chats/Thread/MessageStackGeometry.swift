@@ -41,6 +41,30 @@ final class MessageHeightCache {
     }
 }
 
+/// Отступы пузыря и строки ленты — одни для вида (`MessageBubbleView`, ячейка ленты) и
+/// для оценки высоты: числа, продублированные в оценке, разошлись бы с видом при правке
+/// дизайна, и кеш высот начал бы ошибаться — лента прыгала бы.
+enum ChatBubbleMetrics {
+    /// Поле пузыря сверху и снизу.
+    static let verticalPadding: CGFloat = Spacing.sm
+    /// Поле пузыря-снимка без подписи: снимок почти до края.
+    static let mediaOnlyVerticalPadding: CGFloat = 3
+    /// Зазор между частями пузыря (`ChatBubbleStack`).
+    static let partSpacing: CGFloat = Spacing.xs
+    /// Поле цитаты сверху и снизу.
+    static let replyVerticalPadding: CGFloat = Spacing.xs
+    /// Поле капсулы реакции сверху и снизу.
+    static let reactionVerticalPadding: CGFloat = 3
+    /// Строка файла: круг-значок и поля над и под ним (`FileAttachmentView`).
+    static let fileRowHeight: CGFloat = ControlHeight.xl + Spacing.xs * 2
+
+    /// Поле строки ленты сверху и снизу: внутри группы сообщения почти слиты, после
+    /// последнего — зазор до следующего автора.
+    static func rowMargin(isLastInGroup: Bool) -> CGFloat {
+        isLastInGroup ? 5 : 1
+    }
+}
+
 /// Оценка высоты пузыря до первого замера. Не точная — точнее прежних 44 pt для всех:
 /// строка, впервые въезжающая сверху, меньше сдвигает то, что под пальцем.
 enum MessageHeightEstimate {
@@ -70,15 +94,25 @@ enum MessageHeightEstimate {
         var lineHeight: Double
         /// Средняя ширина символа основного шрифта, pt.
         var charWidth: Double
+        /// Высота строки мелкого шрифта: имя автора, цитата, реакции.
+        var captionLineHeight: Double
         /// Поля пузыря сверху и снизу вместе.
-        var bubblePadding: Double = 14
-        var nameHeight: Double = 18
-        var replyHeight: Double = 44
-        var reactionsHeight: Double = 30
-        var fileRowHeight: Double = 52
-        /// Отступ строки: внутри группы 1 + 1, у последней в группе 5 + 5.
-        var groupGap: Double = 2
-        var lastGap: Double = 10
+        var bubblePadding = Double(ChatBubbleMetrics.verticalPadding * 2)
+        /// Зазор между частями пузыря (имя, цитата, вложения, текст, реакции).
+        var partSpacing = Double(ChatBubbleMetrics.partSpacing)
+        /// Отступ строки: поля сверху и снизу внутри группы и у последней в группе.
+        var groupGap = Double(ChatBubbleMetrics.rowMargin(isLastInGroup: false) * 2)
+        var lastGap = Double(ChatBubbleMetrics.rowMargin(isLastInGroup: true) * 2)
+
+        var nameHeight: Double { captionLineHeight + partSpacing }
+        /// Цитата: автор и строка фрагмента.
+        var replyHeight: Double {
+            captionLineHeight * 2 + Double(ChatBubbleMetrics.replyVerticalPadding * 2) + partSpacing
+        }
+        var reactionsHeight: Double {
+            captionLineHeight + Double(ChatBubbleMetrics.reactionVerticalPadding * 2) + partSpacing
+        }
+        var fileRowHeight: Double { Double(ChatBubbleMetrics.fileRowHeight) + partSpacing }
     }
 
     static func estimate(_ input: Input, metrics: Metrics) -> Double {

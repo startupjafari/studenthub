@@ -1,4 +1,3 @@
-import GRDB
 import SwiftUI
 
 /// Список чатов в духе Telegram для iOS 26.
@@ -1087,7 +1086,10 @@ private struct ChatPeekView: View {
                             isGroup: row.kind != .private && row.kind != .saved,
                             othersReadAt: row.othersReadAt,
                             viewerID: viewerID
-                        )
+                        ),
+                        // Копия в превью: без якорей, иначе она перехватит у пузыря
+                        // в ленте место, из которого растёт меню.
+                        isMenuPreview: true
                     )
                 }
             }
@@ -1103,22 +1105,7 @@ private struct ChatPeekView: View {
     }
 
     private func load() async {
-        let id = row.id
-        let snapshot = try? await AppServices.database.reader.read { db -> ThreadSnapshot in
-            let messages = try MessageRecord
-                .filter(MessageRecord.Columns.chatId == id)
-                .order(MessageRecord.Columns.createdAt.desc)
-                .limit(12)
-                .fetchAll(db)
-            let ids = messages.map(\.id)
-            let attachments = try AttachmentRecord
-                .filter(ids.contains(AttachmentRecord.Columns.messageId))
-                .fetchAll(db)
-            return ThreadSnapshot(
-                messages: messages.reversed(),
-                attachments: Dictionary(grouping: attachments, by: \.messageId)
-            )
-        }
+        let snapshot = try? await ChatListQueries(database: AppServices.database).fetchPreview(chatID: row.id)
         guard let snapshot else { return }
         items = MessageTimeline.build(
             from: snapshot.messages,

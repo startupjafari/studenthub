@@ -1,5 +1,4 @@
 import AVFoundation
-import SafariServices
 import SwiftUI
 import UIKit
 
@@ -638,15 +637,15 @@ private struct ChatMediaThumb: View {
     }
 
     /// Пока картинки нет: размытое превью (LQIP) из ответа, иначе ровная подложка.
-    /// Видео без кадра — тёмная плитка с ▶ по центру, а не серый квадрат: видно, что
-    /// это ролик, ещё до обложки.
+    /// Превью размыто заранее, один раз: живой `.blur` на каждой плитке сетки — лишний
+    /// проход вне экрана на каждом кадре прокрутки. Видео без кадра — тёмная плитка
+    /// с ▶ по центру, а не серый квадрат: видно, что это ролик, ещё до обложки.
     @ViewBuilder
     private var placeholder: some View {
-        if let preview = LQIP.image(from: item.placeholder) {
+        if let preview = LQIP.blurred(from: item.placeholder) {
             Image(uiImage: preview)
                 .resizable()
                 .scaledToFill()
-                .blur(radius: 12)
         } else if item.isVideo {
             ZStack {
                 LinearGradient(
@@ -730,7 +729,10 @@ final class ChatMediaThumbnails {
             return frame
         }
         let url = signed.sources.best(forPoints: Self.points).flatMap { URL(string: $0.url) } ?? signed.url
-        return await ImageMemoryCache.shared.load(url, key: key, maxPixelSize: pixels)
+        let image = await ImageMemoryCache.shared.load(url, key: key, maxPixelSize: pixels)
+        // Просмотр, открытый с плитки, первым кадром покажет её картинку.
+        if image != nil { ImageMemoryCache.shared.noteTile(key, forFile: item.id) }
+        return image
     }
 
     /// Первый кадр ролика по ссылке. Допуск по времени оставлен системным: ближайший
@@ -740,7 +742,9 @@ final class ChatMediaThumbnails {
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: pixels, height: pixels)
         guard let frame = try? await generator.image(at: .zero) else { return nil }
-        return UIImage(cgImage: frame.image)
+        // Раскодировать здесь, вне главного: иначе это сделает первая отрисовка плитки.
+        let image = UIImage(cgImage: frame.image)
+        return await image.byPreparingForDisplay() ?? image
     }
 
     /// Свободное место среди одновременных загрузок; нет — ждём в очереди.
@@ -765,39 +769,8 @@ final class ChatMediaThumbnails {
     }
 }
 
-/// Ссылки из материалов чата — во встроенном Safari (`SFSafariViewController`) поверх
-/// приложения, как в Telegram: «Готово» возвращает в информацию о чате. Показывается
-/// самым верхним контроллером окна — так он встаёт поверх и листа, и стека. Адрес не
-/// http(s) Safari-вид не откроет — такой отдаём системе.
-@MainActor
-enum ChatInAppBrowser {
-    static func open(_ url: URL) {
-        let scheme = url.scheme?.lowercased()
-        guard scheme == "http" || scheme == "https", let presenter = topController() else {
-            UIApplication.shared.open(url)
-            return
-        }
-        let safari = SFSafariViewController(url: url)
-        safari.preferredControlTintColor = UIColor(Palette.primary)
-        safari.dismissButtonStyle = .close
-        presenter.present(safari, animated: true)
-    }
-
-    private static func topController() -> UIViewController? {
-        let window = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows)
-            .first(where: \.isKeyWindow)
-        var top = window?.rootViewController
-        while let presented = top?.presentedViewController, !presented.isBeingDismissed {
-            top = presented
-        }
-        return top
-    }
-}
-
-/// Строка ссылки: касание открывает её во встроенном Safari поверх приложения, как в
-/// Telegram, — человек не уходит из чата. Сервер отдаёт только сообщения с превью;
+/// Строка ссылки: касание открывает её через `ExternalLinkOpener` — во встроенном Safari
+/// поверх приложения, как в Telegram, человек не уходит из чата. Сервер отдаёт только сообщения с превью;
 /// адрес, который не разобрать, — просто текстом.
 private struct ChatLinkRow: View {
     let link: ChatLinkItemDTO
@@ -805,7 +778,7 @@ private struct ChatLinkRow: View {
     var body: some View {
         if let url = link.url {
             Button {
-                ChatInAppBrowser.open(url)
+                ExternalLinkOpener.open(url)
             } label: {
                 label(url: url)
             }

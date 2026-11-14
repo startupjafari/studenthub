@@ -256,6 +256,26 @@ extension AppDatabase {
             }
         }
 
+        migrator.registerMigration("syncIntegrity_chatSyncPosition") { db in
+            // Позиция догона отдельно от номера последнего сообщения: страница списка
+            // поднимает номер, но не скачивает того, что между (IOS_RULES 9.3.4). Текущее
+            // значение переносим как есть — лучшего у старой базы нет.
+            try db.alter(table: ChatRecord.databaseTableName) { table in
+                table.add(column: "syncSeq", .integer).notNull().defaults(to: 0)
+                table.add(column: "syncedAt", .datetime)
+            }
+            try db.execute(sql: "UPDATE \(ChatRecord.databaseTableName) SET syncSeq = lastSeq")
+        }
+
+        migrator.registerMigration("dataSync_messageSendRejected") { db in
+            // Отказ сервера по существу отдельно от «не дошло»: такую строку очередь сама
+            // не повторяет (IOS_RULES 9.3.1). Старые неудачи считаем временными — у
+            // старой базы различия нет, и лишний повтор безвреднее потерянного сообщения.
+            try db.alter(table: MessageRecord.databaseTableName) { table in
+                table.add(column: "sendRejected", .boolean).notNull().defaults(to: false)
+            }
+        }
+
         return migrator
     }
 }

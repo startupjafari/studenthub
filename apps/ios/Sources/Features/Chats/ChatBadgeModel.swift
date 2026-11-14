@@ -1,5 +1,4 @@
 import Foundation
-import GRDB
 import Observation
 
 /// Число на вкладке «Чаты».
@@ -31,21 +30,10 @@ final class ChatBadgeModel {
     @MainActor
     func start() {
         guard task == nil else { return }
-        let database = databaseSource()
-        let observation = ValueObservation.tracking { db in
-            try Int.fetchOne(
-                db,
-                sql: """
-                    SELECT COALESCE(SUM(CASE WHEN unreadCount > 0 THEN unreadCount ELSE markedUnread END), 0)
-                    FROM chat
-                    WHERE archivedAt IS NULL AND muted = 0
-                    """
-            ) ?? 0
-        }
-        // Число то же — оболочка с вкладками не пересчитывается.
-        .removeDuplicates()
-        task = Task { @MainActor [weak self, database] in
-            for await unread in AsyncValues.stream(of: observation, in: database.reader) {
+        // Число то же — оболочка с вкладками не пересчитывается: отсев внутри запроса.
+        let queries = ChatListQueries(database: databaseSource())
+        task = Task { @MainActor [weak self, queries] in
+            for await unread in queries.observeUnreadTotal() {
                 self?.unread = unread
             }
         }

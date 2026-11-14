@@ -159,6 +159,28 @@ final class LoginFlowTests: XCTestCase {
         XCTAssertEqual(issuer.verifyCalls, 0)
     }
 
+    /// «Назад», пока код проверяется: поздний успех на брошенную попытку сессию не
+    /// открывает (`docs/IOS_RULES.md` 10.1.8).
+    func testLateCodeAnswerAfterBackDoesNotOpenSession() async {
+        let issuer = StubIssuer()
+        issuer.signInResult = .success(.twoFactorRequired(challengeToken: "challenge-1"))
+        issuer.verifyResult = .success(AuthSession(accessToken: longLivedToken))
+        let session = makeSession()
+        let model = LoginModel(auth: issuer)
+        model.identifier = "teacher@univer.kz"
+        model.password = "Secret123!"
+        await model.signIn(into: session)
+
+        issuer.beforeVerifyReturns = { model.startOver() }
+        model.code = "123456"
+        await model.verifyTwoFactor(into: session)
+
+        XCTAssertEqual(issuer.verifyCalls, 1)
+        XCTAssertNil(session.token)
+        XCTAssertEqual(model.step, .credentials)
+        XCTAssertNil(model.formError)
+    }
+
     private func makeSession() -> AppSessionModel {
         AppSessionModel(
             store: SessionStore(auth: SilentRefresher(), secrets: MemorySecrets(), cookies: MemoryCookies())
@@ -178,6 +200,8 @@ private final class StubIssuer: SessionIssuing, @unchecked Sendable {
     private(set) var verifyCalls = 0
     private(set) var lastIdentifier: String?
     private(set) var lastChallenge: String?
+    /// Что человек успевает сделать, пока ответ проверки кода в пути.
+    var beforeVerifyReturns: (@MainActor () -> Void)?
 
     func signIn(identifier: String, password: String) async throws -> LoginOutcome {
         let result: Result<LoginOutcome, APIError> = lock.withLock {
@@ -194,6 +218,7 @@ private final class StubIssuer: SessionIssuing, @unchecked Sendable {
             lastChallenge = challengeToken
             return verifyResult
         }
+        if let beforeVerifyReturns { await beforeVerifyReturns() }
         return try result.get()
     }
 }
@@ -227,8 +252,10 @@ private final class MemorySecrets: SecretStore, @unchecked Sendable {
         lock.withLock { storage[key.rawValue] }
     }
 
-    func set(_ value: String, for key: SecretKey) {
+    @discardableResult
+    func set(_ value: String, for key: SecretKey) -> Bool {
         lock.withLock { storage[key.rawValue] = value }
+        return true
     }
 
     func remove(_ key: SecretKey) {

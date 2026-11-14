@@ -85,7 +85,7 @@ struct MessageOutbox: Sendable {
         } catch {
             return false
         }
-        return await deliver(local, silent: silent)
+        return await deliver(local, silent: silent) == .sent
     }
 
     /// Повторить одну неудачу — по кнопке у сообщения. Переход «неудача → в пути»
@@ -96,13 +96,16 @@ struct MessageOutbox: Sendable {
         let claimed = (try? await database.writer.write { db -> Bool in
             guard var row = try MessageRecord.fetchOne(db, key: message.id), row.sendState == .failed else { return false }
             row.sendState = .pending
+            // Человек сам решил повторить — прежний отказ больше не держит строку вне очереди.
+            row.sendRejected = false
             try row.update(db)
             return true
         }) ?? false
         guard claimed else { return false }
         var pending = message
         pending.sendState = .pending
-        return await deliver(pending)
+        pending.sendRejected = false
+        return await deliver(pending) == .sent
     }
 
     /// Дослать всё, что осталось висеть: после перезапуска, возвращения связи или
@@ -113,7 +116,10 @@ struct MessageOutbox: Sendable {
     /// ещё ждёт ответа, повтор дал бы дубль. Зависшее дольше минуты (приложение
     /// закрыли посреди отправки) — уже не в пути.
     ///
-    /// `true` — застрявшего не осталось (или его и не было), `false` — что-то не ушло.
+    /// Отказ сервера по существу (403, 422) — не повод стоять: строка уходит в «не
+    /// отправлено» без автоповтора, а следующие за ней едут дальше (IOS_RULES 9.3.1).
+    ///
+    /// `true` — повторять нечего (всё ушло или отвергнуто), `false` — что-то не дошло.
     @discardableResult
     func flush(chatID: String? = nil) async -> Bool {
         let stuck: [MessageRecord]
@@ -130,9 +136,9 @@ struct MessageOutbox: Sendable {
         }
 
         for message in stuck {
-            // Останавливаемся на первой же неудаче: дальше почти наверняка та же
-            // сеть, а порядок сообщений важнее попытки протолкнуть следующее.
-            guard await deliver(message) else { return false }
+            // Останавливаемся на первой же временной неудаче: дальше почти наверняка
+            // та же сеть, а порядок сообщений важнее попытки протолкнуть следующее.
+            if await deliver(message) == .retryLater { return false }
         }
         return true
     }
@@ -152,6 +158,7 @@ struct MessageOutbox: Sendable {
     private static func stuck(now: Date) -> QueryInterfaceRequest<MessageRecord> {
         MessageRecord
             .filter(MessageRecord.Columns.remoteId == nil)
+            .filter(MessageRecord.Columns.sendRejected == false)
             .filter(MessageRecord.Columns.sendState == MessageSendState.failed.rawValue
                 || MessageRecord.Columns.createdAt < now.addingTimeInterval(-60))
             .filter(sql: "NOT EXISTS (SELECT 1 FROM attachment WHERE attachment.messageId = message.id)")
@@ -160,7 +167,16 @@ struct MessageOutbox: Sendable {
 
     // MARK: - Внутреннее
 
-    private func deliver(_ message: MessageRecord, silent: Bool = false) async -> Bool {
+    /// Чем кончилась одна попытка.
+    enum Delivery: Equatable {
+        case sent
+        /// Нет связи, 5xx, 429 или отмена — очередь повторит сама.
+        case retryLater
+        /// Сервер отказал по существу — повтор только по кнопке.
+        case rejected
+    }
+
+    private func deliver(_ message: MessageRecord, silent: Bool = false) async -> Delivery {
         do {
             // Ключ повтора — локальный id строки: один на сообщение и переживает
             // перезапуск приложения, поэтому повтор после таймаута не создаст дубль.
@@ -174,19 +190,29 @@ struct MessageOutbox: Sendable {
             try await database.writer.write { db in
                 try MessageStore.confirm(localID: message.id, with: sent, in: db)
             }
-            return true
+            return .sent
         } catch {
-            await mark(message.id, as: .failed)
-            return false
+            let rejected = Self.isRejection(error)
+            await mark(message.id, as: .failed, rejected: rejected)
+            return rejected ? .rejected : .retryLater
         }
     }
 
-    private func mark(_ id: String, as state: MessageSendState) async {
+    /// Отказ по существу — то, что повтор не исправит. 401 сюда не входит: клиент уже
+    /// пробовал продлить сессию, и после входа заново строка должна уйти сама.
+    static func isRejection(_ error: Error) -> Bool {
+        guard ActionFailureKind(error) == .rejected else { return false }
+        if case .server(let code, _, _, _) = error as? APIError, code.meansSessionExpired { return false }
+        return true
+    }
+
+    private func mark(_ id: String, as state: MessageSendState, rejected: Bool = false) async {
         try? await database.writer.write { db in
             // Уже подтверждённое не трогаем: ту же строку мог дослать параллельный проход
             // (экран чата и `OutboxService`), и неудача второго не делает её неотправленной.
             guard var message = try MessageRecord.fetchOne(db, key: id), message.remoteId == nil else { return }
             message.sendState = state
+            message.sendRejected = rejected
             try message.update(db)
         }
     }

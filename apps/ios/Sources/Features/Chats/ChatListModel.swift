@@ -1,5 +1,4 @@
 import Foundation
-import GRDB
 import Observation
 import os
 
@@ -32,6 +31,7 @@ final class ChatListModel {
     private(set) var folderSummary = ChatFolderSummary()
 
     private let database: AppDatabase
+    private let queries: ChatListQueries
     private let api: ChatsFetching
     private let store: ChatStore
     private let actions: ChatActing
@@ -55,6 +55,7 @@ final class ChatListModel {
         listActions: ChatListActing = ChatsAPI()
     ) {
         self.database = database
+        self.queries = ChatListQueries(database: database)
         self.api = api
         self.store = store ?? ChatStore(database: database)
         self.actions = actions
@@ -225,9 +226,7 @@ final class ChatListModel {
     /// Непрочитанные чаты папки — «Прочитать все» из меню вкладки.
     @MainActor
     func markFolderRead(folderID: String) async {
-        let ids = (try? await database.reader.read { db in
-            try ChatListQuery.unreadChatIDs(folderID: folderID, in: db)
-        }) ?? []
+        let ids = (try? await queries.fetchUnreadChatIDs(folderID: folderID)) ?? []
         await markRead(chatIDs: ids)
     }
 
@@ -252,7 +251,7 @@ final class ChatListModel {
     /// меняются местами между собой.
     @MainActor
     func reorderPinned(_ visible: [String]) async {
-        let all = (try? await database.reader.read { db in try ChatListQuery.pinnedChatIDs(in: db) }) ?? []
+        let all = (try? await queries.fetchPinnedChatIDs()) ?? []
         let shown = Set(visible)
         var next = visible.makeIterator()
         let order = all.map { shown.contains($0) ? (next.next() ?? $0) : $0 }
@@ -283,9 +282,7 @@ final class ChatListModel {
             }
             guard read.unreadCount > 0 else { continue }
             let id = read.chatID
-            let last: String?? = try? await database.reader.read { db in
-                try ChatRecord.fetchOne(db, key: id)?.lastMessageId
-            }
+            let last: String?? = try? await queries.fetchChat(id: id)?.lastMessageId
             guard let messageID = last ?? nil else { continue }
             await AppServices.realtime.markRead(chatID: id, messageID: messageID)
         }
@@ -309,8 +306,7 @@ final class ChatListModel {
     func delete(_ row: ChatListRow) async {
         do {
             try await actions.deleteChat(chatID: row.id)
-            let id = row.id
-            _ = try await database.writer.write { db in try ChatRecord.deleteOne(db, key: id) }
+            try await store.deleteChat(id: row.id)
             failure = nil
         } catch {
             failure = message(for: error)
@@ -368,19 +364,12 @@ final class ChatListModel {
     @MainActor
     private func observeRows() {
         rowsTask?.cancel()
-        let request = ChatListQuery.rows(for: tab)
-        let observation = ValueObservation.tracking { db -> [ChatListRow] in
-            let signpost = Signposts.chats.beginInterval("ChatListRead")
-            let rows = try request.fetchAll(db)
-            Signposts.chats.endInterval("ChatListRead", signpost, "rows: \(rows.count)")
-            return rows
-        }
         // Запись, не меняющая строк (страница истории, прочтение в открытом чате), не
-        // будит список и не запускает анимацию перестановки.
-        .removeDuplicates()
-        rowsTask = Task { @MainActor [weak self, database] in
+        // будит список и не запускает анимацию перестановки — отсев внутри запроса.
+        let tab = tab
+        rowsTask = Task { @MainActor [weak self, queries] in
             var isFirst = true
-            for await rows in AsyncValues.stream(of: observation, in: database.reader) {
+            for await rows in queries.observeRows(for: tab) {
                 Signposts.chats.emitEvent("ChatListApply", "rows: \(rows.count)")
                 self?.rows = rows
                 if isFirst {
@@ -395,12 +384,9 @@ final class ChatListModel {
     @MainActor
     private func observeArchive() {
         archiveTask?.cancel()
-        let request = ChatListQuery.rows(for: .archive)
-        let observation = ValueObservation.tracking { db in try request.fetchAll(db) }
-            .removeDuplicates()
-        archiveTask = Task { @MainActor [weak self, database] in
+        archiveTask = Task { @MainActor [weak self, queries] in
             var isFirst = true
-            for await rows in AsyncValues.stream(of: observation, in: database.reader) {
+            for await rows in queries.observeArchivedRows() {
                 self?.archived = rows
                 // Строка «Архив» появляется и уходит той же анимацией, что и строки.
                 if isFirst {
@@ -415,10 +401,8 @@ final class ChatListModel {
     @MainActor
     private func observeFolderSummary() {
         summaryTask?.cancel()
-        let observation = ValueObservation.tracking { db in try ChatListQuery.folderSummary(in: db) }
-            .removeDuplicates()
-        summaryTask = Task { @MainActor [weak self, database] in
-            for await summary in AsyncValues.stream(of: observation, in: database.reader) {
+        summaryTask = Task { @MainActor [weak self, queries] in
+            for await summary in queries.observeFolderSummary() {
                 self?.folderSummary = summary
             }
         }
@@ -427,10 +411,8 @@ final class ChatListModel {
     @MainActor
     private func observeTabs() {
         tabsTask?.cancel()
-        let observation = ValueObservation.tracking { db in try ChatListQuery.tabs(in: db) }
-            .removeDuplicates()
-        tabsTask = Task { @MainActor [weak self, database] in
-            for await tabs in AsyncValues.stream(of: observation, in: database.reader) {
+        tabsTask = Task { @MainActor [weak self, queries] in
+            for await tabs in queries.observeTabs() {
                 self?.tabs = tabs
                 // Папку удалили (здесь или на другом устройстве) — возвращаемся к «Все»,
                 // иначе экран остался бы на вкладке, которой больше нет. Переименованная

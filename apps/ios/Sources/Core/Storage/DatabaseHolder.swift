@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import os
 
 /// Держатель базы приложения вместо ленивой `static let`.
@@ -59,24 +60,45 @@ final class DatabaseHolder: @unchecked Sendable {
         DispatchQueue.global(qos: .userInitiated).async { _ = self.database }
     }
 
-    /// Файл не открылся (повреждение, ошибка миграции) — откладываем его в резервную
-    /// копию и заводим базу заново; если и это не вышло, работаем в памяти. Приложение
-    /// без базы бесполезно, но падение на старте бесполезно вдвойне: человек не увидит
-    /// даже причины.
-    private static func open(log: Logger) -> AppDatabase {
+    /// Файл не открылся. Временная ошибка (занятость, I/O, нет места) — этот запуск
+    /// работаем в памяти, файл не трогаем: следующий запуск откроет его как ни в чём не
+    /// бывало. Повреждение или упавшая миграция — откладываем файл в резервную копию и
+    /// заводим базу заново, но только после `damagedLaunchesBeforeReset` таких запусков
+    /// подряд: единичный сбой не стоит черновиков и неотправленного.
+    ///
+    /// Приложение без базы бесполезно, но падение на старте бесполезно вдвойне: человек
+    /// не увидит даже причины.
+    private static func open(log: Logger, defaults: UserDefaults = .standard) -> AppDatabase {
+        let failure: StoreOpenFailure
         do {
-            return try AppDatabase.onDisk()
+            let database = try AppDatabase.onDisk()
+            defaults.removeObject(forKey: damagedStreakKey)
+            return database
         } catch {
-            log.error("Не открылась база чатов, откладываем в резервную копию: \(error.localizedDescription, privacy: .public)")
+            failure = StoreOpenFailure(error)
+            log.error("Не открылась база чатов (\(String(describing: failure), privacy: .public)): \(error.localizedDescription, privacy: .public)")
+        }
+        guard failure == .damaged else { return temporary() }
+
+        let streak = defaults.integer(forKey: damagedStreakKey) + 1
+        guard streak >= damagedLaunchesBeforeReset else {
+            defaults.set(streak, forKey: damagedStreakKey)
+            return temporary()
         }
         do {
             try AppDatabase.moveStoreAside()
+            defaults.removeObject(forKey: damagedStreakKey)
             return try AppDatabase.onDisk()
         } catch {
             log.error("База чатов недоступна, работаем в памяти: \(error.localizedDescription, privacy: .public)")
         }
         return temporary()
     }
+
+    /// Сколько запусков подряд база должна не открыться как повреждённая, прежде чем
+    /// её отложить, — как у Telegram: третий подряд уже не случайность.
+    static let damagedLaunchesBeforeReset = 3
+    private static let damagedStreakKey = "storage.damagedOpenStreak"
 
     private static func temporary() -> AppDatabase {
         do {
@@ -85,6 +107,47 @@ final class DatabaseHolder: @unchecked Sendable {
             // Память не открылась — это уже не про хранилище, а про нехватку ресурсов
             // процесса, и работать дальше всё равно нечем.
             preconditionFailure("Не удалось создать базу даже в памяти: \(error)")
+        }
+    }
+}
+
+/// Чем кончилось неудачное открытие базы — от этого зависит, можно ли трогать файл.
+enum StoreOpenFailure: Equatable {
+    /// Занятость, I/O, нехватка места, нет доступа: файл цел, откладывать его нельзя.
+    case transient
+    /// Файл не база или повреждён, либо схему не догнать миграцией — откладывание
+    /// это исправит.
+    case damaged
+
+    init(_ error: any Error) {
+        if let migration = error as? AppDatabase.MigrationFailure {
+            // Миграция упала на нехватке места или занятости — дело не в схеме.
+            if let database = migration.underlying as? DatabaseError, Self.isTransient(database.resultCode) {
+                self = .transient
+            } else {
+                self = .damaged
+            }
+            return
+        }
+        // Не ошибка SQLite (каталог не создался и т. п.) — про файл базы она ничего не
+        // говорит, значит, и вердикта «повреждена» нет.
+        guard let database = error as? DatabaseError else {
+            self = .transient
+            return
+        }
+        switch database.resultCode {
+        case .SQLITE_CORRUPT, .SQLITE_NOTADB: self = .damaged
+        default: self = .transient
+        }
+    }
+
+    private static func isTransient(_ code: ResultCode) -> Bool {
+        switch code {
+        case .SQLITE_FULL, .SQLITE_BUSY, .SQLITE_LOCKED, .SQLITE_IOERR, .SQLITE_CANTOPEN, .SQLITE_NOMEM, .SQLITE_PERM,
+            .SQLITE_READONLY, .SQLITE_INTERRUPT:
+            return true
+        default:
+            return false
         }
     }
 }

@@ -336,7 +336,7 @@ final class ChatMediaGallery {
     private func resolve(_ id: String) async {
         guard let entry = window.entry(id), !entry.isResolved, resolving.insert(id).inserted else { return }
         defer { resolving.remove(id) }
-        let stored = try? await AppServices.database.reader.read { db in try AttachmentRecord.fetchOne(db, key: id) }
+        let stored = try? await ChatListQueries(database: AppServices.database).fetchAttachment(id: id)
         if let path = stored?.localPath, FileManager.default.fileExists(atPath: path) {
             let media = PostDTO.Media(
                 id: entry.media.id,

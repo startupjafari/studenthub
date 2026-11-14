@@ -22,6 +22,61 @@ final class RealtimeCoordinatorTests: XCTestCase {
         _ = coordinator
     }
 
+    /// Сообщение по порядку двигает позицию догона, через разрыв — нет: догон пойдёт с
+    /// прежней, и пропущенное между не потеряется (IOS_RULES 9.3.2).
+    func testPositionMovesOnlyInOrderAndGapSignalsOpenChat() async throws {
+        let (database, coordinator, transport) = try await make()
+        let signals = coordinator.signals(for: "c-1")
+
+        await transport.emit(.messageNew(message(id: "m-2", seq: 2, sender: "u-other")))
+        await settle()
+        var chat = try await database.reader.read { db in try ChatRecord.fetchOne(db, key: "c-1") }
+        XCTAssertEqual(chat?.syncSeq, 2)
+        XCTAssertEqual(signals.gapVersion, 0)
+
+        await transport.emit(.messageNew(message(id: "m-5", seq: 5, sender: "u-other")))
+        await settle()
+        chat = try await database.reader.read { db in try ChatRecord.fetchOne(db, key: "c-1") }
+        XCTAssertEqual(chat?.syncSeq, 2)
+        XCTAssertEqual(chat?.lastSeq, 5)
+        XCTAssertEqual(chat?.lastMessageId, "m-5")
+        XCTAssertEqual(signals.gapVersion, 1)
+    }
+
+    /// Отметка прочтения и правка без соединения не теряются: досылаются на `.connected`
+    /// (socket.io без соединения событие отбрасывает, IOS_RULES 9.4.16).
+    func testReadAndEditWithoutConnectionAreSentOnConnect() async throws {
+        let (_, coordinator, transport) = try await make()
+
+        await coordinator.markRead(chatID: "c-1", messageID: "m-1")
+        await coordinator.markRead(chatID: "c-1", messageID: "m-2")
+        await coordinator.edit(messageID: "m-1", content: "черновик")
+        await coordinator.edit(messageID: "m-1", content: "итог")
+        var reads = await transport.reads
+        XCTAssertEqual(reads, [])
+
+        await transport.emit(.connected)
+        await settle()
+
+        reads = await transport.reads
+        let edits = await transport.edits
+        XCTAssertEqual(reads, ["m-2"])
+        XCTAssertEqual(edits, ["итог"])
+    }
+
+    /// Повторный `message:new` для уже сохранённой строки счётчик не удваивает.
+    func testRepeatedMessageDoesNotCountTwice() async throws {
+        let (database, coordinator, transport) = try await make()
+
+        await transport.emit(.messageNew(message(id: "m-2", seq: 2, sender: "u-other")))
+        await transport.emit(.messageNew(message(id: "m-2", seq: 2, sender: "u-other")))
+        await settle()
+
+        let unread = try await database.reader.read { db in try ChatRecord.fetchOne(db, key: "c-1")?.unreadCount }
+        XCTAssertEqual(unread, 1)
+        _ = coordinator
+    }
+
     /// Открытый чат читают прямо сейчас — непрочитанным его сообщение не бывает.
     func testMessageInOpenChatDoesNotRaiseCounter() async throws {
         let (database, coordinator, transport) = try await make()
@@ -87,6 +142,26 @@ final class RealtimeCoordinatorTests: XCTestCase {
         await transport.emit(.action(chatID: "c-1", userID: "u-other", action: nil))
         await settle()
         XCTAssertNil(coordinator.actions["c-1"])
+    }
+
+    /// Двое печатают — подпись по последнему начавшему, а не по порядку словаря; он
+    /// закончил — подпись переходит к оставшемуся (IOS_RULES 9.4.10).
+    func testActivityFollowsLastStarter() async throws {
+        let (_, coordinator, transport) = try await make()
+        let activity = coordinator.activity(for: "c-1")
+
+        await transport.emit(.action(chatID: "c-1", userID: "u-a", action: "TYPING"))
+        await transport.emit(.action(chatID: "c-1", userID: "u-b", action: "RECORDING_VOICE"))
+        await settle()
+        XCTAssertEqual(activity.action, "RECORDING_VOICE")
+
+        await transport.emit(.action(chatID: "c-1", userID: "u-a", action: "TYPING"))
+        await settle()
+        XCTAssertEqual(activity.action, "TYPING")
+
+        await transport.emit(.action(chatID: "c-1", userID: "u-a", action: nil))
+        await settle()
+        XCTAssertEqual(activity.action, "RECORDING_VOICE")
     }
 
     func testPresenceIsTracked() async throws {
@@ -207,7 +282,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
                 chatDescription: nil, subject: nil, memberCount: 3, unreadCount: unread, muted: false,
                 mutedImportantOnly: false, pinnedAt: nil, archivedAt: nil, requestIncoming: false,
                 requestOutgoing: false, othersReadAt: nil, lastMessageId: nil, lastSeq: 1,
-                updatedAt: Date(timeIntervalSince1970: 1_800_000_000)
+                updatedAt: Date(timeIntervalSince1970: 1_800_000_000), syncSeq: 1
             ).insert(db)
         }
         let transport = StubTransport()
@@ -245,6 +320,7 @@ private actor StubTransport: RealtimeTransport {
     private(set) var leaves: [String] = []
     private(set) var reads: [String] = []
     private(set) var actions: [String?] = []
+    private(set) var edits: [String] = []
 
     init() {
         (events, continuation) = AsyncStream<RealtimeEvent>.makeStream()
@@ -261,7 +337,7 @@ private actor StubTransport: RealtimeTransport {
     func leave(chatID: String) async { leaves.append(chatID) }
     func markRead(chatID: String, messageID: String) async { reads.append(messageID) }
     func send(action: String?, chatID: String) async { actions.append(action) }
-    func edit(messageID: String, content: String) async {}
+    func edit(messageID: String, content: String) async { edits.append(content) }
     func delete(messageID: String) async {}
 }
 
@@ -289,7 +365,11 @@ private final class MemoryKeys: SecretStore, @unchecked Sendable {
     private let lock = NSLock()
     private var storage: [String: String] = [:]
     func value(for key: SecretKey) -> String? { lock.withLock { storage[key.rawValue] } }
-    func set(_ value: String, for key: SecretKey) { lock.withLock { storage[key.rawValue] = value } }
+    @discardableResult
+    func set(_ value: String, for key: SecretKey) -> Bool {
+        lock.withLock { storage[key.rawValue] = value }
+        return true
+    }
     func remove(_ key: SecretKey) { _ = lock.withLock { storage.removeValue(forKey: key.rawValue) } }
 }
 

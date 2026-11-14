@@ -24,6 +24,9 @@ struct RemoteImage: View {
     /// Подложка, пока картинки нет. `nil` — прозрачно: под картинкой своя заглушка
     /// (обложка книги со значком).
     var emptyFill: Color? = Palette.muted
+    /// Уже загруженная картинка того же файла под другим ключом (плитка, с которой
+    /// открыли просмотр): показывается вместо размытого превью, пока грузится своя копия.
+    var interim: UIImage?
 
     @State private var image: UIImage?
     @State private var failed = false
@@ -44,7 +47,7 @@ struct RemoteImage: View {
     var body: some View {
         // Готовая копия из памяти — уже в первом кадре, без ожидания `.task`.
         let own = stateKey == cacheKey ? image : nil
-        let shown = own ?? ImageMemoryCache.shared.image(for: cacheKey)
+        let shown = own ?? ImageMemoryCache.shared.image(for: cacheKey) ?? interim
         let showsFailure = stateKey == cacheKey && failed
         ZStack {
             if let shown {
@@ -96,7 +99,7 @@ struct RemoteImage: View {
         }
         // Приблизительная копия этого же файла (своя или из памяти) — держим её, пока
         // грузится точная, и оставляем, если точная не пришла.
-        let approximate = (stateKey == key ? image : nil) ?? ImageMemoryCache.shared.image(for: key)
+        let approximate = (stateKey == key ? image : nil) ?? ImageMemoryCache.shared.image(for: key) ?? interim
         guard let url else {
             settle(approximate, for: key)
             return
@@ -382,6 +385,7 @@ enum RichText {
     /// Выход из аккаунта: тексты прежнего человека в памяти не остаются.
     static func clearCache() {
         storage.clear()
+        ConcealedLinks.clear()
     }
 
     /// В кеш — только если с начала разбора его не очищали.
@@ -407,6 +411,14 @@ enum RichText {
                 text[run.range].link = nil
             }
         }
+        // Текст ссылки похож на адрес, а ведёт она на другой хост: открыватель спросит
+        // с настоящим адресом (10.3.6). Целиком по ссылке, а не по кускам: жирная часть
+        // текста ссылки — отдельный кусок разметки.
+        for (link, range) in text.runs[\.link] {
+            if let link, ExternalLink.isConcealed(text: String(text[range].characters), url: link) {
+                ConcealedLinks.mark(link)
+            }
+        }
         decorate(&text)
         return text
     }
@@ -426,9 +438,11 @@ enum RichText {
             else { continue }
             text[attributed].link = url
         }
+        // Упоминание выделено весом, но не цветом ссылки: открыть профиль по логину
+        // приложению нечем (ни адреса, ни запроса по логину), а цвет ссылки обещал бы
+        // касание, которое ничего не делает (IOS_RULES 7.6.5).
         for match in mention?.matches(in: plain, range: whole) ?? [] {
             guard let range = Range(match.range, in: plain), let attributed = Range(range, in: text) else { continue }
-            text[attributed].foregroundColor = Palette.primary
             text[attributed].font = Typography.body.weight(.medium)
         }
     }

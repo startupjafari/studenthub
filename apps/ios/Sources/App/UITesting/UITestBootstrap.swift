@@ -44,8 +44,10 @@
             lock.withLock { values[key] }
         }
 
-        func set(_ value: String, for key: SecretKey) {
+        @discardableResult
+        func set(_ value: String, for key: SecretKey) -> Bool {
             lock.withLock { values[key] = value }
+            return true
         }
 
         func remove(_ key: SecretKey) {

@@ -1247,6 +1247,7 @@
     <string name="chats_cancelAction">Болдырмау</string>
     <string name="chats_checklist_add">Тармақ қосу</string>
     <string name="chats_checklist_addShort">Қосу</string>
+    <string name="chats_checklist_collapse">Жию</string>
     <string name="chats_checklist_done">Орындалды</string>
     <string name="chats_checklist_item">%1$s-тармақ</string>
     <string name="chats_checklist_itemPlaceholder">Не істеу керек</string>
@@ -1256,6 +1257,7 @@
     <string name="chats_checklist_othersCanMark">Басқалар орындалғанын белгілей алады</string>
     <string name="chats_checklist_progress">Орындалды: %2$s ішінен %1$s</string>
     <string name="chats_checklist_remove">Тармақты алып тастау</string>
+    <string name="chats_checklist_showAll">Барлығын көрсету (%1$s)</string>
     <string name="chats_checklist_titlePlaceholder">Мысалы, «Практикаға не алу керек»</string>
     <string name="chats_checklist_titleSection">Атауы</string>
     <string name="chats_clear">Тарихты тазалау</string>
@@ -1271,6 +1273,8 @@
     <string name="chats_clearPeriod_to">Дейін</string>
     <string name="chats_code_copied">Код көшірілді</string>
     <string name="chats_code_copy">Кодты көшіру</string>
+    <string name="chats_composer_overLimit">Шектен %1$s артық</string>
+    <string name="chats_composer_remaining">Қалған таңба: %1$s</string>
     <string name="chats_contact_call">%1$s нөміріне қоңырау шалу</string>
     <string name="chats_contact_copy">Көшіру</string>
     <string name="chats_contact_emails">Пошта</string>
@@ -1529,10 +1533,12 @@
     <string name="chats_poll_vote">Дауыс беру</string>
     <string name="chats_poll_votes">Дауыстар: %1$s</string>
     <string name="chats_preview_audio">Аудио</string>
+    <string name="chats_preview_code">Код</string>
     <string name="chats_preview_file">Файл</string>
     <string name="chats_preview_gif">GIF</string>
     <string name="chats_preview_photo">Фото</string>
     <string name="chats_preview_sticker">Стикер</string>
+    <string name="chats_preview_unsupported">Бұл хабарламаны қолданбаның осы нұсқасы көрсете алмайды — қолданбаны жаңартыңыз</string>
     <string name="chats_preview_video">Бейне</string>
     <string name="chats_preview_voice">Дауыстық хабарлама</string>
     <string name="chats_profileCard_label">Профиль</string>
@@ -3171,6 +3177,9 @@
     <string name="library_statusReturned">Қайтарылды</string>
     <string name="library_tabMine">Менің кітаптарым</string>
     <string name="library_title">Кітапхана</string>
+    <string name="links_confirm_open">Ашу</string>
+    <string name="links_confirm_otherApp">Басқа қолданбада ашу керек пе?</string>
+    <string name="links_confirm_title">Сілтемені ашу керек пе?</string>
     <string name="media_copied">Көшірілді</string>
     <string name="media_copyImage">Суретті көшіру</string>
     <string name="media_copyLink">Сілтемені көшіру</string>
@@ -4504,9 +4513,12 @@
     <string name="stories_mute">Автордың сторисін көрсетпеу</string>
     <string name="stories_new">Жаңа сторис</string>
     <string name="stories_next">Келесі сторис</string>
+    <string name="stories_nextAuthor">Келесі автор</string>
     <string name="stories_pickMedia">Фото немесе бейне</string>
     <string name="stories_poll_votes">Дауыстар: %1$s</string>
+    <string name="stories_position">Сторис: %2$s ішінен %1$s</string>
     <string name="stories_previous">Алдыңғы сторис</string>
+    <string name="stories_previousAuthor">Алдыңғы автор</string>
     <string name="stories_publish">Жариялау</string>
     <string name="stories_replaceMedia">Ауыстыру</string>
     <string name="stories_reply">Авторға жауап беру</string>

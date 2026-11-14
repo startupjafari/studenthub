@@ -59,6 +59,9 @@ final class AppSessionModel {
             // Без сети — по последнему токену: расписание и чаты в базе, а выбросить
             // человека на вход только потому, что он в метро, — значит отнять у него и их.
             await LocalData.claim(for: token.subject)
+            // Незакончившиеся трансляции геопозиции — только свои: после `claim`, чтобы
+            // чужие уже были стёрты.
+            LiveLocationSharing.shared.resume(for: token.subject)
             state = .signedIn(token)
             if endedWhileRestoring {
                 endedWhileRestoring = false
@@ -90,6 +93,7 @@ final class AppSessionModel {
         // Вошёл другой человек, чем тот, чьи данные лежат на устройстве (прежний не
         // выходил, а сессия у него истекла), — его чаты и расписание стираются.
         await LocalData.claim(for: token.subject)
+        LiveLocationSharing.shared.resume(for: token.subject)
         // Сбои этого человека — под его id, а не под id того, кто входил до него.
         Observability.identify(userID: token.subject)
         state = .signedIn(token)
@@ -107,6 +111,7 @@ final class AppSessionModel {
             return
         }
         await AppServices.realtime.stop()
+        LiveLocationSharing.shared.suspend()
         AppServices.router.reset()
         GifPanelCache.shared.clear()
         Observability.identify(userID: nil)
@@ -123,12 +128,12 @@ final class AppSessionModel {
         // сервер прежней версии) и вместе с выходом — тот без сети откладывается и
         // досылается без access-токена.
         let deviceToken = PushRegistrar.deviceToken
-        await PushRegistrar().unregister()
+        await AppServices.pushRegistrar.unregister()
         let delivered = await store.signOut(deviceToken: deviceToken)
         if !delivered {
             // Сервер о выходе пока не знает и шлёт пуши прежнего человека. Пока выход не
             // дослан, телефон их просто не принимает; следующий вход включит доставку.
-            PushRegistrar.stopDelivery()
+            AppServices.pushRegistrar.stopDelivery()
         }
         // Данные прежнего человека не должны достаться следующему (как clearAllTables
         // в Android): список чатов читается из базы и только дописывается.
@@ -175,6 +180,10 @@ enum LocalData {
         // Разобранные тексты и превью фото — тоже его данные, хоть и в памяти.
         RichText.clearCache()
         LQIP.clearCache()
+        MessageCodeBlocks.clearCache()
+        // Трансляции геопозиции прежнего человека — встают и забываются: иначе GPS
+        // продолжал бы слать точки в его переписку уже под чужой сессией.
+        LiveLocationSharing.shared.erase()
         URLCache.shared.removeAllCachedResponses()
         try? FileManager.default.removeItem(at: AttachmentUploader.outboxDirectory)
         UserDefaults.standard.removeObject(forKey: ScheduleModel.syncedKey)
@@ -182,5 +191,15 @@ enum LocalData {
         UserDefaults.standard.removeObject(forKey: WorkspaceView.libraryEnabledKey)
         UserDefaults.standard.removeObject(forKey: ownerKey)
         await BadgeCounter().reset()
+    }
+}
+
+extension AppSessionModel.State: RedactedDescription {
+    var redactedDescription: String {
+        switch self {
+        case .restoring: "State.restoring"
+        case .signedOut: "State.signedOut"
+        case .signedIn(let token): "State.signedIn(\(token))"
+        }
     }
 }

@@ -13,8 +13,8 @@ enum ComposerEditorExit {
 
 /// Полноэкранный редактор сообщения, как в Telegram (кнопка ⛶ в поле ввода): длинный
 /// текст и правка — на весь экран. Сверху — свернуть и отмена/повтор, снизу — панель:
-/// форматирование, списки, вложение, emoji, отправка. Текст — тот же черновик
-/// `model.draft`: свернул — продолжил в поле; черновик в базе и на сервере тот же.
+/// форматирование, списки, вложение, emoji, отправка. Текст — тот же, что в поле
+/// (`model.composerText`): свернул — продолжил в поле; черновик в базе и на сервере тот же.
 struct ComposerEditorView: View {
     @Bindable var model: ChatThreadModel
     let close: (ComposerEditorExit) -> Void
@@ -44,7 +44,7 @@ struct ComposerEditorView: View {
                 .padding(.horizontal, Spacing.lg)
             }
             ComposerTextView(
-                text: $model.draft,
+                text: $model.composerText,
                 isFocused: $isFocused,
                 controller: editor,
                 maxLines: nil,
@@ -53,7 +53,7 @@ struct ComposerEditorView: View {
                 onPasteImages: model.editing == nil ? { close(.pasteImages($0)) } : nil
             )
             .overlay(alignment: .topLeading) {
-                if model.draft.isEmpty {
+                if model.composerText.isEmpty {
                     Text(verbatim: placeholder)
                         .font(Typography.body)
                         .foregroundStyle(Color(uiColor: .placeholderText))
@@ -69,10 +69,10 @@ struct ComposerEditorView: View {
             if showsPanel {
                 ExpressionPanel(
                     onEmoji: { emoji in
-                        if !editor.insert(emoji) { model.draft += emoji }
+                        if !editor.insert(emoji) { model.composerText += emoji }
                     },
                     onBackspace: {
-                        if !editor.deleteBackward(), !model.draft.isEmpty { model.draft.removeLast() }
+                        if !editor.deleteBackward(), !model.composerText.isEmpty { model.composerText.removeLast() }
                     },
                     onSticker: { sticker in
                         sendSticker(sticker)
@@ -167,6 +167,8 @@ struct ComposerEditorView: View {
                             } label: {
                                 Label(format.title, systemImage: format.symbol)
                             }
+                            // Внутри кода — только «Блок кода» (IOS_RULES 7.4.3).
+                            .disabled(!editor.context.allows(format))
                         }
                     } label: {
                         toolIcon("textformat")
@@ -215,6 +217,9 @@ struct ComposerEditorView: View {
 
                 Spacer(minLength: 0)
 
+                ComposerLengthCounter(text: model.composerText)
+                    .padding(.trailing, Spacing.sm)
+
                 Button {
                     send()
                     close(.sent)
@@ -261,8 +266,9 @@ struct ComposerEditorView: View {
         }
     }
 
+    /// Не пусто и в лимите сервера — та же функция, что у отправки.
     private var canSend: Bool {
-        !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        OutgoingText.sendable(model.composerText) != nil
     }
 
     private var placeholder: String {

@@ -1,6 +1,5 @@
 import CoreLocation
 import Foundation
-import GRDB
 import Observation
 import os
 
@@ -31,12 +30,20 @@ final class ChatThreadModel {
     /// раз: дальше человек управляет сам.
     private(set) var openingAnchor: String?
 
-    /// Текст в поле ввода. Черновик пишется в базу с задержкой: человек печатает
-    /// быстрее, чем имеет смысл ходить в хранилище, но потерять написанное нельзя.
-    var draft = ""
+    /// Черновик чата и текст правки — порознь (IOS_RULES 9.8.6). Черновик пишется в базу
+    /// с задержкой: человек печатает быстрее, чем имеет смысл ходить в хранилище, но
+    /// потерять написанное нельзя.
+    private(set) var input = ComposerInput()
+    /// Текст в поле ввода — к нему привязано поле. При правке это текст правки, иначе
+    /// черновик чата.
+    var composerText: String {
+        get { input.text }
+        set { input.text = newValue }
+    }
     /// На какое сообщение отвечаем.
     private(set) var replyTo: MessageRecord?
-    /// Какое своё сообщение правим: поле ввода держит его текст, «отправить» — сохранить.
+    /// Какое своё сообщение правим: поле ввода держит его текст (`input.editText`),
+    /// «отправить» — сохранить.
     private(set) var editing: MessageRecord?
     /// Строка чата — для шапки (тип, участники, онлайн) и галочек прочтения.
     private(set) var chat: ChatRecord?
@@ -72,7 +79,7 @@ final class ChatThreadModel {
     let scheduled: ChatScheduledMessages
 
     private let viewerID: String
-    private let database: AppDatabase
+    private let queries: ChatThreadQueries
     private let api: ChatMessagesFetching
     private let store: MessageStore
     private let outbox: MessageOutbox
@@ -87,7 +94,18 @@ final class ChatThreadModel {
     private var didPickAnchor = false
     private var draftTask: Task<Void, Never>?
     private var markReadRetry: Task<Void, Never>?
+    /// Догон в пути: повторная просьба не шлёт второй запрос, а просит пройти ещё раз с
+    /// позиции, какой она станет после этого.
+    private var catchingUp = false
+    private var catchUpAgain = false
+    /// Повтор догона после временной ошибки и его пауза: 2 → 60 с с разбросом, без
+    /// предела попыток (IOS_RULES 9.3.1).
+    private var catchUpRetry: Task<Void, Never>?
+    private var catchUpDelay = OutboxService.firstRetryDelay
     private var lastReadSent: String?
+    /// Нижняя строка, реально видимая в ленте (`MessageListView`). Прочитанным считается
+    /// только она и что выше; `nil` — лента ещё не показана, отмечать нечего.
+    private var lowestVisibleID: String?
     private var lastReadAt: Date?
     private var lastActionAt: Date?
     private var voiceAnnouncer: Task<Void, Never>?
@@ -146,7 +164,7 @@ final class ChatThreadModel {
     ) {
         self.chatID = chatID
         self.viewerID = viewerID
-        self.database = database
+        self.queries = ChatThreadQueries(database: database)
         self.api = api
         self.store = store ?? MessageStore(database: database)
         self.outbox = outbox ?? MessageOutbox(database: database)
@@ -162,6 +180,7 @@ final class ChatThreadModel {
         chatTask?.cancel()
         draftTask?.cancel()
         markReadRetry?.cancel()
+        catchUpRetry?.cancel()
         preparingTimeout?.cancel()
         voiceAnnouncer?.cancel()
     }
@@ -206,9 +225,7 @@ final class ChatThreadModel {
         // В окне истории догонять нечего: разница от его верха — это вся «дыра» до
         // свежего, её дочитает догрузка вниз.
         guard !isDetached else { return }
-        let known = (try? await store.lastSeq(chatID: chatID)) ?? 0
-        guard known > 0 else { return await loadLatest() }
-        await catchUp(since: known)
+        await catchUp()
     }
 
     /// Кто сейчас печатает или записывает голосовое в этом чате.
@@ -221,8 +238,7 @@ final class ChatThreadModel {
     /// страницу.
     ///
     /// «Толком нет» — меньше страницы на руках при первом открытии: список чатов кладёт
-    /// в базу последнее сообщение каждого чата, и `lastSeq` у ни разу не открытого чата
-    /// уже есть. Догонялка от него ничего не скачает, и лента показала бы одно сообщение.
+    /// в базу последнее сообщение каждого чата, и лента показала бы одно сообщение.
     @MainActor
     func open() async {
         if let mark = pendingWindowReset {
@@ -241,12 +257,16 @@ final class ChatThreadModel {
 
     @MainActor
     private func syncOnOpen() async {
-        let known = (try? await store.lastSeq(chatID: chatID)) ?? 0
+        let known = (try? await store.syncSeq(chatID: chatID)) ?? 0
         let firstOpen = olderCursor == nil && !reachedBeginning
         if known == 0 || messages.isEmpty || (firstOpen && messages.count < ChatsAPI.messagePageLimit) {
             await loadLatest()
+            // Последняя страница могла не примкнуть к позиции: между ними — пропущенное
+            // за офлайн, а лента сортирует по времени и разрыва не видит. Догон закроет
+            // его (или скажет «переполнение»); примкнула — это один пустой ответ.
+            if known > 0 { await catchUp() }
         } else {
-            await catchUp(since: known)
+            await catchUp()
         }
     }
 
@@ -282,8 +302,7 @@ final class ChatThreadModel {
     /// `silent` — «Отправить без звука»: доставка без уведомления и пуша у получателей.
     @MainActor
     func send(silent: Bool = false) async {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard let text = OutgoingText.sendable(composerText) else { return }
         if let editing {
             await saveEdit(of: editing, text: text)
             return
@@ -292,7 +311,7 @@ final class ChatThreadModel {
         // Поле и полоса ответа пустеют сразу, до сети: человек видит, что нажатие
         // принято, даже если возврат из окна истории ещё скачивает последнюю страницу.
         let answering = replyTo?.remoteId
-        draft = ""
+        input.draft = ""
         replyTo = nil
         draftTask?.cancel()
 
@@ -315,14 +334,17 @@ final class ChatThreadModel {
     /// в вебе, отдельной формы для подписи нет.
     @MainActor
     func attach(_ attachment: OutgoingAttachment) async {
-        let caption = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        // В правке подписью черновик не становится: он ждёт конца правки в поле.
+        let caption = editing == nil ? OutgoingText.normalized(input.draft) : ""
         let answering = replyTo?.remoteId
-        draft = ""
         replyTo = nil
-        draftTask?.cancel()
+        if editing == nil {
+            input.draft = ""
+            draftTask?.cancel()
+            Task { @MainActor [weak self] in await self?.persistDraft("") }
+        }
         await returnToLatest()
         bottomRequests += 1
-        Task { @MainActor [weak self] in await self?.persistDraft("") }
 
         // Подпись о загрузке — не сразу: сжатый снимок улетает за доли секунды, и
         // она успела бы только мигнуть (PROJECT.md §9.1a).
@@ -356,11 +378,11 @@ final class ChatThreadModel {
     /// `grouped: false` — «Отправить без группировки»: каждое вложение своим сообщением.
     func send(attachments: [OutgoingAttachment], caption: String, asFiles: Bool, grouped: Bool = true) async {
         guard !attachments.isEmpty else { return }
-        let text = caption.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = OutgoingText.normalized(caption)
         let answering = replyTo?.remoteId
         replyTo = nil
         if editing == nil {
-            draft = ""
+            input.draft = ""
             draftTask?.cancel()
             Task { @MainActor [weak self] in await self?.persistDraft("") }
         }
@@ -476,7 +498,20 @@ final class ChatThreadModel {
             && message.deletedAt == nil
             && message.systemType == nil
             && message.extras?.isForwarded != true
+            && Self.isEditableKind(message.extras)
             && now.timeIntervalSince(message.createdAt) < Self.editWindow
+    }
+
+    /// Сообщения особого вида правка испортила бы: она меняет только `content`, а опрос,
+    /// чек-лист, стикер, геопозиция и контакт живут в своих полях. Явный запрет по виду,
+    /// а не ветка по умолчанию (IOS_RULES 7.7.13): новый особый вид добавляется сюда.
+    static func isEditableKind(_ extras: MessageExtras?) -> Bool {
+        guard let extras else { return true }
+        return extras.poll == nil
+            && extras.checklist == nil
+            && extras.sticker == nil
+            && extras.location == nil
+            && extras.contact == nil
     }
 
     func canDelete(_ message: MessageRecord) -> Bool {
@@ -488,29 +523,30 @@ final class ChatThreadModel {
         guard canEdit(message) else { return }
         replyTo = nil
         editing = message
-        draft = message.content
+        // Черновик чата не трогаем: текст правки — отдельно, после правки черновик
+        // вернётся в поле.
+        input.beginEdit(message.content)
     }
 
     @MainActor
     func cancelEdit() {
         editing = nil
-        draft = ""
+        input.endEdit()
     }
 
     /// Правка уходит сокетом; текст в базе меняется сразу, а подтверждение придёт
     /// событием `message:updated` и перепишет строку серверной версией.
+    ///
+    /// Метка правки — на миг позже прежней серверной, а не часы телефона: поздний ответ
+    /// страницы (со старой меткой) её не откатит, а серверное подтверждение (позже по
+    /// часам сервера) примется, даже если часы телефона спешат (IOS_RULES 9.5.1).
     @MainActor
     private func saveEdit(of message: MessageRecord, text: String) async {
         editing = nil
-        draft = ""
+        input.endEdit()
         guard text != message.content, let remoteID = message.remoteId else { return }
         let id = message.id
-        try? await database.writer.write { db in
-            guard var row = try MessageRecord.fetchOne(db, key: id) else { return }
-            row.content = text
-            row.editedAt = Date()
-            try row.update(db)
-        }
+        try? await store.saveLocalEdit(messageID: id, text: text)
         await realtime.edit(messageID: remoteID, content: text)
     }
 
@@ -521,14 +557,10 @@ final class ChatThreadModel {
         guard canDelete(message) else { return }
         let id = message.id
         if message.remoteId == nil {
-            _ = try? await database.writer.write { db in try MessageRecord.deleteOne(db, key: id) }
+            try? await store.deleteLocal(messageID: id)
             return
         }
-        try? await database.writer.write { db in
-            guard var row = try MessageRecord.fetchOne(db, key: id) else { return }
-            row.deletedAt = Date()
-            try row.update(db)
-        }
+        try? await store.markDeleted(messageID: id)
         if let remoteID = message.remoteId {
             await realtime.delete(messageID: remoteID)
         }
@@ -541,7 +573,7 @@ final class ChatThreadModel {
         guard let remoteID = message.remoteId, message.deletedAt == nil else { return }
         do {
             let updated = try await actions.react(messageID: remoteID, emoji: emoji)
-            try await database.writer.write { db in try MessageStore.upsert(updated, in: db) }
+            try await store.save(message: updated)
         } catch {
             actionFailure = self.message(for: error)
         }
@@ -678,10 +710,9 @@ final class ChatThreadModel {
     /// поле пустеет только после ответа сервера — при ошибке написанное не теряется.
     @MainActor
     func scheduleDraft(at date: Date, silent: Bool = false) async throws {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, editing == nil else { return }
+        guard editing == nil, let text = OutgoingText.sendable(input.draft) else { return }
         try await scheduled.schedule(text, at: date, replyToID: replyTo?.remoteId, silent: silent)
-        draft = ""
+        input.draft = ""
         replyTo = nil
         draftTask?.cancel()
         Task { @MainActor [weak self] in await self?.persistDraft("") }
@@ -795,12 +826,7 @@ final class ChatThreadModel {
     /// и сразу после неё последний срез в модели ещё старый.
     @MainActor
     private func freshSnapshot() async -> ThreadSnapshot? {
-        let request = store.messages(chatID: chatID, from: floor)
-        let id = chatID
-        let floor = floor
-        return try? await database.reader.read { db in
-            try ChatThreadModel.readSnapshot(request, chatID: id, floor: floor, in: db)
-        }
+        try? await queries.fetchSnapshot(chatID: chatID, floor: floor)
     }
 
     /// Окно сменилось: показать базу как она есть сейчас, вместе с новой границей.
@@ -826,13 +852,15 @@ final class ChatThreadModel {
         isLoadingNewer = true
         defer { isLoadingNewer = false }
         do {
+            // Отметка — до запроса: сверка страницы не трогает пришедшее, пока она в пути.
+            let mark = try? await store.reconcileMark()
             let page = try await api.newerMessages(chatID: chatID, after: cursor, limit: ChatsAPI.messagePageLimit)
             guard generation == windowGeneration else { return }
             // Страница и сдвиг границы — одним кадром: срез со страницей, но со старой
             // границей, на миг показал бы окно без неё.
             snapshotHolds += 1
             do {
-                try await store.save(messages: page.items, chatID: chatID)
+                try await store.save(messages: page.items, chatID: chatID, reconcilingUpTo: mark)
             } catch {
                 releaseSnapshot()
                 throw error
@@ -845,8 +873,9 @@ final class ChatThreadModel {
                 attach()
                 await showFreshSnapshot()
                 // Окно сомкнулось со свежим. Пришедшее, пока сервер собирал страницу, и
-                // пропущенное сокетом в окне догоняем разницей от его верха.
-                if let top { await catchUp(since: top) }
+                // пропущенное сокетом в окне догоняем разницей от позиции — её подняли
+                // страницы окна, примыкавшие друг к другу.
+                if top != nil { await catchUp() }
             }
             failure = nil
         } catch is CancellationError {
@@ -1048,7 +1077,7 @@ final class ChatThreadModel {
     func hide(_ chosen: [MessageRecord]) async {
         let local = chosen.filter { $0.remoteId == nil }.map(\.id)
         if !local.isEmpty {
-            _ = try? await database.writer.write { db in try MessageRecord.deleteAll(db, keys: local) }
+            try? await store.deleteLocal(messageIDs: local)
         }
         let remote = chosen.compactMap(\.remoteId)
         guard !remote.isEmpty else { return }
@@ -1070,13 +1099,7 @@ final class ChatThreadModel {
     @MainActor
     func message(remoteID: String) async -> MessageRecord? {
         if let shown = messages.first(where: { $0.remoteId == remoteID }) { return shown }
-        let chatID = chatID
-        return try? await database.reader.read { db in
-            try MessageRecord
-                .filter(MessageRecord.Columns.chatId == chatID)
-                .filter(MessageRecord.Columns.remoteId == remoteID)
-                .fetchOne(db)
-        }
+        return try? await queries.message(remoteID: remoteID, chatID: chatID)
     }
 
     /// Удаление из просмотра медиа. Сообщение в базе — тем же путём, что из меню; нет
@@ -1130,7 +1153,7 @@ final class ChatThreadModel {
         let id = chatID
         var kind = chat?.kind
         if kind == nil {
-            kind = try? await database.reader.read { db in try ChatRecord.fetchOne(db, key: id)?.kind }
+            kind = try? await queries.chatKind(id: id)
         }
         guard kind == .private, let list = try? await actions.members(chatID: chatID) else { return }
         peer = list.first { $0.id != viewerID }
@@ -1171,7 +1194,7 @@ final class ChatThreadModel {
         let id = chatID
         var kind = chat?.kind
         if kind == nil {
-            kind = try? await database.reader.read { db in try ChatRecord.fetchOne(db, key: id)?.kind }
+            kind = try? await queries.chatKind(id: id)
         }
         guard let kind else { return false }
         return kind != .private && kind != .saved
@@ -1238,15 +1261,25 @@ final class ChatThreadModel {
 
     // MARK: - Черновик
 
-    /// Отметить прочитанным до последнего чужого сообщения.
+    /// Лента сообщила нижнюю видимую строку — отметить прочитанным до неё.
+    @MainActor
+    func noteVisible(lowest id: String?) {
+        guard id != lowestVisibleID else { return }
+        lowestVisibleID = id
+        Task { await markRead() }
+    }
+
+    /// Отметить прочитанным до последнего чужого сообщения, реально видимого в ленте
+    /// (IOS_RULES 6.6.1).
     ///
     /// Шлём не чаще раза в 800 мс и только то, что действительно новее прошлой
     /// отметки: сервер двигает её только вперёд, а лишние события — это трафик на
-    /// каждом прокруте.
+    /// каждом прокруте. Из окна истории не шлём вовсе: оно не свежее, и отметка по нему
+    /// утверждала бы о прочтении того, чего лента не показывала (9.4.17).
     @MainActor
     func markRead() async {
-        guard let last = messages.last(where: { $0.senderId != viewerID && $0.remoteId != nil }),
-            let id = last.remoteId,
+        guard !isDetached,
+            let id = ReadVisibility.readMark(in: messages, lowestVisible: lowestVisibleID, viewerID: viewerID),
             id != lastReadSent
         else { return }
         if let sentAt = lastReadAt, Date().timeIntervalSince(sentAt) < 0.8 {
@@ -1303,8 +1336,11 @@ final class ChatThreadModel {
     @MainActor
     func draftChanged() {
         noteTyping()
+        // Правка — не черновик: ни в базу, ни на сервер, иначе её текст был бы виден в вебе
+        // черновиком чата. Отложенную запись настоящего черновика тоже не отменяем — она
+        // донесёт набранное до правки.
+        guard let text = input.draftToPersist else { return }
         draftTask?.cancel()
-        let text = draft
         draftTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(400))
             guard !Task.isCancelled else { return }
@@ -1342,41 +1378,25 @@ final class ChatThreadModel {
 
     @MainActor
     private func loadDraft() {
-        Task { @MainActor [weak self, database, chatID] in
-            let stored = try? await database.reader.read { db in
-                try DraftRecord.fetchOne(db, key: chatID)
-            }
-            guard let self, self.draft.isEmpty, let stored else { return }
-            self.draft = stored.text
+        Task { @MainActor [weak self, queries, chatID] in
+            let stored = try? await queries.draft(chatID: chatID)
+            guard let self, self.input.draft.isEmpty, let stored else { return }
+            self.input.draft = stored.text
         }
     }
 
     @MainActor
     private func persistDraft(_ text: String) async {
         let chatID = chatID
-        try? await database.writer.write { db in
-            if text.isEmpty {
-                _ = try DraftRecord.deleteOne(db, key: chatID)
-                return
-            }
-            try DraftRecord(
-                chatId: chatID,
-                text: text,
-                replyToId: nil,
-                updatedAt: Date(),
-                // Серверу черновик ещё не донесён — это ниже.
-                isSynced: false
-            ).upsert(db)
-        }
+        // Серверу черновик ещё не донесён — это ниже.
+        try? await queries.saveDraft(text, chatID: chatID)
         // Серверу — чтобы черновик был виден в вебе, а после отправки (пустой текст)
         // не вернулся старым серверным при следующей синхронизации списка. Не вышло —
-        // запись остаётся несинхронизированной, следующий набор повторит.
+        // запись остаётся несинхронизированной, следующий набор повторит. Длиннее лимита
+        // сервер черновик не примет — его не шлём, он живёт в базе, пока его не сократят.
+        guard OutgoingText.draftFits(text) else { return }
         guard (try? await actions.saveDraft(chatID: chatID, text: text)) != nil, !text.isEmpty else { return }
-        try? await database.writer.write { db in
-            guard var record = try DraftRecord.fetchOne(db, key: chatID), record.text == text else { return }
-            record.isSynced = true
-            try record.update(db)
-        }
+        try? await queries.markDraftSynced(text, chatID: chatID)
     }
 
     /// Подгрузка вверх. Вызывается, когда лента подъехала к началу загруженного.
@@ -1391,6 +1411,7 @@ final class ChatThreadModel {
         let generation = windowGeneration
 
         do {
+            let mark = try? await store.reconcileMark()
             let page = try await api.messages(
                 chatID: chatID,
                 cursor: olderCursor,
@@ -1398,7 +1419,7 @@ final class ChatThreadModel {
             )
             // Пока страница шла, ленту заменили окном: она из другого места истории.
             guard generation == windowGeneration else { return }
-            try await store.save(messages: page.items, chatID: chatID)
+            try await store.save(messages: page.items, chatID: chatID, reconcilingUpTo: mark)
             olderCursor = page.meta?.cursor
             reachedBeginning = page.meta?.hasNext != true
             // Страница легла ниже окна — окно опускается до неё, иначе её не было бы видно.
@@ -1423,7 +1444,7 @@ final class ChatThreadModel {
     private func initialFloor() -> Int? {
         guard PerformanceFlags.chatWindowedObservation else { return nil }
         let id = chatID
-        guard let chat = try? database.reader.read({ db in try ChatRecord.fetchOne(db, key: id) }) else { return nil }
+        guard let chat = try? queries.chatNow(id: id) else { return nil }
         let span = max(Self.liveWindow, chat.unreadCount + 20)
         guard chat.lastSeq > span else { return nil }
         return chat.lastSeq - span
@@ -1455,43 +1476,110 @@ final class ChatThreadModel {
     @MainActor
     private func loadLatest() async {
         do {
-            let page = try await api.messages(chatID: chatID, cursor: nil, limit: ChatsAPI.messagePageLimit)
-            try await store.save(messages: page.items, chatID: chatID)
-            olderCursor = page.meta?.cursor
-            reachedBeginning = page.meta?.hasNext != true
+            try await fetchLatest()
             failure = nil
-        } catch is CancellationError {
+        } catch {
+            syncFailed(error)
+        }
+    }
+
+    /// Последняя страница чата.
+    @MainActor
+    private func fetchLatest() async throws {
+        let mark = try? await store.reconcileMark()
+        let page = try await api.messages(chatID: chatID, cursor: nil, limit: ChatsAPI.messagePageLimit)
+        try await store.save(messages: page.items, chatID: chatID, isHead: true, reconcilingUpTo: mark)
+        olderCursor = page.meta?.cursor
+        reachedBeginning = page.meta?.hasNext != true
+    }
+
+    /// Догнать разницу с позиции в базе. Позиция читается здесь же, а не передаётся
+    /// снаружи: сокет двигает её только по порядку (`SyncPosition`), поэтому прочитанная
+    /// в любой момент она не перескакивает пропущенное (IOS_RULES 9.3.2, 9.3.3).
+    @MainActor
+    private func catchUp() async {
+        if catchingUp {
+            catchUpAgain = true
+            return
+        }
+        catchingUp = true
+        defer { catchingUp = false }
+        repeat {
+            catchUpAgain = false
+            await catchUpPass()
+        } while catchUpAgain
+    }
+
+    @MainActor
+    private func catchUpPass() async {
+        do {
+            let mark = try await store.catchUpMark(chatID: chatID)
+            // Сверки ещё не было (первая страница не дошла) — начинаем с неё.
+            guard mark.since > 0 else {
+                try await fetchLatest()
+                return syncSucceeded()
+            }
+            let updates = try await api.updates(chatID: chatID, since: mark.since, sinceTs: mark.sinceTs)
+            if updates.overflow {
+                // Разрыв больше серверного лимита: склеивать нечего. Сначала скачать
+                // последнюю страницу, потом одной транзакцией заменить ею историю — без
+                // сети человек остаётся со своей офлайн-историей, а не с пустым чатом
+                // (IOS_RULES 9.3.10).
+                let page = try await api.messages(chatID: chatID, cursor: nil, limit: ChatsAPI.messagePageLimit)
+                try await store.resetHistory(
+                    with: page.items,
+                    chatID: chatID,
+                    latestSeq: updates.latestSeq,
+                    syncedAt: updates.syncedAt
+                )
+                olderCursor = page.meta?.cursor
+                reachedBeginning = page.meta?.hasNext != true
+            } else {
+                try await store.apply(updates, chatID: chatID)
+            }
+            syncSucceeded()
+        } catch {
+            syncFailed(error)
+        }
+    }
+
+    @MainActor
+    private func syncSucceeded() {
+        failure = nil
+        catchUpRetry?.cancel()
+        catchUpRetry = nil
+        catchUpDelay = OutboxService.firstRetryDelay
+    }
+
+    /// Синхронизация не сдаётся на временной ошибке: повтор с растущей паузой, пока
+    /// сервер не ответит по существу или экран не уйдёт (IOS_RULES 9.3.1). Отказ по
+    /// существу (403, 422) не повторяется — человек видит строку ошибки.
+    @MainActor
+    private func syncFailed(_ error: Error) {
+        switch ActionFailureKind(error) {
+        case .cancelled:
             // Экран ушёл, и запрос отменили — это не сбой: не пугаем красной строкой.
             return
-        } catch {
+        case .transient:
+            failure = message(for: error)
+            scheduleCatchUpRetry()
+        case .rejected:
             failure = message(for: error)
         }
     }
 
     @MainActor
-    private func catchUp(since: Int) async {
-        do {
-            // Отметка времени для правок и удалений — время самого свежего известного
-            // сообщения. Своего времени последней синхронизации мы не храним, а всё,
-            // что отредактировали позже этого момента, в ответ попадёт.
-            let newest = messages.last?.createdAt
-            let updates = try await api.updates(chatID: chatID, since: since, sinceTs: newest)
-            if updates.overflow {
-                // Разрыв больше серверного лимита: склеивать нечего, честнее
-                // перекачать хвост заново.
-                try await store.clearHistory(chatID: chatID)
-                olderCursor = nil
-                reachedBeginning = false
-                await loadLatest()
-                return
-            }
-            try await store.apply(updates, chatID: chatID)
-            failure = nil
-        } catch is CancellationError {
-            // Экран ушёл, и запрос отменили — это не сбой: не пугаем красной строкой.
-            return
-        } catch {
-            failure = message(for: error)
+    private func scheduleCatchUpRetry() {
+        guard catchUpRetry == nil else { return }
+        let delay = OutboxService.jittered(catchUpDelay)
+        catchUpDelay = min(catchUpDelay * 2, OutboxService.maxRetryDelay)
+        catchUpRetry = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: delay)
+            guard let self, !Task.isCancelled else { return }
+            self.catchUpRetry = nil
+            // Окно истории догоняет себя само догрузкой вниз.
+            guard !self.isDetached else { return }
+            await self.catchUp()
         }
     }
 
@@ -1500,55 +1588,19 @@ final class ChatThreadModel {
     @MainActor
     private func observeMessages() {
         messagesTask?.cancel()
-        let request = store.messages(chatID: chatID, from: floor)
         let id = chatID
         let floor = floor
-        // Сообщения и вложения читаем одним наблюдением: раздельные дали бы кадр,
-        // где картинка уже пришла, а сообщения под неё ещё нет.
-        // Наблюдение будит любая запись в `message`/`attachment`, в том числе в чужом
-        // чате: одинаковый срез отсеивается вне главного потока и до ленты не доходит.
-        let observation = ValueObservation.tracking { db -> ThreadSnapshot in
-            try ChatThreadModel.readSnapshot(request, chatID: id, floor: floor, in: db)
-        }
-        .removeDuplicates()
+        // Сообщения и вложения — одним наблюдением, одинаковый срез отсеивается до
+        // главного потока (`ChatThreadQueries.observeSnapshot`).
         // Сильная ссылка живёт только на шаг цикла: держи её задача весь бесконечный
         // поток, модель (и её наблюдения) не освободились бы и после ухода из чата.
-        messagesTask = Task { @MainActor [weak self, database] in
-            for await snapshot in AsyncValues.stream(of: observation, in: database.reader) {
+        messagesTask = Task { @MainActor [weak self, queries] in
+            for await snapshot in queries.observeSnapshot(chatID: id, floor: floor) {
                 guard let self else { return }
                 self.snapshot = snapshot
                 self.applySnapshot()
             }
         }
-    }
-
-    /// Срез переписки: сообщения в порядке ленты и их вложения.
-    private static func readSnapshot(
-        _ request: QueryInterfaceRequest<MessageRecord>,
-        chatID: String,
-        floor: Int?,
-        in db: Database
-    ) throws -> ThreadSnapshot {
-        let signpost = Signposts.chats.beginInterval("ThreadSnapshotRead")
-        let messages = try request.fetchAll(db)
-        // Вложения — только сообщений окна, та же граница, что у запроса сообщений.
-        let attachments = try AttachmentRecord.fetchAll(
-            db,
-            sql: """
-                SELECT a.* FROM attachment a
-                JOIN message m ON m.id = a.messageId
-                WHERE m.chatId = ? AND (? IS NULL OR m.seq >= ? OR m.seq IS NULL)
-                """,
-            arguments: [chatID, floor, floor]
-        )
-        Signposts.chats.endInterval(
-            "ThreadSnapshotRead", signpost,
-            "messages: \(messages.count), attachments: \(attachments.count)"
-        )
-        return ThreadSnapshot(
-            messages: messages,
-            attachments: Dictionary(grouping: attachments, by: \.messageId)
-        )
     }
 
     /// Пересобрать ленту из среза базы. В окне истории — только то, что не новее его
@@ -1615,10 +1667,8 @@ final class ChatThreadModel {
         chatTask?.cancel()
         let id = chatID
         // Запись в строку другого чата (счётчик, прочтение) эту строку не меняет.
-        let observation = ValueObservation.tracking { db in try ChatRecord.fetchOne(db, key: id) }
-            .removeDuplicates()
-        chatTask = Task { @MainActor [weak self, database] in
-            for await chat in AsyncValues.stream(of: observation, in: database.reader) {
+        chatTask = Task { @MainActor [weak self, queries] in
+            for await chat in queries.observeChat(id: id) {
                 guard let self else { return }
                 self.chat = chat
                 self.title = chat?.title
@@ -1697,39 +1747,6 @@ enum DetachedWindows {
         guard let data = UserDefaults.standard.data(forKey: key) else { return [:] }
         return (try? JSONDecoder().decode([String: Mark].self, from: data)) ?? [:]
     }
-}
-
-/// Поток значений наблюдения GRDB.
-///
-/// Общий для всех экранов: ошибка чтения локальной базы не повод падать — список и
-/// лента просто перестают обновляться, а показывают то, что уже прочитали.
-enum AsyncValues {
-    static func stream<Reducer: ValueReducer>(
-        of observation: ValueObservation<Reducer>,
-        in reader: any DatabaseReader
-    ) -> AsyncStream<Reducer.Value> {
-        AsyncStream { continuation in
-            let cancellable = observation.start(
-                in: reader,
-                scheduling: .async(onQueue: .main),
-                onError: { _ in continuation.finish() },
-                onChange: { value in
-                    // Значение наблюдения дошло до главного потока (после отсева, если
-                    // он есть): сколько раз экран будят изменения базы.
-                    Signposts.chats.emitEvent("DBChangeObserved", "\(String(describing: type(of: value)), privacy: .public)")
-                    continuation.yield(value)
-                }
-            )
-            continuation.onTermination = { _ in cancellable.cancel() }
-        }
-    }
-}
-
-
-/// Срез переписки: сообщения и их вложения, прочитанные одним запросом.
-struct ThreadSnapshot: Equatable {
-    let messages: [MessageRecord]
-    let attachments: [String: [AttachmentRecord]]
 }
 
 /// Участник группы, прочитавший сообщение, — строка листа «Прочитали».

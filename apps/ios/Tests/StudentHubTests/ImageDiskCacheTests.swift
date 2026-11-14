@@ -208,6 +208,24 @@ final class ImageDownloadsTests: XCTestCase {
         XCTAssertEqual(calls, 2)
     }
 
+    /// Ответ, который не разбирается как картинка (страница ошибки с верным типом), на
+    /// диск не ложится: следующий запрос снова идёт в сеть (IOS_RULES 9.5.16).
+    func testNonImageIsNotWrittenToDisk() async throws {
+        let network = SlowNetwork(delay: .zero, body: Data("<html>ошибка</html>".utf8))
+        let disk = ImageDiskCache(root: root, isLocked: { false })
+        let downloads = ImageDownloads(disk: disk) { url in await network.fetch(url) }
+        let url = try XCTUnwrap(URL(string: "https://cdn.test/broken.webp"))
+
+        _ = await downloads.data(for: url)
+        await disk.flush()
+        _ = await downloads.data(for: url)
+
+        let calls = await network.calls
+        XCTAssertEqual(calls, 2)
+        XCTAssertFalse(ImageDownloads.isImage(Data("<html>".utf8)))
+        XCTAssertTrue(ImageDownloads.isImage(SlowNetwork.pixel))
+    }
+
     /// Ушли все ждущие — загрузка снимается.
     func testDownloadIsCancelledWhenEveryoneLeaves() async throws {
         let network = SlowNetwork(delay: .seconds(5))
@@ -241,11 +259,18 @@ private actor SlowNetwork {
     private(set) var cancelled = false
     private let delay: Duration
     private let expires: Date?
+    private let body: Data
 
-    init(delay: Duration, expires: Date? = Date().addingTimeInterval(3_600)) {
+    init(delay: Duration, expires: Date? = Date().addingTimeInterval(3_600), body: Data = SlowNetwork.pixel) {
         self.delay = delay
         self.expires = expires
+        self.body = body
     }
+
+    /// PNG 1×1: на диск кладётся только то, что разбирается как картинка.
+    static let pixel = Data(
+        base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )!
 
     func fetch(_ url: URL) async -> ImageDownloads.Fetched? {
         calls += 1
@@ -255,6 +280,6 @@ private actor SlowNetwork {
             cancelled = true
             return nil
         }
-        return ImageDownloads.Fetched(data: Data(url.path().utf8), expires: expires)
+        return ImageDownloads.Fetched(data: body, expires: expires)
     }
 }

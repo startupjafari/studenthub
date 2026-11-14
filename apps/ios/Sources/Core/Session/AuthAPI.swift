@@ -83,11 +83,15 @@ struct AuthAPI: SessionRefreshing, SessionIssuing {
 
     // MARK: - Продление и выход
 
-    /// Предел ожидания — длинный. Короткий вреден при ротации refresh-токенов: запрос
-    /// успевает дойти до сервера и ротировать токен, а ответ мы бросаем, и следующее
-    /// продление старым токеном сервер принимает за повторное использование. Экраны его
-    /// столько не ждут: им хватает `SessionStore.tokenWait`, дальше — «нет связи».
-    static let refreshTimeout: TimeInterval = 60
+    /// Предел ожидания связан с окном грации сервера (`REFRESH_REUSE_GRACE_MS`, 10 с,
+    /// `apps/api/src/config/env.schema.ts`; на клиенте — `SessionStore.serverReuseGrace`).
+    /// Ответ потерялся — сервер мог уже ротировать токен, и единственный повтор старым
+    /// токеном обязан прийти внутри окна, иначе сервер сочтёт его кражей и погасит
+    /// сессии на всех устройствах (правило 9.7.2). Поэтому таймаут + пауза повтора
+    /// (`SessionStore.defaultLossRetryDelay`) = 7,5 с — меньше бюджета 8 с с запасом
+    /// до 10 с. `timeoutInterval` в `URLRequest` — предел простоя, а не всего запроса:
+    /// растянутый ответ ловит ещё и замер длительности в `SessionStore`.
+    static let refreshTimeout: TimeInterval = 6
 
     func refresh() async throws -> AuthSession {
         var endpoint = publicEndpoint("auth/refresh")
@@ -139,5 +143,18 @@ struct AuthAPI: SessionRefreshing, SessionIssuing {
         let accessToken: String?
         let twoFactorRequired: Bool?
         let challengeToken: String?
+    }
+}
+
+extension AuthSession: RedactedDescription {
+    var redactedDescription: String { "AuthSession(accessToken: \(SecretMask.hidden))" }
+}
+
+extension LoginOutcome: RedactedDescription {
+    var redactedDescription: String {
+        switch self {
+        case .session: "LoginOutcome.session(\(SecretMask.hidden))"
+        case .twoFactorRequired: "LoginOutcome.twoFactorRequired(challengeToken: \(SecretMask.hidden))"
+        }
     }
 }

@@ -27,6 +27,28 @@ enum Typography {
     /// Крупное число в плитке. Веб: `text-2xl font-semibold`.
     static let metric = Font.system(.title2, weight: .semibold)
 
+    // MARK: Текст с разметкой — пузырь сообщения и статья (IOS_RULES 7.5.12)
+    // Одна таблица на все поверхности: при первой правке типографики пузырь, статья и
+    // предпросмотр в редакторе иначе разошлись бы.
+
+    /// Код в пузыре сообщения: моноширинный, на ступень мельче текста — строки кода длинные.
+    static let messageCode = Font.system(.subheadline, design: .monospaced)
+    /// Код в статье: блок прокручивается вбок, кегль ещё мельче.
+    static let articleCode = Font.system(.footnote, design: .monospaced)
+    /// Подпись языка и значок «скопировать» над блоком кода — текстовый стиль, без
+    /// ручных размеров (7.6.15).
+    static let codeLabel = Font.caption.weight(.semibold)
+
+    /// Заголовок статьи по числу `#`: первый уровень крупнее заголовка экрана — это
+    /// заголовок текста, а не интерфейса.
+    static func articleHeading(level: Int) -> Font {
+        switch level {
+        case ...1: .title2.weight(.bold)
+        case 2: .title3.weight(.semibold)
+        default: .headline
+        }
+    }
+
     /// Моноширинные цифры для колонок и счётчиков: иначе числа «пляшут» при
     /// обновлении. Одиночное крупное число — наоборот, пропорциональными.
     static func tabular(_ font: Font) -> Font { font.monospacedDigit() }
