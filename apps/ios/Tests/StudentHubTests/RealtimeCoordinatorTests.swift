@@ -326,6 +326,58 @@ final class RealtimeCoordinatorTests: XCTestCase {
         }
     }
 
+    /// Переполнение догона не стирает историю (IOS_RULES 9.3.13): после него прокрутка
+    /// вверх сначала просит страницу под границей несверенного, и пропавшее на сервере
+    /// помечается удалённым; на начале переписки граница снимается.
+    func testOverflowKeepsHistoryAndRevalidatesOnScroll() async throws {
+        let server = ScriptedServer()
+        let (database, coordinator, _) = try await make(server: server)
+        try await MessageStore(database: database).save(
+            messages: [1, 2, 3].map { message(id: "m-\($0)", seq: $0, sender: "u-other") },
+            chatID: "c-1"
+        )
+        let thread = ChatThreadModel(
+            chatID: "c-1",
+            viewerID: "u-me",
+            database: database,
+            api: ScriptedMessages(server: server),
+            realtime: coordinator
+        )
+        server.enqueue(
+            "chats/c-1/updates",
+            .value(ChatUpdatesDTO(created: [], mutated: [], deletedIds: [], latestSeq: 300, overflow: true))
+        )
+        server.enqueue(
+            "chats/c-1/messages",
+            .value(Page(
+                items: [message(id: "m-300", seq: 300, sender: "u-other"), message(id: "m-299", seq: 299, sender: "u-other")],
+                meta: APIMeta(cursor: "m-299", hasNext: true, total: nil, prevCursor: nil, hasPrev: nil)
+            )),
+            // Под границей: m-2 и m-3 на сервере удалены за время разрыва.
+            .value(Page(
+                items: [message(id: "m-1", seq: 1, sender: "u-other")],
+                meta: APIMeta(cursor: nil, hasNext: false, total: nil, prevCursor: nil, hasPrev: nil)
+            ))
+        )
+
+        await thread.catchUpAfterReconnect()
+
+        try await database.reader.read { db in
+            XCTAssertEqual(try MessageRecord.filter(Column("deletedAt") == nil).fetchCount(db), 5, "история не стёрта")
+            XCTAssertEqual(try ChatRecord.fetchOne(db, key: "c-1")?.unsyncedBelow, 299)
+        }
+
+        await thread.loadOlder()
+
+        XCTAssertEqual(server.matching("GET", "chats/c-1/messages").last?.field("cursor"), "m-299")
+        try await database.reader.read { db in
+            XCTAssertNil(try MessageRecord.fetchOne(db, key: "m-1")?.deletedAt)
+            XCTAssertNotNil(try MessageRecord.fetchOne(db, key: "m-2")?.deletedAt)
+            XCTAssertNotNil(try MessageRecord.fetchOne(db, key: "m-3")?.deletedAt)
+            XCTAssertNil(try ChatRecord.fetchOne(db, key: "c-1")?.unsyncedBelow)
+        }
+    }
+
     /// Выход из аккаунта, пока обновление списка в пути: запрос снят, список прежнего
     /// человека в базу не пишется и повтора нет (IOS_RULES 9.3.1, 10.1).
     func testSignOutDuringListRefreshDropsRequest() async throws {

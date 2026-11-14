@@ -94,32 +94,114 @@ final class ChatSyncIntegrityTests: XCTestCase {
         XCTAssertEqual(mark.sinceTs, Date(timeIntervalSince1970: 1_800_000_100))
     }
 
-    /// Переполнение: скачанная страница одной транзакцией заменяет отправленную историю;
-    /// неотправленное остаётся, позиция — на верх страницы.
-    func testResetHistoryReplacesSentKeepsPending() async throws {
+    /// Переполнение (9.3.13): история не стирается. Страница ложится поверх, пропавшее в её
+    /// диапазоне и выше помечено удалённым, ниже — «несверенное» с границей на низе
+    /// страницы; неотправленное не тронуто, позиция — на верх страницы.
+    func testOverflowKeepsHistoryAndMarksItUnsynced() async throws {
+        let database = try AppDatabase.inMemory()
+        try await seedChat(in: database, syncSeq: 1)
+        let store = MessageStore(database: database)
+        try await store.save(messages: [1, 2, 3, 402].map { dto(id: "m-\($0)", seq: $0) }, chatID: "c-1")
+        try await database.writer.write { db in
+            try self.pending(id: "local-1", at: 1_800_000_000).insert(db)
+        }
+        let mark = try await store.reconcileMark()
+
+        try await store.resetAfterOverflow(
+            with: [dto(id: "m-400", seq: 400), dto(id: "m-401", seq: 401)],
+            chatID: "c-1",
+            latestSeq: 402,
+            syncedAt: Date(timeIntervalSince1970: 1_800_002_000),
+            reachedStart: false,
+            reconcilingUpTo: mark
+        )
+
+        let deleted = try await deletedFlags(database)
+        XCTAssertEqual(deleted["m-1"], false, "ниже страницы — не стёрто и не помечено")
+        XCTAssertEqual(deleted["m-3"], false)
+        XCTAssertEqual(deleted["m-401"], false)
+        XCTAssertEqual(deleted["m-402"], true, "выше низа страницы и нет в ней — удалено")
+        XCTAssertEqual(deleted["local-1"], false)
+        let chat = try await read(database)
+        XCTAssertEqual(chat?.syncSeq, 402)
+        XCTAssertEqual(chat?.unsyncedBelow, 400)
+        XCTAssertEqual(chat?.syncedAt, Date(timeIntervalSince1970: 1_800_002_000))
+        let boundary = try await store.unsyncedBoundary(chatID: "c-1")
+        XCTAssertEqual(boundary?.seq, 400)
+        XCTAssertEqual(boundary?.cursor, "m-400")
+    }
+
+    /// Страница под границей сверяет весь промежуток до границы (не только свой min…max),
+    /// граница опускается до её низа, а на начале переписки снимается.
+    func testRevalidationSweepsDownToBoundaryAndClearsAtStart() async throws {
+        let database = try AppDatabase.inMemory()
+        try await seedChat(in: database, syncSeq: 1)
+        let store = MessageStore(database: database)
+        try await store.save(messages: [1, 2, 3, 5, 399].map { dto(id: "m-\($0)", seq: $0) }, chatID: "c-1")
+        var mark = try await store.reconcileMark()
+        try await store.resetAfterOverflow(
+            with: [dto(id: "m-400", seq: 400)], chatID: "c-1", latestSeq: 400, syncedAt: nil,
+            reachedStart: false, reconcilingUpTo: mark
+        )
+
+        mark = try await store.reconcileMark()
+        try await store.revalidate(
+            page: [dto(id: "m-2", seq: 2), dto(id: "m-3", seq: 3)],
+            chatID: "c-1", below: 400, reachedStart: false, reconcilingUpTo: mark
+        )
+        var deleted = try await deletedFlags(database)
+        XCTAssertEqual(deleted["m-5"], true)
+        XCTAssertEqual(deleted["m-399"], true, "между верхом страницы и границей — тоже сверено")
+        XCTAssertEqual(deleted["m-3"], false)
+        XCTAssertEqual(deleted["m-1"], false, "ниже страницы — ещё не сверено")
+        var chat = try await read(database)
+        XCTAssertEqual(chat?.unsyncedBelow, 2)
+
+        mark = try await store.reconcileMark()
+        try await store.revalidate(page: [], chatID: "c-1", below: 2, reachedStart: true, reconcilingUpTo: mark)
+        deleted = try await deletedFlags(database)
+        XCTAssertEqual(deleted["m-1"], true)
+        chat = try await read(database)
+        XCTAssertNil(chat?.unsyncedBelow)
+        let boundary = try await store.unsyncedBoundary(chatID: "c-1")
+        XCTAssertNil(boundary)
+    }
+
+    /// Ответ сверки, пришедший после нового переполнения, чужую границу не двигает.
+    func testRevalidationKeepsNewerBoundary() async throws {
+        let database = try AppDatabase.inMemory()
+        try await seedChat(in: database, syncSeq: 1)
+        let store = MessageStore(database: database)
+        let mark = try await store.reconcileMark()
+        try await store.resetAfterOverflow(
+            with: [dto(id: "m-900", seq: 900)], chatID: "c-1", latestSeq: 900, syncedAt: nil,
+            reachedStart: false, reconcilingUpTo: mark
+        )
+
+        try await store.revalidate(page: [], chatID: "c-1", below: 400, reachedStart: true, reconcilingUpTo: mark)
+
+        let chat = try await read(database)
+        XCTAssertEqual(chat?.unsyncedBelow, 900)
+    }
+
+    /// Явная очистка истории сервером по-прежнему стирает и снимает границу.
+    func testServerClearStillErasesHistory() async throws {
         let database = try AppDatabase.inMemory()
         try await seedChat(in: database, syncSeq: 1)
         let store = MessageStore(database: database)
         try await store.save(messages: [dto(id: "m-1", seq: 1)], chatID: "c-1")
-        try await database.writer.write { db in
-            try self.pending(id: "local-1", at: 1_800_000_000).insert(db)
-        }
-
-        try await store.resetHistory(
-            with: [dto(id: "m-400", seq: 400), dto(id: "m-401", seq: 401)],
-            chatID: "c-1",
-            latestSeq: 401,
-            syncedAt: Date(timeIntervalSince1970: 1_800_002_000)
+        let mark = try await store.reconcileMark()
+        try await store.resetAfterOverflow(
+            with: [dto(id: "m-400", seq: 400)], chatID: "c-1", latestSeq: 400, syncedAt: nil,
+            reachedStart: false, reconcilingUpTo: mark
         )
 
-        try await database.reader.read { db in
-            XCTAssertNil(try MessageRecord.fetchOne(db, key: "m-1"))
-            XCTAssertNotNil(try MessageRecord.fetchOne(db, key: "m-401"))
-            XCTAssertNotNil(try MessageRecord.fetchOne(db, key: "local-1"))
-            let chat = try ChatRecord.fetchOne(db, key: "c-1")
-            XCTAssertEqual(chat?.syncSeq, 401)
-            XCTAssertEqual(chat?.syncedAt, Date(timeIntervalSince1970: 1_800_002_000))
-        }
+        try await store.clearHistory(chatID: "c-1")
+
+        let count = try await database.reader.read { db in try MessageRecord.fetchCount(db) }
+        XCTAssertEqual(count, 0)
+        let chat = try await read(database)
+        XCTAssertNil(chat?.unsyncedBelow)
     }
 
     // MARK: - Поздний ответ
@@ -302,6 +384,12 @@ final class ChatSyncIntegrityTests: XCTestCase {
                 requestOutgoing: false, othersReadAt: nil, lastMessageId: nil, lastSeq: syncSeq,
                 updatedAt: Date(timeIntervalSince1970: 1_800_000_000), syncSeq: syncSeq
             ).insert(db)
+        }
+    }
+
+    private func deletedFlags(_ database: AppDatabase) async throws -> [String: Bool] {
+        try await database.reader.read { db in
+            try MessageRecord.fetchAll(db).reduce(into: [String: Bool]()) { $0[$1.id] = $1.deletedAt != nil }
         }
     }
 

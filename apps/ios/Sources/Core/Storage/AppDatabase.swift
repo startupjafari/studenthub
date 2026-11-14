@@ -132,6 +132,13 @@ final class AppDatabase: Sendable {
 
     private static let storeName = "chats.sqlite"
 
+    /// Каталог базы уже есть — приложение запускалось в этом контейнере. Удаление
+    /// приложения уносит его с собой, обновление — нет (признак установки, 10.1.12).
+    static func storeExists(fileManager: FileManager = .default) -> Bool {
+        guard let folder = try? storeFolder(fileManager: fileManager) else { return false }
+        return fileManager.fileExists(atPath: folder.path)
+    }
+
     private static func storeFolder(fileManager: FileManager) throws -> URL {
         try fileManager
             .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)

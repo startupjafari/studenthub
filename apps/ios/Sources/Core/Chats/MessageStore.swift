@@ -56,14 +56,26 @@ struct MessageStore: Sendable {
     static func reconcile(chatID: String, with page: [ChatMessageDTO], upTo mark: Int64, in db: Database) throws {
         let seqs = page.compactMap(\.seq)
         guard let low = seqs.min(), let high = seqs.max() else { return }
+        try reconcile(chatID: chatID, keeping: page.map(\.id), in: low...high, upTo: mark, in: db)
+    }
+
+    /// Сверка диапазона, который ответ сервера покрыл целиком: подтверждённое в нём,
+    /// лежавшее в базе до запроса и не пришедшее в ответе, удалено на сервере.
+    static func reconcile(
+        chatID: String,
+        keeping ids: [String],
+        in range: ClosedRange<Int>,
+        upTo mark: Int64,
+        in db: Database
+    ) throws {
         let deletedAt = Column("deletedAt")
         try MessageRecord
             .filter(MessageRecord.Columns.chatId == chatID)
             .filter(MessageRecord.Columns.sendState == MessageSendState.sent.rawValue)
             .filter(sql: "id = remoteId AND rowid <= ?", arguments: [mark])
-            .filter(MessageRecord.Columns.seq >= low && MessageRecord.Columns.seq <= high)
+            .filter(MessageRecord.Columns.seq >= range.lowerBound && MessageRecord.Columns.seq <= range.upperBound)
             .filter(deletedAt == nil)
-            .filter(!page.map(\.id).contains(MessageRecord.Columns.remoteId))
+            .filter(!ids.contains(MessageRecord.Columns.remoteId))
             .updateAll(db, deletedAt.set(to: Date()))
     }
 
@@ -93,39 +105,97 @@ struct MessageStore: Sendable {
         }
     }
 
-    /// Переполнение догона: разрыв больше серверного лимита, склеивать нечего. Новая
-    /// страница уже скачана — одной транзакцией она ложится вместо отправленной истории,
-    /// и выставляется позиция (IOS_RULES 9.3.10). Не вышло скачать — сюда не дошли, и
-    /// офлайн-история осталась как была.
+    /// Переполнение догона: разрыв больше серверного лимита, склеивать нечего. Последняя
+    /// страница уже скачана (IOS_RULES 9.3.10); не вышло — сюда не дошли, и офлайн-история
+    /// осталась как была.
     ///
-    /// Неотправленное не трогаем (9.3.11), последнее сообщение чата — тоже: на него
-    /// смотрит превью списка.
-    func resetHistory(
+    /// История не стирается (9.3.13): страница ложится поверх, всё в её диапазоне и выше,
+    /// чего в ней нет, помечается удалённым (сверка 9.3.12), а лежащее ниже становится
+    /// «несверенным» — граница `unsyncedBelow` встаёт на низ страницы, и догрузка вверх
+    /// сверяет это страницами (`revalidate`). Страница — вся переписка (`reachedStart`) —
+    /// сверено всё сразу. Неотправленное сверка не трогает (9.3.11).
+    ///
+    /// `mark` — `reconcileMark()` до запроса страницы: пришедшее, пока она была в пути, не
+    /// сверяется.
+    func resetAfterOverflow(
         with page: [ChatMessageDTO],
         chatID: String,
         latestSeq: Int,
-        syncedAt: Date?
+        syncedAt: Date?,
+        reachedStart: Bool,
+        reconcilingUpTo mark: Int64
     ) async throws {
         try await database.writer.write { db in
             guard var chat = try ChatRecord.fetchOne(db, key: chatID) else { return }
-            var stale = MessageRecord
-                .filter(MessageRecord.Columns.chatId == chatID)
-                .filter(MessageRecord.Columns.sendState == MessageSendState.sent.rawValue)
-                .filter(!page.map(\.id).contains(MessageRecord.Columns.remoteId))
-            if let last = chat.lastMessageId {
-                stale = stale.filter(MessageRecord.Columns.id != last)
-            }
-            try stale.deleteAll(db)
             for message in page {
                 try Self.upsert(message, in: db)
             }
             // Страница скачана позже ответа догона: её верх не старее `latestSeq`, а если
             // свежие удалены, `latestSeq` — честная граница на момент догона.
             let top = max(page.compactMap(\.seq).max() ?? 0, latestSeq)
+            let bottom = page.compactMap(\.seq).min()
+            let low = reachedStart ? Int.min : (bottom ?? top)
+            try Self.reconcile(chatID: chatID, keeping: page.map(\.id), in: low...max(low, top), upTo: mark, in: db)
             let before = chat
             chat.syncSeq = top
             chat.lastSeq = max(chat.lastSeq, top)
             chat.syncedAt = syncedAt
+            chat.unsyncedBelow = reachedStart ? nil : low
+            try chat.updateChanges(db, from: before)
+        }
+    }
+
+    /// Откуда сверять несверенное (9.3.13): граница и курсор страницы под ней. Курсор
+    /// сервера — id сообщения, страница идёт строго ниже его `seq`; строка на самой
+    /// границе (низ прошлой страницы) могла быть стёрта локально — тогда берём ближайшую
+    /// выше: лишнее сверху уже сверено и сверится ещё раз без вреда. `nil` — несверенного
+    /// нет или опереться не на что.
+    func unsyncedBoundary(chatID: String) async throws -> (seq: Int, cursor: String)? {
+        try await database.reader.read { db in
+            guard let below = try ChatRecord.fetchOne(db, key: chatID)?.unsyncedBelow else { return nil }
+            let anchor = try String.fetchOne(
+                db,
+                MessageRecord
+                    .filter(MessageRecord.Columns.chatId == chatID)
+                    .filter(MessageRecord.Columns.remoteId != nil)
+                    .filter(MessageRecord.Columns.seq >= below)
+                    .order(MessageRecord.Columns.seq.asc)
+                    .select(MessageRecord.Columns.remoteId)
+                    .limit(1)
+            )
+            return anchor.map { (below, $0) }
+        }
+    }
+
+    /// Страница под границей несверенного (9.3.13). Сервер отдаёт её непрерывно до самой
+    /// границы, поэтому сверяется весь промежуток `[низ страницы, граница)`, а не только
+    /// `[min, max]` страницы: удалённое между ними иначе не сверила бы ни одна страница.
+    /// Начало переписки (`reachedStart`) — сверено всё ниже границы, и она снимается.
+    ///
+    /// Границу двигаем, только если она та же, от которой страница запрошена: новое
+    /// переполнение, пока страница была в пути, поставило свою.
+    func revalidate(
+        page: [ChatMessageDTO],
+        chatID: String,
+        below boundary: Int,
+        reachedStart: Bool,
+        reconcilingUpTo mark: Int64
+    ) async throws {
+        try await database.writer.write { db in
+            for message in page {
+                try Self.upsert(message, in: db)
+            }
+            // Пустая страница без продолжения — то же начало переписки.
+            let bottom = reachedStart ? nil : page.compactMap(\.seq).min()
+            let low = bottom ?? Int.min
+            let high = boundary - 1
+            if low <= high {
+                try Self.reconcile(chatID: chatID, keeping: page.map(\.id), in: low...high, upTo: mark, in: db)
+            }
+            guard var chat = try ChatRecord.fetchOne(db, key: chatID), chat.unsyncedBelow == boundary else { return }
+            let before = chat
+            // Граница только опускается: страница от якоря выше границы могла не дойти до неё.
+            chat.unsyncedBelow = bottom.map { min($0, boundary) }
             try chat.updateChanges(db, from: before)
         }
     }
@@ -187,8 +257,8 @@ struct MessageStore: Sendable {
         }
     }
 
-    /// Сбросить переписку чата: единственный честный ответ на `overflow` — разрыв
-    /// больше серверного лимита, и склеивать там нечего.
+    /// Стереть отправленную переписку чата — сервер сам очистил историю. Переполнение
+    /// догона сюда не ведёт: там история сверяется, а не стирается (9.3.13).
     func clearHistory(chatID: String) async throws {
         try await database.writer.write { db in
             try MessageRecord
@@ -199,6 +269,7 @@ struct MessageStore: Sendable {
                 chat.lastSeq = 0
                 chat.syncSeq = 0
                 chat.syncedAt = nil
+                chat.unsyncedBelow = nil
                 try chat.update(db)
             }
         }
@@ -230,6 +301,8 @@ struct MessageStore: Sendable {
                 let top = window.compactMap(\.seq).max() ?? 0
                 chat.lastSeq = top
                 chat.syncSeq = top
+                // Несверенного больше нет: в базе осталось только окно.
+                chat.unsyncedBelow = nil
                 try chat.update(db)
             }
         }

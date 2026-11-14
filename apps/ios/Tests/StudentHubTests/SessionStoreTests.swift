@@ -128,6 +128,76 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertNil(cookies.value())
     }
 
+    // MARK: - Переустановка (10.1.12)
+
+    /// Первый запуск новой установки: сессия, пережившая удаление в связке ключей,
+    /// стирается до продления, а её refresh-токен гасится обычным отложенным выходом.
+    func testFreshInstallForgetsKeychainSessionAndRevokesIt() async {
+        let secrets = MemorySecrets()
+        secrets.set("rt-old", for: .refreshToken)
+        secrets.set("1", for: .sessionPresent)
+        secrets.set(longLivedToken, for: .lastAccessToken)
+        let auth = StubAuth(token: longLivedToken)
+        let installation = MemoryInstallation(pending: true)
+        let store = makeStore(auth: auth, secrets: secrets, installation: installation)
+
+        let restoration = await store.restore()
+
+        XCTAssertEqual(restoration, .none)
+        XCTAssertNil(secrets.value(for: .sessionPresent))
+        XCTAssertNil(secrets.value(for: .refreshToken))
+        XCTAssertNil(secrets.value(for: .lastAccessToken))
+        XCTAssertFalse(installation.isSessionCheckPending)
+        let calls = await auth.refreshCalls
+        XCTAssertEqual(calls, 0, "прежнюю сессию не продлевают")
+        let pending = await store.hasPendingLogouts
+        XCTAssertTrue(pending)
+
+        await store.completePendingLogouts()
+        let ended = await auth.endedSessions.map { $0.refreshToken }
+        XCTAssertEqual(ended, ["rt-old"])
+    }
+
+    /// Обновление или уже проверенная установка сессию не трогают; запертая связка ключей
+    /// откладывает проверку до следующего запуска.
+    func testCheckedInstallKeepsSessionAndLockedKeychainDefersCheck() async {
+        let secrets = MemorySecrets()
+        secrets.set("rt-1", for: .refreshToken)
+        secrets.set("1", for: .sessionPresent)
+        secrets.set(longLivedToken, for: .lastAccessToken)
+        let checked = makeStore(secrets: secrets, installation: MemoryInstallation(pending: false))
+        let restoration = await checked.restore()
+        XCTAssertEqual(restoration, .active(AccessToken(raw: longLivedToken)!))
+
+        let pending = MemoryInstallation(pending: true)
+        secrets.locked = true
+        _ = await makeStore(secrets: secrets, installation: pending).restore()
+        secrets.locked = false
+        XCTAssertTrue(pending.isSessionCheckPending)
+        XCTAssertEqual(secrets.value(for: .refreshToken), "rt-1")
+    }
+
+    /// Признак в `UserDefaults`: без базы в контейнере — ждёт проверки, с базой (обновление)
+    /// — нет; решение принимается один раз на установку.
+    func testDefaultsMarkerTellsFreshInstallFromUpdate() throws {
+        let suite = "installation-test-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let fresh = DefaultsInstallationMarker(defaults: defaults)
+        fresh.prepare(containerHasData: false)
+        XCTAssertTrue(fresh.isSessionCheckPending)
+        fresh.prepare(containerHasData: true)
+        XCTAssertTrue(fresh.isSessionCheckPending, "решение не переписывается следующим запуском")
+        fresh.markSessionChecked()
+        XCTAssertFalse(fresh.isSessionCheckPending)
+
+        defaults.removePersistentDomain(forName: suite)
+        let updated = DefaultsInstallationMarker(defaults: defaults)
+        updated.prepare(containerHasData: true)
+        XCTAssertFalse(updated.isSessionCheckPending)
+    }
+
     // MARK: - Холодный старт без сети
 
     /// Последний токен ещё действует — интерфейс открывается по нему без сети и без
@@ -513,6 +583,7 @@ final class SessionStoreTests: XCTestCase {
         auth: StubAuth? = nil,
         secrets: MemorySecrets = MemorySecrets(),
         cookies: MemoryCookies = MemoryCookies(),
+        installation: InstallationMarker = SettledInstallation(),
         lossRetryDelay: Duration = .seconds(60),
         lossRetryBudget: Duration = .seconds(120)
     ) -> SessionStore {
@@ -520,6 +591,7 @@ final class SessionStoreTests: XCTestCase {
             auth: auth ?? StubAuth(token: longLivedToken),
             secrets: secrets,
             cookies: cookies,
+            installation: installation,
             lossRetryDelay: lossRetryDelay,
             lossRetryBudget: lossRetryBudget
         )
@@ -579,6 +651,18 @@ private final class Flag: @unchecked Sendable {
 
     func raise() { lock.withLock { raised = true } }
     var isRaised: Bool { lock.withLock { raised } }
+}
+
+/// Признак установки в памяти.
+private final class MemoryInstallation: InstallationMarker, @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending: Bool
+
+    init(pending: Bool) { self.pending = pending }
+
+    func prepare(containerHasData: Bool) {}
+    var isSessionCheckPending: Bool { lock.withLock { pending } }
+    func markSessionChecked() { lock.withLock { pending = false } }
 }
 
 /// Связка ключей симулятора в юнит-тестах недоступна без прав на подпись.

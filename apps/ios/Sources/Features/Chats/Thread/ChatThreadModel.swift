@@ -1440,6 +1440,8 @@ final class ChatThreadModel {
         guard !isLoadingOlder, pendingWindowReset == nil else { return }
         isLoadingOlder = true
         defer { isLoadingOlder = false }
+        // Под границей переполнения база не сверена — сначала страница с сервера.
+        if await revalidateOlder() { return }
         // Старые сообщения уже в базе (прошлые открытия) — окно опускается без сети.
         if await lowerFloorFromDatabase() { return }
         guard !reachedBeginning else { return }
@@ -1470,6 +1472,45 @@ final class ChatThreadModel {
         }
     }
 
+    /// Ленивая сверка после переполнения догона (IOS_RULES 9.3.13): страница под границей
+    /// несверенного сверяется с базой (9.3.12), граница опускается до её низа, окно — за
+    /// ней. `false` — сверять нечего или сеть не ответила: тогда окно опускается по базе,
+    /// и человек без сети видит свою историю как есть.
+    @MainActor
+    private func revalidateOlder() async -> Bool {
+        guard let boundary = try? await store.unsyncedBoundary(chatID: chatID) else { return false }
+        let generation = windowGeneration
+        do {
+            let mark = try await store.reconcileMark()
+            let page = try await api.messages(chatID: chatID, cursor: boundary.cursor, limit: ChatsAPI.messagePageLimit)
+            // Пока страница шла, ленту заменили окном: несверенного в базе уже нет.
+            guard generation == windowGeneration else { return true }
+            let reachedStart = page.meta?.hasNext != true
+            try await store.revalidate(
+                page: page.items,
+                chatID: chatID,
+                below: boundary.seq,
+                reachedStart: reachedStart,
+                reconcilingUpTo: mark
+            )
+            olderCursor = page.meta?.cursor
+            reachedBeginning = reachedStart
+            failure = nil
+            guard let floor else { return true }
+            if let oldest = page.items.compactMap(\.seq).min(), oldest < floor {
+                setFloor(oldest)
+                return true
+            }
+            // Окно уже ниже сверенного (опускалось по базе без сети): страница сверила
+            // показанное, а вверх лента всё равно должна прирасти — дальше по базе.
+            return false
+        } catch is CancellationError {
+            return true
+        } catch {
+            return false
+        }
+    }
+
     // MARK: - Окно наблюдения
 
     /// Граница окна на открытии: ≈150 свежих и всё непрочитанное с запасом — первое
@@ -1481,8 +1522,10 @@ final class ChatThreadModel {
         let id = chatID
         guard let chat = try? queries.chatNow(id: id) else { return nil }
         let span = max(Self.liveWindow, chat.unreadCount + 20)
-        guard chat.lastSeq > span else { return nil }
-        return chat.lastSeq - span
+        let recent = chat.lastSeq > span ? chat.lastSeq - span : nil
+        // Ниже границы переполнения — несверенное (9.3.13): его покажет догрузка вверх.
+        guard let unsynced = chat.unsyncedBelow else { return recent }
+        return max(recent ?? unsynced, unsynced)
     }
 
     /// Опустить границу окна. Наблюдение перезапускается с новым запросом; лента
@@ -1557,18 +1600,28 @@ final class ChatThreadModel {
             let updates = try await api.updates(chatID: chatID, since: mark.since, sinceTs: mark.sinceTs)
             if updates.overflow {
                 // Разрыв больше серверного лимита: склеивать нечего. Сначала скачать
-                // последнюю страницу, потом одной транзакцией заменить ею историю — без
-                // сети человек остаётся со своей офлайн-историей, а не с пустым чатом
-                // (IOS_RULES 9.3.10).
+                // последнюю страницу — без сети человек остаётся со своей офлайн-историей,
+                // а не с пустым чатом (IOS_RULES 9.3.10). Старое не стираем: оно остаётся
+                // «несверенным» и сверяется страницами при прокрутке вверх (9.3.13).
+                let mark = try await store.reconcileMark()
                 let page = try await api.messages(chatID: chatID, cursor: nil, limit: ChatsAPI.messagePageLimit)
-                try await store.resetHistory(
+                let reachedStart = page.meta?.hasNext != true
+                try await store.resetAfterOverflow(
                     with: page.items,
                     chatID: chatID,
                     latestSeq: updates.latestSeq,
-                    syncedAt: updates.syncedAt
+                    syncedAt: updates.syncedAt,
+                    reachedStart: reachedStart,
+                    reconcilingUpTo: mark
                 )
                 olderCursor = page.meta?.cursor
-                reachedBeginning = page.meta?.hasNext != true
+                reachedBeginning = reachedStart
+                // Окно — не ниже сверенного: несверенное покажет догрузка вверх уже
+                // сверенным, а без сети — как есть, из базы.
+                if !reachedStart, PerformanceFlags.chatWindowedObservation,
+                   let bottom = page.items.compactMap(\.seq).min() {
+                    setFloor(max(floor ?? bottom, bottom))
+                }
             } else {
                 try await store.apply(updates, chatID: chatID)
             }
