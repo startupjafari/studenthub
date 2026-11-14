@@ -200,6 +200,24 @@ struct ChatStore: Sendable {
         }
     }
 
+    /// Флаг блокировки у одного чата — из карточки чата, где чат уже известен.
+    func setBlocked(_ blocked: Bool, chatID: String) async throws {
+        try await update(chatID) { chat in chat.blocked = blocked }
+    }
+
+    /// Название и описание группы после правки: сервер принял, список и шапка читают базу.
+    func setGroupInfo(title: String, description: String, chatID: String) async throws {
+        try await update(chatID) { chat in
+            chat.title = title
+            chat.chatDescription = description
+        }
+    }
+
+    /// Чат удалён или покинут: строка уходит из списка сразу, не дожидаясь сокета.
+    func deleteChat(id: String) async throws {
+        _ = try await database.writer.write { db in try ChatRecord.deleteOne(db, key: id) }
+    }
+
     // MARK: - Внутреннее
 
     /// Папка с составом. Состав заменяется целиком — так его хранит и сервер.
