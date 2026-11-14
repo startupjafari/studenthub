@@ -1,8 +1,8 @@
 import GRDB
 import SwiftUI
 
-/// «Поддержка» — отовсюду, где на неё переходят, сразу переписка с командой платформы:
-/// туда и пишут, туда и приходит ответ. У охраны и библиотеки чатов нет (`hasChats` в
+/// «Поддержка» — отовсюду, где на неё переходят, сразу настоящий чат с командой
+/// платформы: туда и пишут, туда и приходит ответ. У охраны и библиотеки чатов нет (`hasChats` в
 /// вебе): им — прежняя форма обращения с подтверждением на месте.
 struct SupportView: View {
     @Environment(\.viewerRole) private var role
@@ -16,33 +16,45 @@ struct SupportView: View {
     }
 }
 
-/// Чат поддержки. Обращение на сервере — это чат `SUPPORT_PLATFORM`: есть он уже в
-/// списке чатов — открываем его на месте, нет — пустая переписка с полем ввода, первое
-/// сообщение заводит обращение (`POST /support` — сервер создаёт его только с текстом), и
-/// экран тут же становится этим чатом. Закрытое обращение сервер открывает снова на
-/// новое сообщение.
+/// Чат поддержки — настоящая переписка, сразу. Обращение на сервере — это чат
+/// `SUPPORT_PLATFORM`: есть он уже в списке чатов — открываем без ожидания сети; нет —
+/// сервер отдаёт последнее обращение или заводит пустое (`POST /support/chat`), и
+/// открывается оно. Закрытое обращение сервер открывает снова на новое сообщение.
 private struct SupportChatView: View {
     @Environment(\.viewerID) private var viewerID
     @State private var chatID: String?
-    @State private var looked = false
+    @State private var failure: String?
+    @State private var isOffline = false
 
     var body: some View {
         Group {
             if let chatID {
                 ChatThreadView(chatID: chatID, viewerID: viewerID)
-                    .transition(.opacity)
-            } else if looked {
-                SupportStarterView { chatID = $0 }
-                    .transition(.opacity)
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await open() }
             } else {
-                Palette.background.ignoresSafeArea()
+                LoadingStateView()
             }
         }
-        .animation(Motion.calm, value: chatID)
+        .navigationTitle(Text(String(localized: "settings.support", defaultValue: "Поддержка")))
+        .navigationBarTitleDisplayMode(.inline)
         .task {
-            guard !looked else { return }
-            chatID = await Self.knownTicket()
-            looked = true
+            guard chatID == nil else { return }
+            await open()
+        }
+    }
+
+    private func open() async {
+        failure = nil
+        if let known = await Self.knownTicket() {
+            chatID = known
+            return
+        }
+        do {
+            chatID = try await AccountAPI().supportChat().id
+        } catch {
+            failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 
@@ -54,111 +66,6 @@ private struct SupportChatView: View {
                 .order(Column("updatedAt").desc)
                 .fetchOne(db)?
                 .id
-        }
-    }
-}
-
-/// Пустая переписка с поддержкой: кто ответит и поле ввода внизу, как в чате.
-private struct SupportStarterView: View {
-    let opened: (String) -> Void
-
-    @State private var text = ""
-    @State private var failure: String?
-    @State private var isSending = false
-    @FocusState private var editing: Bool
-
-    private var canSend: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).count >= 10 && !isSending }
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: Spacing.md) {
-                Image(systemName: "questionmark.bubble.fill")
-                    .font(.system(size: 34, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 76, height: 76)
-                    .background(Palette.primary, in: Circle())
-                    .accessibilityHidden(true)
-                    .padding(.bottom, Spacing.xs)
-                Text(String(localized: "settings.support", defaultValue: "Поддержка"))
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(Palette.foreground)
-                Text(String(
-                    localized: "settings.support.footer",
-                    defaultValue: "Не короче 10 символов. Ответ придёт в чат «Поддержка»."
-                ))
-                .font(.subheadline)
-                .foregroundStyle(Palette.mutedForeground)
-                .multilineTextAlignment(.center)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, Spacing.xxl)
-            .padding(.top, Spacing.xxl * 2)
-        }
-        .scrollDismissesKeyboard(.interactively)
-        .background(Palette.background)
-        .safeAreaInset(edge: .bottom) { composer }
-        .navigationTitle(Text(String(localized: "settings.support", defaultValue: "Поддержка")))
-        .navigationBarTitleDisplayMode(.inline)
-        .onAppear { editing = true }
-    }
-
-    private var composer: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            if let failure {
-                Text(failure)
-                    .font(.footnote)
-                    .foregroundStyle(Palette.destructive)
-                    .padding(.horizontal, Spacing.sm)
-                    .transition(.opacity)
-            }
-            HStack(alignment: .bottom, spacing: Spacing.sm) {
-                TextField(
-                    String(localized: "settings.support.placeholder", defaultValue: "Опишите, что случилось"),
-                    text: $text,
-                    axis: .vertical
-                )
-                .lineLimit(1...6)
-                .focused($editing)
-                .padding(.horizontal, Spacing.lg)
-                .padding(.vertical, 10)
-                .background(Palette.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .onChange(of: text) { failure = nil }
-                Button {
-                    Task { await send() }
-                } label: {
-                    Group {
-                        if isSending {
-                            ProgressView().tint(.white)
-                        } else {
-                            Image(systemName: "arrow.up").font(.body.weight(.bold))
-                        }
-                    }
-                    .foregroundStyle(.white)
-                    .frame(width: 38, height: 38)
-                    .background(canSend || isSending ? Palette.primary : Palette.mutedForeground.opacity(0.4), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .disabled(!canSend)
-                .accessibilityLabel(Text(String(localized: "settings.support.send", defaultValue: "Отправить")))
-            }
-        }
-        .padding(.horizontal, Spacing.lg)
-        .padding(.vertical, Spacing.sm)
-        .background(.bar)
-        .animation(Motion.calm, value: failure)
-    }
-
-    @MainActor
-    private func send() async {
-        guard canSend else { return }
-        isSending = true
-        defer { isSending = false }
-        do {
-            let ticket = try await AccountAPI().contactSupport(text: text.trimmingCharacters(in: .whitespacesAndNewlines))
-            text = ""
-            opened(ticket.id)
-        } catch {
-            failure = error.userMessage
         }
     }
 }
