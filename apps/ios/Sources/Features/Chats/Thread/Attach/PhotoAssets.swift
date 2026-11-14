@@ -166,8 +166,10 @@ final class PhotoAlbumsModel {
     /// Перечитать альбомы — после выдачи доступа к «Фото». Счёт снимков в каждом альбоме
     /// и обложки растут с медиатекой: они читаются в фоне, на главный — готовый список
     /// (при большой медиатеке лист вложений иначе подвисал на открытии).
+    /// `displayScale` — масштаб экрана самого листа (`\.displayScale`), а не устаревший
+    /// `UIScreen.main`: на внешнем экране он другой (IOS_RULES 12.1.1).
     @MainActor
-    func load() {
+    func load(displayScale: CGFloat) {
         let status = PhotoAssets.status
         guard status == .authorized || status == .limited else { return }
         loading?.cancel()
@@ -182,18 +184,18 @@ final class PhotoAlbumsModel {
             }.value
             guard let self, !Task.isCancelled else { return }
             self.albums = found
-            self.requestCovers(covers)
+            self.requestCovers(covers, scale: displayScale)
         }
     }
 
     @MainActor
-    private func requestCovers(_ assets: [(String, PHAsset)]) {
+    private func requestCovers(_ assets: [(String, PHAsset)], scale: CGFloat) {
         let manager = PHImageManager.default()
         let options = PHImageRequestOptions()
         options.deliveryMode = .opportunistic
         options.resizeMode = .fast
         options.isNetworkAccessAllowed = true
-        let side = 30 * UIScreen.main.scale
+        let side = 30 * scale
         for (id, asset) in assets where covers[id] == nil {
             manager.requestImage(
                 for: asset,
