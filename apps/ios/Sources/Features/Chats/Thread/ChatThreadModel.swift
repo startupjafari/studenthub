@@ -42,6 +42,9 @@ final class ChatThreadModel {
     }
     /// На какое сообщение отвечаем.
     private(set) var replyTo: MessageRecord?
+    /// Ответ, выбранный до начала правки: панель правки его заменяет, но не отменяет — после
+    /// правки он возвращается, как черновик в поле (IOS_RULES 9.8.6, `composeInputState`).
+    @ObservationIgnored private var replyBeforeEdit: MessageRecord?
     /// Какое своё сообщение правим: поле ввода держит его текст (`input.editText`),
     /// «отправить» — сохранить.
     private(set) var editing: MessageRecord?
@@ -521,6 +524,8 @@ final class ChatThreadModel {
     @MainActor
     func beginEdit(_ message: MessageRecord) {
         guard canEdit(message) else { return }
+        // Правка поверх правки — ответ уже отложен первой.
+        if let replyTo { replyBeforeEdit = replyTo }
         replyTo = nil
         editing = message
         // Черновик чата не трогаем: текст правки — отдельно, после правки черновик
@@ -532,6 +537,15 @@ final class ChatThreadModel {
     func cancelEdit() {
         editing = nil
         input.endEdit()
+        restoreReplyAfterEdit()
+    }
+
+    /// Правка закончилась — отложенный ответ снова в панели, если за время правки не
+    /// выбрали другой.
+    @MainActor
+    private func restoreReplyAfterEdit() {
+        if replyTo == nil { replyTo = replyBeforeEdit }
+        replyBeforeEdit = nil
     }
 
     /// Правка уходит сокетом; текст в базе меняется сразу, а подтверждение придёт
@@ -544,6 +558,7 @@ final class ChatThreadModel {
     private func saveEdit(of message: MessageRecord, text: String) async {
         editing = nil
         input.endEdit()
+        restoreReplyAfterEdit()
         guard text != message.content, let remoteID = message.remoteId else { return }
         let id = message.id
         try? await store.saveLocalEdit(messageID: id, text: text)
