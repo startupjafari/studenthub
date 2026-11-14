@@ -39134,6 +39134,40 @@
         }
       }
     },
+    "community.albums.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ашу"
+          }
+        }
+      }
+    },
+    "community.albums.uploading": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Загружаем: %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жүктелуде: %@"
+          }
+        }
+      }
+    },
     "community.albums.noMedia": {
       "extractionState": "manual",
       "localizations": {
