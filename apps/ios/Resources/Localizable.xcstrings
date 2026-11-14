@@ -93874,23 +93874,6 @@
         }
       }
     },
-    "auth.qrTipNoPassword": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удобно на новом или чужом компьютере — пароль вводить не нужно"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Жаңа немесе бөтен компьютерде ыңғайлы — құпиясөз енгізудің қажеті жоқ"
-          }
-        }
-      }
-    },
     "auth.qrTipOpen": {
       "extractionState": "manual",
       "localizations": {
@@ -93921,6 +93904,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Тек өз экраныңыздағы кодты сканерлеңіз — хабарламалар мен хаттардағыны емес"
+          }
+        }
+      }
+    },
+    "auth.qrTorch": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фонарик"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қол шам"
           }
         }
       }

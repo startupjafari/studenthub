@@ -8,9 +8,12 @@ import UIKit
 /// подтверждение, — потому что это одна и та же операция с одними последствиями.
 ///
 /// Открывается на весь экран: пока идёт сканирование, камера занимает его целиком, от
-/// края до края, а поверх — только уголки рамки, куда навести код, и подсказка.
+/// края до края, а поверх — как у системного сканера кодов: затемнение вокруг рамки,
+/// короткая подсказка, фонарик и два коротких пункта «откуда код и чего остерегаться».
 struct QRApproveView: View {
     @State private var model = QRApproveModel()
+    @State private var torchOn = false
+    @State private var hasTorch = false
     @Environment(\.dismiss) private var dismiss
 
     private var isScanning: Bool {
@@ -40,7 +43,9 @@ struct QRApproveView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
+                    // Над камерой крестик белый: синий на тёмной картинке терялся.
                     closeButton
+                        .tint(isScanning ? .white : nil)
                 }
             }
             .animation(Motion.calm, value: model.state)
@@ -112,54 +117,97 @@ struct QRApproveView: View {
         }
     }
 
-    /// Камера на весь экран, поверх — уголки рамки в верхней части и подсказка под ними,
-    /// внизу — карточка «когда это нужно». Рамка поднята: держать телефон, глядя в
-    /// верхнюю треть экрана, естественнее, а низ занимает объяснение. Рамка — подсказка,
-    /// куда держать код; распознаётся он в любом месте кадра.
+    /// Камера на весь экран, поверх — как у системного сканера кодов: всё вокруг рамки
+    /// притемнено, и видно, куда держать код; под рамкой — подсказка в капсуле; внизу —
+    /// фонарик и два коротких пункта. Рамка поднята: держать телефон, глядя в верхнюю
+    /// часть экрана, естественнее. Распознаётся код в любом месте кадра — рамка лишь
+    /// подсказывает, куда навести.
     private var scanning: some View {
-        QRScannerView(
-            onScan: { payload in Task { await model.scanned(payload) } },
-            onUnavailable: { model.cameraUnavailable() }
-        )
-        .ignoresSafeArea()
-        .accessibilityLabel(Text(String(
-            localized: "auth.qrScannerLabel",
-            defaultValue: "Видоискатель камеры"
-        )))
-        .overlay {
-            VStack(spacing: Spacing.xl) {
-                ViewfinderCorners()
-                    .stroke(.white, style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
-                    // До 240 pt, а на низком экране — меньше: карточка внизу не должна
-                    // наезжать на рамку. Приоритет — чтобы распорка ниже не отъедала у
-                    // рамки место, пока его хватает обеим.
-                    .aspectRatio(1, contentMode: .fit)
-                    .frame(maxWidth: 240, maxHeight: 240)
-                    .shadow(color: .black.opacity(0.4), radius: 4)
-                    .layoutPriority(1)
+        GeometryReader { proxy in
+            let side = min(proxy.size.width - Spacing.xxl * 4, 260)
+            let hole = CGRect(
+                x: (proxy.size.width - side) / 2,
+                y: proxy.size.height * 0.38 - side / 2,
+                width: side,
+                height: side
+            )
+            ZStack(alignment: .topLeading) {
+                QRScannerView(
+                    onScan: { payload in Task { await model.scanned(payload) } },
+                    onUnavailable: { model.cameraUnavailable() },
+                    torchOn: torchOn,
+                    onTorchAvailable: { hasTorch = $0 }
+                )
+                .accessibilityLabel(Text(String(
+                    localized: "auth.qrScannerLabel",
+                    defaultValue: "Видоискатель камеры"
+                )))
+
+                ScannerDimming(hole: hole, radius: 30)
+                    .fill(.black.opacity(0.5), style: FillStyle(eoFill: true))
+                    .allowsHitTesting(false)
                     .accessibilityHidden(true)
+
+                ViewfinderCorners(length: 40, radius: 30)
+                    .stroke(.white, style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
+                    .frame(width: side + 6, height: side + 6)
+                    .position(x: hole.midX, y: hole.midY)
+                    .accessibilityHidden(true)
+
                 Text(String(
                     localized: "auth.qrScanHint",
                     defaultValue: "Наведите камеру на QR-код на экране компьютера"
                 ))
-                .font(Typography.body.weight(.medium))
+                .font(Typography.meta.weight(.semibold))
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .shadow(color: .black.opacity(0.5), radius: 4)
-                .padding(.horizontal, Spacing.xxl)
-                Spacer(minLength: Spacing.xl)
-                scanTips
+                .padding(.horizontal, Spacing.lg)
+                .padding(.vertical, Spacing.sm)
+                .background { scannerGlass(Capsule()) }
+                .environment(\.colorScheme, .dark)
+                .frame(maxWidth: proxy.size.width - Spacing.xxl * 2)
+                .position(x: hole.midX, y: hole.maxY + Spacing.xxl + Spacing.md)
+
+                VStack(spacing: Spacing.lg) {
+                    if hasTorch { torchButton }
+                    scanTips
+                }
+                .padding(.horizontal, Spacing.xl)
+                .padding(.bottom, proxy.safeAreaInsets.bottom + Spacing.lg)
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .bottom)
             }
-            .padding(.top, Spacing.xxl)
-            .padding(.horizontal, Spacing.xl)
-            .padding(.bottom, Spacing.xl)
         }
+        .ignoresSafeArea()
+        .sensoryFeedback(.selection, trigger: torchOn)
     }
 
-    /// Когда этим пользоваться и чего остерегаться — коротко, поверх камеры. Без этого
-    /// экран выглядел как сканер «чего угодно», а главный риск — отсканировать чужой
-    /// код, присланный в сообщении, — оставался неназванным до шага подтверждения.
+    /// Фонарик — круглой кнопкой из стекла, как в системной камере: в полутьме экран
+    /// компьютера бликует, и код читается хуже.
+    private var torchButton: some View {
+        Button {
+            torchOn.toggle()
+        } label: {
+            Image(systemName: torchOn ? "flashlight.on.fill" : "flashlight.off.fill")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(torchOn ? .black : .white)
+                .frame(width: 58, height: 58)
+                .background {
+                    if torchOn {
+                        Circle().fill(.white)
+                    } else {
+                        scannerGlass(Circle())
+                    }
+                }
+                .contentShape(Circle())
+        }
+        .buttonStyle(.pressable)
+        .environment(\.colorScheme, .dark)
+        .accessibilityLabel(Text(String(localized: "auth.qrTorch", defaultValue: "Фонарик")))
+        .accessibilityAddTraits(torchOn ? .isSelected : [])
+    }
+
+    /// Откуда взять код и чего остерегаться — двумя короткими строками. Главный риск —
+    /// отсканировать чужой код, присланный в сообщении, — назван до шага подтверждения.
     private var scanTips: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             scanTip(
@@ -167,13 +215,6 @@ struct QRApproveView: View {
                 text: String(
                     localized: "auth.qrTipOpen",
                     defaultValue: "Откройте StudentHub на компьютере и выберите вход по QR-коду"
-                )
-            )
-            scanTip(
-                symbol: "key",
-                text: String(
-                    localized: "auth.qrTipNoPassword",
-                    defaultValue: "Удобно на новом или чужом компьютере — пароль вводить не нужно"
                 )
             )
             scanTip(
@@ -186,18 +227,16 @@ struct QRApproveView: View {
         }
         .frame(maxWidth: 480, alignment: .leading)
         .padding(Spacing.lg)
-        .background { scanTipsBackground }
-        // Карточка над тёмной картинкой камеры: текст и стекло — в тёмном варианте при
-        // любой теме приложения.
+        .background { scannerGlass(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)) }
+        // Над тёмной картинкой камеры: текст и стекло — в тёмном варианте при любой теме.
         .environment(\.colorScheme, .dark)
         .accessibilityElement(children: .combine)
     }
 
-    /// Стекло на iOS 26, раньше — материал. Стекло притемнено: за карточкой бывает
-    /// белый экран компьютера, и светлый текст на прозрачном стекле над ним терялся бы.
+    /// Стекло на iOS 26, раньше — материал. Стекло притемнено: за ним бывает белый экран
+    /// компьютера, и светлый текст на прозрачном стекле над ним терялся бы.
     @ViewBuilder
-    private var scanTipsBackground: some View {
-        let shape = RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+    private func scannerGlass<S: Shape>(_ shape: S) -> some View {
         #if compiler(>=6.2)
             if #available(iOS 26, *) {
                 Color.clear.glassEffect(.regular.tint(.black.opacity(0.35)), in: shape)
@@ -397,6 +436,19 @@ struct QRApproveView: View {
         }
     }
 #endif
+
+/// Затемнение вокруг рамки: весь экран, кроме скруглённого квадрата рамки (заливка
+/// «чёт-нечет»), — как у системного сканера кодов.
+private struct ScannerDimming: Shape {
+    let hole: CGRect
+    let radius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path(rect)
+        path.addRoundedRect(in: hole, cornerSize: CGSize(width: radius, height: radius), style: .continuous)
+        return path
+    }
+}
 
 /// Четыре скруглённых уголка квадрата — прицел сканера QR, как в системной камере.
 private struct ViewfinderCorners: Shape {
