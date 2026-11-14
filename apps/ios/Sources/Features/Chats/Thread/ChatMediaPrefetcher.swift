@@ -27,7 +27,15 @@ final class ChatMediaPrefetcher {
             guard ImageMemoryCache.shared.image(for: key) == nil else { continue }
             let id = attachment.id
             tasks[id] = Task(priority: .utility) { [weak self] in
-                _ = await ChatMediaImages.load(attachment, points: points, scale: scale, key: key)
+                // Только постер: первый кадр из оригинала ролика — забота видимой плитки,
+                // ради невидимой файл по сети не читаем.
+                _ = await ChatMediaImages.load(
+                    attachment,
+                    points: points,
+                    scale: scale,
+                    key: key,
+                    allowsVideoOriginal: false
+                )
                 self?.tasks[id] = nil
             }
         }

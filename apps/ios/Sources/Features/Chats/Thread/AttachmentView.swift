@@ -977,7 +977,8 @@ enum ChatMediaImages {
         points: CGFloat,
         scale: CGFloat,
         key: String,
-        progress: ImageDownloads.Progress? = nil
+        progress: ImageDownloads.Progress? = nil,
+        allowsVideoOriginal: Bool = true
     ) async -> Outcome {
         let pixels = points * scale
         if attachment.mime == "image/gif" {
@@ -989,7 +990,10 @@ enum ChatMediaImages {
             let local = isVideo
                 ? await ChatVideoFrames.shared.frame(of: file, key: key, maxPixelSize: pixels)
                 : await ImageMemoryCache.shared.load(file, key: key, maxPixelSize: pixels)
-            if let local { return .loaded(local) }
+            if let local {
+                if !isVideo { ImageMemoryCache.shared.noteTile(key, forFile: attachment.id) }
+                return .loaded(local)
+            }
             // Своя копия не прочиталась — дальше по сети, если файл уже на сервере.
         }
         let urls = AppServices.attachmentURLs
@@ -1006,6 +1010,9 @@ enum ChatMediaImages {
                 return .loaded(image)
             }
             if Task.isCancelled { return .failed(retryable: true) }
+            // Предзагрузка невидимой плитки оригинал ролика не трогает: первый кадр из
+            // файла по сети — только для плитки на экране. Ссылку не сбрасываем — она цела.
+            guard allowsVideoOriginal else { return .failed(retryable: true) }
             // Постера нет — ролик ещё не обработан медиа-системой: первый кадр самого
             // файла, а не строка файла вместо видео.
             if let frame = await ChatVideoFrames.shared.frame(of: media.url, key: key, maxPixelSize: pixels) {
@@ -1015,6 +1022,8 @@ enum ChatMediaImages {
             let variant = media.sources.best(forPoints: points, scale: scale).flatMap { URL.apiRooted($0.url) }
             for url in [variant, media.url].compactMap({ $0 }) {
                 if let image = await ImageMemoryCache.shared.load(url, key: key, maxPixelSize: pixels, progress: progress) {
+                    // Просмотр откроется с этой картинки, а не с размытого превью.
+                    ImageMemoryCache.shared.noteTile(key, forFile: attachment.id)
                     return .loaded(image)
                 }
                 if Task.isCancelled { return .failed(retryable: true) }
@@ -1093,7 +1102,10 @@ actor ChatVideoFrames {
             generator.appliesPreferredTrackTransform = true
             generator.maximumSize = CGSize(width: maxPixelSize, height: maxPixelSize)
             guard let frame = try? await generator.image(at: .zero) else { return nil }
-            return UIImage(cgImage: frame.image)
+            // Кадр раскодирован здесь, вне главного: иначе первая отрисовка крупного
+            // кадра декодирует его на главном потоке.
+            let image = UIImage(cgImage: frame.image)
+            return await image.byPreparingForDisplay() ?? image
         }
         inFlight[key] = task
         let image = await task.value
