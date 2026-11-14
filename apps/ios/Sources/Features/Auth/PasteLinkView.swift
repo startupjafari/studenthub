@@ -21,7 +21,6 @@ struct PasteLinkView: View {
                     localized: "auth.pasteLink.description",
                     defaultValue: "Вставьте ссылку из письма или сообщения — приглашение на регистрацию или ссылку для нового пароля."
                 ),
-                showsWordmark: false,
                 subtitleIsEssential: true
             )
         } panel: {
@@ -48,19 +47,15 @@ struct PasteLinkView: View {
                 .focused($isFocused)
                 .onSubmit(submit)
                 .onChange(of: text) { error = nil }
-            }
-
-            // Системная кнопка вставки не спрашивает разрешения на чтение буфера: человек
-            // сам нажал «Вставить».
-            PasteButton(payloadType: String.self) { strings in
-                guard let pasted = strings.first else { return }
-                Task { @MainActor in
+            } accessory: {
+                // Системный элемент вставки не спрашивает разрешения на чтение буфера:
+                // человек сам его коснулся.
+                ClipboardPasteButton { pasted in
                     text = pasted
                     submit()
                 }
+                .frame(width: 44, height: 44)
             }
-            .buttonBorderShape(.capsule)
-            .frame(maxWidth: .infinity)
 
             StudentHubPrimaryButton(
                 title: String(localized: "auth.pasteLink.open", defaultValue: "Открыть"),

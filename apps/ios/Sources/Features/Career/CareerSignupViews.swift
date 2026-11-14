@@ -251,57 +251,41 @@ private struct CareerVerifyView: View {
     @State private var resending = false
 
     var body: some View {
-        Form {
+        Group {
             if verified {
-                Section {
-                    HeroHeader(
-                        visual: .symbol("checkmark.seal.fill", tint: TileTint.green),
-                        title: String(localized: "career.signup.verifiedTitle", defaultValue: "Email подтверждён"),
-                        subtitle: String(localized: "career.signup.verifiedText", defaultValue: "Войдите в аккаунт и подайте заявку в университет.")
-                    )
-                }
-            } else {
-                if let failure {
-                    FormAlert(message: failure)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets())
-                }
-                Section {
-                    TextField(
-                        String(localized: "career.signup.linkPlaceholder", defaultValue: "Ссылка из письма или код"),
-                        text: $link,
-                        axis: .vertical
-                    )
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    if UIPasteboard.general.hasStrings {
-                        Button(String(localized: "career.signup.paste", defaultValue: "Вставить из буфера")) {
-                            link = UIPasteboard.general.string ?? link
-                        }
+                Form {
+                    Section {
+                        HeroHeader(
+                            visual: .symbol("checkmark.seal.fill", tint: TileTint.green),
+                            title: String(localized: "career.signup.verifiedTitle", defaultValue: "Email подтверждён"),
+                            subtitle: String(localized: "career.signup.verifiedText", defaultValue: "Войдите в аккаунт и подайте заявку в университет.")
+                        )
                     }
-                } footer: {
-                    Text(String(
+                }
+                .transition(.opacity)
+            } else {
+                CareerLinkStep(
+                    symbol: "envelope.badge",
+                    tint: TileTint.green,
+                    title: String(localized: "career.signup.verify", defaultValue: "Подтвердить email"),
+                    hint: String(
                         localized: "career.signup.linkHint",
                         defaultValue: "Откройте письмо, скопируйте ссылку подтверждения и вставьте её сюда."
-                    ))
-                }
-                Section {
-                    Button {
-                        Task { await verify() }
-                    } label: {
-                        Text(String(localized: "career.signup.verify", defaultValue: "Подтвердить email"))
+                    ),
+                    actionTitle: String(localized: "career.signup.verify", defaultValue: "Подтвердить email"),
+                    link: $link,
+                    failure: failure,
+                    busy: busy,
+                    submit: { Task { await verify() } }
+                ) {
+                    AuthTextLink(title: String(localized: "career.signup.resend", defaultValue: "Отправить письмо ещё раз")) {
+                        resending = true
                     }
-                    .buttonStyle(PrimaryButtonStyle(isLoading: busy))
-                    .disabled(careerToken(from: link).count < 16 || busy)
-                }
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
-                Section {
-                    Button(String(localized: "career.signup.resend", defaultValue: "Отправить письмо ещё раз")) { resending = true }
+                    .frame(maxWidth: .infinity)
                 }
             }
         }
-        .navigationTitle(Text(String(localized: "career.signup.verify", defaultValue: "Подтвердить email")))
+        .animation(Motion.calm, value: verified)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $resending) {
             CareerResendForm(lookUpEmail: false)
@@ -347,6 +331,33 @@ private struct CareerJoinView: View {
     }
 
     var body: some View {
+        Group {
+            if preview != nil {
+                inviteForm
+                    .transition(.opacity)
+            } else {
+                CareerLinkStep(
+                    symbol: "person.badge.plus",
+                    tint: TileTint.blue,
+                    title: String(localized: "career.signup.join", defaultValue: "У меня приглашение в команду"),
+                    hint: String(
+                        localized: "career.join.linkHint",
+                        defaultValue: "Скопируйте ссылку из письма-приглашения и вставьте её сюда."
+                    ),
+                    actionTitle: String(localized: "career.join.open", defaultValue: "Открыть приглашение"),
+                    link: $link,
+                    failure: failure,
+                    busy: busy,
+                    submit: { Task { await open() } }
+                )
+            }
+        }
+        .animation(Motion.calm, value: preview == nil)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// Приглашение открыто: компания, срок и данные нового аккаунта.
+    private var inviteForm: some View {
         Form {
             if let failure {
                 FormAlert(message: failure)
@@ -391,41 +402,9 @@ private struct CareerJoinView: View {
                 }
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())
-            } else {
-                Section {
-                    TextField(
-                        String(localized: "career.signup.linkPlaceholder", defaultValue: "Ссылка из письма или код"),
-                        text: $link,
-                        axis: .vertical
-                    )
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    if UIPasteboard.general.hasStrings {
-                        Button(String(localized: "career.signup.paste", defaultValue: "Вставить из буфера")) {
-                            link = UIPasteboard.general.string ?? link
-                        }
-                    }
-                } footer: {
-                    Text(String(
-                        localized: "career.join.linkHint",
-                        defaultValue: "Скопируйте ссылку из письма-приглашения и вставьте её сюда."
-                    ))
-                }
-                Section {
-                    Button {
-                        Task { await open() }
-                    } label: {
-                        Text(String(localized: "career.join.open", defaultValue: "Открыть приглашение"))
-                    }
-                    .buttonStyle(PrimaryButtonStyle(isLoading: busy))
-                    .disabled(careerToken(from: link).count < 16 || busy)
-                }
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
             }
         }
         .navigationTitle(Text(String(localized: "career.signup.join", defaultValue: "У меня приглашение в команду")))
-        .navigationBarTitleDisplayMode(.inline)
     }
 
     @MainActor
@@ -462,5 +441,101 @@ private struct CareerJoinView: View {
         } catch {
             failure = error.userMessage
         }
+    }
+}
+
+// MARK: - Ссылка из письма
+
+/// Шаг «вставить ссылку из письма» — общий для подтверждения почты и приглашения в
+/// команду: знак и пояснение сверху, поле со значком вставки внутри, главная кнопка.
+/// Заголовок — в шапке экрана, а не в панели навигации: там длинный заголовок ужимался
+/// рядом со стрелкой «назад».
+private struct CareerLinkStep<Extra: View>: View {
+    let symbol: String
+    let tint: Color
+    let title: String
+    let hint: String
+    let actionTitle: String
+    @Binding var link: String
+    let failure: String?
+    let busy: Bool
+    let submit: () -> Void
+    @ViewBuilder var extra: () -> Extra
+
+    @FocusState private var isFocused: Bool
+    @Environment(\.motionReduced) private var reduceMotion
+
+    private var canSubmit: Bool { careerToken(from: link).count >= 16 && !busy }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: Spacing.xl) {
+                HeroHeader(visual: .symbol(symbol, tint: tint), title: title, subtitle: hint)
+                    .padding(.top, Spacing.md)
+                if let failure {
+                    FormAlert(message: failure)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+                StudentHubField(
+                    label: nil,
+                    isFocused: isFocused,
+                    focus: { isFocused = true },
+                    fill: Palette.card
+                ) {
+                    TextField(
+                        text: $link,
+                        prompt: Text(String(localized: "career.signup.linkPlaceholder", defaultValue: "Ссылка из письма или код")),
+                        axis: .vertical
+                    ) {
+                        Text(String(localized: "career.signup.linkPlaceholder", defaultValue: "Ссылка из письма или код"))
+                    }
+                    .lineLimit(1...4)
+                    .padding(.vertical, Spacing.lg)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.go)
+                    .focused($isFocused)
+                    .onSubmit { if canSubmit { submit() } }
+                } accessory: {
+                    // Системный элемент вставки не спрашивает разрешения на чтение буфера.
+                    ClipboardPasteButton { pasted in
+                        link = pasted
+                        if canSubmit { submit() }
+                    }
+                    .frame(width: 44, height: 44)
+                }
+                StudentHubPrimaryButton(title: actionTitle, isLoading: busy) {
+                    isFocused = false
+                    submit()
+                }
+                .disabled(!canSubmit)
+                extra()
+            }
+            .padding(.horizontal, Spacing.xl)
+            .padding(.bottom, Spacing.xl)
+            .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: failure)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .background(Palette.background)
+    }
+}
+
+extension CareerLinkStep where Extra == EmptyView {
+    init(
+        symbol: String,
+        tint: Color,
+        title: String,
+        hint: String,
+        actionTitle: String,
+        link: Binding<String>,
+        failure: String?,
+        busy: Bool,
+        submit: @escaping () -> Void
+    ) {
+        self.init(
+            symbol: symbol, tint: tint, title: title, hint: hint, actionTitle: actionTitle, link: link,
+            failure: failure, busy: busy, submit: submit, extra: { EmptyView() }
+        )
     }
 }
