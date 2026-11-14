@@ -54,6 +54,13 @@ final class PagedLoader<Item: Decodable & Identifiable> {
     /// `loadIfNeeded` грузит снова: обновление, снятое уходом с экрана, иначе оставило бы
     /// сохранённую страницу навсегда.
     @ObservationIgnored private var hasNetworkPage = false
+    /// Сбой подгрузки временный (нет связи, 5xx, 429) — его повторяет сам загрузчик, пока
+    /// последняя строка на экране. Отказ по существу ждёт кнопки «Повторить».
+    @ObservationIgnored private var pageFailureIsTransient = false
+    /// Подгрузка ждёт паузы перед повтором — второй ждущий не нужен.
+    @ObservationIgnored private var waitingToRetry = false
+    /// Первая пауза автоповтора; дальше растёт вдвое до минуты. Меняется в тестах.
+    @ObservationIgnored var firstRetryDelay = OutboxService.firstRetryDelay
 
     init(limit: Int = 30, cachesFirstPage: Bool = true, fetch: @escaping (PageRequest) async throws -> Page<Item>) {
         self.limit = limit
@@ -123,34 +130,60 @@ final class PagedLoader<Item: Decodable & Identifiable> {
     }
 
     /// Следующая страница, когда на экране показался последний элемент.
-    func loadMore(after item: Item) async {
-        guard hasMore, !isLoading, pageFailure == nil, item.id == items.last?.id else { return }
+    ///
+    /// Временный сбой повторяется сам с паузой 2 → 60 с, пока ждущая задача жива: зовут её
+    /// из `.task` последней строки, поэтому строка ушла с экрана — повтор отменён, вернулась
+    /// — подгрузка снова (IOS_RULES 9.6.9). Раньше дыра после сбоя оставалась до кнопки.
+    /// `autoRetry: false` — для подгрузки по кнопке из неструктурной задачи: её никто не
+    /// отменит при уходе с экрана.
+    func loadMore(after item: Item, autoRetry: Bool = true) async {
+        guard hasMore, !isLoading, !waitingToRetry, item.id == items.last?.id else { return }
+        guard pageFailure == nil || (autoRetry && pageFailureIsTransient) else { return }
+        let current = generation
+        var delay = firstRetryDelay
+        while await loadNextPage() == .transient, autoRetry {
+            waitingToRetry = true
+            let slept = (try? await Task.sleep(for: OutboxService.jittered(delay))) != nil
+            waitingToRetry = false
+            guard slept, current == generation, pageFailure != nil, hasMore, item.id == items.last?.id else { return }
+            delay = min(delay * 2, OutboxService.maxRetryDelay)
+        }
+    }
+
+    private enum PageOutcome { case loaded, transient, stopped }
+
+    private func loadNextPage() async -> PageOutcome {
+        guard !isLoading else { return .stopped }
         let current = generation
         isLoading = true
         defer { if current == generation { isLoading = false } }
         do {
             let nextPage = page + 1
             let result = try await fetch(PageRequest(cursor: cursor, page: nextPage, limit: limit))
-            guard current == generation else { return }
+            guard current == generation else { return .stopped }
             let known = Set(items.map { AnyHashable($0.id) })
             items += result.items.filter { !known.contains(AnyHashable($0.id)) }
             apply(result.meta, received: result.items.count, page: nextPage)
             pageFailure = nil
+            return .loaded
         } catch is CancellationError {
             // Строка ушла с экрана посреди запроса — страница не потеряна, её попросит
             // следующее появление последней строки.
-            return
+            return .stopped
         } catch {
-            guard current == generation else { return }
+            guard current == generation else { return .stopped }
             pageFailure = error.userMessage
+            pageFailureIsTransient = ActionFailureKind(error) == .transient
+            return pageFailureIsTransient ? .transient : .stopped
         }
     }
 
-    /// «Повторить» под списком после сбоя подгрузки.
+    /// «Повторить» под списком после сбоя подгрузки. Сразу, не дожидаясь паузы
+    /// автоповтора: тот, проснувшись, увидит, что сбоя больше нет.
     func retryMore() async {
-        guard let last = items.last else { return }
+        guard hasMore, items.last != nil else { return }
         pageFailure = nil
-        await loadMore(after: last)
+        _ = await loadNextPage()
     }
 
     /// Правка на месте — после действия над строкой, без перезагрузки всего списка.

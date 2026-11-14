@@ -34,7 +34,7 @@ struct AssignmentsView: View {
                         // фильтрует, — поэтому следующая страница по кнопке, как в вебе.
                         if loader.hasMore, let last = loader.items.last {
                             Button {
-                                Task { await loader.loadMore(after: last) }
+                                Task { await loader.loadMore(after: last, autoRetry: false) }
                             } label: {
                                 HStack {
                                     Text(String(localized: "student.assignments.showMore", defaultValue: "Показать ещё"))
