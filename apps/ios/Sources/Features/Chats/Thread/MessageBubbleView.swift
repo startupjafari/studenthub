@@ -511,10 +511,20 @@ struct MessageBubbleView: View {
     }
 
     /// Время встаёт в последнюю строку текста, если текст — последний в пузыре. Текст,
-    /// который кончается блоком кода, времени не несёт: оно уходит на свою строку.
+    /// который кончается блоком кода или цитатой, времени не несёт: оно уходит на свою
+    /// строку.
     private var textCarriesMeta: Bool {
-        hasText && !showsReactions && (extras.linkPreview == nil || isDeleted)
-            && codeSegments?.last?.isCode != true
+        guard hasText, !showsReactions, extras.linkPreview == nil || isDeleted else { return false }
+        if isDeleted { return true }
+        guard let last = codeSegments?.last else { return textBlocks?.last?.isQuote != true }
+        guard case .text(let text) = last else { return false }
+        return MessageTextBlocks.carriesMeta(text)
+    }
+
+    /// Цитаты и списки без блоков кода — по блокам; `nil` — обычный текст одной строкой
+    /// `Text`, как раньше (предфильтр — проход по началам строк, разбор кешируется).
+    private var textBlocks: [MessageTextBlocks.Block]? {
+        isDeleted || isUnsupportedKind ? nil : MessageTextBlocks.blocks(ifAny: message.content)
     }
 
     /// Текст с блоками кода ```` ``` ```` — по сегментам; `nil` — обычный текст (разбор
@@ -543,6 +553,14 @@ struct MessageBubbleView: View {
                 highlight: context.highlight,
                 metaPlaceholder: textCarriesMeta ? metaPlaceholder : nil,
                 onCopy: { onAction(.copyText($0)) }
+            )
+        } else if let blocks = textBlocks {
+            MessageTextBlocksView(
+                blocks: blocks,
+                style: BubbleTextStyle(isOwn: item.isOwn, highlight: context.highlight),
+                textColor: textColor,
+                tint: item.isOwn ? Palette.primaryForeground : Palette.primary,
+                metaPlaceholder: textCarriesMeta ? metaPlaceholder : nil
             )
         } else {
             plainTextBlock
