@@ -1027,6 +1027,19 @@ export class ChatsController {
     return this.chats.listBlocked(user.sub)
   }
 
+  // Голый `:id` — после всех статических GET (`search`, `unread`, `saved`, `blocks`…): Fastify
+  // и так ставит статический сегмент выше параметра, но порядок в файле не даёт в этом усомниться.
+  @Get(':id')
+  @ApiOperation({ summary: 'Один чат — тот же элемент, что в GET /chats (только участник)' })
+  @ApiResponse({ status: 200, description: '{ data: элемент списка чатов }' })
+  @ApiResponse({
+    status: 404,
+    description: 'NOT_FOUND — не участник, забанен, скрыл чат или пустой чужой запрос',
+  })
+  getChat(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.chats.getChat(user, id)
+  }
+
   @Patch(':id')
   @ApiOperation({ summary: 'Изменить название и описание группы (админ)' })
   editChat(

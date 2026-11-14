@@ -264,6 +264,55 @@ function listWhereFor(viewer: JwtPayload): Prisma.ChatWhereInput {
   return isPlatformRole(viewer.role) ? { type: { not: ChatType.SUPPORT_PLATFORM } } : {}
 }
 
+/**
+ * Поля чата для элемента списка (GET /chats) и одиночного чата (GET /chats/:id): один select
+ * на оба пути, чтобы элемент у них не расходился. Строка своего членства — в `members[0]`.
+ */
+function chatListSelect(viewerId: string) {
+  return {
+    id: true,
+    type: true,
+    title: true,
+    description: true,
+    avatarUrl: true,
+    createdById: true,
+    groupId: true,
+    facultyId: true,
+    universityId: true,
+    subject: true,
+    requestPendingForId: true,
+    updatedAt: true,
+    members: {
+      where: { userId: viewerId },
+      select: {
+        lastReadAt: true,
+        mutedAt: true,
+        mutedUntil: true,
+        muteImportantOnly: true,
+        isAdmin: true,
+        clearedAt: true,
+        clearedRanges: true,
+        draft: true,
+        pinnedAt: true,
+        pinnedOrder: true,
+        markedUnreadAt: true,
+        archivedAt: true,
+      },
+    },
+    _count: { select: { members: true } },
+  } satisfies Prisma.ChatSelect
+}
+
+type ChatListRow = Prisma.ChatGetPayload<{ select: ReturnType<typeof chatListSelect> }>
+
+/**
+ * Пустая оболочка непринятого запроса адресату не показывается (§50): чат заводится уже по
+ * клику в поиске людей, и без первого сообщения во «Запросах» показывать нечего.
+ */
+function isChatListItemVisible(item: { requestIncoming: boolean; lastMessage: unknown }): boolean {
+  return !(item.requestIncoming && item.lastMessage === null)
+}
+
 /** Сводка непрочитанного для бейджа: без заглушённых чатов, они — отдельно в `muted`. */
 interface UnreadSummary {
   chats: number
@@ -930,38 +979,7 @@ export class ChatsService implements OnModuleInit {
             }
           : {}),
       },
-      select: {
-        id: true,
-        type: true,
-        title: true,
-        description: true,
-        avatarUrl: true,
-        createdById: true,
-        groupId: true,
-        facultyId: true,
-        universityId: true,
-        subject: true,
-        requestPendingForId: true,
-        updatedAt: true,
-        members: {
-          where: { userId: viewer.sub },
-          select: {
-            lastReadAt: true,
-            mutedAt: true,
-            mutedUntil: true,
-            muteImportantOnly: true,
-            isAdmin: true,
-            clearedAt: true,
-            clearedRanges: true,
-            draft: true,
-            pinnedAt: true,
-            pinnedOrder: true,
-            markedUnreadAt: true,
-            archivedAt: true,
-          },
-        },
-        _count: { select: { members: true } },
-      },
+      select: chatListSelect(viewer.sub),
       // Стабильный порядок под курсор: id — вторая ступень, иначе чаты с одинаковым
       // updatedAt перемешивались бы между страницами. Закреплённые наверх поднимает
       // клиент по pinnedAt: внутри страницы это сделать нельзя, порядок нужен сквозной.
@@ -972,6 +990,48 @@ export class ChatsService implements OnModuleInit {
     })
     const hasNext = chats.length > query.limit
     if (hasNext) chats.length = query.limit
+    const items = await this.buildChatListItems(viewer, chats)
+    // Инициатор непринятого запроса свой чат видит всегда — он в нём и пишет; адресату
+    // пустая оболочка не показывается (isChatListItemVisible).
+    const visible = items.filter(isChatListItemVisible)
+    // Курсор — последний чат СТРАНИЦЫ (до фильтрации пустых оболочек запроса): иначе
+    // отфильтрованный хвост уронил бы точку продолжения и страница повторилась бы.
+    const lastChat = hasNext ? chats[chats.length - 1] : undefined
+    const cursor = lastChat ? chatListCursor(lastChat) : undefined
+    return new Paginated(visible, { cursor, hasNext })
+  }
+
+  /**
+   * Один чат в том же виде, что элемент GET /chats (конверт `{ success, data }` добавляет
+   * ResponseInterceptor), — клиенту, который узнал о чате не из
+   * списка (пуш, ссылка, событие по сокету) и не хочет ради одной строки листать весь список.
+   *
+   * Невидимый в списке чат не отдаётся и здесь, одним и тем же ответом 404: не участник,
+   * забанен, скрыл чат «у себя», пустая оболочка чужого запроса на переписку (§50). Различать
+   * эти случаи кодом незачем — для смотрящего такого чата в списке нет, а «вы не участник»
+   * подтверждал бы, что чат с этим id существует.
+   */
+  async getChat(viewer: JwtPayload, chatId: string): Promise<unknown> {
+    const chat = await this.prisma.chat.findFirst({
+      where: {
+        id: chatId,
+        members: { some: { userId: viewer.sub, bannedAt: null, hiddenAt: null } },
+        ...listWhereFor(viewer),
+      },
+      select: chatListSelect(viewer.sub),
+    })
+    const [item] = chat ? await this.buildChatListItems(viewer, [chat]) : []
+    if (!item || !isChatListItemVisible(item)) {
+      throw new AppException('NOT_FOUND', 'Чат не найден')
+    }
+    return item
+  }
+
+  /**
+   * Элементы списка чатов по уже прочитанным строкам: превью, непрочитанное, собеседник,
+   * блокировки, дружба. Все добавочные чтения — пакетами на всю пачку чатов, без N+1.
+   */
+  private async buildChatListItems(viewer: JwtPayload, chats: ChatListRow[]) {
     const chatIds = chats.map((c) => c.id)
     const [lastByChat, reads] = await Promise.all([
       // Превью — отдельным запросом по одной строке на чат, а не вложенным
@@ -1008,7 +1068,7 @@ export class ChatsService implements OnModuleInit {
     // Статус блокировки для PRIVATE-чатов: второй участник + наличие UserBlock в любую сторону.
     const privateIds = chats.filter((c) => c.type === ChatType.PRIVATE).map((c) => c.id)
     // По одной строке собеседника на личный чат страницы и до двух блокировок на пару.
-    const peerLimit = query.limit * 2
+    const peerLimit = chats.length * 2
     const others =
       privateIds.length > 0
         ? await this.prisma.chatMember.findMany({
@@ -1104,7 +1164,7 @@ export class ChatsService implements OnModuleInit {
         : []
     const countMap = new Map(grouped.map((g) => [g.chatId, g._count._all]))
 
-    const rows = chats.map((c) => {
+    return chats.map((c) => {
       const mem = c.members[0]
       const cleared = mem?.clearedAt ?? null
       // Очищенную «для меня» историю не показываем в превью.
@@ -1115,74 +1175,57 @@ export class ChatsService implements OnModuleInit {
       const other = otherMap.get(c.id)
       const pinnedAt = mem?.pinnedAt ?? null
       return {
+        id: c.id,
+        type: c.type,
+        // Личный чат — имя собеседника (в сущности chat.title = null); групповой/официальный — своё название.
+        title: c.type === ChatType.PRIVATE ? otherNameMap.get(c.id) || c.title : c.title,
+        // Личный чат — аватар собеседника; групповой — аватар группы.
+        avatarUrl: c.type === ChatType.PRIVATE ? (otherAvatarMap.get(c.id) ?? null) : c.avatarUrl,
+        // Описание есть только у пользовательских групп; в личном чате поле всегда пустое
+        // и в панели информации не рисуется.
+        description: c.type === ChatType.GROUP ? c.description : null,
+        subject: c.subject,
+        memberCount: c._count.members,
+        lastMessage,
+        unread,
+        unreadCount,
+        muted: mem ? isMemberMuted(mem) : false,
+        // §17: заглушено, но важное (ответы мне и упоминания) всё равно уведомляет.
+        mutedImportantOnly: mem?.muteImportantOnly ?? false,
+        draft: mem?.draft ?? null,
+        // Закреплён «у себя» (Telegram-стиль): показывается сверху списка. Время нужно
+        // клиенту: страницы приходят по updatedAt, и «закреплённые сверху» он собирает
+        // сам поверх всех загруженных страниц.
+        pinned: pinnedAt != null,
         pinnedAt,
+        // Место среди закреплённых, заданное руками (0 — верх). null у незакреплённых и у
+        // закреплённых до появления порядка — их клиент ставит ниже, по pinnedAt.
+        pinnedOrder: pinnedAt != null ? (mem?.pinnedOrder ?? null) : null,
+        // «Пометить как новое»: точка непрочитанного без самих непрочитанных. Снимается
+        // любым прочтением чата.
+        markedUnread: mem?.markedUnreadAt != null,
+        // Собеседник — друг (только PRIVATE): «Контакты» / «Не контакты» в правилах папок.
+        isFriend: other != null && friends.has(other),
+        // Архив «у себя»: чат уезжает в отдельную вкладку. Список отдаёт его как обычно —
+        // раскладывает по вкладкам клиент, как и непринятые запросы.
+        archived: mem?.archivedAt != null,
+        othersReadAt: readMap.get(c.id) ?? null,
+        // Владелец группы (создатель).
+        isOwner: c.createdById != null && c.createdById === viewer.sub,
+        // Я — админ группы (могу банить, менять аватар/название, управлять участниками).
+        isAdmin: mem?.isAdmin === true,
+        // Блокировка (только для PRIVATE): blocked — я заблокировал собеседника; blockedBy — он меня.
+        blocked: other ? iBlocked.has(other) : false,
+        blockedBy: other ? blockedMe.has(other) : false,
+        // Собеседник онлайн (только PRIVATE); для групп/официальных чатов — false.
+        online: other != null && onlineOthers.has(other),
+        // Запрос на переписку (§50): incoming — решение за мной (чат живёт во вкладке
+        // «Запросы» и никуда больше не попадает); outgoing — я написал и жду принятия.
+        requestIncoming: c.requestPendingForId === viewer.sub,
+        requestOutgoing: c.requestPendingForId != null && c.requestPendingForId !== viewer.sub,
         updatedAt: c.updatedAt,
-        item: {
-          id: c.id,
-          type: c.type,
-          // Личный чат — имя собеседника (в сущности chat.title = null); групповой/официальный — своё название.
-          title: c.type === ChatType.PRIVATE ? otherNameMap.get(c.id) || c.title : c.title,
-          // Личный чат — аватар собеседника; групповой — аватар группы.
-          avatarUrl: c.type === ChatType.PRIVATE ? (otherAvatarMap.get(c.id) ?? null) : c.avatarUrl,
-          // Описание есть только у пользовательских групп; в личном чате поле всегда пустое
-          // и в панели информации не рисуется.
-          description: c.type === ChatType.GROUP ? c.description : null,
-          subject: c.subject,
-          memberCount: c._count.members,
-          lastMessage,
-          unread,
-          unreadCount,
-          muted: mem ? isMemberMuted(mem) : false,
-          // §17: заглушено, но важное (ответы мне и упоминания) всё равно уведомляет.
-          mutedImportantOnly: mem?.muteImportantOnly ?? false,
-          draft: mem?.draft ?? null,
-          // Закреплён «у себя» (Telegram-стиль): показывается сверху списка. Время нужно
-          // клиенту: страницы приходят по updatedAt, и «закреплённые сверху» он собирает
-          // сам поверх всех загруженных страниц.
-          pinned: pinnedAt != null,
-          pinnedAt,
-          // Место среди закреплённых, заданное руками (0 — верх). null у незакреплённых и у
-          // закреплённых до появления порядка — их клиент ставит ниже, по pinnedAt.
-          pinnedOrder: pinnedAt != null ? (mem?.pinnedOrder ?? null) : null,
-          // «Пометить как новое»: точка непрочитанного без самих непрочитанных. Снимается
-          // любым прочтением чата.
-          markedUnread: mem?.markedUnreadAt != null,
-          // Собеседник — друг (только PRIVATE): «Контакты» / «Не контакты» в правилах папок.
-          isFriend: other != null && friends.has(other),
-          // Архив «у себя»: чат уезжает в отдельную вкладку. Список отдаёт его как обычно —
-          // раскладывает по вкладкам клиент, как и непринятые запросы.
-          archived: mem?.archivedAt != null,
-          othersReadAt: readMap.get(c.id) ?? null,
-          // Владелец группы (создатель).
-          isOwner: c.createdById != null && c.createdById === viewer.sub,
-          // Я — админ группы (могу банить, менять аватар/название, управлять участниками).
-          isAdmin: mem?.isAdmin === true,
-          // Блокировка (только для PRIVATE): blocked — я заблокировал собеседника; blockedBy — он меня.
-          blocked: other ? iBlocked.has(other) : false,
-          blockedBy: other ? blockedMe.has(other) : false,
-          // Собеседник онлайн (только PRIVATE); для групп/официальных чатов — false.
-          online: other != null && onlineOthers.has(other),
-          // Запрос на переписку (§50): incoming — решение за мной (чат живёт во вкладке
-          // «Запросы» и никуда больше не попадает); outgoing — я написал и жду принятия.
-          requestIncoming: c.requestPendingForId === viewer.sub,
-          requestOutgoing: c.requestPendingForId != null && c.requestPendingForId !== viewer.sub,
-          updatedAt: c.updatedAt,
-        },
       }
     })
-    // Пустая оболочка непринятого запроса адресату не показывается: чат заводится уже по
-    // клику в поиске людей, и без первого сообщения показывать во «Запросах» нечего —
-    // человек увидел бы карточку, за которой ничего нет. Инициатор свой чат видит всегда:
-    // он в нём и пишет.
-    const visible = rows.filter((r) => !(r.item.requestIncoming && r.item.lastMessage === null))
-    // Курсор — последний чат СТРАНИЦЫ (до фильтрации пустых оболочек запроса): иначе
-    // отфильтрованный хвост уронил бы точку продолжения и страница повторилась бы.
-    const lastChat = hasNext ? chats[chats.length - 1] : undefined
-    const cursor = lastChat ? chatListCursor(lastChat) : undefined
-    return new Paginated(
-      visible.map((r) => r.item),
-      { cursor, hasNext },
-    )
   }
 
   /**
