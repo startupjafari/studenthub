@@ -21,6 +21,9 @@ struct ChatThreadView: View {
     @State private var deleting: DeleteRequest?
     /// Меню сообщения по долгому нажатию.
     @State private var menu: MessageMenuRequest?
+    /// Строка-источник открытого меню: в ленте она скрыта, пока над ней стоит копия
+    /// пузыря, — иначе меню, сдвинувшее копию, оставляет под размытием двойника.
+    @State private var menuSourceID: String?
     /// Действие из меню ждёт, пока меню закроется: лист поверх закрывающегося
     /// полноэкранного слоя не откроется.
     @State private var pendingMenuAction: (MessageMenuAction, MessageRecord)?
@@ -277,6 +280,7 @@ struct ChatThreadView: View {
                         )
                     },
                     selection: model.selection,
+                    hiddenID: menuSourceID,
                     scrollToBottomToken: bottomToken + model.bottomRequests,
                     onBottomChange: { bottomChanged($0) },
                     followsBottom: !model.isDetached,
@@ -768,7 +772,7 @@ struct ChatThreadView: View {
         .fullScreenCover(item: $viewer, onDismiss: runPendingViewerAction) { request in
             MediaViewer(media: request.media, start: request.start, context: viewerContext(request.gallery))
         }
-        .fullScreenCover(item: $menu, onDismiss: runPendingMenuAction) { request in
+        .fullScreenCover(item: $menu, onDismiss: menuDidDismiss) { request in
             MessageMenuOverlay(
                 request: request,
                 onReact: { emoji in
@@ -777,9 +781,12 @@ struct ChatThreadView: View {
                 onAction: { action in
                     pendingMenuAction = (action, request.item.message)
                 },
-                onDismiss: { closeMenu() }
+                onDismiss: { closeMenu(request.id) }
             )
             .presentationBackground(.clear)
+            // Источник прячется, когда копия уже на экране, а не в момент нажатия: показ
+            // полноэкранного слоя занимает кадр, и раньше на месте пузыря мелькнула бы дыра.
+            .onAppear { menuSourceID = request.item.id }
         }
         .alert(String(localized: "feed.report.sent", defaultValue: "Жалоба отправлена"), isPresented: $reported) {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}
@@ -891,10 +898,24 @@ struct ChatThreadView: View {
         withTransaction(transaction) { menu = request }
     }
 
-    private func closeMenu() {
+    /// Конец закрытия меню `id`: убрать слой и вернуть источник в ленту одним
+    /// обновлением — копия к этому времени вернулась ровно на его место. Завершение
+    /// старого меню новое не трогает.
+    private func closeMenu(_ id: MessageMenuRequest.ID) {
+        guard menu?.id == id else { return }
         var transaction = Transaction()
         transaction.disablesAnimations = true
-        withTransaction(transaction) { menu = nil }
+        withTransaction(transaction) {
+            menu = nil
+            menuSourceID = nil
+        }
+    }
+
+    /// Слой снят. Если его убрало не наше закрытие, источник иначе так и остался бы
+    /// скрытым; уже открытое новое меню свой источник держит.
+    private func menuDidDismiss() {
+        if menu == nil { menuSourceID = nil }
+        runPendingMenuAction()
     }
 
     /// Действия просмотра: «Показать в чате» и «Ответить» — когда он закроется, «Удалить»
