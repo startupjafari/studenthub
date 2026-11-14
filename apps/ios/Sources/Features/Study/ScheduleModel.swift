@@ -1,5 +1,4 @@
 import Foundation
-import GRDB
 import Observation
 
 /// Расписание на экране.
@@ -25,7 +24,7 @@ final class ScheduleModel {
     /// нет», а «ещё не знаем» (п. 29 аудита — на миг мелькало «пар нет»).
     private(set) var isReadingDay = true
 
-    private let database: AppDatabase
+    private let queries: ScheduleQueries
     private let api: ScheduleFetching
     private let store: ScheduleStore
     private let calendar: Calendar
@@ -40,9 +39,9 @@ final class ScheduleModel {
         calendar: Calendar = .current,
         now: Date = Date()
     ) {
-        self.database = database
         self.api = api
         self.store = store ?? ScheduleStore(database: database)
+        queries = ScheduleQueries(database: database, store: self.store)
         self.calendar = calendar
         selectedDay = Self.isoDay(of: now, calendar: calendar)
         parity = WeekParity.current(now, in: Self.universityTimeZone ?? calendar.timeZone)
@@ -164,11 +163,9 @@ final class ScheduleModel {
         changesTask?.cancel()
 
         let day = selectedDay
-        let pairsRequest = store.pairs(dayOfWeek: day)
-        let pairsObservation = ValueObservation.tracking { db in try pairsRequest.fetchAll(db) }
         isReadingDay = true
-        pairsTask = Task { @MainActor [weak self, database] in
-            for await rows in AsyncValues.stream(of: pairsObservation, in: database.reader) {
+        pairsTask = Task { @MainActor [weak self, queries] in
+            for await rows in queries.observePairs(dayOfWeek: day) {
                 self?.pairs = rows
                 self?.isReadingDay = false
             }
@@ -179,10 +176,9 @@ final class ScheduleModel {
         }
 
         let date = dateOfSelectedDay()
-        let changesRequest = store.changes(on: date, calendar: calendar)
-        let changesObservation = ValueObservation.tracking { db in try changesRequest.fetchAll(db) }
-        changesTask = Task { @MainActor [weak self, database] in
-            for await rows in AsyncValues.stream(of: changesObservation, in: database.reader) {
+        let calendar = calendar
+        changesTask = Task { @MainActor [weak self, queries] in
+            for await rows in queries.observeChanges(on: date, calendar: calendar) {
                 self?.changes = Dictionary(rows.map { ($0.pairId, $0) }, uniquingKeysWith: { first, _ in first })
             }
         }
@@ -200,12 +196,7 @@ final class ScheduleModel {
         let start = weekStart
         let parity = parity
         let dates = (1...7).map { day in (day, calendar.date(byAdding: .day, value: day - 1, to: start) ?? start) }
-        let requests = dates.map { day, date in (day, date, store.pairs(dayOfWeek: day), store.changes(on: date, calendar: calendar)) }
-        let rows = (try? await database.reader.read { db in
-            try requests.map { day, date, pairs, changes in
-                (day, date, try pairs.fetchAll(db), try changes.fetchAll(db))
-            }
-        }) ?? []
+        let rows = (try? await queries.fetchDays(dates, calendar: calendar)) ?? []
         return rows.compactMap { day, date, pairs, changes in
             let byPair = Dictionary(changes.map { ($0.pairId, $0) }, uniquingKeysWith: { first, _ in first })
             let items = pairs

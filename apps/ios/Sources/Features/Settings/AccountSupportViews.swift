@@ -1,4 +1,3 @@
-import GRDB
 import SwiftUI
 
 /// «Поддержка» — отовсюду, где на неё переходят, сразу настоящий чат с командой
@@ -60,13 +59,7 @@ private struct SupportChatView: View {
 
     /// Последнее обращение из локальной базы списка чатов.
     private static func knownTicket() async -> String? {
-        try? await AppServices.database.reader.read { db in
-            try ChatRecord
-                .filter(Column("type") == ChatKind.supportPlatform.rawValue)
-                .order(Column("updatedAt").desc)
-                .fetchOne(db)?
-                .id
-        }
+        try? await SupportQueries(database: AppServices.database).fetchLatestSupportChatID()
     }
 }
 
