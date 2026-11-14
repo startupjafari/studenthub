@@ -87,6 +87,14 @@ final class ChatThreadModel {
     private var didPickAnchor = false
     private var draftTask: Task<Void, Never>?
     private var markReadRetry: Task<Void, Never>?
+    /// Догон в пути: повторная просьба не шлёт второй запрос, а просит пройти ещё раз с
+    /// позиции, какой она станет после этого.
+    private var catchingUp = false
+    private var catchUpAgain = false
+    /// Повтор догона после временной ошибки и его пауза: 2 → 60 с с разбросом, без
+    /// предела попыток (IOS_RULES 9.3.1).
+    private var catchUpRetry: Task<Void, Never>?
+    private var catchUpDelay = OutboxService.firstRetryDelay
     private var lastReadSent: String?
     private var lastReadAt: Date?
     private var lastActionAt: Date?
@@ -162,6 +170,7 @@ final class ChatThreadModel {
         chatTask?.cancel()
         draftTask?.cancel()
         markReadRetry?.cancel()
+        catchUpRetry?.cancel()
         preparingTimeout?.cancel()
         voiceAnnouncer?.cancel()
     }
@@ -206,9 +215,7 @@ final class ChatThreadModel {
         // В окне истории догонять нечего: разница от его верха — это вся «дыра» до
         // свежего, её дочитает догрузка вниз.
         guard !isDetached else { return }
-        let known = (try? await store.lastSeq(chatID: chatID)) ?? 0
-        guard known > 0 else { return await loadLatest() }
-        await catchUp(since: known)
+        await catchUp()
     }
 
     /// Кто сейчас печатает или записывает голосовое в этом чате.
@@ -221,8 +228,7 @@ final class ChatThreadModel {
     /// страницу.
     ///
     /// «Толком нет» — меньше страницы на руках при первом открытии: список чатов кладёт
-    /// в базу последнее сообщение каждого чата, и `lastSeq` у ни разу не открытого чата
-    /// уже есть. Догонялка от него ничего не скачает, и лента показала бы одно сообщение.
+    /// в базу последнее сообщение каждого чата, и лента показала бы одно сообщение.
     @MainActor
     func open() async {
         if let mark = pendingWindowReset {
@@ -241,12 +247,16 @@ final class ChatThreadModel {
 
     @MainActor
     private func syncOnOpen() async {
-        let known = (try? await store.lastSeq(chatID: chatID)) ?? 0
+        let known = (try? await store.syncSeq(chatID: chatID)) ?? 0
         let firstOpen = olderCursor == nil && !reachedBeginning
         if known == 0 || messages.isEmpty || (firstOpen && messages.count < ChatsAPI.messagePageLimit) {
             await loadLatest()
+            // Последняя страница могла не примкнуть к позиции: между ними — пропущенное
+            // за офлайн, а лента сортирует по времени и разрыва не видит. Догон закроет
+            // его (или скажет «переполнение»); примкнула — это один пустой ответ.
+            if known > 0 { await catchUp() }
         } else {
-            await catchUp(since: known)
+            await catchUp()
         }
     }
 
@@ -845,8 +855,9 @@ final class ChatThreadModel {
                 attach()
                 await showFreshSnapshot()
                 // Окно сомкнулось со свежим. Пришедшее, пока сервер собирал страницу, и
-                // пропущенное сокетом в окне догоняем разницей от его верха.
-                if let top { await catchUp(since: top) }
+                // пропущенное сокетом в окне догоняем разницей от позиции — её подняли
+                // страницы окна, примыкавшие друг к другу.
+                if top != nil { await catchUp() }
             }
             failure = nil
         } catch is CancellationError {
@@ -1455,43 +1466,109 @@ final class ChatThreadModel {
     @MainActor
     private func loadLatest() async {
         do {
-            let page = try await api.messages(chatID: chatID, cursor: nil, limit: ChatsAPI.messagePageLimit)
-            try await store.save(messages: page.items, chatID: chatID)
-            olderCursor = page.meta?.cursor
-            reachedBeginning = page.meta?.hasNext != true
+            try await fetchLatest()
             failure = nil
-        } catch is CancellationError {
+        } catch {
+            syncFailed(error)
+        }
+    }
+
+    /// Последняя страница чата.
+    @MainActor
+    private func fetchLatest() async throws {
+        let page = try await api.messages(chatID: chatID, cursor: nil, limit: ChatsAPI.messagePageLimit)
+        try await store.save(messages: page.items, chatID: chatID, isHead: true)
+        olderCursor = page.meta?.cursor
+        reachedBeginning = page.meta?.hasNext != true
+    }
+
+    /// Догнать разницу с позиции в базе. Позиция читается здесь же, а не передаётся
+    /// снаружи: сокет двигает её только по порядку (`SyncPosition`), поэтому прочитанная
+    /// в любой момент она не перескакивает пропущенное (IOS_RULES 9.3.2, 9.3.3).
+    @MainActor
+    private func catchUp() async {
+        if catchingUp {
+            catchUpAgain = true
+            return
+        }
+        catchingUp = true
+        defer { catchingUp = false }
+        repeat {
+            catchUpAgain = false
+            await catchUpPass()
+        } while catchUpAgain
+    }
+
+    @MainActor
+    private func catchUpPass() async {
+        do {
+            let mark = try await store.catchUpMark(chatID: chatID)
+            // Сверки ещё не было (первая страница не дошла) — начинаем с неё.
+            guard mark.since > 0 else {
+                try await fetchLatest()
+                return syncSucceeded()
+            }
+            let updates = try await api.updates(chatID: chatID, since: mark.since, sinceTs: mark.sinceTs)
+            if updates.overflow {
+                // Разрыв больше серверного лимита: склеивать нечего. Сначала скачать
+                // последнюю страницу, потом одной транзакцией заменить ею историю — без
+                // сети человек остаётся со своей офлайн-историей, а не с пустым чатом
+                // (IOS_RULES 9.3.10).
+                let page = try await api.messages(chatID: chatID, cursor: nil, limit: ChatsAPI.messagePageLimit)
+                try await store.resetHistory(
+                    with: page.items,
+                    chatID: chatID,
+                    latestSeq: updates.latestSeq,
+                    syncedAt: updates.syncedAt
+                )
+                olderCursor = page.meta?.cursor
+                reachedBeginning = page.meta?.hasNext != true
+            } else {
+                try await store.apply(updates, chatID: chatID)
+            }
+            syncSucceeded()
+        } catch {
+            syncFailed(error)
+        }
+    }
+
+    @MainActor
+    private func syncSucceeded() {
+        failure = nil
+        catchUpRetry?.cancel()
+        catchUpRetry = nil
+        catchUpDelay = OutboxService.firstRetryDelay
+    }
+
+    /// Синхронизация не сдаётся на временной ошибке: повтор с растущей паузой, пока
+    /// сервер не ответит по существу или экран не уйдёт (IOS_RULES 9.3.1). Отказ по
+    /// существу (403, 422) не повторяется — человек видит строку ошибки.
+    @MainActor
+    private func syncFailed(_ error: Error) {
+        switch ActionFailureKind(error) {
+        case .cancelled:
             // Экран ушёл, и запрос отменили — это не сбой: не пугаем красной строкой.
             return
-        } catch {
+        case .transient:
+            failure = message(for: error)
+            scheduleCatchUpRetry()
+        case .rejected:
             failure = message(for: error)
         }
     }
 
     @MainActor
-    private func catchUp(since: Int) async {
-        do {
-            // Отметка времени для правок и удалений — время самого свежего известного
-            // сообщения. Своего времени последней синхронизации мы не храним, а всё,
-            // что отредактировали позже этого момента, в ответ попадёт.
-            let newest = messages.last?.createdAt
-            let updates = try await api.updates(chatID: chatID, since: since, sinceTs: newest)
-            if updates.overflow {
-                // Разрыв больше серверного лимита: склеивать нечего, честнее
-                // перекачать хвост заново.
-                try await store.clearHistory(chatID: chatID)
-                olderCursor = nil
-                reachedBeginning = false
-                await loadLatest()
-                return
-            }
-            try await store.apply(updates, chatID: chatID)
-            failure = nil
-        } catch is CancellationError {
-            // Экран ушёл, и запрос отменили — это не сбой: не пугаем красной строкой.
-            return
-        } catch {
-            failure = message(for: error)
+    private func scheduleCatchUpRetry() {
+        guard catchUpRetry == nil else { return }
+        let delay = OutboxService.jittered(catchUpDelay)
+        catchUpDelay = min(catchUpDelay * 2, OutboxService.maxRetryDelay)
+        catchUpRetry = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: delay)
+            guard let self, !Task.isCancelled else { return }
+            self.catchUpRetry = nil
+            // Окно истории догоняет себя само догрузкой вниз.
+            guard !self.isDetached else { return }
+            await self.catchUp()
         }
     }
 

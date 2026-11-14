@@ -14,13 +14,17 @@ struct MessageStore: Sendable {
 
     /// Страница истории. Сервер отдаёт свежие первыми — порядок нам безразличен,
     /// лента сортирует сама.
-    func save(messages: [ChatMessageDTO], chatID: String) async throws {
+    ///
+    /// `isHead` — это последняя страница чата (без курсора): у ни разу не сверенного чата
+    /// с неё начинается позиция догона. Остальные страницы двигают позицию, только если
+    /// примыкают к ней (`SyncPosition`).
+    func save(messages: [ChatMessageDTO], chatID: String, isHead: Bool = false) async throws {
         guard !messages.isEmpty else { return }
         try await database.writer.write { db in
             for message in messages {
                 try Self.upsert(message, in: db)
             }
-            try Self.liftLastSeq(chatID: chatID, to: messages.compactMap(\.seq).max(), in: db)
+            try Self.advance(chatID: chatID, by: messages, isHead: isHead, in: db)
         }
     }
 
@@ -39,7 +43,51 @@ struct MessageStore: Sendable {
                     try message.update(db)
                 }
             }
-            try Self.liftLastSeq(chatID: chatID, to: updates.latestSeq, in: db)
+            // Ответ догона сам несёт непрерывный хвост до `latestSeq` — позиция встаёт на
+            // него, а отметка времени — на серверный момент до чтения (IOS_RULES 9.3.5).
+            guard var chat = try ChatRecord.fetchOne(db, key: chatID) else { return }
+            let before = chat
+            chat.syncSeq = max(chat.syncSeq, updates.latestSeq)
+            chat.lastSeq = max(chat.lastSeq, updates.latestSeq)
+            if let syncedAt = updates.syncedAt { chat.syncedAt = syncedAt }
+            try chat.updateChanges(db, from: before)
+        }
+    }
+
+    /// Переполнение догона: разрыв больше серверного лимита, склеивать нечего. Новая
+    /// страница уже скачана — одной транзакцией она ложится вместо отправленной истории,
+    /// и выставляется позиция (IOS_RULES 9.3.10). Не вышло скачать — сюда не дошли, и
+    /// офлайн-история осталась как была.
+    ///
+    /// Неотправленное не трогаем (9.3.11), последнее сообщение чата — тоже: на него
+    /// смотрит превью списка.
+    func resetHistory(
+        with page: [ChatMessageDTO],
+        chatID: String,
+        latestSeq: Int,
+        syncedAt: Date?
+    ) async throws {
+        try await database.writer.write { db in
+            guard var chat = try ChatRecord.fetchOne(db, key: chatID) else { return }
+            var stale = MessageRecord
+                .filter(MessageRecord.Columns.chatId == chatID)
+                .filter(MessageRecord.Columns.sendState == MessageSendState.sent.rawValue)
+                .filter(!page.map(\.id).contains(MessageRecord.Columns.remoteId))
+            if let last = chat.lastMessageId {
+                stale = stale.filter(MessageRecord.Columns.id != last)
+            }
+            try stale.deleteAll(db)
+            for message in page {
+                try Self.upsert(message, in: db)
+            }
+            // Страница скачана позже ответа догона: её верх не старее `latestSeq`, а если
+            // свежие удалены, `latestSeq` — честная граница на момент догона.
+            let top = max(page.compactMap(\.seq).max() ?? 0, latestSeq)
+            let before = chat
+            chat.syncSeq = top
+            chat.lastSeq = max(chat.lastSeq, top)
+            chat.syncedAt = syncedAt
+            try chat.updateChanges(db, from: before)
         }
     }
 
@@ -73,10 +121,30 @@ struct MessageStore: Sendable {
         }
     }
 
-    /// Известная позиция догона: с неё запрашивается разница после обрыва.
-    func lastSeq(chatID: String) async throws -> Int {
+    /// Позиция догона: с неё запрашивается разница после обрыва. 0 — чат не сверялся.
+    func syncSeq(chatID: String) async throws -> Int {
         try await database.reader.read { db in
-            try ChatRecord.fetchOne(db, key: chatID)?.lastSeq ?? 0
+            try ChatRecord.fetchOne(db, key: chatID)?.syncSeq ?? 0
+        }
+    }
+
+    /// Откуда догонять: позиция и отметка времени для правок и удалений.
+    ///
+    /// Отметка — серверный `syncedAt` прошлого догона. Пока его нет (база до обновления),
+    /// — время самого свежего подтверждённого сообщения: оно тоже по часам сервера, в
+    /// отличие от своего неотправленного (IOS_RULES 9.3.5).
+    func catchUpMark(chatID: String) async throws -> (since: Int, sinceTs: Date?) {
+        try await database.reader.read { db in
+            let chat = try ChatRecord.fetchOne(db, key: chatID)
+            if let syncedAt = chat?.syncedAt { return (chat?.syncSeq ?? 0, syncedAt) }
+            let newest = try Date.fetchOne(
+                db,
+                MessageRecord
+                    .filter(MessageRecord.Columns.chatId == chatID)
+                    .filter(MessageRecord.Columns.remoteId != nil)
+                    .select(max(MessageRecord.Columns.createdAt))
+            )
+            return (chat?.syncSeq ?? 0, newest)
         }
     }
 
@@ -90,6 +158,8 @@ struct MessageStore: Sendable {
                 .deleteAll(db)
             if var chat = try ChatRecord.fetchOne(db, key: chatID) {
                 chat.lastSeq = 0
+                chat.syncSeq = 0
+                chat.syncedAt = nil
                 try chat.update(db)
             }
         }
@@ -118,7 +188,9 @@ struct MessageStore: Sendable {
                 try Self.upsert(message, in: db)
             }
             if var chat = try ChatRecord.fetchOne(db, key: chatID) {
-                chat.lastSeq = window.compactMap(\.seq).max() ?? 0
+                let top = window.compactMap(\.seq).max() ?? 0
+                chat.lastSeq = top
+                chat.syncSeq = top
                 try chat.update(db)
             }
         }
@@ -293,10 +365,27 @@ struct MessageStore: Sendable {
         }
     }
 
-    private static func liftLastSeq(chatID: String, to seq: Int?, in db: Database) throws {
-        guard let seq, var chat = try ChatRecord.fetchOne(db, key: chatID), seq > chat.lastSeq else { return }
-        chat.lastSeq = seq
-        try chat.update(db)
+    /// Номер последнего — по максимуму, позиция догона — только непрерывным куском.
+    private static func advance(
+        chatID: String,
+        by messages: [ChatMessageDTO],
+        isHead: Bool,
+        in db: Database
+    ) throws {
+        let seqs = messages.compactMap(\.seq)
+        guard let top = seqs.max(), var chat = try ChatRecord.fetchOne(db, key: chatID) else { return }
+        let before = chat
+        chat.lastSeq = max(chat.lastSeq, top)
+        if case .advance(let position) = SyncPosition.step(from: chat.syncSeq, seqs: seqs, isHead: isHead) {
+            // Первая сверка с последней страницы: отметка времени — самое свежее время
+            // в ней по часам сервера. Это нижняя граница момента чтения: правки позже
+            // неё догон принесёт, лишнее совпадение безвредно.
+            if chat.syncSeq == 0, chat.syncedAt == nil {
+                chat.syncedAt = messages.map { max($0.createdAt, $0.editedAt ?? $0.createdAt) }.max()
+            }
+            chat.syncSeq = position
+        }
+        try chat.updateChanges(db, from: before)
     }
 }
 

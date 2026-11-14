@@ -261,7 +261,8 @@ struct ChatStore: Sendable {
             othersReadAt: item.othersReadAt,
             lastMessageId: item.lastMessage?.id ?? known?.lastMessageId,
             // Номер только растёт: страница списка может приехать с отставанием от
-            // сокета, и откатить позицию догона означало бы перекачать переписку.
+            // сокета. Позицию догона (`syncSeq`) список не трогает: превью — не история,
+            // и всё между прежней позицией и ним иначе не скачалось бы никогда.
             lastSeq: max(known?.lastSeq ?? 0, item.lastMessage?.seq ?? 0),
             updatedAt: item.updatedAt,
             online: item.online ?? false,
@@ -271,7 +272,9 @@ struct ChatStore: Sendable {
             blockedBy: item.blockedBy ?? false,
             markedUnread: item.markedUnread ?? false,
             pinnedOrder: item.pinnedAt == nil ? nil : item.pinnedOrder,
-            isFriend: item.isFriend ?? false
+            isFriend: item.isFriend ?? false,
+            syncSeq: known?.syncSeq ?? 0,
+            syncedAt: known?.syncedAt
         )
         // Только изменённые столбцы: страница списка приходит целиком на каждое обновление,
         // и запись без перемен будила бы все наблюдения за таблицей чатов.
