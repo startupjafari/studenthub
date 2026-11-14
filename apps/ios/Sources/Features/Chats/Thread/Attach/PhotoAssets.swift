@@ -21,17 +21,16 @@ enum PhotoAssets {
         await PHPhotoLibrary.requestAuthorization(for: .readWrite)
     }
 
-    /// Свежие снимки и ролики, новые первыми.
-    static func recent(limit: Int = 300) -> [PHAsset] {
-        let options = PHFetchOptions()
-        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        options.predicate = NSPredicate(
-            format: "mediaType == %d OR mediaType == %d",
-            PHAssetMediaType.image.rawValue,
-            PHAssetMediaType.video.rawValue
-        )
+    /// Свежие снимки и ролики альбома (`nil` — вся медиатека), новые первыми. Выборка
+    /// растёт с медиатекой — звать не с главного потока.
+    static func fetch(in album: PhotoAlbum?, limit: Int = 300) -> PHFetchResult<PHAsset> {
+        let options = mediaOptions
         options.fetchLimit = limit
-        let result = PHAsset.fetchAssets(with: options)
+        if let album { return PHAsset.fetchAssets(in: album.collection, options: options) }
+        return PHAsset.fetchAssets(with: options)
+    }
+
+    static func array(_ result: PHFetchResult<PHAsset>) -> [PHAsset] {
         var assets: [PHAsset] = []
         assets.reserveCapacity(result.count)
         result.enumerateObjects { asset, _, _ in assets.append(asset) }
@@ -110,7 +109,7 @@ extension PhotoAssets {
     }
 
     /// Первым — «Недавние» (вся медиатека), дальше системные и свои альбомы с числом
-    /// снимков.
+    /// снимков. Счёт идёт по каждому альбому — только вне главного потока.
     static func albums() -> [PhotoAlbum] {
         var albums: [PhotoAlbum] = []
         for subtype in smartAlbums {
@@ -141,17 +140,6 @@ extension PhotoAssets {
         return albums
     }
 
-    /// Снимки и ролики альбома, новые первыми.
-    static func assets(in album: PhotoAlbum, limit: Int = 300) -> [PHAsset] {
-        let options = mediaOptions
-        options.fetchLimit = limit
-        let result = PHAsset.fetchAssets(in: album.collection, options: options)
-        var assets: [PHAsset] = []
-        assets.reserveCapacity(result.count)
-        result.enumerateObjects { asset, _, _ in assets.append(asset) }
-        return assets
-    }
-
     /// Обложка альбома — его самый свежий снимок.
     static func cover(of album: PhotoAlbum) -> PHAsset? {
         let options = mediaOptions
@@ -166,6 +154,8 @@ final class PhotoAlbumsModel {
     private(set) var albums: [PhotoAlbum] = []
     private(set) var covers: [String: UIImage] = [:]
     var selected: PhotoAlbum?
+    /// Идущее чтение альбомов: повторный вызов заменяет его, а не идёт параллельно.
+    @ObservationIgnored private var loading: Task<Void, Never>?
 
     /// Название в шапке: выбранный альбом или «Недавние».
     var title: String {
@@ -173,20 +163,38 @@ final class PhotoAlbumsModel {
             ?? String(localized: "chats.attach.recents", defaultValue: "Недавние")
     }
 
-    /// Перечитать альбомы — после выдачи доступа к «Фото».
+    /// Перечитать альбомы — после выдачи доступа к «Фото». Счёт снимков в каждом альбоме
+    /// и обложки растут с медиатекой: они читаются в фоне, на главный — готовый список
+    /// (при большой медиатеке лист вложений иначе подвисал на открытии).
     @MainActor
     func load() {
         let status = PhotoAssets.status
         guard status == .authorized || status == .limited else { return }
-        albums = PhotoAssets.albums()
+        loading?.cancel()
+        loading = Task { [weak self] in
+            let (found, covers) = await Task.detached(priority: .userInitiated) {
+                let found = PhotoAssets.albums()
+                var covers: [(String, PHAsset)] = []
+                for album in found {
+                    if let cover = PhotoAssets.cover(of: album) { covers.append((album.id, cover)) }
+                }
+                return (found, covers)
+            }.value
+            guard let self, !Task.isCancelled else { return }
+            self.albums = found
+            self.requestCovers(covers)
+        }
+    }
+
+    @MainActor
+    private func requestCovers(_ assets: [(String, PHAsset)]) {
         let manager = PHImageManager.default()
         let options = PHImageRequestOptions()
         options.deliveryMode = .opportunistic
         options.resizeMode = .fast
         options.isNetworkAccessAllowed = true
         let side = 30 * UIScreen.main.scale
-        for album in albums where covers[album.id] == nil {
-            guard let asset = PhotoAssets.cover(of: album) else { continue }
+        for (id, asset) in assets where covers[id] == nil {
             manager.requestImage(
                 for: asset,
                 targetSize: CGSize(width: side, height: side),
@@ -196,7 +204,7 @@ final class PhotoAlbumsModel {
                 guard let image else { return }
                 // В меню картинка встаёт в своём размере — сводим к значку 30 точек.
                 let icon = Self.icon(from: image)
-                DispatchQueue.main.async { self?.covers[album.id] = icon }
+                DispatchQueue.main.async { self?.covers[id] = icon }
             }
         }
     }
@@ -217,5 +225,280 @@ final class PhotoAlbumsModel {
             ))
         }
         .withRenderingMode(.alwaysOriginal)
+    }
+}
+
+// MARK: - Снимки сетки и изменения медиатеки
+
+/// Снимки выбранного альбома для сетки листа и изменения «Фото», пока лист открыт.
+///
+/// Выборка и её разбор растут с медиатекой — всё на своей последовательной очереди, на
+/// главный приходит готовый список. Изменение (снимок сделан, удалён в «Фото», отредактирован)
+/// разбирается по последней выборке этой же очереди и отдаётся одним списком: сетка
+/// применяет его одной операцией, без перечитывания с нуля при следующем открытии.
+final class PhotoLibraryFeed: NSObject, PHPhotoLibraryChangeObserver, @unchecked Sendable {
+    /// Изменение медиатеки: новый список снимков альбома (`nil` — альбом не задет) и само
+    /// изменение — по нему сетка убирает из выбора удалённые снимки. `PHChange` и `PHAsset`
+    /// неизменяемы, читать их можно из любого потока.
+    struct Update: @unchecked Sendable {
+        let change: PHChange
+        let assets: [PHAsset]?
+    }
+
+    private let queue = DispatchQueue(label: "studenthub.photos.feed", qos: .userInitiated)
+    /// Последняя выборка — только на `queue`.
+    private var result: PHFetchResult<PHAsset>?
+    /// Получатель изменений — только на `queue`.
+    private var subscriber: AsyncStream<Update>.Continuation?
+    /// Наблюдатель записан в «Фото» — только на главном (`load` зовёт сетка).
+    private var registered = false
+
+    deinit {
+        if registered { PHPhotoLibrary.shared().unregisterChangeObserver(self) }
+        subscriber?.finish()
+    }
+
+    /// Снимки альбома (`nil` — «Недавние»), выбранные в фоне.
+    @MainActor
+    func load(_ album: PhotoAlbum?) async -> [PHAsset] {
+        if !registered {
+            registered = true
+            PHPhotoLibrary.shared().register(self)
+        }
+        return await withCheckedContinuation { continuation in
+            queue.async { [self] in
+                let fetched = PhotoAssets.fetch(in: album)
+                result = fetched
+                continuation.resume(returning: PhotoAssets.array(fetched))
+            }
+        }
+    }
+
+    /// Поток изменений для сетки на экране; новый вызов заменяет прежнего получателя.
+    func changes() -> AsyncStream<Update> {
+        let (stream, continuation) = AsyncStream.makeStream(of: Update.self)
+        queue.async { [self] in
+            subscriber?.finish()
+            subscriber = continuation
+        }
+        return stream
+    }
+
+    func photoLibraryDidChange(_ change: PHChange) {
+        queue.async { [self] in
+            var assets: [PHAsset]?
+            if let result, let details = change.changeDetails(for: result) {
+                let after = details.fetchResultAfterChanges
+                self.result = after
+                assets = PhotoAssets.array(after)
+            }
+            subscriber?.yield(Update(change: change, assets: assets))
+        }
+    }
+}
+
+// MARK: - Миниатюры плиток
+
+/// Миниатюры плиток листа вложений.
+///
+/// Плитка берёт снимок только с устройства (`opportunistic`, без сети): прокрутка сетки при
+/// медиатеке в iCloud не гонит сеть и батарею. Снимок, которого на устройстве нет, плитка
+/// докачивает сама, только простояв на экране, и не больше двух разом (`cloudImage`).
+///
+/// `PHCachingImageManager` греет окно вокруг видимых плиток тем же размером, режимом и
+/// опциями, что у запроса плитки: кеш под другой размер бесполезен. Окно — по одному
+/// вызову на всю добавленную или ушедшую часть.
+@MainActor
+final class PhotoThumbnails {
+    enum Delivery {
+        case image(UIImage, isFinal: Bool)
+        /// На устройстве снимка нет — только в iCloud.
+        case inCloud
+    }
+
+    /// Окно прогрева в плитках: два ряда позади видимых и четыре впереди (три колонки).
+    nonisolated static let behind = 6
+    nonisolated static let ahead = 12
+    private static let networkSlots = 2
+
+    private let manager = PHCachingImageManager()
+    private var assets: [PHAsset] = []
+    private var index: [String: Int] = [:]
+    private var visible: Set<String> = []
+    private var warmed: Range<Int> = 0..<0
+    private var side: CGFloat = 0
+    private var freeNetwork = PhotoThumbnails.networkSlots
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    private var targetSize: CGSize { CGSize(width: side, height: side) }
+
+    private nonisolated static var localOptions: PHImageRequestOptions {
+        let options = PHImageRequestOptions()
+        options.deliveryMode = .opportunistic
+        options.resizeMode = .fast
+        options.isNetworkAccessAllowed = false
+        return options
+    }
+
+    private nonisolated static var networkOptions: PHImageRequestOptions {
+        let options = PHImageRequestOptions()
+        options.deliveryMode = .highQualityFormat
+        options.resizeMode = .fast
+        options.isNetworkAccessAllowed = true
+        return options
+    }
+
+    /// Новый список снимков сетки: прогрев начинается заново.
+    func reset(_ assets: [PHAsset], side: CGFloat) {
+        manager.stopCachingImagesForAllAssets()
+        self.assets = assets
+        self.side = side
+        index = Dictionary(assets.enumerated().map { ($1.localIdentifier, $0) }, uniquingKeysWith: { first, _ in first })
+        warmed = 0..<0
+        rewarm()
+    }
+
+    func appeared(_ id: String) {
+        visible.insert(id)
+        rewarm()
+    }
+
+    func disappeared(_ id: String) {
+        visible.remove(id)
+        rewarm()
+    }
+
+    /// Окно прогрева вокруг видимых плиток в границах списка.
+    nonisolated static func window(visible: [Int], count: Int, behind: Int, ahead: Int) -> Range<Int> {
+        guard count > 0, let low = visible.min(), let high = visible.max() else { return 0..<0 }
+        let lower = min(max(0, low - behind), count)
+        return lower..<max(lower, min(count, high + ahead + 1))
+    }
+
+    private func rewarm() {
+        guard side > 0 else { return }
+        let window = Self.window(
+            visible: visible.compactMap { index[$0] },
+            count: assets.count,
+            behind: Self.behind,
+            ahead: Self.ahead
+        )
+        guard window != warmed else { return }
+        let old = warmed
+        warmed = window
+        let stop = old.filter { !window.contains($0) }.map { assets[$0] }
+        let start = window.filter { !old.contains($0) }.map { assets[$0] }
+        if !stop.isEmpty {
+            manager.stopCachingImages(for: stop, targetSize: targetSize, contentMode: .aspectFill, options: Self.localOptions)
+        }
+        if !start.isEmpty {
+            manager.startCachingImages(for: start, targetSize: targetSize, contentMode: .aspectFill, options: Self.localOptions)
+        }
+    }
+
+    /// Миниатюра с устройства: сначала грубая, затем точная; снимка нет — `.inCloud`.
+    /// Плитка ушла — запрос отменяется.
+    func images(for asset: PHAsset) -> AsyncStream<Delivery> {
+        let manager = manager
+        let size = targetSize
+        return AsyncStream { continuation in
+            let id = manager.requestImage(
+                for: asset,
+                targetSize: size,
+                contentMode: .aspectFill,
+                options: Self.localOptions
+            ) { image, info in
+                let degraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
+                if let image { continuation.yield(.image(image, isFinal: !degraded)) }
+                guard !degraded else { return }
+                if image == nil, (info?[PHImageResultIsInCloudKey] as? Bool) == true {
+                    continuation.yield(.inCloud)
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in manager.cancelImageRequest(id) }
+        }
+    }
+
+    /// Миниатюра снимка, который есть только в iCloud. Разом — не больше двух загрузок,
+    /// свежая плитка первой: ранние могли уже уехать при прокрутке.
+    func cloudImage(for asset: PHAsset) async -> UIImage? {
+        await acquireNetwork()
+        defer { releaseNetwork() }
+        guard !Task.isCancelled else { return nil }
+        let request = CloudRequest()
+        let manager = manager
+        let size = targetSize
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                request.start(continuation) {
+                    manager.requestImage(
+                        for: asset,
+                        targetSize: size,
+                        contentMode: .aspectFill,
+                        options: Self.networkOptions
+                    ) { image, _ in
+                        request.finish(image)
+                    }
+                }
+            }
+        } onCancel: {
+            request.cancel(manager)
+        }
+    }
+
+    private func acquireNetwork() async {
+        if freeNetwork > 0 {
+            freeNetwork -= 1
+            return
+        }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+
+    private func releaseNetwork() {
+        if let next = waiting.popLast() {
+            next.resume()
+        } else {
+            freeNetwork += 1
+        }
+    }
+}
+
+/// Один запрос снимка из iCloud: ответ или отмена завершают ожидание ровно один раз —
+/// у отменённого запроса «Фото» может и не позвать обработчик.
+private final class CloudRequest: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<UIImage?, Never>?
+    private var id = PHInvalidImageRequestID
+    private var cancelled = false
+
+    func start(_ continuation: CheckedContinuation<UIImage?, Never>, request: () -> PHImageRequestID) {
+        let alreadyCancelled = lock.withLock {
+            self.continuation = continuation
+            return cancelled
+        }
+        if alreadyCancelled {
+            finish(nil)
+            return
+        }
+        let id = request()
+        lock.withLock { self.id = id }
+    }
+
+    func finish(_ image: UIImage?) {
+        let waiting = lock.withLock {
+            defer { continuation = nil }
+            return continuation
+        }
+        waiting?.resume(returning: image)
+    }
+
+    func cancel(_ manager: PHImageManager) {
+        let id = lock.withLock {
+            cancelled = true
+            return self.id
+        }
+        if id != PHInvalidImageRequestID { manager.cancelImageRequest(id) }
+        finish(nil)
     }
 }
