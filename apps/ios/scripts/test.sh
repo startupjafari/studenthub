@@ -15,6 +15,8 @@
 #   ui           StudentHubUITests, критичные сценарии на mock API
 #   ui-extended  StudentHubUITests целиком, включая живой сервер (нужна учётка)
 #   perf         StudentHubPerfTests — запуск, прокрутка, переходы; сверка с baseline
+#   scroll       только замер плавности ленты переписки (ScrollSmoothnessTests): строки
+#                SCROLL_REPORT в сводке, сравнение положений раскладки в одном прогоне
 #
 # Переменные: SH_TEST_DEVICE (iPhone 17 Pro), SH_TEST_OS (последняя доступная iOS),
 # SH_TEST_OUTPUT (build/test-output), SH_PERF_FLAGS (положение флагов второй волны для
@@ -44,7 +46,7 @@ for arg in "$@"; do
     build) BUILD_ONLY=1 ;;
     pr) SUITES+=(unit snapshot ui) ;;
     full) SUITES+=(unit snapshot ui-extended perf) ;;
-    unit | snapshot | ui | ui-extended | perf) SUITES+=("$arg") ;;
+    unit | snapshot | ui | ui-extended | perf | scroll) SUITES+=("$arg") ;;
     -h | --help) sed -n '2,25p' "$0"; exit 0 ;;
     *) echo "Неизвестный набор: $arg" >&2; exit 2 ;;
   esac
@@ -147,7 +149,7 @@ run_suite() {
   mkdir -p "$artifacts"
 
   local video_pid=""
-  if [[ "$suite" == ui* || "$suite" == perf ]]; then
+  if [[ "$suite" == ui* || "$suite" == perf || "$suite" == scroll ]]; then
     # Видео прогона: --force перезаписывает, SIGINT корректно закрывает файл.
     xcrun simctl io "$UDID" recordVideo --codec h264 --force "$artifacts/run.mp4" >/dev/null 2>&1 &
     video_pid=$!
@@ -158,7 +160,7 @@ run_suite() {
   set +e
   # Окружение раннеру — с префиксом TEST_RUNNER_ (xcodebuild снимает его сам).
   local perf=0
-  [[ "$suite" == perf ]] && perf=1
+  [[ "$suite" == perf || "$suite" == scroll ]] && perf=1
   env TEST_RUNNER_SNAPSHOT_STRICT=1 \
     TEST_RUNNER_SH_PERF="$perf" \
     TEST_RUNNER_SH_PERF_FLAGS="${SH_PERF_FLAGS:-}" \
@@ -184,6 +186,16 @@ run_suite() {
 
   python3 "$ROOT/scripts/xcresult_summary.py" "$result" "$suite" >>"$OUTPUT/summary.md" || true
 
+  # Замер плавности (`ScrollSmoothnessTests`) печатает итог строками — в сводку как есть.
+  if grep -q 'SCROLL_REPORT variant=' "$artifacts/xcodebuild.log"; then
+    {
+      echo "### Плавность ленты ($suite)"
+      echo '```'
+      grep -o 'SCROLL_REPORT variant=.*' "$artifacts/xcodebuild.log" | sort -u
+      echo '```'
+    } >>"$OUTPUT/summary.md"
+  fi
+
   if [[ "$suite" == perf && $status -eq 0 ]]; then
     python3 "$ROOT/scripts/perf_check.py" "$result" "$ROOT/Tests/perf-baseline.json" \
       --output "$artifacts/metrics.json" >>"$OUTPUT/summary.md" || status=1
@@ -201,6 +213,7 @@ for suite in "${SUITES[@]}"; do
     ui) run_suite ui -only-testing:StudentHubUITests -skip-testing:StudentHubUITests/ChatFlowsUITests ;;
     ui-extended) run_suite ui-extended -only-testing:StudentHubUITests ;;
     perf) run_suite perf -only-testing:StudentHubPerfTests ;;
+    scroll) run_suite scroll -only-testing:StudentHubPerfTests/ScrollSmoothnessTests ;;
   esac
 done
 
