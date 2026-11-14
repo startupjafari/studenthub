@@ -126,9 +126,11 @@ private final class StubVersionAPI: ClientVersionChecking, @unchecked Sendable {
     func fail() { lock.withLock { failing = true } }
 
     func supportedVersion() async throws -> ClientVersionInfo {
-        let (failing, value) = lock.withLock { (failing, answer) }
-        if failing { throw APIError.transport(URLError(.notConnectedToInternet)) }
-        return value
+        // Явные имена и тип: кортеж с тем же именем, что у свойства, ронял компилятор Xcode 26.6
+        // («failed to produce diagnostic»), хотя Swift 6.4 его принимал.
+        let snapshot: (shouldFail: Bool, info: ClientVersionInfo) = lock.withLock { (self.failing, self.answer) }
+        if snapshot.shouldFail { throw APIError.transport(URLError(.notConnectedToInternet)) }
+        return snapshot.info
     }
 }
 
