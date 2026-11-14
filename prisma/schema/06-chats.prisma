@@ -136,6 +136,15 @@ model ChatMember {
   // Закрепление чата «у себя» (Telegram-стиль): не null — чат закреплён этим участником и показывается
   // сверху списка (сортировка по времени закрепления). Персонально, другим участникам не видно.
   pinnedAt          DateTime? @map("pinned_at")
+  // Место среди закреплённых «у себя»: 0 — самый верх. Отдельно от pinnedAt, потому что порядок
+  // человек задаёт руками (перетаскиванием), а время закрепления такой порядок не выражает.
+  // Новое закрепление встаёт на 0, остальные сдвигаются; у закреплённых до этого поля — null,
+  // их клиент ставит после упорядоченных по pinnedAt.
+  pinnedOrder       Int?      @map("pinned_order")
+  // «Пометить как новое» (Telegram-стиль): не null — чат считается непрочитанным, хотя все
+  // сообщения прочитаны. Снимается любым прочтением. Время, а не флаг — чтобы при разборе
+  // было видно, когда пометили, и без лишней миграции, если понадобится сортировка.
+  markedUnreadAt    DateTime? @map("marked_unread_at")
   createdAt         DateTime  @default(now()) @map("created_at")
 
   chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
@@ -258,12 +267,24 @@ model MessageReaction {
 // считаются на клиенте по типу чата и в БД не хранятся — здесь только то, что человек собрал
 // сам. Папка личная: у каждого участника чата свои папки, чужие ему не видны.
 model ChatFolder {
-  id        String   @id @default(uuid())
-  userId    String   @map("user_id")
-  name      String
+  id                 String   @id @default(uuid())
+  userId             String   @map("user_id")
+  name               String
   // Порядок вкладок; при равных — по createdAt (стабильность важнее, чем плотная нумерация).
-  position  Int      @default(0)
-  createdAt DateTime @default(now()) @map("created_at")
+  position           Int      @default(0)
+  // Значок вкладки — один эмодзи (та же проверка, что у реакций). null — без значка.
+  emoji              String?
+  // Цвет вкладки — индекс палитры клиента 0..6 (синий, зелёный, оранжевый, красный, фиолетовый,
+  // бирюзовый, розовый). Индекс, а не RGB: палитра у тёмной и светлой темы своя.
+  color              Int?
+  // Правила состава поверх явного списка (Telegram-стиль): «все контакты» (личные чаты с
+  // друзьями), «все не контакты» (личные с остальными), «все группы» (групповые и официальные).
+  // Чат в папке ⇔ не исключён И (в списке ИЛИ подходит под включённое правило) — функция
+  // chatInFolder в shared-schemas, одна на сервер и клиентов.
+  includeContacts    Boolean  @default(false) @map("include_contacts")
+  includeNonContacts Boolean  @default(false) @map("include_non_contacts")
+  includeGroups      Boolean  @default(false) @map("include_groups")
+  createdAt          DateTime @default(now()) @map("created_at")
 
   user  User             @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   items ChatFolderItem[]
@@ -274,10 +295,15 @@ model ChatFolder {
   @@map("chat_folders")
 }
 
+// Строка состава папки. Явно добавленные и исключённые чаты — одна таблица с флагом, а не две:
+// чат не может быть в папке и исключённым из неё одновременно, и уникальный ключ
+// (folderId, chatId) держит это на уровне БД.
 model ChatFolderItem {
   id        String   @id @default(uuid())
   folderId  String   @map("folder_id")
   chatId    String   @map("chat_id")
+  // true — чат исключён из папки, даже если подходит под правило (includeGroups и т.п.).
+  excluded  Boolean  @default(false)
   createdAt DateTime @default(now()) @map("created_at")
 
   folder ChatFolder @relation(fields: [folderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
@@ -500,10 +526,31 @@ model Sticker {
   height    Int?
   createdAt DateTime @default(now()) @map("created_at")
 
-  set      StickerSet @relation(fields: [setId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  file     File       @relation(fields: [fileId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  messages Message[]
+  set       StickerSet        @relation(fields: [setId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  file      File              @relation(fields: [fileId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  messages  Message[]
+  favorites FavoriteSticker[]
 
   @@index([setId, order])
   @@map("stickers")
+}
+
+// Избранные стикеры пользователя (Telegram-стиль): до 30 штук, свежие сверху. Повторное
+// добавление поднимает стикер наверх (createdAt обновляется), сверх лимита вытесняется самый
+// старый. Удалили стикер из каталога — строка уходит каскадом; набор сняли с публикации —
+// строка остаётся, но в выдачу не попадает.
+model FavoriteSticker {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  stickerId String   @map("sticker_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  sticker Sticker @relation(fields: [stickerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([userId, stickerId])
+  // Выдача «свежие сверху» и поиск самого старого для вытеснения.
+  @@index([userId, createdAt])
+  @@index([stickerId])
+  @@map("favorite_stickers")
 }
