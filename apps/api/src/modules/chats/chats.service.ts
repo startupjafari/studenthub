@@ -1728,8 +1728,8 @@ export class ChatsService implements OnModuleInit {
    * сообщения, изменившиеся после `sinceTs` (правка, (от)закрепление). `deletedIds` — удалённые
    * за то же время: отдельным списком, потому что MESSAGE_SELECT намеренно не отдаёт deletedAt.
    *
-   * `overflow` — новых оказалось больше лимита: клиент не может достроить непрерывную ленту и
-   * должен перезапросить историю целиком. Снятие реакции дельтой не покрывается: удалённая строка
+   * `overflow` — новых, изменённых или удалённых оказалось больше лимита: клиент не может
+   * достроить ленту по дельте и должен перезапросить историю целиком. Снятие реакции дельтой не покрывается: удалённая строка
    * MessageReaction не оставляет следа (см. план, «Не входит»).
    */
   async getUpdates(
@@ -1783,7 +1783,7 @@ export class ChatsService implements OnModuleInit {
             },
             select: MESSAGE_SELECT,
             orderBy: { seq: 'asc' },
-            take: CHAT_UPDATES_LIMIT,
+            take: CHAT_UPDATES_LIMIT + 1,
           })
         : Promise.resolve([]),
       sinceTs
@@ -1791,7 +1791,7 @@ export class ChatsService implements OnModuleInit {
             where: { ...knownWhere, deletedAt: { gt: sinceTs } },
             select: { id: true },
             orderBy: { seq: 'asc' },
-            take: CHAT_UPDATES_LIMIT,
+            take: CHAT_UPDATES_LIMIT + 1,
           })
         : Promise.resolve([]),
       // Скрытые «у себя» с другого устройства: для этого человека они всё равно что удалены.
@@ -1804,19 +1804,32 @@ export class ChatsService implements OnModuleInit {
               message: { chatId, seq: { lte: query.since } },
             },
             select: { messageId: true },
-            take: CHAT_UPDATES_LIMIT,
+            take: CHAT_UPDATES_LIMIT + 1,
           })
         : Promise.resolve([]),
       this.prisma.chat.findUnique({ where: { id: chatId }, select: { lastSeq: true } }),
     ])
 
     // Разрыв больше лимита достроить нельзя — отдаём пустую дельту, клиент перезапросит историю.
-    const overflow = createdRows.length > CHAT_UPDATES_LIMIT
+    const createdOverflow = createdRows.length > CHAT_UPDATES_LIMIT
+    // Правки и удаления тоже упираются в лимит: усечённый список выглядел бы для клиента полной
+    // дельтой, и правки сверх двухсот он не увидел бы никогда — `syncedAt` уже ушёл вперёд.
+    // Отданное верно и применимо, но флаг велит перезапросить историю, как при разрыве по seq.
+    const overflow =
+      createdOverflow ||
+      mutated.length > CHAT_UPDATES_LIMIT ||
+      deleted.length > CHAT_UPDATES_LIMIT ||
+      hidden.length > CHAT_UPDATES_LIMIT
 
     return {
-      created: overflow ? [] : createdRows.map(toClientMessage),
-      mutated: mutated.map(toClientMessage),
-      deletedIds: [...new Set([...deleted.map((m) => m.id), ...hidden.map((h) => h.messageId)])],
+      created: createdOverflow ? [] : createdRows.map(toClientMessage),
+      mutated: mutated.slice(0, CHAT_UPDATES_LIMIT).map(toClientMessage),
+      deletedIds: [
+        ...new Set([
+          ...deleted.slice(0, CHAT_UPDATES_LIMIT).map((m) => m.id),
+          ...hidden.slice(0, CHAT_UPDATES_LIMIT).map((h) => h.messageId),
+        ]),
+      ],
       latestSeq: chat?.lastSeq ?? query.since,
       overflow,
       syncedAt,

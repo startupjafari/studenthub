@@ -2674,6 +2674,46 @@ describe('ChatsService.getUpdates — дельта догона', () => {
     expect(res.latestSeq).toBe(201)
   })
 
+  it.each([
+    ['правок', 1],
+    ['удалений', 2],
+  ])('%s больше лимита → overflow, список усечён до лимита', async (_label, call) => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue(member)
+    const rows = Array.from({ length: 201 }, (_, i) => ({ id: `m${i}`, seq: i + 1 }))
+    prisma.message.findMany
+      .mockResolvedValueOnce([]) // created
+      .mockResolvedValueOnce(call === 1 ? rows : []) // mutated
+      .mockResolvedValueOnce(call === 2 ? rows : []) // deleted
+    prisma.chat.findUnique.mockResolvedValueOnce({ lastSeq: 300 })
+
+    const res = await service.getUpdates(user('u1'), 'c1', {
+      since: 300,
+      sinceTs: '2026-08-19T10:00:00.000Z',
+    })
+
+    expect(res.overflow).toBe(true)
+    // limit + 1 — чтобы отличить «ровно лимит» от переполнения.
+    expect(prisma.message.findMany.mock.calls[call][0].take).toBe(201)
+    expect(call === 1 ? res.mutated : res.deletedIds).toHaveLength(200)
+  })
+
+  it('ровно лимит правок — не overflow', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue(member)
+    const rows = Array.from({ length: 200 }, (_, i) => ({ id: `m${i}`, seq: i + 1 }))
+    prisma.message.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce(rows)
+    prisma.chat.findUnique.mockResolvedValueOnce({ lastSeq: 300 })
+
+    const res = await service.getUpdates(user('u1'), 'c1', {
+      since: 300,
+      sinceTs: '2026-08-19T10:00:00.000Z',
+    })
+
+    expect(res.overflow).toBe(false)
+    expect(res.mutated).toHaveLength(200)
+  })
+
   it('очищенная «у себя» история ограничивает дельту по clearedAt', async () => {
     const { service, prisma } = setup()
     const clearedAt = new Date('2026-08-18T00:00:00.000Z')
