@@ -1,4 +1,3 @@
-import GRDB
 import SwiftUI
 import UIKit
 
@@ -156,9 +155,7 @@ struct ChatSearchResults: View {
     private static func chats(of messages: [ChatMessageDTO]) async -> [String: ChatRecord] {
         let ids = Array(Set(messages.map(\.chatId)))
         guard !ids.isEmpty else { return [:] }
-        let records = (try? await AppServices.database.reader.read { db in
-            try ChatRecord.fetchAll(db, keys: ids)
-        }) ?? []
+        let records = (try? await ChatListQueries(database: AppServices.database).fetchChats(ids: ids)) ?? []
         return Dictionary(records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 }
