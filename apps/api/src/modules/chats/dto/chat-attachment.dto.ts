@@ -1,5 +1,6 @@
 import { createZodDto } from 'nestjs-zod'
 import {
+  ChatAttachmentMultipartAbortSchema,
   ChatAttachmentMultipartStartSchema,
   ChatAttachmentMultipartUrlsSchema,
   ChatAttachmentPresignSchema,
@@ -12,5 +13,8 @@ export class ChatAttachmentMultipartStartDto extends createZodDto(
 ) {}
 export class ChatAttachmentMultipartUrlsDto extends createZodDto(
   ChatAttachmentMultipartUrlsSchema,
+) {}
+export class ChatAttachmentMultipartAbortDto extends createZodDto(
+  ChatAttachmentMultipartAbortSchema,
 ) {}
 export class MessageSendUploadedDto extends createZodDto(MessageSendUploadedSchema) {}
