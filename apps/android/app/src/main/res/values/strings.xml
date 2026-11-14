@@ -10,6 +10,9 @@
     <string name="auth_qrScanStart">Сканировать QR-код</string>
     <string name="auth_qrScannerUnavailable">Сканер недоступен: на телефоне нет сервисов Google Play или их нужно обновить.</string>
 
+    <!-- Поле кода 2FA: в iOS вместо подписи — ячейки под цифры, ключ из каталога iOS убран -->
+    <string name="auth_twoFactorCodeLabel">Код подтверждения</string>
+
     <!-- Кнопка «назад» в заголовке: в iOS её подпись даёт система -->
     <string name="common_back">Назад</string>
 
