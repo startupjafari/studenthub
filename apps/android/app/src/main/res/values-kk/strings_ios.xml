@@ -1227,6 +1227,7 @@
     <string name="chats_attach_spoilerOn">Спойлермен жасыру</string>
     <string name="chats_attach_tooLarge">«%1$s» файлының өлшемі %2$s шегінен асады — оны жіберу мүмкін емес</string>
     <string name="chats_attach_video">Бейне</string>
+    <string name="chats_attach_videoDisabled">Бейне жіберу уақытша қолжетімсіз</string>
     <string name="chats_attachCamera">Камера</string>
     <string name="chats_attachFile">Файл</string>
     <string name="chats_attachmentPreview">Тіркеме</string>
@@ -1393,6 +1394,7 @@
     <string name="chats_forwardedFrom">%1$s қайта жіберді</string>
     <string name="chats_gifs_empty">Мұнда сіз жіберген GIF-тер шығады. Жаңа GIF — қыстырғыш арқылы «Фото»-дан.</string>
     <string name="chats_gifs_results">Табылды</string>
+    <string name="chats_gifs_searchOff">GIF іздеу уақытша қолжетімсіз</string>
     <string name="chats_gifs_trending">Танымал</string>
     <string name="chats_group_addMembers">Қатысушыларды қосу</string>
     <string name="chats_group_create">Құру</string>
