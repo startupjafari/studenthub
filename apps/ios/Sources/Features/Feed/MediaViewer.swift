@@ -25,6 +25,8 @@ struct MediaViewer: View {
     let start: Int
     /// Открыт из переписки: медиа чата, автор, время и действия с сообщением.
     var context: MediaViewerContext?
+    /// Свежая ссылка на ролик взамен истёкшей; у медиа чата — по id вложения.
+    var resign: ((PostDTO.Media) -> VideoRecovery.Resign)?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.motionReduced) private var reduceMotion
@@ -55,10 +57,16 @@ struct MediaViewer: View {
     @State private var notice: String?
     @State private var failure: String?
 
-    init(media: [PostDTO.Media], start: Int, context: MediaViewerContext? = nil) {
+    init(
+        media: [PostDTO.Media],
+        start: Int,
+        context: MediaViewerContext? = nil,
+        resign: ((PostDTO.Media) -> VideoRecovery.Resign)? = nil
+    ) {
         self.media = media
         self.start = start
         self.context = context
+        self.resign = resign ?? (context == nil ? nil : { VideoRecovery.chatAttachment($0.id) })
         // Первый кадр — сразу на выбранном снимке, а не на первом с прыжком после появления.
         let shown = context?.gallery.entries.map(\.media) ?? media
         _selection = State(initialValue: shown.isEmpty ? nil : shown[min(max(start, 0), shown.count - 1)].id)
@@ -209,7 +217,7 @@ struct MediaViewer: View {
         if item.isVideo, let url = item.playbackURL {
             // Видео — под панелью, а не под ней: контролы плеера и кнопки панели не
             // перекрывают друг друга.
-            ViewerVideo(id: item.id, url: url, isActive: selection == item.id)
+            ViewerVideo(id: item.id, url: url, isActive: selection == item.id, resign: resign?(item))
                 .safeAreaPadding(.top, MediaViewerBar.height)
                 .safeAreaPadding(.bottom, MediaViewerBar.height)
         } else {
@@ -904,20 +912,27 @@ private struct ViewerVideo: View {
     let id: String
     let url: URL
     let isActive: Bool
+    var resign: VideoRecovery.Resign?
 
     @State private var player: AVPlayer?
+
+    /// Повтор после сбоя сети и переподпись ссылки (IOS_RULES 9.6.13). У плеера, взятого
+    /// у карточки, наблюдатель уже есть — тот же.
+    private var recovery: VideoRecovery? {
+        player.map { VideoRecovery.attach(to: $0, resign: resign) }
+    }
 
     var body: some View {
         SystemPlayer(player: player)
             .onAppear {
                 if player == nil { player = VideoPlaybackCenter.shared.borrow(id) ?? AVPlayer(url: url) }
-                if isActive { player?.play() }
+                if isActive { recovery?.play() }
             }
             .onChange(of: isActive) { _, active in
-                if active { player?.play() } else { player?.pause() }
+                if active { recovery?.play() } else { recovery?.pause() }
             }
             .onDisappear {
-                player?.pause()
+                recovery?.pause()
                 VideoPlaybackCenter.shared.giveBack(id)
             }
     }
