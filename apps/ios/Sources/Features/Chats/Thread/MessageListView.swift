@@ -196,8 +196,28 @@ final class MessageListViewController: UIViewController {
         }
     }
 
+    /// Пружина к низу шла, когда экран начал уходить: если свайп назад отменят, она
+    /// доедет.
+    private var glideInterruptedByLeave = false
+
+    /// Лента замирает с начала ухода, а не после него: во время свайпа назад она не
+    /// должна ехать сама под пальцем.
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        glideInterruptedByLeave = glide.isRunning
+        glide.stop()
+    }
+
+    /// Свайп назад отменён — экран остался: довести прерванную пружину.
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if glideInterruptedByLeave, sticksToBottom { glide.start() }
+        glideInterruptedByLeave = false
+    }
+
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        glideInterruptedByLeave = false
         glide.stop()
     }
 
