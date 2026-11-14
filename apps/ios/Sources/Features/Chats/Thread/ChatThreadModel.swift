@@ -42,6 +42,9 @@ final class ChatThreadModel {
     }
     /// На какое сообщение отвечаем.
     private(set) var replyTo: MessageRecord?
+    /// Ответ, выбранный до начала правки: панель правки его заменяет, но не отменяет — после
+    /// правки он возвращается, как черновик в поле (IOS_RULES 9.8.6, `composeInputState`).
+    @ObservationIgnored private var replyBeforeEdit: MessageRecord?
     /// Какое своё сообщение правим: поле ввода держит его текст (`input.editText`),
     /// «отправить» — сохранить.
     private(set) var editing: MessageRecord?
@@ -86,6 +89,9 @@ final class ChatThreadModel {
     private let uploader: AttachmentUploader
     private let realtime: RealtimeCoordinator
     private let actions: ChatActing
+    /// Строка чата для списка — когда её нет в базе (IOS_RULES 9.4.18).
+    private let chats: ChatsFetching
+    private let chatStore: ChatStore
 
     private var messagesTask: Task<Void, Never>?
     private var chatTask: Task<Void, Never>?
@@ -160,7 +166,8 @@ final class ChatThreadModel {
         outbox: MessageOutbox? = nil,
         uploader: AttachmentUploader? = nil,
         realtime: RealtimeCoordinator = AppServices.realtime,
-        actions: ChatActing = ChatsAPI()
+        actions: ChatActing = ChatsAPI(),
+        chats: ChatsFetching = ChatsAPI()
     ) {
         self.chatID = chatID
         self.viewerID = viewerID
@@ -171,6 +178,8 @@ final class ChatThreadModel {
         self.uploader = uploader ?? AttachmentUploader(database: database)
         self.realtime = realtime
         self.actions = actions
+        self.chats = chats
+        self.chatStore = ChatStore(database: database)
         self.scheduled = ChatScheduledMessages(chatID: chatID, api: actions)
     }
 
@@ -241,6 +250,12 @@ final class ChatThreadModel {
     /// в базу последнее сообщение каждого чата, и лента показала бы одно сообщение.
     @MainActor
     func open() async {
+        // Чат открыт по пушу или ссылке, а в базе его строки нет: первая страница списка
+        // его не принесла. Без строки нет заголовка, счётчика и якоря непрочитанного —
+        // читаем её саму, не дожидаясь списка (IOS_RULES 9.4.18). Параллельно с лентой.
+        if await !chatStore.hasChat(id: chatID) {
+            Task { [chatStore, chats, chatID] in await chatStore.refresh(chatID: chatID, api: chats) }
+        }
         if let mark = pendingWindowReset {
             await resumeAfterDetachedWindow(mark)
         } else {
@@ -521,6 +536,8 @@ final class ChatThreadModel {
     @MainActor
     func beginEdit(_ message: MessageRecord) {
         guard canEdit(message) else { return }
+        // Правка поверх правки — ответ уже отложен первой.
+        if let replyTo { replyBeforeEdit = replyTo }
         replyTo = nil
         editing = message
         // Черновик чата не трогаем: текст правки — отдельно, после правки черновик
@@ -532,6 +549,15 @@ final class ChatThreadModel {
     func cancelEdit() {
         editing = nil
         input.endEdit()
+        restoreReplyAfterEdit()
+    }
+
+    /// Правка закончилась — отложенный ответ снова в панели, если за время правки не
+    /// выбрали другой.
+    @MainActor
+    private func restoreReplyAfterEdit() {
+        if replyTo == nil { replyTo = replyBeforeEdit }
+        replyBeforeEdit = nil
     }
 
     /// Правка уходит сокетом; текст в базе меняется сразу, а подтверждение придёт
@@ -544,6 +570,7 @@ final class ChatThreadModel {
     private func saveEdit(of message: MessageRecord, text: String) async {
         editing = nil
         input.endEdit()
+        restoreReplyAfterEdit()
         guard text != message.content, let remoteID = message.remoteId else { return }
         let id = message.id
         try? await store.saveLocalEdit(messageID: id, text: text)
@@ -1032,13 +1059,21 @@ final class ChatThreadModel {
         return messages.filter { selection.contains($0.id) }
     }
 
-    /// Тексты выбранных по времени, через пустую строку. Без текста (фото, удалённое)
-    /// не дают пустых абзацев.
+    /// Видимые тексты выбранных по времени, через пустую строку — без разметки, как в
+    /// пузырях (IOS_RULES 7.7.8). Без текста (фото, удалённое) не дают пустых абзацев.
     var selectedText: String {
+        selectedContents.map(MessagePreview.visibleText).joined(separator: "\n\n")
+    }
+
+    /// Исходный Markdown выбранных — своим типом в буфере для вставки в поле ввода.
+    var selectedMarkdown: String {
+        selectedContents.joined(separator: "\n\n")
+    }
+
+    private var selectedContents: [String] {
         selectedMessages
             .filter { $0.deletedAt == nil && !$0.content.isEmpty }
             .map(\.content)
-            .joined(separator: "\n\n")
     }
 
     var canForwardSelection: Bool {
@@ -1405,6 +1440,8 @@ final class ChatThreadModel {
         guard !isLoadingOlder, pendingWindowReset == nil else { return }
         isLoadingOlder = true
         defer { isLoadingOlder = false }
+        // Под границей переполнения база не сверена — сначала страница с сервера.
+        if await revalidateOlder() { return }
         // Старые сообщения уже в базе (прошлые открытия) — окно опускается без сети.
         if await lowerFloorFromDatabase() { return }
         guard !reachedBeginning else { return }
@@ -1435,6 +1472,45 @@ final class ChatThreadModel {
         }
     }
 
+    /// Ленивая сверка после переполнения догона (IOS_RULES 9.3.13): страница под границей
+    /// несверенного сверяется с базой (9.3.12), граница опускается до её низа, окно — за
+    /// ней. `false` — сверять нечего или сеть не ответила: тогда окно опускается по базе,
+    /// и человек без сети видит свою историю как есть.
+    @MainActor
+    private func revalidateOlder() async -> Bool {
+        guard let boundary = try? await store.unsyncedBoundary(chatID: chatID) else { return false }
+        let generation = windowGeneration
+        do {
+            let mark = try await store.reconcileMark()
+            let page = try await api.messages(chatID: chatID, cursor: boundary.cursor, limit: ChatsAPI.messagePageLimit)
+            // Пока страница шла, ленту заменили окном: несверенного в базе уже нет.
+            guard generation == windowGeneration else { return true }
+            let reachedStart = page.meta?.hasNext != true
+            try await store.revalidate(
+                page: page.items,
+                chatID: chatID,
+                below: boundary.seq,
+                reachedStart: reachedStart,
+                reconcilingUpTo: mark
+            )
+            olderCursor = page.meta?.cursor
+            reachedBeginning = reachedStart
+            failure = nil
+            guard let floor else { return true }
+            if let oldest = page.items.compactMap(\.seq).min(), oldest < floor {
+                setFloor(oldest)
+                return true
+            }
+            // Окно уже ниже сверенного (опускалось по базе без сети): страница сверила
+            // показанное, а вверх лента всё равно должна прирасти — дальше по базе.
+            return false
+        } catch is CancellationError {
+            return true
+        } catch {
+            return false
+        }
+    }
+
     // MARK: - Окно наблюдения
 
     /// Граница окна на открытии: ≈150 свежих и всё непрочитанное с запасом — первое
@@ -1446,8 +1522,10 @@ final class ChatThreadModel {
         let id = chatID
         guard let chat = try? queries.chatNow(id: id) else { return nil }
         let span = max(Self.liveWindow, chat.unreadCount + 20)
-        guard chat.lastSeq > span else { return nil }
-        return chat.lastSeq - span
+        let recent = chat.lastSeq > span ? chat.lastSeq - span : nil
+        // Ниже границы переполнения — несверенное (9.3.13): его покажет догрузка вверх.
+        guard let unsynced = chat.unsyncedBelow else { return recent }
+        return max(recent ?? unsynced, unsynced)
     }
 
     /// Опустить границу окна. Наблюдение перезапускается с новым запросом; лента
@@ -1522,18 +1600,28 @@ final class ChatThreadModel {
             let updates = try await api.updates(chatID: chatID, since: mark.since, sinceTs: mark.sinceTs)
             if updates.overflow {
                 // Разрыв больше серверного лимита: склеивать нечего. Сначала скачать
-                // последнюю страницу, потом одной транзакцией заменить ею историю — без
-                // сети человек остаётся со своей офлайн-историей, а не с пустым чатом
-                // (IOS_RULES 9.3.10).
+                // последнюю страницу — без сети человек остаётся со своей офлайн-историей,
+                // а не с пустым чатом (IOS_RULES 9.3.10). Старое не стираем: оно остаётся
+                // «несверенным» и сверяется страницами при прокрутке вверх (9.3.13).
+                let mark = try await store.reconcileMark()
                 let page = try await api.messages(chatID: chatID, cursor: nil, limit: ChatsAPI.messagePageLimit)
-                try await store.resetHistory(
+                let reachedStart = page.meta?.hasNext != true
+                try await store.resetAfterOverflow(
                     with: page.items,
                     chatID: chatID,
                     latestSeq: updates.latestSeq,
-                    syncedAt: updates.syncedAt
+                    syncedAt: updates.syncedAt,
+                    reachedStart: reachedStart,
+                    reconcilingUpTo: mark
                 )
                 olderCursor = page.meta?.cursor
-                reachedBeginning = page.meta?.hasNext != true
+                reachedBeginning = reachedStart
+                // Окно — не ниже сверенного: несверенное покажет догрузка вверх уже
+                // сверенным, а без сети — как есть, из базы.
+                if !reachedStart, PerformanceFlags.chatWindowedObservation,
+                   let bottom = page.items.compactMap(\.seq).min() {
+                    setFloor(max(floor ?? bottom, bottom))
+                }
             } else {
                 try await store.apply(updates, chatID: chatID)
             }
@@ -1628,27 +1716,37 @@ final class ChatThreadModel {
         let attachments = snapshot.attachments
         let viewer = viewerID
         let onScreen = Self.preparedOnScreen
-        // В сборку уходят только значения (записи базы и строки), ссылок на модель нет;
-        // `self` — слабо и только на главном потоке, после сборки.
+        // В сборку уходят только значения (записи базы и строки), ссылок на модель нет:
+        // модель не Sendable, и даже слабая ссылка на неё в отсоединённой задаче — гонка
+        // по мнению компилятора. Модель держит главная задача, она же отменяет сборку.
         buildTask?.cancel()
-        buildTask = Task.detached(priority: .userInitiated) { [weak self] in
-            guard !Task.isCancelled else { return }
+        let build = Task.detached(priority: .userInitiated) { () -> ([MessageTimeline.Day], [String])? in
+            guard !Task.isCancelled else { return nil }
             let signpost = Signposts.chats.beginInterval("TimelineBuild")
             let built = MessageTimeline.build(from: visible, attachments: attachments, viewerID: viewer)
             Signposts.chats.endInterval("TimelineBuild", signpost, "messages: \(visible.count)")
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return nil }
             // Разбор текста — здесь же, вне главного потока (п. 3): сначала то, что у
             // свежего края и встанет на экран первым, — до показа, потом остальное.
             // Разобранное уже лежит в кеше, повторная сборка только сверяет ключи.
             let texts = visible.map(\.content)
             RichText.prepare(texts.suffix(onScreen))
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                guard let self, self.buildGeneration == generation else { return }
-                self.days = built
-                self.daysRevision &+= 1
+            guard !Task.isCancelled else { return nil }
+            return (built, texts)
+        }
+        buildTask = Task { @MainActor [weak self] in
+            let result = await withTaskCancellationHandler {
+                await build.value
+            } onCancel: {
+                build.cancel()
             }
-            RichText.prepare(texts.dropLast(onScreen).reversed())
+            guard case let (built, texts)? = result, !Task.isCancelled,
+                  let self, self.buildGeneration == generation else { return }
+            self.days = built
+            self.daysRevision &+= 1
+            Task.detached(priority: .userInitiated) {
+                RichText.prepare(texts.dropLast(onScreen).reversed())
+            }
         }
     }
 

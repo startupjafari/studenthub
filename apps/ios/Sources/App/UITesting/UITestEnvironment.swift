@@ -9,7 +9,9 @@ import Foundation
 ///   (сразу вошёл студентом); неизвестное имя роняет запуск;
 /// - `SH_UITEST_LARGE=1` — большие фикстуры для замеров прокрутки: сотни чатов, тысячи
 ///   сообщений, сотни постов;
-/// - `SH_UITEST_REDUCE_MOTION=1` — уменьшение движения, не трогая настройки симулятора.
+/// - `SH_UITEST_REDUCE_MOTION=1` — уменьшение движения, не трогая настройки симулятора;
+/// - `SH_UITEST_VOICEOVER=1` — раскладка «как под VoiceOver» (`VoiceOver.forced`):
+///   симулятор VoiceOver не запускает.
 ///
 /// Тип есть и в релизной сборке — его читают `Motion` и места подключения, — но там
 /// всё выключено: окружение процесса не читается вовсе, а кода mock в сборке нет.
@@ -80,6 +82,15 @@ enum UITestHooks {
             if UITestEnvironment.current.isMock { return UITestBootstrap.secrets }
         #endif
         return Keychain()
+    }
+
+    /// Признак установки: в тестах сессия засеяна сценарием, и стирать её как
+    /// оставшуюся от прежней установки нельзя.
+    static var installationMarker: InstallationMarker {
+        #if DEBUG
+            if UITestEnvironment.current.isMock { return SettledInstallation() }
+        #endif
+        return DefaultsInstallationMarker()
     }
 
     /// Транспорт реального времени: в тестах сокета нет — сервер mock его не держит.

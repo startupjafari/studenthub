@@ -5,6 +5,9 @@
 //
 // Зависимости — те же, что в project.yml, кроме Sentry: в отладке DSN пуст и трекер
 // не включается, а его готовый бинарный фреймворк здесь — лишний риск сборки.
+//
+// Версии точные и совпадают с project.yml (IOS_RULES 14.1.2), Package.resolved — в git.
+// Обновляет их Dependabot; scripts/check_packages.py сверяет манифест, project.yml и resolved.
 import PackageDescription
 
 let package = Package(
@@ -18,8 +21,8 @@ let package = Package(
         .library(name: "StudentHub", targets: ["StudentHub"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/groue/GRDB.swift", from: "7.0.0"),
-        .package(url: "https://github.com/socketio/socket.io-client-swift", from: "16.1.0"),
+        .package(url: "https://github.com/groue/GRDB.swift", exact: "7.12.0"),
+        .package(url: "https://github.com/socketio/socket.io-client-swift", exact: "16.1.1"),
     ],
     targets: [
         .target(

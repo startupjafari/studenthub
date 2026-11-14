@@ -15,6 +15,9 @@ actor SessionStore: AuthorizationProvider {
     /// Фоновое задание ОС вокруг продления. Реальное — в приложении
     /// (`UIKitBackgroundActivity`), в тестах — пустышка: хранилище сессии UIKit не знает.
     private let background: BackgroundActivity
+    /// Признак установки: первый запуск после переустановки стирает сессию, оставшуюся
+    /// в связке ключей (правило 10.1.12).
+    private let installation: InstallationMarker
     /// Пауза перед единственным повтором продления, ответ на которое потерялся.
     private let lossRetryDelay: Duration
     /// Предел «от отправки потерянного продления до повтора»: дольше — повтор вслепую не
@@ -74,6 +77,7 @@ actor SessionStore: AuthorizationProvider {
         secrets: SecretStore = Keychain(),
         cookies: RefreshCookieStore = RefreshCookieJar.shared,
         background: BackgroundActivity = NoBackgroundActivity(),
+        installation: InstallationMarker = SettledInstallation(),
         lossRetryDelay: Duration = SessionStore.defaultLossRetryDelay,
         lossRetryBudget: Duration = SessionStore.lossRetryBudget
     ) {
@@ -81,6 +85,7 @@ actor SessionStore: AuthorizationProvider {
         self.secrets = secrets
         self.cookies = cookies
         self.background = background
+        self.installation = installation
         self.lossRetryDelay = lossRetryDelay
         self.lossRetryBudget = lossRetryBudget
     }
@@ -116,6 +121,7 @@ actor SessionStore: AuthorizationProvider {
     ///
     /// Без последнего токена (вход сборкой до него) — как раньше: ждём продления.
     func restore() async -> SessionRestoration {
+        forgetSessionLeftByPreviousInstall()
         if hasStoredSession, let raw = secrets.value(for: .lastAccessToken), let known = AccessToken(raw: raw) {
             if known.isUsable() {
                 token = known
@@ -346,6 +352,24 @@ actor SessionStore: AuthorizationProvider {
         }
         forgetSession()
         return delivered
+    }
+
+    /// Первый запуск новой установки, а в связке ключей — сессия прежней (правило
+    /// 10.1.12): человек удалил приложение, чтобы выйти. Сессия стирается до всего
+    /// остального, а refresh-токен уходит в отложенные выходы — его гасит на сервере
+    /// обычный путь выхода (`completePendingLogouts`) фоном, запуск его не ждёт.
+    ///
+    /// Связка ключей заперта (запуск до первой разблокировки) — ни прочесть сессию, ни
+    /// стереть её надёжно: решение откладывается до следующего запуска.
+    private func forgetSessionLeftByPreviousInstall() {
+        guard installation.isSessionCheckPending, !secrets.isLocked else { return }
+        let refreshToken = secrets.value(for: .refreshToken)
+        if hasStoredSession || refreshToken != nil {
+            if let refreshToken { postpone(PendingLogout(refreshToken: refreshToken, deviceToken: nil)) }
+            forgetSession()
+            Self.log.notice("session left by previous install forgotten")
+        }
+        installation.markSessionChecked()
     }
 
     /// Дослать выходы, отложенные без сети. Каждый — своей refresh-cookie: сервер гасит

@@ -5,8 +5,8 @@ import Foundation
 /// есть, и во второй строке были видны `**`, `` ` `` и ```` ``` ````.
 ///
 /// Разметку снимают те же разборщики, что рисуют пузырь (7.6.2): блоки кода —
-/// `MessageCodeBlocks`, строчный Markdown — `RichText`. Оба кешируют разбор и
-/// очищаются при выходе из аккаунта, своего кеша здесь нет.
+/// `MessageCodeBlocks`, цитаты и списки — `MessageTextBlocks`, строчный Markdown —
+/// `RichText`. Все кешируют разбор и очищаются при выходе из аккаунта, своего кеша здесь нет.
 enum MessagePreview {
     /// Сколько графем показывать: строка всё равно обрезается шириной, длиннее — лишняя
     /// работа (7.7.2).
@@ -16,33 +16,44 @@ enum MessagePreview {
 
     static func text(_ content: String) -> String {
         let source = content.utf16.count > readLimit ? String(content.prefix(readLimit)) : content
-        let plain: String
-        if let segments = MessageCodeBlocks.segments(ifAny: source) {
-            plain = segments.map { segment in
-                switch segment {
-                case .text(let text): inline(text)
-                case .code: String(localized: "chats.preview.code", defaultValue: "Код")
-                }
-            }
-            .joined(separator: " ")
-        } else {
-            plain = inline(source)
-        }
-        return clip(oneLine(plain))
+        let code = String(localized: "chats.preview.code", defaultValue: "Код")
+        return clip(oneLine(render(source, code: { _ in code })))
     }
 
-    /// Строчная разметка — тем же разбором, что в пузыре; знак цитаты в начале строки
-    /// пузырь не рисует как блок, и в превью он тоже не нужен.
-    private static func inline(_ text: String) -> String {
-        let rendered = needsParsing(text) ? String(RichText.attributed(text).characters) : text
-        guard rendered.contains(">") else { return rendered }
-        return rendered
-            .components(separatedBy: "\n")
-            .map { line in
-                let body = line.drop { $0 == ">" }
-                return body.count == line.count ? line : String(body.drop { $0 == " " })
+    /// Видимый текст сообщения — то, что нарисовано в пузыре, без разметки: его кладёт в
+    /// буфер «Копировать» (IOS_RULES 7.7.8, как в Telegram). Блок кода — его кодом, цитата —
+    /// без `>`, пункт списка — с маркером, как в пузыре; переводы строк сохраняются.
+    static func visibleText(_ content: String) -> String {
+        render(content, code: { $0 })
+    }
+
+    /// Текст без разметки; блок кода — тем, что вернёт `code`.
+    private static func render(_ source: String, code: (String) -> String) -> String {
+        guard let segments = MessageCodeBlocks.segments(ifAny: source) else { return blocks(source) }
+        return segments.map { segment in
+            switch segment {
+            case .text(let text): blocks(text)
+            case .code(_, let body): code(body)
             }
-            .joined(separator: "\n")
+        }
+        .joined(separator: "\n")
+    }
+
+    /// Цитаты и списки — тем же разбором, что рисует их в пузыре (`MessageTextBlocks`).
+    private static func blocks(_ text: String) -> String {
+        guard let blocks = MessageTextBlocks.blocks(ifAny: text) else { return inline(text) }
+        return blocks.map { block in
+            switch block {
+            case .text(let text), .quote(let text): inline(text)
+            case .list(let items): items.map { "\($0.marker) " + inline($0.text) }.joined(separator: "\n")
+            }
+        }
+        .joined(separator: "\n")
+    }
+
+    /// Строчная разметка — тем же разбором, что в пузыре.
+    private static func inline(_ text: String) -> String {
+        needsParsing(text) ? String(RichText.attributed(text).characters) : text
     }
 
     /// Предфильтр без разбора: может отправить в разбор лишнее, но не пропустит

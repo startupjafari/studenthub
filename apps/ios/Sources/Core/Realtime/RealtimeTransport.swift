@@ -1,5 +1,5 @@
 import Foundation
-import SocketIO
+@preconcurrency import SocketIO
 
 /// Соединение с сервером реального времени.
 ///
@@ -106,8 +106,11 @@ actor SocketIORealtimeTransport: RealtimeTransport {
 
     /// Работа с сокетом — на его очереди. Последовательная очередь сохраняет порядок
     /// вызовов актора: подписка ляжет раньше подключения, вход в комнату — раньше прочтения.
+    /// `work` не Sendable (полезная нагрузка `emit` — `[String: Any]`), но гонки нет: замыкание
+    /// создаёт актор и ровно один раз выполняет последовательная очередь сокета.
     private func onQueue(_ work: @escaping (SocketIOClient) -> Void) {
         let socket = socket
+        nonisolated(unsafe) let work = work
         queue.async { work(socket) }
     }
 

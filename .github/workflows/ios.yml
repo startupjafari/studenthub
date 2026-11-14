@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       suites:
-        description: 'Наборы scripts/test.sh (build, pr, unit, snapshot, ui, ui-extended, perf, scroll, bench, full)'
+        description: 'Наборы scripts/test.sh (build, pr, unit, snapshot, ui, ui-extended, a11y, perf, scroll, bench, full)'
         default: build
         type: string
       record_snapshots:
@@ -99,15 +99,21 @@ jobs:
       - name: Слои
         run: scripts/check_layers.sh
 
+      # Точные версии пакетов (IOS_RULES 14.1.2): Package.swift, project.yml и
+      # Package.resolved согласованы. Dependabot правит Package.swift и Package.resolved —
+      # версию в project.yml поднимают в том же PR, иначе здесь красное.
+      - name: Пакеты
+        run: scripts/check_packages.py
+
       # Точная версия с проверкой суммы — см. .github/actions/setup-xcodegen.
       - name: Поставить XcodeGen
         uses: ./.github/actions/setup-xcodegen
 
-      # Ключ — только блок `packages` из project.yml: подъём версии или номера сборки
-      # пакеты не меняет и кеш сбрасывать не должен.
+      # Ключ — блок `packages` из project.yml и Package.resolved: подъём версии или номера
+      # сборки пакеты не меняет и кеш сбрасывать не должен.
       - name: Ключ кеша пакетов
         id: spm-key
-        run: echo "hash=$(sed -n '/^packages:/,/^[a-z]/p' project.yml | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
+        run: echo "hash=$({ sed -n '/^packages:/,/^[a-z]/p' project.yml; cat Package.resolved; } | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
 
       # Пакеты Swift (GRDB, Socket.IO, Sentry) — из кеша: без него каждый прогон
       # клонирует их заново.
@@ -128,6 +134,12 @@ jobs:
         run: |
           # shellcheck disable=SC2086
           scripts/test.sh $SUITES $RECORD
+
+      # Страж предупреждений (IOS_RULES 4.2.x): число предупреждений Swift в логе чистой
+      # сборки не больше базы scripts/warnings-baseline.txt; стало меньше — уменьшить базу.
+      # Глобальный «предупреждения = ошибки» не включаем: накопленные сделали бы сборку красной.
+      - name: Предупреждения
+        run: scripts/check_warnings.sh build/test-output/build.log
 
       - name: Сохранить результаты
         if: always()

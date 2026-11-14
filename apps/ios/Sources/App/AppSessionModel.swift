@@ -123,6 +123,9 @@ final class AppSessionModel {
         // Сначала рвём реальное время: сокет с погашенным токеном сервер всё равно
         // отключит, но уже со своей стороны и с ошибкой в логе.
         await AppServices.realtime.stop()
+        // Трансляции геопозиции — закрыть на сервере, пока токен ещё действует: после
+        // выхода запрос уже не пройдёт. Без сети — не дольше пары секунд.
+        await LiveLocationSharing.shared.stopAllForSignOut()
         // И отвязываем устройство: иначе следующему человеку на этом телефоне
         // прилетят чужие уведомления. Дважды: отдельным запросом (его понимает и
         // сервер прежней версии) и вместе с выходом — тот без сети откладывается и
@@ -172,6 +175,7 @@ enum LocalData {
         AppServices.unreadNotifications.reset()
         try? await AppServices.database.eraseAll()
         await AppServices.attachmentURLs.clear()
+        AppServices.pollResults.clear()
         // Фото, аватары и свои вложения прежнего человека — тоже его данные.
         ImageMemoryCache.shared.removeAll()
         // И с диска — все картинки, аватары тоже: платформа закрытая, а смена аккаунта не
@@ -181,6 +185,7 @@ enum LocalData {
         RichText.clearCache()
         LQIP.clearCache()
         MessageCodeBlocks.clearCache()
+        MessageTextBlocks.clearCache()
         // Трансляции геопозиции прежнего человека — встают и забываются: иначе GPS
         // продолжал бы слать точки в его переписку уже под чужой сессией.
         LiveLocationSharing.shared.erase()

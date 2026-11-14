@@ -6,7 +6,8 @@ import XCTest
 /// Окружение приложения:
 /// - `SH_UITEST_MOCK=1` — сеть из фикстур, без сокета и запроса пушей;
 /// - `SH_UITEST_SCENARIO` — `signedOut` (экран входа) или `student` (сразу вошёл);
-/// - `SH_UITEST_REDUCE_MOTION=1` — уменьшение движения (см. `reduceMotion`).
+/// - `SH_UITEST_REDUCE_MOTION=1` — уменьшение движения (см. `reduceMotion`);
+/// - `SH_UITEST_VOICEOVER=1` — раскладка «как под VoiceOver» (см. `AccessibilityAuditUITests`).
 ///
 /// Ассерты — на конечные состояния элементов, а не на паузы: XCUITest сам ждёт, пока
 /// приложение затихнет, а `waitForExistence`/`waitForDisappearance` — пока элемент

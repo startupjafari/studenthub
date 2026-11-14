@@ -100,11 +100,15 @@ extension PhotoAssets {
     private static var mediaOptions: PHFetchOptions {
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        options.predicate = NSPredicate(
-            format: "mediaType == %d OR mediaType == %d",
-            PHAssetMediaType.image.rawValue,
-            PHAssetMediaType.video.rawValue
-        )
+        // Видео выключено с сервера — роликов в сетке нет: плитку, которую не отправить,
+        // лучше не показывать (подготовка всё равно откажет, `AttachmentStaging`).
+        options.predicate = AttachmentStaging.videoAllowed
+            ? NSPredicate(
+                format: "mediaType == %d OR mediaType == %d",
+                PHAssetMediaType.image.rawValue,
+                PHAssetMediaType.video.rawValue
+            )
+            : NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
         return options
     }
 
@@ -166,8 +170,10 @@ final class PhotoAlbumsModel {
     /// Перечитать альбомы — после выдачи доступа к «Фото». Счёт снимков в каждом альбоме
     /// и обложки растут с медиатекой: они читаются в фоне, на главный — готовый список
     /// (при большой медиатеке лист вложений иначе подвисал на открытии).
+    /// `displayScale` — масштаб экрана самого листа (`\.displayScale`), а не устаревший
+    /// `UIScreen.main`: на внешнем экране он другой (IOS_RULES 12.1.1).
     @MainActor
-    func load() {
+    func load(displayScale: CGFloat) {
         let status = PhotoAssets.status
         guard status == .authorized || status == .limited else { return }
         loading?.cancel()
@@ -182,18 +188,18 @@ final class PhotoAlbumsModel {
             }.value
             guard let self, !Task.isCancelled else { return }
             self.albums = found
-            self.requestCovers(covers)
+            self.requestCovers(covers, scale: displayScale)
         }
     }
 
     @MainActor
-    private func requestCovers(_ assets: [(String, PHAsset)]) {
+    private func requestCovers(_ assets: [(String, PHAsset)], scale: CGFloat) {
         let manager = PHImageManager.default()
         let options = PHImageRequestOptions()
         options.deliveryMode = .opportunistic
         options.resizeMode = .fast
         options.isNetworkAccessAllowed = true
-        let side = 30 * UIScreen.main.scale
+        let side = 30 * scale
         for (id, asset) in assets where covers[id] == nil {
             manager.requestImage(
                 for: asset,

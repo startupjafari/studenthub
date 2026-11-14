@@ -24,6 +24,22 @@ struct ChatStore: Sendable {
         }
     }
 
+    /// Перечитать одну строку чата (`GET /chats/:id`, IOS_RULES 9.4.18): чат вне первой
+    /// страницы списка — открытый по пушу или ссылке, со сменой членства — иначе не
+    /// обновился бы. `false` — строку получить не удалось (сеть, чат не виден, сервер без
+    /// маршрута): вызывающий решает, звать ли страницу списка. Строку при этом не стираем —
+    /// «не найден» от сервера старой версии не значит «исключён».
+    @discardableResult
+    func refresh(chatID: String, api: ChatsFetching) async -> Bool {
+        guard let item = try? await api.chat(id: chatID) else { return false }
+        return (try? await save(chats: [item])) != nil
+    }
+
+    /// Есть ли строка чата в базе.
+    func hasChat(id: String) async -> Bool {
+        (try? await database.reader.read { db in try ChatRecord.exists(db, key: id) }) ?? false
+    }
+
     /// Сохранить папки. Здесь, наоборот, замена полная: папок единицы, сервер отдаёт
     /// их разом, и удалённая папка иначе осталась бы вкладкой навсегда.
     func save(folders: [ChatFolderDTO]) async throws {
@@ -292,7 +308,9 @@ struct ChatStore: Sendable {
             pinnedOrder: item.pinnedAt == nil ? nil : item.pinnedOrder,
             isFriend: item.isFriend ?? false,
             syncSeq: known?.syncSeq ?? 0,
-            syncedAt: known?.syncedAt
+            syncedAt: known?.syncedAt,
+            // Несверенное — тоже свойство истории, а не превью: список его не трогает.
+            unsyncedBelow: known?.unsyncedBelow
         )
         // Только изменённые столбцы: страница списка приходит целиком на каждое обновление,
         // и запись без перемен будила бы все наблюдения за таблицей чатов.

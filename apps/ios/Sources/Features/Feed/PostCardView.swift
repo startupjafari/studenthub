@@ -47,7 +47,7 @@ struct PostCardView: View {
             }
 
             if let media = post.media, !media.isEmpty {
-                PostMediaView(media: media)
+                PostMediaView(media: media, postID: post.id)
             }
 
             PostActionsView(post: post, model: model, actions: actions)

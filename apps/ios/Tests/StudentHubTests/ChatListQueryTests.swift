@@ -108,6 +108,17 @@ final class ChatListQueryTests: XCTestCase {
         XCTAssertEqual(rows.first { $0.id == "c-2" }?.preview, "🙂 Стикер")
     }
 
+    /// Реакции, пересылка и превью ссылки — не содержимое: пустое сообщение с ними одними
+    /// пузырь тоже рисует заглушкой «обновите приложение» (IOS_RULES 9.2.8).
+    func testOnlyKnownKindsCountAsContent() {
+        var extras = MessageExtras()
+        extras.isForwarded = true
+        extras.reactions = [MessageExtras.ReactionGroup(emoji: "👍", userIds: ["u-1"])]
+        XCTAssertFalse(extras.hasKnownContent)
+        extras.contact = MessageExtras.Contact(name: "Айгерим")
+        XCTAssertTrue(extras.hasKnownContent)
+    }
+
     /// Пустые вкладки не показываем: «Архив» без архива занимает место и ничего не
     /// сообщает.
     func testTabsAppearOnlyWhenTheyHaveContent() throws {

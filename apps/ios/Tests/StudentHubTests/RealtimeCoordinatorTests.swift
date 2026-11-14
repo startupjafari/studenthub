@@ -220,8 +220,8 @@ final class RealtimeCoordinatorTests: XCTestCase {
     /// Переподключение догоняет список чатов (события за время обрыва никто не
     /// переприсылает), а первое подключение — нет: список и так грузится при входе.
     func testReconnectRefreshesChatListOnce() async throws {
-        let api = CountingChats()
-        let (_, coordinator, transport) = try await make(api: api)
+        let server = ScriptedServer()
+        let (_, coordinator, transport) = try await make(server: server, api: ScriptedChats(server: server))
 
         await transport.emit(.connected)
         await transport.emit(.disconnected)
@@ -229,8 +229,28 @@ final class RealtimeCoordinatorTests: XCTestCase {
         // Обновление списка ждёт пачку событий 0,7 с.
         try? await Task.sleep(for: .milliseconds(1_000))
 
-        let calls = await api.calls
-        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(server.matching("GET", "chats").count, 1)
+        _ = coordinator
+    }
+
+    /// Активность в чате (сообщение, смена членства) перечитывает строку этого чата, а не
+    /// первую страницу: чат за её пределами иначе не обновился бы (IOS_RULES 9.4.18).
+    func testChatActivityRefreshesThatRowOnly() async throws {
+        let server = ScriptedServer()
+        let (database, coordinator, transport) = try await make(server: server, api: ScriptedChats(server: server))
+
+        await transport.emit(.connected)
+        try? await Task.sleep(for: .milliseconds(1_000))
+        let pagesAfterConnect = server.matching("GET", "chats").count
+
+        await transport.emit(.chatActivity(chatID: "far-away"))
+        await transport.emit(.chatActivity(chatID: "far-away"))
+        try? await Task.sleep(for: .milliseconds(1_000))
+
+        XCTAssertEqual(server.matching("GET", "chats/far-away").count, 1)
+        XCTAssertEqual(server.matching("GET", "chats").count, pagesAfterConnect)
+        let title = try await database.reader.read { db in try ChatRecord.fetchOne(db, key: "far-away")?.title }
+        XCTAssertEqual(title, "Строка far-away")
         _ = coordinator
     }
 
@@ -269,12 +289,123 @@ final class RealtimeCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.pollSignal("p-1").version, 1)
     }
 
+    // MARK: - Гонки с запросом в пути (IOS_RULES 2.5.1)
+
+    /// Сокет поднял позицию, пока догон был в пути: ответ, прочитанный сервером раньше
+    /// события, не откатывает позицию и не теряет пришедшее сообщение (IOS_RULES 9.3.2).
+    func testSocketAdvanceDuringCatchUpSurvivesStaleResponse() async throws {
+        let server = ScriptedServer()
+        let (database, coordinator, transport) = try await make(server: server)
+        let thread = ChatThreadModel(
+            chatID: "c-1",
+            viewerID: "u-me",
+            database: database,
+            api: ScriptedMessages(server: server),
+            realtime: coordinator
+        )
+        server.hold("chats/c-1/updates")
+
+        let catchUp = Task { await thread.catchUpAfterReconnect() }
+        await waitUntil { server.waiting("chats/c-1/updates") == 1 }
+        await transport.emit(.messageNew(message(id: "m-2", seq: 2, sender: "u-other")))
+        await settle()
+        let stale = ChatUpdatesDTO(created: [], mutated: [], deletedIds: [], latestSeq: 1, overflow: false)
+        server.release("chats/c-1/updates", with: .value(stale))
+        await catchUp.value
+
+        XCTAssertEqual(server.requestNames, ["GET chats/c-1/updates"])
+        XCTAssertEqual(server.requests.first?.field("since"), "1")
+        try await database.reader.read { db in
+            let chat = try ChatRecord.fetchOne(db, key: "c-1")
+            XCTAssertEqual(chat?.syncSeq, 2, "ответ догона не откатил позицию сокета")
+            XCTAssertEqual(chat?.lastSeq, 2)
+            XCTAssertEqual(chat?.lastMessageId, "m-2")
+            let row = try MessageRecord.fetchOne(db, key: "m-2")
+            XCTAssertNotNil(row)
+            XCTAssertNil(row?.deletedAt)
+        }
+    }
+
+    /// Переполнение догона не стирает историю (IOS_RULES 9.3.13): после него прокрутка
+    /// вверх сначала просит страницу под границей несверенного, и пропавшее на сервере
+    /// помечается удалённым; на начале переписки граница снимается.
+    func testOverflowKeepsHistoryAndRevalidatesOnScroll() async throws {
+        let server = ScriptedServer()
+        let (database, coordinator, _) = try await make(server: server)
+        try await MessageStore(database: database).save(
+            messages: [1, 2, 3].map { message(id: "m-\($0)", seq: $0, sender: "u-other") },
+            chatID: "c-1"
+        )
+        let thread = ChatThreadModel(
+            chatID: "c-1",
+            viewerID: "u-me",
+            database: database,
+            api: ScriptedMessages(server: server),
+            realtime: coordinator
+        )
+        server.enqueue(
+            "chats/c-1/updates",
+            .value(ChatUpdatesDTO(created: [], mutated: [], deletedIds: [], latestSeq: 300, overflow: true))
+        )
+        server.enqueue(
+            "chats/c-1/messages",
+            .value(Page(
+                items: [message(id: "m-300", seq: 300, sender: "u-other"), message(id: "m-299", seq: 299, sender: "u-other")],
+                meta: APIMeta(cursor: "m-299", hasNext: true, total: nil, prevCursor: nil, hasPrev: nil)
+            )),
+            // Под границей: m-2 и m-3 на сервере удалены за время разрыва.
+            .value(Page(
+                items: [message(id: "m-1", seq: 1, sender: "u-other")],
+                meta: APIMeta(cursor: nil, hasNext: false, total: nil, prevCursor: nil, hasPrev: nil)
+            ))
+        )
+
+        await thread.catchUpAfterReconnect()
+
+        try await database.reader.read { db in
+            XCTAssertEqual(try MessageRecord.filter(Column("deletedAt") == nil).fetchCount(db), 5, "история не стёрта")
+            XCTAssertEqual(try ChatRecord.fetchOne(db, key: "c-1")?.unsyncedBelow, 299)
+        }
+
+        await thread.loadOlder()
+
+        XCTAssertEqual(server.matching("GET", "chats/c-1/messages").last?.field("cursor"), "m-299")
+        try await database.reader.read { db in
+            XCTAssertNil(try MessageRecord.fetchOne(db, key: "m-1")?.deletedAt)
+            XCTAssertNotNil(try MessageRecord.fetchOne(db, key: "m-2")?.deletedAt)
+            XCTAssertNotNil(try MessageRecord.fetchOne(db, key: "m-3")?.deletedAt)
+            XCTAssertNil(try ChatRecord.fetchOne(db, key: "c-1")?.unsyncedBelow)
+        }
+    }
+
+    /// Выход из аккаунта, пока обновление списка в пути: запрос снят, список прежнего
+    /// человека в базу не пишется и повтора нет (IOS_RULES 9.3.1, 10.1).
+    func testSignOutDuringListRefreshDropsRequest() async throws {
+        let server = ScriptedServer()
+        let (database, coordinator, transport) = try await make(server: server, api: ScriptedChats(server: server))
+        server.hold("chats")
+
+        await transport.emit(.connected)
+        await transport.emit(.disconnected)
+        await transport.emit(.connected)
+        // Обновление списка ждёт пачку событий 0,7 с.
+        await waitUntil(timeout: .seconds(3)) { server.waiting("chats") == 1 }
+        await coordinator.stop()
+        await waitUntil { server.waiting("chats") == 0 }
+        try? await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertEqual(server.matching("GET", "chats").count, 1, "после выхода повтора нет")
+        let chats = try await database.reader.read { db in try ChatRecord.fetchCount(db) }
+        XCTAssertEqual(chats, 1)
+    }
+
     // MARK: - Помощники
 
     private func make(
         unread: Int = 0,
+        server: ScriptedServer = ScriptedServer(),
         api: ChatsFetching? = nil
-    ) async throws -> (AppDatabase, RealtimeCoordinator, StubTransport) {
+    ) async throws -> (AppDatabase, RealtimeCoordinator, ScriptedTransport) {
         let database = try AppDatabase.inMemory()
         try await database.writer.write { db in
             try ChatRecord(
@@ -285,7 +416,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
                 updatedAt: Date(timeIntervalSince1970: 1_800_000_000), syncSeq: 1
             ).insert(db)
         }
-        let transport = StubTransport()
+        let transport = ScriptedTransport(server: server)
         let coordinator = RealtimeCoordinator(
             transport: transport,
             session: SessionStore(auth: SilentAuth(), secrets: MemoryKeys(), cookies: MemoryJar()),
@@ -312,49 +443,6 @@ final class RealtimeCoordinatorTests: XCTestCase {
 }
 
 // MARK: - Дублёры
-
-private actor StubTransport: RealtimeTransport {
-    nonisolated let events: AsyncStream<RealtimeEvent>
-    private let continuation: AsyncStream<RealtimeEvent>.Continuation
-    private(set) var joins: [String] = []
-    private(set) var leaves: [String] = []
-    private(set) var reads: [String] = []
-    private(set) var actions: [String?] = []
-    private(set) var edits: [String] = []
-
-    init() {
-        (events, continuation) = AsyncStream<RealtimeEvent>.makeStream()
-    }
-
-    func emit(_ event: RealtimeEvent) {
-        continuation.yield(event)
-    }
-
-    func connect(token: String) async {}
-    func disconnect() async {}
-    func refresh(token: String) async {}
-    func join(chatID: String) async { joins.append(chatID) }
-    func leave(chatID: String) async { leaves.append(chatID) }
-    func markRead(chatID: String, messageID: String) async { reads.append(messageID) }
-    func send(action: String?, chatID: String) async { actions.append(action) }
-    func edit(messageID: String, content: String) async { edits.append(content) }
-    func delete(messageID: String) async {}
-}
-
-/// Список чатов, который только считает обращения.
-private actor CountingChats: ChatsFetching {
-    private(set) var calls = 0
-
-    func chats(cursor: String?, limit: Int) async throws -> Page<ChatListItemDTO> {
-        calls += 1
-        return Page(items: [], meta: nil)
-    }
-
-    func folders() async throws -> [ChatFolderDTO] { [] }
-    func setPinned(_ pinned: Bool, chatID: String) async throws {}
-    func setArchived(_ archived: Bool, chatID: String) async throws {}
-    func setMuted(_ muted: Bool, chatID: String) async throws {}
-}
 
 private struct SilentAuth: SessionRefreshing {
     func refresh() async throws -> AuthSession { throw APIError.malformedResponse(statusCode: 0) }

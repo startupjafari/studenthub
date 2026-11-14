@@ -85,7 +85,7 @@ final class LoginModel {
         codeError = nil
         formError = nil
 
-        let entered = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        let entered = OneTimeCode.normalized(code)
         guard entered.count >= 6 else {
             codeError = String(localized: "auth.error.codeTooShort", defaultValue: "Код из 6 цифр или резервный код")
             return

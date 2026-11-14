@@ -92650,6 +92650,23 @@
         }
       }
     },
+    "chats.attach.videoDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправка видео временно недоступна"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бейне жіберу уақытша қолжетімсіз"
+          }
+        }
+      }
+    },
     "chats.attach.preparing": {
       "extractionState": "manual",
       "localizations": {
@@ -96233,6 +96250,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Мұнда сіз жіберген GIF-тер шығады. Жаңа GIF — қыстырғыш арқылы «Фото»-дан."
+          }
+        }
+      }
+    },
+    "chats.gifs.searchOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск GIF временно недоступен"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GIF іздеу уақытша қолжетімсіз"
           }
         }
       }

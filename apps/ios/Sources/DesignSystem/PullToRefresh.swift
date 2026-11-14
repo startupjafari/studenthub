@@ -24,9 +24,9 @@ private struct PullToRefreshModifier: ViewModifier {
         let action = action
         content
             .refreshable {
-                await signal.begin()
+                signal.begin()
                 await action()
-                await signal.end()
+                signal.end()
             }
             .background(PullTunerProbe(signal: signal).accessibilityHidden(true))
     }

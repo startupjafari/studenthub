@@ -19,6 +19,8 @@ struct MessageListView: UIViewControllerRepresentable {
     var capabilities: (MessageRecord) -> MessageCapabilities = { _ in MessageCapabilities() }
     /// Выбранные сообщения; `nil` — режим выбора выключен.
     var selection: Set<String>?
+    /// Строка, скрытая в ленте: источник открытого меню сообщения (правило 3.7.3).
+    var hiddenID: String?
     /// Просьба прокрутить к последнему сообщению: каждое новое значение — одна прокрутка
     /// (кнопка «вниз», своя отправка).
     var scrollToBottomToken = 0
@@ -57,6 +59,7 @@ struct MessageListView: UIViewControllerRepresentable {
         controller.setBottomInset(bottomInset)
         controller.setTopObstruction(topObstruction)
         controller.apply(days: days, revision: revision, anchor: anchor, context: bubbleContext, selection: selection)
+        controller.setHidden(hiddenID)
         controller.focus(focus)
         controller.scrollToBottom(token: scrollToBottomToken)
     }
@@ -88,6 +91,9 @@ final class MessageListViewController: UIViewController {
     var onLowestVisible: ((String?) -> Void)?
     private var bubbleContext = BubbleContext()
     private var selection: Set<String>?
+    /// Скрытая строка (источник меню). Прячется `contentView`, а не ячейка: прозрачность
+    /// и `isHidden` самой ячейки раскладка переписывает своими атрибутами.
+    private var hiddenID: String?
     private var appliedBottomToken = 0
     /// Последнее сообщённое «у низа ли лента»; `nil` — ещё ни разу. Первое состояние
     /// сообщается всегда (с первой расстановки): чат, открытый сразу у низа, — уже
@@ -331,6 +337,7 @@ final class MessageListViewController: UIViewController {
         let contextChanged = context.isGroup != oldContext.isGroup
             || context.viewerID != oldContext.viewerID
             || context.highlight != oldContext.highlight
+            || context.requestIncoming != oldContext.requestIncoming
         let readChanged = !contextChanged
             && (context.othersReadAt != oldContext.othersReadAt || context.readMarks != oldContext.readMarks)
         bubbleContext = context
@@ -681,6 +688,8 @@ final class MessageListViewController: UIViewController {
         hasher.combine(item)
         hasher.combine(selection != nil)
         hasher.combine(bubbleContext.isGroup)
+        // Непринятый запрос прячет превью ссылок — высота строки другая.
+        hasher.combine(bubbleContext.requestIncoming)
         return MessageHeightKey(
             id: id,
             revision: hasher.finalize(),
@@ -736,6 +745,7 @@ final class MessageListViewController: UIViewController {
             hasher.combine(item)
             hasher.combine(self.selection != nil)
             hasher.combine(self.bubbleContext.isGroup)
+            hasher.combine(self.bubbleContext.requestIncoming)
             return MessageHeightKey(
                 id: id,
                 revision: hasher.finalize(),
@@ -783,6 +793,7 @@ final class MessageListViewController: UIViewController {
     }
 
     private func configure(_ cell: MessageCell, id: String) {
+        cell.contentView.isHidden = id == hiddenID
         guard let item = itemsByID[id] else { return }
         cell.contentConfiguration = UIHostingConfiguration {
             MessageBubbleView(
@@ -839,6 +850,20 @@ final class MessageListViewController: UIViewController {
         }
         dataSource.supplementaryViewProvider = { view, _, indexPath in
             view.dequeueConfiguredReusableSupplementary(using: header, for: indexPath)
+        }
+    }
+
+    /// Спрятать строку `id` (и вернуть прежнюю) прямо в видимых ячейках: перенастройка
+    /// пересоздала бы содержимое SwiftUI ради одного флага.
+    func setHidden(_ id: String?) {
+        guard id != hiddenID else { return }
+        let previous = hiddenID
+        hiddenID = id
+        for changed in [previous, id].compactMap({ $0 }) {
+            guard let indexPath = dataSource.indexPath(for: changed),
+                let cell = collectionView.cellForItem(at: indexPath)
+            else { continue }
+            cell.contentView.isHidden = changed == id
         }
     }
 
@@ -1307,7 +1332,7 @@ final class MessageListViewController: UIViewController {
         }
         // Своя строка дня прячется, только пока плавающая на виду. VoiceOver читает
         // даты по строкам ленты — для него плавающей нет, и прятать нечего.
-        let covered = headersHidden || UIAccessibility.isVoiceOverRunning ? nil : placement?.day
+        let covered = headersHidden || VoiceOver.isRunning ? nil : placement?.day
         guard covered != coveredDay else { return }
         coveredDay = covered
         let kind = UICollectionView.elementKindSectionHeader
@@ -1486,7 +1511,9 @@ extension MessageListViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         // Ячейка могла прийти из переиспользования посреди подсветки другого сообщения.
         cell.contentView.backgroundColor = .clear
-        guard let id = dataSource.itemIdentifier(for: indexPath),
+        let id = dataSource.itemIdentifier(for: indexPath)
+        cell.contentView.isHidden = id != nil && id == hiddenID
+        guard let id,
             let entrance = entrances.removeValue(forKey: id),
             Date().timeIntervalSince(entrance.noticed) < Self.entranceLifetime
         else { return }
