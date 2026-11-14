@@ -145,6 +145,8 @@ struct StoryViewer: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.viewerID) private var viewerID
     @Environment(\.motionReduced) private var reduceMotion
+    /// Под VoiceOver история не уходит сама: человек не успел бы её дослушать.
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverOn
 
     @State private var ringIndex = 0
     @State private var storyIndex = 0
@@ -191,6 +193,7 @@ struct StoryViewer: View {
 
     private var paused: Bool {
         holding || dragging || pollExpanded || replyFocused || reporting || confirmingDelete || showingViewers || addingToHighlight
+            || voiceOverOn
     }
 
     var body: some View {
@@ -384,20 +387,52 @@ struct StoryViewer: View {
                 .contentShape(Rectangle())
                 .frame(maxWidth: .infinity)
                 .onTapGesture { back() }
-                .accessibilityLabel(Text(String(localized: "stories.previous", defaultValue: "Предыдущая история")))
-                .accessibilityAddTraits(.isButton)
             Color.clear
                 .contentShape(Rectangle())
                 .frame(maxWidth: .infinity)
-                .frame(maxWidth: .infinity)
                 .onTapGesture { advance() }
-                .accessibilityLabel(Text(String(localized: "stories.next", defaultValue: "Следующая история")))
-                .accessibilityAddTraits(.isButton)
         }
         .onLongPressGesture(minimumDuration: 0.25, maximumDistance: 30) {
         } onPressingChanged: { pressing in
             holding = pressing
         }
+        // Для VoiceOver страница — регулируемый элемент «История N из M»: свайп вверх и
+        // вниз листает истории автора, а переход к другому автору — действие, которое
+        // есть, только когда соседний автор есть.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(accessibilityAuthor))
+        .accessibilityValue(Text(String(
+            localized: "stories.position",
+            defaultValue: "История \(storyIndex + 1) из \(ring?.stories.count ?? 0)"
+        )))
+        .accessibilityAdjustableAction { direction in
+            guard let ring else { return }
+            switch direction {
+            case .increment:
+                if storyIndex + 1 < ring.stories.count { storyIndex += 1 }
+            case .decrement:
+                if storyIndex > 0 { storyIndex -= 1 }
+            @unknown default:
+                break
+            }
+        }
+        .accessibilityActions {
+            if ringIndex + 1 < rings.count {
+                Button(String(localized: "stories.nextAuthor", defaultValue: "Следующий автор")) {
+                    switchRing(to: ringIndex + 1)
+                }
+            }
+            if ringIndex > 0 {
+                Button(String(localized: "stories.previousAuthor", defaultValue: "Предыдущий автор")) {
+                    switchRing(to: ringIndex - 1)
+                }
+            }
+        }
+    }
+
+    private var accessibilityAuthor: String {
+        guard let ring else { return "" }
+        return isOwn ? String(localized: "stories.mine", defaultValue: "Моя история") : ring.author.name
     }
 
     /// Вниз — закрыть, вбок — соседний автор. Кадр идёт за пальцем 1:1; за краем (нет
