@@ -149,6 +149,18 @@ final class PullTuner: NSObject {
     private var baseInset: CGFloat = 0
     private var wasRefreshing = false
     private var isClamping = false
+    /// Поле поиска в шапке экрана (`listSearch`); `nil` — поиска нет или ещё не найдено.
+    private weak var searchBar: UISearchBar?
+    private var searchLookedUp = false
+    /// Высота поля поиска, замеренная, когда оно было видно.
+    private var searchHeight: CGFloat = 0
+    /// Отступ сверху, когда поле поиска спрятано прокруткой (список прокручен вниз).
+    private var collapsedInset: CGFloat?
+    /// Отступ сверху, когда поле поиска открыто и список стоит в начале.
+    private var expandedInset: CGFloat?
+    /// Верх поля поиска в окне, когда список не оттянут: от него меряется пустота, которая
+    /// на iOS 26 открывается над полем, — поле едет вниз вместе со списком.
+    private var restSearchTop: CGFloat?
 
     static func install(on scrollView: UIScrollView, signal: PullRefreshSignal) {
         if let tuner = objc_getAssociatedObject(scrollView, &key) as? PullTuner {
@@ -175,6 +187,7 @@ final class PullTuner: NSObject {
         observation = scrollView.observe(\.contentOffset, options: [.new]) { [weak self] _, _ in
             MainActor.assumeIsolated { self?.update() }
         }
+        scrollView.panGestureRecognizer.addTarget(self, action: #selector(panChanged(_:)))
     }
 
     /// Обновление идёт: действие ещё не вернулось или система держит индикатор.
@@ -242,10 +255,12 @@ final class PullTuner: NSObject {
         }
         // Сколько открыто над первой строкой.
         let pull = -(scrollView.contentOffset.y + base)
+        // Насколько поле поиска уехало вниз вместе со списком (iOS 26: пустота — над ним).
+        let searchGap = noteSearch(in: scrollView, liveInset: liveInset, pull: pull, refreshing: refreshing)
         // Список прокручен вниз, его не тянут и не обновляют, индикатор спрятан: на
         // каждом кадре прокрутки делать нечего (п. 42) — раньше здесь каждый кадр
         // ставились цвет и `prepare()` тактильного отклика.
-        if pull <= 0, !refreshing, !wasRefreshing, spinner.alpha == 0 { return }
+        if pull <= 0, (searchGap ?? 0) <= 0, !refreshing, !wasRefreshing, spinner.alpha == 0 { return }
 
         if scrollView.isTracking, pull > Self.maxPull {
             isClamping = true
@@ -258,11 +273,18 @@ final class PullTuner: NSObject {
         wasRefreshing = refreshing
 
         if control?.tintColor != .clear { control?.tintColor = .clear }
-        let shown = min(pull, Self.maxPull)
+        let shown = min(max(pull, searchGap ?? 0), Self.maxPull)
         if shown > 8 || refreshing {
-            // Посередине пустоты между шапкой и первой строкой.
-            let top = scrollView.contentOffset.y + base
-            spinner.center = CGPoint(x: scrollView.bounds.midX, y: top / 2)
+            if let searchGap, searchGap > 8, let rest = restSearchTop, let window = scrollView.window {
+                // Поле поиска уехало вниз вместе со списком — пустота над ним, между
+                // заголовком и полем: индикатор посередине неё, а не на поле.
+                let center = CGPoint(x: window.bounds.midX, y: rest + searchGap / 2)
+                spinner.center = scrollView.convert(center, from: window)
+            } else {
+                // Посередине пустоты между шапкой и первой строкой.
+                let top = scrollView.contentOffset.y + base
+                spinner.center = CGPoint(x: scrollView.bounds.midX, y: top / 2)
+            }
             // Системный индикатор крутится с первого появления, как в других
             // приложениях, — и пока тянут, и пока идёт обновление. Раньше до начала
             // обновления он стоял: пустота над списком открывалась с неподвижным значком.
@@ -280,10 +302,71 @@ final class PullTuner: NSObject {
 
     /// Высота поля поиска в шапке экрана; 0 — поиска нет.
     private var searchBarHeight: CGFloat {
-        guard let scrollView, let controller = Self.viewController(of: scrollView),
-            let search = controller.navigationItem.searchController ?? controller.parent?.navigationItem.searchController
-        else { return 0 }
-        return search.searchBar.frame.height
+        resolveSearchBar()
+        return searchHeight
+    }
+
+    private func resolveSearchBar() {
+        guard searchBar == nil, !searchLookedUp, let scrollView, scrollView.window != nil,
+            let controller = Self.viewController(of: scrollView)
+        else { return }
+        searchLookedUp = true
+        searchBar = (controller.navigationItem.searchController ?? controller.parent?.navigationItem.searchController)?.searchBar
+    }
+
+    /// Положение поля поиска: запоминает высоту поля, отступ при спрятанном поле и верх
+    /// поля в покое. Возвращает, на сколько поле уехало вниз от места покоя (`nil` — поиска
+    /// нет или поле не видно).
+    private func noteSearch(in scrollView: UIScrollView, liveInset: CGFloat, pull: CGFloat, refreshing: Bool) -> CGFloat? {
+        resolveSearchBar()
+        guard let bar = searchBar, let window = scrollView.window, bar.window != nil else { return nil }
+        let visible = bar.alpha > 0.01 && !bar.isHidden && bar.bounds.height > 1
+        if visible { searchHeight = max(searchHeight, bar.bounds.height) }
+        let atRest = !scrollView.isTracking && !scrollView.isDecelerating && !refreshing
+        // Список прокручен вниз — поле спрятано: это отступ «без поиска».
+        if atRest, scrollView.contentOffset.y > -liveInset + 80 {
+            collapsedInset = liveInset
+        }
+        // Сдвиг поля меряется только у верха списка: прокрученный вниз список поле прячет,
+        // оно уезжает вверх, и это не оттягивание.
+        let atTop = scrollView.contentOffset.y <= -liveInset + 1
+        guard visible, atTop else { return nil }
+        let top = bar.convert(CGPoint.zero, to: window).y
+        // Место поля в покое — только когда список стоит ровно в начале и не оттянут.
+        if atRest, abs(scrollView.contentOffset.y + liveInset) < 1 {
+            restSearchTop = top
+            if liveInset > (collapsedInset ?? 0) + 1 { expandedInset = liveInset }
+        }
+        guard let rest = restSearchTop else { return nil }
+        return max(0, top - rest)
+    }
+
+    /// Конец жеста прокрутки. Поле поиска открывает только палец, и без рывков:
+    /// - отпустили, когда поле выехало наполовину, — оно плавно доходит до ближайшего
+    ///   положения (открыто или спрятано), а не прыгает;
+    /// - бросили список к верху при спрятанном поле — он доезжает до верха и встаёт,
+    ///   поле остаётся спрятанным (раньше инерция открывала его сама).
+    @objc private func panChanged(_ pan: UIPanGestureRecognizer) {
+        guard pan.state == .ended, let scrollView, !isRefreshing, searchBarHeight > 0,
+            let collapsed = collapsedInset, let expanded = expandedInset, expanded > collapsed + 1
+        else { return }
+        let live = scrollView.adjustedContentInset.top
+        let offset = scrollView.contentOffset.y
+        // Оттянули дальше верха — это уже обновление, его ведёт система.
+        guard offset >= -live - 1 else { return }
+        if live > collapsed + 1, live < expanded - 1 {
+            let open = live - collapsed > (expanded - collapsed) / 2
+            scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: open ? -expanded : -collapsed), animated: true)
+            return
+        }
+        let velocity = pan.velocity(in: scrollView).y
+        guard live <= collapsed + 1, velocity > 0, offset > -live + 1 else { return }
+        // Куда докатится инерция: путь торможения `UIScrollView` (скорость в pt/с).
+        let rate = scrollView.decelerationRate.rawValue
+        let travel = velocity * rate / (1 - rate) / 1000
+        if offset - travel < -live {
+            scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: -live), animated: true)
+        }
     }
 
     private static func viewController(of view: UIView) -> UIViewController? {
