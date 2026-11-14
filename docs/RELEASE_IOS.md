@@ -25,10 +25,6 @@
 
 - **Адрес боевого API.** В `apps/ios/Config/Release.xcconfig` — заглушка
   `api.example.invalid`; подставить домен до первого архива.
-- **Версии пакетов SPM не закреплены.** GRDB, Socket.IO и Sentry объявлены через `from:`,
-  `Package.resolved` в `.gitignore` (`apps/ios/.gitignore`, комментарий в `project.yml`) —
-  CI и релиз берут свежий минор. Закреплять ли — открытый вопрос, решение владельца
-  (`docs/IOS_RULES.md` 14.1.2).
 - **Пуши не проверены.** Отладочная копия на личном Apple ID не подписывает
   `aps-environment`; доставку проверить на первой сборке из TestFlight с ключом APNs.
 - **Sentry не проверен.** В отладке `SENTRY_DSN` пуст; на сборке из TestFlight проверить,

@@ -8702,7 +8702,7 @@ release-сборка не запускалась.
     `ChatThreadModel.swift:1247`. Правила 6.6.1 и 9.4.17. [исправлено, #499]
 14. **Release-сборка невоспроизводима и собирается другим Xcode, чем тесты.** `ios-release.yml` работает на
     `macos-15` без `DEVELOPER_DIR`. XcodeGen ставится без версии, `Package.resolved` в `.gitignore`. Правила
-    14.1.1 и 14.1.2. [частично исправлено, #499: XcodeGen и Xcode релиза; `Package.resolved` — решение владельца]
+    14.1.1 и 14.1.2. [частично исправлено, #499: XcodeGen и Xcode релиза; `Package.resolved` — решено: закреплён в git, волна 5]
 
 ### А.2 Полный список по разделам
 
@@ -8737,9 +8737,9 @@ release-сборка не запускалась.
 - **Два `Menu` в одной стеклянной капсуле морфят всю капсулу** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerEditorView.swift:159-214` — правило 3.7.5. Меню может «вырасти» из всей панели, а не из кнопки. [проверить на iPhone]
 #### §4. Компилятор, Swift, оптимизация
 
-- **Предупреждения не считаются ошибками** — `apps/ios/project.yml:26` (`SWIFT_TREAT_WARNINGS_AS_ERRORS: "NO"`) — правила 4.2.1, 4.2.2. Предупреждения «приведение всегда неуспешно» и предупреждения конкурентности после ретипизации проходят молча. [решение владельца]
-- **Устройство владельца собирается более новым Swift, чем CI** — локальный Swift 6.4.2 против Xcode 26.6 на CI (`.github/workflows/ios.yml:85`) — правило 4.1.1. Известный баг Swift 6.4 с `[weak]` в локальном замыкании проявится только на iPhone, а CI будет зелёным. Сейчас таких мест нет. [решение владельца]
-- **Release собирается только при выпуске** — `.github/workflows/ios-release.yml` (ручной запуск) — правило 4.1.2. Падения компилятора, которые бывают только в Release (`SimplifyCFG`, `-Osize`), всплывут в день отправки. [решение владельца]
+- **Предупреждения не считаются ошибками** — `apps/ios/project.yml:26` (`SWIFT_TREAT_WARNINGS_AS_ERRORS: "NO"`) — правила 4.2.1, 4.2.2. Предупреждения «приведение всегда неуспешно» и предупреждения конкурентности после ретипизации проходят молча. [решено: страж числа предупреждений в ios.yml, база scripts/warnings-baseline.txt только сужается, волна 5]
+- **Устройство владельца собирается более новым Swift, чем CI** — локальный Swift 6.4.2 против Xcode 26.6 на CI (`.github/workflows/ios.yml:85`) — правило 4.1.1. Известный баг Swift 6.4 с `[weak]` в локальном замыкании проявится только на iPhone, а CI будет зелёным. Сейчас таких мест нет. [решено: принято как есть до Xcode 27 на CI, волна 5]
+- **Release собирается только при выпуске** — `.github/workflows/ios-release.yml` (ручной запуск) — правило 4.1.2. Падения компилятора, которые бывают только в Release (`SimplifyCFG`, `-Osize`), всплывут в день отправки. [решено: ночной ios-nightly собирает Release без подписи, волна 5]
 #### §5. UIKit и SwiftUI
 
 - **Превью чата регистрирует якоря пузырей под настоящими id** — `apps/ios/Sources/Features/Chats/ChatListView.swift:1084` — правило 5.7.7. `ChatPeekView` создаёт `MessageBubbleView` без `isMenuPreview: true`, поэтому его копия может перехватить якорь `BubbleAnchors` у пузыря в ленте, и меню вырастет не из того места. [расходится] [исправлено, #499]
@@ -8867,7 +8867,7 @@ release-сборка не запускалась.
 - **Графики дашбордов без описания для VoiceOver** — `apps/ios/Sources/Features/Admin/AdminDashboardViews.swift:387,414`, `UniversityAdmin/UAdminDashboardView.swift:332,508`, `Dean/DeanDashboardView.swift`, `Career/CareerStaffViews.swift` — правило 11.2.7. `accessibilityChartDescriptor` нигде не задан, и смысл графика может не читаться. [проверить на iPhone]
 - **Ошибки входа, возможно, не объявляются** — `apps/ios/Sources/Features/Auth/` (объявления есть только в `DesignSystem/ActionToast.swift:40` и `Chats/Thread/ChatThreadView.swift:243`) — правило 11.3.3. Ошибку, показанную текстом или тряской, VoiceOver может не произнести. [проверить на iPhone]
 - **Полоска папок чатов** — `apps/ios/Sources/Features/Chats/ChatListView.swift` / `ChatFoldersModel.swift` — правило 11.2.1. Бейдж непрочитанных может читаться отдельным числом, а не значением вкладки. [проверить на iPhone]
-- **Нет подмены VoiceOver для UI-тестов и аудита дерева** — `apps/ios/Sources/Features/Chats/Thread/MessageListView.swift:1171`, `Tests/StudentHubUITests/MockUITestCase.swift` — правила 11.5.1, 11.5.2. Ветку «под VoiceOver» и механические ошибки разметки (элемент без метки, дубль) CI не проверяет. [расходится] [исправлено, волна 4]
+- **Нет подмены VoiceOver для UI-тестов и аудита дерева** — `apps/ios/Sources/Features/Chats/Thread/MessageListView.swift:1171`, `Tests/StudentHubUITests/MockUITestCase.swift` — правила 11.5.1, 11.5.2. Ветку «под VoiceOver» и механические ошибки разметки (элемент без метки, дубль) CI не проверяет. [расходится] [исправлено, волна 4; аудит на mock в ios-nightly мягко (continue-on-error), волна 5]
 #### §12. Раскладка под устройства
 
 - **`UIScreen.main` в раскладке** — `apps/ios/Sources/Features/Chats/Thread/Menu/KeyboardFrame.swift:27`, `apps/ios/Sources/Features/Feed/StoriesViews.swift:321`, `apps/ios/Sources/Features/Chats/Thread/Attach/PhotoAssets.swift:187` — правило 12.1.1. API устарел с iOS 16; на внешнем экране или в другой сцене рамка клавиатуры и размер медиа посчитаются не для того экрана. [расходится] [исправлено, волна 4]
@@ -8885,14 +8885,14 @@ release-сборка не запускалась.
 #### §14. CI, зависимости, внешние загрузки
 
 - **XcodeGen ставится без версии и суммы** — `.github/workflows/ios.yml:98`, `ios-nightly.yml:52`, `ios-snapshots.yml:42`, `ios-release.yml:35` — правило 14.1.1. Новая версия XcodeGen может молча изменить сгенерированный проект. [расходится] [исправлено, #499]
-- **Версии SPM-пакетов не зафиксированы** — `apps/ios/.gitignore` (`Package.resolved`), `apps/ios/project.yml:31-43`, `apps/ios/Package.swift:21-22` (`from:`) — правила 14.1.1, 14.1.2. CI и локальная сборка берут свежие миноры GRDB, Socket.IO и Sentry, поэтому сборки невоспроизводимы. [решение владельца]
+- **Версии SPM-пакетов не зафиксированы** — `apps/ios/.gitignore` (`Package.resolved`), `apps/ios/project.yml:31-43`, `apps/ios/Package.swift:21-22` (`from:`) — правила 14.1.1, 14.1.2. CI и локальная сборка берут свежие миноры GRDB, Socket.IO и Sentry, поэтому сборки невоспроизводимы. [решено: exact/exactVersion, Package.resolved в git, scripts/check_packages.py, Dependabot swift, волна 5]
 - **Release собирается другим Xcode, чем тесты** — `.github/workflows/ios-release.yml:24` (`macos-15`, без `DEVELOPER_DIR`) против `Xcode_26.6` в `ios.yml:85`, `ios-nightly.yml:37`, `ios-snapshots.yml:29` — правило 14.1.5. TestFlight-сборка не проходила тот компилятор и SDK, на которых прошли тесты, а для стекла iOS 26 нужен SDK Xcode 26. [расходится] [исправлено, #499]
 - **Ключ кеша SPM зависит от всего `project.yml`** — `.github/workflows/ios.yml:106`, `ios-nightly.yml:58`, `ios-snapshots.yml:48` — правило 14.2.1. Любая правка версии или номера сборки зря сбрасывает кеш пакетов. [расходится] [исправлено, #499]
-- **Нет стражей со списками исключений** — `apps/ios/scripts/` — правило 14.4.1. Переводы кода (GRDB вне `Core/`, `URLSession`, открытие ссылок) могут незаметно откатываться назад. [решение владельца]
+- **Нет стражей со списками исключений** — `apps/ios/scripts/` — правило 14.4.1. Переводы кода (GRDB вне `Core/`, `URLSession`, открытие ссылок) могут незаметно откатываться назад. [решено: check_layers.sh — URLSession и открытие ссылок по allowlist, только сужается, волна 5]
 - **Нет удалённого выключателя рискованных функций** — `apps/ios/Sources/App/PerformanceFlags.swift` — правило 14.5.1. Откатить сломанную функцию у пользователей можно только новым выпуском. [решение владельца]
 #### §15. Документация, процесс, работа агентов
 
-- **Список «открыто до выпуска» неполный, `Package.resolved` не закреплён** — `docs/RELEASE_IOS.md:12`, `apps/ios/.gitignore:35`, `apps/ios/README.md:246` — правило 15.7.8. В релизном документе только заглушка `api.example.invalid`; незакреплённые версии SPM и отсутствие иконки всплывут при первой выкладке. [расходится] [список дополнен; `Package.resolved` — решение владельца]
+- **Список «открыто до выпуска» неполный, `Package.resolved` не закреплён** — `docs/RELEASE_IOS.md:12`, `apps/ios/.gitignore:35`, `apps/ios/README.md:246` — правило 15.7.8. В релизном документе только заглушка `api.example.invalid`; незакреплённые версии SPM и отсутствие иконки всплывут при первой выкладке. [расходится] [список дополнен; `Package.resolved` — решено: закреплён в git, волна 5]
 - **Нет карты синхронизации** — `apps/ios/Sources/Core/Realtime/RealtimeCoordinator.swift`, `apps/ios/Sources/Core/Chats/MessageStore.swift`, `apps/ios/Sources/Core/Chats/OutboxService.swift` — правило 15.1.5. Инварианты догона (`lastSeq`, `sinceTs`) размазаны по комментариям, правка синхронизации не обязана их обновлять. [решение владельца]
 
 ---

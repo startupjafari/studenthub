@@ -6,22 +6,16 @@ import XCTest
 /// Рядом со снимком экрана прикладывается дерево `app.debugDescription`: флаги аудита —
 /// только подсказки, отсутствующий элемент видно лишь по снимку и дереву.
 ///
-/// Пропускается без `SH_UITEST_LOGIN`, как сценарии на живом сервере: прогон по просьбе
-/// владельца, пока первый отчёт аудита не разобран, — иначе CI краснел бы от уже
-/// существующих находок, а не от новых.
+/// Данные — mock API, учётка не нужна. Свой набор `scripts/test.sh a11y` (из ui и ui-extended
+/// исключён): ночной ios-nightly гоняет его отдельным шагом с `continue-on-error`, пока
+/// первый отчёт аудита не разобран, — иначе прогон краснел бы от уже известных находок.
+/// Когда находки исправлены, шаг становится обязательным.
 final class AccessibilityAuditUITests: MockUITestCase {
     /// Классы ошибок правила: интерактивный элемент без метки (`sufficientElementDescription`);
     /// дубль, «голая» картинка, голый текст внутри контрола (`elementDetection`); элемент вне
     /// экрана или нулевого размера (`hitRegion`). Контраст и крупный шрифт — вопросы
     /// оформления, у них свои правила и проверка глазами.
     private let audited: XCUIAccessibilityAuditType = [.sufficientElementDescription, .elementDetection, .hitRegion]
-
-    override func setUpWithError() throws {
-        guard let login = ProcessInfo.processInfo.environment["SH_UITEST_LOGIN"], !login.isEmpty else {
-            throw XCTSkip("Нет SH_UITEST_LOGIN — аудит доступности пропущен, как сценарии на живом сервере")
-        }
-        try super.setUpWithError()
-    }
 
     func testSignInScreen() throws {
         relaunch(environment: ["SH_UITEST_SCENARIO": Scenario.signedOut.rawValue])
