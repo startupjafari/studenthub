@@ -867,13 +867,15 @@ final class ChatThreadModel {
         isLoadingNewer = true
         defer { isLoadingNewer = false }
         do {
+            // Отметка — до запроса: сверка страницы не трогает пришедшее, пока она в пути.
+            let mark = try? await store.reconcileMark()
             let page = try await api.newerMessages(chatID: chatID, after: cursor, limit: ChatsAPI.messagePageLimit)
             guard generation == windowGeneration else { return }
             // Страница и сдвиг границы — одним кадром: срез со страницей, но со старой
             // границей, на миг показал бы окно без неё.
             snapshotHolds += 1
             do {
-                try await store.save(messages: page.items, chatID: chatID)
+                try await store.save(messages: page.items, chatID: chatID, reconcilingUpTo: mark)
             } catch {
                 releaseSnapshot()
                 throw error
@@ -1448,6 +1450,7 @@ final class ChatThreadModel {
         let generation = windowGeneration
 
         do {
+            let mark = try? await store.reconcileMark()
             let page = try await api.messages(
                 chatID: chatID,
                 cursor: olderCursor,
@@ -1455,7 +1458,7 @@ final class ChatThreadModel {
             )
             // Пока страница шла, ленту заменили окном: она из другого места истории.
             guard generation == windowGeneration else { return }
-            try await store.save(messages: page.items, chatID: chatID)
+            try await store.save(messages: page.items, chatID: chatID, reconcilingUpTo: mark)
             olderCursor = page.meta?.cursor
             reachedBeginning = page.meta?.hasNext != true
             // Страница легла ниже окна — окно опускается до неё, иначе её не было бы видно.
@@ -1522,8 +1525,9 @@ final class ChatThreadModel {
     /// Последняя страница чата.
     @MainActor
     private func fetchLatest() async throws {
+        let mark = try? await store.reconcileMark()
         let page = try await api.messages(chatID: chatID, cursor: nil, limit: ChatsAPI.messagePageLimit)
-        try await store.save(messages: page.items, chatID: chatID, isHead: true)
+        try await store.save(messages: page.items, chatID: chatID, isHead: true, reconcilingUpTo: mark)
         olderCursor = page.meta?.cursor
         reachedBeginning = page.meta?.hasNext != true
     }

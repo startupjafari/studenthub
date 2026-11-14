@@ -96169,6 +96169,23 @@
         }
       }
     },
+    "chats.preview.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сообщение не поддерживается этой версией — обновите приложение"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бұл хабарламаны қолданбаның осы нұсқасы көрсете алмайды — қолданбаны жаңартыңыз"
+          }
+        }
+      }
+    },
     "chats.scan.fileName": {
       "extractionState": "manual",
       "localizations": {

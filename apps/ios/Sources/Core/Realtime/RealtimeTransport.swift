@@ -36,6 +36,12 @@ actor SocketIORealtimeTransport: RealtimeTransport {
     private let continuation: AsyncStream<RealtimeEvent>.Continuation
     private let manager: SocketManager
     private let socket: SocketIOClient
+    /// Своя последовательная очередь библиотеки (`handleQueue`): по умолчанию socket.io
+    /// разбирает кадры и зовёт обработчики на главной, и пачка событий после
+    /// переподключения (словари, `ChatMessageDTO`) давала рывки ленты (IOS_RULES 13.1.9).
+    /// Библиотека не потокобезопасна — всё обращение к сокету идёт через эту же очередь,
+    /// а на главный уходит только готовое событие через поток `events`.
+    private let queue = DispatchQueue(label: "kz.studenthub.realtime", qos: .userInitiated)
     /// Обработчики вешаются один раз на жизнь сокета. Повторная подписка при каждом
     /// входе удваивала бы каждое событие — по сообщению на каждый прошлый вход.
     private var subscribed = false
@@ -51,7 +57,7 @@ actor SocketIORealtimeTransport: RealtimeTransport {
         // `disconnected`, тот подключается заново с токеном, который выдаст сессия.
         manager = SocketManager(
             socketURL: Self.origin(of: baseURL),
-            config: [.compress, .reconnects(false), .forceWebsockets(true)]
+            config: [.compress, .reconnects(false), .forceWebsockets(true), .handleQueue(queue)]
         )
         socket = manager.defaultSocket
     }
@@ -63,42 +69,50 @@ actor SocketIORealtimeTransport: RealtimeTransport {
     func connect(token: String) async {
         subscribe()
         // Токен уходит в CONNECT-пакет: сервер читает его из `handshake.auth.token`.
-        socket.connect(withPayload: ["token": token])
+        onQueue { $0.connect(withPayload: ["token": token]) }
     }
 
     func disconnect() async {
-        socket.disconnect()
+        onQueue { $0.disconnect() }
     }
 
     func refresh(token: String) async {
-        socket.emit(RealtimeEvent.Name.authRefresh, ["token": token])
+        emit(RealtimeEvent.Name.authRefresh, ["token": token])
     }
 
     func join(chatID: String) async {
-        socket.emit(RealtimeEvent.Name.join, ["chatId": chatID])
+        emit(RealtimeEvent.Name.join, ["chatId": chatID])
     }
 
     func leave(chatID: String) async {
-        socket.emit(RealtimeEvent.Name.leave, ["chatId": chatID])
+        emit(RealtimeEvent.Name.leave, ["chatId": chatID])
     }
 
     func markRead(chatID: String, messageID: String) async {
-        socket.emit(RealtimeEvent.Name.read, ["chatId": chatID, "messageId": messageID])
+        emit(RealtimeEvent.Name.read, ["chatId": chatID, "messageId": messageID])
     }
 
     func send(action: String?, chatID: String) async {
-        socket.emit(
-            RealtimeEvent.Name.action,
-            ["chatId": chatID, "action": action as Any]
-        )
+        emit(RealtimeEvent.Name.action, ["chatId": chatID, "action": action as Any])
     }
 
     func edit(messageID: String, content: String) async {
-        socket.emit(RealtimeEvent.Name.edit, ["messageId": messageID, "content": content])
+        emit(RealtimeEvent.Name.edit, ["messageId": messageID, "content": content])
     }
 
     func delete(messageID: String) async {
-        socket.emit(RealtimeEvent.Name.delete, ["messageId": messageID])
+        emit(RealtimeEvent.Name.delete, ["messageId": messageID])
+    }
+
+    /// Работа с сокетом — на его очереди. Последовательная очередь сохраняет порядок
+    /// вызовов актора: подписка ляжет раньше подключения, вход в комнату — раньше прочтения.
+    private func onQueue(_ work: @escaping (SocketIOClient) -> Void) {
+        let socket = socket
+        queue.async { work(socket) }
+    }
+
+    private func emit(_ name: String, _ payload: [String: Any]) {
+        onQueue { $0.emit(name, payload) }
     }
 
     // MARK: - Подписка
@@ -107,11 +121,13 @@ actor SocketIORealtimeTransport: RealtimeTransport {
         guard !subscribed else { return }
         subscribed = true
 
-        socket.on(clientEvent: .connect) { [continuation] _, _ in
-            continuation.yield(.connected)
-        }
-        socket.on(clientEvent: .disconnect) { [continuation] _, _ in
-            continuation.yield(.disconnected)
+        onQueue { [continuation] socket in
+            socket.on(clientEvent: .connect) { _, _ in
+                continuation.yield(.connected)
+            }
+            socket.on(clientEvent: .disconnect) { _, _ in
+                continuation.yield(.disconnected)
+            }
         }
 
         on(RealtimeEvent.Name.messageNew) { payload in
@@ -243,10 +259,13 @@ actor SocketIORealtimeTransport: RealtimeTransport {
         }
     }
 
+    /// Обработчик зовётся на `queue`: разбор полезной нагрузки идёт там же, вне главного.
     private func on(_ name: String, _ map: @escaping ([String: Any]) -> RealtimeEvent?) {
-        socket.on(name) { [continuation] data, _ in
-            guard let payload = data.first as? [String: Any], let event = map(payload) else { return }
-            continuation.yield(event)
+        onQueue { [continuation] socket in
+            socket.on(name) { data, _ in
+                guard let payload = data.first as? [String: Any], let event = map(payload) else { return }
+                continuation.yield(event)
+            }
         }
     }
 

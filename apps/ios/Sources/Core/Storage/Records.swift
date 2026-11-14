@@ -116,6 +116,10 @@ struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Hashable {
     /// Реакции, пересылка, превью ссылки, карточки, опрос. `nil` у своего
     /// неотправленного: подробностей у него ещё нет.
     var extras: MessageExtras? = nil
+    /// Сервер отказал по существу (403, 422): строка остаётся «не отправлено», но сама
+    /// больше не повторяется и не держит очередь чата — только по кнопке человека
+    /// (IOS_RULES 9.3.1).
+    var sendRejected: Bool = false
 
     enum Columns {
         static let id = Column(CodingKeys.id)
@@ -126,6 +130,7 @@ struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Hashable {
         static let content = Column(CodingKeys.content)
         static let createdAt = Column(CodingKeys.createdAt)
         static let sendState = Column(CodingKeys.sendState)
+        static let sendRejected = Column(CodingKeys.sendRejected)
     }
 }
 

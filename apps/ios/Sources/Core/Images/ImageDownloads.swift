@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import os
 
 /// Одна загрузка на картинку, сколько бы ячеек её ни ждало (итерация 6, п. 36 аудита).
@@ -97,7 +98,10 @@ actor ImageDownloads {
                 Task { await self.report(key, id: id, fraction: fraction) }
             }
             guard let fetched else { return nil }
-            if let expires = fetched.expires {
+            // На диск — только то, что действительно картинка: «загрузка завершилась» ещё
+            // не значит «получено». Испорченный ответ с верным `Content-Type` иначе жил бы
+            // в кеше до семи дней (IOS_RULES 9.5.16).
+            if let expires = fetched.expires, Self.isImage(fetched.data) {
                 disk.store(fetched.data, for: key, expires: expires, generation: generation)
             }
             return fetched.data
@@ -130,6 +134,17 @@ actor ImageDownloads {
         } else {
             entries[key] = entry
         }
+    }
+
+    /// Байты разбираются как картинка: формат узнан и у первого кадра есть размеры —
+    /// заголовок читается без распаковки кадра.
+    static func isImage(_ data: Data) -> Bool {
+        guard
+            let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+            CGImageSourceGetType(source) != nil, CGImageSourceGetCount(source) > 0
+        else { return false }
+        let size = ImageDownsampler.pixelSize(of: source)
+        return size.width > 0 && size.height > 0
     }
 
     /// Загрузка закончилась — следующий запрос начнёт новую (уже с диска или из памяти).

@@ -18,14 +18,53 @@ struct MessageStore: Sendable {
     /// `isHead` — это последняя страница чата (без курсора): у ни разу не сверенного чата
     /// с неё начинается позиция догона. Остальные страницы двигают позицию, только если
     /// примыкают к ней (`SyncPosition`).
-    func save(messages: [ChatMessageDTO], chatID: String, isHead: Bool = false) async throws {
+    ///
+    /// `reconcilingUpTo` — отметка `reconcileMark()`, взятая до запроса страницы: тогда
+    /// страница сверяется с базой (IOS_RULES 9.3.12). Сервер отдаёт страницу непрерывно
+    /// по `seq` без удалённого и скрытого «у меня», поэтому подтверждённое сообщение с
+    /// номером внутри страницы, которого в ней нет, удалено — помечаем мягко, как догон.
+    /// Без этого удалённое за время, которое догон не покрыл, оставалось в ленте навсегда.
+    func save(
+        messages: [ChatMessageDTO],
+        chatID: String,
+        isHead: Bool = false,
+        reconcilingUpTo mark: Int64? = nil
+    ) async throws {
         guard !messages.isEmpty else { return }
         try await database.writer.write { db in
             for message in messages {
                 try Self.upsert(message, in: db)
             }
+            if let mark { try Self.reconcile(chatID: chatID, with: messages, upTo: mark, in: db) }
             try Self.advance(chatID: chatID, by: messages, isHead: isHead, in: db)
         }
+    }
+
+    /// Отметка для сверки страницы: строки с `rowid` не выше неё лежали в базе до запроса.
+    func reconcileMark() async throws -> Int64 {
+        try await database.reader.read { db in
+            try Int64.fetchOne(db, sql: "SELECT IFNULL(MAX(rowid), 0) FROM \(MessageRecord.databaseTableName)") ?? 0
+        }
+    }
+
+    /// Сверка страницы с базой. Помечаем только то, что точно отсутствовало в ответе:
+    /// - диапазон — от меньшего до большего номера страницы, не дальше подтверждённого;
+    /// - только строки, лежавшие в базе до запроса (`rowid <= mark`): пришедшее, пока
+    ///   страница была в пути (сокет, догон), под сверку не попадает;
+    /// - только пришедшие с сервера (`id = remoteId`): своё неотправленное сервер ещё не
+    ///   знает, а своё подтверждённое могло получить номер, пока страница была в пути.
+    static func reconcile(chatID: String, with page: [ChatMessageDTO], upTo mark: Int64, in db: Database) throws {
+        let seqs = page.compactMap(\.seq)
+        guard let low = seqs.min(), let high = seqs.max() else { return }
+        let deletedAt = Column("deletedAt")
+        try MessageRecord
+            .filter(MessageRecord.Columns.chatId == chatID)
+            .filter(MessageRecord.Columns.sendState == MessageSendState.sent.rawValue)
+            .filter(sql: "id = remoteId AND rowid <= ?", arguments: [mark])
+            .filter(MessageRecord.Columns.seq >= low && MessageRecord.Columns.seq <= high)
+            .filter(deletedAt == nil)
+            .filter(!page.map(\.id).contains(MessageRecord.Columns.remoteId))
+            .updateAll(db, deletedAt.set(to: Date()))
     }
 
     /// Применить догон. Порядок важен: сначала правки и новые сообщения, потом
@@ -192,6 +231,24 @@ struct MessageStore: Sendable {
                 chat.lastSeq = top
                 chat.syncSeq = top
                 try chat.update(db)
+            }
+        }
+    }
+
+    /// Свежее состояние общего списка из `checklist:updated` — в сохранённые сообщения с
+    /// ним (IOS_RULES 9.8.17). Id сообщения событие не несёт: ищем по id списка в `extras`,
+    /// а `LIKE` лишь сужает выборку — совпадение проверяется разобранной моделью.
+    /// Неизменённое не пишем: повтор того же события не будит ленту.
+    func save(checklist: MessageExtras.Checklist, chatID: String?) async throws {
+        try await database.writer.write { db in
+            var request = MessageRecord.filter(sql: "extras LIKE '%' || ? || '%'", arguments: [checklist.id])
+            if let chatID {
+                request = request.filter(MessageRecord.Columns.chatId == chatID)
+            }
+            for var row in try request.fetchAll(db) where row.extras?.checklist?.id == checklist.id {
+                guard row.extras?.checklist != checklist else { continue }
+                row.extras?.checklist = checklist
+                try row.update(db)
             }
         }
     }

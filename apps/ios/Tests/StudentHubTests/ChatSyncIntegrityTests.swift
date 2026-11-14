@@ -197,6 +197,92 @@ final class ChatSyncIntegrityTests: XCTestCase {
         XCTAssertNil(ReadVisibility.readMark(in: rows, lowestVisible: "нет", viewerID: "u-me"))
     }
 
+    // MARK: - Сверка страницы (9.3.12)
+
+    /// Сообщение с номером внутри страницы, которого в ней нет, удалено на сервере —
+    /// помечается мягко. Вне диапазона страницы и пришедшее во время запроса не трогается.
+    func testPageReconcilesOnlyCoveredRangeAndRowsKnownBeforeRequest() async throws {
+        let database = try AppDatabase.inMemory()
+        try await seedChat(in: database, syncSeq: 0)
+        let store = MessageStore(database: database)
+        try await store.save(
+            messages: [2, 3, 4, 5, 9].map { dto(id: "m-\($0)", seq: $0) },
+            chatID: "c-1"
+        )
+        let mark = try await store.reconcileMark()
+        // Пока страница в пути, сокет принёс m-6: его в ответе нет, но сверке он не по зубам.
+        try await store.save(messages: [dto(id: "m-6", seq: 6)], chatID: "c-1")
+
+        try await store.save(
+            messages: [dto(id: "m-3", seq: 3), dto(id: "m-7", seq: 7)],
+            chatID: "c-1",
+            reconcilingUpTo: mark
+        )
+
+        let rows = try await database.reader.read { db in
+            try MessageRecord.fetchAll(db).reduce(into: [String: Bool]()) { $0[$1.id] = $1.deletedAt != nil }
+        }
+        XCTAssertEqual(rows["m-2"], false, "ниже страницы — не покрыто")
+        XCTAssertEqual(rows["m-3"], false)
+        XCTAssertEqual(rows["m-4"], true)
+        XCTAssertEqual(rows["m-5"], true)
+        XCTAssertEqual(rows["m-6"], false, "пришло во время запроса")
+        XCTAssertEqual(rows["m-7"], false)
+        XCTAssertEqual(rows["m-9"], false, "выше страницы — не покрыто")
+    }
+
+    /// Неотправленное и своё подтверждённое (локальный ключ) сверка не трогает.
+    func testPageReconcileSkipsOwnRows() async throws {
+        let database = try AppDatabase.inMemory()
+        try await seedChat(in: database, syncSeq: 0)
+        try await database.writer.write { [self] db in
+            try pending(id: "local-1", at: 1_800_000_000).insert(db)
+            var own = pending(id: "local-2", at: 1_800_000_000)
+            own.remoteId = "srv-own"
+            own.seq = 4
+            own.sendState = .sent
+            try own.insert(db)
+        }
+        let store = MessageStore(database: database)
+        let mark = try await store.reconcileMark()
+
+        try await store.save(messages: [dto(id: "m-3", seq: 3), dto(id: "m-5", seq: 5)], chatID: "c-1", reconcilingUpTo: mark)
+
+        let deleted = try await database.reader.read { db in
+            try MessageRecord.filter(Column("deletedAt") != nil).fetchCount(db)
+        }
+        XCTAssertEqual(deleted, 0)
+    }
+
+    // MARK: - Живое состояние карточки (9.8.17)
+
+    func testChecklistUpdateIsWrittenIntoStoredMessage() async throws {
+        let database = try AppDatabase.inMemory()
+        try await seedChat(in: database, syncSeq: 0)
+        let old = MessageExtras.Checklist(id: "cl-1", title: "Покупки", items: [
+            .init(id: "i-1", text: "хлеб", done: false),
+        ])
+        try await database.writer.write { db in
+            var row = MessageRecord(
+                id: "m-1", remoteId: "m-1", chatId: "c-1", seq: 1, senderId: "u-1", content: "",
+                replyToId: nil, replyQuote: nil, systemType: nil, editedAt: nil, deletedAt: nil,
+                pinnedAt: nil, createdAt: Date(timeIntervalSince1970: 1_800_000_000), sendState: .sent
+            )
+            var extras = MessageExtras()
+            extras.checklist = old
+            row.extras = extras
+            try row.insert(db)
+        }
+        let fresh = MessageExtras.Checklist(id: "cl-1", title: "Покупки", items: [
+            .init(id: "i-1", text: "хлеб", done: true),
+        ])
+
+        try await MessageStore(database: database).save(checklist: fresh, chatID: "c-1")
+
+        let stored = try await database.reader.read { db in try MessageRecord.fetchOne(db, key: "m-1") }
+        XCTAssertEqual(stored?.extras?.checklist, fresh)
+    }
+
     // MARK: - Помощники
 
     private func row(id: String, sender: String, remote: Bool = true) -> MessageRecord {

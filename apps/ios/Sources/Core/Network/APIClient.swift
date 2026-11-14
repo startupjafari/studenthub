@@ -60,24 +60,29 @@ actor APIClient {
     }()
 
     /// Запрос с телом ответа.
-    func send<Response: Decodable>(_ endpoint: Endpoint, as type: Response.Type) async throws -> Response {
+    ///
+    /// `nonisolated`: в акторе — только отправка и учёт токена, а разбор JSON идёт уже
+    /// вне его, на общем пуле. Иначе большая страница (история, список чатов) держала бы
+    /// очередь актора, и все остальные запросы приложения ждали бы её разбора
+    /// (IOS_RULES 13.1.8).
+    nonisolated func send<Response: Decodable>(_ endpoint: Endpoint, as type: Response.Type) async throws -> Response {
         let data = try await perform(endpoint, cacheable: true)
-        do {
-            return try JSONCoding.decoder.decode(APISuccessEnvelope<Response>.self, from: data).data
-        } catch {
-            // Сохранённый ответ не разобрался новой моделью — тоже промах кеша.
-            ScreenCache.scope?.misses.record()
-            throw APIError.decoding(underlying: error, statusCode: 200)
-        }
+        return try Self.decode(APISuccessEnvelope<Response>.self, from: data).data
     }
 
     /// Запрос со страницей списка: данные и курсоры приходят рядом, в одном конверте.
-    func page<Item: Decodable>(_ endpoint: Endpoint, of type: Item.Type) async throws -> Page<Item> {
+    nonisolated func page<Item: Decodable>(_ endpoint: Endpoint, of type: Item.Type) async throws -> Page<Item> {
         let data = try await perform(endpoint, cacheable: true)
+        let envelope = try Self.decode(APISuccessEnvelope<[Item]>.self, from: data)
+        return Page(items: envelope.data, meta: envelope.meta)
+    }
+
+    /// Разбор ответа над готовыми байтами — без состояния актора.
+    private static func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
         do {
-            let envelope = try JSONCoding.decoder.decode(APISuccessEnvelope<[Item]>.self, from: data)
-            return Page(items: envelope.data, meta: envelope.meta)
+            return try JSONCoding.decoder.decode(type, from: data)
         } catch {
+            // Сохранённый ответ не разобрался новой моделью — тоже промах кеша.
             ScreenCache.scope?.misses.record()
             throw APIError.decoding(underlying: error, statusCode: 200)
         }
