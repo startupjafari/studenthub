@@ -23,6 +23,10 @@ final class MessageStackLayout: UICollectionViewLayout {
 
     override func prepare() {
         super.prepare()
+        ScrollJankMonitor.shared.measure(.layoutQuery) { rebuildGeometry() }
+    }
+
+    private func rebuildGeometry() {
         guard let collectionView else { return }
         width = collectionView.bounds.width
         let header = Double(headerHeight())
@@ -43,6 +47,10 @@ final class MessageStackLayout: UICollectionViewLayout {
     }
 
     override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
+        ScrollJankMonitor.shared.measure(.layoutQuery) { attributes(in: rect) }
+    }
+
+    private func attributes(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
         let band = geometry.elements(from: Double(rect.minY), to: Double(rect.maxY))
         var result: [UICollectionViewLayoutAttributes] = []
         result.reserveCapacity(band.headers.count + band.items.count)
@@ -111,6 +119,7 @@ final class MessageStackLayout: UICollectionViewLayout {
         Signposts.chats.emitEvent("CellRemeasure")
         // Выросла строка целиком выше видимого — то, что под пальцем, не двигается.
         let top = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
+        ScrollJankMonitor.shared.noteRemeasure(above: original.frame.minY < top - 0.5)
         let shift = MessageStackGeometry.offsetAdjustment(itemMinY: Double(original.frame.minY), delta: delta, visibleTop: Double(top))
         if shift != 0 {
             context.contentOffsetAdjustment = CGPoint(x: 0, y: max(CGFloat(shift), -(collectionView.contentOffset.y + collectionView.adjustedContentInset.top)))

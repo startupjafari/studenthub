@@ -61,6 +61,11 @@ struct AppShellView: View {
             Task { await AppServices.outbox.kick() }
             // Пуш, нажатый на холодном старте, ждал роли — теперь она есть.
             router.openPending(for: role)
+            // Замер плавности ленты (`ScrollBenchmark`, только Debug): чат открывается сам —
+            // ссылка через `simctl openurl` упиралась в системный вопрос «Открыть в…».
+            if let chat = ScrollBenchmark.chatToOpen {
+                _ = router.open(.chat(id: chat), for: role)
+            }
             // Разрешение спрашиваем здесь, а не на экране входа: до входа уведомлять
             // человека не о чем, и запрос выглядел бы попрошайничеством.
             await PushRegistrar().requestAuthorization()

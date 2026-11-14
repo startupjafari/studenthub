@@ -13,6 +13,10 @@ final class PerformanceFlagUITests: MockUITestCase {
         app.descendants(matching: .any)["chat.messages"].firstMatch
     }
 
+    /// Отправная точка сравнения: флаги второй волны выключены, ожидаемые высоты строк
+    /// (первая волна, `chatEstimatedHeights`) — как в сборке.
+    private static let baseline = "all=0,chatEstimatedHeights=1"
+
     private func bubble(_ position: Int, chat: String = MockUITestCase.firstChatID) -> XCUIElement {
         app.descendants(matching: .any)["message.bubble.\(chat)-m\(position)"].firstMatch
     }
@@ -48,8 +52,8 @@ final class PerformanceFlagUITests: MockUITestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        let off = captureChat(flags: "all=0", file: file, line: line)
-        let on = captureChat(flags: "all=0,\(flag)=1", file: file, line: line)
+        let off = captureChat(flags: Self.baseline, file: file, line: line)
+        let on = captureChat(flags: "\(Self.baseline),\(flag)=1", file: file, line: line)
 
         for (name, before, after) in [
             ("внизу", off.bottom, on.bottom),
