@@ -201,6 +201,8 @@ private final class StubAttachments: AttachmentSending, @unchecked Sendable {
         throw APIError.malformedResponse(statusCode: 0)
     }
 
+    func abortMultipart(chatID: String, key: String, uploadID: String) async throws {}
+
     func sendUploaded(
         chatID: String,
         content: String?,

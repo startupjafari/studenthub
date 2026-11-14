@@ -783,10 +783,13 @@ struct SpoilerDust: View {
 /// Альбом из нескольких снимков и роликов мозаикой, как в Telegram: два — рядом, три —
 /// один широкий сверху и два под ним, четыре — два на два, дальше — ряды по два и три.
 /// Зазор 2 pt, скруглены только внешние углы всей мозаики. Загрузка своего альбома —
-/// одно кольцо поверх всей мозаики: отправка у сообщения одна.
+/// кольцо с крестиком на каждой плитке (`tileUpload`), как в Telegram.
 struct ChatMediaMosaic: View {
     let items: [AttachmentRecord]
     var upload: AttachmentUploadState?
+    /// Своя загрузка у каждой плитки: кольцо и крестик на каждой, общего кольца нет.
+    /// Неудача (`upload.retry`) — по-прежнему один круг «повторить» на всю мозаику.
+    var tileUpload: ((AttachmentRecord) -> AttachmentUploadState)?
     let open: (AttachmentRecord) -> Void
 
     @Environment(\.chatMediaCorners) private var bubbleCorners
@@ -817,7 +820,8 @@ struct ChatMediaMosaic: View {
             ForEach(Array(items.enumerated()), id: \.element.id) { index, attachment in
                 ChatMediaTile(
                     attachment: attachment,
-                    nominal: Self.tileSize(columns: index < columns.count ? columns[index] : 3)
+                    nominal: Self.tileSize(columns: index < columns.count ? columns[index] : 3),
+                    upload: perTile ? tileUpload?(attachment) : nil
                 ) {
                     open(attachment)
                 }
@@ -832,11 +836,16 @@ struct ChatMediaMosaic: View {
                         label: String(localized: "chats.retrySend", defaultValue: "Отправить ещё раз"),
                         action: retryUpload
                     )
-                } else {
+                } else if !perTile {
                     UploadRing(fraction: upload.fraction, cancel: upload.cancel)
                 }
             }
         }
+    }
+
+    /// Кольца на плитках — только пока альбом уходит; неудача рисуется одним кругом.
+    private var perTile: Bool {
+        tileUpload != nil && upload?.retry == nil
     }
 
     /// Альбом без подписи — углы пузыря, с подписью — обычное скругление.

@@ -414,6 +414,23 @@ final class ChatThreadModel {
         }
     }
 
+    /// Крестик на плитке своего альбома: этот файл не уходит, остальные едут дальше.
+    /// Последний оставшийся — то же, что отмена всего сообщения.
+    @MainActor
+    func cancelUpload(_ file: AttachmentRecord, in message: MessageRecord) async {
+        guard message.remoteId == nil else { return }
+        let files = days.lazy.flatMap(\.items).first(where: { $0.message.id == message.id })?.attachments ?? []
+        guard files.count > 1, files.contains(where: { $0.id == file.id }) else {
+            await cancelUpload(message)
+            return
+        }
+        let uploads = AttachmentUploads.shared
+        // Идёт или ждёт очереди — сначала загрузке: поздно (файлы в хранилище, сообщение
+        // уже отправляется) — ничего не трогаем, сервер запишет его целиком.
+        if uploads.runningIDs.contains(message.id), !uploads.removeFile(file.id, from: message.id) { return }
+        await uploader.removeFile(file.id, messageID: message.id)
+    }
+
     private static func action(for mime: String, name: String?) -> String {
         if mime.hasPrefix("audio/") { return "RECORDING_VOICE" }
         if mime.hasPrefix("image/") { return "UPLOADING_PHOTO" }

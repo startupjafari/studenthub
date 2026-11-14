@@ -55,6 +55,32 @@ struct MultipartAttachmentUpload: Sendable {
         progress: @escaping @Sendable (_ part: Int, _ sent: Int64) -> Void
     ) async throws -> Result {
         let target = try await api.startMultipart(chatID: chatID, mime: mime, size: size)
+        do {
+            return try await upload(file: file, size: size, target: target, progress: progress)
+        } catch {
+            // Крестик, обрыв, сбой части — загрузка брошена: повтор начнёт новую, а
+            // залитые части этой серверу больше не нужны.
+            abandon(key: target.key, uploadID: target.uploadId)
+            throw error
+        }
+    }
+
+    /// Бросить загрузку на сервере. Отдельной задачей и без ожидания: вызывающая задача
+    /// часто уже отменена (крестик), и запрос из неё оборвался бы, не уйдя.
+    func abandon(key: String, uploadID: String) {
+        let api = api
+        let chatID = chatID
+        Task.detached {
+            try? await api.abortMultipart(chatID: chatID, key: key, uploadID: uploadID)
+        }
+    }
+
+    private func upload(
+        file: URL,
+        size: Int,
+        target: MultipartUploadTarget,
+        progress: @escaping @Sendable (_ part: Int, _ sent: Int64) -> Void
+    ) async throws -> Result {
         let session = MultipartSession(api: api, chatID: chatID, target: target)
         try await session.signAll()
 
@@ -219,7 +245,7 @@ private actor MultipartSession {
 /// готовых файлов: иначе стомегабайтный ролик и снимок двигали бы полосу одинаково.
 final class UploadTally: @unchecked Sendable {
     private let lock = NSLock()
-    private let total: Int64
+    private var total: Int64
     private let onChange: @Sendable (Double) -> Void
     private var sent: [String: Int64] = [:]
     private var reported: Double = -1
@@ -233,15 +259,31 @@ final class UploadTally: @unchecked Sendable {
     func set(_ key: String, _ bytes: Int64) {
         let fraction: Double? = lock.withLock {
             sent[key] = bytes
-            guard total > 0 else { return nil }
-            let value = min(1, Double(sent.values.reduce(0, +)) / Double(total))
-            // Перерисовка на каждый отправленный килобайт — лишняя работа главному потоку:
-            // шаг в процент глазу не отличить от плавного.
-            guard abs(value - reported) >= 0.01 || (value == 1 && reported != 1) else { return nil }
-            reported = value
-            return value
+            return fractionIfChanged()
         }
         if let fraction { onChange(fraction) }
+    }
+
+    /// Файл убран из отправки (крестик на плитке альбома): его байты больше не ждём, иначе
+    /// общая доля так и не дошла бы до конца.
+    func drop(_ key: String, bytes: Int64) {
+        let fraction: Double? = lock.withLock {
+            total = max(0, total - bytes)
+            sent = sent.filter { $0.key != key && !$0.key.hasPrefix(key + ".") }
+            return fractionIfChanged()
+        }
+        if let fraction { onChange(fraction) }
+    }
+
+    /// Новая доля, если она заметно сдвинулась. Вызывается под замком.
+    private func fractionIfChanged() -> Double? {
+        guard total > 0 else { return nil }
+        let value = min(1, Double(sent.values.reduce(0, +)) / Double(total))
+        // Перерисовка на каждый отправленный килобайт — лишняя работа главному потоку:
+        // шаг в процент глазу не отличить от плавного.
+        guard abs(value - reported) >= 0.01 || (value == 1 && reported != 1) else { return nil }
+        reported = value
+        return value
     }
 }
 
@@ -256,6 +298,17 @@ final class AttachmentUploads {
 
     /// Доля отправленного по локальному id сообщения.
     private(set) var progress: [String: Double] = [:]
+    /// Доля отправленного по каждому файлу (локальный id вложения) — кольцо на своей
+    /// плитке альбома, как в Telegram.
+    private(set) var fileProgress: [String: Double] = [:]
+    /// Файлы, убранные из отправки крестиком на плитке, — по id сообщения.
+    @ObservationIgnored private var removedFiles: [String: Set<String>] = [:]
+    /// Файл, который уходит сейчас, и как остановить только его.
+    @ObservationIgnored private var currentFile: [String: (id: String, stop: @Sendable () -> Void)] = [:]
+    /// Файлы сообщения, о которых приходили доли, — чтобы убрать их вместе с ним.
+    @ObservationIgnored private var reportedFiles: [String: Set<String>] = [:]
+    /// Файлы уже в хранилище, сообщение отправляется: состав больше не меняется.
+    @ObservationIgnored private var sealed: Set<String> = []
     @ObservationIgnored private var tasks: [String: Task<Bool, Never>] = [:]
     /// Поставлены в ленту и ждут своей очереди: альбомы одной отправки уезжают по одному.
     @ObservationIgnored private var queued: Set<String> = []
@@ -283,6 +336,52 @@ final class AttachmentUploads {
         queued.remove(messageID)
         tasks[messageID] = nil
         progress[messageID] = nil
+        for file in reportedFiles.removeValue(forKey: messageID) ?? [] {
+            fileProgress[file] = nil
+        }
+        removedFiles[messageID] = nil
+        currentFile[messageID] = nil
+        sealed.remove(messageID)
+    }
+
+    // MARK: Файлы альбома
+
+    func reportFile(_ fileID: String, of messageID: String, fraction: Double) {
+        guard tasks[messageID] != nil, removedFiles[messageID]?.contains(fileID) != true else { return }
+        reportedFiles[messageID, default: []].insert(fileID)
+        fileProgress[fileID] = fraction
+    }
+
+    func beginFile(_ fileID: String, of messageID: String, stop: @escaping @Sendable () -> Void) {
+        currentFile[messageID] = (fileID, stop)
+    }
+
+    func endFile(of messageID: String) {
+        currentFile[messageID] = nil
+    }
+
+    func isRemoved(_ fileID: String, from messageID: String) -> Bool {
+        removedFiles[messageID]?.contains(fileID) == true
+    }
+
+    /// Закрыть состав сообщения перед отправкой. Ответ — что успели убрать.
+    func seal(_ messageID: String) -> Set<String> {
+        sealed.insert(messageID)
+        return removedFiles[messageID] ?? []
+    }
+
+    /// Крестик на плитке альбома: убрать файл из отправки. Идёт его загрузка — она
+    /// останавливается, альбом едет дальше без него. `false` — поздно: файлы уже в
+    /// хранилище и сообщение отправляется (его состав сервер вот-вот запишет).
+    @discardableResult
+    func removeFile(_ fileID: String, from messageID: String) -> Bool {
+        guard !sealed.contains(messageID) else { return false }
+        removedFiles[messageID, default: []].insert(fileID)
+        fileProgress[fileID] = nil
+        if let current = currentFile[messageID], current.id == fileID {
+            current.stop()
+        }
+        return true
     }
 
     /// Отменить загрузку. `false` — она не идёт (ждёт очереди, оборвана перезапуском или

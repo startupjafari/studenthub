@@ -24,6 +24,9 @@ protocol AttachmentSending: Sendable {
     func partURLs(chatID: String, key: String, uploadID: String, from: Int, to: Int) async throws -> [MultipartPartURL]
     /// PUT одной части; ответ — её ETag, без него сервер объект не соберёт.
     func uploadPart(_ data: Data, to url: URL, progress: @escaping @Sendable (Int64) -> Void) async throws -> String
+    /// Бросить многочастную загрузку (`POST /chats/:id/attachments/multipart/abort`):
+    /// залитые части иначе лежали бы в хранилище до его собственной уборки.
+    func abortMultipart(chatID: String, key: String, uploadID: String) async throws
     /// `nonce` — ключ повтора отправки, как у текста (`ChatMessageSending`).
     func sendUploaded(
         chatID: String,
@@ -113,6 +116,16 @@ extension ChatsAPI: AttachmentSending {
             ),
             as: Response.self
         ).parts
+    }
+
+    func abortMultipart(chatID: String, key: String, uploadID: String) async throws {
+        struct Body: Encodable {
+            let key: String
+            let uploadId: String
+        }
+        try await client.send(
+            try .post("chats/\(chatID)/attachments/multipart/abort", json: Body(key: key, uploadId: uploadID))
+        )
     }
 
     /// Подписанная ссылка самодостаточна: наш `Authorization` хранилищу не нужен и мог бы
@@ -360,6 +373,22 @@ struct AttachmentUploader: Sendable {
         }
     }
 
+    /// Убрать один файл из неотправленного альбома — крестик на его плитке. Запись и
+    /// копия на диске уходят сразу: плитка пропадает из пузыря, не дожидаясь загрузки.
+    func removeFile(_ attachmentID: String, messageID: String) async {
+        let path = try? await database.writer.write { db -> String? in
+            guard
+                let message = try MessageRecord.fetchOne(db, key: messageID), message.remoteId == nil,
+                let file = try AttachmentRecord.fetchOne(db, key: attachmentID), file.messageId == messageID
+            else { return nil }
+            try file.delete(db)
+            return file.localPath
+        }
+        if let path = path ?? nil, path.hasPrefix(Self.outboxDirectory.path) {
+            try? FileManager.default.removeItem(atPath: path)
+        }
+    }
+
     /// Загрузки, оборванные закрытием приложения, так и висели бы «в пути» с часиками:
     /// их некому довести. Такие помечаем неудачными — у пузыря появляется «Повторить».
     func failAbandoned(chatID: String) async {
@@ -399,39 +428,56 @@ struct AttachmentUploader: Sendable {
         let asFiles = locals.contains(where: \.asDocument)
 
         do {
-            var uploads: [AttachmentUpload] = []
+            var uploaded: [(local: AttachmentRecord, upload: AttachmentUpload)] = []
             // По очереди, а не параллельно: внутри многочастной загрузки и так три части
             // в работе, а пять файлов разом только забили бы канал (как в вебе).
             for (index, local) in locals.enumerated() {
-                guard let path = local.localPath else { throw URLError(.fileDoesNotExist) }
-                let file = URL(filePath: path)
                 let size = local.size ?? 0
-                let spoiler: Bool? = local.spoiler ? true : nil
-                if size > Self.multipartThreshold {
-                    let result = try await MultipartAttachmentUpload(api: api, chatID: message.chatId).run(
-                        file: file,
-                        size: size,
-                        mime: local.mime
-                    ) { part, sent in
-                        tally.set("\(index).\(part)", sent)
+                // Крестик на плитке альбома убрал файл, пока до него не дошла очередь.
+                if await AttachmentUploads.shared.isRemoved(local.id, from: messageID) {
+                    tally.drop("\(index)", bytes: Int64(size))
+                    continue
+                }
+                // Каждый файл — своей задачей: крестик на его плитке останавливает только
+                // её, а отмена всего сообщения доходит до неё через обработчик ниже.
+                let step = Task { [api, chatID = message.chatId] () throws -> AttachmentUpload in
+                    try await upload(local, index: index, chatID: chatID, api: api, tally: tally, messageID: messageID)
+                }
+                await AttachmentUploads.shared.beginFile(local.id, of: messageID) { step.cancel() }
+                do {
+                    let result = try await withTaskCancellationHandler {
+                        try await step.value
+                    } onCancel: {
+                        step.cancel()
                     }
-                    uploads.append(AttachmentUpload(
-                        key: result.key,
-                        uploadId: result.uploadID,
-                        name: local.name,
-                        spoiler: spoiler,
-                        parts: result.parts
-                    ))
-                } else {
-                    let ticket = try await api.presign(chatID: message.chatId, mime: local.mime)
-                    try await api.upload(fileAt: file, to: ticket.url, mime: local.mime) { sent in
-                        tally.set("\(index)", sent)
+                    await AttachmentUploads.shared.endFile(of: messageID)
+                    uploaded.append((local, result))
+                } catch {
+                    await AttachmentUploads.shared.endFile(of: messageID)
+                    // Остановлен только этот файл — альбом едет дальше без него.
+                    if !Task.isCancelled, await AttachmentUploads.shared.isRemoved(local.id, from: messageID) {
+                        tally.drop("\(index)", bytes: Int64(size))
+                        continue
                     }
-                    tally.set("\(index)", Int64(size))
-                    uploads.append(AttachmentUpload(key: ticket.key, name: local.name, spoiler: spoiler))
+                    throw error
                 }
                 try Task.checkCancellation()
             }
+
+            // Дальше состав не меняется: крестики на плитках больше не действуют. Файл,
+            // убранный в последний миг (уже залит), просто не попадает в сообщение;
+            // его многочастную загрузку бросаем, чтобы части не лежали в хранилище зря.
+            let removed = await AttachmentUploads.shared.seal(messageID)
+            for item in uploaded where removed.contains(item.local.id) {
+                if let uploadID = item.upload.uploadId {
+                    MultipartAttachmentUpload(api: api, chatID: message.chatId).abandon(key: item.upload.key, uploadID: uploadID)
+                }
+            }
+            let kept = uploaded.filter { !removed.contains($0.local.id) }
+            // Убрали всё — отправлять нечего: уборка как у отмены всего сообщения.
+            guard !kept.isEmpty else { throw CancellationError() }
+            let sentLocals = kept.map(\.local)
+            let uploads = kept.map(\.upload)
 
             // Файлы уже в хранилище — сообщение отправляется до конца и крестиком не
             // прерывается: оборванный на лету запрос мог создать сообщение на сервере, а
@@ -450,7 +496,7 @@ struct AttachmentUploader: Sendable {
                 // Разобранная волна своего голосового переезжает на серверный id вложения
                 // до подтверждения в базе: иначе пузырь, получив новый id, на миг рисовал
                 // запасную волну другой ширины без длительности — и прыгал.
-                for (local, serverFile) in zip(locals, sent.media ?? []) where local.mime.hasPrefix("audio/") {
+                for (local, serverFile) in zip(sentLocals, sent.media ?? []) where local.mime.hasPrefix("audio/") {
                     if let profile = VoiceProfileCache.shared.profile(for: local.id) {
                         VoiceProfileCache.shared.store(profile, for: serverFile.id)
                     }
@@ -462,7 +508,7 @@ struct AttachmentUploader: Sendable {
                     // у сервера тот же, в каком файлы ушли. `upsert`, а не `insert`: если
                     // сообщение уже пришло из сокета, строка с серверным id вложения есть —
                     // вставка упёрлась бы в ключ.
-                    for (local, serverFile) in zip(locals, sent.media ?? []) {
+                    for (local, serverFile) in zip(sentLocals, sent.media ?? []) {
                         var updated = local
                         updated.id = serverFile.id
                         try local.delete(db)
@@ -483,6 +529,51 @@ struct AttachmentUploader: Sendable {
             }.value
             return false
         }
+    }
+
+    /// Один файл — в хранилище: крупный многочастно, остальное одиночным PUT. Доля
+    /// идёт и в общий счётчик сообщения, и в счётчик своей плитки.
+    private func upload(
+        _ local: AttachmentRecord,
+        index: Int,
+        chatID: String,
+        api: AttachmentSending,
+        tally: UploadTally,
+        messageID: String
+    ) async throws -> AttachmentUpload {
+        guard let path = local.localPath else { throw URLError(.fileDoesNotExist) }
+        let file = URL(filePath: path)
+        let size = local.size ?? 0
+        let spoiler: Bool? = local.spoiler ? true : nil
+        let fileID = local.id
+        let own = UploadTally(total: Int64(size)) { fraction in
+            Task { @MainActor in AttachmentUploads.shared.reportFile(fileID, of: messageID, fraction: fraction) }
+        }
+        if size > Self.multipartThreshold {
+            let result = try await MultipartAttachmentUpload(api: api, chatID: chatID).run(
+                file: file,
+                size: size,
+                mime: local.mime
+            ) { part, sent in
+                tally.set("\(index).\(part)", sent)
+                own.set("\(part)", sent)
+            }
+            return AttachmentUpload(
+                key: result.key,
+                uploadId: result.uploadID,
+                name: local.name,
+                spoiler: spoiler,
+                parts: result.parts
+            )
+        }
+        let ticket = try await api.presign(chatID: chatID, mime: local.mime)
+        try await api.upload(fileAt: file, to: ticket.url, mime: local.mime) { sent in
+            tally.set("\(index)", sent)
+            own.set("0", sent)
+        }
+        tally.set("\(index)", Int64(size))
+        own.set("0", Int64(size))
+        return AttachmentUpload(key: ticket.key, name: local.name, spoiler: spoiler)
     }
 
     private func markFailed(_ id: String) async {
