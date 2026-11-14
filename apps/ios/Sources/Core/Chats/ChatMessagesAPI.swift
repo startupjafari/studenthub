@@ -10,6 +10,9 @@ struct ChatUpdatesDTO: Decodable, Equatable {
     let deletedIds: [String]
     let latestSeq: Int
     let overflow: Bool
+    /// Момент до чтения по часам сервера — `sinceTs` следующего догона. `nil` у старого
+    /// сервера.
+    var syncedAt: Date? = nil
 }
 
 /// Маршруты переписки. Отдельно от списка: у ленты свой набор и свои тесты.

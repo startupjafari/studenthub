@@ -48,7 +48,8 @@ enum PerfFixture {
                 othersReadAt: last?.createdAt,
                 lastMessageId: last?.id,
                 lastSeq: count,
-                updatedAt: last?.createdAt ?? now
+                updatedAt: last?.createdAt ?? now,
+                syncSeq: count
             ).insert(db)
             for item in messages {
                 try item.message.insert(db)
