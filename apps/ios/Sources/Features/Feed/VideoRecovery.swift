@@ -11,10 +11,18 @@ import ObjectiveC
 ///
 /// Один экземпляр на плеер (`attach`): карточка ленты отдаёт свой плеер просмотру, и два
 /// наблюдателя пересоздавали бы источник наперегонки.
+/// Свежая ссылка на тот же ролик; `nil` — повторить по прежней. Структура, а не голое замыкание:
+/// замыкание-поле экрана компилятор считал «не Sendable» при передаче в `attach` (предупреждение
+/// «converting non-Sendable function value»), а Sendable-значение передаётся без преобразования.
+struct VideoResign: Sendable {
+    let fetch: @Sendable () async -> URL?
+
+    func callAsFunction() async -> URL? { await fetch() }
+}
+
 @MainActor
 final class VideoRecovery {
-    /// Свежая ссылка на тот же ролик; `nil` — повторить по прежней.
-    typealias Resign = @Sendable () async -> URL?
+    typealias Resign = VideoResign
 
     enum Failure: Equatable {
         /// Обрыв, таймаут, сбой сервера — повторить по той же ссылке.
@@ -199,12 +207,12 @@ final class VideoRecovery {
 extension VideoRecovery {
     /// Свежая ссылка на ролик поста.
     static func post(_ postID: String, fileID: String) -> Resign {
-        { try? await FeedAPI().media(postID: postID, fileID: fileID).playbackURL }
+        VideoResign { try? await FeedAPI().media(postID: postID, fileID: fileID).playbackURL }
     }
 
     /// Свежая ссылка на вложение чата: прежняя сбрасывается из кэша, иначе вернулась бы она же.
     static func chatAttachment(_ fileID: String) -> Resign {
-        {
+        VideoResign {
             let urls = AppServices.attachmentURLs
             await urls.invalidate(fileID)
             guard let media = try? await urls.media(for: fileID) else { return nil }

@@ -1731,7 +1731,7 @@ final class ChatThreadModel {
             let texts = visible.map(\.content)
             RichText.prepare(texts.suffix(onScreen))
             guard !Task.isCancelled else { return }
-            await MainActor.run {
+            await MainActor.run { [weak self] in
                 guard let self, self.buildGeneration == generation else { return }
                 self.days = built
                 self.daysRevision &+= 1

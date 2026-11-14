@@ -1,5 +1,5 @@
 import Foundation
-import SocketIO
+@preconcurrency import SocketIO
 
 /// Соединение с сервером реального времени.
 ///

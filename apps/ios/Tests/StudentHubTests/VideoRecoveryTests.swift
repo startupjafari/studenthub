@@ -33,6 +33,7 @@ final class VideoRecoveryTests: XCTestCase {
     }
 
     /// Паузы растут и не бесконечны: 1, 2, 4, 8, 16 с — потом ошибка остаётся на экране.
+    @MainActor
     func testRetryDelaysGrow() {
         let delays = VideoRecovery.delays
         XCTAssertEqual(delays.first, .seconds(1))

@@ -17,7 +17,7 @@ struct ClipboardPasteButton: UIViewRepresentable {
     func makeCoordinator() -> Target { Target(paste: paste) }
 
     func makeUIView(context: Context) -> UIPasteControl {
-        var configuration = UIPasteControl.Configuration()
+        let configuration = UIPasteControl.Configuration()
         configuration.displayMode = .iconOnly
         configuration.cornerStyle = .capsule
         configuration.baseForegroundColor = UIColor(Palette.primary)
