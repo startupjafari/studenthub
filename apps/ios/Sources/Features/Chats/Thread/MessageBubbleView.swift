@@ -150,13 +150,10 @@ struct MessageBubbleView: View {
                 }
             }
                 .bubbleAnchor(message.id, part: .bubble, enabled: !isMenuPreview)
-                .onTapGesture(count: 2) {
-                    guard !isMenuPreview, !isDeleted, message.remoteId != nil else { return }
-                    reactionTick += 1
-                    onAction(.react(ChatReactions.doubleTap))
-                }
-                // Долгое нажатие ловит лента (UIKit), а не пузырь: то же касание ведёт
-                // и открывшееся меню — к пункту, не отрывая пальца (`MessageMenuTouch`).
+                // Долгое нажатие и двойной тап-реакцию ловит лента (UIKit), а не пузырь:
+                // то же касание ведёт открывшееся меню к пункту, не отрывая пальца
+                // (`MessageMenuTouch`), а двойной тап не ждёт второго касания у кнопок
+                // внутри пузыря и не срабатывает на них (`bubbleControl`).
                 .sensoryFeedback(.impact(weight: .light), trigger: reactionTick)
                 .accessibilityAction(named: Text(String(localized: "chats.menu.actions", defaultValue: "Действия"))) {
                     onAction(.menu)
@@ -228,6 +225,7 @@ struct MessageBubbleView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .bubbleControl(enabled: !isMenuPreview)
                 .layoutValue(key: ChatStretches.self, value: true)
             }
 
@@ -240,43 +238,53 @@ struct MessageBubbleView: View {
                     ChatMediaMosaic(items: mediaAttachments, upload: mediaUpload, tileUpload: tileUpload) { attachment in
                         onAction(.openAttachment(attachment))
                     }
+                    .bubbleControl(enabled: !isMenuPreview)
                     .environment(\.chatMediaCorners, isMediaOnly ? mediaCorners : nil)
                 } else if let single = mediaAttachments.first {
                     AttachmentView(attachment: single, isOwn: item.isOwn, upload: mediaUpload) {
                         onAction(.openAttachment(single))
                     }
+                    .bubbleControl(enabled: !isMenuPreview)
                     .environment(\.chatMediaCorners, isMediaOnly ? mediaCorners : nil)
                 }
                 ForEach(otherAttachments, id: \.id) { attachment in
                     AttachmentView(attachment: attachment, isOwn: item.isOwn, upload: upload) {
                         onAction(.openAttachment(attachment))
                     }
+                    .bubbleControl(enabled: !isMenuPreview)
                 }
                 if let share = profileShare {
                     ProfileShareCard(share: share, isOwn: item.isOwn)
+                        .bubbleControl(enabled: !isMenuPreview)
                         .id(share.userID)
                 }
                 if let post = extras.sharedPost {
                     SharedPostCard(post: post, isOwn: item.isOwn) { onAction(.openPost(post.id)) }
+                        .bubbleControl(enabled: !isMenuPreview)
                         .layoutValue(key: ChatStretches.self, value: true)
                 }
                 if let story = extras.sharedStory {
                     SharedStoryCard(story: story, isOwn: item.isOwn)
+                        .bubbleControl(enabled: !isMenuPreview)
                         .layoutValue(key: ChatStretches.self, value: true)
                 }
                 if let poll = extras.poll {
                     ChatPollView(poll: poll, isOwn: item.isOwn)
+                        .bubbleControl(enabled: !isMenuPreview)
                 }
                 if let location = extras.location {
                     LocationMessageView(location: location, isOwn: item.isOwn, messageID: message.remoteId)
+                        .bubbleControl(enabled: !isMenuPreview)
                 }
                 if let contact = extras.contact {
                     ContactMessageView(contact: contact, isOwn: item.isOwn)
+                        .bubbleControl(enabled: !isMenuPreview)
                 }
                 if let checklist = extras.checklist {
                     ChecklistMessageView(
                         checklist: checklist, isOwn: item.isOwn, isAuthor: item.isOwn, viewerID: context.viewerID
                     )
+                    .bubbleControl(enabled: !isMenuPreview)
                 }
             }
 
@@ -287,6 +295,7 @@ struct MessageBubbleView: View {
             // У карточки профиля превью той же ссылки было бы повтором.
             if let preview = extras.linkPreview, !isDeleted, profileShare == nil {
                 LinkPreviewCard(preview: preview, isOwn: item.isOwn)
+                    .bubbleControl(enabled: !isMenuPreview)
                     .layoutValue(key: ChatStretches.self, value: true)
             }
 
@@ -295,6 +304,7 @@ struct MessageBubbleView: View {
             if showsReactions {
                 HStack(alignment: .bottom, spacing: Spacing.md) {
                     reactions
+                        .bubbleControl(enabled: !isMenuPreview)
                     meta(metaColor).hidden()
                 }
                 // Первая реакция всплывает пружинкой из угла, как в Telegram.
@@ -354,6 +364,7 @@ struct MessageBubbleView: View {
                         .foregroundStyle(Palette.destructive)
                 }
                 .buttonStyle(.plain)
+                .bubbleControl(enabled: !isMenuPreview)
                 .offset(x: item.isOwn ? -(Spacing.xxl + Spacing.xs) : Spacing.xxl + Spacing.xs)
                 .accessibilityLabel(Text(String(localized: "chats.retrySend", defaultValue: "Отправить ещё раз")))
             }
@@ -378,6 +389,7 @@ struct MessageBubbleView: View {
                     .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
                 }
                 .buttonStyle(.plain)
+                .bubbleControl(enabled: !isMenuPreview)
             }
             StickerMessageView(sticker: sticker)
                 .overlay(alignment: .bottomTrailing) {
@@ -390,6 +402,7 @@ struct MessageBubbleView: View {
                 reactions
                     .padding(Spacing.xs)
                     .background(item.isOwn ? Palette.primary : Palette.card, in: Capsule())
+                    .bubbleControl(enabled: !isMenuPreview)
             }
         }
         .contentShape(Rectangle())

@@ -205,6 +205,7 @@ struct MessageCodeBlockView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .bubbleControl()
                 .accessibilityLabel(Text(String(localized: "chats.code.copy", defaultValue: "Скопировать код")))
             }
             // Строка шапки ниже кнопки: код подтягивается под неё, а не на высоту

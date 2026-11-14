@@ -167,6 +167,11 @@ final class MessageListViewController: UIViewController {
     /// Долгое нажатие на пузырь — меню; то же касание дальше выбирает в нём пункт.
     private let menuPress = UILongPressGestureRecognizer()
     private let menuFeedback = UIImpactFeedbackGenerator(style: .medium)
+    /// Двойной тап по неинтерактивной части пузыря — реакция. Здесь, а не жестом SwiftUI
+    /// на пузыре: тот висел на всём пузыре, ставил реакцию с варианта опроса и пункта
+    /// чек-листа и заставлял одиночный тап по кнопке внутри ждать второго.
+    private let reactionTap = UITapGestureRecognizer()
+    private let reactionFeedback = UIImpactFeedbackGenerator(style: .light)
 
     private struct Entrance {
         let own: Bool
@@ -560,6 +565,14 @@ final class MessageListViewController: UIViewController {
         menuPress.addTarget(self, action: #selector(handleMenuPress(_:)))
         menuPress.delegate = self
         collectionView.addGestureRecognizer(menuPress)
+        reactionTap.numberOfTapsRequired = 2
+        // Касания идут в пузырь как шли: кнопки внутри срабатывают сразу, не дожидаясь,
+        // будет ли второй тап.
+        reactionTap.cancelsTouchesInView = false
+        reactionTap.delaysTouchesEnded = false
+        reactionTap.addTarget(self, action: #selector(handleReactionTap(_:)))
+        reactionTap.delegate = self
+        collectionView.addGestureRecognizer(reactionTap)
         collectionView.delegate = self
         collectionView.prefetchDataSource = self
         collectionView.translatesAutoresizingMaskIntoConstraints = false
@@ -1112,6 +1125,26 @@ final class MessageListViewController: UIViewController {
         }
     }
 
+    // MARK: - Реакция двойным тапом
+
+    /// Сообщение под пальцем, если двойной тап по этому месту ставит реакцию: пузырь
+    /// дошёл до сервера, не удалён, а палец не на живом элементе (`bubbleControl`).
+    private func reactionItem(at point: CGPoint) -> MessageTimeline.Item? {
+        guard let item = menuItem(at: point),
+            item.message.remoteId != nil, item.message.deletedAt == nil,
+            let indexPath = collectionView.indexPathForItem(at: point),
+            let cell = collectionView.cellForItem(at: indexPath),
+            !BubbleControlZone.contains(collectionView.convert(point, to: cell), in: cell)
+        else { return nil }
+        return item
+    }
+
+    @objc private func handleReactionTap(_ tap: UITapGestureRecognizer) {
+        guard tap.state == .ended, let item = reactionItem(at: tap.location(in: collectionView)) else { return }
+        reactionFeedback.impactOccurred()
+        onAction?(.react(ChatReactions.doubleTap), item.message)
+    }
+
     // MARK: - Ответ свайпом
 
     /// Строка под пальцем, если на её сообщение можно ответить: не в режиме выбора, не
@@ -1246,6 +1279,9 @@ final class MessageListViewController: UIViewController {
 
 extension MessageListViewController: UIGestureRecognizerDelegate {
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        if gestureRecognizer === reactionTap {
+            return reactionItem(at: gestureRecognizer.location(in: collectionView)) != nil
+        }
         guard gestureRecognizer === menuPress else { return true }
         return menuItem(at: gestureRecognizer.location(in: collectionView)) != nil
     }
@@ -1272,6 +1308,15 @@ extension MessageListViewController: UICollectionViewDataSourcePrefetching {
             guard media.count == 1, let only = media.first, only.chatKind == .photo else { return nil }
             return only
         }
+    }
+
+    /// Двойной тап не спорит с жестами SwiftUI в ячейке: живые элементы он отсекает сам
+    /// (`reactionItem`), а без одновременности его гасило бы любое касание внутри.
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+    ) -> Bool {
+        gestureRecognizer === reactionTap
     }
 }
 
