@@ -319,9 +319,17 @@ struct StatTile: View {
     var tint: Color = Palette.primary
     var caption: String?
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     var body: some View {
+        // При крупном шрифте значок встаёт над подписью: в одной строке он отнимал у неё
+        // треть ширины, и «Пропуски» рвались переносом. Подписи не сжимаются по высоте —
+        // иначе в тесной ячейке две строки схлопывались в «Сре…».
+        let header = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: Spacing.xs))
+            : AnyLayout(HStackLayout(spacing: Spacing.sm))
         VStack(alignment: .leading, spacing: Spacing.xs) {
-            HStack(spacing: Spacing.sm) {
+            header {
                 if let symbol {
                     Image(systemName: symbol)
                         .font(.footnote.weight(.semibold))
@@ -332,6 +340,7 @@ struct StatTile: View {
                     .font(Typography.meta)
                     .foregroundStyle(Palette.mutedForeground)
                     .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Text(value)
                 .font(.title2.weight(.semibold).monospacedDigit())
@@ -343,6 +352,7 @@ struct StatTile: View {
                     .font(.caption)
                     .foregroundStyle(Palette.mutedForeground)
                     .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -351,13 +361,19 @@ struct StatTile: View {
     }
 }
 
-/// Сетка плиток в две колонки — помещается на самом узком iPhone с крупным шрифтом.
+/// Сетка плиток: две колонки, при крупном шрифте (размеры accessibility) — одна, как
+/// `DashboardTileGrid`: в половине ширины подписи и цифры уже не помещаются.
 struct StatGrid<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     var body: some View {
+        let count = typeSize.isAccessibilitySize ? 1 : 2
         LazyVGrid(
-            columns: [GridItem(.flexible(), spacing: Spacing.md), GridItem(.flexible(), spacing: Spacing.md)],
+            // По верху, как `DashboardTileGrid`: плитка без пояснения ниже соседней, и по
+            // центру она «плавала» относительно неё.
+            columns: Array(repeating: GridItem(.flexible(), spacing: Spacing.md, alignment: .top), count: count),
             spacing: Spacing.md,
             content: content
         )

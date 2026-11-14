@@ -49,17 +49,20 @@ final class DesignSystemSnapshotTests: SnapshotTestCase {
         assertSnapshots(of: view, named: "rows")
     }
 
+    /// Плитки — в `StatGrid`, как на экранах: при крупном шрифте сетка сама уходит в одну
+    /// колонку. Снимок — во весь экран: в полосе фиксированной высоты крупный шрифт
+    /// сжимал бы плитки, и снимок ловил бы тесноту теста, а не вид.
     func testStatTiles() {
         let view = VStack(spacing: 12) {
-            HStack(spacing: 12) {
+            StatGrid {
                 StatTile(title: "Средний балл", value: "3.62", symbol: "chart.bar", caption: "за семестр")
                 StatTile(title: "Пропуски", value: "4", symbol: "clock", tint: Palette.warning)
             }
             ShareBar(title: "Посещаемость", fraction: 0.82, valueText: "82 %")
         }
         .padding()
-        .background(Palette.background)
-        assertSnapshots(of: view, named: "stat-tiles", height: 280)
+        .frame(maxHeight: .infinity, alignment: .top)
+        assertSnapshots(of: view, named: "stat-tiles")
     }
 
     func testButtons() {
