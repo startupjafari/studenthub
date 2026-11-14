@@ -5,7 +5,10 @@ import Security
 /// иначе прогон упирается в связку ключей симулятора.
 protocol SecretStore: Sendable {
     func value(for key: SecretKey) -> String?
-    func set(_ value: String, for key: SecretKey)
+    /// `false` — запись не удалась (связка ключей заперта, нет места, сбой системы):
+    /// в хранилище осталось прежнее значение. Решать, чем это опасно, — вызывающему.
+    @discardableResult
+    func set(_ value: String, for key: SecretKey) -> Bool
     func remove(_ key: SecretKey)
     /// Хранилище заперто (связка ключей до первой разблокировки после включения):
     /// `value` вернёт `nil`, хотя секрет есть. Отсутствие тогда — не «сессии нет».
@@ -65,8 +68,9 @@ struct Keychain: SecretStore {
         return String(data: data, encoding: .utf8)
     }
 
-    func set(_ value: String, for key: SecretKey) {
-        guard let data = value.data(using: .utf8) else { return }
+    @discardableResult
+    func set(_ value: String, for key: SecretKey) -> Bool {
+        guard let data = value.data(using: .utf8) else { return false }
         let query = baseQuery(for: key)
         // Доступность переписывается и при обновлении: записи, заведённые прежними
         // сборками без `ThisDeviceOnly`, переезжают на неё при первой же записи.
@@ -78,12 +82,15 @@ struct Keychain: SecretStore {
         // Сначала пробуем обновить: SecItemAdd на существующий ключ вернёт
         // errSecDuplicateItem, и секрет молча не обновится.
         if SecItemUpdate(query as CFDictionary, attributes as CFDictionary) == errSecSuccess {
-            return
+            return true
         }
+        // Результат добавления — это и есть итог записи: обновление не прошло, и если
+        // не пройдёт и оно (связка заперта, запись есть, но не обновилась), на месте
+        // осталось прежнее значение — об этом обязан узнать вызывающий (правило 10.2.2).
         var insert = query
         insert[kSecValueData as String] = data
         insert[kSecAttrAccessible as String] = Self.accessibility
-        SecItemAdd(insert as CFDictionary, nil)
+        return SecItemAdd(insert as CFDictionary, nil) == errSecSuccess
     }
 
     func remove(_ key: SecretKey) {

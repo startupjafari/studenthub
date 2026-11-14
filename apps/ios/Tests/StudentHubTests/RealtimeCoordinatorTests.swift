@@ -289,7 +289,11 @@ private final class MemoryKeys: SecretStore, @unchecked Sendable {
     private let lock = NSLock()
     private var storage: [String: String] = [:]
     func value(for key: SecretKey) -> String? { lock.withLock { storage[key.rawValue] } }
-    func set(_ value: String, for key: SecretKey) { lock.withLock { storage[key.rawValue] = value } }
+    @discardableResult
+    func set(_ value: String, for key: SecretKey) -> Bool {
+        lock.withLock { storage[key.rawValue] = value }
+        return true
+    }
     func remove(_ key: SecretKey) { _ = lock.withLock { storage.removeValue(forKey: key.rawValue) } }
 }
 
