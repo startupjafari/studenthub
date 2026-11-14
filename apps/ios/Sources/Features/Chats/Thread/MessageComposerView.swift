@@ -108,12 +108,17 @@ struct MessageComposerView: View {
                     .focused($isFocused)
                     .accessibilityIdentifier("chat.composer")
                     .padding(.leading, Spacing.lg)
-                    // Справа — место под кнопку emoji внутри поля.
-                    .padding(.trailing, ControlHeight.lg)
+                    // Справа — место под кнопку emoji внутри поля (и часы отложенных).
+                    .padding(.trailing, model.scheduled.items.isEmpty ? ControlHeight.lg : ControlHeight.lg * 2)
                     .padding(.vertical, Spacing.md)
                     .frame(minHeight: ControlHeight.lg)
                     .overlay(alignment: .bottomTrailing) {
-                        if !recorder.machine.isActive { expressionButton }
+                        if !recorder.machine.isActive {
+                            HStack(spacing: 0) {
+                                ScheduledComposerButton(scheduled: model.scheduled)
+                                expressionButton
+                            }
+                        }
                     }
                     // Радиус — половина высоты одной строки: в одну строку поле — капсула,
                     // в несколько — скруглённый прямоугольник, как в Telegram.
@@ -374,6 +379,8 @@ struct MessageComposerView: View {
         .accessibilityLabel(Text(model.editing == nil
             ? String(localized: "chats.send", defaultValue: "Отправить")
             : String(localized: "common.save", defaultValue: "Сохранить")))
+        // Долгое нажатие — «Отправить без звука» и «Отправить позже», как в Telegram.
+        .contextMenu { ScheduledSendMenuItems(model: model) }
     }
 
     /// Опрос — в группах и официальных чатах, не в личных и не в «Избранном» (как в
@@ -580,6 +587,9 @@ struct MessageSelectionBar: View {
     let onCopy: () -> Void
     let onForward: () -> Void
     let onDelete: () -> Void
+    /// «Поделиться» системным листом (текст и скачанные файлы); `nil` — кнопки нет.
+    var canShare = false
+    var onShare: (() -> Void)?
 
     var body: some View {
         GlassGroup(spacing: Spacing.md) {
@@ -592,6 +602,15 @@ struct MessageSelectionBar: View {
                     perform: onDelete
                 )
                 Spacer(minLength: 0)
+                if let onShare {
+                    action(
+                        String(localized: "chats.selection.share", defaultValue: "Поделиться"),
+                        symbol: "square.and.arrow.up",
+                        tint: Palette.primary,
+                        enabled: canShare,
+                        perform: onShare
+                    )
+                }
                 action(
                     String(localized: "chats.selection.copy", defaultValue: "Копировать"),
                     symbol: "doc.on.doc",

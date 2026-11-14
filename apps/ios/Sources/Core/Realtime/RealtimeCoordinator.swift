@@ -328,6 +328,11 @@ final class RealtimeCoordinator {
             pinnedVersions[chatID, default: 0] += 1
             chatSignals[chatID]?.pinnedVersion += 1
 
+        case .scheduledChanged(let chatID):
+            // Только открытому чату: часы в поле ввода есть лишь там, а при открытии
+            // список и так читается заново.
+            chatSignals[chatID]?.scheduledVersion += 1
+
         case .pollUpdated(let pollID, _):
             pollVersions[pollID, default: 0] += 1
             pollSignals[pollID]?.version += 1
@@ -529,6 +534,8 @@ final class ChatActivity {
 @Observable
 final class ChatSignals {
     var pinnedVersion = 0
+    /// Растёт с каждым `chat:scheduled-changed`: экран перечитывает свои отложенные.
+    var scheduledVersion = 0
     var memberReads: [String: Date] = [:]
 }
 

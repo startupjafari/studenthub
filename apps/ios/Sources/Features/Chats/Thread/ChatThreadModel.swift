@@ -68,6 +68,8 @@ final class ChatThreadModel {
     /// Идёт запись голосового: над микрофоном — замок, кнопка «вниз» на это время уходит,
     /// чтобы не налезать на него.
     private(set) var isRecordingVoice = false
+    /// Свои отложенные сообщения в этом чате: часы в поле ввода и их список.
+    let scheduled: ChatScheduledMessages
 
     private let viewerID: String
     private let database: AppDatabase
@@ -151,6 +153,7 @@ final class ChatThreadModel {
         self.uploader = uploader ?? AttachmentUploader(database: database)
         self.realtime = realtime
         self.actions = actions
+        self.scheduled = ChatScheduledMessages(chatID: chatID, api: actions)
     }
 
     deinit {
@@ -276,8 +279,9 @@ final class ChatThreadModel {
 
     // MARK: - Отправка
 
+    /// `silent` — «Отправить без звука»: доставка без уведомления и пуша у получателей.
     @MainActor
-    func send() async {
+    func send(silent: Bool = false) async {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         if let editing {
@@ -301,7 +305,7 @@ final class ChatThreadModel {
         // появление сообщения в ленте.
         Task { @MainActor [weak self] in await self?.persistDraft("") }
 
-        await outbox.send(text: text, chatID: chatID, senderID: viewerID, replyToID: answering)
+        await outbox.send(text: text, chatID: chatID, senderID: viewerID, replyToID: answering, silent: silent)
         // Сообщение ушло — подпись «печатает…» снимаем явно, не дожидаясь таймера.
         lastActionAt = nil
         await realtime.send(action: nil, chatID: chatID)
@@ -653,6 +657,43 @@ final class ChatThreadModel {
         }
     }
 
+    /// «Отправить позже»: текст из поля ввода (и ответ, если он выбран) уходит в отложенные,
+    /// поле пустеет только после ответа сервера — при ошибке написанное не теряется.
+    @MainActor
+    func scheduleDraft(at date: Date, silent: Bool = false) async throws {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, editing == nil else { return }
+        try await scheduled.schedule(text, at: date, replyToID: replyTo?.remoteId, silent: silent)
+        draft = ""
+        replyTo = nil
+        draftTask?.cancel()
+        Task { @MainActor [weak self] in await self?.persistDraft("") }
+    }
+
+    /// Отложенное отправлено сейчас: сообщение ложится в ленту сразу, не дожидаясь
+    /// сокета, и лента едет к нему, как после обычной отправки.
+    @MainActor
+    func showSent(_ message: ChatMessageDTO) async {
+        await returnToLatest()
+        bottomRequests += 1
+        try? await store.save(messages: [message], chatID: chatID)
+    }
+
+    /// «Открепить все сообщения»: права — как у открепления одного, решает сервер. Плашка
+    /// пустеет сразу; события `message:unpinned` по каждому сообщению снимут булавки в ленте.
+    @MainActor
+    func unpinAll() async -> Bool {
+        do {
+            _ = try await actions.unpinAll(chatID: chatID)
+            pinned = []
+            await loadPinned()
+            return true
+        } catch {
+            actionFailure = self.message(for: error)
+            return false
+        }
+    }
+
     /// Перейти к сообщению: если оно уже в ленте — прокрутить, иначе скачать окно
     /// истории вокруг него и показать вместо переписки.
     @MainActor
@@ -911,8 +952,8 @@ final class ChatThreadModel {
         selection = [message.id]
     }
 
-    /// Касание пузыря в режиме выбора. Сняли последнюю отметку — режим закрывается,
-    /// как в вебе: пустой выбор ни к чему не ведёт.
+    /// Касание пузыря в режиме выбора. Сняли последнюю отметку — режим остаётся, как в
+    /// Telegram: в шапке «Выберите сообщения», выход — «Отмена».
     @MainActor
     func toggleSelection(of message: MessageRecord) {
         guard var current = selection, Self.isSelectable(message) else { return }
@@ -921,7 +962,7 @@ final class ChatThreadModel {
         } else {
             current.insert(message.id)
         }
-        selection = current.isEmpty ? nil : current
+        selection = current
     }
 
     /// Выбранное исчезло из базы (удалено, неотправленное стёрто) — снимаем отметку,
@@ -931,7 +972,7 @@ final class ChatThreadModel {
         guard let selection else { return }
         let alive = selection.intersection(messages.map(\.id))
         guard alive != selection else { return }
-        self.selection = alive.isEmpty ? nil : alive
+        self.selection = alive
     }
 
     @MainActor
@@ -1201,6 +1242,7 @@ final class ChatThreadModel {
             group.addTask { @MainActor in await self.loadPinned() }
             group.addTask { @MainActor in await self.loadPeer() }
             group.addTask { @MainActor in await self.loadGroupStatus() }
+            group.addTask { @MainActor in await self.scheduled.load() }
         }
     }
 

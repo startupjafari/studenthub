@@ -148,7 +148,7 @@ enum ChatReactions {
     static let doubleTap = "🔥"
 }
 
-protocol ChatActing: ChatMessaging {
+protocol ChatActing: ChatMessaging, ChatThreadTooling {
     // Сообщения
     func react(messageID: String, emoji: String) async throws -> ChatMessageDTO
     func setPinned(_ pinned: Bool, messageID: String) async throws

@@ -30,6 +30,9 @@ enum RealtimeEvent: Equatable {
     case chatActivity(chatID: String)
     /// Закрепили или открепили сообщение — плашку закреплённого нужно перечитать.
     case chatPinned(chatID: String)
+    /// Мои отложенные в чате изменились (создание, правка, удаление, отправка сейчас или
+    /// cron'ом) — часы в поле ввода и список перечитываются. Приходит в личную комнату.
+    case scheduledChanged(chatID: String)
     /// Кто-то проголосовал: результаты опроса перечитываются.
     case pollUpdated(pollID: String, chatID: String)
     /// Общий список изменили (отметка, новый или убранный пункт) — состояние целиком.
@@ -63,6 +66,7 @@ enum RealtimeEvent: Equatable {
         static let chatUpdated = "chat:updated"
         static let chatActivity = "chat:activity"
         static let chatPinned = "chat:pinned"
+        static let scheduledChanged = "chat:scheduled-changed"
         static let chatBlock = "chat:block"
         static let chatListChanged = "chat:list-changed"
         static let foldersChanged = "chat:folders-changed"

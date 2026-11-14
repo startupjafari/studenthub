@@ -41,6 +41,12 @@ struct ChatThreadView: View {
     @State private var toastTask: Task<Void, Never>?
     @State private var reported = false
     @State private var pinnedIndex = 0
+    /// Экран «Закреплено N» и подтверждение «Открепить все» с плашки.
+    @State private var showsPinnedList = false
+    /// Режим выбора: подтверждение «Удалить чат» и лист «Поделиться».
+    @State private var confirmingChatDelete = false
+    @State private var sharing: ShareItems?
+    @State private var confirmingUnpinAll = false
     /// Плашку закреплённого закрыли крестиком — до нового закрепления (id самого
     /// свежего закреплённого на момент закрытия).
     @State private var hiddenPinned: String?
@@ -99,8 +105,11 @@ struct ChatThreadView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("chat.title")
+                    // Поиск прямо с экрана переписки: долгое нажатие на шапку, как меню
+                    // аватара в Telegram. Касание по-прежнему ведёт в информацию о чате.
+                    .contextMenu { headerMenu }
                 }
-                ChatAvatarToolbarItem(chatID: chatID, chat: model?.chat, title: model?.title)
+                ChatAvatarToolbarItem(chatID: chatID, chat: model?.chat, title: model?.title) { headerMenu }
             }
         }
         // В режиме выбора место «назад» занимает «Отмена»: выход из режима, а не из
@@ -125,27 +134,103 @@ struct ChatThreadView: View {
         .sensoryFeedback(.success, trigger: copiedTick)
     }
 
-    /// Шапка режима выбора: «Отмена» слева и счётчик по центру, как в Telegram.
+    /// Шапка режима выбора, как в Telegram: слева «Удалить чат» (у личного чата и
+    /// группы — официальные заводит система), по центру — счётчик или «Выберите
+    /// сообщения», справа «Отмена».
     @ToolbarContentBuilder
     private func selectionToolbar(_ model: ChatThreadModel) -> some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            Button(String(localized: "common.cancel", defaultValue: "Отмена")) {
-                endSelection(model)
+        if let chat = model.chat, chat.kind == .private || chat.kind == .group {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(ChatLeaveTitle.title(for: chat.kind, isOwner: chat.isOwner), role: .destructive) {
+                    confirmingChatDelete = true
+                }
+                .foregroundStyle(Palette.destructive)
             }
         }
         ToolbarItem(placement: .principal) {
-            Text(String(
-                localized: "chats.selection.count",
-                defaultValue: "Выбрано: \(model.selection?.count ?? 0)"
-            ))
+            let count = model.selection?.count ?? 0
+            Text(count == 0
+                ? String(localized: "chats.selection.prompt", defaultValue: "Выберите сообщения")
+                : String(localized: "chats.selection.count", defaultValue: "Выбрано: \(count)"))
             .font(.headline)
             .foregroundStyle(Palette.foreground)
             .contentTransition(.numericText())
             .accessibilityAddTraits(.isHeader)
         }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button(String(localized: "common.cancel", defaultValue: "Отмена")) {
+                endSelection(model)
+            }
+        }
+    }
+
+    /// Удалить личный чат, выйти из группы или удалить свою группу — тем же путём, что
+    /// в «Информации о чате»: сервер решает, строка чата уходит из базы, экран — к списку.
+    private func deleteChat() async {
+        do {
+            try await ChatsAPI().deleteChat(chatID: chatID)
+            let id = chatID
+            _ = try? await AppServices.database.writer.write { db in try ChatRecord.deleteOne(db, key: id) }
+            model?.endSelection()
+            AppServices.router.popToRoot(.chats)
+        } catch {
+            model?.actionFailure = error.userMessage
+        }
+    }
+
+    /// «Поделиться» выбранным: тексты по времени и файлы, уже лежащие на устройстве
+    /// (свои отправленные и скачанные). Нескачанное пропускается: качать ради листа
+    /// «Поделиться» десятки мегабайт молча было бы хуже, чем не приложить их.
+    private func shareSelection(_ model: ChatThreadModel) {
+        var items: [Any] = []
+        let text = model.selectedText
+        if !text.isEmpty { items.append(text) }
+        items += selectedFiles(model)
+        guard !items.isEmpty else { return }
+        sharing = ShareItems(items: items)
+        endSelection(model)
+    }
+
+    private func selectedFiles(_ model: ChatThreadModel) -> [URL] {
+        guard let selection = model.selection else { return [] }
+        return model.days.lazy.flatMap(\.items)
+            .filter { selection.contains($0.id) && $0.message.deletedAt == nil }
+            .flatMap(\.attachments)
+            .compactMap { file in
+                if case .done(let url) = ChatFileDownloads.shared.state(for: file) { return url }
+                return nil
+            }
     }
 
     private static func hiddenPinnedKey(_ chatID: String) -> String { "chats.pinnedHidden.\(chatID)" }
+
+    /// Меню шапки по долгому нажатию: поиск в переписке, переход к дате, закреплённые.
+    @ViewBuilder
+    private var headerMenu: some View {
+        if let model {
+            Button {
+                openSearch(model)
+            } label: {
+                Label(String(localized: "chats.thread.search.open", defaultValue: "Поиск в чате"), systemImage: "magnifyingglass")
+            }
+            Button {
+                calendarDay = Date()
+                showsCalendar = true
+            } label: {
+                Label(String(localized: "chats.calendar.title", defaultValue: "Перейти к дате"), systemImage: "calendar")
+            }
+            if !model.pinned.isEmpty {
+                Button {
+                    showsPinnedList = true
+                } label: {
+                    Label(
+                        String(localized: "chats.pinnedList.title", defaultValue: "Закреплено \(model.pinned.count)"),
+                        systemImage: "pin"
+                    )
+                }
+            }
+        }
+    }
 
     /// Крестик на плашке: прячем, пока не закрепят что-то новое, — как в Telegram.
     private func hidePinned(_ model: ChatThreadModel) {
@@ -264,7 +349,9 @@ struct ChatThreadView: View {
                         message: model.pinned[min(pinnedIndex, model.pinned.count - 1)],
                         index: min(pinnedIndex, model.pinned.count - 1),
                         count: model.pinned.count,
-                        onClose: { hidePinned(model) }
+                        onClose: { hidePinned(model) },
+                        onShowAll: { showsPinnedList = true },
+                        onUnpinAll: { confirmingUnpinAll = true }
                     ) {
                         let current = model.pinned[min(pinnedIndex, model.pinned.count - 1)]
                         Task { await model.jump(to: current.id) }
@@ -320,7 +407,9 @@ struct ChatThreadView: View {
                                 forEveryoneAllowed: model.canDeleteSelectionForEveryone,
                                 fromSelection: true
                             )
-                        }
+                        },
+                        canShare: !model.selectedText.isEmpty || !selectedFiles(model).isEmpty,
+                        onShare: { shareSelection(model) }
                     )
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else if model.chat?.requestIncoming == true {
@@ -462,6 +551,9 @@ struct ChatThreadView: View {
         .onChange(of: realtime.signals(for: chatID).pinnedVersion) {
             Task { await model?.loadPinned() }
         }
+        .onChange(of: realtime.signals(for: chatID).scheduledVersion) {
+            Task { await model?.scheduled.load() }
+        }
         .onChange(of: model?.newestIncomingID) {
             // Пришло новое — пока чат открыт, оно прочитано.
             Task { await model?.markRead() }
@@ -551,6 +643,68 @@ struct ChatThreadView: View {
                     search.sender = member
                 }
             }
+        }
+        .sheet(isPresented: Binding(
+            get: { model?.scheduled.isPickingTime == true },
+            set: { model?.scheduled.isPickingTime = $0 }
+        )) {
+            ScheduleMessageSheet { _, date in
+                do {
+                    try await model?.scheduleDraft(at: date)
+                    showToast(String(
+                        localized: "chats.scheduled.done",
+                        defaultValue: "Отправится \(ScheduleMessageSheet.title(for: date).lowercased())"
+                    ))
+                    return nil
+                } catch {
+                    return error.userMessage
+                }
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { model?.scheduled.showsList == true },
+            set: { model?.scheduled.showsList = $0 }
+        )) {
+            if let model {
+                ChatScheduledListView(model: model)
+            }
+        }
+        .sheet(item: $sharing) { share in
+            ShareSheet(items: share.items)
+                .presentationDetents([.medium, .large])
+        }
+        .alert(
+            ChatLeaveTitle.question(for: model?.chat?.kind ?? .private, isOwner: model?.chat?.isOwner ?? false),
+            isPresented: $confirmingChatDelete
+        ) {
+            Button(
+                ChatLeaveTitle.title(for: model?.chat?.kind ?? .private, isOwner: model?.chat?.isOwner ?? false),
+                role: .destructive
+            ) {
+                Task { await deleteChat() }
+            }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
+        }
+        .sheet(isPresented: $showsPinnedList) {
+            if let model {
+                ChatPinnedListView(
+                    model: model,
+                    viewerID: viewerID,
+                    isGroup: bubbleContext(model).isGroup,
+                    onJump: { id in Task { await model.jump(to: id) } },
+                    onUnpinAll: { await model.unpinAll() }
+                )
+            }
+        }
+        .confirmationDialog(
+            String(localized: "chats.pinned.unpinAll.title", defaultValue: "Открепить все сообщения?"),
+            isPresented: $confirmingUnpinAll,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "chats.pinned.unpinAll", defaultValue: "Открепить все сообщения"), role: .destructive) {
+                Task { await model?.unpinAll() }
+            }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
         .sheet(isPresented: $showsCalendar) {
             ChatCalendarSheet(chatID: chatID, initialDay: calendarDay) { day in
@@ -649,6 +803,10 @@ struct ChatThreadView: View {
             Task { await model.togglePin(message) }
         case .copy:
             UIPasteboard.general.string = message.content
+        case .copyText(let text):
+            UIPasteboard.general.string = text
+            copiedTick += 1
+            showToast(String(localized: "chats.code.copied", defaultValue: "Код скопирован"))
         case .forward:
             forwarding = ForwardBatch(messages: [message], fromSelection: false)
         case .select:
@@ -896,6 +1054,12 @@ private struct DeleteRequest: Identifiable {
     let fromSelection: Bool
 }
 
+/// Что отдать системному листу «Поделиться»: текст и файлы выбранных сообщений.
+private struct ShareItems: Identifiable {
+    let id = UUID()
+    let items: [Any]
+}
+
 /// Что пересылаем: одно сообщение из меню или выбранные разом. После пересылки
 /// выбранного режим выбора закрывается.
 private struct ForwardBatch: Identifiable {
@@ -969,12 +1133,15 @@ private struct ChatTitleView: View {
 }
 
 /// Плашка закреплённого под шапкой. Нажатие — к сообщению; при нескольких
-/// закреплённых каждое следующее нажатие ведёт к следующему.
+/// закреплённых каждое следующее нажатие ведёт к следующему, а значок списка справа
+/// открывает их все. Долгое нажатие — меню «Показать все» / «Открепить все», как в Telegram.
 private struct PinnedBar: View {
     let message: ChatMessageDTO
     let index: Int
     let count: Int
     let onClose: () -> Void
+    let onShowAll: () -> Void
+    let onUnpinAll: () -> Void
     let action: () -> Void
 
     var body: some View {
@@ -1002,6 +1169,17 @@ private struct PinnedBar: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
+                if count > 1 {
+                    Button(action: onShowAll) {
+                        Image(systemName: "list.bullet")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(Palette.mutedForeground)
+                            .frame(width: ControlHeight.sm, height: ControlHeight.sm)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text(String(localized: "chats.pinned.showAll", defaultValue: "Показать все сообщения")))
+                }
                 Button(action: onClose) {
                     Image(systemName: "xmark")
                         .font(.footnote.weight(.semibold))
@@ -1019,6 +1197,21 @@ private struct PinnedBar: View {
             .padding(.top, Spacing.xs)
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button(action: onShowAll) {
+                Label(
+                    String(localized: "chats.pinned.showAll", defaultValue: "Показать все сообщения"),
+                    systemImage: "list.bullet"
+                )
+            }
+            Button(role: .destructive, action: onUnpinAll) {
+                Label(
+                    String(localized: "chats.pinned.unpinAll", defaultValue: "Открепить все сообщения"),
+                    systemImage: "pin.slash"
+                )
+            }
+        }
+        .accessibilityAction(named: Text(String(localized: "chats.pinned.showAll", defaultValue: "Показать все сообщения")), onShowAll)
     }
 }
 
@@ -1129,10 +1322,12 @@ enum ChatTitle {
 
 /// Аватар чата справа в шапке — ведёт в информацию о чате. На iOS 26 без общей
 /// стеклянной подложки панели: круглое фото само по себе, как в Telegram.
-private struct ChatAvatarToolbarItem: ToolbarContent {
+private struct ChatAvatarToolbarItem<Menu: View>: ToolbarContent {
     let chatID: String
     let chat: ChatRecord?
     let title: String?
+    /// Меню по долгому нажатию — то же, что у названия в шапке.
+    @ViewBuilder let menu: () -> Menu
 
     @ScaledMetric(relativeTo: .body) private var size: CGFloat = 36
 
@@ -1159,6 +1354,7 @@ private struct ChatAvatarToolbarItem: ToolbarContent {
                 )
             }
             .buttonStyle(.plain)
+            .contextMenu { menu() }
             .accessibilityLabel(Text(String(localized: "chats.info.open", defaultValue: "Информация о чате")))
         }
     }

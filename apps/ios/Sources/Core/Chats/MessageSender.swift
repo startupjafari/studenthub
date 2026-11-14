@@ -12,6 +12,15 @@ protocol ChatMessageSending: Sendable {
     /// ключом возвращает уже созданное сообщение, а не второе. Он же приходит эхом в
     /// `message:new` — по нему сокет узнаёт своё неподтверждённое сообщение.
     func send(text: String, chatID: String, replyToID: String?, nonce: String) async throws -> ChatMessageDTO
+    /// «Отправить без звука»: сообщение доставляется, уведомления и пуша по нему нет.
+    func send(text: String, chatID: String, replyToID: String?, nonce: String, silent: Bool) async throws -> ChatMessageDTO
+}
+
+extension ChatMessageSending {
+    /// Дублёры в тестах знают только обычную отправку: «без звука» для них — она же.
+    func send(text: String, chatID: String, replyToID: String?, nonce: String, silent: Bool) async throws -> ChatMessageDTO {
+        try await send(text: text, chatID: chatID, replyToID: replyToID, nonce: nonce)
+    }
 }
 
 extension ChatsAPI: ChatMessageSending {
@@ -19,10 +28,17 @@ extension ChatsAPI: ChatMessageSending {
     /// Когда появится сокет (задача 1.5), отправка уйдёт туда, а этот путь останется
     /// запасным — он работает и там, где сокет не поднялся.
     func send(text: String, chatID: String, replyToID: String?, nonce: String) async throws -> ChatMessageDTO {
+        try await send(text: text, chatID: chatID, replyToID: replyToID, nonce: nonce, silent: false)
+    }
+
+    func send(text: String, chatID: String, replyToID: String?, nonce: String, silent: Bool) async throws -> ChatMessageDTO {
         var form = MultipartForm()
         form.append(text, name: "content")
         if let replyToID {
             form.append(replyToID, name: "replyToId")
+        }
+        if silent {
+            form.append("true", name: "silent")
         }
         form.append(nonce, name: "nonce")
         return try await client.send(.multipart("chats/\(chatID)/messages", form: form), as: ChatMessageDTO.self)
@@ -44,8 +60,10 @@ struct MessageOutbox: Sendable {
     }
 
     /// Положить сообщение в ленту и попытаться отправить.
+    /// `silent` действует только на первую попытку: очередь живёт в базе без этого флага,
+    /// и повтор после обрыва уйдёт обычным сообщением — лучше со звуком, чем никак.
     @discardableResult
-    func send(text: String, chatID: String, senderID: String, replyToID: String?) async -> Bool {
+    func send(text: String, chatID: String, senderID: String, replyToID: String?, silent: Bool = false) async -> Bool {
         let local = MessageRecord(
             id: UUID().uuidString,
             remoteId: nil,
@@ -67,7 +85,7 @@ struct MessageOutbox: Sendable {
         } catch {
             return false
         }
-        return await deliver(local)
+        return await deliver(local, silent: silent)
     }
 
     /// Повторить одну неудачу — по кнопке у сообщения. Переход «неудача → в пути»
@@ -142,7 +160,7 @@ struct MessageOutbox: Sendable {
 
     // MARK: - Внутреннее
 
-    private func deliver(_ message: MessageRecord) async -> Bool {
+    private func deliver(_ message: MessageRecord, silent: Bool = false) async -> Bool {
         do {
             // Ключ повтора — локальный id строки: один на сообщение и переживает
             // перезапуск приложения, поэтому повтор после таймаута не создаст дубль.
@@ -150,7 +168,8 @@ struct MessageOutbox: Sendable {
                 text: message.content,
                 chatID: message.chatId,
                 replyToID: message.replyToId,
-                nonce: message.id
+                nonce: message.id,
+                silent: silent
             )
             try await database.writer.write { db in
                 try MessageStore.confirm(localID: message.id, with: sent, in: db)
