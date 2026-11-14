@@ -108,4 +108,41 @@ struct ChatThreadQueries: Sendable {
             try chat.update(db)
         }
     }
+
+    // MARK: - Черновик
+
+    /// Черновик чата из базы.
+    func draft(chatID: String) async throws -> DraftRecord? {
+        try await database.reader.read { db in
+            try DraftRecord.fetchOne(db, key: chatID)
+        }
+    }
+
+    /// Черновик в базу: пустой текст стирает его. Серверу он ещё не донесён — запись
+    /// несинхронизированная, пока `markDraftSynced` не отметит обратное.
+    func saveDraft(_ text: String, chatID: String) async throws {
+        try await database.writer.write { db in
+            if text.isEmpty {
+                _ = try DraftRecord.deleteOne(db, key: chatID)
+                return
+            }
+            try DraftRecord(
+                chatId: chatID,
+                text: text,
+                replyToId: nil,
+                updatedAt: Date(),
+                isSynced: false
+            ).upsert(db)
+        }
+    }
+
+    /// Сервер принял черновик с этим текстом. Пока запрос шёл, текст мог смениться —
+    /// тогда новая запись остаётся несинхронизированной.
+    func markDraftSynced(_ text: String, chatID: String) async throws {
+        try await database.writer.write { db in
+            guard var record = try DraftRecord.fetchOne(db, key: chatID), record.text == text else { return }
+            record.isSynced = true
+            try record.update(db)
+        }
+    }
 }

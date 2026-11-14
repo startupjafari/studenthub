@@ -1396,10 +1396,8 @@ final class ChatThreadModel {
 
     @MainActor
     private func loadDraft() {
-        Task { @MainActor [weak self, database, chatID] in
-            let stored = try? await database.reader.read { db in
-                try DraftRecord.fetchOne(db, key: chatID)
-            }
+        Task { @MainActor [weak self, queries, chatID] in
+            let stored = try? await queries.draft(chatID: chatID)
             guard let self, self.input.draft.isEmpty, let stored else { return }
             self.input.draft = stored.text
         }
@@ -1408,31 +1406,15 @@ final class ChatThreadModel {
     @MainActor
     private func persistDraft(_ text: String) async {
         let chatID = chatID
-        try? await database.writer.write { db in
-            if text.isEmpty {
-                _ = try DraftRecord.deleteOne(db, key: chatID)
-                return
-            }
-            try DraftRecord(
-                chatId: chatID,
-                text: text,
-                replyToId: nil,
-                updatedAt: Date(),
-                // Серверу черновик ещё не донесён — это ниже.
-                isSynced: false
-            ).upsert(db)
-        }
+        // Серверу черновик ещё не донесён — это ниже.
+        try? await queries.saveDraft(text, chatID: chatID)
         // Серверу — чтобы черновик был виден в вебе, а после отправки (пустой текст)
         // не вернулся старым серверным при следующей синхронизации списка. Не вышло —
         // запись остаётся несинхронизированной, следующий набор повторит. Длиннее лимита
         // сервер черновик не примет — его не шлём, он живёт в базе, пока его не сократят.
         guard OutgoingText.draftFits(text) else { return }
         guard (try? await actions.saveDraft(chatID: chatID, text: text)) != nil, !text.isEmpty else { return }
-        try? await database.writer.write { db in
-            guard var record = try DraftRecord.fetchOne(db, key: chatID), record.text == text else { return }
-            record.isSynced = true
-            try record.update(db)
-        }
+        try? await queries.markDraftSynced(text, chatID: chatID)
     }
 
     /// Подгрузка вверх. Вызывается, когда лента подъехала к началу загруженного.
