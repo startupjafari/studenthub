@@ -28,15 +28,19 @@ final class ChatListModel {
     /// Сбой обновления списка — отдельно от отказа действия (удалить, очистить): пустой
     /// экран с ошибкой загрузки говорит только о первом.
     private(set) var loadFailure: String?
+    /// Счётчики вкладок папок и теги папок для строк — по правилу состава папки.
+    private(set) var folderSummary = ChatFolderSummary()
 
     private let database: AppDatabase
     private let api: ChatsFetching
     private let store: ChatStore
     private let actions: ChatActing
+    private let listActions: ChatListActing
 
     private var rowsTask: Task<Void, Never>?
     private var tabsTask: Task<Void, Never>?
     private var archiveTask: Task<Void, Never>?
+    private var summaryTask: Task<Void, Never>?
 
     /// Сколько страниц списка тянем за один заход. Страница — сотня чатов; пять
     /// страниц покрывают любого живого человека, а бесконечный цикл по курсору на
@@ -47,18 +51,21 @@ final class ChatListModel {
         database: AppDatabase = AppServices.database,
         api: ChatsFetching = ChatsAPI(),
         store: ChatStore? = nil,
-        actions: ChatActing = ChatsAPI()
+        actions: ChatActing = ChatsAPI(),
+        listActions: ChatListActing = ChatsAPI()
     ) {
         self.database = database
         self.api = api
         self.store = store ?? ChatStore(database: database)
         self.actions = actions
+        self.listActions = listActions
     }
 
     deinit {
         rowsTask?.cancel()
         tabsTask?.cancel()
         archiveTask?.cancel()
+        summaryTask?.cancel()
     }
 
     /// Экран архива держит одну вкладку и за остальными не следит: иначе, разархивировав
@@ -72,6 +79,7 @@ final class ChatListModel {
             observeTabs()
             observeRows()
             observeArchive()
+            observeFolderSummary()
         }
     }
 
@@ -161,20 +169,127 @@ final class ChatListModel {
         )
     }
 
-    /// Прочитать всё, не открывая: отметка до последнего сообщения уходит сокетом.
+    /// Прочитать, не открывая.
     @MainActor
     func markRead(_ row: ChatListRow) async {
-        let id = row.id
-        let last: String?? = try? await database.reader.read { db in
-            try ChatRecord.fetchOne(db, key: id)?.lastMessageId
+        await markRead(chatIDs: [row.id])
+    }
+
+    /// «Пометить как новое» и обратно — из меню и свайпа строки. Непрочитанный чат
+    /// (счётчик или пометка) читается целиком, прочитанный получает пометку.
+    @MainActor
+    func toggleMarkedUnread(_ row: ChatListRow) async {
+        if row.isUnread {
+            await markRead(chatIDs: [row.id])
+            return
         }
-        guard let messageID = last ?? nil else { return }
-        try? await database.writer.write { db in
-            guard var chat = try ChatRecord.fetchOne(db, key: id) else { return }
-            chat.unreadCount = 0
-            try chat.update(db)
+        await act(
+            local: { try await store.setMarkedUnread(true, chatID: row.id) },
+            remote: { try await listActions.setMarkedUnread(true, chatID: row.id) },
+            rollback: { try await store.setMarkedUnread(false, chatID: row.id) }
+        )
+    }
+
+    /// Прочитать чаты целиком: `POST /chats/read` пачками по 200. Счётчики гаснут сразу,
+    /// отказ сервера возвращает их. Старый сервер маршрута не знает — тогда как раньше,
+    /// отметкой до последнего сообщения через сокет.
+    @MainActor
+    func markRead(chatIDs: [String]) async {
+        guard !chatIDs.isEmpty else { return }
+        let previous: [ChatReadSnapshot]
+        do {
+            previous = try await store.markRead(chatIDs: chatIDs)
+        } catch {
+            failure = String(localized: "chats.error.local", defaultValue: "Не удалось сохранить изменение")
+            return
         }
-        await AppServices.realtime.markRead(chatID: id, messageID: messageID)
+        guard !previous.isEmpty else { return }
+        let ids = previous.map(\.chatID)
+        var sent = 0
+        do {
+            while sent < ids.count {
+                let batch = Array(ids[sent..<min(sent + ChatsAPI.readBatch, ids.count)])
+                try await listActions.readChats(batch)
+                sent += batch.count
+            }
+            failure = nil
+        } catch let error as APIError where error.code == .notFound && sent == 0 {
+            await markReadBySocket(previous)
+        } catch {
+            // Прошедшие пачки сервер уже прочитал — возвращаем только остальные.
+            try? await store.restore(Array(previous[sent...]))
+            if !(error is CancellationError) { failure = error.userMessage }
+        }
+    }
+
+    /// Непрочитанные чаты папки — «Прочитать все» из меню вкладки.
+    @MainActor
+    func markFolderRead(folderID: String) async {
+        let ids = (try? await database.reader.read { db in
+            try ChatListQuery.unreadChatIDs(folderID: folderID, in: db)
+        }) ?? []
+        await markRead(chatIDs: ids)
+    }
+
+    /// Перетаскивание в режиме «Изм.»: двигаются только закреплённые и только внутри
+    /// своего блока — бросок ниже него ставит строку последней из закреплённых. Строки
+    /// меняются сразу и синхронно: `List` ждёт новые данные тем же кадром, иначе строка
+    /// на миг прыгает назад.
+    @MainActor
+    func movePinned(from source: IndexSet, to destination: Int) {
+        let pinnedCount = rows.prefix(while: \.isPinned).count
+        guard source.allSatisfy({ $0 < pinnedCount }) else { return }
+        var next = rows
+        next.move(fromOffsets: source, toOffset: min(destination, pinnedCount))
+        guard next.map(\.id) != rows.map(\.id) else { return }
+        rows = next
+        let visible = next.prefix(pinnedCount).map(\.id)
+        Task { await reorderPinned(visible) }
+    }
+
+    /// Новый порядок закреплённых, видимых на вкладке, — id сверху вниз. На вкладке папки
+    /// видна только часть закреплённых: остальные остаются на своих местах, а видимые
+    /// меняются местами между собой.
+    @MainActor
+    func reorderPinned(_ visible: [String]) async {
+        let all = (try? await database.reader.read { db in try ChatListQuery.pinnedChatIDs(in: db) }) ?? []
+        let shown = Set(visible)
+        var next = visible.makeIterator()
+        let order = all.map { shown.contains($0) ? (next.next() ?? $0) : $0 }
+        guard order != all else { return }
+        let previous: [String: Int?]
+        do {
+            previous = try await store.setPinnedOrder(order)
+        } catch {
+            failure = String(localized: "chats.error.local", defaultValue: "Не удалось сохранить изменение")
+            return
+        }
+        do {
+            try await listActions.setPinnedOrder(Array(order.prefix(100)))
+            failure = nil
+        } catch {
+            try? await store.restorePinnedOrder(previous)
+            if !(error is CancellationError) { failure = error.userMessage }
+        }
+    }
+
+    /// Прочтение по-старому: отметка до последнего сообщения уходит сокетом, пометку
+    /// «как новое» снимает отдельный маршрут.
+    @MainActor
+    private func markReadBySocket(_ reads: [ChatReadSnapshot]) async {
+        for read in reads {
+            if read.markedUnread {
+                try? await listActions.setMarkedUnread(false, chatID: read.chatID)
+            }
+            guard read.unreadCount > 0 else { continue }
+            let id = read.chatID
+            let last: String?? = try? await database.reader.read { db in
+                try ChatRecord.fetchOne(db, key: id)?.lastMessageId
+            }
+            guard let messageID = last ?? nil else { continue }
+            await AppServices.realtime.markRead(chatID: id, messageID: messageID)
+        }
+        failure = nil
     }
 
     /// Очистить историю у себя: у собеседников переписка остаётся.
@@ -206,9 +321,7 @@ final class ChatListModel {
 
     @MainActor
     func markRead(_ rows: [ChatListRow]) async {
-        for row in rows where row.unreadCount > 0 {
-            await markRead(row)
-        }
+        await markRead(chatIDs: rows.filter(\.isUnread).map(\.id))
     }
 
     @MainActor
@@ -295,6 +408,18 @@ final class ChatListModel {
                 } else {
                     self?.liveRevision &+= 1
                 }
+            }
+        }
+    }
+
+    @MainActor
+    private func observeFolderSummary() {
+        summaryTask?.cancel()
+        let observation = ValueObservation.tracking { db in try ChatListQuery.folderSummary(in: db) }
+            .removeDuplicates()
+        summaryTask = Task { @MainActor [weak self, database] in
+            for await summary in AsyncValues.stream(of: observation, in: database.reader) {
+                self?.folderSummary = summary
             }
         }
     }

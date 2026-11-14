@@ -40,6 +40,11 @@ enum RealtimeEvent: Equatable {
     case messagesHidden(chatID: String, messageIDs: [String])
     /// Блокировка в одну из сторон — меняется доступность личного чата.
     case blockChanged(userID: String)
+    /// Свои настройки чатов изменились на другом устройстве: пометка «как новое»,
+    /// закрепление и его порядок, звук папки. Объекта чата в событии нет.
+    case chatListChanged(chatIDs: [String])
+    /// Свои папки изменились: создание, правка, удаление, порядок.
+    case foldersChanged
     /// Единый конверт `event` (PROJECT.md §9.2a). Приложению из него нужен пока
     /// один тип — смена статуса заявки: человек ждёт справку и хочет узнать о ней
     /// без обновления экрана.
@@ -59,6 +64,8 @@ enum RealtimeEvent: Equatable {
         static let chatActivity = "chat:activity"
         static let chatPinned = "chat:pinned"
         static let chatBlock = "chat:block"
+        static let chatListChanged = "chat:list-changed"
+        static let foldersChanged = "chat:folders-changed"
         static let memberAdded = "chat:member-added"
         static let memberRemoved = "chat:member-removed"
         static let messageReaction = "message:reaction"

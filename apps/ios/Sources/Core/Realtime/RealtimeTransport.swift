@@ -195,6 +195,12 @@ actor SocketIORealtimeTransport: RealtimeTransport {
                 (payload["chatId"] as? String).map { RealtimeEvent.chatActivity(chatID: $0) }
             }
         }
+        on(RealtimeEvent.Name.chatListChanged) { payload in
+            .chatListChanged(chatIDs: payload["chatIds"] as? [String] ?? [])
+        }
+        on(RealtimeEvent.Name.foldersChanged) { _ in
+            .foldersChanged
+        }
         on(RealtimeEvent.Name.chatPinned) { payload in
             (payload["chatId"] as? String).map { RealtimeEvent.chatPinned(chatID: $0) }
         }
