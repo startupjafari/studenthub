@@ -272,6 +272,8 @@ struct MessageBubbleView: View {
                 }
                 if let poll = extras.poll {
                     ChatPollView(poll: poll, isOwn: item.isOwn)
+                        // Состояние пузыря (выбор, результаты) — своё у каждого опроса.
+                        .id(poll.id)
                         .bubbleControl(enabled: !isMenuPreview)
                 }
                 if let location = extras.location {

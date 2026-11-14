@@ -172,6 +172,7 @@ enum LocalData {
         AppServices.unreadNotifications.reset()
         try? await AppServices.database.eraseAll()
         await AppServices.attachmentURLs.clear()
+        AppServices.pollResults.clear()
         // Фото, аватары и свои вложения прежнего человека — тоже его данные.
         ImageMemoryCache.shared.removeAll()
         // И с диска — все картинки, аватары тоже: платформа закрытая, а смена аккаунта не
