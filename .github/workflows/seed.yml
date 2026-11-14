@@ -41,18 +41,19 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Режим: seed (долить) / cleanup (удалить прогон по метке)'
+        description: 'Режим: seed (долить) / cleanup (удалить прогон по метке) / staff (охрана и библиотекарь вуза u001)'
         type: choice
         default: seed
         options:
           - seed
           - cleanup
+          - staff
       tag:
         description: 'Метка прогона. Пусто = seed-<номер запуска>. Для cleanup — обязательна'
         type: string
         default: ''
       confirm:
-        description: 'Для cleanup — повторите метку. Для объёма выше 50 млн строк — BIG'
+        description: 'Для cleanup — повторите метку. Для объёма выше 50 млн строк — BIG. Для staff — пароль новых аккаунтов (8+ символов)'
         type: string
         default: ''
       universities:
@@ -113,6 +114,7 @@ jobs:
       # Входные строки приходят через env, а не подстановкой в текст скрипта: иначе
       # значение вида `; rm -rf /` исполнилось бы шеллом раннера.
       - name: Проверить подтверждение, секреты и параметры формы
+        if: ${{ inputs.mode != 'staff' }}
         shell: bash
         env:
           MODE: ${{ inputs.mode }}
@@ -209,6 +211,7 @@ jobs:
       # видно до того, как это произошло, и остаётся в истории запусков. Значения формы
       # подставляются через env, а не в текст скрипта — как и в шаге проверки выше.
       - name: Схема прогона — в сводку запуска
+        if: ${{ inputs.mode != 'staff' }}
         env:
           MODE: ${{ inputs.mode }}
         run: |
@@ -253,6 +256,9 @@ jobs:
       # Только сверка: забытые миграции ломают сид на первом же запросе, но применять их
       # отсюда нельзя — ветка выбрана в форме, а SQL никто не видел (схема прогона выше).
       - name: Сверить миграции базы с веткой
+        # Режим staff пишет только двух пользователей и только колонками, которые есть
+        # давно: стенд, отстающий от ветки по миграциям, ему не помеха.
+        if: ${{ inputs.mode != 'staff' }}
         run: |
           set +e
           out=$(pnpm db:status 2>&1)
@@ -267,6 +273,7 @@ jobs:
 
       # Размер базы ДО прогона: рост боевой базы должен быть виден числом, а не на глаз.
       - name: Замерить базу до прогона — строки и размер
+        if: ${{ inputs.mode != 'staff' }}
         id: before
         shell: bash
         run: |
@@ -287,6 +294,7 @@ jobs:
       # Медиа (если включено) требует переменных MINIO_*: без них шаг пула сам скажет,
       # что хранилище недоступно, и прогон пойдёт дальше без картинок.
       - name: Налить данные — или убрать прогон по метке
+        if: ${{ inputs.mode != 'staff' }}
         env:
           SEED_ALLOW_REMOTE: '1'
           SEED_DEMO_UNIVERSITY: '0'
@@ -300,10 +308,21 @@ jobs:
           MINIO_SECRET_KEY: ${{ secrets.MINIO_SECRET_KEY }}
         run: pnpm db:seed
 
+      # Охрана и библиотекарь для вуза генератора (prisma/seed-staff.mjs): генератор этих
+      # ролей не заводит. Пароль — из поля confirm формы, в git его нет; в логе маскируется.
+      - name: Охрана и библиотекарь вуза u001
+        if: ${{ inputs.mode == 'staff' }}
+        env:
+          SEED_ALLOW_REMOTE: '1'
+          SEED_STAFF_PASSWORD: ${{ inputs.confirm }}
+        run: |
+          echo "::add-mask::${SEED_STAFF_PASSWORD}"
+          node prisma/seed-staff.mjs | tee -a "$GITHUB_STEP_SUMMARY"
+
       # Что в итоге в базе — цифрами, а не «прогон зелёный». Считается по факту, из той же
       # базы: расхождение с ожиданием видно сразу, не дожидаясь входа в интерфейс.
       - name: Итог цифрами — в сводку запуска
-        if: ${{ always() }}
+        if: ${{ always() && inputs.mode != 'staff' }}
         shell: bash
         env:
           MODE: ${{ inputs.mode }}
