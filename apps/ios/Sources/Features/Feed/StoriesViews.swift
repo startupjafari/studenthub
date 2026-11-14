@@ -146,7 +146,7 @@ struct StoryViewer: View {
     @Environment(\.viewerID) private var viewerID
     @Environment(\.motionReduced) private var reduceMotion
     /// Под VoiceOver история не уходит сама: человек не успел бы её дослушать.
-    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverOn
+    @Environment(\.voiceOverOn) private var voiceOverOn
 
     @State private var ringIndex = 0
     @State private var storyIndex = 0
