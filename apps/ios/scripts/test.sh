@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Все проверки iOS одной командой — на Mac с Xcode или на macOS-раннере CI.
 #
-#   scripts/test.sh                 # pr: unit + snapshot + ui (то же, что гоняет PR)
+#   scripts/test.sh build           # только сборка приложения и тестов (то же, что гоняет PR)
+#   scripts/test.sh                 # pr: unit + snapshot + ui
 #   scripts/test.sh unit snapshot   # выбранные наборы
 #   scripts/test.sh full            # pr + perf + ui-extended (ночной прогон)
 #   scripts/test.sh snapshot --record   # переснять эталоны снимков
 #
 # Наборы:
+#   build        только сборка: компилируется приложение и все таргеты тестов, симулятор
+#                не загружается, тесты не запускаются
 #   unit         StudentHubTests — логика, модели, движение (MotionTests и др.)
 #   snapshot     StudentHubSnapshotTests — снимки компонентов: темы, размеры, шрифт
 #   ui           StudentHubUITests, критичные сценарии на mock API
@@ -33,10 +36,12 @@ if [[ "$(uname)" != "Darwin" ]]; then
 fi
 
 RECORD=0
+BUILD_ONLY=0
 SUITES=()
 for arg in "$@"; do
   case "$arg" in
     --record) RECORD=1 ;;
+    build) BUILD_ONLY=1 ;;
     pr) SUITES+=(unit snapshot ui) ;;
     full) SUITES+=(unit snapshot ui-extended perf) ;;
     unit | snapshot | ui | ui-extended | perf) SUITES+=("$arg") ;;
@@ -44,7 +49,7 @@ for arg in "$@"; do
     *) echo "Неизвестный набор: $arg" >&2; exit 2 ;;
   esac
 done
-[[ ${#SUITES[@]} -eq 0 ]] && SUITES=(unit snapshot ui)
+[[ ${#SUITES[@]} -eq 0 && $BUILD_ONLY -eq 0 ]] && SUITES=(unit snapshot ui)
 
 DEVICE="${SH_TEST_DEVICE:-iPhone 17 Pro}"
 OUTPUT="${SH_TEST_OUTPUT:-$ROOT/build/test-output}"
@@ -86,14 +91,18 @@ if [[ -z "$UDID" ]]; then
   exit 2
 fi
 log "Симулятор: $DEVICE ($UDID)"
-xcrun simctl boot "$UDID" 2>/dev/null || true
-xcrun simctl bootstatus "$UDID" -b >/dev/null
-# Строка состояния — одна и та же в каждом снимке: время, сеть, заряд.
-xcrun simctl status_bar "$UDID" override --time "9:41" --dataNetwork wifi --wifiBars 3 \
-  --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100 || true
-# Светлая тема и крупность шрифта по умолчанию — снимки из UI-тестов от них зависят.
-xcrun simctl ui "$UDID" appearance light || true
-xcrun simctl ui "$UDID" content_size large 2>/dev/null || true
+# Для одной сборки симулятор только называет платформу и архитектуру — загружать его
+# не нужно, это пара минут на раннере.
+if [[ ${#SUITES[@]} -gt 0 ]]; then
+  xcrun simctl boot "$UDID" 2>/dev/null || true
+  xcrun simctl bootstatus "$UDID" -b >/dev/null
+  # Строка состояния — одна и та же в каждом снимке: время, сеть, заряд.
+  xcrun simctl status_bar "$UDID" override --time "9:41" --dataNetwork wifi --wifiBars 3 \
+    --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100 || true
+  # Светлая тема и крупность шрифта по умолчанию — снимки из UI-тестов от них зависят.
+  xcrun simctl ui "$UDID" appearance light || true
+  xcrun simctl ui "$UDID" content_size large 2>/dev/null || true
+fi
 
 DESTINATION="id=$UDID"
 
@@ -118,6 +127,13 @@ if [[ $BUILD_STATUS -ne 0 ]]; then
   } >>"$OUTPUT/summary.md"
   [[ -n "${GITHUB_STEP_SUMMARY:-}" ]] && cat "$OUTPUT/summary.md" >>"$GITHUB_STEP_SUMMARY"
   exit 1
+fi
+
+if [[ ${#SUITES[@]} -eq 0 ]]; then
+  echo "## iOS: сборка прошла, тесты не запускались" >>"$OUTPUT/summary.md"
+  [[ -n "${GITHUB_STEP_SUMMARY:-}" ]] && cat "$OUTPUT/summary.md" >>"$GITHUB_STEP_SUMMARY"
+  cat "$OUTPUT/summary.md"
+  exit 0
 fi
 
 # --- Наборы -------------------------------------------------------------------------

@@ -53,4 +53,16 @@ regexes = [
   # текста в ней не будет. Второй файл из дерева уже удалён, но коммит от 07.10.2026 в
   # истории остался, а ночной прогон читает её целиком — правкой кода это не лечится.
   '''\.[a-z-]*signature-not-verified[a-z-]*$''',
+
+  # Фиктивные токены в iOS-тестах входа и выхода (`generic-api-key`, коммиты от 10.11.2026):
+  #
+  #   Tests/StudentHubTests/AuthScreensTests.swift   токен письма сброса пароля (base64 от
+  #                                                  «Boris-the-token-from-mail») и UUID
+  #                                                  инвайта
+  #   Tests/StudentHubTests/SessionStoreTests.swift  APNs-токен устройства `apns-0123…`
+  #
+  # Значения перечислены целиком: под них не подойдёт ни один настоящий ключ.
+  '''^Qm9yaXMtdGhlLXRva2VuLWZyb20tbWFpbA$''',
+  '''^1b4e28ba-2fa1-11d2-883f-0016d3cca427$''',
+  '''^apns-0123456789abcdef$''',
 ]
