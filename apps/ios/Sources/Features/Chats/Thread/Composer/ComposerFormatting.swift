@@ -59,13 +59,25 @@ enum ComposerFormat: CaseIterable, Hashable {
         }
         switch self {
         case .link:
-            let label = selected.isEmpty ? (url ?? "") : selected
-            let text = "[\(label)](\(url ?? ""))"
-            return (text, NSRange(location: 1, length: label.utf16.count))
+            let address = Self.linkAddress(url ?? "")
+            let label = Self.singleLine(selected)
+            // Пустое выделение или подпись, равная адресу, — голый адрес: получатель
+            // распознает его сам, а `[адрес](адрес)` — лишняя разметка (IOS_RULES 7.4.4).
+            if label.isEmpty || Self.sameAddress(label, url ?? "") {
+                return (address, NSRange(location: address.utf16.count, length: 0))
+            }
+            let escaped = Self.linkLabel(label)
+            let text = "[\(escaped)](\(address))"
+            return (text, NSRange(location: 1, length: escaped.utf16.count))
         case .quote:
             let lines = selected.components(separatedBy: "\n")
-            let quoted = lines.allSatisfy { $0.hasPrefix("> ") }
-                ? lines.map { String($0.dropFirst(2)) }
+            // Снятие узнаёт и строку `>` без пробела (IOS_RULES 7.4.6): иначе повтор
+            // добавил бы второй уровень цитаты.
+            let quoted = lines.allSatisfy { $0.hasPrefix(">") }
+                ? lines.map { line in
+                    let rest = line.dropFirst()
+                    return String(rest.hasPrefix(" ") ? rest.dropFirst() : rest)
+                }
                 : lines.map { "> " + $0 }
             let text = quoted.joined(separator: "\n")
             return (text, NSRange(location: 0, length: text.utf16.count))
@@ -75,6 +87,152 @@ enum ComposerFormat: CaseIterable, Hashable {
         default:
             return (selected, NSRange(location: 0, length: selected.utf16.count))
         }
+    }
+
+    // MARK: Ссылка
+
+    /// Подпись и адрес ссылки — однострочные значения (IOS_RULES 7.2.5): отрезок
+    /// пробелов с переводом строки становится одним пробелом, иначе `[…](…)` раскалывается.
+    static func singleLine(_ value: String) -> String {
+        let normalized = OutgoingText.normalizingLineBreaks(value)
+        guard normalized.contains("\n") else { return normalized }
+        return normalized
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
+    /// Подпись внутри `[…]`: скобки экранируются, чтобы `]` в выделении не закрыл ссылку.
+    static func linkLabel(_ label: String) -> String {
+        label
+            .replacingOccurrences(of: "[", with: "\\[", options: .literal)
+            .replacingOccurrences(of: "]", with: "\\]", options: .literal)
+    }
+
+    /// Адрес внутри `(…)`: пробелы и круглые скобки кодируются — `)` или пробел иначе
+    /// обрывают ссылку и в пузыре, и на вебе.
+    static func linkAddress(_ url: String) -> String {
+        singleLine(url)
+            .trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: " ", with: "%20", options: .literal)
+            .replacingOccurrences(of: "(", with: "%28", options: .literal)
+            .replacingOccurrences(of: ")", with: "%29", options: .literal)
+    }
+
+    /// Подпись и есть адрес — с допусками на схему, `www.`, конечный `/`, регистр и
+    /// процент-кодирование.
+    static func sameAddress(_ label: String, _ url: String) -> Bool {
+        func key(_ value: String) -> String {
+            var text = (value.removingPercentEncoding ?? value)
+                .trimmingCharacters(in: .whitespaces)
+                .lowercased()
+            for prefix in ["https://", "http://", "mailto:"] where text.hasPrefix(prefix) {
+                text.removeFirst(prefix.count)
+                break
+            }
+            if text.hasPrefix("www.") { text.removeFirst(4) }
+            while text.hasSuffix("/") { text.removeLast() }
+            return text
+        }
+        let target = key(url)
+        return !target.isEmpty && key(label) == target
+    }
+}
+
+/// Где выделение относительно кода и ссылок (IOS_RULES 7.4.3): внутри
+/// ```` ``` ```` или `` ` `` маркеры форматирования получатель увидел бы буквально,
+/// поэтому там доступен только «Блок кода»; ссылку не кладут на моноширинный, а
+/// моноширинный — на ссылку.
+///
+/// Блок кода узнаётся по чётности ```` ``` ```` до места — теми же парами, что разбирает
+/// `MessageCodeBlocks.parse`; незакрытый блок тоже считается кодом: человек его ещё пишет.
+struct ComposerContext: Equatable {
+    var inCodeBlock = false
+    var inInlineCode = false
+    var inLink = false
+    /// В выделении есть `` ` ``: ссылку на моноширинный не кладём.
+    var selectionHasCode = false
+    /// В выделении есть ссылка: моноширинный на неё не кладём.
+    var selectionHasLink = false
+
+    var inCode: Bool { inCodeBlock || inInlineCode }
+
+    func allows(_ format: ComposerFormat) -> Bool {
+        if inCode { return format == .codeBlock }
+        switch format {
+        case .link: return !selectionHasCode && !inLink
+        case .monospace: return !selectionHasLink && !inLink
+        default: return true
+        }
+    }
+
+    /// Контекст выделения `range` (UTF-16) в тексте.
+    static func at(_ range: NSRange, in text: String) -> ComposerContext {
+        let ns = text as NSString
+        let start = min(max(0, range.location), ns.length)
+        let end = min(start + max(0, range.length), ns.length)
+        let selected = ns.substring(with: NSRange(location: start, length: end - start))
+        let fences = fenceLocations(in: ns, before: end)
+        func insideBlock(_ position: Int) -> Bool {
+            fences.filter { $0 < position }.count % 2 == 1
+        }
+        var context = ComposerContext(
+            inCodeBlock: insideBlock(start) || insideBlock(end) || fences.contains { $0 >= start && $0 < end },
+            selectionHasCode: selected.contains("`"),
+            selectionHasLink: selected.contains("](")
+        )
+        if !context.inCodeBlock {
+            let line = linePrefix(of: ns, at: start)
+            context.inInlineCode = insideInlineCode(line)
+            context.inLink = insideLink(line)
+        }
+        return context
+    }
+
+    /// Начала ```` ``` ```` до `limit` — литеральным поиском, как в разборе пузыря.
+    private static func fenceLocations(in text: NSString, before limit: Int) -> [Int] {
+        var result: [Int] = []
+        var from = 0
+        while from < limit {
+            let found = text.range(of: MessageCodeBlocks.fence, options: .literal, range: NSRange(location: from, length: text.length - from))
+            guard found.location != NSNotFound, found.location < limit else { break }
+            result.append(found.location)
+            from = found.location + found.length
+        }
+        return result
+    }
+
+    /// Строка до места: строчный код и ссылка в Markdown не переходят через абзац.
+    private static func linePrefix(of text: NSString, at location: Int) -> String {
+        let lineStart = text.lineRange(for: NSRange(location: location, length: 0)).location
+        return text.substring(with: NSRange(location: lineStart, length: location - lineStart))
+    }
+
+    /// Нечётное число одиночных `` ` `` до места — внутри строчного кода.
+    private static func insideInlineCode(_ line: String) -> Bool {
+        line.replacingOccurrences(of: MessageCodeBlocks.fence, with: "", options: .literal)
+            .reduce(0) { $1 == "`" ? $0 + 1 : $0 } % 2 == 1
+    }
+
+    /// Внутри `[подписи]` или `(адреса)` ссылки.
+    private static func insideLink(_ line: String) -> Bool {
+        var depth = 0
+        var inAddress = false
+        var previous: Character?
+        for character in line {
+            if inAddress {
+                if character == ")" { inAddress = false }
+            } else if character == "[" {
+                depth += 1
+            } else if character == "]" {
+                depth = max(0, depth - 1)
+            } else if character == "(", previous == "]" {
+                inAddress = true
+            }
+            previous = character
+        }
+        return depth > 0 || inAddress
     }
 }
 

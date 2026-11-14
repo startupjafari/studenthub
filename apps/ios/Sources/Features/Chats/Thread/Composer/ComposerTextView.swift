@@ -49,7 +49,7 @@ struct ComposerTextView: UIViewRepresentable {
         view.accessibilityIdentifier = accessibilityID
         view.accessibilityLabel = accessibilityLabel
         controller.attach(view, onChange: { [weak coordinator = context.coordinator] in
-            coordinator?.pushText()
+            coordinator?.pushIfStale()
         })
         context.coordinator.view = view
         return view
@@ -67,8 +67,15 @@ struct ComposerTextView: UIViewRepresentable {
 
         // Текст сменили снаружи (отправка очистила поле, правка, черновик из базы,
         // emoji с панели). Пока идёт набор с подбором (марк. текст), не перебиваем.
-        if view.text != text, view.markedTextRange == nil {
-            view.text = text
+        // Внешняя установка — вторая дверь шлюза (IOS_RULES 7.2.1, 7.2.2): переводы строк
+        // черновика с сервера или правки приводятся к одному виду и здесь.
+        let incoming = OutgoingText.normalizingLineBreaks(text)
+        if view.text != incoming, view.markedTextRange == nil {
+            // Смена выделения от `text =` приходит посреди обновления SwiftUI — контекст
+            // курсора пересчитаем на следующем витке, ниже.
+            context.coordinator.isSettingText = true
+            view.text = incoming
+            context.coordinator.isSettingText = false
             // Отмена после подмены текста целиком указывала бы на чужие диапазоны —
             // UIKit на этом падает.
             view.undoManager?.removeAllActions()
@@ -76,6 +83,9 @@ struct ComposerTextView: UIViewRepresentable {
             DispatchQueue.main.async {
                 controller.refresh()
                 controller.measure()
+                controller.updateContext()
+                // Нормализация изменила строку — в модель уходит то, что в поле.
+                if incoming != text { context.coordinator.pushIfStale() }
             }
         }
 
@@ -123,6 +133,8 @@ struct ComposerTextView: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: ComposerTextView
         weak var view: ComposerUITextView?
+        /// Идёт внешняя установка текста из `updateUIView`.
+        var isSettingText = false
 
         init(_ parent: ComposerTextView) {
             self.parent = parent
@@ -138,8 +150,35 @@ struct ComposerTextView: UIViewRepresentable {
             parent.controller.measure()
         }
 
+        /// Правка кодом (emoji, форматирование, список, отмена): `UITextView` обычно сам
+        /// присылает `textViewDidChange`, и второй проход `pushText` был бы лишним
+        /// (IOS_RULES 7.3.5). Досылаем, только если поле и модель всё ещё расходятся.
+        func pushIfStale() {
+            guard let view, parent.text != view.text else { return }
+            pushText()
+        }
+
         func textViewDidChange(_ textView: UITextView) {
             pushText()
+        }
+
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            guard !isSettingText else { return }
+            parent.controller.updateContext()
+        }
+
+        /// Единый шлюз ввода (IOS_RULES 7.2.1): его проходят набор, вставка, диктовка и
+        /// перетаскивание. Здесь — нормализация переводов строк и снятие `U+FFFC` (7.2.2,
+        /// 7.2.3), а не в `paste(_:)` и кнопках по отдельности.
+        func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            // Составление IME правит марк. текст — вмешательство сорвало бы подбор.
+            guard textView.markedTextRange == nil else { return true }
+            let clean = OutgoingText.normalizingLineBreaks(text)
+            guard clean != text else { return true }
+            // Очищенное вставляем сами одной правкой (она попадает в отмену); курсор —
+            // за вставленным, по длине уже очищенной строки.
+            parent.controller.replaceText(range, with: clean)
+            return false
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
@@ -159,7 +198,8 @@ struct ComposerTextView: UIViewRepresentable {
             guard range.length > 0, let view = textView as? ComposerUITextView else {
                 return UIMenu(children: suggestedActions)
             }
-            return UIMenu(children: suggestedActions + [view.formatMenu()])
+            let context = ComposerContext.at(range, in: textView.text)
+            return UIMenu(children: suggestedActions + [view.formatMenu(context)])
         }
     }
 }
@@ -212,10 +252,15 @@ final class ComposerUITextView: UITextView {
         super.paste(sender)
     }
 
-    /// Подменю «Форматирование»: значки слева, как в меню Telegram.
-    func formatMenu() -> UIMenu {
+    /// Подменю «Форматирование»: значки слева, как в меню Telegram. Внутри кода
+    /// доступен только «Блок кода» (IOS_RULES 7.4.3).
+    func formatMenu(_ context: ComposerContext) -> UIMenu {
         let actions = ComposerFormat.allCases.map { format in
-            UIAction(title: format.title, image: UIImage(systemName: format.symbol)) { [weak self] _ in
+            UIAction(
+                title: format.title,
+                image: UIImage(systemName: format.symbol),
+                attributes: context.allows(format) ? [] : .disabled
+            ) { [weak self] _ in
                 self?.onFormatMenu?(format)
             }
         }
@@ -237,6 +282,9 @@ final class ComposerTextController {
     /// Сколько строк занимает текст при текущей ширине: с трёх в панели появляется
     /// кнопка полноэкранного редактора.
     private(set) var lineCount = 1
+    /// Где выделение относительно кода и ссылок — от этого зависят пункты
+    /// «Форматирования» и автокоррекция (IOS_RULES 7.4.3).
+    private(set) var context = ComposerContext()
 
     @ObservationIgnored private weak var view: ComposerUITextView?
     @ObservationIgnored private var onChange: (() -> Void)?
@@ -274,7 +322,7 @@ final class ComposerTextController {
     func insert(_ string: String) -> Bool {
         guard let view else { return false }
         view.insertText(string)
-        onChange?()
+        onChange?()  // досылка только если `UITextView` не прислал `textViewDidChange`
         return true
     }
 
@@ -289,7 +337,7 @@ final class ComposerTextController {
 
     /// Разметить выделение. Ссылка сначала спрашивает адрес.
     func apply(_ format: ComposerFormat) {
-        guard let view else { return }
+        guard let view, ComposerContext.at(view.selectedRange, in: view.text).allows(format) else { return }
         if format == .link {
             askLink { [weak self] url in self?.replaceSelection(with: format, url: url) }
             return
@@ -328,6 +376,23 @@ final class ComposerTextController {
         if canRedo != redo { canRedo = redo }
     }
 
+    /// Сверить признаки поля с местом курсора: внутри кода — без автокоррекции,
+    /// проверки орфографии и «умных» кавычек и тире, они портят код (IOS_RULES 7.4.3).
+    func updateContext() {
+        guard let view, view.markedTextRange == nil else { return }
+        let next = ComposerContext.at(view.selectedRange, in: view.text)
+        if context != next { context = next }
+        let code = next.inCode
+        let autocorrection: UITextAutocorrectionType = code ? .no : .default
+        guard view.autocorrectionType != autocorrection else { return }
+        view.autocorrectionType = autocorrection
+        view.spellCheckingType = code ? .no : .default
+        view.smartQuotesType = code ? .no : .default
+        view.smartDashesType = code ? .no : .default
+        // Клавиатура кеширует эти признаки — без перезагрузки смена не дойдёт до неё.
+        if view.isFirstResponder { view.reloadInputViews() }
+    }
+
     /// Пересчитать число строк при текущей ширине поля.
     func measure() {
         guard let view, view.bounds.width > 0, let font = view.font else { return }
@@ -338,14 +403,29 @@ final class ComposerTextController {
 
     private func replaceSelection(with format: ComposerFormat, url: String?) {
         guard let view else { return }
-        let range = view.selectedRange
-        let selected = (view.text as NSString).substring(with: range)
+        let text = view.text as NSString
+        // Выделение — до границ составных символов: иначе половина суррогатной пары
+        // или ZWJ-последовательности emoji окажется по ту сторону маркера (IOS_RULES 7.4.2).
+        let range = view.selectedRange.length > 0
+            ? text.rangeOfComposedCharacterSequences(for: view.selectedRange)
+            : view.selectedRange
+        guard ComposerContext.at(range, in: view.text).allows(format) else { return }
+        let selected = text.substring(with: range)
         let result = format.apply(to: selected, url: url)
         replace(range, with: result.text)
         view.selectedRange = NSRange(
             location: range.location + result.selection.location,
             length: result.selection.length
         )
+        onChange?()
+    }
+
+    /// Заменить отрезок из шлюза ввода (IOS_RULES 7.2.1) и поставить курсор за вставкой.
+    func replaceText(_ range: NSRange, with string: String) {
+        guard let view else { return }
+        replace(range, with: string)
+        let end = min(range.location + string.utf16.count, (view.text as NSString).length)
+        view.selectedRange = NSRange(location: end, length: 0)
         onChange?()
     }
 
