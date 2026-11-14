@@ -1,0 +1,18 @@
+# Исключения стража слоёв (scripts/check_layers.sh, IOS_RULES 9.1.2, 9.1.3): путь от apps/ios
+# на строку. Список только сужается — новые пути сюда не добавляются; файл, переставший
+# нарушать правило, вычёркивается (иначе проверка падает).
+
+# а) import GRDB вне Core — наследие, переносится в типы запросов Core волной 3.
+Sources/Features/Chats/ChatBadgeModel.swift
+Sources/Features/Chats/ChatFoldersModel.swift
+Sources/Features/Chats/ChatFoldersView.swift
+Sources/Features/Chats/ChatListModel.swift
+Sources/Features/Chats/ChatListView.swift
+Sources/Features/Chats/ChatSearchViews.swift
+Sources/Features/Chats/Thread/Attach/LiveLocationSharing.swift
+Sources/Features/Chats/Thread/ChatThreadModel.swift
+Sources/Features/Settings/AccountSupportViews.swift
+Sources/Features/Study/LessonDetailView.swift
+Sources/Features/Study/ScheduleModel.swift
+
+# б) import UIKit/SwiftUI в Core — нет.
