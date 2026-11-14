@@ -40,10 +40,14 @@ struct MessageCapabilities: Hashable {
 /// Действие из пузыря или его меню.
 enum MessageAction {
     case reply, edit, delete, pin, copy, forward, report, retry
+    /// Скопировать кусок сообщения (блок кода) — с подтверждением, как «Скопировать».
+    case copyText(String)
     /// Кто прочитал своё сообщение в группе.
     case readers
     /// Крестик на загружаемом вложении: отменить отправку.
     case cancelUpload
+    /// Крестик на плитке загружаемого альбома: убрать из отправки только этот файл.
+    case cancelUploadFile(AttachmentRecord)
     /// Войти в режим выбора с этим сообщением и переключить его отметку в режиме.
     case select, toggleSelection
     case react(String)
@@ -233,7 +237,7 @@ struct MessageBubbleView: View {
                 // Снимок без подписи повторяет углы пузыря; своя неудачная отправка — круг
                 // «повторить» прямо на снимке, как в Telegram.
                 if mediaAttachments.count > 1 {
-                    ChatMediaMosaic(items: mediaAttachments, upload: mediaUpload) { attachment in
+                    ChatMediaMosaic(items: mediaAttachments, upload: mediaUpload, tileUpload: tileUpload) { attachment in
                         onAction(.openAttachment(attachment))
                     }
                     .environment(\.chatMediaCorners, isMediaOnly ? mediaCorners : nil)
@@ -401,6 +405,18 @@ struct MessageBubbleView: View {
         }
     }
 
+    /// Кольцо и крестик на каждой плитке своего альбома в пути, как в Telegram: у
+    /// каждого файла своя доля, крестик убирает из отправки только его.
+    private var tileUpload: ((AttachmentRecord) -> AttachmentUploadState)? {
+        guard upload != nil else { return nil }
+        let progress = AttachmentUploads.shared.fileProgress
+        return { attachment in
+            AttachmentUploadState(fraction: progress[attachment.id] ?? 0) {
+                onAction(.cancelUploadFile(attachment))
+            }
+        }
+    }
+
     /// Состояние отправки для снимков: к кольцу загрузки добавляется неудача — круг
     /// «повторить» на самом снимке. Строкам файлов и аудио — только кольцо (`upload`).
     private var mediaUpload: AttachmentUploadState? {
@@ -471,9 +487,17 @@ struct MessageBubbleView: View {
         extras.location != nil || extras.contact != nil || extras.checklist != nil || extras.sticker != nil
     }
 
-    /// Время встаёт в последнюю строку текста, если текст — последний в пузыре.
+    /// Время встаёт в последнюю строку текста, если текст — последний в пузыре. Текст,
+    /// который кончается блоком кода, времени не несёт: оно уходит на свою строку.
     private var textCarriesMeta: Bool {
         hasText && !showsReactions && (extras.linkPreview == nil || isDeleted)
+            && codeSegments?.last?.isCode != true
+    }
+
+    /// Текст с блоками кода ```` ``` ```` — по сегментам; `nil` — обычный текст (разбор
+    /// не трогается, проверка — одна `contains`, сам разбор кешируется).
+    private var codeSegments: [MessageCodeBlocks.Segment]? {
+        isDeleted ? nil : MessageCodeBlocks.segments(ifAny: message.content)
     }
 
     /// Только фото без подписи — время поверх снимка, в тёмной капсуле.
@@ -485,7 +509,24 @@ struct MessageBubbleView: View {
             && !(context.isGroup && !item.isOwn && item.isFirstInGroup)
     }
 
+    @ViewBuilder
     private var textBlock: some View {
+        if let segments = codeSegments {
+            MessageCodeText(
+                segments: segments,
+                isOwn: item.isOwn,
+                textColor: textColor,
+                tint: item.isOwn ? Palette.primaryForeground : Palette.primary,
+                highlight: context.highlight,
+                metaPlaceholder: textCarriesMeta ? metaPlaceholder : nil,
+                onCopy: { onAction(.copyText($0)) }
+            )
+        } else {
+            plainTextBlock
+        }
+    }
+
+    private var plainTextBlock: some View {
         let body = Text(isDeleted ? AttributedString(deletedText) : highlightedContent)
             .font(Typography.body)
         let line = textCarriesMeta ? body + metaPlaceholder : body

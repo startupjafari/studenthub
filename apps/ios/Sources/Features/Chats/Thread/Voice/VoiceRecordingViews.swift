@@ -22,6 +22,9 @@ struct VoiceMicButton: View {
     /// Номер касания: сброс оборванного касания на следующем витке не должен задеть
     /// уже начавшееся новое.
     @State private var touchSerial = 0
+    /// «Продолжить запись» при сдвинутых ручках обрезки: сначала спрашиваем, оставить ли
+    /// только выбранный фрагмент.
+    @State private var confirmsTrimmedResume = false
     @Environment(\.motionReduced) private var reduceMotion
     @ScaledMetric(relativeTo: .body) private var bigCircle: CGFloat = 84
 
@@ -57,6 +60,20 @@ struct VoiceMicButton: View {
             .overlay { bigCircleView.allowsHitTesting(false) }
             .overlay(alignment: .bottom) { lockView }
             .overlay(alignment: .bottomTrailing) { hintView }
+            .alert(
+                String(localized: "chats.voice.keepFragmentTitle", defaultValue: "Оставить только выбранный фрагмент?"),
+                isPresented: $confirmsTrimmedResume
+            ) {
+                Button(String(localized: "chats.voice.keepFragmentContinue", defaultValue: "Продолжить")) {
+                    recorder.resume()
+                }
+                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
+            } message: {
+                Text(String(
+                    localized: "chats.voice.keepFragmentMessage",
+                    defaultValue: "Всё, кроме выделенного фрагмента, будет удалено. Запись сообщения продолжится сразу после нажатия кнопки."
+                ))
+            }
             .accessibilityElement()
             .accessibilityIdentifier("chat.mic")
             .accessibilityLabel(Text(accessibilityTitle))
@@ -177,23 +194,46 @@ struct VoiceMicButton: View {
             .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             .accessibilityHidden(true)
         case .lockedRecording:
-            // «Стоп» закреплённой записи — над микрофоном, на месте замка, как в
-            // Telegram: поверх ленты, но в колонке кнопки, а не в пузыре.
+            // «Пауза» закреплённой записи — над микрофоном, на месте замка, как в
+            // Telegram: поверх ленты, но в колонке кнопки, а не в пузыре. Пауза ведёт к
+            // прослушиванию, откуда запись можно продолжить.
             Button {
                 recorder.stop()
             } label: {
-                Image(systemName: "stop.fill")
+                Image(systemName: "pause.fill")
                     .font(.subheadline)
                     .foregroundStyle(Palette.destructive)
                     .frame(width: 40, height: 40)
                     .floatingGlass(in: Circle())
             }
             .buttonStyle(.pressableIcon)
-            // Касание «стоп» не прячет клавиатуру — как и вся панель ввода.
+            // Касание «пауза» не прячет клавиатуру — как и вся панель ввода.
             .keepsKeyboardOnTap()
             .offset(y: -(ControlHeight.lg + Spacing.lg))
             .transition(reduceMotion ? .opacity : .scale(scale: 0.6).combined(with: .opacity))
+            .accessibilityIdentifier("chat.voice.pause")
             .accessibilityLabel(Text(String(localized: "chats.voice.stop", defaultValue: "Остановить запись")))
+        case .stopped:
+            // В прослушивании на том же месте — микрофон: дописать к записанному.
+            Button {
+                if recorder.isTrimmed {
+                    confirmsTrimmedResume = true
+                } else {
+                    recorder.resume()
+                }
+            } label: {
+                Image(systemName: "mic")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Palette.primary)
+                    .frame(width: 40, height: 40)
+                    .floatingGlass(in: Circle())
+            }
+            .buttonStyle(.pressableIcon)
+            .keepsKeyboardOnTap()
+            .offset(y: -(ControlHeight.lg + Spacing.lg))
+            .transition(reduceMotion ? .opacity : .scale(scale: 0.6).combined(with: .opacity))
+            .accessibilityIdentifier("chat.voice.resume")
+            .accessibilityLabel(Text(String(localized: "chats.voice.resume", defaultValue: "Продолжить запись")))
         default:
             EmptyView()
         }
@@ -363,29 +403,103 @@ private struct VoicePreviewStrip: View {
                 ? String(localized: "chats.voice.pause", defaultValue: "Пауза")
                 : String(localized: "chats.voice.play", defaultValue: "Слушать")))
 
-            VoiceEnvelopeView(levels: recorder.envelope, progress: player.progress)
+            VoiceEnvelopeView(levels: recorder.envelope, progress: player.progress, selection: recorder.selection)
                 .frame(height: 22)
                 .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())
                 .gesture(
                     SpatialTapGesture().onEnded { _ in player.toggle() }
                 )
+                .overlay { VoiceTrimHandles(recorder: recorder, total: total) }
+                .padding(.horizontal, VoiceTrimHandles.inset)
 
             Text(verbatim: VoiceRecordingStrip.clock(player.isPlaying
                 ? player.duration * player.progress
-                : max(player.duration, recorder.duration))
+                : total * (recorder.selection.upperBound - recorder.selection.lowerBound))
                 .components(separatedBy: ",").first ?? "")
                 .font(Typography.tabular(Typography.meta))
                 .foregroundStyle(Palette.mutedForeground)
         }
         .padding(.horizontal, Spacing.md)
     }
+
+    /// Длина всей остановленной записи.
+    private var total: TimeInterval { max(player.duration, recorder.duration) }
 }
 
-/// Волна всей записи, ужатая до ширины полосы; проигранное — фирменным цветом.
+/// Ручки обрезки по краям волны, как в Telegram: тянешь — выбираешь фрагмент, который
+/// уйдёт (или станет началом продолжения записи). Между ручками — не короче полсекунды.
+private struct VoiceTrimHandles: View {
+    let recorder: VoiceRecorder
+    let total: TimeInterval
+
+    /// Запас по краям волны под ручки: на краю экрана палец не попадёт в тонкую полоску.
+    static let inset: CGFloat = 6
+    /// Ширина зоны касания ручки — шире самой полоски.
+    private static let hitWidth: CGFloat = 28
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = max(1, proxy.size.width)
+            let selection = recorder.selection
+            ZStack(alignment: .leading) {
+                handle(at: selection.lowerBound * width, height: proxy.size.height, isLower: true, width: width)
+                handle(at: selection.upperBound * width, height: proxy.size.height, isLower: false, width: width)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .coordinateSpace(name: Self.space)
+        }
+    }
+
+    private func handle(at x: CGFloat, height: CGFloat, isLower: Bool, width: CGFloat) -> some View {
+        Capsule()
+            .fill(Palette.primary)
+            .frame(width: 4, height: height + 8)
+            .frame(width: Self.hitWidth, height: height + 16)
+            .contentShape(Rectangle())
+            .position(x: x, y: height / 2)
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .named(VoiceTrimHandles.space))
+                    .onChanged { value in
+                        move(isLower: isLower, to: Double(value.location.x / width))
+                    }
+            )
+            .accessibilityElement()
+            .accessibilityLabel(Text(isLower
+                ? String(localized: "chats.voice.trimStart", defaultValue: "Начало фрагмента")
+                : String(localized: "chats.voice.trimEnd", defaultValue: "Конец фрагмента")))
+            .accessibilityAdjustableAction { direction in
+                let step = 0.05 * (direction == .increment ? 1 : -1)
+                let current = isLower ? recorder.selection.lowerBound : recorder.selection.upperBound
+                move(isLower: isLower, to: current + step)
+            }
+    }
+
+    private static let space = "voice.trim"
+
+    /// Сдвинуть ручку, не дав фрагменту стать короче полсекунды.
+    private func move(isLower: Bool, to fraction: Double) {
+        let gap = total > 0 ? min(1, VoiceRecordingMachine.minimumDuration / total) : 1
+        var selection = recorder.selection
+        if isLower {
+            let lower = min(max(0, fraction), selection.upperBound - gap)
+            selection = max(0, lower)...selection.upperBound
+        } else {
+            let upper = max(min(1, fraction), selection.lowerBound + gap)
+            selection = selection.lowerBound...min(1, upper)
+        }
+        guard selection.lowerBound <= selection.upperBound, selection != recorder.selection else { return }
+        recorder.selection = selection
+        recorder.preview.seek(to: selection.lowerBound)
+    }
+}
+
+/// Волна всей записи, ужатая до ширины полосы; проигранное — фирменным цветом. Вне
+/// выбранного обрезкой фрагмента — бледно: эта часть не уйдёт.
 struct VoiceEnvelopeView: View {
     let levels: [Float]
     var progress: Double = 0
+    var selection: ClosedRange<Double> = 0...1
 
     var body: some View {
         GeometryReader { proxy in
@@ -393,8 +507,11 @@ struct VoiceEnvelopeView: View {
             let bars = Self.resample(levels, count: count)
             HStack(alignment: .center, spacing: 2) {
                 ForEach(bars.indices, id: \.self) { index in
+                    let position = Double(index) / Double(bars.count)
+                    let selected = selection.contains(position)
                     Capsule()
-                        .fill(Double(index) / Double(bars.count) < progress ? Palette.primary : Palette.primary.opacity(0.35))
+                        .fill(position < progress && selected ? Palette.primary : Palette.primary.opacity(0.35))
+                        .opacity(selected ? 1 : 0.4)
                         .frame(width: 2, height: max(3, proxy.size.height * CGFloat(bars[index])))
                 }
             }

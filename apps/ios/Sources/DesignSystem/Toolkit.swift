@@ -644,7 +644,7 @@ private struct FilterChipMenu: ViewModifier {
 
 /// Тающие края горизонтальной прокрутки — только с той стороны, где есть ещё
 /// содержимое. Положение прокрутки система отдаёт с iOS 18; раньше края не тают.
-private struct ScrollEdgeFade: ViewModifier {
+struct ScrollEdgeFade: ViewModifier {
     private struct Edges: Equatable {
         var leading = false
         var trailing = false

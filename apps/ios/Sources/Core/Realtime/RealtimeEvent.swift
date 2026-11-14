@@ -30,6 +30,9 @@ enum RealtimeEvent: Equatable {
     case chatActivity(chatID: String)
     /// Закрепили или открепили сообщение — плашку закреплённого нужно перечитать.
     case chatPinned(chatID: String)
+    /// Мои отложенные в чате изменились (создание, правка, удаление, отправка сейчас или
+    /// cron'ом) — часы в поле ввода и список перечитываются. Приходит в личную комнату.
+    case scheduledChanged(chatID: String)
     /// Кто-то проголосовал: результаты опроса перечитываются.
     case pollUpdated(pollID: String, chatID: String)
     /// Общий список изменили (отметка, новый или убранный пункт) — состояние целиком.
@@ -40,6 +43,11 @@ enum RealtimeEvent: Equatable {
     case messagesHidden(chatID: String, messageIDs: [String])
     /// Блокировка в одну из сторон — меняется доступность личного чата.
     case blockChanged(userID: String)
+    /// Свои настройки чатов изменились на другом устройстве: пометка «как новое»,
+    /// закрепление и его порядок, звук папки. Объекта чата в событии нет.
+    case chatListChanged(chatIDs: [String])
+    /// Свои папки изменились: создание, правка, удаление, порядок.
+    case foldersChanged
     /// Единый конверт `event` (PROJECT.md §9.2a). Приложению из него нужен пока
     /// один тип — смена статуса заявки: человек ждёт справку и хочет узнать о ней
     /// без обновления экрана.
@@ -58,7 +66,10 @@ enum RealtimeEvent: Equatable {
         static let chatUpdated = "chat:updated"
         static let chatActivity = "chat:activity"
         static let chatPinned = "chat:pinned"
+        static let scheduledChanged = "chat:scheduled-changed"
         static let chatBlock = "chat:block"
+        static let chatListChanged = "chat:list-changed"
+        static let foldersChanged = "chat:folders-changed"
         static let memberAdded = "chat:member-added"
         static let memberRemoved = "chat:member-removed"
         static let messageReaction = "message:reaction"

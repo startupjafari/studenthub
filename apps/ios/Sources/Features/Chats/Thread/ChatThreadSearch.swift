@@ -17,6 +17,9 @@ final class ChatThreadSearch {
     /// Текущее совпадение в `results`.
     private(set) var index = 0
     private(set) var hasMore = false
+    /// Сколько всего совпадений в чате (`meta.total` первой страницы); `nil` — сервер не
+    /// сказал, и счётчик ведётся по загруженному.
+    private(set) var total: Int?
     private(set) var isLoading = false
     private(set) var failure: String?
     /// Запрос по текущему тексту уже ответил — можно говорить «ничего не найдено».
@@ -61,6 +64,7 @@ final class ChatThreadSearch {
         index = 0
         cursor = nil
         hasMore = false
+        total = nil
         failure = nil
         isSettled = false
         guard isActive else {
@@ -148,6 +152,7 @@ final class ChatThreadSearch {
         results += page.items.filter { !known.contains($0.id) }
         cursor = page.meta?.cursor
         hasMore = page.meta?.hasNext == true && cursor != nil
+        if let known = page.meta?.total { total = max(known, results.count) }
     }
 }
 
@@ -169,7 +174,7 @@ struct ChatSearchBar: View {
                         .foregroundStyle(Palette.mutedForeground)
                         .accessibilityHidden(true)
                     TextField(
-                        String(localized: "chats.thread.search.prompt", defaultValue: "Поиск в чате"),
+                        String(localized: "chats.thread.search.prompt", defaultValue: "Искать в чате"),
                         text: $search.query
                     )
                     .font(Typography.body)
@@ -323,7 +328,8 @@ struct ChatSearchPanel: View {
                 .foregroundStyle(Palette.destructive)
                 .lineLimit(1)
         } else if search.isActive && search.isSettled && search.results.isEmpty {
-            Text(String(localized: "chats.thread.search.nothing", defaultValue: "Ничего не найдено"))
+            // Как в Telegram: «0 результатов», а не отдельная фраза.
+            Text(SearchResultsPlural.count(0))
                 .font(Typography.meta)
                 .foregroundStyle(Palette.mutedForeground)
                 .lineLimit(1)
@@ -336,9 +342,13 @@ struct ChatSearchPanel: View {
         }
     }
 
-    /// «3 из 30»; есть ещё страницы — «3 из 30+»: сколько всего, сервер не говорит.
+    /// «3 из 30» — всего по `meta.total`. Сервер числа не прислал, а страницы ещё есть —
+    /// «3 из 30+» по загруженному.
     private var position: String {
         let at = search.index + 1
+        if let total = search.total {
+            return String(localized: "chats.thread.search.position", defaultValue: "\(at) из \(total)")
+        }
         let total = search.results.count
         return search.hasMore
             ? String(localized: "chats.thread.search.positionMore", defaultValue: "\(at) из \(total)+")
@@ -364,6 +374,22 @@ struct ChatSearchPanel: View {
         .opacity(enabled ? 1 : 0.4)
         .accessibilityLabel(Text(title))
         .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+}
+
+/// «1 результат», «3 результата», «0 результатов» — счётчик поиска в переписке.
+enum SearchResultsPlural {
+    static func count(_ count: Int) -> String {
+        let number = count.formatted()
+        let tens = count % 100
+        let ones = count % 10
+        if (11...14).contains(tens) || ones == 0 || ones >= 5 {
+            return String(localized: "chats.thread.search.results.many", defaultValue: "\(number) результатов")
+        }
+        if ones == 1 {
+            return String(localized: "chats.thread.search.results.one", defaultValue: "\(number) результат")
+        }
+        return String(localized: "chats.thread.search.results.few", defaultValue: "\(number) результата")
     }
 }
 

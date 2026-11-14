@@ -31,16 +31,20 @@ struct ChatThreadView: View {
     @State private var composerPanelShown = false
     /// Фото и видео сообщения — в своём просмотре, как в Telegram.
     @State private var viewer: ChatMediaViewerRequest?
-    /// Что сделать, когда просмотр закроется: лист пересылки поверх него не открыть.
-    @State private var pendingViewerAction: MessageAction?
-    /// Сообщение последнего просмотра: к `onDismiss` сам `viewer` уже обнулён.
-    @State private var lastViewerMessage: MessageRecord?
+    /// Что сделать, когда просмотр закроется: перейти к сообщению или ответить на него.
+    @State private var pendingViewerAction: ViewerAction?
     @State private var copiedTick = 0
     /// Короткое уведомление сверху: «Переслано», «Скопировано».
     @State private var toast: String?
     @State private var toastTask: Task<Void, Never>?
     @State private var reported = false
     @State private var pinnedIndex = 0
+    /// Экран «Закреплено N» и подтверждение «Открепить все» с плашки.
+    @State private var showsPinnedList = false
+    /// Режим выбора: подтверждение «Удалить чат» и лист «Поделиться».
+    @State private var confirmingChatDelete = false
+    @State private var sharing: ShareItems?
+    @State private var confirmingUnpinAll = false
     /// Плашку закреплённого закрыли крестиком — до нового закрепления (id самого
     /// свежего закреплённого на момент закрытия).
     @State private var hiddenPinned: String?
@@ -99,8 +103,11 @@ struct ChatThreadView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("chat.title")
+                    // Поиск прямо с экрана переписки: долгое нажатие на шапку, как меню
+                    // аватара в Telegram. Касание по-прежнему ведёт в информацию о чате.
+                    .contextMenu { headerMenu }
                 }
-                ChatAvatarToolbarItem(chatID: chatID, chat: model?.chat, title: model?.title)
+                ChatAvatarToolbarItem(chatID: chatID, chat: model?.chat, title: model?.title) { headerMenu }
             }
         }
         // В режиме выбора место «назад» занимает «Отмена»: выход из режима, а не из
@@ -125,27 +132,103 @@ struct ChatThreadView: View {
         .sensoryFeedback(.success, trigger: copiedTick)
     }
 
-    /// Шапка режима выбора: «Отмена» слева и счётчик по центру, как в Telegram.
+    /// Шапка режима выбора, как в Telegram: слева «Удалить чат» (у личного чата и
+    /// группы — официальные заводит система), по центру — счётчик или «Выберите
+    /// сообщения», справа «Отмена».
     @ToolbarContentBuilder
     private func selectionToolbar(_ model: ChatThreadModel) -> some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            Button(String(localized: "common.cancel", defaultValue: "Отмена")) {
-                endSelection(model)
+        if let chat = model.chat, chat.kind == .private || chat.kind == .group {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(ChatLeaveTitle.title(for: chat.kind, isOwner: chat.isOwner), role: .destructive) {
+                    confirmingChatDelete = true
+                }
+                .foregroundStyle(Palette.destructive)
             }
         }
         ToolbarItem(placement: .principal) {
-            Text(String(
-                localized: "chats.selection.count",
-                defaultValue: "Выбрано: \(model.selection?.count ?? 0)"
-            ))
+            let count = model.selection?.count ?? 0
+            Text(count == 0
+                ? String(localized: "chats.selection.prompt", defaultValue: "Выберите сообщения")
+                : String(localized: "chats.selection.count", defaultValue: "Выбрано: \(count)"))
             .font(.headline)
             .foregroundStyle(Palette.foreground)
             .contentTransition(.numericText())
             .accessibilityAddTraits(.isHeader)
         }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button(String(localized: "common.cancel", defaultValue: "Отмена")) {
+                endSelection(model)
+            }
+        }
+    }
+
+    /// Удалить личный чат, выйти из группы или удалить свою группу — тем же путём, что
+    /// в «Информации о чате»: сервер решает, строка чата уходит из базы, экран — к списку.
+    private func deleteChat() async {
+        do {
+            try await ChatsAPI().deleteChat(chatID: chatID)
+            let id = chatID
+            _ = try? await AppServices.database.writer.write { db in try ChatRecord.deleteOne(db, key: id) }
+            model?.endSelection()
+            AppServices.router.popToRoot(.chats)
+        } catch {
+            model?.actionFailure = error.userMessage
+        }
+    }
+
+    /// «Поделиться» выбранным: тексты по времени и файлы, уже лежащие на устройстве
+    /// (свои отправленные и скачанные). Нескачанное пропускается: качать ради листа
+    /// «Поделиться» десятки мегабайт молча было бы хуже, чем не приложить их.
+    private func shareSelection(_ model: ChatThreadModel) {
+        var items: [Any] = []
+        let text = model.selectedText
+        if !text.isEmpty { items.append(text) }
+        items += selectedFiles(model)
+        guard !items.isEmpty else { return }
+        sharing = ShareItems(items: items)
+        endSelection(model)
+    }
+
+    private func selectedFiles(_ model: ChatThreadModel) -> [URL] {
+        guard let selection = model.selection else { return [] }
+        return model.days.lazy.flatMap(\.items)
+            .filter { selection.contains($0.id) && $0.message.deletedAt == nil }
+            .flatMap(\.attachments)
+            .compactMap { file in
+                if case .done(let url) = ChatFileDownloads.shared.state(for: file) { return url }
+                return nil
+            }
     }
 
     private static func hiddenPinnedKey(_ chatID: String) -> String { "chats.pinnedHidden.\(chatID)" }
+
+    /// Меню шапки по долгому нажатию: поиск в переписке, переход к дате, закреплённые.
+    @ViewBuilder
+    private var headerMenu: some View {
+        if let model {
+            Button {
+                openSearch(model)
+            } label: {
+                Label(String(localized: "chats.thread.search.open", defaultValue: "Поиск в чате"), systemImage: "magnifyingglass")
+            }
+            Button {
+                calendarDay = Date()
+                showsCalendar = true
+            } label: {
+                Label(String(localized: "chats.calendar.title", defaultValue: "Перейти к дате"), systemImage: "calendar")
+            }
+            if !model.pinned.isEmpty {
+                Button {
+                    showsPinnedList = true
+                } label: {
+                    Label(
+                        String(localized: "chats.pinnedList.title", defaultValue: "Закреплено \(model.pinned.count)"),
+                        systemImage: "pin"
+                    )
+                }
+            }
+        }
+    }
 
     /// Крестик на плашке: прячем, пока не закрепят что-то новое, — как в Telegram.
     private func hidePinned(_ model: ChatThreadModel) {
@@ -264,7 +347,9 @@ struct ChatThreadView: View {
                         message: model.pinned[min(pinnedIndex, model.pinned.count - 1)],
                         index: min(pinnedIndex, model.pinned.count - 1),
                         count: model.pinned.count,
-                        onClose: { hidePinned(model) }
+                        onClose: { hidePinned(model) },
+                        onShowAll: { showsPinnedList = true },
+                        onUnpinAll: { confirmingUnpinAll = true }
                     ) {
                         let current = model.pinned[min(pinnedIndex, model.pinned.count - 1)]
                         Task { await model.jump(to: current.id) }
@@ -320,7 +405,9 @@ struct ChatThreadView: View {
                                 forEveryoneAllowed: model.canDeleteSelectionForEveryone,
                                 fromSelection: true
                             )
-                        }
+                        },
+                        canShare: !model.selectedText.isEmpty || !selectedFiles(model).isEmpty,
+                        onShare: { shareSelection(model) }
                     )
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else if model.chat?.requestIncoming == true {
@@ -415,6 +502,9 @@ struct ChatThreadView: View {
             guard model == nil else { return }
             ChatOpenSignpost.begin(chatID: chatID)
             KeyboardFrame.shared.start()
+            // Избранные стикеры — для пункта меню сообщения-стикера: без них «в избранном
+            // ли» отвечало бы «нет» у каждого.
+            Task { await StickerCatalog.shared.loadFavorites() }
             hiddenPinned = UserDefaults.standard.string(forKey: Self.hiddenPinnedKey(chatID))
             let created = ChatThreadModel(chatID: chatID, viewerID: viewerID, api: Self.messagesAPI(for: chatID))
             model = created
@@ -461,6 +551,9 @@ struct ChatThreadView: View {
         }
         .onChange(of: realtime.signals(for: chatID).pinnedVersion) {
             Task { await model?.loadPinned() }
+        }
+        .onChange(of: realtime.signals(for: chatID).scheduledVersion) {
+            Task { await model?.scheduled.load() }
         }
         .onChange(of: model?.newestIncomingID) {
             // Пришло новое — пока чат открыт, оно прочитано.
@@ -552,6 +645,68 @@ struct ChatThreadView: View {
                 }
             }
         }
+        .sheet(isPresented: Binding(
+            get: { model?.scheduled.isPickingTime == true },
+            set: { model?.scheduled.isPickingTime = $0 }
+        )) {
+            ScheduleMessageSheet { _, date in
+                do {
+                    try await model?.scheduleDraft(at: date)
+                    showToast(String(
+                        localized: "chats.scheduled.done",
+                        defaultValue: "Отправится \(ScheduleMessageSheet.title(for: date).lowercased())"
+                    ))
+                    return nil
+                } catch {
+                    return error.userMessage
+                }
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { model?.scheduled.showsList == true },
+            set: { model?.scheduled.showsList = $0 }
+        )) {
+            if let model {
+                ChatScheduledListView(model: model)
+            }
+        }
+        .sheet(item: $sharing) { share in
+            ShareSheet(items: share.items)
+                .presentationDetents([.medium, .large])
+        }
+        .alert(
+            ChatLeaveTitle.question(for: model?.chat?.kind ?? .private, isOwner: model?.chat?.isOwner ?? false),
+            isPresented: $confirmingChatDelete
+        ) {
+            Button(
+                ChatLeaveTitle.title(for: model?.chat?.kind ?? .private, isOwner: model?.chat?.isOwner ?? false),
+                role: .destructive
+            ) {
+                Task { await deleteChat() }
+            }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
+        }
+        .sheet(isPresented: $showsPinnedList) {
+            if let model {
+                ChatPinnedListView(
+                    model: model,
+                    viewerID: viewerID,
+                    isGroup: bubbleContext(model).isGroup,
+                    onJump: { id in Task { await model.jump(to: id) } },
+                    onUnpinAll: { await model.unpinAll() }
+                )
+            }
+        }
+        .confirmationDialog(
+            String(localized: "chats.pinned.unpinAll.title", defaultValue: "Открепить все сообщения?"),
+            isPresented: $confirmingUnpinAll,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "chats.pinned.unpinAll", defaultValue: "Открепить все сообщения"), role: .destructive) {
+                Task { await model?.unpinAll() }
+            }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
+        }
         .sheet(isPresented: $showsCalendar) {
             ChatCalendarSheet(chatID: chatID, initialDay: calendarDay) { day in
                 Task { await model?.jump(toDay: day) }
@@ -563,15 +718,19 @@ struct ChatThreadView: View {
             }
         }
         .sheet(item: $forwarding) { batch in
-            ForwardPickerView(messages: batch.messages) { targets, comment, requestID in
-                guard let model else { return ForwardOutcome() }
-                let outcome = await model.forward(batch.messages, to: targets, comment: comment, requestID: requestID)
-                if outcome.isComplete {
-                    if batch.fromSelection { endSelection(model) }
-                    showToast(ChatPlural.forwardedTo(outcome.delivered.count))
-                }
-                return outcome
-            }
+            ChatShareSheet(
+                send: { targets, comment, requestID in
+                    guard let model else { return ForwardOutcome() }
+                    let outcome = await model.forward(batch.messages, to: targets, comment: comment, requestID: requestID)
+                    if outcome.isComplete {
+                        if batch.fromSelection { endSelection(model) }
+                        showToast(ChatPlural.forwardedTo(outcome.delivered.count))
+                    }
+                    return outcome
+                },
+                exportFiles: mediaExport(of: batch.messages),
+                shareText: batch.messages.map(\.content).filter { !$0.isEmpty }.joined(separator: "\n\n")
+            )
         }
         .alert(
             String(localized: "chats.report.title", defaultValue: "Что не так с сообщением?"),
@@ -602,7 +761,7 @@ struct ChatThreadView: View {
             Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
         .fullScreenCover(item: $viewer, onDismiss: runPendingViewerAction) { request in
-            MediaViewer(media: request.media, start: request.start, context: viewerContext(request.message))
+            MediaViewer(media: request.media, start: request.start, context: viewerContext(request.gallery))
         }
         .fullScreenCover(item: $menu, onDismiss: runPendingMenuAction) { request in
             MessageMenuOverlay(
@@ -649,6 +808,10 @@ struct ChatThreadView: View {
             Task { await model.togglePin(message) }
         case .copy:
             UIPasteboard.general.string = message.content
+        case .copyText(let text):
+            UIPasteboard.general.string = text
+            copiedTick += 1
+            showToast(String(localized: "chats.code.copied", defaultValue: "Код скопирован"))
         case .forward:
             forwarding = ForwardBatch(messages: [message], fromSelection: false)
         case .select:
@@ -670,6 +833,8 @@ struct ChatThreadView: View {
             Task { await model.retry(message) }
         case .cancelUpload:
             Task { await model.cancelUpload(message) }
+        case .cancelUploadFile(let file):
+            Task { await model.cancelUpload(file, in: message) }
         case .react(let emoji):
             Task { await model.react(message, emoji: emoji) }
         case .jump(let id):
@@ -711,7 +876,8 @@ struct ChatThreadView: View {
                 isOwn: item.isOwn,
                 isGroup: context.isGroup,
                 capabilities: capabilities,
-                readCount: readCount
+                readCount: readCount,
+                favoriteSticker: message.extras?.sticker.map { StickerCatalog.shared.isFavorite($0.id) }
             ),
             canReact: message.remoteId != nil && message.deletedAt == nil && message.systemType == nil
         )
@@ -726,36 +892,51 @@ struct ChatThreadView: View {
         withTransaction(transaction) { menu = nil }
     }
 
-    /// Подпись и действия просмотра: «Показать в чате», «Ответить», «Переслать» — только у
-    /// дошедшего до сервера сообщения, как в меню.
-    private func viewerContext(_ message: MessageRecord) -> MediaViewerContext {
-        let title = message.senderId == viewerID
-            ? String(localized: "chats.you", defaultValue: "Вы")
-            : (message.senderName ?? "")
-        guard message.remoteId != nil else { return MediaViewerContext(title: title, date: message.createdAt) }
-        return MediaViewerContext(
-            title: title,
-            date: message.createdAt,
-            onShowInChat: { pendingViewerAction = .jump(message.id) },
-            onReply: { pendingViewerAction = .reply },
-            forward: {
-                AnyView(ForwardPickerView(messages: [message]) { targets, comment, requestID in
-                    guard let model else { return ForwardOutcome() }
-                    let outcome = await model.forward([message], to: targets, comment: comment, requestID: requestID)
-                    if outcome.isComplete { showToast(ChatPlural.forwardedTo(outcome.delivered.count)) }
-                    return outcome
-                })
+    /// Действия просмотра: «Показать в чате» и «Ответить» — когда он закроется, «Удалить»
+    /// — сразу. Медиа чата листаются галереей, «Поделиться» просмотр открывает сам.
+    private func viewerContext(_ gallery: ChatMediaGallery) -> MediaViewerContext {
+        MediaViewerContext(
+            gallery: gallery,
+            onShowInChat: { pendingViewerAction = .jump($0) },
+            onReply: { pendingViewerAction = .reply($0) },
+            onDelete: { remoteID, forEveryone in
+                await model?.delete(remoteID: remoteID, forEveryone: forEveryone)
             }
         )
     }
 
     private func runPendingViewerAction() {
-        guard let action = pendingViewerAction, let message = lastViewerMessage, let model else {
+        guard let action = pendingViewerAction, let model else {
             pendingViewerAction = nil
             return
         }
         pendingViewerAction = nil
-        handle(action, message: message, model: model)
+        switch action {
+        case .jump(let remoteID):
+            Task { await model.jump(to: remoteID) }
+        case .reply(let remoteID):
+            Task {
+                if let message = await model.message(remoteID: remoteID) { model.reply(to: message) }
+            }
+        }
+    }
+
+    /// Файлы снимков и роликов пересылаемых сообщений — для «Сохранить в галерею» и
+    /// системного «Поделиться» в листе. Без медиа — `nil`: кнопки в листе не будет.
+    private func mediaExport(of messages: [MessageRecord]) -> (() async throws -> [URL])? {
+        let ids = Set(messages.map(\.id))
+        let files = model?.days.lazy.flatMap(\.items)
+            .filter { ids.contains($0.message.id) }
+            .flatMap { $0.attachments.filter(\.showsAsMedia) } ?? []
+        guard !files.isEmpty else { return nil }
+        return {
+            var urls: [URL] = []
+            for file in files {
+                guard let media = await Self.viewerMedia(file) else { throw URLError(.fileDoesNotExist) }
+                urls.append(try await MediaDownload.file(for: media))
+            }
+            return urls
+        }
     }
 
     private func runPendingMenuAction() {
@@ -774,6 +955,32 @@ struct ChatThreadView: View {
         case .report: handle(.report, message: message, model: model)
         case .delete: handle(.delete, message: message, model: model)
         case .select: handle(.select, message: message, model: model)
+        case .favoriteSticker(let isFavorite): toggleFavorite(stickerOf: message, isFavorite: isFavorite)
+        }
+    }
+
+    /// Стикер из сообщения — в избранное или из него. Картинка в избранном ищется по
+    /// каталогу; стикера нет в загруженных наборах — запись без ссылки, она подпишется
+    /// по id, когда панель её покажет.
+    private func toggleFavorite(stickerOf message: MessageRecord, isFavorite: Bool) {
+        guard let sticker = message.extras?.sticker else { return }
+        let catalog = StickerCatalog.shared
+        let entry = catalog.sticker(id: sticker.id) ?? StickerSetDTO.Sticker(
+            id: sticker.id,
+            emoji: sticker.emoji,
+            width: sticker.width,
+            height: sticker.height,
+            url: "",
+            expiresAt: nil
+        )
+        Task {
+            if let failure = await catalog.setFavorite(!isFavorite, sticker: entry) {
+                model?.actionFailure = failure
+            } else {
+                showToast(isFavorite
+                    ? String(localized: "chats.stickers.unfavorited", defaultValue: "Стикер удалён из избранного")
+                    : String(localized: "chats.stickers.favorited", defaultValue: "Стикер добавлен в избранное"))
+            }
         }
     }
 
@@ -815,8 +1022,21 @@ struct ChatThreadView: View {
             open(file)
             return
         }
-        lastViewerMessage = message
-        viewer = ChatMediaViewerRequest(media: shown, start: start, message: message)
+        // Альбом сообщения уже подписан — просмотр открывается им сразу, а номер в чате и
+        // соседние медиа галерея догружает следом.
+        let entries = shown.map { media in
+            ChatMediaWindow.Entry(
+                id: media.id,
+                media: media,
+                messageID: message.remoteId,
+                senderID: message.senderId,
+                senderName: message.senderName,
+                date: message.createdAt,
+                isResolved: true
+            )
+        }
+        let gallery = ChatMediaGallery(chatID: chatID, viewerID: viewerID, entries: entries)
+        viewer = ChatMediaViewerRequest(media: shown, start: start, gallery: gallery)
     }
 
     /// Снимок для просмотра: свой файл на диске — сразу, чужой — по свежей подписанной
@@ -885,7 +1105,14 @@ private struct ChatMediaViewerRequest: Identifiable {
     let id = UUID()
     let media: [PostDTO.Media]
     let start: Int
-    let message: MessageRecord
+    /// Медиа чата для листания — одна на весь показ, переживает перерисовки экрана.
+    let gallery: ChatMediaGallery
+}
+
+/// Что сделать после просмотра — по серверному id сообщения снимка.
+private enum ViewerAction {
+    case jump(String)
+    case reply(String)
 }
 
 /// Что удаляем: одно сообщение из меню или выбранные разом. «У всех» — только своё.
@@ -894,6 +1121,12 @@ private struct DeleteRequest: Identifiable {
     let messages: [MessageRecord]
     let forEveryoneAllowed: Bool
     let fromSelection: Bool
+}
+
+/// Что отдать системному листу «Поделиться»: текст и файлы выбранных сообщений.
+private struct ShareItems: Identifiable {
+    let id = UUID()
+    let items: [Any]
 }
 
 /// Что пересылаем: одно сообщение из меню или выбранные разом. После пересылки
@@ -969,12 +1202,15 @@ private struct ChatTitleView: View {
 }
 
 /// Плашка закреплённого под шапкой. Нажатие — к сообщению; при нескольких
-/// закреплённых каждое следующее нажатие ведёт к следующему.
+/// закреплённых каждое следующее нажатие ведёт к следующему, а значок списка справа
+/// открывает их все. Долгое нажатие — меню «Показать все» / «Открепить все», как в Telegram.
 private struct PinnedBar: View {
     let message: ChatMessageDTO
     let index: Int
     let count: Int
     let onClose: () -> Void
+    let onShowAll: () -> Void
+    let onUnpinAll: () -> Void
     let action: () -> Void
 
     var body: some View {
@@ -1002,6 +1238,17 @@ private struct PinnedBar: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
+                if count > 1 {
+                    Button(action: onShowAll) {
+                        Image(systemName: "list.bullet")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(Palette.mutedForeground)
+                            .frame(width: ControlHeight.sm, height: ControlHeight.sm)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text(String(localized: "chats.pinned.showAll", defaultValue: "Показать все сообщения")))
+                }
                 Button(action: onClose) {
                     Image(systemName: "xmark")
                         .font(.footnote.weight(.semibold))
@@ -1019,6 +1266,21 @@ private struct PinnedBar: View {
             .padding(.top, Spacing.xs)
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button(action: onShowAll) {
+                Label(
+                    String(localized: "chats.pinned.showAll", defaultValue: "Показать все сообщения"),
+                    systemImage: "list.bullet"
+                )
+            }
+            Button(role: .destructive, action: onUnpinAll) {
+                Label(
+                    String(localized: "chats.pinned.unpinAll", defaultValue: "Открепить все сообщения"),
+                    systemImage: "pin.slash"
+                )
+            }
+        }
+        .accessibilityAction(named: Text(String(localized: "chats.pinned.showAll", defaultValue: "Показать все сообщения")), onShowAll)
     }
 }
 
@@ -1129,10 +1391,12 @@ enum ChatTitle {
 
 /// Аватар чата справа в шапке — ведёт в информацию о чате. На iOS 26 без общей
 /// стеклянной подложки панели: круглое фото само по себе, как в Telegram.
-private struct ChatAvatarToolbarItem: ToolbarContent {
+private struct ChatAvatarToolbarItem<Menu: View>: ToolbarContent {
     let chatID: String
     let chat: ChatRecord?
     let title: String?
+    /// Меню по долгому нажатию — то же, что у названия в шапке.
+    @ViewBuilder let menu: () -> Menu
 
     @ScaledMetric(relativeTo: .body) private var size: CGFloat = 36
 
@@ -1159,6 +1423,7 @@ private struct ChatAvatarToolbarItem: ToolbarContent {
                 )
             }
             .buttonStyle(.plain)
+            .contextMenu { menu() }
             .accessibilityLabel(Text(String(localized: "chats.info.open", defaultValue: "Информация о чате")))
         }
     }

@@ -237,15 +237,57 @@ export type MuteInput = z.infer<typeof MuteSchema>
 export const CHAT_FOLDER_LIMITS = {
   MAX_FOLDERS: 20,
   MAX_CHATS_PER_FOLDER: 200,
+  /** Исключений — столько же, сколько явных чатов: это тот же список, только «наоборот». */
+  MAX_EXCLUDED_PER_FOLDER: 200,
   NAME_MAX: 40,
+  /** Цветов вкладки в палитре клиента (индексы 0..6). */
+  COLOR_COUNT: 7,
 } as const
+
+/**
+ * Значок, цвет и правила состава папки (Telegram-стиль) — общие поля создания и правки.
+ *
+ * `emoji` проверяется той же `isSingleEmoji`, что реакции: на вкладке помещается ровно один
+ * значок. Стрелка в refine, а не ссылка на функцию напрямую, — схема строится раньше, чем
+ * объявлены константы проверки ниже по файлу. `null` у значка и цвета — «убрать».
+ */
+const folderRuleFields = {
+  emoji: z
+    .string()
+    .refine((v) => isSingleEmoji(v), vm('validation.chats.folderEmoji'))
+    .nullable()
+    .optional(),
+  color: z
+    .number()
+    .int()
+    .min(0)
+    .max(CHAT_FOLDER_LIMITS.COLOR_COUNT - 1)
+    .nullable()
+    .optional(),
+  excludedChatIds: z.array(entityId).max(CHAT_FOLDER_LIMITS.MAX_EXCLUDED_PER_FOLDER).optional(),
+  includeContacts: z.boolean().optional(),
+  includeNonContacts: z.boolean().optional(),
+  includeGroups: z.boolean().optional(),
+}
+
+/** Чат не может быть одновременно в папке явно и исключённым из неё — что из двух имелось в виду, неясно. */
+function noFolderOverlap(v: { chatIds?: string[]; excludedChatIds?: string[] }): boolean {
+  if (!v.chatIds || !v.excludedChatIds) return true
+  const excluded = new Set(v.excludedChatIds)
+  return !v.chatIds.some((id) => excluded.has(id))
+}
 
 export const CreateChatFolderSchema = z
   .object({
     name: z.string().trim().min(1).max(CHAT_FOLDER_LIMITS.NAME_MAX),
     chatIds: z.array(z.string().min(1)).max(CHAT_FOLDER_LIMITS.MAX_CHATS_PER_FOLDER).optional(),
+    ...folderRuleFields,
   })
   .strict()
+  .refine(noFolderOverlap, {
+    path: ['excludedChatIds'],
+    message: vm('validation.chats.folderChatExcluded'),
+  })
 export type CreateChatFolderInput = z.infer<typeof CreateChatFolderSchema>
 
 /** Правка папки: переименование и/или полная замена состава (не дельта — так проще на клиенте). */
@@ -254,12 +296,112 @@ export const UpdateChatFolderSchema = z
     name: z.string().trim().min(1).max(CHAT_FOLDER_LIMITS.NAME_MAX).optional(),
     chatIds: z.array(z.string().min(1)).max(CHAT_FOLDER_LIMITS.MAX_CHATS_PER_FOLDER).optional(),
     position: z.coerce.number().int().min(0).max(CHAT_FOLDER_LIMITS.MAX_FOLDERS).optional(),
+    ...folderRuleFields,
   })
   .strict()
-  .refine((v) => v.name !== undefined || v.chatIds !== undefined || v.position !== undefined, {
+  .refine((v) => Object.values(v).some((field) => field !== undefined), {
     message: vm('validation.common.nothingToChange'),
   })
+  .refine(noFolderOverlap, {
+    path: ['excludedChatIds'],
+    message: vm('validation.chats.folderChatExcluded'),
+  })
 export type UpdateChatFolderInput = z.infer<typeof UpdateChatFolderSchema>
+
+/** Ровно ли один раз встречается каждый id: перестановка с дублем не задаёт порядка. */
+function uniqueIds(ids: string[]): boolean {
+  return new Set(ids).size === ids.length
+}
+
+/**
+ * Порядок вкладок-папок (`PUT /chats/folders/order`): ровно все папки пользователя, сверху
+ * вниз. Множество сверяет сервер — схема знает только про дубли.
+ */
+export const ChatFoldersOrderSchema = z
+  .object({
+    folderIds: z.array(entityId).min(1).max(CHAT_FOLDER_LIMITS.MAX_FOLDERS),
+  })
+  .strict()
+  .refine((v) => uniqueIds(v.folderIds), {
+    path: ['folderIds'],
+    message: vm('validation.common.duplicateIds'),
+  })
+export type ChatFoldersOrderInput = z.infer<typeof ChatFoldersOrderSchema>
+
+/** Заглушить все чаты папки (`POST /chats/folders/:id/mute`) — те же поля, что у одного чата. */
+export const ChatFolderMuteSchema = MuteSchema
+export type ChatFolderMuteInput = z.infer<typeof ChatFolderMuteSchema>
+
+/**
+ * Типы чатов, которые правило «все группы» включает в папку. Личные, «Сохранённые» и
+ * поддержка сюда не входят: первые делятся на контакты и не контакты, а «Сохранённые» и
+ * обращения в поддержку попадают в папку только явно.
+ */
+export const CHAT_FOLDER_GROUP_TYPES: readonly ChatTypeValue[] = [
+  'GROUP',
+  'GROUP_OFFICIAL',
+  'SUBJECT',
+  'FACULTY',
+  'DEAN',
+  'EVENT',
+]
+
+/** Что про папку нужно правилу состава. */
+export interface ChatFolderRule {
+  chatIds: readonly string[]
+  excludedChatIds: readonly string[]
+  includeContacts: boolean
+  includeNonContacts: boolean
+  includeGroups: boolean
+}
+
+/** Что про чат нужно правилу состава. `isFriend` значим только у `PRIVATE`. */
+export interface ChatFolderCandidate {
+  id: string
+  type: string
+  isFriend: boolean
+}
+
+/**
+ * Входит ли чат в папку (docs/PROJECT.md §8.3 «Папки»). Одна функция на сервер (заглушение
+ * папки) и клиентов (вкладки): папка, собранная правилами на телефоне, должна показывать на
+ * вебе те же чаты, а заглушение — касаться ровно того, что человек видит во вкладке.
+ *
+ * Чат в папке ⇔ НЕ исключён И (в явном списке ИЛИ подходит под включённое правило).
+ */
+export function chatInFolder(folder: ChatFolderRule, chat: ChatFolderCandidate): boolean {
+  if (folder.excludedChatIds.includes(chat.id)) return false
+  if (folder.chatIds.includes(chat.id)) return true
+  if (chat.type === 'PRIVATE') {
+    return chat.isFriend ? folder.includeContacts : folder.includeNonContacts
+  }
+  return folder.includeGroups && CHAT_FOLDER_GROUP_TYPES.includes(chat.type as ChatTypeValue)
+}
+
+/** Сколько чатов можно закрепить порядком за раз (`PUT /chats/pinned/order`). */
+export const PINNED_ORDER_MAX = 100
+
+/**
+ * Порядок закреплённых чатов сверху вниз. Не перечисленные закреплённые остаются ниже в
+ * прежнем порядке — клиенту не нужно знать все закреплённые, чтобы поднять один.
+ */
+export const PinnedChatsOrderSchema = z
+  .object({ chatIds: z.array(entityId).min(1).max(PINNED_ORDER_MAX) })
+  .strict()
+  .refine((v) => uniqueIds(v.chatIds), {
+    path: ['chatIds'],
+    message: vm('validation.common.duplicateIds'),
+  })
+export type PinnedChatsOrderInput = z.infer<typeof PinnedChatsOrderSchema>
+
+/** Сколько чатов читается одним запросом (`POST /chats/read`); «прочитать все» — пачками. */
+export const MARK_READ_BATCH_MAX = 200
+
+/** Прочитать чаты целиком (`POST /chats/read`). Чаты, где человек не участник, пропускаются. */
+export const MarkChatsReadSchema = z
+  .object({ chatIds: z.array(entityId).min(1).max(MARK_READ_BATCH_MAX) })
+  .strict()
+export type MarkChatsReadInput = z.infer<typeof MarkChatsReadSchema>
 
 // Опрос в чате (§38–39): вопрос + 2..10 вариантов + настройки.
 /** Потолок пояснения к опросу в чате. */
@@ -285,12 +427,23 @@ export type PollVoteInput = z.infer<typeof PollVoteSchema>
 
 // Общие материалы чата (§23, правый sidebar): вложения по типу.
 // media — фото/видео; file — документы/прочее; voice — аудио/голосовые.
+// voice — всё аудио (как раньше, для веба); voice_note — только голосовые (`voice-…`);
+// music — аудио кроме голосовых; gif — только image/gif.
+export const ChatMediaTypeSchema = z
+  .enum(['media', 'file', 'voice', 'voice_note', 'music', 'gif'])
+  .default('media')
+
 export const ChatMediaQuerySchema = CursorPaginationSchema.extend({
-  // voice — всё аудио (как раньше, для веба); voice_note — только голосовые (`voice-…`);
-  // music — аудио кроме голосовых; gif — только image/gif.
-  type: z.enum(['media', 'file', 'voice', 'voice_note', 'music', 'gif']).default('media'),
+  type: ChatMediaTypeSchema,
+  // Как у истории сообщений: older (по умолчанию) — к более старым от курсора, newer — к
+  // более новым (просмотрщик, открытый на файле из середины, листает в обе стороны).
+  direction: z.enum(['older', 'newer']).optional(),
 })
 export type ChatMediaQueryInput = z.infer<typeof ChatMediaQuerySchema>
+
+/** Место файла среди материалов того же типа (`GET /chats/:id/media/:fileId/position`). */
+export const ChatMediaPositionQuerySchema = z.object({ type: ChatMediaTypeSchema }).strict()
+export type ChatMediaPositionQueryInput = z.infer<typeof ChatMediaPositionQuerySchema>
 
 // Отправка сообщения с вложениями через REST (multipart): текст опционален, если есть файлы.
 export const MessageSendRestSchema = z
@@ -613,6 +766,9 @@ export const STICKER_LIMITS = {
   STICKERS_PER_SET_MAX: 200,
 } as const
 
+/** Сколько стикеров помнит «Избранное»: сверх — вытесняется самый давний. */
+export const FAVORITE_STICKERS_MAX = 30
+
 /** Набор стикеров (`POST /admin/sticker-sets`). slug — латиница, цифры, `-` и `_`. */
 export const StickerSetCreateSchema = z
   .object({
@@ -793,6 +949,15 @@ export const ChatAttachmentMultipartUrlsSchema = z
     message: vm('validation.upload.partRangeReversed'),
   })
 export type ChatAttachmentMultipartUrlsInput = z.infer<typeof ChatAttachmentMultipartUrlsSchema>
+
+/** Отменить многочастную загрузку вложения: хранилище удаляет залитые части. */
+export const ChatAttachmentMultipartAbortSchema = z
+  .object({
+    key: z.string().min(1).max(300),
+    uploadId: z.string().min(1).max(300),
+  })
+  .strict()
+export type ChatAttachmentMultipartAbortInput = z.infer<typeof ChatAttachmentMultipartAbortSchema>
 
 /**
  * Отправка сообщения по уже загруженным объектам.

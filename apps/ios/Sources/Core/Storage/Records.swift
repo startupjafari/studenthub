@@ -44,6 +44,14 @@ struct ChatRecord: Codable, FetchableRecord, PersistableRecord, Equatable {
     var isAdmin: Bool = false
     var blocked: Bool = false
     var blockedBy: Bool = false
+    /// «Пометить как новое»: чат считается непрочитанным без единого нового сообщения.
+    /// Снимается любым прочтением — здесь и на сервере.
+    var markedUnread: Bool = false
+    /// Место среди закреплённых, 0 — самый верх. `nil` у незакреплённых и у закреплённых
+    /// до первой ручной перестановки (старый сервер порядка не знает вовсе).
+    var pinnedOrder: Int? = nil
+    /// Собеседник личного чата в друзьях — «Контакты» в правилах папок.
+    var isFriend: Bool = false
 
     var kind: ChatKind { ChatKind.from(type) }
 
@@ -136,11 +144,28 @@ struct FolderRecord: Codable, FetchableRecord, PersistableRecord, Equatable {
     var id: String
     var name: String
     var position: Int
+    /// Значок папки — один emoji.
+    var emoji: String? = nil
+    /// Индекс цвета тега (`ChatFolderPalette`), `nil` — без цвета и без тегов в списке.
+    var color: Int? = nil
+    /// Типы чатов, которые входят в папку без явного выбора (правило §C контракта).
+    var includeContacts: Bool = false
+    var includeNonContacts: Bool = false
+    var includeGroups: Bool = false
 
     enum Columns {
         static let name = Column(CodingKeys.name)
         static let position = Column(CodingKeys.position)
     }
+}
+
+/// Исключённые из папки чаты: перекрывают и явный выбор, и типы. Отдельная таблица по
+/// той же причине, что и состав, — по ней идёт фильтр списка.
+struct FolderExcludedChatRecord: Codable, FetchableRecord, PersistableRecord, Equatable {
+    static let databaseTableName = "folderExcludedChat"
+
+    var folderId: String
+    var chatId: String
 }
 
 /// Состав папки. Хранится отдельной таблицей, а не массивом в папке: по нему идёт

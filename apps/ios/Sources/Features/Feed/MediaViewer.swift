@@ -1,29 +1,35 @@
 import AVKit
-import Photos
 import SwiftUI
 import UIKit
+import VisionKit
 
 /// Просмотр фото и видео на весь экран — инструменты веб-просмотрщика (листание,
 /// счётчик, увеличение, скачивание), перенесённые на привычные жесты и системные
 /// листы iOS.
 ///
-/// Панели как в Telegram: сверху — «назад», капсула (в чате — автор и время снимка,
-/// иначе «2 / 14») и «…» (в чате — «Показать в чате» и «Ответить»; сохранить в «Фото»,
-/// скопировать, оригинал), снизу — «Переслать» (в чате) и «Поделиться». Касание снимка
-/// прячет и показывает панели, не сдвигая сам снимок. Щипок и двойное касание увеличивают, увеличенный снимок
-/// двигается пальцем, а листание и смахивание вниз (закрыть) ждут, пока его вернут к
-/// исходному размеру. Видео играет системный `AVPlayerViewController`: его контролы —
-/// пауза, ±10 с, полоса прокрутки, время, скорость, AirPlay, картинка в картинке, — и
-/// своих поверх них нет.
+/// Панели как в Telegram: сверху — «назад», капсула (в чате — автор и время снимка и под
+/// ней «746 из 752» по всем медиа чата, иначе «2 / 14») и «…» (в чате — «Показать в
+/// чате» и «Ответить»; сохранить в «Фото», скопировать, оригинал). Снизу в чате —
+/// «Поделиться» (лист с сеткой чатов), «Live Text» и «Удалить»; в ленте — «Поделиться»
+/// системным листом. Касание снимка прячет и показывает панели, не сдвигая сам снимок.
+/// Щипок и двойное касание увеличивают, увеличенный снимок двигается пальцем, а
+/// листание и смахивание вниз (закрыть) ждут, пока его вернут к исходному размеру. Видео
+/// играет системный `AVPlayerViewController`: его контролы — пауза, ±10 с, полоса
+/// прокрутки, время, скорость, AirPlay, картинка в картинке, — и своих поверх них нет.
+///
+/// Из чата листание не кончается альбомом сообщения: соседние медиа чата догружаются в
+/// обе стороны (`ChatMediaGallery`). Страницы помечены id файла, а не номером: окно
+/// растёт и в начало, и номер текущей страницы при этом сдвигался бы.
 struct MediaViewer: View {
     let media: [PostDTO.Media]
     let start: Int
-    /// Открыт из переписки: автор, время и действия с сообщением.
+    /// Открыт из переписки: медиа чата, автор, время и действия с сообщением.
     var context: MediaViewerContext?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.motionReduced) private var reduceMotion
-    @State private var selection = 0
+    /// Id показанного снимка.
+    @State private var selection: String?
     @State private var dragOffset: CGFloat = 0
     /// Смещение пальца в момент, когда жест признан: `DragGesture(minimumDistance:)`
     /// начинает с 20 pt, и без вычета снимок прыгал бы на них под пальцем.
@@ -38,13 +44,41 @@ struct MediaViewer: View {
     @State private var originals: Set<String> = []
     @State private var isBusy = false
     @State private var sharing: ExportedFile?
-    /// «Переслать» — окно поверх просмотра, сам просмотр не закрывается, как в Telegram.
-    @State private var forwarding = false
+    /// Лист «Поделиться» с сеткой чатов — поверх просмотра, сам просмотр не закрывается,
+    /// как в Telegram.
+    @State private var shareTarget: ChatShareTarget?
+    /// Альбом из нескольких медиа: сначала «эту фотографию» или «все N».
+    @State private var askingShareScope = false
+    @State private var askingDelete = false
+    /// Live Text поверх снимка: текст на фото выделяется и копируется, как в «Фото».
+    @State private var showsLiveText = false
     @State private var notice: String?
     @State private var failure: String?
 
+    init(media: [PostDTO.Media], start: Int, context: MediaViewerContext? = nil) {
+        self.media = media
+        self.start = start
+        self.context = context
+        // Первый кадр — сразу на выбранном снимке, а не на первом с прыжком после появления.
+        let shown = context?.gallery.entries.map(\.media) ?? media
+        _selection = State(initialValue: shown.isEmpty ? nil : shown[min(max(start, 0), shown.count - 1)].id)
+    }
+
+    private var gallery: ChatMediaGallery? { context?.gallery }
+
+    /// Что листается: медиа чата из окна галереи или переданный список (лента, профиль).
+    private var items: [PostDTO.Media] {
+        gallery?.entries.map(\.media) ?? media
+    }
+
     private var current: PostDTO.Media? {
-        media.indices.contains(selection) ? media[selection] : nil
+        guard let selection else { return nil }
+        return items.first { $0.id == selection }
+    }
+
+    private var currentEntry: ChatMediaWindow.Entry? {
+        guard let selection else { return nil }
+        return gallery?.window.entry(selection)
     }
 
     /// Затемнение фона тает, пока снимок тянут вниз. Отдельным свойством с явным
@@ -55,15 +89,19 @@ struct MediaViewer: View {
     }
 
     var body: some View {
+        withDialogs(viewer)
+    }
+
+    private var viewer: some View {
         ZStack {
             Color.black
                 .opacity(backdropOpacity)
                 .ignoresSafeArea()
 
             TabView(selection: $selection) {
-                ForEach(Array(media.enumerated()), id: \.element.id) { index, item in
-                    page(item, index: index)
-                        .tag(index)
+                ForEach(items, id: \.id) { item in
+                    page(item)
+                        .tag(Optional(item.id))
                 }
             }
             // Точки страниц не нужны: номер — в панели сверху.
@@ -71,7 +109,13 @@ struct MediaViewer: View {
             .accessibilityIdentifier("media.viewer")
             .ignoresSafeArea()
             .offset(y: dragOffset)
-            .simultaneousGesture(dismissDrag, including: isZoomed ? .none : .all)
+            .simultaneousGesture(dismissDrag, including: isZoomed || showsLiveText ? .none : .all)
+
+            if showsLiveText, let current, !current.isVideo {
+                LiveTextLayer(media: current)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+            }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewHeight = $0 }
         .onChange(of: isDragging) { _, dragging in
@@ -83,13 +127,13 @@ struct MediaViewer: View {
         // Панель — поверх снимка и не участвует в раскладке: прячется и появляется, не
         // двигая снимок. У видео она видна всегда — касания забирает плеер.
         .overlay(alignment: .top) {
-            if showsControls || current?.isVideo == true {
+            if showsControls || current?.isVideo == true || showsLiveText {
                 topBar
                     .transition(.opacity)
             }
         }
         .overlay(alignment: .bottom) {
-            if showsControls || current?.isVideo == true {
+            if showsControls || current?.isVideo == true || showsLiveText {
                 bottomBar
                     .transition(.opacity)
             }
@@ -108,33 +152,71 @@ struct MediaViewer: View {
             }
         }
         .statusBarHidden(!showsControls)
-        .sheet(isPresented: $forwarding) {
-            context?.forward?()
+        .task {
+            guard let gallery, let first = selection else { return }
+            await gallery.start(at: first)
         }
-        .sheet(item: $sharing) { file in
-            ShareSheet(items: [file.url])
-                .presentationDetents([.medium, .large])
+        .onChange(of: selection) { _, id in
+            isZoomed = false
+            showsLiveText = false
+            if let gallery, let id {
+                Task { await gallery.show(id) }
+            }
         }
-        .actionFailureAlert($failure)
-        .onAppear { selection = start }
-        .onChange(of: selection) { _, _ in isZoomed = false }
         .animation(Motion.respecting(Motion.fade, reduceMotion: reduceMotion), value: showsControls)
         .animation(Motion.respecting(Motion.fade, reduceMotion: reduceMotion), value: notice)
+        .animation(Motion.respecting(Motion.fade, reduceMotion: reduceMotion), value: showsLiveText)
+    }
+
+    private func withDialogs<V: View>(_ view: V) -> some View {
+        view
+            .sheet(item: $sharing) { file in
+                ShareSheet(items: [file.url])
+                    .presentationDetents([.medium, .large])
+            }
+            .sheet(item: $shareTarget) { target in
+                shareSheet(for: target)
+            }
+            .confirmationDialog(
+                String(localized: "chats.viewer.shareScope", defaultValue: "Что отправить?"),
+                isPresented: $askingShareScope,
+                titleVisibility: .hidden,
+                presenting: currentEntry
+            ) { entry in
+                shareScopeButtons(for: entry)
+            }
+            .confirmationDialog(
+                String(localized: "chats.viewer.deleteTitle", defaultValue: "Удалить сообщение?"),
+                isPresented: $askingDelete,
+                titleVisibility: .visible,
+                presenting: currentEntry
+            ) { entry in
+                deleteButtons(for: entry)
+            } message: { entry in
+                let count = gallery?.window.album(of: entry.id).count ?? 1
+                if count > 1 {
+                    Text(String(
+                        localized: "chats.viewer.deleteAlbum",
+                        defaultValue: "Сообщение удалится целиком — вместе с остальными вложениями альбома (всего \(count))"
+                    ))
+                }
+            }
+            .actionFailureAlert($failure)
     }
 
     @ViewBuilder
-    private func page(_ item: PostDTO.Media, index: Int) -> some View {
+    private func page(_ item: PostDTO.Media) -> some View {
         if item.isVideo, let url = item.playbackURL {
             // Видео — под панелью, а не под ней: контролы плеера и кнопки панели не
             // перекрывают друг друга.
-            ViewerVideo(url: url, isActive: selection == index)
+            ViewerVideo(url: url, isActive: selection == item.id)
                 .safeAreaPadding(.top, MediaViewerBar.height)
                 .safeAreaPadding(.bottom, MediaViewerBar.height)
         } else {
             ZoomableImage(
                 media: item,
                 showsOriginal: originals.contains(item.id),
-                isZoomed: selection == index ? $isZoomed : .constant(false),
+                isZoomed: selection == item.id ? $isZoomed : .constant(false),
                 toggleControls: { showsControls.toggle() }
             )
         }
@@ -173,7 +255,7 @@ struct MediaViewer: View {
     // MARK: Панель
 
     private var topBar: some View {
-        HStack(spacing: Spacing.md) {
+        HStack(alignment: .top, spacing: Spacing.md) {
             MediaViewerBar.button(symbol: "chevron.left", title: String(localized: "common.close", defaultValue: "Закрыть")) {
                 dismiss()
             }
@@ -198,28 +280,40 @@ struct MediaViewer: View {
         .padding(.top, Spacing.sm)
     }
 
-    /// В чате — автор и время снимка (и номер в альбоме), как в Telegram; иначе номер.
+    /// В чате — автор и время снимка, под ними «N из M» по всем медиа чата, как в
+    /// Telegram; иначе номер в списке.
     @ViewBuilder
     private var titleCapsule: some View {
-        if let context {
-            VStack(spacing: 0) {
-                Text(context.title)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                Text(media.count > 1
-                    ? "\(MediaViewerContext.when(context.date)) · \(selection + 1) / \(media.count)"
-                    : MediaViewerContext.when(context.date))
-                    .font(Typography.tabular(.caption2))
-                    .opacity(0.7)
-                    .lineLimit(1)
+        if let gallery, let entry = currentEntry {
+            VStack(spacing: Spacing.xs) {
+                VStack(spacing: 0) {
+                    Text(gallery.title(of: entry))
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Text(MediaViewerContext.when(entry.date))
+                        .font(Typography.tabular(.caption2))
+                        .opacity(0.7)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, Spacing.xl)
+                .frame(height: ControlHeight.xl)
+                .floatingGlass(in: Capsule())
+                .accessibilityElement(children: .combine)
+                if let counter = gallery.window.counter(for: entry.id) {
+                    Text(String(
+                        localized: "chats.viewer.counter",
+                        defaultValue: "\(counter.index) из \(counter.total)"
+                    ))
+                    .font(Typography.tabular(.caption.weight(.semibold)))
+                    .padding(.horizontal, Spacing.md)
+                    .padding(.vertical, 3)
+                    .floatingGlass(in: Capsule())
+                    .contentTransition(.numericText())
+                }
             }
             .foregroundStyle(.white)
-            .padding(.horizontal, Spacing.xl)
-            .frame(height: ControlHeight.xl)
-            .floatingGlass(in: Capsule())
-            .accessibilityElement(children: .combine)
-        } else if media.count > 1 {
-            Text(verbatim: "\(selection + 1) / \(media.count)")
+        } else if items.count > 1, let index = items.firstIndex(where: { $0.id == selection }) {
+            Text(verbatim: "\(index + 1) / \(items.count)")
                 .font(Typography.tabular(.subheadline.weight(.semibold)))
                 .foregroundStyle(.white)
                 .padding(.horizontal, Spacing.lg)
@@ -228,40 +322,85 @@ struct MediaViewer: View {
         }
     }
 
-    /// Снизу, как в Telegram: слева «Переслать» (в чате), справа «Поделиться».
+    /// Снизу. В чате, как в Telegram: слева «Поделиться», по центру Live Text, справа
+    /// «Удалить». В ленте — только «Поделиться» системным листом справа.
+    @ViewBuilder
     private var bottomBar: some View {
-        HStack {
-            if context?.forward != nil {
-                MediaViewerBar.button(symbol: "arrowshape.turn.up.right", title: String(localized: "chats.forward", defaultValue: "Переслать")) {
-                    forwarding = true
+        if gallery != nil {
+            HStack {
+                slot {
+                    if currentEntry?.messageID != nil {
+                        MediaViewerBar.button(symbol: "arrowshape.turn.up.right", title: String(localized: "feed.share", defaultValue: "Поделиться")) {
+                            beginShare()
+                        }
+                        .disabled(isBusy)
+                    }
+                }
+                Spacer(minLength: 0)
+                if supportsLiveText {
+                    MediaViewerBar.toggle(
+                        symbol: "text.viewfinder",
+                        title: String(localized: "chats.viewer.liveText", defaultValue: "Текст на снимке"),
+                        isOn: showsLiveText
+                    ) {
+                        showsLiveText.toggle()
+                    }
+                }
+                Spacer(minLength: 0)
+                slot {
+                    if currentEntry?.messageID != nil, context?.onDelete != nil {
+                        MediaViewerBar.button(symbol: "trash", title: String(localized: "feed.delete", defaultValue: "Удалить")) {
+                            askingDelete = true
+                        }
+                        .disabled(isBusy)
+                    }
                 }
             }
-            Spacer(minLength: 0)
-            MediaViewerBar.button(symbol: "square.and.arrow.up", title: String(localized: "feed.share", defaultValue: "Поделиться")) {
-                Task { await share() }
+            .padding(.horizontal, Spacing.xl)
+            .padding(.bottom, Spacing.sm)
+        } else {
+            HStack {
+                Spacer(minLength: 0)
+                MediaViewerBar.button(symbol: "square.and.arrow.up", title: String(localized: "feed.share", defaultValue: "Поделиться")) {
+                    Task { await share() }
+                }
+                .disabled(isBusy)
             }
-            .disabled(isBusy)
+            .padding(.horizontal, Spacing.xl)
+            .padding(.bottom, Spacing.sm)
         }
-        .padding(.horizontal, Spacing.xl)
-        .padding(.bottom, Spacing.sm)
+    }
+
+    /// Место кнопки по краю: пустое держит ширину, чтобы Live Text оставался по центру.
+    private func slot<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .frame(width: ControlHeight.xl, height: ControlHeight.xl)
+    }
+
+    /// Live Text — у снимков (не роликов), на устройствах, где система его умеет.
+    private var supportsLiveText: Bool {
+        guard let current, !current.isVideo, current.originalURL != nil else { return false }
+        return ImageAnalyzer.isSupported
     }
 
     @HeroMenuBuilder
     private var moreMenu: [HeroMenuElement] {
-        if let onShowInChat = context?.onShowInChat {
-            HeroMenuItem(String(localized: "chats.viewer.showInChat", defaultValue: "Показать в чате"), symbol: "text.bubble") {
-                onShowInChat()
-                dismiss()
+        if let messageID = currentEntry?.messageID {
+            if let onShowInChat = context?.onShowInChat {
+                HeroMenuItem(String(localized: "chats.viewer.showInChat", defaultValue: "Показать в чате"), symbol: "text.bubble") {
+                    onShowInChat(messageID)
+                    dismiss()
+                }
             }
-        }
-        if let onReply = context?.onReply {
-            HeroMenuItem(String(localized: "chats.reply", defaultValue: "Ответить"), symbol: "arrowshape.turn.up.left") {
-                onReply()
-                dismiss()
+            if let onReply = context?.onReply {
+                HeroMenuItem(String(localized: "chats.reply", defaultValue: "Ответить"), symbol: "arrowshape.turn.up.left") {
+                    onReply(messageID)
+                    dismiss()
+                }
             }
-        }
-        if context?.onShowInChat != nil || context?.onReply != nil {
-            HeroMenuDivider()
+            if context?.onShowInChat != nil || context?.onReply != nil {
+                HeroMenuDivider()
+            }
         }
         if let item = current {
             HeroMenuItem(String(localized: "media.save", defaultValue: "Сохранить в «Фото»"), symbol: "square.and.arrow.down") {
@@ -287,6 +426,94 @@ struct MediaViewer: View {
         }
     }
 
+    // MARK: Поделиться из чата
+
+    /// Альбом из нескольких медиа — сначала выбор «эту фотографию» или «все N», как в
+    /// Telegram; одиночное — сразу лист.
+    private func beginShare() {
+        guard let gallery, let entry = currentEntry, let messageID = entry.messageID else { return }
+        let album = gallery.window.album(of: entry.id)
+        if album.count > 1 {
+            askingShareScope = true
+        } else {
+            shareTarget = .message(messageID, fileIDs: [entry.id])
+        }
+    }
+
+    @ViewBuilder
+    private func shareScopeButtons(for entry: ChatMediaWindow.Entry) -> some View {
+        let album = gallery?.window.album(of: entry.id) ?? [entry]
+        Button(entry.media.isVideo
+            ? String(localized: "chats.viewer.pickThisVideo", defaultValue: "Выбрать это видео")
+            : String(localized: "chats.viewer.pickThisPhoto", defaultValue: "Выбрать эту фотографию")
+        ) {
+            shareTarget = .file(entry.id)
+        }
+        if let messageID = entry.messageID {
+            Button(MediaPlural.album(album.map(\.media))) {
+                shareTarget = .message(messageID, fileIDs: album.map(\.id))
+            }
+        }
+        Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
+    }
+
+    /// Целое сообщение уходит пересылкой (с «Переслано от»), один снимок из альбома —
+    /// новым сообщением с этим файлом: пересылка сервера берёт сообщения целиком.
+    private func shareSheet(for target: ChatShareTarget) -> some View {
+        ChatShareSheet(
+            send: { chatIDs, comment, requestID in
+                guard let gallery else { return ForwardOutcome() }
+                let outcome: ForwardOutcome
+                switch target {
+                case .message(let messageID, _):
+                    outcome = await gallery.forward(messageIDs: [messageID], to: chatIDs, comment: comment, requestID: requestID)
+                case .file(let id):
+                    outcome = await gallery.sendCopies(of: id, to: chatIDs, caption: comment)
+                }
+                if outcome.isComplete { show(ChatPlural.forwardedTo(outcome.delivered.count)) }
+                return outcome
+            },
+            exportFiles: {
+                guard let gallery else { return [] }
+                return try await gallery.exportFiles(target.fileIDs)
+            }
+        )
+    }
+
+    // MARK: Удаление
+
+    @ViewBuilder
+    private func deleteButtons(for entry: ChatMediaWindow.Entry) -> some View {
+        if entry.senderID == gallery?.viewerID {
+            Button(String(localized: "chats.delete.forEveryone", defaultValue: "Удалить у всех"), role: .destructive) {
+                Task { await delete(entry, forEveryone: true) }
+            }
+        }
+        Button(String(localized: "chats.delete.forMe", defaultValue: "Удалить у меня"), role: .destructive) {
+            Task { await delete(entry, forEveryone: false) }
+        }
+        Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
+    }
+
+    /// Удаляется сообщение целиком: его медиа уходят из листания, просмотр встаёт на
+    /// соседний снимок; больше нечего показывать — закрывается.
+    @MainActor
+    private func delete(_ entry: ChatMediaWindow.Entry, forEveryone: Bool) async {
+        guard let gallery, let messageID = entry.messageID, let onDelete = context?.onDelete else { return }
+        isBusy = true
+        let failed = await onDelete(messageID, forEveryone)
+        isBusy = false
+        if let failed {
+            failure = failed
+            return
+        }
+        if let next = gallery.remove(messageID: messageID, showing: entry.id) {
+            selection = next
+        } else {
+            dismiss()
+        }
+    }
+
     // MARK: Действия
 
     @MainActor
@@ -299,21 +526,8 @@ struct MediaViewer: View {
 
     @MainActor
     private func saveToPhotos(_ item: PostDTO.Media) async {
-        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
-        guard status == .authorized || status == .limited else {
-            failure = String(localized: "media.photosDenied", defaultValue: "Нет доступа к «Фото». Разрешите его в Настройках")
-            return
-        }
         await run {
-            let file = try await MediaDownload.file(for: item)
-            let isVideo = item.isVideo
-            try await PHPhotoLibrary.shared().performChanges {
-                if isVideo {
-                    PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: file)
-                } else {
-                    PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: file)
-                }
-            }
+            try await PhotoLibrarySaver.save([try await MediaDownload.file(for: item)])
             show(String(localized: "media.saved", defaultValue: "Сохранено в «Фото»"))
         }
     }
@@ -357,16 +571,16 @@ struct MediaViewer: View {
 
 // MARK: - Открыт из чата
 
-/// Просмотр открыт из переписки: чьё сообщение, когда, и что с ним можно сделать.
+/// Просмотр открыт из переписки: медиа чата и что можно сделать с их сообщениями.
 /// «Показать в чате» и «Ответить» экран чата выполняет, когда просмотр закроется;
-/// «Переслать» открывается поверх просмотра.
+/// «Поделиться» открывается поверх просмотра.
 struct MediaViewerContext {
-    let title: String
-    let date: Date
-    var onShowInChat: (() -> Void)?
-    var onReply: (() -> Void)?
-    /// Окно «Переслать»: просмотр показывает его поверх себя.
-    var forward: (() -> AnyView)?
+    let gallery: ChatMediaGallery
+    /// Серверный id сообщения снимка.
+    var onShowInChat: ((String) -> Void)?
+    var onReply: ((String) -> Void)?
+    /// Удалить сообщение снимка (серверный id; у всех или у себя). Ответ — текст ошибки.
+    var onDelete: ((String, Bool) async -> String?)?
 
     /// «сегодня в 14:06», «вчера в 9:12», «3 нояб. в 18:40» — как в Telegram.
     static func when(_ date: Date, calendar: Calendar = .current) -> String {
@@ -381,6 +595,144 @@ struct MediaViewerContext {
             ? date.formatted(.dateTime.day().month(.abbreviated))
             : date.formatted(.dateTime.day().month(.abbreviated).year())
         return String(localized: "chats.viewer.dateAt", defaultValue: "\(day) в \(time)")
+    }
+}
+
+/// Что отправить из просмотра: сообщение целиком (все его медиа) или один файл альбома.
+enum ChatShareTarget: Identifiable, Equatable {
+    case message(String, fileIDs: [String])
+    case file(String)
+
+    var id: String {
+        switch self {
+        case .message(let messageID, _): "message:\(messageID)"
+        case .file(let fileID): "file:\(fileID)"
+        }
+    }
+
+    var fileIDs: [String] {
+        switch self {
+        case .message(_, let fileIDs): fileIDs
+        case .file(let fileID): [fileID]
+        }
+    }
+}
+
+/// «4 фотографии», «2 видео», «3 файла» — пункт «отправить весь альбом».
+enum MediaPlural {
+    static func album(_ items: [PostDTO.Media]) -> String {
+        let count = items.count
+        let number = count.formatted()
+        if items.allSatisfy({ !$0.isVideo }) {
+            switch form(count) {
+            case .one: return String(localized: "chats.viewer.photos.one", defaultValue: "\(number) фотография")
+            case .few: return String(localized: "chats.viewer.photos.few", defaultValue: "\(number) фотографии")
+            case .many: return String(localized: "chats.viewer.photos.many", defaultValue: "\(number) фотографий")
+            }
+        }
+        if items.allSatisfy(\.isVideo) {
+            return String(localized: "chats.viewer.videos", defaultValue: "\(number) видео")
+        }
+        switch form(count) {
+        case .one: return String(localized: "chats.viewer.files.one", defaultValue: "\(number) файл")
+        case .few: return String(localized: "chats.viewer.files.few", defaultValue: "\(number) файла")
+        case .many: return String(localized: "chats.viewer.files.many", defaultValue: "\(number) файлов")
+        }
+    }
+
+    private enum Form { case one, few, many }
+
+    private static func form(_ count: Int) -> Form {
+        let tens = count % 100
+        let ones = count % 10
+        if (11...14).contains(tens) { return .many }
+        if ones == 1 { return .one }
+        if (2...4).contains(ones) { return .few }
+        return .many
+    }
+}
+
+// MARK: - Live Text
+
+/// Снимок с системным Live Text (VisionKit): текст и коды на фото подсвечиваются, их
+/// можно выделить, скопировать, перевести — как в «Фото». Поверх страницы, на чёрном,
+/// вписан так же, как сам снимок; полный кадр качается тем же путём, что и «Поделиться».
+private struct LiveTextLayer: View {
+    let media: PostDTO.Media
+
+    @State private var image: UIImage?
+    @State private var failed = false
+
+    var body: some View {
+        ZStack {
+            Color.black
+            if let image {
+                LiveTextImageView(image: image)
+            } else if failed {
+                Image(systemName: "text.viewfinder")
+                    .font(.largeTitle)
+                    .foregroundStyle(.white.opacity(0.6))
+            } else {
+                ProgressView().tint(.white)
+            }
+        }
+        .task(id: media.id) {
+            do {
+                let file = try await MediaDownload.file(for: media)
+                let path = file.path
+                image = await Task.detached(priority: .userInitiated) { UIImage(contentsOfFile: path) }.value
+                failed = image == nil
+            } catch {
+                failed = true
+            }
+        }
+    }
+}
+
+private struct LiveTextImageView: UIViewRepresentable {
+    let image: UIImage
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIImageView {
+        let view = UIImageView(image: image)
+        view.contentMode = .scaleAspectFit
+        view.isUserInteractionEnabled = true
+        view.addInteraction(context.coordinator.interaction)
+        context.coordinator.analyze(image)
+        return view
+    }
+
+    func updateUIView(_ view: UIImageView, context: Context) {
+        guard view.image !== image else { return }
+        view.image = image
+        context.coordinator.analyze(image)
+    }
+
+    static func dismantleUIView(_ view: UIImageView, coordinator: Coordinator) {
+        coordinator.task?.cancel()
+    }
+
+    @MainActor
+    final class Coordinator {
+        let interaction = ImageAnalysisInteraction()
+        var task: Task<Void, Never>?
+
+        /// Разбор — один раз на снимок; пока идёт, снимок уже виден, подсветка придёт.
+        func analyze(_ image: UIImage) {
+            task?.cancel()
+            interaction.analysis = nil
+            task = Task { @MainActor [interaction] in
+                let analyzer = ImageAnalyzer()
+                let configuration = ImageAnalyzer.Configuration([.text, .machineReadableCode])
+                guard let analysis = try? await analyzer.analyze(image, configuration: configuration),
+                    !Task.isCancelled
+                else { return }
+                interaction.analysis = analysis
+                interaction.preferredInteractionTypes = .automatic
+                interaction.selectableItemsHighlighted = true
+            }
+        }
     }
 }
 
@@ -401,6 +753,22 @@ private enum MediaViewerBar {
         Button(action: action) { circle(symbol: symbol) }
             .buttonStyle(.plain)
             .accessibilityLabel(Text(title))
+    }
+
+    /// Кнопка-переключатель (Live Text): включённая — светлая с тёмным значком, как
+    /// системная кнопка Live Text в «Фото».
+    static func toggle(symbol: String, title: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.headline)
+                .foregroundStyle(isOn ? Color.black : Color.white)
+                .frame(width: ControlHeight.xl, height: ControlHeight.xl)
+                .background(Circle().fill(Color.white.opacity(isOn ? 1 : 0)))
+                .floatingGlass(in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(title))
+        .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 }
 
@@ -565,7 +933,7 @@ private struct SystemPlayer: UIViewControllerRepresentable {
 
 /// Медиафайл целиком — для «Поделиться», «Фото» и буфера обмена. Ложится во временную
 /// папку с расширением по типу: по нему «Фото» и получатель понимают, что это.
-private enum MediaDownload {
+enum MediaDownload {
     static func file(for media: PostDTO.Media) async throws -> URL {
         guard let remote = media.originalURL else { throw URLError(.badURL) }
         let destination = FileManager.default.temporaryDirectory

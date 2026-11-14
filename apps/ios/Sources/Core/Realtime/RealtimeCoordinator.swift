@@ -155,6 +155,22 @@ final class RealtimeCoordinator {
     func open(chatID: String) async {
         openChatID = chatID
         await transport.join(chatID: chatID)
+        await clearMarkedUnread(chatID: chatID)
+    }
+
+    /// Открыть чат — значит прочитать его: пометка «как новое» гаснет сразу. Серверу
+    /// говорим отдельно — в чате без чужих сообщений отметки прочтения не будет вовсе,
+    /// и пометка вернулась бы со следующей страницей списка.
+    @MainActor
+    private func clearMarkedUnread(chatID: String) async {
+        let wasMarked = (try? await database.writer.write { db -> Bool in
+            guard var chat = try ChatRecord.fetchOne(db, key: chatID), chat.markedUnread else { return false }
+            chat.markedUnread = false
+            try chat.update(db)
+            return true
+        }) ?? false
+        guard wasMarked else { return }
+        try? await ChatsAPI().setMarkedUnread(false, chatID: chatID)
     }
 
     /// Чат, открытый на экране: баннер о сообщении в нём не нужен — человек его читает.
@@ -242,10 +258,17 @@ final class RealtimeCoordinator {
             // Прочитано на другом устройстве — счётчик гаснет и здесь, но только если
             // отметка дошла до последнего сообщения: иначе непрочитанное ещё есть, и
             // точное число скажет список.
+            // Пометку «как новое» прочтение снимает всегда — так делает и сервер.
             let cleared = (try? await database.writer.write { db -> Bool in
-                guard var chat = try ChatRecord.fetchOne(db, key: chatID), chat.unreadCount != 0 else { return true }
+                guard var chat = try ChatRecord.fetchOne(db, key: chatID),
+                      chat.unreadCount != 0 || chat.markedUnread
+                else { return true }
+                chat.markedUnread = false
                 let last = try chat.lastMessageId.flatMap { try MessageRecord.fetchOne(db, key: $0) }
-                guard (last?.createdAt ?? .distantPast) <= readAt else { return false }
+                guard (last?.createdAt ?? .distantPast) <= readAt else {
+                    try chat.update(db)
+                    return false
+                }
                 chat.unreadCount = 0
                 try chat.update(db)
                 return true
@@ -290,9 +313,25 @@ final class RealtimeCoordinator {
         case .chatActivity, .blockChanged:
             scheduleListRefresh()
 
+        case .chatListChanged:
+            // Что именно поменялось, событие не говорит — первая страница списка несёт
+            // закреплённые и свежие чаты, остальное догонит обновление списка.
+            scheduleListRefresh()
+
+        case .foldersChanged:
+            let api = api ?? ChatsAPI()
+            if let folders = try? await api.folders() {
+                try? await store.save(folders: folders)
+            }
+
         case .chatPinned(let chatID):
             pinnedVersions[chatID, default: 0] += 1
             chatSignals[chatID]?.pinnedVersion += 1
+
+        case .scheduledChanged(let chatID):
+            // Только открытому чату: часы в поле ввода есть лишь там, а при открытии
+            // список и так читается заново.
+            chatSignals[chatID]?.scheduledVersion += 1
 
         case .pollUpdated(let pollID, _):
             pollVersions[pollID, default: 0] += 1
@@ -495,6 +534,8 @@ final class ChatActivity {
 @Observable
 final class ChatSignals {
     var pinnedVersion = 0
+    /// Растёт с каждым `chat:scheduled-changed`: экран перечитывает свои отложенные.
+    var scheduledVersion = 0
     var memberReads: [String: Date] = [:]
 }
 

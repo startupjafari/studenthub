@@ -177,6 +177,8 @@ model User {
   messageReactions   MessageReaction[]
   chatPollVotes      ChatPollVote[]
   chatFolders        ChatFolder[]
+  // Избранные стикеры (06-chats.prisma, FavoriteSticker).
+  favoriteStickers   FavoriteSticker[]
   // «Удалить у себя»: сообщения, скрытые этим пользователем (06-chats.prisma, HiddenMessage).
   hiddenMessages     HiddenMessage[]
   // Карточки контакта в чатах, указывающие на этого пользователя (ChatContact.userId).

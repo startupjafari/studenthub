@@ -142,13 +142,39 @@ enum ChatMediaKind: String {
     case voiceNote = "voice_note"
 }
 
+/// Куда листать общие материалы от курсора: к старым (как раньше) или к новым —
+/// просмотр медиа чата идёт в обе стороны от открытого снимка.
+enum ChatMediaDirection: String {
+    case older, newer
+}
+
+/// Место медиа среди всех медиа чата: `index` с единицы от самого старого, `total` —
+/// сколько их всего. Терпимо к неполному ответу: без чисел счётчик просто не показывается.
+struct ChatMediaPositionDTO: Decodable, Equatable {
+    let index: Int?
+    let total: Int?
+
+    init(index: Int?, total: Int?) {
+        self.index = index
+        self.total = total
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        index = try? container.decodeIfPresent(Int.self, forKey: .index)
+        total = try? container.decodeIfPresent(Int.self, forKey: .total)
+    }
+
+    private enum CodingKeys: String, CodingKey { case index, total }
+}
+
 /// Реакции: сервер принимает любой emoji, одну реакцию на человека.
 enum ChatReactions {
     /// Двойное нажатие на пузырь — как в вебе.
     static let doubleTap = "🔥"
 }
 
-protocol ChatActing: ChatMessaging {
+protocol ChatActing: ChatMessaging, ChatThreadTooling {
     // Сообщения
     func react(messageID: String, emoji: String) async throws -> ChatMessageDTO
     func setPinned(_ pinned: Bool, messageID: String) async throws
@@ -162,6 +188,10 @@ protocol ChatActing: ChatMessaging {
     func presence(chatID: String) async throws -> [ChatPresenceDTO]
     func members(chatID: String) async throws -> [ChatMemberDTO]
     func media(chatID: String, kind: ChatMediaKind, page: PageRequest) async throws -> Page<ChatMediaItemDTO>
+    /// Соседние медиа для просмотра: страница от курсора (id файла) в сторону `direction`.
+    func media(chatID: String, kind: ChatMediaKind, cursor: String?, direction: ChatMediaDirection, limit: Int) async throws -> Page<ChatMediaItemDTO>
+    /// Номер медиа среди всех медиа чата — счётчик «746 из 752» в просмотре.
+    func mediaPosition(chatID: String, fileID: String, kind: ChatMediaKind) async throws -> ChatMediaPositionDTO
     func links(chatID: String, page: PageRequest) async throws -> Page<ChatLinkItemDTO>
     func mute(chatID: String, minutes: Int?, importantOnly: Bool) async throws
     func clearHistory(chatID: String) async throws
@@ -266,6 +296,24 @@ extension ChatsAPI: ChatActing {
     func media(chatID: String, kind: ChatMediaKind, page: PageRequest) async throws -> Page<ChatMediaItemDTO> {
         let query = [URLQueryItem(name: "type", value: kind.rawValue)] + page.cursorQuery
         return try await client.page(.get("chats/\(chatID)/media", query: query), of: ChatMediaItemDTO.self)
+    }
+
+    func media(chatID: String, kind: ChatMediaKind, cursor: String?, direction: ChatMediaDirection, limit: Int) async throws -> Page<ChatMediaItemDTO> {
+        var query = [
+            URLQueryItem(name: "type", value: kind.rawValue),
+            URLQueryItem(name: "limit", value: String(limit)),
+        ]
+        // К старым — значение сервера по умолчанию: параметр не шлём, как и раньше.
+        if direction == .newer { query.append(URLQueryItem(name: "direction", value: direction.rawValue)) }
+        if let cursor { query.append(URLQueryItem(name: "cursor", value: cursor)) }
+        return try await client.page(.get("chats/\(chatID)/media", query: query), of: ChatMediaItemDTO.self)
+    }
+
+    func mediaPosition(chatID: String, fileID: String, kind: ChatMediaKind) async throws -> ChatMediaPositionDTO {
+        try await client.send(
+            .get("chats/\(chatID)/media/\(fileID)/position", query: [URLQueryItem(name: "type", value: kind.rawValue)]),
+            as: ChatMediaPositionDTO.self
+        )
     }
 
     func links(chatID: String, page: PageRequest) async throws -> Page<ChatLinkItemDTO> {

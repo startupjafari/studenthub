@@ -26,6 +26,15 @@ final class VoiceRecorder {
     private(set) var hint: VoiceRecordingMachine.Hint?
     /// Прослушивание остановленной записи.
     let preview = VoicePreviewPlayer()
+    /// Выбранный ручками обрезки фрагмент остановленной записи — доли её длины. Уйдёт
+    /// (или станет началом продолжения) только он.
+    var selection: ClosedRange<Double> = 0...1 {
+        didSet { preview.selection = selection }
+    }
+    /// Ручки обрезки сдвинуты: «продолжить запись» сначала спросит, оставить ли фрагмент.
+    var isTrimmed: Bool {
+        selection.lowerBound > Self.trimEpsilon || selection.upperBound < 1 - Self.trimEpsilon
+    }
 
     /// Куда отдать готовое голосовое. Ставит панель ввода.
     @ObservationIgnored var onSend: ((OutgoingAttachment) async -> Void)?
@@ -43,6 +52,9 @@ final class VoiceRecorder {
     @ObservationIgnored private var finishing: Task<Void, Never>?
     /// Когда палец лёг на микрофон: долгое удержание без звука — не «короткое касание».
     @ObservationIgnored private var pressedAt: Date?
+    /// Продолжение записи: что уже записано до паузы (с обрезкой). Новый звук при
+    /// остановке или отправке приклеивается к нему (`VoiceClipComposer`).
+    @ObservationIgnored private var base: VoiceSegment?
     /// Каждая новая запись и каждая отмена — новое поколение: запоздавший конец
     /// прежней не трогает текущую.
     @ObservationIgnored private var generation = 0
@@ -51,6 +63,8 @@ final class VoiceRecorder {
     /// Сколько столбиков помещается в строку записи. Старые отбрасываем: волна
     /// должна ехать, а не сжиматься в кашу.
     private static let visibleBars = 40
+    /// Сдвиг ручки меньше — не обрезка: палец дрогнул у края.
+    private static let trimEpsilon = 0.005
 
     var phase: VoiceRecordingMachine.Phase { machine.phase }
 
@@ -103,6 +117,8 @@ final class VoiceRecorder {
     func stop() { send(.tapStop(duration: currentDuration)) }
     func sendNow() { send(.tapSend) }
     func delete() { send(.tapDelete) }
+    /// Микрофон в прослушивании: дописать к записанному. Обрезку человек уже подтвердил.
+    func resume() { send(.tapResume) }
     func dismissFailure() { send(.dismissFailure) }
     /// Панель ввода ушла: незаконченное не уходит само и не держит микрофон.
     func abandon() { send(.abandon) }
@@ -112,14 +128,17 @@ final class VoiceRecorder {
         send(.interrupted(duration: currentDuration))
     }
 
-    /// Сколько записано. Пока сессия включается, рекордера ещё нет — ноль, и отпускание
-    /// в это время считается касанием, а не голосовым. Прерванный системой рекордер
-    /// сбрасывает своё время в ноль — тогда верим последнему замеру: иначе голосовое,
-    /// оборванное звонком, считалось бы пустым и удалялось.
+    /// Сколько записано — вместе с началом продолжения (`base`). Пока сессия
+    /// включается, рекордера ещё нет — ноль, и отпускание в это время считается
+    /// касанием, а не голосовым. Прерванный системой рекордер сбрасывает своё время в
+    /// ноль — тогда верим последнему замеру: иначе голосовое, оборванное звонком,
+    /// считалось бы пустым и удалялось.
     private var currentDuration: TimeInterval {
         guard let take else { return duration }
-        return max(take.recorder?.currentTime ?? 0, duration)
+        return max(baseDuration + (take.recorder?.currentTime ?? 0), duration)
     }
+
+    private var baseDuration: TimeInterval { base?.length ?? 0 }
 
     private static var permission: VoiceRecordingMachine.Event.Permission {
         switch AVAudioApplication.shared.recordPermission {
@@ -145,6 +164,10 @@ final class VoiceRecorder {
             finishRecording(thenSend: thenSend)
         case .sendStopped:
             sendStopped()
+        case .resumeRecording:
+            resumeRecording()
+        case .restoreStopped:
+            restoreStopped()
         case .discardRecording:
             discard()
         case .haptic(let kind):
@@ -161,6 +184,7 @@ final class VoiceRecorder {
         levels = []
         envelope = []
         duration = 0
+        selection = 0...1
         // Прослушивание могло включить сессию на проигрывание — отпускаем её.
         VoiceAudio.shared.relinquish()
         let onSend = onSend
@@ -175,7 +199,10 @@ final class VoiceRecorder {
     /// проигрывания голосового занимало до пары секунд: экран замирал под пальцем, а
     /// отпускание доходило уже до только что начатой записи — вместо голосового
     /// «Удерживайте, чтобы записать».
-    private func startRecording() {
+    ///
+    /// `continuing` — продолжение после паузы: волна и время идут дальше от записанного
+    /// (`base`), а не с нуля.
+    private func startRecording(continuing: Bool = false) {
         // Микрофон и динамик сразу — играющее голосовое попало бы в запись.
         VoicePlayer.pauseActive()
         preview.stop()
@@ -185,9 +212,12 @@ final class VoiceRecorder {
         let take = VoiceTake(url: FileManager.default.temporaryDirectory
             .appendingPathComponent("voice-\(UUID().uuidString).m4a"))
         self.take = take
-        levels = []
-        envelope = []
-        duration = 0
+        if !continuing {
+            removeBase()
+            levels = []
+            envelope = []
+            duration = 0
+        }
 
         Task { @MainActor [weak self] in
             let started = await VoiceAudio.shared.start(take)
@@ -212,12 +242,28 @@ final class VoiceRecorder {
         duration = recorded
         let generation = generation
 
+        // Продолжение: записанное до паузы уходит в склейку, новый звук — следом.
+        let base = base
+        self.base = nil
+
         finishing = Task { @MainActor [weak self] in
             var result: VoiceTakeResult?
             var file: OutgoingAttachment?
             if let take, let finished = await VoiceAudio.shared.finish(take) {
                 result = finished
                 file = Self.attachment(at: take.url)
+            }
+            if let base {
+                // Склейка — новый файл; части больше не нужны. Новый звук мог не
+                // записаться вовсе (пауза сразу после «продолжить») — тогда остаётся
+                // только записанное раньше.
+                var parts = [VoiceClipComposer.Part(url: base.url, range: base.range)]
+                if let take, file != nil { parts.append(.init(url: take.url, range: nil)) }
+                let merged = await VoiceClipComposer.compose(parts)
+                try? FileManager.default.removeItem(at: base.url)
+                if let take { try? FileManager.default.removeItem(at: take.url) }
+                file = merged.map { Self.attachment(at: $0.url) }
+                result = merged.map { VoiceTakeResult(duration: $0.duration) }
             }
             guard let self else { return }
             if thenSend {
@@ -235,8 +281,53 @@ final class VoiceRecorder {
             }
             self.stopped = file
             if let seconds = result?.duration, seconds > 0 { self.duration = seconds }
+            self.selection = 0...1
             self.preview.load(URL(filePath: path), duration: self.duration)
         }
+    }
+
+    /// Продолжить после паузы. Остановленный файл (с обрезкой) становится началом,
+    /// волна обрезается под него, и запись идёт дальше. Если файл ещё дописывается —
+    /// ждём его, как и отправка.
+    private func resumeRecording() {
+        preview.stop()
+        let pending = finishing
+        let generation = generation
+        Task { @MainActor [weak self] in
+            await pending?.value
+            // Пока ждали, запись удалили или отправили — продолжать нечего.
+            guard let self, generation == self.generation, self.phase == .lockedRecording else { return }
+            guard let file = self.stopped, let path = file.cachedPath else {
+                self.send(.recordingFailed)
+                return
+            }
+            let total = self.preview.duration > 0 ? self.preview.duration : self.duration
+            let segment = VoiceSegment(
+                url: URL(filePath: path), duration: total, selection: self.selection, envelope: self.envelope
+            )
+            self.stopped = nil
+            self.base = segment
+            self.envelope = VoiceSegment.slice(segment.envelope, to: segment.selection)
+            self.levels = Array(self.envelope.suffix(Self.visibleBars))
+            self.duration = segment.length
+            self.selection = 0...1
+            self.startRecording(continuing: true)
+        }
+    }
+
+    /// Продолжение не запустилось: прежняя запись — снова на прослушивании, с той же
+    /// обрезкой.
+    private func restoreStopped() {
+        stopMetering()
+        if let take { VoiceAudio.shared.discard(take) }
+        take = nil
+        guard let base else { return }
+        self.base = nil
+        stopped = Self.attachment(at: base.url)
+        envelope = base.envelope
+        duration = base.duration
+        preview.load(base.url, duration: base.duration)
+        selection = base.selection
     }
 
     /// «Отправить» из прослушивания. Если файл ещё дописывается — ждём его, а не
@@ -252,7 +343,20 @@ final class VoiceRecorder {
                 return
             }
             self.stopped = nil
-            self.deliver(file)
+            guard self.isTrimmed, let path = file.cachedPath else {
+                self.deliver(file)
+                return
+            }
+            // Обрезка: уходит только выбранный фрагмент — новым файлом.
+            let total = self.preview.duration > 0 ? self.preview.duration : self.duration
+            let segment = VoiceSegment(url: URL(filePath: path), duration: total, selection: self.selection, envelope: [])
+            let trimmed = await VoiceClipComposer.compose([.init(url: segment.url, range: segment.range)])
+            try? FileManager.default.removeItem(at: segment.url)
+            guard let trimmed else {
+                self.send(.prepared(ok: false))
+                return
+            }
+            self.deliver(Self.attachment(at: trimmed.url))
         }
     }
 
@@ -282,9 +386,17 @@ final class VoiceRecorder {
         preview.stop()
         if let path = stopped?.cachedPath { try? FileManager.default.removeItem(atPath: path) }
         stopped = nil
+        removeBase()
         levels = []
         envelope = []
         duration = 0
+        selection = 0...1
+    }
+
+    /// Начало продолжения больше не нужно — файл удаляем.
+    private func removeBase() {
+        if let base { try? FileManager.default.removeItem(at: base.url) }
+        base = nil
     }
 
     private func startMetering(_ take: VoiceTake) {
@@ -303,7 +415,7 @@ final class VoiceRecorder {
                     self.levels.removeFirst(self.levels.count - Self.visibleBars)
                 }
                 self.envelope.append(level)
-                self.duration = recorder.currentTime
+                self.duration = self.baseDuration + recorder.currentTime
                 try? await Task.sleep(for: .milliseconds(50))
             }
         }
@@ -529,6 +641,8 @@ final class VoicePreviewPlayer: NSObject, AVAudioPlayerDelegate {
     private(set) var isPlaying = false
     private(set) var progress: Double = 0
     private(set) var duration: TimeInterval = 0
+    /// Фрагмент, выбранный обрезкой: играется только он (доли длины).
+    var selection: ClosedRange<Double> = 0...1
 
     @ObservationIgnored private var player: AVAudioPlayer?
     @ObservationIgnored private var ticker: Task<Void, Never>?
@@ -552,6 +666,12 @@ final class VoicePreviewPlayer: NSObject, AVAudioPlayerDelegate {
             ticker?.cancel()
         } else {
             VoicePlayer.pauseActive()
+            // Вне выбранного фрагмента (или у его конца) — играем с его начала.
+            let start = player.duration * selection.lowerBound
+            let end = player.duration * selection.upperBound
+            if player.currentTime < start || player.currentTime >= end - 0.05 {
+                player.currentTime = start
+            }
             isPlaying = true
             // Сессию переключает очередь звука: смена категории после записи на главной
             // очереди подвешивала экран.
@@ -582,6 +702,14 @@ final class VoicePreviewPlayer: NSObject, AVAudioPlayerDelegate {
         ticker?.cancel()
         ticker = Task { @MainActor [weak self] in
             while !Task.isCancelled, let self, let player = self.player, player.isPlaying {
+                // Конец выбранного фрагмента — как конец записи: стоп и к его началу.
+                if self.selection.upperBound < 1, player.currentTime >= player.duration * self.selection.upperBound {
+                    player.pause()
+                    player.currentTime = player.duration * self.selection.lowerBound
+                    self.isPlaying = false
+                    self.progress = self.selection.lowerBound
+                    return
+                }
                 self.progress = player.duration > 0 ? player.currentTime / player.duration : 0
                 try? await Task.sleep(for: .milliseconds(50))
             }

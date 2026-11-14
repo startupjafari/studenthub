@@ -155,9 +155,10 @@ private struct PanelSurface: View {
 
 // MARK: - Стикеры
 
-/// Стикеры как в Telegram: сверху — полоса наборов (недавние первыми), под ней — поиск,
-/// ниже — все наборы одной лентой с подписью над каждым. Касание набора в полосе
-/// прокручивает к нему. Поиск — по названию набора и по emoji стикера.
+/// Стикеры как в Telegram: сверху — полоса наборов (избранные и недавние первыми), под
+/// ней — поиск, ниже — все наборы одной лентой с подписью над каждым. Касание набора в
+/// полосе прокручивает к нему. Поиск — по названию набора и по emoji стикера. Долгое
+/// нажатие на стикер — «Добавить в избранное» или «Удалить из избранного».
 private struct StickerBrowser: View {
     let bottomInset: CGFloat
     let onPick: (StickerSetDTO.Sticker) -> Void
@@ -166,10 +167,12 @@ private struct StickerBrowser: View {
     /// Набор у верха ленты: касание в полосе прокручивает к нему, прокрутка пальцем
     /// двигает подсветку (см. `EmojiBrowser`).
     @State private var selectedSet: String?
+    @State private var failure: String?
     private var catalog: StickerCatalog { StickerCatalog.shared }
     private var recents: RecentStickers { RecentStickers.shared }
 
     private static let recentID = "recent"
+    private static let favoritesID = "favorites"
 
     var body: some View {
         VStack(spacing: Spacing.sm) {
@@ -181,6 +184,9 @@ private struct StickerBrowser: View {
         }
         .padding(.top, Spacing.sm)
         .task { await catalog.load() }
+        // Избранное меняется и с других устройств — перечитываем при каждом открытии.
+        .task { await catalog.loadFavorites(force: true) }
+        .actionFailureAlert($failure)
     }
 
     private var term: String {
@@ -262,6 +268,13 @@ private struct StickerBrowser: View {
                     // Наборы — прямые элементы ленивого столбца: только к ним прокрутка
                     // находит дорогу, пока набор ещё не построен.
                     LazyVStack(spacing: 0) {
+                        if !catalog.favorites.isEmpty {
+                            section(
+                                id: Self.favoritesID,
+                                title: String(localized: "chats.stickers.favorites", defaultValue: "Избранные стикеры"),
+                                stickers: catalog.favorites
+                            )
+                        }
                         if !recentStickers.isEmpty {
                             section(
                                 id: Self.recentID,
@@ -323,12 +336,44 @@ private struct StickerBrowser: View {
         }
         .buttonStyle(StickerPressStyle())
         .accessibilityLabel(Text(Self.label(for: sticker)))
+        .contextMenu {
+            favoriteButton(sticker)
+        } preview: {
+            StickerImage(stickerID: sticker.id, emoji: sticker.emoji, url: sticker.url)
+                .frame(width: StickerMessageView.side, height: StickerMessageView.side)
+                .padding(Spacing.lg)
+        }
+    }
+
+    /// Пункт меню стикера: в избранное или из него — сразу, без ожидания сервера.
+    private func favoriteButton(_ sticker: StickerSetDTO.Sticker) -> some View {
+        let isFavorite = catalog.isFavorite(sticker.id)
+        return Button(role: isFavorite ? .destructive : nil) {
+            Task { failure = await catalog.setFavorite(!isFavorite, sticker: sticker) }
+        } label: {
+            Label(
+                isFavorite
+                    ? String(localized: "chats.stickers.unfavorite", defaultValue: "Удалить из избранного")
+                    : String(localized: "chats.stickers.favorite", defaultValue: "Добавить в избранное"),
+                systemImage: isFavorite ? "star.slash" : "star"
+            )
+        }
     }
 
     private var setStrip: some View {
         ScrollViewReader { strip in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: Spacing.xs) {
+                    if !catalog.favorites.isEmpty {
+                        stripButton(
+                            id: Self.favoritesID,
+                            title: String(localized: "chats.stickers.favorites", defaultValue: "Избранные стикеры")
+                        ) {
+                            Image(systemName: "star")
+                                .font(.title3)
+                                .foregroundStyle(Palette.mutedForeground)
+                        }
+                    }
                     if !recentStickers.isEmpty {
                         stripButton(id: Self.recentID, title: String(localized: "emoji.recent", defaultValue: "Недавние")) {
                             Image(systemName: "clock")
@@ -386,7 +431,9 @@ private struct StickerBrowser: View {
     }
 
     private var currentSet: String? {
-        selectedSet ?? (recentStickers.isEmpty ? catalog.sets.first?.id : Self.recentID)
+        if let selectedSet { return selectedSet }
+        if !catalog.favorites.isEmpty { return Self.favoritesID }
+        return recentStickers.isEmpty ? catalog.sets.first?.id : Self.recentID
     }
 
     private var found: [StickerSetDTO.Sticker] {

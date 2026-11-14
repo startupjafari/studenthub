@@ -68,6 +68,8 @@ enum ValidationMessage {
         case "validation.chats.scheduleInPast": return String(localized: "validation.chats.scheduleInPast", defaultValue: "Время отправки должно быть в будущем")
         case "validation.chats.scheduleTooFar": return String(localized: "validation.chats.scheduleTooFar", defaultValue: "Отложить можно не больше чем на год")
         case "validation.chats.reactionEmoji": return String(localized: "validation.chats.reactionEmoji", defaultValue: "Реакция — один эмодзи")
+        case "validation.chats.folderEmoji": return String(localized: "validation.chats.folderEmoji", defaultValue: "Значок папки — один эмодзи")
+        case "validation.chats.folderChatExcluded": return String(localized: "validation.chats.folderChatExcluded", defaultValue: "Чат не может быть одновременно в папке и в исключениях")
         case "validation.chats.contactEmpty": return String(localized: "validation.chats.contactEmpty", defaultValue: "Укажите хотя бы один телефон или адрес почты")
         case "validation.chats.stickerSlug": return String(localized: "validation.chats.stickerSlug", defaultValue: "Короткое имя: латиница, цифры, «-» и «_», от 2 до 64 знаков")
         case "validation.chats.livePeriod": return String(localized: "validation.chats.livePeriod", defaultValue: "Трансляция: 15 минут, 1 час или 8 часов")

@@ -7,7 +7,8 @@ import Observation
 /// Читает базу, как и сам список: сокет пишет новое сообщение в `chat.unreadCount`,
 /// наблюдаемый запрос присылает новую сумму — вкладка узнаёт о сообщении без
 /// отдельного канала. Архив и чаты без звука не считаются: человек сам попросил их
-/// не дёргать, и цифра на вкладке — тоже дёрганье.
+/// не дёргать, и цифра на вкладке — тоже дёрганье. Чат, помеченный «как новое», без
+/// новых сообщений добавляет единицу — как в Telegram.
 @Observable
 final class ChatBadgeModel {
     private(set) var unread = 0
@@ -35,7 +36,8 @@ final class ChatBadgeModel {
             try Int.fetchOne(
                 db,
                 sql: """
-                    SELECT COALESCE(SUM(unreadCount), 0) FROM chat
+                    SELECT COALESCE(SUM(CASE WHEN unreadCount > 0 THEN unreadCount ELSE markedUnread END), 0)
+                    FROM chat
                     WHERE archivedAt IS NULL AND muted = 0
                     """
             ) ?? 0
