@@ -62,6 +62,11 @@ struct ChatRecord: Codable, FetchableRecord, PersistableRecord, Equatable {
     /// следующего: часы телефона расходятся с серверными, и правки за расхождение
     /// пропадали бы (IOS_RULES 9.3.5).
     var syncedAt: Date? = nil
+    /// Граница несверенного после `overflow` догона (IOS_RULES 9.3.13): подтверждённые
+    /// строки с `seq` ниже неё лежали в базе до разрыва, и сервер мог их удалить. Их не
+    /// стираем — сверяем страницами при прокрутке вверх (`MessageStore.revalidate`), и
+    /// граница опускается вслед. `nil` — несверенного нет.
+    var unsyncedBelow: Int? = nil
 
     var kind: ChatKind { ChatKind.from(type) }
 

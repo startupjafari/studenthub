@@ -276,6 +276,14 @@ extension AppDatabase {
             }
         }
 
+        migrator.registerMigration("overflowUnsynced_chatUnsyncedBelow") { db in
+            // Граница несверенного после переполнения догона: историю больше не стираем,
+            // а сверяем лениво (IOS_RULES 9.3.13). У старой базы несверенного нет.
+            try db.alter(table: ChatRecord.databaseTableName) { table in
+                table.add(column: "unsyncedBelow", .integer)
+            }
+        }
+
         return migrator
     }
 }

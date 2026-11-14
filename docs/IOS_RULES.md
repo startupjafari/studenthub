@@ -5440,6 +5440,7 @@ Telegram.
 **Почему.** У Telegram после потери непрерывности канал не стирается: сохранённое ниже отметки помечается и лениво
 сверяется видимым окном пачками по 64.
 **Применимость.** частично — вариант для обсуждения.
+**Сейчас у нас.** соблюдено (волна 5): на `overflow` история не стирается — последняя страница ложится поверх, ниже ставится граница `unsyncedBelow`, при прокрутке страницы сверяются (9.3.12) и граница опускается; явная очистка сервером по-прежнему стирает (`MessageStore.resetAfterOverflow`, `ChatThreadModel.revalidateOlder`, `docs/IOS_SYNC_MAP.md`).
 *Источник: `docs/superpowers/reports/2026-10-15-difference-too-long-exploration.md` («channel-revalidation», «Design
 implications»)*
 
@@ -5449,6 +5450,7 @@ implications»)*
 **Почему.** У Telegram отладочный сброс без `forgetRecentlyDeletedMessages` на 5 минут запрещал сохранять эти сообщения
 и закрывал дыру над пустотой.
 **Применимость.** частично — журнала у нас нет.
+**Сейчас у нас.** соблюдено (волна 5): несверенное ниже `unsyncedBelow` показывается из базы и сверяется при прокрутке, окно ленты не опускается ниже границы без сверки (`docs/IOS_SYNC_MAP.md`).
 *Источник: `submodules/TelegramCore/Sources/State/CLAUDE.md` («A debug reset … forgets them»);
 `docs/superpowers/handoffs/2026-10-16-state-sync-handoff.md` (§6g, §6h)*
 
@@ -6380,8 +6382,7 @@ authorization»)*
 отложенный выход), затем стереть записи `SecretKey`, и только потом всё остальное.
 **Почему.** Записи связки ключей переживают удаление; Telegram при подтверждённой свежей установке стирает их до всего
 остального. Люди часто удаляют приложение, чтобы «выйти».
-**Сейчас у нас.** решение владельца: сброса нет — `SessionStore.restore()` (`Core/Session/SessionStore.swift:89`)
-после переустановки открывает прежнюю сессию.
+**Сейчас у нас.** соблюдено (волна 5): первый запуск новой установки (`InstallationMarker`, отличие от обновления — по `AppDatabase.storeExists`) стирает сессию из Keychain, refresh гасится на сервере через `completePendingLogouts`, запуск не ждёт.
 *Источник: `docs/passcode.md` («Destructive reset and fresh installations»)*
 
 #### 10.1.13 Сроки — на монотонных часах; попытки считает сервер
@@ -7965,7 +7966,9 @@ in»); P (Task 7 Step 1: «Each `.js` is copied together with its `.qbc`»; Task
 или честно «тестом не закреплено»). Открытые проблемы — с id и местом в коде, исправленные — отдельно. Датированный
 аудит — отдельный документ, не карта.
 **Почему.** У Telegram карта описывает код как он есть и правится вместе с ним; иначе она врёт уже через неделю.
-**Сейчас у нас.** карты нет — знания размазаны по комментариям `RealtimeCoordinator`, `MessageStore`, `OutboxService`.
+**Сейчас у нас.** карта — отдельный документ [`docs/IOS_SYNC_MAP.md`](IOS_SYNC_MAP.md) (решение владельца). Правило:
+правка синхронизации (`RealtimeCoordinator`, `MessageStore`, `ChatStore`, `OutboxService`, `MessageOutbox`,
+`SyncPosition`, догон и страницы `ChatThreadModel`, выход и `SessionStore.restore`) обновляет карту в том же коммите.
 *Источник: `submodules/TelegramCore/Sources/State/CLAUDE.md` (карта и аудит); `docs/state-sync.md` (вводная, «Pointers»,
 «Invariants», «Open issues», «Fixed»)*
 
@@ -8702,7 +8705,7 @@ release-сборка не запускалась.
     `ChatThreadModel.swift:1247`. Правила 6.6.1 и 9.4.17. [исправлено, #499]
 14. **Release-сборка невоспроизводима и собирается другим Xcode, чем тесты.** `ios-release.yml` работает на
     `macos-15` без `DEVELOPER_DIR`. XcodeGen ставится без версии, `Package.resolved` в `.gitignore`. Правила
-    14.1.1 и 14.1.2. [частично исправлено, #499: XcodeGen и Xcode релиза; `Package.resolved` — решение владельца]
+    14.1.1 и 14.1.2. [частично исправлено, #499: XcodeGen и Xcode релиза; `Package.resolved` — решено: закреплён в git, волна 5]
 
 ### А.2 Полный список по разделам
 
@@ -8737,9 +8740,9 @@ release-сборка не запускалась.
 - **Два `Menu` в одной стеклянной капсуле морфят всю капсулу** — `apps/ios/Sources/Features/Chats/Thread/Composer/ComposerEditorView.swift:159-214` — правило 3.7.5. Меню может «вырасти» из всей панели, а не из кнопки. [проверить на iPhone]
 #### §4. Компилятор, Swift, оптимизация
 
-- **Предупреждения не считаются ошибками** — `apps/ios/project.yml:26` (`SWIFT_TREAT_WARNINGS_AS_ERRORS: "NO"`) — правила 4.2.1, 4.2.2. Предупреждения «приведение всегда неуспешно» и предупреждения конкурентности после ретипизации проходят молча. [решение владельца]
-- **Устройство владельца собирается более новым Swift, чем CI** — локальный Swift 6.4.2 против Xcode 26.6 на CI (`.github/workflows/ios.yml:85`) — правило 4.1.1. Известный баг Swift 6.4 с `[weak]` в локальном замыкании проявится только на iPhone, а CI будет зелёным. Сейчас таких мест нет. [решение владельца]
-- **Release собирается только при выпуске** — `.github/workflows/ios-release.yml` (ручной запуск) — правило 4.1.2. Падения компилятора, которые бывают только в Release (`SimplifyCFG`, `-Osize`), всплывут в день отправки. [решение владельца]
+- **Предупреждения не считаются ошибками** — `apps/ios/project.yml:26` (`SWIFT_TREAT_WARNINGS_AS_ERRORS: "NO"`) — правила 4.2.1, 4.2.2. Предупреждения «приведение всегда неуспешно» и предупреждения конкурентности после ретипизации проходят молча. [решено: страж числа предупреждений в ios.yml, база scripts/warnings-baseline.txt только сужается, волна 5]
+- **Устройство владельца собирается более новым Swift, чем CI** — локальный Swift 6.4.2 против Xcode 26.6 на CI (`.github/workflows/ios.yml:85`) — правило 4.1.1. Известный баг Swift 6.4 с `[weak]` в локальном замыкании проявится только на iPhone, а CI будет зелёным. Сейчас таких мест нет. [решено: принято как есть до Xcode 27 на CI, волна 5]
+- **Release собирается только при выпуске** — `.github/workflows/ios-release.yml` (ручной запуск) — правило 4.1.2. Падения компилятора, которые бывают только в Release (`SimplifyCFG`, `-Osize`), всплывут в день отправки. [решено: ночной ios-nightly собирает Release без подписи, волна 5]
 #### §5. UIKit и SwiftUI
 
 - **Превью чата регистрирует якоря пузырей под настоящими id** — `apps/ios/Sources/Features/Chats/ChatListView.swift:1084` — правило 5.7.7. `ChatPeekView` создаёт `MessageBubbleView` без `isMenuPreview: true`, поэтому его копия может перехватить якорь `BubbleAnchors` у пузыря в ленте, и меню вырастет не из того места. [расходится] [исправлено, #499]
@@ -8792,8 +8795,8 @@ release-сборка не запускалась.
 - **Стили кода и заголовков заданы литералами в видах** — `apps/ios/Sources/Features/Chats/Thread/MessageCodeBlocks.swift:188`, `:197`, `:210`; `apps/ios/Sources/Features/Community/CommunityCommon.swift:423`, `:474` — правило 7.5.12. Поле, предпросмотр и пузырь разойдутся при первой правке типографики. [расходится] [исправлено, #499]
 - **Язык блока кода не нормализуется при разборе** — `apps/ios/Sources/Features/Chats/Thread/MessageCodeBlocks.swift:81` — правило 7.6.15. `Swift` и `swift` — разные ключи для будущей подсветки и кешей. [расходится] [исправлено, #499]
 - **Веб распознаёт формулы грубой эвристикой** — `apps/web/src/entities/chat/ui/message-content-markdown.tsx:56` — правило 7.6.8. Цены вида `$5-$10` превращаются в формулы. [расходится]
-- **iOS-пузырь рисует только строчный Markdown, веб — полный GFM** — `apps/ios/Sources/Features/Feed/FeedComponents.swift:400`; `apps/web/src/entities/chat/ui/message-content-markdown.tsx` — правило 7.6.1. Таблица или заголовок с веба на iPhone видны сырой разметкой; контракт не записан в `docs/PROJECT.md`. [решение владельца]
-- **«Копировать» кладёт исходный Markdown** — `apps/ios/Sources/Features/Chats/Thread/ChatThreadView.swift:810` — правило 7.7.8. В буфер попадают `**` и ```` ``` ````; нужно решить, исходник или видимый текст. [решение владельца]
+- **iOS-пузырь рисует только строчный Markdown, веб — полный GFM** — `apps/ios/Sources/Features/Feed/FeedComponents.swift:400`; `apps/web/src/entities/chat/ui/message-content-markdown.tsx` — правило 7.6.1. Таблица или заголовок с веба на iPhone видны сырой разметкой; контракт не записан в `docs/PROJECT.md`. [решено: контракт — набор Telegram в `docs/PROJECT.md` §3.6, веб рисует только его, прочее текстом; iOS-пузырь рисует цитаты и списки (`MessageTextBlocks`), волна 5]
+- **«Копировать» кладёт исходный Markdown** — `apps/ios/Sources/Features/Chats/Thread/ChatThreadView.swift:810` — правило 7.7.8. В буфер попадают `**` и ```` ``` ````; нужно решить, исходник или видимый текст. [решено: в буфер видимый текст (`MessagePreview.visibleText`), исходник — типом `kz.studenthub.message-markdown`, его берёт вставка в поле ввода (`MessageClipboard`), волна 5]
 #### §8. Медиа
 
 - **Плитки пикера качают оригиналы из iCloud** — `apps/ios/Sources/Features/Chats/Thread/Attach/RecentMediaGrid.swift:284-287` — правило 8.4.3. `AssetTile.thumbnail()` просит `.highQualityFormat` с `isNetworkAccessAllowed = true` на каждую плитку: при медиатеке в iCloud прокрутка листа вложений гонит сеть и батарею, плитки долго пустые. [расходится] [исправлено, #499]
@@ -8819,7 +8822,7 @@ release-сборка не запускалась.
 - **`sinceTs` берётся с часов телефона, `syncedAt` сервера не декодируется** — `Core/Chats/ChatMessagesAPI.swift:7–13`, `ChatThreadModel.swift:1477` (сервер отдаёт `syncedAt`: `apps/api/src/modules/chats/chats.service.ts:1745–1822`) — правило 9.3.5. Правки и удаления в окне расхождения часов пропадают; плюс `take: 200` у `mutated`/`deletedIds` без признака переполнения — вопрос к серверу. [расходится] [исправлено, #499]
 - **На overflow история стирается до скачивания новой** — `ChatThreadModel.swift:1479–1486` — правило 9.3.10. Без сети человек остаётся с пустым чатом без офлайн-истории. [расходится] [исправлено, #499]
 - **Страница истории только дописывает** — `Core/Chats/MessageStore.swift:17–25` — правило 9.3.12. Удалённое за непокрытое догоном время остаётся в ленте навсегда. [расходится] [исправлено, #499]
-- **Стирать или помечать «требует сверки» на overflow** — `ChatThreadModel.swift:1479` — правило 9.3.13. Выбор между стиранием (сейчас) и ленивой сверкой видимого окна. [решение владельца]
+- **Стирать или помечать «требует сверки» на overflow** — `ChatThreadModel.swift:1479` — правило 9.3.13. Выбор между стиранием (сейчас) и ленивой сверкой видимого окна. [решено: не стирать, граница `unsyncedBelow` и сверка страниц при прокрутке вверх, волна 5]
 
 - **Непрочитанное растёт на повторное событие** — `Core/Realtime/RealtimeCoordinator.swift:367–370` — правило 9.4.8. Повтор `message:new` после переподключения или после догона завышает счётчик. [расходится] [исправлено, #499]
 - **«Печатает» выбирается из словаря случайно** — `Core/Realtime/RealtimeCoordinator.swift:419,468` — правило 9.4.10. При двух печатающих подпись может мигать между ними. [расходится] [исправлено, #499]
@@ -8851,7 +8854,7 @@ release-сборка не запускалась.
 - **Принятие сессии после QR и пароля без проверки, что поток ещё актуален** — `apps/ios/Sources/Features/Auth/QRSignInView.swift:198–201`, `apps/ios/Sources/Features/Auth/LoginModel.swift:62, 92` — правило 10.1.8. Закрытый лист или «Назад» не мешают позднему `session.adopt`: человек окажется внутри после отмены. [расходится] [исправлено, #499]
 - **Выход не останавливает трансляции геопозиции, старт их возобновляет** — `apps/ios/Sources/App/StudentHubApp.swift:23` — правило 10.1.10. Трансляция прежнего человека может продолжиться под следующим аккаунтом. [расходится] [исправлено, #499]
 - **`LocalData.erase()` не чистит `chats.liveLocations` и кеш `MessageCodeBlocks`** — `apps/ios/Sources/App/AppSessionModel.swift:162`, `apps/ios/Sources/Features/Chats/Thread/Attach/LiveLocationSharing.swift:33`, `apps/ios/Sources/Features/Chats/Thread/MessageCodeBlocks.swift:106` — правило 10.1.11. Данные и тексты прежнего человека переживают явный выход. [расходится] [исправлено, #499]
-- **Сессия переживает удаление и переустановку приложения** — `apps/ios/Sources/Core/Session/SessionStore.swift:89` — правило 10.1.12. Человек, удаливший приложение «чтобы выйти», после установки снова внутри. [решение владельца]
+- **Сессия переживает удаление и переустановку приложения** — `apps/ios/Sources/Core/Session/SessionStore.swift:89` — правило 10.1.12. Человек, удаливший приложение «чтобы выйти», после установки снова внутри. [решено: признак установки в `UserDefaults`, первый запуск стирает сессию и гасит refresh отложенным выходом, волна 5]
 - **Срок QR-входа считается по `Date()`** — `apps/ios/Sources/Features/Auth/QRSignInView.swift:186, 193` — правило 10.1.13. Перевод часов сдвигает истечение кода. [расходится] [исправлено, #499]
 - **`Keychain.set` игнорирует результат `SecItemAdd`** — `apps/ios/Sources/Core/Session/SecretStore.swift:80–86` — правило 10.2.2. Незаписанный ротированный refresh-токен → следующий запуск пошлёт погашенный, сервер порвёт цепочку (ложный выход). [расходится] [исправлено, #499]
 - **Синтезированное описание у типов с токенами** — `apps/ios/Sources/Core/Session/AccessToken.swift:8`, `apps/ios/Sources/Core/Session/AuthAPI.swift:8`, `apps/ios/Sources/Core/Session/SessionStore.swift:353, 363`, `apps/ios/Sources/App/AppSessionModel.swift:17` — правило 10.2.6. Любой `"\(state)"`, `dump`, `print` или крошка Sentry выдаст JWT/refresh-токен. [расходится] [исправлено, #499]
@@ -8860,14 +8863,14 @@ release-сборка не запускалась.
 - **Нет единого открывателя ссылок; не-http(s) схемы уходят системе без вопроса** — `apps/ios/Sources/Features/Chats/Thread/MessageBubbleView.swift:854`, `apps/ios/Sources/Features/Feed/FeedComponents.swift` (`RichText`), `apps/ios/Sources/Features/Chats/ChatSharedContentView.swift:775–777` — правило 10.3.4. Проверку «логина» в адресе и подтверждение негде поставить; ссылка из сообщения может молча открыть чужое приложение. [расходится] [исправлено, #499]
 - **Подпись превью ссылки берётся из `og:site_name`** — `apps/ios/Sources/Features/Chats/Thread/MessageBubbleView.swift:860` — правило 10.3.5. Чужой сайт может назваться «StudentHub» или банком — фишинг. [расходится] [исправлено, #499]
 - **Скрытые markdown-ссылки открываются без подтверждения** — `apps/ios/Sources/Features/Feed/FeedComponents.swift:393–406` — правило 10.3.6. Текст «studenthub.kz» может вести на чужой адрес. [расходится] [исправлено, #499]
-- **Сообщения запроса на переписку рисуются с активными ссылками и упоминаниями** — `apps/ios/Sources/Features/Chats/Thread/ChatThreadView.swift:413` (флаг читает только панель, `MessageBubbleView` — нет) — правило 10.4.12. Незнакомец получает кликабельные ссылки до принятия запроса. [решение владельца]
+- **Сообщения запроса на переписку рисуются с активными ссылками и упоминаниями** — `apps/ios/Sources/Features/Chats/Thread/ChatThreadView.swift:413` (флаг читает только панель, `MessageBubbleView` — нет) — правило 10.4.12. Незнакомец получает кликабельные ссылки до принятия запроса. [решено: `BubbleContext.requestIncoming`: в чужих пузырях ссылки и упоминания — простой текст, без превью ссылок и карточки профиля, волна 5]
 #### §11. Доступность
 
 - **Истории переключаются по таймеру и под VoiceOver** — `apps/ios/Sources/Features/Feed/StoriesViews.swift:192` (`paused` без учёта VoiceOver), `:305` — правило 11.3.4. Незрячий не успевает дослушать историю, и её уносит таймер. [расходится] [исправлено, #499]
 - **Графики дашбордов без описания для VoiceOver** — `apps/ios/Sources/Features/Admin/AdminDashboardViews.swift:387,414`, `UniversityAdmin/UAdminDashboardView.swift:332,508`, `Dean/DeanDashboardView.swift`, `Career/CareerStaffViews.swift` — правило 11.2.7. `accessibilityChartDescriptor` нигде не задан, и смысл графика может не читаться. [проверить на iPhone]
 - **Ошибки входа, возможно, не объявляются** — `apps/ios/Sources/Features/Auth/` (объявления есть только в `DesignSystem/ActionToast.swift:40` и `Chats/Thread/ChatThreadView.swift:243`) — правило 11.3.3. Ошибку, показанную текстом или тряской, VoiceOver может не произнести. [проверить на iPhone]
 - **Полоска папок чатов** — `apps/ios/Sources/Features/Chats/ChatListView.swift` / `ChatFoldersModel.swift` — правило 11.2.1. Бейдж непрочитанных может читаться отдельным числом, а не значением вкладки. [проверить на iPhone]
-- **Нет подмены VoiceOver для UI-тестов и аудита дерева** — `apps/ios/Sources/Features/Chats/Thread/MessageListView.swift:1171`, `Tests/StudentHubUITests/MockUITestCase.swift` — правила 11.5.1, 11.5.2. Ветку «под VoiceOver» и механические ошибки разметки (элемент без метки, дубль) CI не проверяет. [расходится] [исправлено, волна 4]
+- **Нет подмены VoiceOver для UI-тестов и аудита дерева** — `apps/ios/Sources/Features/Chats/Thread/MessageListView.swift:1171`, `Tests/StudentHubUITests/MockUITestCase.swift` — правила 11.5.1, 11.5.2. Ветку «под VoiceOver» и механические ошибки разметки (элемент без метки, дубль) CI не проверяет. [расходится] [исправлено, волна 4; аудит на mock в ios-nightly мягко (continue-on-error), волна 5]
 #### §12. Раскладка под устройства
 
 - **`UIScreen.main` в раскладке** — `apps/ios/Sources/Features/Chats/Thread/Menu/KeyboardFrame.swift:27`, `apps/ios/Sources/Features/Feed/StoriesViews.swift:321`, `apps/ios/Sources/Features/Chats/Thread/Attach/PhotoAssets.swift:187` — правило 12.1.1. API устарел с iOS 16; на внешнем экране или в другой сцене рамка клавиатуры и размер медиа посчитаются не для того экрана. [расходится] [исправлено, волна 4]
@@ -8885,15 +8888,15 @@ release-сборка не запускалась.
 #### §14. CI, зависимости, внешние загрузки
 
 - **XcodeGen ставится без версии и суммы** — `.github/workflows/ios.yml:98`, `ios-nightly.yml:52`, `ios-snapshots.yml:42`, `ios-release.yml:35` — правило 14.1.1. Новая версия XcodeGen может молча изменить сгенерированный проект. [расходится] [исправлено, #499]
-- **Версии SPM-пакетов не зафиксированы** — `apps/ios/.gitignore` (`Package.resolved`), `apps/ios/project.yml:31-43`, `apps/ios/Package.swift:21-22` (`from:`) — правила 14.1.1, 14.1.2. CI и локальная сборка берут свежие миноры GRDB, Socket.IO и Sentry, поэтому сборки невоспроизводимы. [решение владельца]
+- **Версии SPM-пакетов не зафиксированы** — `apps/ios/.gitignore` (`Package.resolved`), `apps/ios/project.yml:31-43`, `apps/ios/Package.swift:21-22` (`from:`) — правила 14.1.1, 14.1.2. CI и локальная сборка берут свежие миноры GRDB, Socket.IO и Sentry, поэтому сборки невоспроизводимы. [решено: exact/exactVersion, Package.resolved в git, scripts/check_packages.py, Dependabot swift, волна 5]
 - **Release собирается другим Xcode, чем тесты** — `.github/workflows/ios-release.yml:24` (`macos-15`, без `DEVELOPER_DIR`) против `Xcode_26.6` в `ios.yml:85`, `ios-nightly.yml:37`, `ios-snapshots.yml:29` — правило 14.1.5. TestFlight-сборка не проходила тот компилятор и SDK, на которых прошли тесты, а для стекла iOS 26 нужен SDK Xcode 26. [расходится] [исправлено, #499]
 - **Ключ кеша SPM зависит от всего `project.yml`** — `.github/workflows/ios.yml:106`, `ios-nightly.yml:58`, `ios-snapshots.yml:48` — правило 14.2.1. Любая правка версии или номера сборки зря сбрасывает кеш пакетов. [расходится] [исправлено, #499]
-- **Нет стражей со списками исключений** — `apps/ios/scripts/` — правило 14.4.1. Переводы кода (GRDB вне `Core/`, `URLSession`, открытие ссылок) могут незаметно откатываться назад. [решение владельца]
-- **Нет удалённого выключателя рискованных функций** — `apps/ios/Sources/App/PerformanceFlags.swift` — правило 14.5.1. Откатить сломанную функцию у пользователей можно только новым выпуском. [решение владельца]
+- **Нет стражей со списками исключений** — `apps/ios/scripts/` — правило 14.4.1. Переводы кода (GRDB вне `Core/`, `URLSession`, открытие ссылок) могут незаметно откатываться назад. [решено: check_layers.sh — URLSession и открытие ссылок по allowlist, только сужается, волна 5]
+- **Нет удалённого выключателя рискованных функций** — `apps/ios/Sources/App/PerformanceFlags.swift` — правило 14.5.1. Откатить сломанную функцию у пользователей можно только новым выпуском. [решено: `disabledFeatures` в `GET /client-version` из env, `RemoteFeatures` с кешем, видео/трансляция/GIF/стикеры, волна 5]
 #### §15. Документация, процесс, работа агентов
 
-- **Список «открыто до выпуска» неполный, `Package.resolved` не закреплён** — `docs/RELEASE_IOS.md:12`, `apps/ios/.gitignore:35`, `apps/ios/README.md:246` — правило 15.7.8. В релизном документе только заглушка `api.example.invalid`; незакреплённые версии SPM и отсутствие иконки всплывут при первой выкладке. [расходится] [список дополнен; `Package.resolved` — решение владельца]
-- **Нет карты синхронизации** — `apps/ios/Sources/Core/Realtime/RealtimeCoordinator.swift`, `apps/ios/Sources/Core/Chats/MessageStore.swift`, `apps/ios/Sources/Core/Chats/OutboxService.swift` — правило 15.1.5. Инварианты догона (`lastSeq`, `sinceTs`) размазаны по комментариям, правка синхронизации не обязана их обновлять. [решение владельца]
+- **Список «открыто до выпуска» неполный, `Package.resolved` не закреплён** — `docs/RELEASE_IOS.md:12`, `apps/ios/.gitignore:35`, `apps/ios/README.md:246` — правило 15.7.8. В релизном документе только заглушка `api.example.invalid`; незакреплённые версии SPM и отсутствие иконки всплывут при первой выкладке. [расходится] [список дополнен; `Package.resolved` — решено: закреплён в git, волна 5]
+- **Нет карты синхронизации** — `apps/ios/Sources/Core/Realtime/RealtimeCoordinator.swift`, `apps/ios/Sources/Core/Chats/MessageStore.swift`, `apps/ios/Sources/Core/Chats/OutboxService.swift` — правило 15.1.5. Инварианты догона (`lastSeq`, `sinceTs`) размазаны по комментариям, правка синхронизации не обязана их обновлять. [решено: карта `docs/IOS_SYNC_MAP.md`, правка синхронизации обновляет её, волна 5]
 
 ---
 

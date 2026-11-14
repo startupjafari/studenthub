@@ -39,8 +39,14 @@ jobs:
       - name: Поставить XcodeGen
         uses: ./.github/actions/setup-xcodegen
 
+      # Закреплённые версии пакетов, включая транзитивные (IOS_RULES 14.1.2): проект
+      # генерируется без своего Package.resolved — кладём закоммиченный, как scripts/test.sh.
       - name: Сгенерировать проект
-        run: xcodegen generate
+        run: |
+          xcodegen generate
+          resolved=StudentHub.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          mkdir -p "$(dirname "$resolved")"
+          cp Package.resolved "$resolved"
 
       - name: Ключ App Store Connect
         env:
@@ -71,6 +77,8 @@ jobs:
             -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APPSTORE_KEY_ID }}.p8 \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             CURRENT_PROJECT_VERSION="$BUILD"
+          # В выпуск — ровно закреплённые версии пакетов, иначе не загружаем.
+          scripts/check_packages.py StudentHub.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 
       - name: Экспорт и загрузка в TestFlight
         run: |

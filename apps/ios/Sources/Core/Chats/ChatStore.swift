@@ -308,7 +308,9 @@ struct ChatStore: Sendable {
             pinnedOrder: item.pinnedAt == nil ? nil : item.pinnedOrder,
             isFriend: item.isFriend ?? false,
             syncSeq: known?.syncSeq ?? 0,
-            syncedAt: known?.syncedAt
+            syncedAt: known?.syncedAt,
+            // Несверенное — тоже свойство истории, а не превью: список его не трогает.
+            unsyncedBelow: known?.unsyncedBelow
         )
         // Только изменённые столбцы: страница списка приходит целиком на каждое обновление,
         // и запись без перемен будила бы все наблюдения за таблицей чатов.

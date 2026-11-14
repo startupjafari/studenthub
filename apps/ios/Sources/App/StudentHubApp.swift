@@ -11,6 +11,9 @@ struct StudentHubApp: App {
         // Режим UI-тестов (`SH_UITEST_MOCK=1`): чистое состояние и сеть из фикстур — до
         // первого обращения к `AppServices`. В Release — пустой вызов.
         UITestHooks.prepareIfNeeded()
+        // Признак установки — до первого обращения к базе: её каталог и отличает
+        // обновление от новой установки (10.1.12).
+        AppServices.installation.prepare(containerHasData: AppDatabase.storeExists())
     }
 
     var body: some Scene {

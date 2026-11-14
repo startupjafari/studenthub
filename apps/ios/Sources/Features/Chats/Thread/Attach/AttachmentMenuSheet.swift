@@ -350,11 +350,15 @@ struct AttachmentMenuSheet: View {
                     if ok { dismiss() }
                     return ok
                 },
-                onSendLive: { location, period in
-                    let ok = await onSendLiveLocation(location, period)
-                    if ok { dismiss() }
-                    return ok
-                }
+                // Трансляция выключена с сервера (`RemoteFeature.liveLocation`) — пункта
+                // нет вовсе, отправка одной точки остаётся.
+                onSendLive: RemoteFeatures.shared.isEnabled(.liveLocation)
+                    ? { location, period in
+                        let ok = await onSendLiveLocation(location, period)
+                        if ok { dismiss() }
+                        return ok
+                    }
+                    : nil
             )
         case .audio:
             audioOptions
