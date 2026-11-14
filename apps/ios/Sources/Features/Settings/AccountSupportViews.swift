@@ -1,10 +1,77 @@
+import GRDB
 import SwiftUI
 
-/// Обращение в поддержку. Сервер заводит чат с командой платформы и отвечает его
-/// id — туда и переходим: ответ придёт в переписку, а не в никуда. У охраны и
-/// библиотеки чатов нет (`hasChats` в вебе): им — подтверждение на месте.
+/// «Поддержка» — отовсюду, где на неё переходят, сразу настоящий чат с командой
+/// платформы: туда и пишут, туда и приходит ответ. У охраны и библиотеки чатов нет (`hasChats` в
+/// вебе): им — прежняя форма обращения с подтверждением на месте.
 struct SupportView: View {
     @Environment(\.viewerRole) private var role
+
+    var body: some View {
+        if AppTab.tabs(for: role).contains(.chats) {
+            SupportChatView()
+        } else {
+            SupportFormView()
+        }
+    }
+}
+
+/// Чат поддержки — настоящая переписка, сразу. Обращение на сервере — это чат
+/// `SUPPORT_PLATFORM`: есть он уже в списке чатов — открываем без ожидания сети; нет —
+/// сервер отдаёт последнее обращение или заводит пустое (`POST /support/chat`), и
+/// открывается оно. Закрытое обращение сервер открывает снова на новое сообщение.
+private struct SupportChatView: View {
+    @Environment(\.viewerID) private var viewerID
+    @State private var chatID: String?
+    @State private var failure: String?
+    @State private var isOffline = false
+
+    var body: some View {
+        Group {
+            if let chatID {
+                ChatThreadView(chatID: chatID, viewerID: viewerID)
+            } else if let failure {
+                ErrorStateView(message: failure, isOffline: isOffline) { await open() }
+            } else {
+                LoadingStateView()
+            }
+        }
+        .navigationTitle(Text(String(localized: "settings.support", defaultValue: "Поддержка")))
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            guard chatID == nil else { return }
+            await open()
+        }
+    }
+
+    private func open() async {
+        failure = nil
+        if let known = await Self.knownTicket() {
+            chatID = known
+            return
+        }
+        do {
+            chatID = try await AccountAPI().supportChat().id
+        } catch {
+            failure = error.userMessage
+            isOffline = error.isOffline
+        }
+    }
+
+    /// Последнее обращение из локальной базы списка чатов.
+    private static func knownTicket() async -> String? {
+        try? await AppServices.database.reader.read { db in
+            try ChatRecord
+                .filter(Column("type") == ChatKind.supportPlatform.rawValue)
+                .order(Column("updatedAt").desc)
+                .fetchOne(db)?
+                .id
+        }
+    }
+}
+
+/// Форма обращения — для ролей без чатов: ответ придёт иначе, здесь только подтверждение.
+private struct SupportFormView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var failure: String?
@@ -77,14 +144,10 @@ struct SupportView: View {
         isSending = true
         defer { isSending = false }
         do {
-            let ticket = try await AccountAPI().contactSupport(text: text.trimmingCharacters(in: .whitespacesAndNewlines))
+            _ = try await AccountAPI().contactSupport(text: text.trimmingCharacters(in: .whitespacesAndNewlines))
             text = ""
             failure = nil
-            if AppTab.tabs(for: role).contains(.chats) {
-                AppServices.router.openChat(id: ticket.id)
-            } else {
-                sent = true
-            }
+            sent = true
         } catch {
             failure = error.userMessage
         }

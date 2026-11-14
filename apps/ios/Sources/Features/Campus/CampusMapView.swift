@@ -22,7 +22,7 @@ struct CampusMapView: View {
         .background(Palette.background)
         .navigationTitle(Text(model.published?.campus.name ?? MoreSection.campusMap.title))
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $query, prompt: Text(String(localized: "campus.search", defaultValue: "Аудитория или помещение")))
+        .listSearch(text: $query, prompt: Text(String(localized: "campus.search", defaultValue: "Аудитория или помещение")))
         .onChange(of: query) { _, text in model.search(text) }
         .toolbar {
             if let campuses = model.campuses, campuses.count > 1 {

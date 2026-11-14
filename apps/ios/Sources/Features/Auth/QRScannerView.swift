@@ -9,15 +9,22 @@ struct QRScannerView: UIViewControllerRepresentable {
     let onScan: (String) -> Void
     /// Камеры нет или доступ запрещён. Симулятор попадает сюда всегда.
     let onUnavailable: () -> Void
+    /// Фонарик: в полутьме экран компьютера бликует, и код читается хуже.
+    var torchOn = false
+    /// Есть ли у камеры фонарик — кнопку без него не показываем.
+    var onTorchAvailable: (Bool) -> Void = { _ in }
 
     func makeUIViewController(context: Context) -> QRScannerViewController {
         let controller = QRScannerViewController()
         controller.onScan = onScan
         controller.onUnavailable = onUnavailable
+        controller.onTorchAvailable = onTorchAvailable
         return controller
     }
 
-    func updateUIViewController(_ controller: QRScannerViewController, context: Context) {}
+    func updateUIViewController(_ controller: QRScannerViewController, context: Context) {
+        controller.setTorch(torchOn)
+    }
 }
 
 /// Сессия захвата живёт в контроллере, а не в SwiftUI-представлении: её нужно
@@ -26,6 +33,8 @@ struct QRScannerView: UIViewControllerRepresentable {
 final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
     var onScan: ((String) -> Void)?
     var onUnavailable: (() -> Void)?
+    var onTorchAvailable: ((Bool) -> Void)?
+    private var device: AVCaptureDevice?
 
     private let session = AVCaptureSession()
     /// Запуск и остановка блокируют поток на доли секунды — на главном это
@@ -114,6 +123,9 @@ final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputOb
         output.metadataObjectTypes = [.qr]
         session.commitConfiguration()
 
+        self.device = device
+        onTorchAvailable?(device.hasTorch)
+
         let preview = AVCaptureVideoPreviewLayer(session: session)
         preview.videoGravity = .resizeAspectFill
         preview.frame = view.bounds
@@ -121,6 +133,16 @@ final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputOb
         previewLayer = preview
 
         start()
+    }
+
+    /// Включить или выключить фонарик. Работает только при запущенной сессии — с её
+    /// остановкой гаснет сам.
+    func setTorch(_ on: Bool) {
+        guard let device, device.hasTorch, device.isTorchAvailable else { return }
+        let mode: AVCaptureDevice.TorchMode = on ? .on : .off
+        guard device.torchMode != mode, (try? device.lockForConfiguration()) != nil else { return }
+        device.torchMode = mode
+        device.unlockForConfiguration()
     }
 
     private func deliver(_ payload: String) {

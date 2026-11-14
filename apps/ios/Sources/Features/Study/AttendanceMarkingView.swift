@@ -71,7 +71,7 @@ struct AttendanceMarkingView: View {
         }
         .navigationTitle(Text(model?.subject ?? String(localized: "study.attendance", defaultValue: "Посещаемость")))
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $query, prompt: Text(String(localized: "group.search", defaultValue: "Найти по имени")))
+        .listSearch(text: $query, prompt: Text(String(localized: "group.search", defaultValue: "Найти по имени")))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {

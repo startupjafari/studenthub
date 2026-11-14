@@ -26,6 +26,7 @@ enum MediaPreparation {
     /// Больше — загрузка частями (план 21.A4), которой в приложении пока нет.
     static let maxUploadBytes = 50 * 1024 * 1024
     private static let maxImageSide: CGFloat = 2560
+    private static let highQualityImageSide: CGFloat = 4096
 
     enum Failure: LocalizedError {
         case unreadable
@@ -55,15 +56,17 @@ enum MediaPreparation {
         return try prepareImage(data)
     }
 
-    static func prepareImage(_ data: Data) throws -> PreparedMedia {
+    /// `highQuality` — «Отправить в высоком качестве» листа вложений чата: сторона до
+    /// 4096 pt и меньше сжатия вместо обычных 2560 и 0,85.
+    static func prepareImage(_ data: Data, highQuality: Bool = false) throws -> PreparedMedia {
         guard let image = UIImage(data: data) else { throw Failure.unreadable }
-        return try prepareImage(image)
+        return try prepareImage(image, highQuality: highQuality)
     }
 
     /// Снимок камеры приходит готовой картинкой — тот же путь без чтения из байтов.
-    static func prepareImage(_ image: UIImage) throws -> PreparedMedia {
-        let scaled = image.scaledDown(toLongestSide: maxImageSide)
-        guard let jpeg = scaled.jpegData(compressionQuality: 0.85) else { throw Failure.unreadable }
+    static func prepareImage(_ image: UIImage, highQuality: Bool = false) throws -> PreparedMedia {
+        let scaled = image.scaledDown(toLongestSide: highQuality ? highQualityImageSide : maxImageSide)
+        guard let jpeg = scaled.jpegData(compressionQuality: highQuality ? 0.95 : 0.85) else { throw Failure.unreadable }
         return PreparedMedia(
             data: jpeg,
             mime: "image/jpeg",

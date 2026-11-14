@@ -31,7 +31,8 @@ struct LoginView: View {
                     subtitle: String(
                         localized: "auth.brandSubtitle",
                         defaultValue: "Единая платформа для студентов и преподавателей вашего университета"
-                    )
+                    ),
+                    collapsesWithKeyboard: model.step == .twoFactor
                 )
             } panel: {
                 switch model.step {

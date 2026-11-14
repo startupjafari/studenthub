@@ -23790,6 +23790,26 @@
         ]
       }
     },
+    "/support/chat": {
+      "post": {
+        "operationId": "SupportController_chat",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "{ id, created }"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Чат поддержки автора: последнее обращение или новое, пустое",
+        "tags": [
+          "Поддержка платформы"
+        ]
+      }
+    },
     "/support/tags": {
       "get": {
         "operationId": "SupportController_tagCounts",

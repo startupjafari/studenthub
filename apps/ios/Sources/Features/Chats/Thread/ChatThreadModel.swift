@@ -349,7 +349,8 @@ final class ChatThreadModel {
     /// Подпись и ответ достаются только первому сообщению: повторённая у каждого альбома
     /// подпись превратилась бы в одинаковые строки подряд.
     @MainActor
-    func send(attachments: [OutgoingAttachment], caption: String, asFiles: Bool) async {
+    /// `grouped: false` — «Отправить без группировки»: каждое вложение своим сообщением.
+    func send(attachments: [OutgoingAttachment], caption: String, asFiles: Bool, grouped: Bool = true) async {
         guard !attachments.isEmpty else { return }
         let text = caption.trimmingCharacters(in: .whitespacesAndNewlines)
         let answering = replyTo?.remoteId
@@ -363,7 +364,8 @@ final class ChatThreadModel {
         bottomRequests += 1
 
         var queued: [String] = []
-        for (index, batch) in Self.batches(of: attachments, asFiles: asFiles).enumerated() {
+        let batches = grouped ? Self.batches(of: attachments, asFiles: asFiles) : attachments.map { [$0] }
+        for (index, batch) in batches.enumerated() {
             let id = await uploader.enqueue(
                 batch,
                 chatID: chatID,

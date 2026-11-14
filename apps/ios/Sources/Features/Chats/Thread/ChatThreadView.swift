@@ -404,13 +404,9 @@ struct ChatThreadView: View {
         )
     }
 
-    /// История чата из сети. Тестовый чат для замеров (только Debug) сервер не знает —
-    /// его история целиком в локальной базе.
+    /// История чата из сети.
     private static func messagesAPI(for chatID: String) -> ChatMessagesFetching {
-        #if DEBUG
-            if PerfFixture.isFixture(chatID) { return PerfFixture.OfflineMessages() }
-        #endif
-        return ChatsAPI()
+        ChatsAPI()
     }
 
     private func withLifecycle<V: View>(_ view: V) -> some View {

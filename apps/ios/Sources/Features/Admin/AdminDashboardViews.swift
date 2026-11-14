@@ -473,7 +473,7 @@ struct AdminPlatformStatsView: View {
             .pullToRefresh { reloadToken += 1 }
         }
         .navigationTitle(Text(AdminScreen.stats.title))
-        .searchable(text: $search, prompt: Text(String(localized: "admin.stats.search", defaultValue: "Поиск вуза")))
+        .listSearch(text: $search, prompt: Text(String(localized: "admin.stats.search", defaultValue: "Поиск вуза")))
     }
 
     private func filtered(_ items: [AdminUniversitiesSizeDTO.Item]) -> [AdminUniversitiesSizeDTO.Item] {

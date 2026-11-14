@@ -189,6 +189,12 @@ struct AccountAPI: AccountFetching {
         return try await client.send(.post("support", json: Body(text: text)), as: SupportTicketDTO.self)
     }
 
+    /// Чат поддержки: последнее обращение или новое, пустое — чтобы открыть переписку
+    /// сразу, до первого сообщения (`POST /support/chat`).
+    func supportChat() async throws -> SupportTicketDTO {
+        try await client.send(.post("support/chat"), as: SupportTicketDTO.self)
+    }
+
     private struct CodeBody: Encodable {
         let code: String
     }

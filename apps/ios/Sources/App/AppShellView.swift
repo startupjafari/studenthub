@@ -61,6 +61,10 @@ struct AppShellView: View {
             Task { await AppServices.outbox.kick() }
             // Пуш, нажатый на холодном старте, ждал роли — теперь она есть.
             router.openPending(for: role)
+            #if DEBUG
+                // Чат замеров из убранного раздела «Разработка» — не оставлять в списке.
+                try? await PerfFixture.remove()
+            #endif
             // Замер плавности ленты (`ScrollBenchmark`, только Debug): чат открывается сам —
             // ссылка через `simctl openurl` упиралась в системный вопрос «Открыть в…».
             if let chat = ScrollBenchmark.chatToOpen {

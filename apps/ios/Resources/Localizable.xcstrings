@@ -936,23 +936,6 @@
         }
       }
     },
-    "auth.twoFactorCodeLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Код подтверждения"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Растау коды"
-          }
-        }
-      }
-    },
     "auth.twoFactorPrompt": {
       "extractionState": "manual",
       "localizations": {
@@ -39134,6 +39117,23 @@
         }
       }
     },
+    "community.albums.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ашу"
+          }
+        }
+      }
+    },
     "community.albums.noMedia": {
       "extractionState": "manual",
       "localizations": {
@@ -60057,23 +60057,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Хаттағы сілтеме немесе код"
-          }
-        }
-      }
-    },
-    "career.signup.paste": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вставить из буфера"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Буферден кірістіру"
           }
         }
       }
@@ -92293,6 +92276,91 @@
         }
       }
     },
+    "chats.attach.captionPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить подпись…"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жазба қосу…"
+          }
+        }
+      }
+    },
+    "chats.attach.sendHighQuality": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить в высоком качестве"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жоғары сапада жіберу"
+          }
+        }
+      }
+    },
+    "chats.attach.sendOptions": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Способ отправки"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жіберу тәсілі"
+          }
+        }
+      }
+    },
+    "chats.attach.sendUncompressed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить без сжатия"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сығусыз жіберу"
+          }
+        }
+      }
+    },
+    "chats.attach.sendUngrouped": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить без группировки"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Топтамай жіберу"
+          }
+        }
+      }
+    },
     "chats.attach.remove": {
       "extractionState": "manual",
       "localizations": {
@@ -93891,23 +93959,6 @@
         }
       }
     },
-    "auth.qrTipNoPassword": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удобно на новом или чужом компьютере — пароль вводить не нужно"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Жаңа немесе бөтен компьютерде ыңғайлы — құпиясөз енгізудің қажеті жоқ"
-          }
-        }
-      }
-    },
     "auth.qrTipOpen": {
       "extractionState": "manual",
       "localizations": {
@@ -93938,6 +93989,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Тек өз экраныңыздағы кодты сканерлеңіз — хабарламалар мен хаттардағыны емес"
+          }
+        }
+      }
+    },
+    "auth.qrTorch": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фонарик"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қол шам"
           }
         }
       }
@@ -95009,23 +95077,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Геолокация"
-          }
-        }
-      }
-    },
-    "chats.attach.next": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Далее · %lld"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Әрі қарай · %lld"
           }
         }
       }

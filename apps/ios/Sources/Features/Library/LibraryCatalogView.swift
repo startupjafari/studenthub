@@ -46,7 +46,7 @@ struct LibraryCatalogView: View {
             }
         }
         .navigationTitle(Text(String(localized: "library.title", defaultValue: "Библиотека")))
-        .searchable(
+        .listSearch(
             text: $model.query.text,
             prompt: Text(String(localized: "library.searchPlaceholder", defaultValue: "Название, автор или ISBN"))
         )

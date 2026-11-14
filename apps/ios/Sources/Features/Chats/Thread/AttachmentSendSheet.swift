@@ -77,7 +77,7 @@ enum AttachmentStaging {
 
     /// Снимок или ролик из сетки недавних «Фото». Ролик перекодируется в MP4 (сервер MOV
     /// не берёт), GIF уходит как есть — иначе анимация превратилась бы в один кадр.
-    static func stage(_ asset: PHAsset) async throws -> StagedAttachment {
+    static func stage(_ asset: PHAsset, highQuality: Bool = false) async throws -> StagedAttachment {
         if asset.mediaType == .video {
             let source = try await PhotoAssets.movieFile(for: asset)
             defer { try? FileManager.default.removeItem(at: source) }
@@ -113,7 +113,7 @@ enum AttachmentStaging {
                 height: asset.pixelHeight
             )
         }
-        return try keep(MediaPreparation.prepareImage(data))
+        return try keep(MediaPreparation.prepareImage(data, highQuality: highQuality))
     }
 
     /// Снимок камеры.
@@ -268,8 +268,8 @@ final class AttachmentDraft: Identifiable {
         await add(photos.count) { index in try await AttachmentStaging.stage(photos[index]) }
     }
 
-    func add(assets: [PHAsset]) async {
-        await add(assets.count) { index in try await AttachmentStaging.stage(assets[index]) }
+    func add(assets: [PHAsset], highQuality: Bool = false) async {
+        await add(assets.count) { index in try await AttachmentStaging.stage(assets[index], highQuality: highQuality) }
     }
 
     func add(files: [URL]) async {

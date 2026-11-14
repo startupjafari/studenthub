@@ -48,7 +48,7 @@ struct WorkspaceView: View {
             )
         }
         .navigationTitle(Text(AppTab.workspace.title))
-        .searchable(text: $query, prompt: Text(String(localized: "workspace.search", defaultValue: "Поиск раздела")))
+        .listSearch(text: $query, prompt: Text(String(localized: "workspace.search", defaultValue: "Поиск раздела")))
         .task { await loadModules() }
     }
 

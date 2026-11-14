@@ -2,12 +2,13 @@
 import Foundation
 import GRDB
 
-/// Тестовый чат для замеров производительности (план аудита, шаг 0.2).
+/// Тестовая переписка для замеров производительности (план аудита, шаг 0.2) — только для
+/// юнит-тестов (`ChatPerformanceTests`).
 ///
-/// Только отладочная сборка. Кладёт в локальную базу групповой чат на `count` сообщений —
-/// одинаковый на любом устройстве: «случайность» — из генератора с постоянным зерном, а
-/// время отсчитывается от момента засева. Сервер про этот чат не знает, поэтому экран
-/// переписки берёт для него `OfflineMessages` и в сеть за историей не ходит.
+/// Раньше её можно было засеять в локальную базу из раздела «Разработка» настроек; раздел
+/// убран, а засеянный когда-то чат приложение удаляет при запуске (`remove`). Сообщения
+/// одинаковые на любой машине: «случайность» — из генератора с постоянным зерном, время
+/// отсчитывается от `now`.
 ///
 /// Состав: треть сообщений — свои, остальные от пяти участников; длина текста от слова до
 /// абзаца; каждое десятое — ответ; около 30% — с фото (размеры есть, файла нет: плитка
@@ -16,10 +17,6 @@ import GRDB
 enum PerfFixture {
     static let chatID = "perf-fixture-chat"
     static let defaultCount = 5000
-
-    static func isFixture(_ chatID: String) -> Bool {
-        chatID == Self.chatID
-    }
 
     /// Заменить тестовый чат свежим. Прежний удаляется целиком (сообщения и вложения уходят
     /// каскадом по внешнему ключу).
@@ -60,7 +57,7 @@ enum PerfFixture {
         }
     }
 
-    /// Удалить тестовый чат.
+    /// Удалить чат, засеянный когда-то из раздела «Разработка».
     static func remove(database: AppDatabase = AppServices.database) async throws {
         _ = try await database.writer.write { db in
             try ChatRecord.deleteOne(db, key: chatID)
@@ -138,27 +135,6 @@ enum PerfFixture {
         "нет", "посмотрю", "вечером", "ссылка", "в", "закреплённом", "сообщении", "кстати",
         "дедлайн", "пятница", "успеем", "если", "начнём", "сегодня", "😂", "👍", "🔥",
     ]
-
-    // MARK: - Без сети
-
-    /// История тестового чата — только из базы: сервер такого чата не знает.
-    struct OfflineMessages: ChatMessagesFetching {
-        func messages(chatID: String, cursor: String?, limit: Int) async throws -> Page<ChatMessageDTO> {
-            Page(items: [], meta: nil)
-        }
-
-        func messages(chatID: String, aroundDate: Date, limit: Int) async throws -> Page<ChatMessageDTO> {
-            Page(items: [], meta: nil)
-        }
-
-        func newerMessages(chatID: String, after cursor: String, limit: Int) async throws -> Page<ChatMessageDTO> {
-            Page(items: [], meta: nil)
-        }
-
-        func updates(chatID: String, since: Int, sinceTs: Date?) async throws -> ChatUpdatesDTO {
-            ChatUpdatesDTO(created: [], mutated: [], deletedIds: [], latestSeq: since, overflow: false)
-        }
-    }
 }
 
 /// Генератор с постоянным зерном (SplitMix64): тот же чат на любом устройстве и в тестах.
