@@ -63,6 +63,7 @@ struct ComposerTextView: UIViewRepresentable {
         view.textColor = isMuted ? .clear : UIColor(Palette.foreground)
         view.tintColor = isMuted ? .clear : UIColor(Palette.primary)
         view.accessibilityLabel = accessibilityLabel
+        view.wantsFocus = isFocused
 
         // Текст сменили снаружи (отправка очистила поле, правка, черновик из базы,
         // emoji с панели). Пока идёт набор с подбором (марк. текст), не перебиваем.
@@ -170,6 +171,18 @@ final class ComposerUITextView: UITextView {
     /// Ширина поля сменилась — число строк пересчитывается.
     var onWidthChange: (() -> Void)?
     private var lastWidth: CGFloat = 0
+    /// Фокус попросили, когда поля ещё не было в окне (редактор только показывается):
+    /// клавиатура поднимется, как только оно туда попадёт.
+    var wantsFocus = false
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil, wantsFocus, !isFirstResponder else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.window != nil, self.wantsFocus, !self.isFirstResponder else { return }
+            self.becomeFirstResponder()
+        }
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
