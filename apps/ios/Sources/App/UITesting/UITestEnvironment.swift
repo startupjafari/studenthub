@@ -84,6 +84,15 @@ enum UITestHooks {
         return Keychain()
     }
 
+    /// Признак установки: в тестах сессия засеяна сценарием, и стирать её как
+    /// оставшуюся от прежней установки нельзя.
+    static var installationMarker: InstallationMarker {
+        #if DEBUG
+            if UITestEnvironment.current.isMock { return SettledInstallation() }
+        #endif
+        return DefaultsInstallationMarker()
+    }
+
     /// Транспорт реального времени: в тестах сокета нет — сервер mock его не держит.
     static func realtimeTransport() -> RealtimeTransport {
         #if DEBUG
