@@ -977,7 +977,8 @@ enum ChatMediaImages {
         points: CGFloat,
         scale: CGFloat,
         key: String,
-        progress: ImageDownloads.Progress? = nil
+        progress: ImageDownloads.Progress? = nil,
+        allowsVideoOriginal: Bool = true
     ) async -> Outcome {
         let pixels = points * scale
         if attachment.mime == "image/gif" {
@@ -1006,6 +1007,9 @@ enum ChatMediaImages {
                 return .loaded(image)
             }
             if Task.isCancelled { return .failed(retryable: true) }
+            // Предзагрузка невидимой плитки оригинал ролика не трогает: первый кадр из
+            // файла по сети — только для плитки на экране. Ссылку не сбрасываем — она цела.
+            guard allowsVideoOriginal else { return .failed(retryable: true) }
             // Постера нет — ролик ещё не обработан медиа-системой: первый кадр самого
             // файла, а не строка файла вместо видео.
             if let frame = await ChatVideoFrames.shared.frame(of: media.url, key: key, maxPixelSize: pixels) {
@@ -1093,7 +1097,10 @@ actor ChatVideoFrames {
             generator.appliesPreferredTrackTransform = true
             generator.maximumSize = CGSize(width: maxPixelSize, height: maxPixelSize)
             guard let frame = try? await generator.image(at: .zero) else { return nil }
-            return UIImage(cgImage: frame.image)
+            // Кадр раскодирован здесь, вне главного: иначе первая отрисовка крупного
+            // кадра декодирует его на главном потоке.
+            let image = UIImage(cgImage: frame.image)
+            return await image.byPreparingForDisplay() ?? image
         }
         inFlight[key] = task
         let image = await task.value

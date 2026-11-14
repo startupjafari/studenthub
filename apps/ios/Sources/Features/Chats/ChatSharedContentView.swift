@@ -637,15 +637,15 @@ private struct ChatMediaThumb: View {
     }
 
     /// Пока картинки нет: размытое превью (LQIP) из ответа, иначе ровная подложка.
-    /// Видео без кадра — тёмная плитка с ▶ по центру, а не серый квадрат: видно, что
-    /// это ролик, ещё до обложки.
+    /// Превью размыто заранее, один раз: живой `.blur` на каждой плитке сетки — лишний
+    /// проход вне экрана на каждом кадре прокрутки. Видео без кадра — тёмная плитка
+    /// с ▶ по центру, а не серый квадрат: видно, что это ролик, ещё до обложки.
     @ViewBuilder
     private var placeholder: some View {
-        if let preview = LQIP.image(from: item.placeholder) {
+        if let preview = LQIP.blurred(from: item.placeholder) {
             Image(uiImage: preview)
                 .resizable()
                 .scaledToFill()
-                .blur(radius: 12)
         } else if item.isVideo {
             ZStack {
                 LinearGradient(
@@ -739,7 +739,9 @@ final class ChatMediaThumbnails {
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: pixels, height: pixels)
         guard let frame = try? await generator.image(at: .zero) else { return nil }
-        return UIImage(cgImage: frame.image)
+        // Раскодировать здесь, вне главного: иначе это сделает первая отрисовка плитки.
+        let image = UIImage(cgImage: frame.image)
+        return await image.byPreparingForDisplay() ?? image
     }
 
     /// Свободное место среди одновременных загрузок; нет — ждём в очереди.
