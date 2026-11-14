@@ -170,6 +170,8 @@ struct MessageBubbleView: View {
         let body: String
         if isDeleted {
             body = deletedText
+        } else if isUnsupportedKind {
+            body = unsupportedText
         } else if !message.content.isEmpty {
             body = message.content
         } else if let poll = extras.poll {
@@ -495,6 +497,12 @@ struct MessageBubbleView: View {
 
     private var showsReactions: Bool { !extras.reactions.isEmpty && !isDeleted }
 
+    /// Ни текста, ни файлов, ни известного содержимого — вид из будущей версии. Вместо пустого
+    /// пузыря — заглушка «обновите приложение», как в превью списка (IOS_RULES 9.2.8).
+    private var isUnsupportedKind: Bool {
+        !isDeleted && message.content.isEmpty && item.attachments.isEmpty && !extras.hasKnownContent
+    }
+
     /// Геопозиция, контакт, список или стикер — сообщение без текста, но не пустое.
     private var hasSpecialContent: Bool {
         extras.location != nil || extras.contact != nil || extras.checklist != nil || extras.sticker != nil
@@ -540,16 +548,17 @@ struct MessageBubbleView: View {
     }
 
     private var plainTextBlock: some View {
-        let body = Text(isDeleted ? AttributedString(deletedText) : highlightedContent)
+        let placeholder = isDeleted ? deletedText : isUnsupportedKind ? unsupportedText : nil
+        let body = Text(placeholder.map { AttributedString($0) } ?? highlightedContent)
             .font(Typography.body)
         let line = textCarriesMeta ? body + metaPlaceholder : body
         return line
             .foregroundStyle(textColor)
             .tint(item.isOwn ? Palette.primaryForeground : Palette.primary)
-            .italic(isDeleted)
+            .italic(placeholder != nil)
             .fixedSize(horizontal: false, vertical: true)
             // Невидимую копию времени VoiceOver прочитал бы второй раз.
-            .accessibilityLabel(Text(isDeleted ? deletedText : message.content))
+            .accessibilityLabel(Text(placeholder ?? message.content))
     }
 
     /// Текст с разметкой и — в режиме поиска — с подсвеченными совпадениями.
@@ -686,6 +695,10 @@ struct MessageBubbleView: View {
 
     private var deletedText: String {
         String(localized: "chats.deletedMessage", defaultValue: "Сообщение удалено")
+    }
+
+    private var unsupportedText: String {
+        String(localized: "chats.preview.unsupported", defaultValue: "Сообщение не поддерживается этой версией — обновите приложение")
     }
 
     /// Сколько участников группы прочитали своё сообщение; в личном чате — 0.
