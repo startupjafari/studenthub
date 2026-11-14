@@ -219,7 +219,7 @@ export class ChatsController {
     status: 200,
     description:
       'Новые сообщения (created), изменённые (mutated), удалённые (deletedIds), актуальный latestSeq. ' +
-      'overflow=true — разрыв больше лимита, историю нужно перезапросить целиком',
+      'overflow=true — новых, правок или удалений больше лимита, историю нужно перезапросить целиком',
   })
   @ApiResponse({ status: 403, description: 'WRONG_SCOPE — не участник' })
   updates(
