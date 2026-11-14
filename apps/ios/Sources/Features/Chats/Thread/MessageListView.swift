@@ -1307,7 +1307,7 @@ final class MessageListViewController: UIViewController {
         }
         // Своя строка дня прячется, только пока плавающая на виду. VoiceOver читает
         // даты по строкам ленты — для него плавающей нет, и прятать нечего.
-        let covered = headersHidden || UIAccessibility.isVoiceOverRunning ? nil : placement?.day
+        let covered = headersHidden || VoiceOver.isRunning ? nil : placement?.day
         guard covered != coveredDay else { return }
         coveredDay = covered
         let kind = UICollectionView.elementKindSectionHeader
