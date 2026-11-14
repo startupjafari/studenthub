@@ -225,7 +225,7 @@ final class AppRouter {
 
     /// Роль, для которой открывалась последняя ссылка: вкладки у ролей разные, и пост
     /// у администратора платформы открывается не в ленте, которой у него нет.
-    @ObservationIgnored private var currentRole: Role = .student
+    @ObservationIgnored private(set) var currentRole: Role = .student
 
     @MainActor
     private func push(_ tab: AppTab, _ routes: [AppRoute]) {
