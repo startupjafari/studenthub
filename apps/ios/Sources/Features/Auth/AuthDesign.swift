@@ -2,27 +2,40 @@ import SwiftUI
 
 // StudentHub Native — экраны до входа: вход, QR-вход, восстановление пароля.
 //
-// Компоновка одна на все три: сверху — фирменная шапка на тёмно-синем фоне, снизу —
+// Компоновка одна на все три: сверху — фирменная шапка на фирменном фоне, снизу —
 // панель с формой, как лист iOS. Форма у нижнего края ближе к большому пальцу, а шапка
 // без картинок оставляет экрану воздух. Стекло — только у кнопок (Glass.swift): поля и
 // тексты лежат на непрозрачной панели и читаются в любой теме.
 
 // MARK: - Цвета
 
-/// Фирменные цвета экранов до входа. Шапка тёмно-синяя в обеих темах — это лицо продукта,
-/// как у веба; панель с формой следует теме системы.
+/// Фирменные цвета экранов до входа. Фон и шапка следуют теме системы: в тёмной —
+/// тёмно-синие, как у веба, в светлой — светлые с тем же синим отсветом. Панель с формой
+/// тоже следует теме.
 enum AuthPalette {
-    /// Midnight Navy `#07152F` — верх фона.
-    static let navy = Color(red: 7 / 255, green: 21 / 255, blue: 47 / 255)
-    /// `#0D1117` — низ фона.
-    static let night = Color(red: 13 / 255, green: 17 / 255, blue: 23 / 255)
+    /// Верх фона: Midnight Navy `#07152F` в тёмной теме, `#E6EEFC` в светлой.
+    static let backdropTop = adaptive(dark: (7, 21, 47), light: (230, 238, 252))
+    /// Низ фона: `#0D1117` в тёмной теме, `#F5F7FB` в светлой.
+    static let backdropBottom = adaptive(dark: (13, 17, 23), light: (245, 247, 251))
     /// Primary Blue `#2D73E5` — плашка знака.
     static let brandBlue = Color(red: 45 / 255, green: 115 / 255, blue: 229 / 255)
     /// Accent Blue `#1677FF` — едва заметный отсвет в углу фона.
     static let accentBlue = Color(red: 22 / 255, green: 119 / 255, blue: 255 / 255)
-    /// Text Secondary `#A9BCD6` — подзаголовок на тёмно-синем.
-    static let headerSecondary = Color(red: 169 / 255, green: 188 / 255, blue: 214 / 255)
-    static let headerPrimary = Color.white
+    /// Сила отсвета: на светлом фоне тот же синий заметнее, его меньше.
+    static let accentGlow = Color(uiColor: UIColor { traits in
+        UIColor(red: 22 / 255, green: 119 / 255, blue: 1, alpha: traits.userInterfaceStyle == .dark ? 0.28 : 0.16)
+    })
+    /// Подзаголовок шапки: Text Secondary `#A9BCD6` на тёмно-синем, `#4A5B75` на светлом.
+    static let headerSecondary = adaptive(dark: (169, 188, 214), light: (74, 91, 117))
+    /// Заголовок и название шапки: белые на тёмно-синем, почти чёрные на светлом.
+    static let headerPrimary = adaptive(dark: (255, 255, 255), light: (13, 17, 23))
+
+    private static func adaptive(dark: (Int, Int, Int), light: (Int, Int, Int)) -> Color {
+        Color(uiColor: UIColor { traits in
+            let rgb = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: CGFloat(rgb.0) / 255, green: CGFloat(rgb.1) / 255, blue: CGFloat(rgb.2) / 255, alpha: 1)
+        })
+    }
 
     /// Панель с формой: в светлой теме — системный белый, в тёмной — Surface `#151B27`,
     /// на тон светлее фона, чтобы панель отделялась без рамки и тени.
@@ -38,14 +51,15 @@ enum AuthPalette {
 
 // MARK: - Фон
 
-/// Тёмно-синий фон с одним мягким отсветом. Без картинок и неона: отсвет — радиальный
-/// градиент, а не размытие, и занимает угол, а не центр.
+/// Фирменный фон с одним мягким отсветом: тёмно-синий в тёмной теме, светлый — в
+/// светлой. Без картинок и неона: отсвет — радиальный градиент, а не размытие, и
+/// занимает угол, а не центр.
 struct AuthBackdrop: View {
     var body: some View {
         ZStack {
-            LinearGradient(colors: [AuthPalette.navy, AuthPalette.night], startPoint: .top, endPoint: .bottom)
+            LinearGradient(colors: [AuthPalette.backdropTop, AuthPalette.backdropBottom], startPoint: .top, endPoint: .bottom)
             RadialGradient(
-                colors: [AuthPalette.accentBlue.opacity(0.28), .clear],
+                colors: [AuthPalette.accentGlow, .clear],
                 center: .topTrailing,
                 startRadius: 0,
                 endRadius: 420
@@ -169,6 +183,9 @@ struct StudentHubBrandHeader: View {
     var subtitleIsEssential = false
     /// Знак над заголовком. На экране QR его нет: место отдано коду.
     var showsLogo = true
+    /// С клавиатурой шапка уходит целиком: у панели свой заголовок (шаг 2FA), и лозунг
+    /// над ней только выталкивал бы форму прокруткой под стрелку «назад».
+    var collapsesWithKeyboard = false
 
     @Environment(\.authIsCompact) private var isCompact
     @Environment(\.authKeyboardShown) private var keyboardShown
@@ -187,6 +204,16 @@ struct StudentHubBrandHeader: View {
     }
 
     var body: some View {
+        if collapsesWithKeyboard, keyboardShown {
+            // Пустая строка вместо шапки: каркас не схлопывает отступы рывком.
+            Color.clear.frame(height: 0).frame(maxWidth: .infinity)
+        } else {
+            content
+                .transition(AuthMotion.collapse(reduceMotion: reduceMotion))
+        }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: isTight || keyboardShown ? Spacing.md : Spacing.xl) {
             if showsLogoRow {
                 HStack(spacing: Spacing.md) {
@@ -268,15 +295,17 @@ struct AuthScaffold<Header: View, Panel: View>: View {
     @ViewBuilder var panel: () -> Panel
 
     @Environment(\.motionReduced) private var reduceMotion
-    /// Высота экрана без клавиатуры. Видимая высота — у `GeometryReader`; разница
-    /// между ними и есть клавиатура.
-    @State private var fullHeight: CGFloat = 0
+    /// Открыта экранная клавиатура — по уведомлениям системы, а не по разнице высот.
+    /// Раньше высота «без клавиатуры» мерилась вместе с ней: шапка не узнавала о
+    /// клавиатуре вовсе (на шаге 2FA уезжала под стрелку «назад»), а на экране
+    /// приглашения сжималась рывком — менялся шрифт заголовка, без анимации.
+    @State private var keyboardShown = false
+    /// Высота экрана в покое — наибольшая из замеренных: клавиатура её только уменьшает,
+    /// и экран не становится «низким» оттого, что её открыли.
+    @State private var restingHeight: CGFloat = 0
 
     var body: some View {
         GeometryReader { proxy in
-            // Порог отсекает панель подсказок аппаратной клавиатуры: ради полоски в
-            // полсотни точек шапку не сжимаем.
-            let keyboardShown = fullHeight - proxy.size.height > 80
             ScrollViewReader { scroller in
                 ScrollView {
                     VStack(spacing: 0) {
@@ -287,7 +316,7 @@ struct AuthScaffold<Header: View, Panel: View>: View {
                         Spacer(minLength: Spacing.md)
                         AuthBottomPanel(content: panel)
                     }
-                    .environment(\.authIsCompact, fullHeight > 0 && fullHeight < 650)
+                    .environment(\.authIsCompact, restingHeight > 0 && restingHeight < 650)
                     .environment(\.authKeyboardShown, keyboardShown)
                     .frame(maxWidth: 560)
                     .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .top)
@@ -302,16 +331,22 @@ struct AuthScaffold<Header: View, Panel: View>: View {
                     if keyboardShown { reveal(with: scroller) }
                 }
             }
+            .onChange(of: proxy.size.height, initial: true) { _, height in
+                restingHeight = max(restingHeight, height)
+            }
         }
-        .background {
-            Color.clear
-                .ignoresSafeArea(.keyboard)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fullHeight = $0 }
+        // Порог отсекает панель подсказок аппаратной клавиатуры: ради полоски в полсотни
+        // точек шапку не сжимаем.
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
+            let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
+            keyboardShown = (frame?.height ?? 0) > 80
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            keyboardShown = false
         }
         .background(AuthBackdrop())
-        // Белый статус-бар и стрелка «назад» на тёмно-синем фоне — в обеих темах; у верхнего
-        // края шапка при прокрутке мягко размывается (iOS 26).
-        .toolbarColorScheme(.dark, for: .navigationBar)
+        // Статус-бар и стрелка «назад» следуют теме, как и фон; у верхнего края шапка при
+        // прокрутке мягко размывается (iOS 26).
         .softTopEdge()
     }
 
@@ -397,6 +432,8 @@ struct StudentHubField<Field: View, Accessory: View>: View {
     var isFocused = false
     /// Поставить фокус в поле — по касанию коробки вокруг строки текста.
     var focus: (() -> Void)?
+    /// Заливка поля: мягкая на панели входа; на сером фоне экрана — карточкой.
+    var fill: Color = AuthPalette.field
     @ViewBuilder var field: () -> Field
     @ViewBuilder var accessory: () -> Accessory
 
@@ -425,7 +462,7 @@ struct StudentHubField<Field: View, Accessory: View>: View {
             .contentShape(shape)
             .onTapGesture { focus?() }
             .keepsKeyboardOnTap()
-            .background(AuthPalette.field, in: shape)
+            .background(fill, in: shape)
             .overlay(shape.strokeBorder(borderColor, lineWidth: error == nil && !isFocused ? 0 : 1.5))
             FieldError(message: error)
         }
