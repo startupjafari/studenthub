@@ -1,5 +1,4 @@
 import Foundation
-import GRDB
 import Observation
 
 /// Свои папки чатов (§2): вкладки над списком, экран «Папки с чатами» и пункт «Добавить
@@ -41,10 +40,8 @@ final class ChatFoldersModel {
     @MainActor
     func start() {
         guard task == nil else { return }
-        let observation = ValueObservation.tracking { db in try ChatListQuery.folders(in: db) }
-            .removeDuplicates()
         task = Task { @MainActor [weak self, database] in
-            for await folders in AsyncValues.stream(of: observation, in: database.reader) {
+            for await folders in ChatListQueries(database: database).observeFolders() {
                 self?.folders = folders
             }
         }
