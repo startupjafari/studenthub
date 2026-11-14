@@ -289,9 +289,7 @@ struct ChatShareSheet: View {
 
     /// Список читается из базы: делятся в знакомые чаты, а сеть для выбора не нужна.
     private func load() async {
-        let all = (try? await AppServices.database.reader.read { db in
-            try ChatListQuery.rows(for: .all).fetchAll(db)
-        }) ?? []
+        let all = (try? await ChatListQueries(database: AppServices.database).fetchRows(for: .all)) ?? []
         rows = Self.ordered(all)
         loaded = true
     }

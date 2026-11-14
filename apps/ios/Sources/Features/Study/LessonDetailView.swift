@@ -1,4 +1,3 @@
-import GRDB
 import SwiftUI
 
 /// Занятие из расписания: когда, где, кто ведёт — и переходы на карту кампуса, в
@@ -234,11 +233,7 @@ struct LessonDetailView: View {
     @MainActor
     private func load() async {
         // Изменения дня — тем же запросом, что у расписания: даты в базе — полночь UTC.
-        let changesOfDay = ScheduleStore(database: AppServices.database).changes(on: date)
-            .filter(PairChangeRecord.Columns.pairId == pairID)
-        let found = try? await AppServices.database.reader.read { [pairID] db -> (PairRecord?, PairChangeRecord?) in
-            (try PairRecord.fetchOne(db, key: pairID), try changesOfDay.fetchOne(db))
-        }
+        let found = try? await ScheduleQueries(database: AppServices.database).fetchLesson(pairID: pairID, on: date)
         pair = found?.0
         change = found?.1
         isMissing = pair == nil

@@ -72,7 +72,7 @@ struct AppShellView: View {
             }
             // Разрешение спрашиваем здесь, а не на экране входа: до входа уведомлять
             // человека не о чем, и запрос выглядел бы попрошайничеством.
-            await PushRegistrar().requestAuthorization()
+            await AppServices.pushRegistrar.requestAuthorization()
             await AppServices.pushSync.catchUp()
         }
         // Ссылку, которую приложение не знает, не перехватываем: её откроет браузер,

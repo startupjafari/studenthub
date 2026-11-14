@@ -1,6 +1,5 @@
 import CoreLocation
 import Foundation
-import GRDB
 import Observation
 import os
 
@@ -80,7 +79,7 @@ final class ChatThreadModel {
     let scheduled: ChatScheduledMessages
 
     private let viewerID: String
-    private let database: AppDatabase
+    private let queries: ChatThreadQueries
     private let api: ChatMessagesFetching
     private let store: MessageStore
     private let outbox: MessageOutbox
@@ -165,7 +164,7 @@ final class ChatThreadModel {
     ) {
         self.chatID = chatID
         self.viewerID = viewerID
-        self.database = database
+        self.queries = ChatThreadQueries(database: database)
         self.api = api
         self.store = store ?? MessageStore(database: database)
         self.outbox = outbox ?? MessageOutbox(database: database)
@@ -547,12 +546,7 @@ final class ChatThreadModel {
         input.endEdit()
         guard text != message.content, let remoteID = message.remoteId else { return }
         let id = message.id
-        try? await database.writer.write { db in
-            guard var row = try MessageRecord.fetchOne(db, key: id) else { return }
-            row.content = text
-            row.editedAt = (row.editedAt ?? row.createdAt).addingTimeInterval(0.001)
-            try row.update(db)
-        }
+        try? await store.saveLocalEdit(messageID: id, text: text)
         await realtime.edit(messageID: remoteID, content: text)
     }
 
@@ -563,14 +557,10 @@ final class ChatThreadModel {
         guard canDelete(message) else { return }
         let id = message.id
         if message.remoteId == nil {
-            _ = try? await database.writer.write { db in try MessageRecord.deleteOne(db, key: id) }
+            try? await store.deleteLocal(messageID: id)
             return
         }
-        try? await database.writer.write { db in
-            guard var row = try MessageRecord.fetchOne(db, key: id) else { return }
-            row.deletedAt = Date()
-            try row.update(db)
-        }
+        try? await store.markDeleted(messageID: id)
         if let remoteID = message.remoteId {
             await realtime.delete(messageID: remoteID)
         }
@@ -583,7 +573,7 @@ final class ChatThreadModel {
         guard let remoteID = message.remoteId, message.deletedAt == nil else { return }
         do {
             let updated = try await actions.react(messageID: remoteID, emoji: emoji)
-            try await database.writer.write { db in try MessageStore.upsert(updated, in: db) }
+            try await store.save(message: updated)
         } catch {
             actionFailure = self.message(for: error)
         }
@@ -836,12 +826,7 @@ final class ChatThreadModel {
     /// и сразу после неё последний срез в модели ещё старый.
     @MainActor
     private func freshSnapshot() async -> ThreadSnapshot? {
-        let request = store.messages(chatID: chatID, from: floor)
-        let id = chatID
-        let floor = floor
-        return try? await database.reader.read { db in
-            try ChatThreadModel.readSnapshot(request, chatID: id, floor: floor, in: db)
-        }
+        try? await queries.fetchSnapshot(chatID: chatID, floor: floor)
     }
 
     /// Окно сменилось: показать базу как она есть сейчас, вместе с новой границей.
@@ -1092,7 +1077,7 @@ final class ChatThreadModel {
     func hide(_ chosen: [MessageRecord]) async {
         let local = chosen.filter { $0.remoteId == nil }.map(\.id)
         if !local.isEmpty {
-            _ = try? await database.writer.write { db in try MessageRecord.deleteAll(db, keys: local) }
+            try? await store.deleteLocal(messageIDs: local)
         }
         let remote = chosen.compactMap(\.remoteId)
         guard !remote.isEmpty else { return }
@@ -1114,13 +1099,7 @@ final class ChatThreadModel {
     @MainActor
     func message(remoteID: String) async -> MessageRecord? {
         if let shown = messages.first(where: { $0.remoteId == remoteID }) { return shown }
-        let chatID = chatID
-        return try? await database.reader.read { db in
-            try MessageRecord
-                .filter(MessageRecord.Columns.chatId == chatID)
-                .filter(MessageRecord.Columns.remoteId == remoteID)
-                .fetchOne(db)
-        }
+        return try? await queries.message(remoteID: remoteID, chatID: chatID)
     }
 
     /// Удаление из просмотра медиа. Сообщение в базе — тем же путём, что из меню; нет
@@ -1174,7 +1153,7 @@ final class ChatThreadModel {
         let id = chatID
         var kind = chat?.kind
         if kind == nil {
-            kind = try? await database.reader.read { db in try ChatRecord.fetchOne(db, key: id)?.kind }
+            kind = try? await queries.chatKind(id: id)
         }
         guard kind == .private, let list = try? await actions.members(chatID: chatID) else { return }
         peer = list.first { $0.id != viewerID }
@@ -1215,7 +1194,7 @@ final class ChatThreadModel {
         let id = chatID
         var kind = chat?.kind
         if kind == nil {
-            kind = try? await database.reader.read { db in try ChatRecord.fetchOne(db, key: id)?.kind }
+            kind = try? await queries.chatKind(id: id)
         }
         guard let kind else { return false }
         return kind != .private && kind != .saved
@@ -1399,10 +1378,8 @@ final class ChatThreadModel {
 
     @MainActor
     private func loadDraft() {
-        Task { @MainActor [weak self, database, chatID] in
-            let stored = try? await database.reader.read { db in
-                try DraftRecord.fetchOne(db, key: chatID)
-            }
+        Task { @MainActor [weak self, queries, chatID] in
+            let stored = try? await queries.draft(chatID: chatID)
             guard let self, self.input.draft.isEmpty, let stored else { return }
             self.input.draft = stored.text
         }
@@ -1411,31 +1388,15 @@ final class ChatThreadModel {
     @MainActor
     private func persistDraft(_ text: String) async {
         let chatID = chatID
-        try? await database.writer.write { db in
-            if text.isEmpty {
-                _ = try DraftRecord.deleteOne(db, key: chatID)
-                return
-            }
-            try DraftRecord(
-                chatId: chatID,
-                text: text,
-                replyToId: nil,
-                updatedAt: Date(),
-                // Серверу черновик ещё не донесён — это ниже.
-                isSynced: false
-            ).upsert(db)
-        }
+        // Серверу черновик ещё не донесён — это ниже.
+        try? await queries.saveDraft(text, chatID: chatID)
         // Серверу — чтобы черновик был виден в вебе, а после отправки (пустой текст)
         // не вернулся старым серверным при следующей синхронизации списка. Не вышло —
         // запись остаётся несинхронизированной, следующий набор повторит. Длиннее лимита
         // сервер черновик не примет — его не шлём, он живёт в базе, пока его не сократят.
         guard OutgoingText.draftFits(text) else { return }
         guard (try? await actions.saveDraft(chatID: chatID, text: text)) != nil, !text.isEmpty else { return }
-        try? await database.writer.write { db in
-            guard var record = try DraftRecord.fetchOne(db, key: chatID), record.text == text else { return }
-            record.isSynced = true
-            try record.update(db)
-        }
+        try? await queries.markDraftSynced(text, chatID: chatID)
     }
 
     /// Подгрузка вверх. Вызывается, когда лента подъехала к началу загруженного.
@@ -1483,7 +1444,7 @@ final class ChatThreadModel {
     private func initialFloor() -> Int? {
         guard PerformanceFlags.chatWindowedObservation else { return nil }
         let id = chatID
-        guard let chat = try? database.reader.read({ db in try ChatRecord.fetchOne(db, key: id) }) else { return nil }
+        guard let chat = try? queries.chatNow(id: id) else { return nil }
         let span = max(Self.liveWindow, chat.unreadCount + 20)
         guard chat.lastSeq > span else { return nil }
         return chat.lastSeq - span
@@ -1627,55 +1588,19 @@ final class ChatThreadModel {
     @MainActor
     private func observeMessages() {
         messagesTask?.cancel()
-        let request = store.messages(chatID: chatID, from: floor)
         let id = chatID
         let floor = floor
-        // Сообщения и вложения читаем одним наблюдением: раздельные дали бы кадр,
-        // где картинка уже пришла, а сообщения под неё ещё нет.
-        // Наблюдение будит любая запись в `message`/`attachment`, в том числе в чужом
-        // чате: одинаковый срез отсеивается вне главного потока и до ленты не доходит.
-        let observation = ValueObservation.tracking { db -> ThreadSnapshot in
-            try ChatThreadModel.readSnapshot(request, chatID: id, floor: floor, in: db)
-        }
-        .removeDuplicates()
+        // Сообщения и вложения — одним наблюдением, одинаковый срез отсеивается до
+        // главного потока (`ChatThreadQueries.observeSnapshot`).
         // Сильная ссылка живёт только на шаг цикла: держи её задача весь бесконечный
         // поток, модель (и её наблюдения) не освободились бы и после ухода из чата.
-        messagesTask = Task { @MainActor [weak self, database] in
-            for await snapshot in AsyncValues.stream(of: observation, in: database.reader) {
+        messagesTask = Task { @MainActor [weak self, queries] in
+            for await snapshot in queries.observeSnapshot(chatID: id, floor: floor) {
                 guard let self else { return }
                 self.snapshot = snapshot
                 self.applySnapshot()
             }
         }
-    }
-
-    /// Срез переписки: сообщения в порядке ленты и их вложения.
-    private static func readSnapshot(
-        _ request: QueryInterfaceRequest<MessageRecord>,
-        chatID: String,
-        floor: Int?,
-        in db: Database
-    ) throws -> ThreadSnapshot {
-        let signpost = Signposts.chats.beginInterval("ThreadSnapshotRead")
-        let messages = try request.fetchAll(db)
-        // Вложения — только сообщений окна, та же граница, что у запроса сообщений.
-        let attachments = try AttachmentRecord.fetchAll(
-            db,
-            sql: """
-                SELECT a.* FROM attachment a
-                JOIN message m ON m.id = a.messageId
-                WHERE m.chatId = ? AND (? IS NULL OR m.seq >= ? OR m.seq IS NULL)
-                """,
-            arguments: [chatID, floor, floor]
-        )
-        Signposts.chats.endInterval(
-            "ThreadSnapshotRead", signpost,
-            "messages: \(messages.count), attachments: \(attachments.count)"
-        )
-        return ThreadSnapshot(
-            messages: messages,
-            attachments: Dictionary(grouping: attachments, by: \.messageId)
-        )
     }
 
     /// Пересобрать ленту из среза базы. В окне истории — только то, что не новее его
@@ -1742,10 +1667,8 @@ final class ChatThreadModel {
         chatTask?.cancel()
         let id = chatID
         // Запись в строку другого чата (счётчик, прочтение) эту строку не меняет.
-        let observation = ValueObservation.tracking { db in try ChatRecord.fetchOne(db, key: id) }
-            .removeDuplicates()
-        chatTask = Task { @MainActor [weak self, database] in
-            for await chat in AsyncValues.stream(of: observation, in: database.reader) {
+        chatTask = Task { @MainActor [weak self, queries] in
+            for await chat in queries.observeChat(id: id) {
                 guard let self else { return }
                 self.chat = chat
                 self.title = chat?.title
@@ -1824,39 +1747,6 @@ enum DetachedWindows {
         guard let data = UserDefaults.standard.data(forKey: key) else { return [:] }
         return (try? JSONDecoder().decode([String: Mark].self, from: data)) ?? [:]
     }
-}
-
-/// Поток значений наблюдения GRDB.
-///
-/// Общий для всех экранов: ошибка чтения локальной базы не повод падать — список и
-/// лента просто перестают обновляться, а показывают то, что уже прочитали.
-enum AsyncValues {
-    static func stream<Reducer: ValueReducer>(
-        of observation: ValueObservation<Reducer>,
-        in reader: any DatabaseReader
-    ) -> AsyncStream<Reducer.Value> {
-        AsyncStream { continuation in
-            let cancellable = observation.start(
-                in: reader,
-                scheduling: .async(onQueue: .main),
-                onError: { _ in continuation.finish() },
-                onChange: { value in
-                    // Значение наблюдения дошло до главного потока (после отсева, если
-                    // он есть): сколько раз экран будят изменения базы.
-                    Signposts.chats.emitEvent("DBChangeObserved", "\(String(describing: type(of: value)), privacy: .public)")
-                    continuation.yield(value)
-                }
-            )
-            continuation.onTermination = { _ in cancellable.cancel() }
-        }
-    }
-}
-
-
-/// Срез переписки: сообщения и их вложения, прочитанные одним запросом.
-struct ThreadSnapshot: Equatable {
-    let messages: [MessageRecord]
-    let attachments: [String: [AttachmentRecord]]
 }
 
 /// Участник группы, прочитавший сообщение, — строка листа «Прочитали».
