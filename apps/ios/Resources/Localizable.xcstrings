@@ -96050,6 +96050,23 @@
         }
       }
     },
+    "chats.preview.code": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Код"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Код"
+          }
+        }
+      }
+    },
     "chats.preview.sticker": {
       "extractionState": "manual",
       "localizations": {
