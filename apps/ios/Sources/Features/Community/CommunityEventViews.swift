@@ -148,7 +148,7 @@ struct CommunityEventView: View {
         ) { meeting in
             Button(String(localized: "community.event.copyAndJoin", defaultValue: "Скопировать и открыть")) {
                 UIPasteboard.general.string = meeting.passcode
-                if let url = URL(string: meeting.url) { UIApplication.shared.open(url) }
+                if let url = URL(string: meeting.url) { ExternalLinkOpener.open(url) }
             }
             Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         } message: { meeting in
@@ -498,7 +498,8 @@ struct CommunityEventView: View {
             if answer.passcode != nil {
                 meeting = answer
             } else if let url = URL(string: answer.url) {
-                await UIApplication.shared.open(url)
+                // Адрес встречи вводил организатор — чужое содержимое: через открыватель.
+                ExternalLinkOpener.open(url)
             }
         } catch {
             actionFailure = error.userMessage

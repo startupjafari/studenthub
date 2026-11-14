@@ -382,6 +382,7 @@ enum RichText {
     /// Выход из аккаунта: тексты прежнего человека в памяти не остаются.
     static func clearCache() {
         storage.clear()
+        ConcealedLinks.clear()
     }
 
     /// В кеш — только если с начала разбора его не очищали.
@@ -405,6 +406,14 @@ enum RichText {
         for run in text.runs {
             if let link = run.link, !["http", "https", "mailto"].contains(link.scheme ?? "") {
                 text[run.range].link = nil
+            }
+        }
+        // Текст ссылки похож на адрес, а ведёт она на другой хост: открыватель спросит
+        // с настоящим адресом (10.3.6). Целиком по ссылке, а не по кускам: жирная часть
+        // текста ссылки — отдельный кусок разметки.
+        for (link, range) in text.runs[\.link] {
+            if let link, ExternalLink.isConcealed(text: String(text[range].characters), url: link) {
+                ConcealedLinks.mark(link)
             }
         }
         decorate(&text)
