@@ -1024,6 +1024,43 @@ final class ChatThreadModel {
         }
     }
 
+    /// Сообщение по серверному id — из ленты, иначе из базы (просмотр медиа листает и
+    /// далёкую историю).
+    @MainActor
+    func message(remoteID: String) async -> MessageRecord? {
+        if let shown = messages.first(where: { $0.remoteId == remoteID }) { return shown }
+        let chatID = chatID
+        return try? await database.reader.read { db in
+            try MessageRecord
+                .filter(MessageRecord.Columns.chatId == chatID)
+                .filter(MessageRecord.Columns.remoteId == remoteID)
+                .fetchOne(db)
+        }
+    }
+
+    /// Удаление из просмотра медиа. Сообщение в базе — тем же путём, что из меню; нет
+    /// его там (далёкая история, до которой лента не доходила) — запросом к серверу.
+    /// Ответ — текст ошибки для показа или `nil`.
+    @MainActor
+    func delete(remoteID: String, forEveryone: Bool) async -> String? {
+        if forEveryone, let record = await message(remoteID: remoteID) {
+            guard canDelete(record) else { return nil }
+            await delete(record)
+            return nil
+        }
+        do {
+            if forEveryone {
+                _ = try await actions.deleteForEveryone(messageIDs: [remoteID], chatID: chatID)
+            } else {
+                let hidden = try await actions.hide(messageIDs: [remoteID], chatID: chatID).hiddenIds
+                try await store.removeHidden(remoteIDs: hidden, chatID: chatID)
+            }
+            return nil
+        } catch {
+            return self.message(for: error)
+        }
+    }
+
     @MainActor
     func report(_ message: MessageRecord, reason: String) async -> Bool {
         guard let remoteID = message.remoteId else { return false }

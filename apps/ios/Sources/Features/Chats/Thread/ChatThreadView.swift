@@ -31,10 +31,8 @@ struct ChatThreadView: View {
     @State private var composerPanelShown = false
     /// Фото и видео сообщения — в своём просмотре, как в Telegram.
     @State private var viewer: ChatMediaViewerRequest?
-    /// Что сделать, когда просмотр закроется: лист пересылки поверх него не открыть.
-    @State private var pendingViewerAction: MessageAction?
-    /// Сообщение последнего просмотра: к `onDismiss` сам `viewer` уже обнулён.
-    @State private var lastViewerMessage: MessageRecord?
+    /// Что сделать, когда просмотр закроется: перейти к сообщению или ответить на него.
+    @State private var pendingViewerAction: ViewerAction?
     @State private var copiedTick = 0
     /// Короткое уведомление сверху: «Переслано», «Скопировано».
     @State private var toast: String?
@@ -566,15 +564,19 @@ struct ChatThreadView: View {
             }
         }
         .sheet(item: $forwarding) { batch in
-            ForwardPickerView(messages: batch.messages) { targets, comment, requestID in
-                guard let model else { return ForwardOutcome() }
-                let outcome = await model.forward(batch.messages, to: targets, comment: comment, requestID: requestID)
-                if outcome.isComplete {
-                    if batch.fromSelection { endSelection(model) }
-                    showToast(ChatPlural.forwardedTo(outcome.delivered.count))
-                }
-                return outcome
-            }
+            ChatShareSheet(
+                send: { targets, comment, requestID in
+                    guard let model else { return ForwardOutcome() }
+                    let outcome = await model.forward(batch.messages, to: targets, comment: comment, requestID: requestID)
+                    if outcome.isComplete {
+                        if batch.fromSelection { endSelection(model) }
+                        showToast(ChatPlural.forwardedTo(outcome.delivered.count))
+                    }
+                    return outcome
+                },
+                exportFiles: mediaExport(of: batch.messages),
+                shareText: batch.messages.map(\.content).filter { !$0.isEmpty }.joined(separator: "\n\n")
+            )
         }
         .alert(
             String(localized: "chats.report.title", defaultValue: "Что не так с сообщением?"),
@@ -605,7 +607,7 @@ struct ChatThreadView: View {
             Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
         .fullScreenCover(item: $viewer, onDismiss: runPendingViewerAction) { request in
-            MediaViewer(media: request.media, start: request.start, context: viewerContext(request.message))
+            MediaViewer(media: request.media, start: request.start, context: viewerContext(request.gallery))
         }
         .fullScreenCover(item: $menu, onDismiss: runPendingMenuAction) { request in
             MessageMenuOverlay(
@@ -732,36 +734,51 @@ struct ChatThreadView: View {
         withTransaction(transaction) { menu = nil }
     }
 
-    /// Подпись и действия просмотра: «Показать в чате», «Ответить», «Переслать» — только у
-    /// дошедшего до сервера сообщения, как в меню.
-    private func viewerContext(_ message: MessageRecord) -> MediaViewerContext {
-        let title = message.senderId == viewerID
-            ? String(localized: "chats.you", defaultValue: "Вы")
-            : (message.senderName ?? "")
-        guard message.remoteId != nil else { return MediaViewerContext(title: title, date: message.createdAt) }
-        return MediaViewerContext(
-            title: title,
-            date: message.createdAt,
-            onShowInChat: { pendingViewerAction = .jump(message.id) },
-            onReply: { pendingViewerAction = .reply },
-            forward: {
-                AnyView(ForwardPickerView(messages: [message]) { targets, comment, requestID in
-                    guard let model else { return ForwardOutcome() }
-                    let outcome = await model.forward([message], to: targets, comment: comment, requestID: requestID)
-                    if outcome.isComplete { showToast(ChatPlural.forwardedTo(outcome.delivered.count)) }
-                    return outcome
-                })
+    /// Действия просмотра: «Показать в чате» и «Ответить» — когда он закроется, «Удалить»
+    /// — сразу. Медиа чата листаются галереей, «Поделиться» просмотр открывает сам.
+    private func viewerContext(_ gallery: ChatMediaGallery) -> MediaViewerContext {
+        MediaViewerContext(
+            gallery: gallery,
+            onShowInChat: { pendingViewerAction = .jump($0) },
+            onReply: { pendingViewerAction = .reply($0) },
+            onDelete: { remoteID, forEveryone in
+                await model?.delete(remoteID: remoteID, forEveryone: forEveryone)
             }
         )
     }
 
     private func runPendingViewerAction() {
-        guard let action = pendingViewerAction, let message = lastViewerMessage, let model else {
+        guard let action = pendingViewerAction, let model else {
             pendingViewerAction = nil
             return
         }
         pendingViewerAction = nil
-        handle(action, message: message, model: model)
+        switch action {
+        case .jump(let remoteID):
+            Task { await model.jump(to: remoteID) }
+        case .reply(let remoteID):
+            Task {
+                if let message = await model.message(remoteID: remoteID) { model.reply(to: message) }
+            }
+        }
+    }
+
+    /// Файлы снимков и роликов пересылаемых сообщений — для «Сохранить в галерею» и
+    /// системного «Поделиться» в листе. Без медиа — `nil`: кнопки в листе не будет.
+    private func mediaExport(of messages: [MessageRecord]) -> (() async throws -> [URL])? {
+        let ids = Set(messages.map(\.id))
+        let files = model?.days.lazy.flatMap(\.items)
+            .filter { ids.contains($0.message.id) }
+            .flatMap { $0.attachments.filter(\.showsAsMedia) } ?? []
+        guard !files.isEmpty else { return nil }
+        return {
+            var urls: [URL] = []
+            for file in files {
+                guard let media = await Self.viewerMedia(file) else { throw URLError(.fileDoesNotExist) }
+                urls.append(try await MediaDownload.file(for: media))
+            }
+            return urls
+        }
     }
 
     private func runPendingMenuAction() {
@@ -847,8 +864,21 @@ struct ChatThreadView: View {
             open(file)
             return
         }
-        lastViewerMessage = message
-        viewer = ChatMediaViewerRequest(media: shown, start: start, message: message)
+        // Альбом сообщения уже подписан — просмотр открывается им сразу, а номер в чате и
+        // соседние медиа галерея догружает следом.
+        let entries = shown.map { media in
+            ChatMediaWindow.Entry(
+                id: media.id,
+                media: media,
+                messageID: message.remoteId,
+                senderID: message.senderId,
+                senderName: message.senderName,
+                date: message.createdAt,
+                isResolved: true
+            )
+        }
+        let gallery = ChatMediaGallery(chatID: chatID, viewerID: viewerID, entries: entries)
+        viewer = ChatMediaViewerRequest(media: shown, start: start, gallery: gallery)
     }
 
     /// Снимок для просмотра: свой файл на диске — сразу, чужой — по свежей подписанной
@@ -917,7 +947,14 @@ private struct ChatMediaViewerRequest: Identifiable {
     let id = UUID()
     let media: [PostDTO.Media]
     let start: Int
-    let message: MessageRecord
+    /// Медиа чата для листания — одна на весь показ, переживает перерисовки экрана.
+    let gallery: ChatMediaGallery
+}
+
+/// Что сделать после просмотра — по серверному id сообщения снимка.
+private enum ViewerAction {
+    case jump(String)
+    case reply(String)
 }
 
 /// Что удаляем: одно сообщение из меню или выбранные разом. «У всех» — только своё.

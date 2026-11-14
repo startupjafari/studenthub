@@ -2,7 +2,8 @@ import XCTest
 
 @testable import StudentHub
 
-/// Медиа в чатах «как в Telegram»: загрузка альбома по плиткам, избранные стикеры.
+/// Медиа в чатах «как в Telegram»: окно просмотра медиа чата, загрузка альбома по
+/// плиткам, избранные стикеры.
 @MainActor
 final class ChatMediaStickersTests: XCTestCase {
     // MARK: Загрузка по плиткам
@@ -124,7 +125,91 @@ final class ChatMediaStickersTests: XCTestCase {
         XCTAssertEqual(decoded.data.compactMap(\.sticker).map(\.id), ["s-1"])
     }
 
+    // MARK: Окно медиа просмотра
+
+    /// Номер считается от самого старого медиа чата; страницы сервера — свежие первыми,
+    /// окно — от старых к новым.
+    func testWindowRebuildsAroundOpenedMedia() {
+        var window = ChatMediaWindow(entries: [entry("f-5", message: "m-3"), entry("f-6", message: "m-3", resolved: true)])
+
+        window.rebuild(
+            around: entry("f-6", message: "m-3"),
+            index: 746,
+            total: 752,
+            older: [entry("f-5", message: "m-3"), entry("f-4", message: "m-2")],
+            newer: [entry("f-8", message: "m-5"), entry("f-7", message: "m-4")]
+        )
+
+        XCTAssertEqual(window.entries.map(\.id), ["f-4", "f-5", "f-6", "f-7", "f-8"])
+        XCTAssertEqual(window.counter(for: "f-6")?.index, 746)
+        XCTAssertEqual(window.counter(for: "f-4")?.index, 744)
+        XCTAssertEqual(window.counter(for: "f-8")?.index, 748)
+        XCTAssertEqual(window.counter(for: "f-8")?.total, 752)
+        XCTAssertEqual(window.entry("f-6")?.isResolved, true, "подписанная ссылка не теряется")
+        XCTAssertEqual(window.album(of: "f-5").map(\.id), ["f-5", "f-6"])
+    }
+
+    func testWindowGrowsBothWays() {
+        var window = ChatMediaWindow(entries: [entry("f-5", message: "m-3")])
+        window.rebuild(around: entry("f-5", message: "m-3"), index: 10, total: 12, older: [], newer: [])
+
+        window.prepend(older: [entry("f-4", message: "m-2"), entry("f-3", message: "m-1"), entry("f-5", message: "m-3")])
+        XCTAssertEqual(window.entries.map(\.id), ["f-3", "f-4", "f-5"])
+        XCTAssertEqual(window.counter(for: "f-3")?.index, 8)
+        XCTAssertEqual(window.counter(for: "f-5")?.index, 10)
+
+        window.append(newer: [entry("f-7", message: "m-5"), entry("f-6", message: "m-4")])
+        XCTAssertEqual(window.entries.map(\.id), ["f-3", "f-4", "f-5", "f-6", "f-7"])
+        XCTAssertEqual(window.counter(for: "f-7")?.index, 12)
+    }
+
+    /// Без номера сервера (своё неотправленное, нет сети) счётчик — по альбому.
+    func testCounterFallsBackToAlbum() {
+        let window = ChatMediaWindow(entries: [entry("a", message: "m-1"), entry("b", message: "m-1"), entry("c", message: "m-1")])
+
+        XCTAssertEqual(window.counter(for: "b")?.index, 2)
+        XCTAssertEqual(window.counter(for: "b")?.total, 3)
+        XCTAssertNil(ChatMediaWindow(entries: [entry("a", message: "m-1")]).counter(for: "a"))
+    }
+
+    /// Удалили сообщение — его медиа уходят, номера оставшихся сдвигаются как надо.
+    func testRemovingMessageShrinksTheCount() {
+        var window = ChatMediaWindow(entries: [])
+        window.rebuild(
+            around: entry("f-2", message: "m-2"),
+            index: 5,
+            total: 9,
+            older: [entry("f-1", message: "m-1")],
+            newer: [entry("f-4", message: "m-3"), entry("f-3", message: "m-2")]
+        )
+
+        XCTAssertEqual(window.remove(messageID: "m-2"), 2)
+
+        XCTAssertEqual(window.entries.map(\.id), ["f-1", "f-4"])
+        XCTAssertEqual(window.counter(for: "f-4")?.index, 5)
+        XCTAssertEqual(window.counter(for: "f-4")?.total, 7)
+    }
+
+    func testPositionDecodesTolerantly() throws {
+        let full = try JSONCoding.decoder.decode(ChatMediaPositionDTO.self, from: Data(#"{"index":746,"total":752}"#.utf8))
+        XCTAssertEqual(full, ChatMediaPositionDTO(index: 746, total: 752))
+        let partial = try JSONCoding.decoder.decode(ChatMediaPositionDTO.self, from: Data(#"{"index":"x"}"#.utf8))
+        XCTAssertEqual(partial, ChatMediaPositionDTO(index: nil, total: nil))
+    }
+
     // MARK: Вспомогательное
+
+    private func entry(_ id: String, message: String, resolved: Bool = false) -> ChatMediaWindow.Entry {
+        ChatMediaWindow.Entry(
+            id: id,
+            media: PostDTO.Media(id: id, url: resolved ? "https://cdn/\(id)" : nil, mime: "image/jpeg"),
+            messageID: message,
+            senderID: "u-1",
+            senderName: "Айгерим",
+            date: Date(timeIntervalSince1970: 0),
+            isResolved: resolved
+        )
+    }
 
     private final class Reported: @unchecked Sendable {
         var value: Double?

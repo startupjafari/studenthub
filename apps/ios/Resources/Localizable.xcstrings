@@ -94724,23 +94724,6 @@
         }
       }
     },
-    "chats.forward.comment": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Добавить комментарий"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Пікір қосу"
-          }
-        }
-      }
-    },
     "chats.forward.count.few": {
       "extractionState": "manual",
       "localizations": {
@@ -94788,23 +94771,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ хабарлама"
-          }
-        }
-      }
-    },
-    "chats.forward.multiple": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Несколько получателей"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Бірнеше алушы"
           }
         }
       }
@@ -94873,57 +94839,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ чатқа жіберілді"
-          }
-        }
-      }
-    },
-    "chats.tabs.all": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Все"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Барлығы"
-          }
-        }
-      }
-    },
-    "chats.tabs.groups": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Группы"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Топтар"
-          }
-        }
-      }
-    },
-    "chats.tabs.personal": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Личные"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Жеке"
           }
         }
       }
@@ -96811,6 +96726,329 @@
           "stringUnit": {
             "state": "translated",
             "value": "Стикер таңдаулылардан өшірілді"
+          }
+        }
+      }
+    },
+    "chats.share.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поделиться"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бөлісу"
+          }
+        }
+      }
+    },
+    "chats.share.pick": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите чаты"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чаттарды таңдаңыз"
+          }
+        }
+      }
+    },
+    "chats.share.caption": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подпись…"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қолтаңба…"
+          }
+        }
+      }
+    },
+    "chats.share.saveToGallery": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранить в галерею"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Галереяға сақтау"
+          }
+        }
+      }
+    },
+    "chats.share.system": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поделиться через…"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Басқа қолданба арқылы бөлісу…"
+          }
+        }
+      }
+    },
+    "chats.viewer.counter": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld из %2$lld"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$lld ішінен %1$lld"
+          }
+        }
+      }
+    },
+    "chats.viewer.deleteAlbum": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сообщение удалится целиком — вместе с остальными вложениями альбома (всего %lld)"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хабарлама толығымен өшіріледі — альбомның қалған тіркемелерімен бірге (барлығы %lld)"
+          }
+        }
+      }
+    },
+    "chats.viewer.deleteTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить сообщение?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хабарламаны өшіру керек пе?"
+          }
+        }
+      }
+    },
+    "chats.viewer.files.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ файл"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ файл"
+          }
+        }
+      }
+    },
+    "chats.viewer.files.few": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ файла"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ файл"
+          }
+        }
+      }
+    },
+    "chats.viewer.files.many": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ файлов"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ файл"
+          }
+        }
+      }
+    },
+    "chats.viewer.liveText": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Текст на снимке"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Суреттегі мәтін"
+          }
+        }
+      }
+    },
+    "chats.viewer.photos.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ фотография"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ фотосурет"
+          }
+        }
+      }
+    },
+    "chats.viewer.photos.few": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ фотографии"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ фотосурет"
+          }
+        }
+      }
+    },
+    "chats.viewer.photos.many": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ фотографий"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ фотосурет"
+          }
+        }
+      }
+    },
+    "chats.viewer.pickThisPhoto": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбрать эту фотографию"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Осы фотосуретті таңдау"
+          }
+        }
+      }
+    },
+    "chats.viewer.pickThisVideo": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбрать это видео"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Осы бейнені таңдау"
+          }
+        }
+      }
+    },
+    "chats.viewer.shareScope": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что отправить?"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не жіберу керек?"
+          }
+        }
+      }
+    },
+    "chats.viewer.videos": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ видео"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ бейне"
           }
         }
       }
