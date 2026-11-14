@@ -100,11 +100,15 @@ extension PhotoAssets {
     private static var mediaOptions: PHFetchOptions {
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        options.predicate = NSPredicate(
-            format: "mediaType == %d OR mediaType == %d",
-            PHAssetMediaType.image.rawValue,
-            PHAssetMediaType.video.rawValue
-        )
+        // Видео выключено с сервера — роликов в сетке нет: плитку, которую не отправить,
+        // лучше не показывать (подготовка всё равно откажет, `AttachmentStaging`).
+        options.predicate = AttachmentStaging.videoAllowed
+            ? NSPredicate(
+                format: "mediaType == %d OR mediaType == %d",
+                PHAssetMediaType.image.rawValue,
+                PHAssetMediaType.video.rawValue
+            )
+            : NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
         return options
     }
 

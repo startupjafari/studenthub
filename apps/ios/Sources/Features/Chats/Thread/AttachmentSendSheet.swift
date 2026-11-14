@@ -31,6 +31,8 @@ struct StagedAttachment: Identifiable {
 enum AttachmentStaging {
     enum Failure: LocalizedError {
         case tooLarge(name: String, limit: Int)
+        /// Отправка видео выключена с сервера (`RemoteFeature.chatVideoUpload`).
+        case videoDisabled
 
         var errorDescription: String? {
             switch self {
@@ -40,8 +42,24 @@ enum AttachmentStaging {
                     localized: "chats.attach.tooLarge",
                     defaultValue: "Файл «\(name)» больше \(size) — такой не отправить"
                 )
+            case .videoDisabled:
+                return String(
+                    localized: "chats.attach.videoDisabled",
+                    defaultValue: "Отправка видео временно недоступна"
+                )
             }
         }
+    }
+
+    /// Можно ли сейчас отправлять видео. Проверка здесь, у подготовки, а не только в
+    /// выборе: путей к ролику несколько (сетка «Фото», системный выбор, «Файлы»), и
+    /// выключатель обязан закрыть все разом.
+    static var videoAllowed: Bool { RemoteFeatures.shared.isEnabled(.chatVideoUpload) }
+
+    /// Что показывает системный выбор из «Фото»: без роликов, пока видео выключено, —
+    /// лучше не дать выбрать, чем отказать после выбора.
+    static var pickerFilter: PHPickerFilter {
+        videoAllowed ? .any(of: [.images, .videos]) : .images
     }
 
     /// Предел файла — `FILE_UPLOAD.MAX_BYTES` сервера: 25 МБ у аудио, 500 МБ у видео,
@@ -52,6 +70,9 @@ enum AttachmentStaging {
     }
 
     static func stage(_ item: PhotosPickerItem) async throws -> StagedAttachment {
+        if !videoAllowed, item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
+            throw Failure.videoDisabled
+        }
         if let movie = try await MediaPreparation.movieFile(from: item) {
             defer { try? FileManager.default.removeItem(at: movie) }
             let output = AttachmentUploader.outboxURL(forName: "video.mp4")
@@ -79,6 +100,7 @@ enum AttachmentStaging {
     /// не берёт), GIF уходит как есть — иначе анимация превратилась бы в один кадр.
     static func stage(_ asset: PHAsset, highQuality: Bool = false) async throws -> StagedAttachment {
         if asset.mediaType == .video {
+            guard videoAllowed else { throw Failure.videoDisabled }
             let source = try await PhotoAssets.movieFile(for: asset)
             defer { try? FileManager.default.removeItem(at: source) }
             let output = AttachmentUploader.outboxURL(forName: "video.mp4")
@@ -130,6 +152,8 @@ enum AttachmentStaging {
 
         let name = url.lastPathComponent
         let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+        // Ролик файлом — тоже видео: иначе выключатель обходился бы вкладкой «Файл».
+        if mime.hasPrefix("video/"), !videoAllowed { throw Failure.videoDisabled }
         let size = fileSize(url)
         guard size <= limit(for: mime) else { throw Failure.tooLarge(name: name, limit: limit(for: mime)) }
 
@@ -433,7 +457,7 @@ struct AttachmentSendSheet: View {
             isPresented: $pickingMore,
             selection: $more,
             maxSelectionCount: AttachmentUploader.albumLimit,
-            matching: .any(of: [.images, .videos])
+            matching: AttachmentStaging.pickerFilter
         )
         .onChange(of: more) {
             let picked = more

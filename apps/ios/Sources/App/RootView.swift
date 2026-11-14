@@ -57,10 +57,13 @@ struct RootView: View {
                 if case .signedIn = state { authLink = nil }
             }
             // Вернулись в приложение — возможно, уже со связью: выход, отложенный без
-            // сети, досылаем сразу, а не при следующем запуске.
+            // сети, досылаем сразу, а не при следующем запуске. Версию и выключенные
+            // функции перечитываем там же: функцию, сломавшуюся у пользователей, гасят
+            // правкой env, и ждать холодного запуска (его может не быть неделями) нельзя.
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active else { return }
                 Task { await session.completePendingLogouts() }
+                Task { await update.check() }
             }
     }
 

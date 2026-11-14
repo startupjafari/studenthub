@@ -309,7 +309,7 @@ struct MessageComposerView: View {
             isPresented: $pickingPhotoFiles,
             selection: $photoFiles,
             maxSelectionCount: AttachmentUploader.albumLimit,
-            matching: .any(of: [.images, .videos])
+            matching: AttachmentStaging.pickerFilter
         )
         .onChange(of: photoFiles) { _, items in
             guard !items.isEmpty else { return }

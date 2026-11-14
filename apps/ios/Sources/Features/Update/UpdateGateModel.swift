@@ -19,20 +19,31 @@ final class UpdateGateModel {
 
     private let api: ClientVersionChecking
     private let cache: ClientVersionCache
+    private let features: RemoteFeatures
     private let current: AppVersion?
 
     init(
         api: ClientVersionChecking = ClientVersionAPI(),
         cache: ClientVersionCache = DefaultsClientVersionCache(),
+        features: RemoteFeatures = .shared,
         currentVersion: String = AppConfiguration.marketingVersion
     ) {
         self.api = api
         self.cache = cache
+        self.features = features
         current = AppVersion(currentVersion)
     }
 
+    /// Проверка уже идёт. Запуск и первый переход в `.active` зовут `check()` почти
+    /// одновременно — второй запрос с тем же ответом не нужен.
+    @ObservationIgnored private var isChecking = false
+
     @MainActor
     func check() async {
+        guard !isChecking else { return }
+        isChecking = true
+        defer { isChecking = false }
+
         // Сначала — по последнему известному ответу: запуск без сети не должен
         // отменять уже принятое решение, иначе выключенный Wi-Fi обходит блокировку.
         if let remembered = cache.load() {
@@ -55,6 +66,9 @@ final class UpdateGateModel {
 
     @MainActor
     private func apply(_ info: ClientVersionInfo) {
+        // Выключатель функций едет в том же ответе (IOS_RULES 14.5.1) и применяется
+        // независимо от решения о версии: неразобранная версия не отменяет выключение.
+        features.apply(info.disabledFeatures)
         guard let current, let minimum = AppVersion(info.minimumVersion) else {
             // Не разобрали свою или серверную версию — пропускаем. Блокировать по
             // неразобранной строке значит ломать приложение из-за опечатки в env.
