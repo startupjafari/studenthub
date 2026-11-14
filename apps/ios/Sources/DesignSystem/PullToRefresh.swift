@@ -341,11 +341,9 @@ final class PullTuner: NSObject {
         return max(0, top - rest)
     }
 
-    /// Конец жеста прокрутки. Поле поиска открывает только палец, и без рывков:
-    /// - отпустили, когда поле выехало наполовину, — оно плавно доходит до ближайшего
-    ///   положения (открыто или спрятано), а не прыгает;
-    /// - бросили список к верху при спрятанном поле — он доезжает до верха и встаёт,
-    ///   поле остаётся спрятанным (раньше инерция открывала его сама).
+    /// Конец жеста прокрутки. Поле поиска открывает только палец: бросили список к верху
+    /// при спрятанном поле — он доезжает до верха и встаёт, поле остаётся спрятанным
+    /// (раньше инерция открывала его сама).
     @objc private func panChanged(_ pan: UIPanGestureRecognizer) {
         guard pan.state == .ended, let scrollView, !isRefreshing, searchBarHeight > 0,
             let collapsed = collapsedInset, let expanded = expandedInset, expanded > collapsed + 1
@@ -354,13 +352,12 @@ final class PullTuner: NSObject {
         let offset = scrollView.contentOffset.y
         // Оттянули дальше верха — это уже обновление, его ведёт система.
         guard offset >= -live - 1 else { return }
-        if live > collapsed + 1, live < expanded - 1 {
-            let open = live - collapsed > (expanded - collapsed) / 2
-            scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: open ? -expanded : -collapsed), animated: true)
-            return
-        }
+        // Поле, отпущенное на полпути, доводит сама система. Своя доводка поверх неё
+        // спорила с системной анимацией — на медленном жесте поле дёргалось.
+        guard live <= collapsed + 1 else { return }
+        // Только бросок: медленный жест ведёт палец, его не трогаем.
         let velocity = pan.velocity(in: scrollView).y
-        guard live <= collapsed + 1, velocity > 0, offset > -live + 1 else { return }
+        guard velocity > 300, offset > -live + 1 else { return }
         // Куда докатится инерция: путь торможения `UIScrollView` (скорость в pt/с).
         let rate = scrollView.decelerationRate.rawValue
         let travel = velocity * rate / (1 - rate) / 1000
