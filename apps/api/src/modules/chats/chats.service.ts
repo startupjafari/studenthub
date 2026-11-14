@@ -3339,6 +3339,13 @@ export class ChatsService implements OnModuleInit {
         createdAt: true,
         forwardedFromId: true,
         content: true,
+        stickerId: true,
+        systemType: true,
+        // Сообщения «не текстового вида» — содержимое в связанной записи, а не в `content`.
+        poll: { select: { id: true } },
+        checklist: { select: { id: true } },
+        location: { select: { messageId: true } },
+        contact: { select: { messageId: true } },
       },
     })
     if (!msg) throw new AppException('NOT_FOUND', 'Сообщение не найдено')
@@ -3347,6 +3354,20 @@ export class ChatsService implements OnModuleInit {
     // Пересылка — чужие слова под подписью «Переслано от X»: правка подделала бы цитату автора.
     if (msg.forwardedFromId) {
       throw new AppException('FORBIDDEN', 'Пересланное сообщение нельзя изменить')
+    }
+    // У опроса, чек-листа, стикера, геопозиции, контакта и системного события `content` пустой:
+    // правка дописала бы к ним текст, которого клиенты под такой карточкой не рисуют (или рисуют
+    // по-разному), а `editedAt` пометил бы «изменено» то, что не менялось. Пункты чек-листа и
+    // опрос меняются своими эндпоинтами.
+    if (
+      msg.poll ||
+      msg.checklist ||
+      msg.location ||
+      msg.contact ||
+      msg.stickerId ||
+      msg.systemType
+    ) {
+      throw new AppException('VALIDATION_ERROR', 'Это сообщение нельзя редактировать')
     }
     await this.assertMembership(senderId, msg.chatId)
     // Правка — тоже отправка (BUG-163): переписать сообщение у заблокировавшего тебя человека

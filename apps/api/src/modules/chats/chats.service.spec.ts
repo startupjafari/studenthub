@@ -409,6 +409,29 @@ describe('ChatsService.editMessage / deleteMessage — только автор',
     expect(prisma.message.update).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['опрос', { poll: { id: 'p1' } }],
+    ['чек-лист', { checklist: { id: 'cl1' } }],
+    ['стикер', { stickerId: 's1' }],
+    ['геопозиция', { location: { messageId: 'm1' } }],
+    ['контакт', { contact: { messageId: 'm1' } }],
+    ['системное событие', { systemType: 'member_added' }],
+  ])('правка сообщения-%s → VALIDATION_ERROR', async (_label, kind) => {
+    const { service, prisma } = setup()
+    prisma.message.findFirst.mockResolvedValue({
+      id: 'm1',
+      chatId: 'c1',
+      senderId: 'u1',
+      createdAt: new Date(),
+      content: '',
+      ...kind,
+    })
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1', bannedAt: null })
+    const err = await service.editMessage('u1', 'm1', 'текст').catch((e) => e)
+    expect(err.code).toBe('VALIDATION_ERROR')
+    expect(prisma.message.update).not.toHaveBeenCalled()
+  })
+
   it('правка своего старого сообщения (>10 мин) → BAD_REQUEST', async () => {
     const { service, prisma } = setup()
     prisma.message.findFirst.mockResolvedValue({
