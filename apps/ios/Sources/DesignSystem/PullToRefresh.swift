@@ -143,7 +143,7 @@ final class PullTuner: NSObject {
     private weak var scrollView: UIScrollView?
     private weak var signal: PullRefreshSignal?
     private var observation: NSKeyValueObservation?
-    private let spinner = UIActivityIndicatorView(style: .medium)
+    private let spinner = RefreshSpinnerView()
     private let feedback = UIImpactFeedbackGenerator(style: .light)
     /// Отступ сверху без добавки, которую система даёт на время обновления.
     private var baseInset: CGFloat = 0
@@ -166,7 +166,6 @@ final class PullTuner: NSObject {
         self.signal = signal
         super.init()
         signal.tuner = self
-        spinner.hidesWhenStopped = false
         spinner.alpha = 0
         spinner.isUserInteractionEnabled = false
         scrollView.addSubview(spinner)
@@ -215,9 +214,9 @@ final class PullTuner: NSObject {
     }
 
     private func hideSpinner() {
-        guard spinner.alpha > 0 || spinner.isAnimating else { return }
+        guard spinner.alpha > 0 || spinner.isSpinning else { return }
         UIView.animate(withDuration: 0.2) { self.spinner.alpha = 0 } completion: { _ in
-            if !self.isRefreshing { self.spinner.stopAnimating() }
+            if !self.isRefreshing { self.spinner.stopSpinning() }
         }
     }
 
@@ -257,12 +256,17 @@ final class PullTuner: NSObject {
             let top = scrollView.contentOffset.y + baseInset
             spinner.center = CGPoint(x: scrollView.bounds.midX, y: top / 2)
             spinner.alpha = refreshing ? 1 : min(1, shown / 60)
-            if refreshing, !spinner.isAnimating { spinner.startAnimating() }
-            if !refreshing, spinner.isAnimating { spinner.stopAnimating() }
+            // Пока тянут — дуга дорисовывается и поворачивается вслед за пальцем; пошло
+            // обновление — крутится сама, пока оно не кончится.
+            if refreshing, !spinner.isSpinning { spinner.startSpinning() }
+            if !refreshing {
+                if spinner.isSpinning { spinner.stopSpinning() }
+                spinner.setProgress(min(1, shown / 80))
+            }
             scrollView.bringSubviewToFront(spinner)
         } else {
             spinner.alpha = 0
-            if spinner.isAnimating { spinner.stopAnimating() }
+            if spinner.isSpinning { spinner.stopSpinning() }
         }
     }
 
@@ -297,5 +301,88 @@ final class PullTuner: NSObject {
             responder = current.next
         }
         return nil
+    }
+}
+
+/// Индикатор обновления оттягиванием, как в Telegram и почте: пока список тянут, дуга
+/// дорисовывается и поворачивается вслед за пальцем, а во время обновления крутится
+/// непрерывно. Системный `UIActivityIndicatorView` до начала обновления стоял на месте
+/// — пустота над списком открывалась с неподвижным значком.
+final class RefreshSpinnerView: UIView {
+    private static let side: CGFloat = 28
+    private static let lineWidth: CGFloat = 2.5
+    /// Доля круга, которую дуга занимает при полном оттягивании и во время обновления.
+    private static let fullArc: CGFloat = 0.78
+
+    private let arc = CAShapeLayer()
+    private(set) var isSpinning = false
+
+    init() {
+        super.init(frame: CGRect(x: 0, y: 0, width: Self.side, height: Self.side))
+        isUserInteractionEnabled = false
+        arc.fillColor = UIColor.clear.cgColor
+        arc.lineWidth = Self.lineWidth
+        arc.lineCap = .round
+        arc.strokeEnd = 0
+        layer.addSublayer(arc)
+        applyColor()
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: RefreshSpinnerView, _) in
+            view.applyColor()
+        }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        arc.frame = bounds
+        let radius = (min(bounds.width, bounds.height) - Self.lineWidth) / 2
+        arc.path = UIBezierPath(
+            arcCenter: CGPoint(x: bounds.midX, y: bounds.midY),
+            radius: radius,
+            startAngle: -.pi / 2,
+            endAngle: .pi * 1.5,
+            clockwise: true
+        ).cgPath
+    }
+
+    /// Насколько оттянут список, 0…1: длина дуги и её поворот.
+    func setProgress(_ progress: CGFloat) {
+        guard !isSpinning else { return }
+        let value = min(max(progress, 0), 1)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        arc.strokeEnd = 0.04 + (Self.fullArc - 0.04) * value
+        arc.setAffineTransform(CGAffineTransform(rotationAngle: value * .pi * 1.2))
+        CATransaction.commit()
+    }
+
+    func startSpinning() {
+        guard !isSpinning else { return }
+        isSpinning = true
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        arc.strokeEnd = Self.fullArc
+        CATransaction.commit()
+        // Вращение продолжает поворот, на котором остался палец, — без скачка.
+        let start = (arc.value(forKeyPath: "transform.rotation.z") as? CGFloat) ?? 0
+        let spin = CABasicAnimation(keyPath: "transform.rotation.z")
+        spin.fromValue = start
+        spin.toValue = start + .pi * 2
+        spin.duration = 0.75
+        spin.repeatCount = .infinity
+        spin.isRemovedOnCompletion = false
+        arc.add(spin, forKey: "spin")
+    }
+
+    func stopSpinning() {
+        guard isSpinning else { return }
+        isSpinning = false
+        arc.removeAnimation(forKey: "spin")
+    }
+
+    private func applyColor() {
+        arc.strokeColor = UIColor.secondaryLabel.resolvedColor(with: traitCollection).cgColor
     }
 }
