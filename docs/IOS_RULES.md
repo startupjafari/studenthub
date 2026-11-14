@@ -7965,7 +7965,9 @@ in»); P (Task 7 Step 1: «Each `.js` is copied together with its `.qbc`»; Task
 или честно «тестом не закреплено»). Открытые проблемы — с id и местом в коде, исправленные — отдельно. Датированный
 аудит — отдельный документ, не карта.
 **Почему.** У Telegram карта описывает код как он есть и правится вместе с ним; иначе она врёт уже через неделю.
-**Сейчас у нас.** карты нет — знания размазаны по комментариям `RealtimeCoordinator`, `MessageStore`, `OutboxService`.
+**Сейчас у нас.** карта — отдельный документ [`docs/IOS_SYNC_MAP.md`](IOS_SYNC_MAP.md) (решение владельца). Правило:
+правка синхронизации (`RealtimeCoordinator`, `MessageStore`, `ChatStore`, `OutboxService`, `MessageOutbox`,
+`SyncPosition`, догон и страницы `ChatThreadModel`, выход и `SessionStore.restore`) обновляет карту в том же коммите.
 *Источник: `submodules/TelegramCore/Sources/State/CLAUDE.md` (карта и аудит); `docs/state-sync.md` (вводная, «Pointers»,
 «Invariants», «Open issues», «Fixed»)*
 
@@ -8819,7 +8821,7 @@ release-сборка не запускалась.
 - **`sinceTs` берётся с часов телефона, `syncedAt` сервера не декодируется** — `Core/Chats/ChatMessagesAPI.swift:7–13`, `ChatThreadModel.swift:1477` (сервер отдаёт `syncedAt`: `apps/api/src/modules/chats/chats.service.ts:1745–1822`) — правило 9.3.5. Правки и удаления в окне расхождения часов пропадают; плюс `take: 200` у `mutated`/`deletedIds` без признака переполнения — вопрос к серверу. [расходится] [исправлено, #499]
 - **На overflow история стирается до скачивания новой** — `ChatThreadModel.swift:1479–1486` — правило 9.3.10. Без сети человек остаётся с пустым чатом без офлайн-истории. [расходится] [исправлено, #499]
 - **Страница истории только дописывает** — `Core/Chats/MessageStore.swift:17–25` — правило 9.3.12. Удалённое за непокрытое догоном время остаётся в ленте навсегда. [расходится] [исправлено, #499]
-- **Стирать или помечать «требует сверки» на overflow** — `ChatThreadModel.swift:1479` — правило 9.3.13. Выбор между стиранием (сейчас) и ленивой сверкой видимого окна. [решение владельца]
+- **Стирать или помечать «требует сверки» на overflow** — `ChatThreadModel.swift:1479` — правило 9.3.13. Выбор между стиранием (сейчас) и ленивой сверкой видимого окна. [решено: не стирать, граница `unsyncedBelow` и сверка страниц при прокрутке вверх, волна 5]
 
 - **Непрочитанное растёт на повторное событие** — `Core/Realtime/RealtimeCoordinator.swift:367–370` — правило 9.4.8. Повтор `message:new` после переподключения или после догона завышает счётчик. [расходится] [исправлено, #499]
 - **«Печатает» выбирается из словаря случайно** — `Core/Realtime/RealtimeCoordinator.swift:419,468` — правило 9.4.10. При двух печатающих подпись может мигать между ними. [расходится] [исправлено, #499]
@@ -8851,7 +8853,7 @@ release-сборка не запускалась.
 - **Принятие сессии после QR и пароля без проверки, что поток ещё актуален** — `apps/ios/Sources/Features/Auth/QRSignInView.swift:198–201`, `apps/ios/Sources/Features/Auth/LoginModel.swift:62, 92` — правило 10.1.8. Закрытый лист или «Назад» не мешают позднему `session.adopt`: человек окажется внутри после отмены. [расходится] [исправлено, #499]
 - **Выход не останавливает трансляции геопозиции, старт их возобновляет** — `apps/ios/Sources/App/StudentHubApp.swift:23` — правило 10.1.10. Трансляция прежнего человека может продолжиться под следующим аккаунтом. [расходится] [исправлено, #499]
 - **`LocalData.erase()` не чистит `chats.liveLocations` и кеш `MessageCodeBlocks`** — `apps/ios/Sources/App/AppSessionModel.swift:162`, `apps/ios/Sources/Features/Chats/Thread/Attach/LiveLocationSharing.swift:33`, `apps/ios/Sources/Features/Chats/Thread/MessageCodeBlocks.swift:106` — правило 10.1.11. Данные и тексты прежнего человека переживают явный выход. [расходится] [исправлено, #499]
-- **Сессия переживает удаление и переустановку приложения** — `apps/ios/Sources/Core/Session/SessionStore.swift:89` — правило 10.1.12. Человек, удаливший приложение «чтобы выйти», после установки снова внутри. [решение владельца]
+- **Сессия переживает удаление и переустановку приложения** — `apps/ios/Sources/Core/Session/SessionStore.swift:89` — правило 10.1.12. Человек, удаливший приложение «чтобы выйти», после установки снова внутри. [решено: признак установки в `UserDefaults`, первый запуск стирает сессию и гасит refresh отложенным выходом, волна 5]
 - **Срок QR-входа считается по `Date()`** — `apps/ios/Sources/Features/Auth/QRSignInView.swift:186, 193` — правило 10.1.13. Перевод часов сдвигает истечение кода. [расходится] [исправлено, #499]
 - **`Keychain.set` игнорирует результат `SecItemAdd`** — `apps/ios/Sources/Core/Session/SecretStore.swift:80–86` — правило 10.2.2. Незаписанный ротированный refresh-токен → следующий запуск пошлёт погашенный, сервер порвёт цепочку (ложный выход). [расходится] [исправлено, #499]
 - **Синтезированное описание у типов с токенами** — `apps/ios/Sources/Core/Session/AccessToken.swift:8`, `apps/ios/Sources/Core/Session/AuthAPI.swift:8`, `apps/ios/Sources/Core/Session/SessionStore.swift:353, 363`, `apps/ios/Sources/App/AppSessionModel.swift:17` — правило 10.2.6. Любой `"\(state)"`, `dump`, `print` или крошка Sentry выдаст JWT/refresh-токен. [расходится] [исправлено, #499]
@@ -8893,7 +8895,7 @@ release-сборка не запускалась.
 #### §15. Документация, процесс, работа агентов
 
 - **Список «открыто до выпуска» неполный, `Package.resolved` не закреплён** — `docs/RELEASE_IOS.md:12`, `apps/ios/.gitignore:35`, `apps/ios/README.md:246` — правило 15.7.8. В релизном документе только заглушка `api.example.invalid`; незакреплённые версии SPM и отсутствие иконки всплывут при первой выкладке. [расходится] [список дополнен; `Package.resolved` — решение владельца]
-- **Нет карты синхронизации** — `apps/ios/Sources/Core/Realtime/RealtimeCoordinator.swift`, `apps/ios/Sources/Core/Chats/MessageStore.swift`, `apps/ios/Sources/Core/Chats/OutboxService.swift` — правило 15.1.5. Инварианты догона (`lastSeq`, `sinceTs`) размазаны по комментариям, правка синхронизации не обязана их обновлять. [решение владельца]
+- **Нет карты синхронизации** — `apps/ios/Sources/Core/Realtime/RealtimeCoordinator.swift`, `apps/ios/Sources/Core/Chats/MessageStore.swift`, `apps/ios/Sources/Core/Chats/OutboxService.swift` — правило 15.1.5. Инварианты догона (`lastSeq`, `sinceTs`) размазаны по комментариям, правка синхронизации не обязана их обновлять. [решено: карта `docs/IOS_SYNC_MAP.md`, правка синхронизации обновляет её, волна 5]
 
 ---
 
