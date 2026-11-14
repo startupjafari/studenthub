@@ -1,8 +1,8 @@
 name: iOS nightly
 
 # Расширенный прогон: все UI-сценарии (включая живой сервер, если в секретах есть
-# учётка) и замеры производительности против Tests/perf-baseline.json, плюс сборка
-# Release без подписи. На PR не идёт:
+# учётка) и замеры производительности против Tests/perf-baseline.json, плюс мягкий аудит
+# доступности и сборка Release без подписи. На PR не идёт:
 # замеры шумные и долгие, а регрессию между соседними прогонами видно по сводке и
 # артефакту metrics.json.
 #
@@ -74,6 +74,17 @@ jobs:
           TEST_RUNNER_SH_UITEST_PASSWORD: ${{ secrets.IOS_UITEST_PASSWORD }}
         run: scripts/test.sh full
 
+      # Аудит доступности на mock API (IOS_RULES 11.5.2) — мягко: пока первый отчёт не
+      # разобран, находки не роняют ночной прогон, а лежат в артефакте ios-a11y-audit
+      # (скриншоты и деревья элементов в artifacts/a11y/attachments, сводка в summary.md).
+      # Когда находки исправлены — убрать continue-on-error, и шаг станет обязательным.
+      - name: Аудит доступности (мягко)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          SH_TEST_OUTPUT: ${{ github.workspace }}/apps/ios/build/a11y-output
+        run: scripts/test.sh a11y
+
       # Release без подписи (IOS_RULES 4.1.2): PR и тесты собирают только Debug, а код под
       # `#if DEBUG`, оптимизатор и strip ломают как раз Release — узнать об этом хочется
       # ночью, а не в день выпуска. Устройство (generic iOS), как у ios-release.yml.
@@ -103,3 +114,11 @@ jobs:
             apps/ios/build/release-output
           retention-days: 30
 
+      - name: Сохранить отчёт аудита доступности
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-a11y-audit
+          path: apps/ios/build/a11y-output
+          retention-days: 30
+          if-no-files-found: warn

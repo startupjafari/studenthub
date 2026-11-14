@@ -13,7 +13,9 @@
 #   unit         StudentHubTests — логика, модели, движение (MotionTests и др.)
 #   snapshot     StudentHubSnapshotTests — снимки компонентов: темы, размеры, шрифт
 #   ui           StudentHubUITests, критичные сценарии на mock API
-#   ui-extended  StudentHubUITests целиком, включая живой сервер (нужна учётка)
+#   ui-extended  StudentHubUITests целиком, включая живой сервер (нужна учётка), кроме аудита
+#   a11y         аудит доступности ключевых экранов на mock API (AccessibilityAuditUITests):
+#                скриншоты и деревья элементов — во вложениях
 #   perf         StudentHubPerfTests — запуск, прокрутка, переходы; сверка с baseline
 #   scroll       только замер плавности ленты переписки (ScrollSmoothnessTests): строки
 #                SCROLL_REPORT в сводке, сравнение положений раскладки в одном прогоне
@@ -50,7 +52,7 @@ for arg in "$@"; do
     build) BUILD_ONLY=1 ;;
     pr) SUITES+=(unit snapshot ui) ;;
     full) SUITES+=(unit snapshot ui-extended perf) ;;
-    unit | snapshot | ui | ui-extended | perf | scroll | bench) SUITES+=("$arg") ;;
+    unit | snapshot | ui | ui-extended | a11y | perf | scroll | bench) SUITES+=("$arg") ;;
     -h | --help) sed -n '2,25p' "$0"; exit 0 ;;
     *) echo "Неизвестный набор: $arg" >&2; exit 2 ;;
   esac
@@ -306,8 +308,13 @@ for suite in "${SUITES[@]}"; do
     unit) run_suite unit -only-testing:StudentHubTests ;;
     snapshot) run_suite snapshot -only-testing:StudentHubSnapshotTests ;;
     # Критичные сценарии — только mock API: без сервера и без учётки, воспроизводимо.
-    ui) run_suite ui -only-testing:StudentHubUITests -skip-testing:StudentHubUITests/ChatFlowsUITests ;;
-    ui-extended) run_suite ui-extended -only-testing:StudentHubUITests ;;
+    # Аудит доступности — своим набором `a11y`: пока его находки не разобраны, он не
+    # должен ронять ui/ui-extended (ночной прогон гоняет его отдельным мягким шагом).
+    ui) run_suite ui -only-testing:StudentHubUITests -skip-testing:StudentHubUITests/ChatFlowsUITests \
+      -skip-testing:StudentHubUITests/AccessibilityAuditUITests ;;
+    ui-extended) run_suite ui-extended -only-testing:StudentHubUITests \
+      -skip-testing:StudentHubUITests/AccessibilityAuditUITests ;;
+    a11y) run_suite a11y -only-testing:StudentHubUITests/AccessibilityAuditUITests ;;
     perf) run_suite perf -only-testing:StudentHubPerfTests ;;
     scroll) run_suite scroll -only-testing:StudentHubPerfTests/ScrollSmoothnessTests ;;
     bench) run_bench ;;
