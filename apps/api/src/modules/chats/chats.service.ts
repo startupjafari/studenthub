@@ -5763,8 +5763,8 @@ export class ChatsService implements OnModuleInit {
       this.emitScheduledChanged(senderId, row.chatId)
       return message
     } catch (error) {
-      await this.prisma.scheduledMessage
-        .create({
+      try {
+        await this.prisma.scheduledMessage.create({
           data: {
             id: row.id,
             chatId: row.chatId,
@@ -5777,12 +5777,13 @@ export class ChatsService implements OnModuleInit {
             createdAt: row.createdAt,
           },
         })
-        .catch((restoreError: unknown) => {
-          this.logger.error(
-            { err: restoreError, scheduledId: row.id },
-            'Не удалось вернуть отложенное сообщение после отказа отправки',
-          )
-        })
+      } catch (restoreError) {
+        // Чат удалён — возвращать некуда; сама ошибка отправки всё равно уходит клиенту.
+        this.logger.error(
+          { err: restoreError, scheduledId: row.id },
+          'Не удалось вернуть отложенное сообщение после отказа отправки',
+        )
+      }
       throw error
     }
   }
