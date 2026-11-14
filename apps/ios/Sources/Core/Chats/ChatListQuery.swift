@@ -147,10 +147,7 @@ struct ChatListRow: FetchableRecord, Decodable, Identifiable, Equatable {
         guard lastCreatedAt != nil, lastSystemType == nil, lastAttachmentMime == nil,
               lastContent?.isEmpty != false
         else { return false }
-        guard let extras = lastExtras else { return true }
-        return extras.sharedPost == nil && extras.sharedStory == nil && extras.poll == nil
-            && extras.location == nil && extras.contact == nil && extras.checklist == nil
-            && extras.sticker == nil
+        return lastExtras?.hasKnownContent != true
     }
 }
 

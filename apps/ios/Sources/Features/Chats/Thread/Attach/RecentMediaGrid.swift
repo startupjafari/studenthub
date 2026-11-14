@@ -228,7 +228,7 @@ struct RecentMediaGrid: View {
 
     private func reload() {
         guard status == .authorized || status == .limited else { return }
-        albums.load()
+        albums.load(displayScale: displayScale)
         reloadAssets()
     }
 

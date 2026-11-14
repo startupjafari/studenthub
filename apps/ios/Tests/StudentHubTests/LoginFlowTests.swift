@@ -262,3 +262,19 @@ private final class MemorySecrets: SecretStore, @unchecked Sendable {
         _ = lock.withLock { storage.removeValue(forKey: key.rawValue) }
     }
 }
+
+/// Код 2FA с любой раскладки уходит ASCII-цифрами (IOS_RULES 7.2.12).
+final class OneTimeCodeTests: XCTestCase {
+    func testDigitsOfAnyScriptBecomeASCII() {
+        XCTAssertEqual(OneTimeCode.normalized(" ١٢٣٤٥٦ "), "123456")
+        XCTAssertEqual(OneTimeCode.normalized("１２３４５６"), "123456")
+        XCTAssertEqual(OneTimeCode.normalized("۱۲۳۴۵۶"), "123456")
+        XCTAssertEqual(OneTimeCode.normalized("123456"), "123456")
+    }
+
+    func testBackupCodeIsComposedNotRestricted() {
+        // «é» из двух скаляров (e + акут) — одним, остальное как есть.
+        XCTAssertEqual(OneTimeCode.normalized("abcde\u{301}-12"), "abcd\u{E9}-12")
+        XCTAssertEqual(OneTimeCode.normalized("AB12-CD34"), "AB12-CD34")
+    }
+}

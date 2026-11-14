@@ -214,6 +214,20 @@ struct ScriptedChats: ChatsFetching {
         try await server.respond(to: .init(method: "GET", path: "chats/folders")) { [] }
     }
 
+    /// Одна строка — `GET /chats/:id`; по умолчанию группа с заголовком «Строка <id>».
+    func chat(id: String) async throws -> ChatListItemDTO {
+        try await server.respond(to: .init(method: "GET", path: "chats/\(id)")) { Self.row(id: id) }
+    }
+
+    static func row(id: String) -> ChatListItemDTO {
+        ChatListItemDTO(
+            id: id, type: "GROUP", title: "Строка \(id)", avatarUrl: nil, description: nil, subject: nil,
+            memberCount: 3, unreadCount: 2, muted: nil, mutedImportantOnly: nil, draft: nil, pinnedAt: nil,
+            archived: nil, othersReadAt: nil, requestIncoming: nil, requestOutgoing: nil, lastMessage: nil,
+            updatedAt: Date()
+        )
+    }
+
     func setPinned(_ pinned: Bool, chatID: String) async throws {
         try await toggle(pinned, path: "chats/\(chatID)/pin")
     }

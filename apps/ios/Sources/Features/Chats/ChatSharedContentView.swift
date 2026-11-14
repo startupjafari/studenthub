@@ -235,7 +235,7 @@ private struct ChatSharedContentDialogs: ViewModifier {
         content
             .remoteFilePreview(shared.opener)
             .fullScreenCover(item: $shared.viewer) { target in
-                MediaViewer(media: target.media, start: target.start)
+                MediaViewer(media: target.media, start: target.start) { VideoRecovery.chatAttachment($0.id) }
             }
             .sheet(item: $shared.sharing) { file in
                 ShareSheet(items: [file.url])

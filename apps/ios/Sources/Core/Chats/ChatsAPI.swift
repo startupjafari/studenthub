@@ -6,6 +6,9 @@ import Foundation
 /// `URLSession` ради этого значит проверять не свой код, а чужой.
 protocol ChatsFetching: Sendable {
     func chats(cursor: String?, limit: Int) async throws -> Page<ChatListItemDTO>
+    /// Одна строка списка — тот же элемент, что в `GET /chats`. Не участник или чат
+    /// скрыт — `notFound`.
+    func chat(id: String) async throws -> ChatListItemDTO
     func folders() async throws -> [ChatFolderDTO]
     func setPinned(_ pinned: Bool, chatID: String) async throws
     func setArchived(_ archived: Bool, chatID: String) async throws
@@ -30,6 +33,10 @@ struct ChatsAPI: ChatsFetching {
             query.append(URLQueryItem(name: "cursor", value: cursor))
         }
         return try await client.page(.get("chats", query: query), of: ChatListItemDTO.self)
+    }
+
+    func chat(id: String) async throws -> ChatListItemDTO {
+        try await client.send(.get("chats/\(id)"), as: ChatListItemDTO.self)
     }
 
     func folders() async throws -> [ChatFolderDTO] {

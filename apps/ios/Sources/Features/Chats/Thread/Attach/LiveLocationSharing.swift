@@ -105,6 +105,30 @@ final class LiveLocationSharing: NSObject, CLLocationManagerDelegate {
         UserDefaults.standard.removeObject(forKey: Self.storageKey)
     }
 
+    /// Выход из аккаунта: сервер узнаёт, что трансляции встали, пока токен ещё действует, —
+    /// иначе у собеседников пузырь «в эфире» висел бы до своего срока. Запросы идут
+    /// параллельно и ограничены общим сроком: без сети выход не ждёт, сбой молча
+    /// пропускается — локально трансляции всё равно сотрёт `erase()`.
+    func stopAllForSignOut(timeout: Duration = .seconds(3)) async {
+        let ids = sessions.values.filter { $0.until > Date() }.map(\.messageID)
+        // GPS гасим сразу: точки после решения выйти не нужны.
+        suspend()
+        guard !ids.isEmpty else { return }
+        let api = api
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                await withTaskGroup(of: Void.self) { stops in
+                    for id in ids {
+                        stops.addTask { _ = try? await api.stopLiveLocation(messageID: id) }
+                    }
+                }
+            }
+            group.addTask { try? await Task.sleep(for: timeout) }
+            await group.next()
+            group.cancelAll()
+        }
+    }
+
     func start(messageID: String, chatID: String, until: Date) {
         sessions[messageID] = Session(messageID: messageID, chatID: chatID, until: until, ownerID: owner)
         failure = nil

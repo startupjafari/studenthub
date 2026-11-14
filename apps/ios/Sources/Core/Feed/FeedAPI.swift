@@ -411,6 +411,18 @@ struct FeedAPI: FeedFetching {
         try await client.send(.get("posts/\(id)"), as: PostDTO.self)
     }
 
+    /// Свежая подписанная ссылка на медиа поста (и HLS с новым токеном `t`) — когда прежняя
+    /// истекла посреди просмотра (IOS_RULES 9.6.13). Не в протоколе: нужна только плееру.
+    func media(postID: String, fileID: String) async throws -> PostDTO.Media {
+        let answer = try await client.send(.get("posts/\(postID)/media/\(fileID)/url"), as: SignedMedia.self)
+        return PostDTO.Media(id: fileID, url: answer.url, mime: nil, hls: answer.hls)
+    }
+
+    private struct SignedMedia: Decodable {
+        let url: String?
+        let hls: String?
+    }
+
     /// Комментарии страницами, от новых к старым: курсор ведёт в прошлое.
     func comments(postID: String, cursor: String?) async throws -> Page<PostCommentDTO> {
         var query = [URLQueryItem(name: "limit", value: "20")]

@@ -233,6 +233,27 @@ final class RealtimeCoordinatorTests: XCTestCase {
         _ = coordinator
     }
 
+    /// Активность в чате (сообщение, смена членства) перечитывает строку этого чата, а не
+    /// первую страницу: чат за её пределами иначе не обновился бы (IOS_RULES 9.4.18).
+    func testChatActivityRefreshesThatRowOnly() async throws {
+        let server = ScriptedServer()
+        let (database, coordinator, transport) = try await make(server: server, api: ScriptedChats(server: server))
+
+        await transport.emit(.connected)
+        try? await Task.sleep(for: .milliseconds(1_000))
+        let pagesAfterConnect = server.matching("GET", "chats").count
+
+        await transport.emit(.chatActivity(chatID: "far-away"))
+        await transport.emit(.chatActivity(chatID: "far-away"))
+        try? await Task.sleep(for: .milliseconds(1_000))
+
+        XCTAssertEqual(server.matching("GET", "chats/far-away").count, 1)
+        XCTAssertEqual(server.matching("GET", "chats").count, pagesAfterConnect)
+        let title = try await database.reader.read { db in try ChatRecord.fetchOne(db, key: "far-away")?.title }
+        XCTAssertEqual(title, "Строка far-away")
+        _ = coordinator
+    }
+
     /// События пишутся в объекты своего ключа: прочтение в одном чате и «в сети» одного
     /// человека не трогают сигналы других (P1-4 аудита).
     func testKeyedSignalsChangeOnlyForTheirKey() async throws {

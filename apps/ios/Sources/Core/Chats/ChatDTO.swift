@@ -297,6 +297,14 @@ struct MessageExtras: Codable, Hashable {
     var contact: Contact?
     var checklist: Checklist?
     var sticker: Sticker?
+
+    /// Есть ли содержимое вида, известного этой сборке. Сообщение без текста, файлов и такого
+    /// содержимого — новый вид из будущей версии: его рисуют заглушкой «обновите приложение»,
+    /// а не пустым пузырём (IOS_RULES 9.2.8). Новый вид — добавить сюда, иначе он станет заглушкой.
+    var hasKnownContent: Bool {
+        sharedPost != nil || sharedStory != nil || poll != nil || location != nil || contact != nil
+            || checklist != nil || sticker != nil
+    }
 }
 
 /// Папка чатов (§2 эпика «Чаты»): имя, позиция вкладки, состав и правила как в Telegram —
