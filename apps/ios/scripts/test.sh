@@ -18,7 +18,7 @@
 #   scroll       только замер плавности ленты переписки (ScrollSmoothnessTests): строки
 #                SCROLL_REPORT в сводке, сравнение положений раскладки в одном прогоне
 #   bench        тот же замер без XCUITest: приложение ставится и запускается `simctl`,
-#                чат открывается ссылкой, листает себя само (ScrollBenchmark); строки
+#                чат открывается сам, лента листает себя сама (ScrollBenchmark); строки
 #                SCROLL_BENCH в сводке. Раннер UI-тестов включает доступность и опрашивает
 #                дерево элементов — замер через него мерит в основном сам тест
 #
@@ -235,9 +235,8 @@ run_bench() {
     SIMCTL_CHILD_SH_UITEST_MOCK=1 SIMCTL_CHILD_SH_UITEST_LARGE=1 SIMCTL_CHILD_SH_UITEST_SCENARIO=student \
       SIMCTL_CHILD_SH_PERF_FLAGS="$flags" SIMCTL_CHILD_SH_SCROLL_BENCH="$name" \
       xcrun simctl launch "$UDID" "$bundle" -AppleLanguages '(ru)' -AppleLocale ru_RU >/dev/null
-    # Оболочка поднимается и читает список чатов из mock.
-    sleep 8
-    xcrun simctl openurl "$UDID" "studenthub://chats?c=chat-1"
+    # Чат открывает сама оболочка (`ScrollBenchmark.chatToOpen`): ссылка через
+    # `simctl openurl` упирается в системный вопрос «Открыть в…».
     result="$container/tmp/scroll-bench.txt"
     for _ in $(seq 1 120); do
       [[ -s "$result" ]] && break
