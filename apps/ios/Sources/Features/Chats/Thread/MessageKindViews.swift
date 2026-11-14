@@ -203,14 +203,14 @@ struct ContactMessageView: View {
             ForEach(contact.phones, id: \.self) { phone in
                 if let url = URL(string: "tel:\(phone.filter { $0.isNumber || $0 == "+" })") {
                     Button(String(localized: "chats.contact.call", defaultValue: "Позвонить \(phone)")) {
-                        UIApplication.shared.open(url)
+                        ExternalLinkOpener.open(url, confirmed: true)
                     }
                 }
             }
             ForEach(contact.emails, id: \.self) { email in
                 if let url = URL(string: "mailto:\(email)") {
                     Button(String(localized: "chats.contact.mail", defaultValue: "Написать на \(email)")) {
-                        UIApplication.shared.open(url)
+                        ExternalLinkOpener.open(url, confirmed: true)
                     }
                 }
             }
