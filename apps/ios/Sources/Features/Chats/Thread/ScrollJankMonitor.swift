@@ -35,12 +35,23 @@ final class ScrollJankMonitor: NSObject {
         case section
         /// Применение среза (`dataSource.apply`).
         case apply
+        /// Расчёт раскладкой: `prepare` и `layoutAttributesForElements(in:)`.
+        case layoutQuery
+        /// Раскладка ячейки сообщения (`layoutSubviews`): обновление SwiftUI внутри неё.
+        case cellLayout
+        /// Раскладка строки даты дня.
+        case headerLayout
+        /// Обработчик прокрутки ленты (`scrollViewDidScroll`).
+        case scrollHandler
     }
 
     /// Итог прокрутки (или нескольких подряд).
     struct Report: CustomStringConvertible {
         var scrolls = 0
         var duration: CFTimeInterval = 0
+        /// Сколько из этого главный поток не спал (между пробуждением цикла событий и
+        /// следующим засыпанием) — вся его работа, измеренная и нет.
+        var busy: CFTimeInterval = 0
         var frames = 0
         var hitches = 0
         var hitchTime: CFTimeInterval = 0
@@ -67,6 +78,7 @@ final class ScrollJankMonitor: NSObject {
             var parts = [
                 "scrolls=\(scrolls)",
                 String(format: "duration=%.2fs", duration),
+                String(format: "busy=%.0fms", busy * 1000),
                 "frames=\(frames)",
                 "hitches=\(hitches)",
                 String(format: "hitchRatio=%.1fms/s", hitchRatio),
@@ -98,6 +110,8 @@ final class ScrollJankMonitor: NSObject {
     var auditVisible: (() -> [String])?
 
     private var link: CADisplayLink?
+    private var runLoopObserver: CFRunLoopObserver?
+    private var wokeAt: CFTimeInterval = 0
     private var lastFrame: CFTimeInterval = 0
     private var startedAt: CFTimeInterval = 0
     private let log = Logger(subsystem: "kz.studenthub", category: "ScrollJank")
@@ -111,6 +125,7 @@ final class ScrollJankMonitor: NSObject {
         link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
         link.add(to: .main, forMode: .common)
         self.link = link
+        observeRunLoop()
         lastFrame = 0
         startedAt = CACurrentMediaTime()
         report.scrolls += 1
@@ -122,6 +137,10 @@ final class ScrollJankMonitor: NSObject {
         guard let link else { return }
         link.invalidate()
         self.link = nil
+        if let runLoopObserver {
+            CFRunLoopRemoveObserver(CFRunLoopGetMain(), runLoopObserver, .commonModes)
+            self.runLoopObserver = nil
+        }
         report.duration += CACurrentMediaTime() - startedAt
         if let mismatches = auditVisible?() {
             report.mismatched = mismatches.count
@@ -151,6 +170,26 @@ final class ScrollJankMonitor: NSObject {
         guard Self.isEnabled, link != nil else { return }
         report.remeasures += 1
         if above { report.remeasuresAbove += 1 }
+    }
+
+    /// Занятость главного потока: от пробуждения цикла событий до засыпания.
+    private func observeRunLoop() {
+        wokeAt = CACurrentMediaTime()
+        let activities = CFRunLoopActivity.afterWaiting.rawValue | CFRunLoopActivity.beforeWaiting.rawValue
+        let observer = CFRunLoopObserverCreateWithHandler(nil, activities, true, 0) { [weak self] _, activity in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let now = CACurrentMediaTime()
+                if activity == .afterWaiting {
+                    self.wokeAt = now
+                } else if self.wokeAt > 0 {
+                    self.report.busy += now - self.wokeAt
+                    self.wokeAt = 0
+                }
+            }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        runLoopObserver = observer
     }
 
     @objc private func frame(_ link: CADisplayLink) {

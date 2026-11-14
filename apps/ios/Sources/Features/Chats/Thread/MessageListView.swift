@@ -742,7 +742,7 @@ final class MessageListViewController: UIViewController {
 
         // Обычная ячейка, не строка списка: у прилипшего заголовка списка система рисует
         // подложку во всю ширину — полосу под датой. Здесь видна только капсула даты.
-        let header = UICollectionView.SupplementaryRegistration<UICollectionViewCell>(
+        let header = UICollectionView.SupplementaryRegistration<DaySeparatorCell>(
             elementKind: UICollectionView.elementKindSectionHeader
         ) { [weak self] view, _, indexPath in
             guard let day = self?.dataSource.sectionIdentifier(for: indexPath.section) else { return }
@@ -1245,6 +1245,10 @@ extension MessageListViewController: UICollectionViewDataSourcePrefetching {
 
 extension MessageListViewController: UICollectionViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        ScrollJankMonitor.shared.measure(.scrollHandler) { handleScroll(scrollView) }
+    }
+
+    private func handleScroll(_ scrollView: UIScrollView) {
         #if DEBUG
             let jump = scrollView.contentOffset.y - probeLastOffset
             if abs(jump) > 200 {
@@ -1483,6 +1487,14 @@ final class FloatingDateView: UIView {
 /// реакции и отправке, пока сам пузырь рос плавно. Низ держит лента пружиной
 /// (`MessageListViewController.contentHeightChanged`).
 final class MessageListLayout: UICollectionViewCompositionalLayout {
+    override func prepare() {
+        ScrollJankMonitor.shared.measure(.layoutQuery) { super.prepare() }
+    }
+
+    override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
+        ScrollJankMonitor.shared.measure(.layoutQuery) { super.layoutAttributesForElements(in: rect) }
+    }
+
     /// Ячейка измерила себя (высота — её настоящая). Для кеша ожидаемых высот.
     var onMeasured: ((IndexPath, CGFloat) -> Void)?
 
@@ -1531,6 +1543,10 @@ final class MessageListLayout: UICollectionViewCompositionalLayout {
 /// растянуться, возвращало её обратно. Завышенная оценка так и оставалась дырой под
 /// пузырём (`PerformanceFlagUITests` ловит это сравнением ленты с флагом и без).
 final class MessageCell: UICollectionViewListCell {
+    override func layoutSubviews() {
+        ScrollJankMonitor.shared.measure(.cellLayout) { super.layoutSubviews() }
+    }
+
     override func preferredLayoutAttributesFitting(
         _ layoutAttributes: UICollectionViewLayoutAttributes
     ) -> UICollectionViewLayoutAttributes {
@@ -1547,5 +1563,13 @@ final class MessageCell: UICollectionViewListCell {
         )
         attributes.frame.size = CGSize(width: layoutAttributes.size.width, height: ceil(fitted.height))
         return attributes
+    }
+}
+
+/// Строка даты дня. Своим классом — чтобы замер (`ScrollJankMonitor`) видел её раскладку
+/// отдельно от пузырей.
+final class DaySeparatorCell: UICollectionViewCell {
+    override func layoutSubviews() {
+        ScrollJankMonitor.shared.measure(.headerLayout) { super.layoutSubviews() }
     }
 }
