@@ -268,6 +268,64 @@ final class RealtimeCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.pollSignal("p-1").version, 1)
     }
 
+    // MARK: - Гонки с запросом в пути (IOS_RULES 2.5.1)
+
+    /// Сокет поднял позицию, пока догон был в пути: ответ, прочитанный сервером раньше
+    /// события, не откатывает позицию и не теряет пришедшее сообщение (IOS_RULES 9.3.2).
+    func testSocketAdvanceDuringCatchUpSurvivesStaleResponse() async throws {
+        let server = ScriptedServer()
+        let (database, coordinator, transport) = try await make(server: server)
+        let thread = ChatThreadModel(
+            chatID: "c-1",
+            viewerID: "u-me",
+            database: database,
+            api: ScriptedMessages(server: server),
+            realtime: coordinator
+        )
+        server.hold("chats/c-1/updates")
+
+        let catchUp = Task { await thread.catchUpAfterReconnect() }
+        await waitUntil { server.waiting("chats/c-1/updates") == 1 }
+        await transport.emit(.messageNew(message(id: "m-2", seq: 2, sender: "u-other")))
+        await settle()
+        let stale = ChatUpdatesDTO(created: [], mutated: [], deletedIds: [], latestSeq: 1, overflow: false)
+        server.release("chats/c-1/updates", with: .value(stale))
+        await catchUp.value
+
+        XCTAssertEqual(server.requestNames, ["GET chats/c-1/updates"])
+        XCTAssertEqual(server.requests.first?.field("since"), "1")
+        try await database.reader.read { db in
+            let chat = try ChatRecord.fetchOne(db, key: "c-1")
+            XCTAssertEqual(chat?.syncSeq, 2, "ответ догона не откатил позицию сокета")
+            XCTAssertEqual(chat?.lastSeq, 2)
+            XCTAssertEqual(chat?.lastMessageId, "m-2")
+            let row = try MessageRecord.fetchOne(db, key: "m-2")
+            XCTAssertNotNil(row)
+            XCTAssertNil(row?.deletedAt)
+        }
+    }
+
+    /// Выход из аккаунта, пока обновление списка в пути: запрос снят, список прежнего
+    /// человека в базу не пишется и повтора нет (IOS_RULES 9.3.1, 10.1).
+    func testSignOutDuringListRefreshDropsRequest() async throws {
+        let server = ScriptedServer()
+        let (database, coordinator, transport) = try await make(server: server, api: ScriptedChats(server: server))
+        server.hold("chats")
+
+        await transport.emit(.connected)
+        await transport.emit(.disconnected)
+        await transport.emit(.connected)
+        // Обновление списка ждёт пачку событий 0,7 с.
+        await waitUntil(timeout: .seconds(3)) { server.waiting("chats") == 1 }
+        await coordinator.stop()
+        await waitUntil { server.waiting("chats") == 0 }
+        try? await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertEqual(server.matching("GET", "chats").count, 1, "после выхода повтора нет")
+        let chats = try await database.reader.read { db in try ChatRecord.fetchCount(db) }
+        XCTAssertEqual(chats, 1)
+    }
+
     // MARK: - Помощники
 
     private func make(
