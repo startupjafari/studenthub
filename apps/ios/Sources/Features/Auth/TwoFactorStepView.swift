@@ -6,14 +6,17 @@ import SwiftUI
 /// показывать его рядом — значит предлагать ввести ещё раз. «Назад ко входу» — шеврон
 /// в панели навигации (`LoginView`), как на остальных экранах до входа.
 ///
-/// Два режима ввода. Код из приложения — шесть цифр: цифровая клавиатура, подстановка
-/// из «Паролей» и SMS (`.oneTimeCode`), отправка сама, как только набраны все шесть.
-/// Резервный код — с буквами, ему нужна обычная клавиатура; переключатель под формой,
-/// а вставленный из буфера код с буквами переключает режим сам.
+/// Два режима ввода, оба — по ячейкам, как пин-код (`OneTimeCodeField`). Код из
+/// приложения — шесть цифр: цифровая клавиатура, подстановка из «Паролей» и SMS
+/// (`.oneTimeCode`). Резервный код — восемь символов 0–9 и A–F (`randomBytes(4)` на
+/// сервере), обычная клавиатура, ячейки группами по четыре; переключатель под формой, а
+/// вставленный из буфера код с буквами переключает режим сам. Оба уходят сами, как
+/// только заполнены все ячейки.
 struct TwoFactorStepView: View {
     @Bindable var model: LoginModel
     let session: AppSessionModel
 
+    @Environment(\.motionReduced) private var reduceMotion
     @FocusState private var isCodeFocused: Bool
     @State private var usesBackupCode = false
     /// Код, уже отправленный сам: исправили одну цифру — уйдёт снова, а тот же код,
@@ -22,6 +25,10 @@ struct TwoFactorStepView: View {
 
     /// Длина кода из приложения (TOTP, `auth.error.codeTooShort`).
     private static let appCodeLength = 6
+    /// Длина резервного кода: четыре байта в шестнадцатеричной записи.
+    private static let backupCodeLength = 8
+
+    private var length: Int { usesBackupCode ? Self.backupCodeLength : Self.appCodeLength }
 
     var body: some View {
         AuthPanelTitle(
@@ -36,25 +43,7 @@ struct TwoFactorStepView: View {
 
         AuthFormError(message: model.formError, isOffline: model.formErrorIsOffline, retry: submit)
 
-        StudentHubField(
-            label: nil,
-            error: model.codeError,
-            isFocused: isCodeFocused,
-            focus: { isCodeFocused = true }
-        ) {
-            codeField
-        } accessory: {
-            // Системная кнопка вставки не спрашивает разрешения на чтение буфера: человек
-            // сам нажал «Вставить».
-            PasteButton(payloadType: String.self) { strings in
-                guard let pasted = strings.first else { return }
-                Task { @MainActor in paste(pasted) }
-            }
-            .labelStyle(.iconOnly)
-            .buttonBorderShape(.capsule)
-            .tint(Palette.primary)
-            .disabled(model.isBusy)
-        }
+        codeField
 
         StudentHubPrimaryButton(
             title: String(localized: "auth.twoFactorVerify", defaultValue: "Подтвердить"),
@@ -76,23 +65,27 @@ struct TwoFactorStepView: View {
     }
 
     private var codeField: some View {
-        TextField(text: $model.code, prompt: Text(placeholder)) {
-            Text(String(localized: "auth.twoFactorCodeLabel", defaultValue: "Код подтверждения"))
+        OneTimeCodeField(
+            code: $model.code,
+            length: length,
+            groupSize: usesBackupCode ? 4 : nil,
+            keyboard: usesBackupCode ? .asciiCapable : .numberPad,
+            placeholder: placeholder,
+            error: model.codeError,
+            isFocused: $isCodeFocused,
+            isDisabled: model.isBusy,
+            submit: submit
+        ) {
+            // Системный элемент вставки не спрашивает разрешения на чтение буфера: человек
+            // сам его коснулся.
+            ClipboardPasteButton { paste($0) }
+                .frame(width: 44, height: 44)
+                .disabled(model.isBusy)
         }
-        .keyboardType(usesBackupCode ? .asciiCapable : .numberPad)
-        .textContentType(.oneTimeCode)
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled()
-        .font(Typography.tabular(.title3))
-        .tracking(usesBackupCode ? 0 : 4)
-        .submitLabel(.go)
-        .focused($isCodeFocused)
-        .accessibilityIdentifier("auth.code")
-        .onSubmit(submit)
-        .disabled(model.isBusy)
         // Тип клавиатуры у поля в фокусе система не меняет на лету — при смене режима
-        // поле создаётся заново.
+        // поле создаётся заново, ячейки сменяются плавно.
         .id(usesBackupCode)
+        .transition(.opacity)
         .onChange(of: model.code) { _, code in codeChanged(code) }
         .onAppear { isCodeFocused = true }
     }
@@ -103,20 +96,19 @@ struct TwoFactorStepView: View {
             : String(localized: "auth.twoFactor.appCodePlaceholder", defaultValue: "Код из 6 цифр")
     }
 
-    /// В режиме кода из приложения в поле остаются только цифры, не больше шести —
-    /// подстановка и вставка приносят и «123 456», и «Ваш код: 123456».
+    /// В поле остаются только допустимые символы и не больше ячеек: подстановка и
+    /// вставка приносят и «123 456», и «Ваш код: 123456», и «abcd-1234».
     private func codeChanged(_ code: String) {
         model.clearError(for: .code)
-        guard !usesBackupCode else { return }
-        let digits = Self.digits(in: code)
-        guard digits == code else {
-            model.code = digits
+        let clean = usesBackupCode ? Self.backupSymbols(in: code) : Self.digits(in: code)
+        guard clean == code else {
+            model.code = clean
             return
         }
-        if digits.count < Self.appCodeLength {
+        if clean.count < length {
             autoSubmitted = nil
-        } else if digits != autoSubmitted, !model.isBusy {
-            autoSubmitted = digits
+        } else if clean != autoSubmitted, !model.isBusy {
+            autoSubmitted = clean
             submit()
         }
     }
@@ -127,16 +119,14 @@ struct TwoFactorStepView: View {
         if !usesBackupCode, pasted.contains(where: \.isLetter) {
             usesBackupCode = true
         }
-        model.code = usesBackupCode ? pasted : Self.digits(in: pasted)
-        // Код из приложения уходит сам на шестой цифре (`codeChanged`), резервный —
-        // сразу: дописывать к вставленному нечего.
-        if usesBackupCode, !pasted.isEmpty { submit() }
+        // Уйдёт сам, когда заполнит все ячейки (`codeChanged`).
+        model.code = usesBackupCode ? Self.backupSymbols(in: pasted) : Self.digits(in: pasted)
     }
 
     private func switchMode() {
         model.code = ""
         autoSubmitted = nil
-        usesBackupCode.toggle()
+        withAnimation(AuthMotion.layout(reduceMotion: reduceMotion)) { usesBackupCode.toggle() }
         isCodeFocused = false
         // Новое поле появится на следующем такте — фокус ставим в него.
         Task { @MainActor in isCodeFocused = true }
@@ -144,6 +134,11 @@ struct TwoFactorStepView: View {
 
     private static func digits(in text: String) -> String {
         String(text.filter { $0.isASCII && $0.isNumber }.prefix(appCodeLength))
+    }
+
+    /// Резервный код: 0–9 и A–F заглавными; пробелы и дефисы сервер всё равно убирает.
+    private static func backupSymbols(in text: String) -> String {
+        String(text.uppercased().filter { $0.isASCII && $0.isHexDigit }.prefix(backupCodeLength))
     }
 
     private func submit() {
