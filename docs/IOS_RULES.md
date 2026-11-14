@@ -8512,8 +8512,8 @@ iPhone под рукой, нет роли или данных на Railway, то
 Release, иконки нет, `Package.resolved` не закреплён, пуши и Sentry не проверяются отладочной копией.
 **Почему.** У Telegram статус подсистемы перечисляет непроверенное до App Store (подпись, профиль распространения,
 release-сборка, `--validate-app`, закоммиченный `Package.resolved`).
-**Сейчас у нас.** расходится: `docs/RELEASE_IOS.md` упоминает только заглушку `api.example.invalid`; `Package.resolved`
-игнорируется (`apps/ios/.gitignore:35`), иконки в каталоге ассетов нет (`apps/ios/README.md:246`).
+**Сейчас у нас.** соблюдено: в `docs/RELEASE_IOS.md` раздел «Что открыто до выпуска» (адрес API, `Package.resolved`,
+пуши, Sentry, иконка, подпись); закреплять ли `Package.resolved` — решение владельца (14.1.2).
 *Источник: `Telegram/CLAUDE.md` («Status: verified only with development signing… Open before App Store shipping»)*
 
 #### 15.7.9 Записка о передаче долгой задачи
@@ -8892,7 +8892,7 @@ release-сборка не запускалась.
 - **Нет удалённого выключателя рискованных функций** — `apps/ios/Sources/App/PerformanceFlags.swift` — правило 14.5.1. Откатить сломанную функцию у пользователей можно только новым выпуском. [решение владельца]
 #### §15. Документация, процесс, работа агентов
 
-- **Список «открыто до выпуска» неполный, `Package.resolved` не закреплён** — `docs/RELEASE_IOS.md:12`, `apps/ios/.gitignore:35`, `apps/ios/README.md:246` — правило 15.7.8. В релизном документе только заглушка `api.example.invalid`; незакреплённые версии SPM и отсутствие иконки всплывут при первой выкладке. [расходится]
+- **Список «открыто до выпуска» неполный, `Package.resolved` не закреплён** — `docs/RELEASE_IOS.md:12`, `apps/ios/.gitignore:35`, `apps/ios/README.md:246` — правило 15.7.8. В релизном документе только заглушка `api.example.invalid`; незакреплённые версии SPM и отсутствие иконки всплывут при первой выкладке. [расходится] [список дополнен; `Package.resolved` — решение владельца]
 - **Нет карты синхронизации** — `apps/ios/Sources/Core/Realtime/RealtimeCoordinator.swift`, `apps/ios/Sources/Core/Chats/MessageStore.swift`, `apps/ios/Sources/Core/Chats/OutboxService.swift` — правило 15.1.5. Инварианты догона (`lastSeq`, `sinceTs`) размазаны по комментариям, правка синхронизации не обязана их обновлять. [решение владельца]
 
 ---
