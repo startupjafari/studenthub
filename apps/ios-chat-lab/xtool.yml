@@ -1,4 +1,0 @@
-# Упаковка Package.swift в приложение для `xtool dev` (scripts/install-iphone.sh на Linux/WSL).
-version: 1
-bundleID: kz.studenthub.chatlab.dev
-infoPath: Config/Info.plist
