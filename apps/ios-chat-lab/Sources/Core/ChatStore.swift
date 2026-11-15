@@ -410,7 +410,11 @@ final class ChatStore {
 
     nonisolated static func resetPersistentState() {
         try? FileManager.default.removeItem(at: stateURL)
-        UserDefaults.standard.removeObject(forKey: "theme.mode")
+        // Все настройки приложения (тема, недавние эмодзи, «прочитано» списка чатов, отложенные
+        // входящие) — к исходным: UI-тест с `-resetData` не должен зависеть от прошлых прогонов.
+        if let domain = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: domain)
+        }
     }
 }
 

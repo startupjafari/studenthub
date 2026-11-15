@@ -320,16 +320,19 @@ final class ChatViewController: UIViewController {
         let ownInsert = change.reason == .send || change.reason == .forward
         if incoming, !wasAtBottom { unreadBelow += change.inserted.count }
 
-        rows = newRows
-        layouts = newLayouts
-        rebuildIndex()
-
         let animated = change.animated && UIView.areAnimationsEnabled
         chatLayout.plainInsertions = ownInsert && wasAtBottom
+        // Если лента ещё ни разу не раскладывалась, UIKit спросит «старое» число строк у
+        // источника данных — модель к этому моменту должна быть прежней.
+        collectionView.layoutIfNeeded()
 
         let applyUpdates = {
-            self.chatLayout.heights = newLayouts.map(\.height)
             self.collectionView.performBatchUpdates {
+                // Модель меняется внутри пакета — как требует UICollectionView.
+                self.rows = newRows
+                self.layouts = newLayouts
+                self.rebuildIndex()
+                self.chatLayout.heights = newLayouts.map(\.height)
                 self.collectionView.deleteItems(at: deletions)
                 self.collectionView.insertItems(at: insertions)
             }

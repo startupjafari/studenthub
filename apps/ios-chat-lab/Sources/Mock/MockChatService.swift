@@ -316,7 +316,7 @@ final class MockChatService {
                 if let limit, date > limit { break }
                 add(line.author, date, line.text)
                 date.addTimeInterval(Double(rng.int(8...150)))
-                if rng.chance(0.16) {
+                if rng.chance(0.3) {
                     addMedia(rng.chance(0.5) ? .me : .peer, &date)
                 }
                 if rng.chance(0.025) {
