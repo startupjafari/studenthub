@@ -1225,7 +1225,7 @@ final class MessageListViewController: UIViewController {
         switch press.state {
         case .began:
             guard let item = menuItem(at: press.location(in: collectionView)) else { return }
-            touch.reset()
+            touch.begin(at: press.location(in: nil))
             // Толчок — в тот же миг, когда сработало нажатие, как в Telegram, а не
             // когда меню уже показалось.
             menuFeedback.impactOccurred()
