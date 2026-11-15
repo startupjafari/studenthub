@@ -292,7 +292,6 @@ extension ChatViewController: UIGestureRecognizerDelegate {
             return
         }
         let safari = SFSafariViewController(url: url)
-        safari.preferredControlTintColor = Palette.accent
         present(safari, animated: true)
     }
 
@@ -320,7 +319,7 @@ extension ChatViewController: UIGestureRecognizerDelegate {
         selectionBar.alpha = 0
         view.setNeedsLayout()
         view.layoutIfNeeded()
-        let cancel = UIBarButtonItem(title: "Отмена", style: .done, target: self, action: #selector(endSelectionTapped))
+        let cancel = UIBarButtonItem(title: "Отмена", style: .prominent, target: self, action: #selector(endSelectionTapped))
         cancel.accessibilityIdentifier = "selection.cancel"
         navigationItem.rightBarButtonItems = [cancel]
         navigationItem.hidesBackButton = true

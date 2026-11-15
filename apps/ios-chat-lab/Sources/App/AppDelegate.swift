@@ -33,6 +33,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let windowScene = scene as? UIWindowScene else { return }
         let window = UIWindow(windowScene: windowScene)
+        ImagePipeline.screenScale = windowScene.screen.scale
         window.overrideUserInterfaceStyle = ThemeManager.shared.mode.interfaceStyle
         if LaunchOptions.disableAnimations {
             UIView.setAnimationsEnabled(false)

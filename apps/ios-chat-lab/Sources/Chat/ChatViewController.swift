@@ -750,7 +750,7 @@ final class SelectionToolbar: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         blur.frame = bounds
-        separator.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 1 / UIScreen.main.scale)
+        separator.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 1 / traitCollection.displayScale)
         deleteButton.frame = CGRect(x: 8, y: 4, width: 44, height: 44)
         forwardButton.frame = CGRect(x: bounds.width - 52, y: 4, width: 44, height: 44)
         countLabel.frame = CGRect(x: 60, y: 4, width: bounds.width - 120, height: 44)

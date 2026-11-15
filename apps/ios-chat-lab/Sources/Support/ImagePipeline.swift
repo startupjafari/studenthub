@@ -8,6 +8,9 @@ import AVFoundation
 final class ImagePipeline: @unchecked Sendable {
     static let shared = ImagePipeline()
 
+    /// Масштаб экрана; ставит сцена при запуске (`UIScreen.main` устарел в iOS 26).
+    nonisolated(unsafe) static var screenScale: CGFloat = 3
+
     enum Source: Hashable {
         /// Фото (JPEG/PNG) — уменьшение до размера на экране.
         case photo(String)
@@ -34,7 +37,7 @@ final class ImagePipeline: @unchecked Sendable {
         return "\(source)-\(bucket(pixelSize.width))x\(bucket(pixelSize.height))"
     }
 
-    func cachedImage(_ source: Source, pointSize: CGSize, scale: CGFloat = UIScreen.main.scale) -> UIImage? {
+    func cachedImage(_ source: Source, pointSize: CGSize, scale: CGFloat = ImagePipeline.screenScale) -> UIImage? {
         cache.object(forKey: key(source, pixelSize: pointSize.applying(.init(scaleX: scale, y: scale))) as NSString)
     }
 
@@ -42,7 +45,7 @@ final class ImagePipeline: @unchecked Sendable {
     /// возвращается сразу (синхронно) и завершение не вызывается.
     @discardableResult
     func load(
-        _ source: Source, pointSize: CGSize, scale: CGFloat = UIScreen.main.scale,
+        _ source: Source, pointSize: CGSize, scale: CGFloat = ImagePipeline.screenScale,
         completion: @escaping @MainActor (UIImage?) -> Void
     ) -> UIImage? {
         let pixelSize = CGSize(width: pointSize.width * scale, height: pointSize.height * scale)
@@ -87,7 +90,7 @@ final class ImagePipeline: @unchecked Sendable {
             MainActor.assumeIsolated { completion(image) }
             return
         }
-        let scale = UIScreen.main.scale
+        let scale = Self.screenScale
         queue.async { [weak self] in
             let image = Self.decodeGIF(MediaStorage.url(for: file), maxPixel: maxPointSize * scale)
             if let image { self?.animatedCache.setObject(image, forKey: file as NSString) }

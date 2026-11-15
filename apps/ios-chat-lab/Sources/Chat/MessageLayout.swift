@@ -268,7 +268,6 @@ enum MessageLayoutEngine {
 
         let caption = primary.text
         var mediaWidth: CGFloat = 0
-        var contentBlockHeight: CGFloat = 0
         var mediaBottom = false
 
         switch primary.kind {
@@ -278,7 +277,6 @@ enum MessageLayoutEngine {
             layout.mediaTileFrames = mosaic.tiles
             layout.mediaMessageIds = messages.map(\.id)
             mediaWidth = mosaic.size.width
-            contentBlockHeight = mosaic.size.height
             let top = headerHeight > 0 ? y + 6 : BubbleMetrics.mediaInset
             layout.contentFrame = CGRect(x: BubbleMetrics.mediaInset, y: top, width: mosaic.size.width, height: mosaic.size.height)
             layout.mediaRoundsTop = headerHeight == 0

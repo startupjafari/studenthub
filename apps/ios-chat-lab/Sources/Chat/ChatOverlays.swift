@@ -98,7 +98,7 @@ final class PinnedPanelView: UIView {
         textLabel.bounds = CGRect(x: 0, y: 0, width: bounds.width - 70, height: 18)
         textLabel.center = CGPoint(x: 20 + textLabel.bounds.width / 2, y: 34)
         closeButton.frame = CGRect(x: bounds.width - 44, y: 3, width: 44, height: 44)
-        separator.frame = CGRect(x: 0, y: bounds.height - 1 / UIScreen.main.scale, width: bounds.width, height: 1 / UIScreen.main.scale)
+        separator.frame = CGRect(x: 0, y: bounds.height - 1 / traitCollection.displayScale, width: bounds.width, height: 1 / traitCollection.displayScale)
         layoutBar(animated: false)
     }
 
