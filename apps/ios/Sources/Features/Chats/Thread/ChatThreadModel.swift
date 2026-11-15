@@ -598,10 +598,15 @@ final class ChatThreadModel {
     @MainActor
     func react(_ message: MessageRecord, emoji: String) async {
         guard let remoteID = message.remoteId, message.deletedAt == nil else { return }
+        // Реакция видна сразу: ждать сеть ради лайка человек не станет. Отказ сервера
+        // возвращает прежние капсулы (IOS_RULES 9.5.1).
+        let optimistic = MessageExtras.ReactionGroup.toggled(message.extras?.reactions ?? [], emoji: emoji, viewerID: viewerID)
+        let previous = try? await store.saveLocalReactions(messageID: message.id, optimistic)
         do {
             let updated = try await actions.react(messageID: remoteID, emoji: emoji)
             try await store.save(message: updated)
         } catch {
+            if let previous { try? await store.saveLocalReactions(messageID: message.id, previous) }
             actionFailure = self.message(for: error)
         }
     }
@@ -716,14 +721,29 @@ final class ChatThreadModel {
     }
 
     @MainActor
-    func togglePin(_ message: MessageRecord) async {
-        guard let remoteID = message.remoteId else { return }
+    /// Закрепить или открепить. `true` — сервер принял.
+    @discardableResult
+    func togglePin(_ message: MessageRecord) async -> Bool {
+        guard let remoteID = message.remoteId else { return false }
         do {
             try await actions.setPinned(message.pinnedAt == nil, messageID: remoteID)
             await loadPinned()
+            return true
+        } catch {
+            actionFailure = self.message(for: error)
+            return false
+        }
+    }
+
+    /// «Отменить» после открепления: вернуть закрепы. Старые закрепляются первыми — у
+    /// сервера порядок плашки по времени закрепления, и он восстанавливается прежним.
+    func repin(_ remoteIDs: [String]) async {
+        do {
+            for id in remoteIDs.reversed() { try await actions.setPinned(true, messageID: id) }
         } catch {
             actionFailure = self.message(for: error)
         }
+        await loadPinned()
     }
 
     @MainActor
