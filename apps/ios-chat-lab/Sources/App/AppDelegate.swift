@@ -84,6 +84,7 @@ enum LaunchOptions {
         return args[index + 1]
     }
 
+    @MainActor
     static func apply() {
         if resetData {
             ChatStore.resetPersistentState()
