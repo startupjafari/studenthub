@@ -67,7 +67,7 @@ enum UITestProbe {
         #if DEBUG
             guard UITestEnvironment.current.isMock else { return }
             events.append(event())
-            if events.count > 12 { events.removeFirst(events.count - 12) }
+            if events.count > 30 { events.removeFirst(events.count - 30) }
         #endif
     }
 

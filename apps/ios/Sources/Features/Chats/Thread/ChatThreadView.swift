@@ -849,6 +849,7 @@ struct ChatThreadView: View {
             // Источник прячется, когда копия уже на экране, а не в момент нажатия: показ
             // полноэкранного слоя занимает кадр, и раньше на месте пузыря мелькнула бы дыра.
             .onAppear {
+                UITestProbe.note("menu cover appeared")
                 menuCoverShown = true
                 menuSourceID = request.item.id
             }
@@ -969,9 +970,11 @@ struct ChatThreadView: View {
             canReact: message.remoteId != nil && message.deletedAt == nil && message.systemType == nil
         )
         guard !menuCoverShown else {
+            UITestProbe.note("openMenu queued")
             queuedMenu = request
             return
         }
+        UITestProbe.note("openMenu present myReaction=\(capabilities.myReaction ?? "-")")
         present(request)
     }
 
@@ -997,6 +1000,7 @@ struct ChatThreadView: View {
     /// Слой снят. Если его убрало не наше закрытие, источник иначе так и остался бы
     /// скрытым; уже открытое новое меню свой источник держит.
     private func menuDidDismiss() {
+        UITestProbe.note("menuDidDismiss menu=\(menu != nil) queued=\(queuedMenu != nil) failure=\(model?.actionFailure ?? "-")")
         menuCoverShown = false
         if menu == nil { menuSourceID = nil }
         // Выбранный пункт (ответ, пересылка, лист) важнее нового меню: оба сразу не покажутся.
