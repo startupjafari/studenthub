@@ -173,11 +173,13 @@ struct ChatThreadView: View {
             .foregroundStyle(Palette.foreground)
             .contentTransition(.numericText())
             .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("chat.selection.title")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button(String(localized: "common.cancel", defaultValue: "Отмена")) {
                 endSelection(model)
             }
+            .accessibilityIdentifier("chat.selection.cancel")
         }
     }
 
@@ -1425,6 +1427,7 @@ private struct PinnedBar: View {
             .padding(.top, Spacing.xs)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("chat.pinned.bar")
         .contextMenu {
             Button(action: onShowAll) {
                 Label(

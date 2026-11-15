@@ -782,6 +782,7 @@ struct MessageSelectionBar: View {
         .opacity(enabled ? 1 : 0.5)
         .animation(.easeOut(duration: Motion.Duration.feedback), value: enabled)
         .accessibilityLabel(Text(title))
+        .accessibilityIdentifier("chat.selection.\(symbol)")
     }
 }
 
