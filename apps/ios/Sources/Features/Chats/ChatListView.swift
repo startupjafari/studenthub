@@ -861,9 +861,14 @@ struct ChatRowView: View {
                         ChatReadChecks(isRead: isRead)
                             .foregroundStyle(isRead ? Palette.primary : Palette.mutedForeground)
                     }
+                    // Время не переносится по символу на строку при крупном шрифте:
+                    // сжимается имя, а не дата.
                     Text(ChatMoment.short(row.lastCreatedAt ?? row.updatedAt))
                         .font(Typography.tabular(.subheadline))
                         .foregroundStyle(Palette.mutedForeground)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .layoutPriority(2)
                 }
 
                 HStack(alignment: .center, spacing: Spacing.md) {

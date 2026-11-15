@@ -50,6 +50,8 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let status = manager.authorizationStatus
         Task { @MainActor [weak self] in
+            // Подмена UI-тестов: первый же ответ службы иначе перетёр бы заданный статус.
+            guard self?.override == nil else { return }
             self?.status = status
             if self?.isAllowed == true { self?.manager.startUpdatingLocation() }
         }
