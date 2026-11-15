@@ -181,7 +181,7 @@ protocol ChatActing: ChatMessaging, ChatThreadTooling {
     func pinned(chatID: String) async throws -> [ChatMessageDTO]
     func forward(messageID: String, to chatID: String) async throws
     func searchMessages(_ query: String, chatID: String?) async throws -> [ChatMessageDTO]
-    func searchInChat(_ query: String, chatID: String, senderID: String?, cursor: String?) async throws -> Page<ChatMessageDTO>
+    func searchInChat(_ query: String, chatID: String, senderID: String?, hasFile: Bool, cursor: String?) async throws -> Page<ChatMessageDTO>
     func around(messageID: String, chatID: String) async throws -> Page<ChatMessageDTO>
     func reads(chatID: String) async throws -> [ChatReadDTO]
     // Чат
@@ -259,13 +259,14 @@ extension ChatsAPI: ChatActing {
 
     /// Поиск внутри одного чата — для поиска прямо в переписке. Свежие первыми, страницы
     /// по курсору: стрелка «вверх» дочитывает следующую, когда дошла до конца загруженного.
-    func searchInChat(_ query: String, chatID: String, senderID: String?, cursor: String?) async throws -> Page<ChatMessageDTO> {
+    func searchInChat(_ query: String, chatID: String, senderID: String?, hasFile: Bool, cursor: String?) async throws -> Page<ChatMessageDTO> {
         var items = [
             URLQueryItem(name: "q", value: query),
             URLQueryItem(name: "chatId", value: chatID),
             URLQueryItem(name: "limit", value: String(ChatsAPI.searchPageLimit)),
         ]
         if let senderID { items.append(URLQueryItem(name: "senderId", value: senderID)) }
+        if hasFile { items.append(URLQueryItem(name: "hasFile", value: "true")) }
         if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
         return try await client.page(.get("chats/search", query: items), of: ChatMessageDTO.self)
     }
