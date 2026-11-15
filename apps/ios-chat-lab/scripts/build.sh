@@ -5,6 +5,7 @@
 #   ./scripts/build.sh --release       Release
 #   ./scripts/build.sh --device        macOS: сборка под iPhone (нужна команда, scripts/setup.sh)
 #   ./scripts/build.sh --app           Linux: собрать .app через xtool (подпись — при установке)
+#   ./scripts/build.sh --tests         Linux: проверить компиляцию unit-, UI- и perf-тестов (без запуска)
 #
 # Код выхода — код самой сборки (не конвейера).
 
@@ -13,11 +14,13 @@ source "$(dirname "$0")/lib.sh"
 configuration=Debug
 device=false
 app=false
+tests=false
 for arg in "$@"; do
   case "$arg" in
     --release) configuration=Release ;;
     --device) device=true ;;
     --app) app=true ;;
+    --tests) tests=true ;;
     -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
     *) die "Неизвестный аргумент: $arg" ;;
   esac
@@ -45,7 +48,43 @@ if is_macos; then
   [[ $status -eq 0 ]] && ok "Сборка прошла (лог: build/build.log)" || die "Сборка упала (код $status), лог: build/build.log"
 else
   require_linux_tools
-  if [[ "$app" == true ]]; then
+  if [[ "$tests" == true ]]; then
+    # Тесты запускает только Xcode, но скомпилировать их можно и здесь: временный пакет,
+    # где тестовые файлы — обычные модули поверх XCTest из Darwin SDK.
+    check="$LAB_DIR/build/test-check"
+    frameworks="$HOME/.swiftpm/swift-sdks/darwin.artifactbundle/Developer/Platforms/iPhoneOS.platform/Developer/Library/Frameworks"
+    [[ -d "$frameworks/XCTest.framework" ]] || die "В Darwin SDK нет XCTest.framework ($frameworks)"
+    rm -rf "$check"
+    mkdir -p "$check/Unit" "$check/UI" "$check/Perf"
+    ln -s "$LAB_DIR"/Tests/ChatLabTests/*.swift "$check/Unit/"
+    ln -s "$LAB_DIR"/Tests/ChatLabUITests/*.swift "$LAB_DIR"/Tests/Shared/*.swift "$check/UI/"
+    ln -s "$LAB_DIR"/Tests/ChatLabPerfTests/*.swift "$LAB_DIR"/Tests/Shared/*.swift "$check/Perf/"
+    python3 - "$check/Package.swift" "$frameworks" "$LAB_DIR" <<'PY'
+import sys
+path, frameworks, lab = sys.argv[1:4]
+open(path, "w").write(f'''// swift-tools-version: 6.0
+import PackageDescription
+let xctest: [SwiftSetting] = [.unsafeFlags(["-F", "{frameworks}"])]
+let package = Package(
+    name: "ChatLabTestCheck",
+    platforms: [.iOS("26.0")],
+    dependencies: [.package(path: "{lab}")],
+    targets: [
+        .target(name: "Unit", dependencies: [.product(name: "ChatLab", package: "ios-chat-lab")], path: "Unit", swiftSettings: xctest),
+        .target(name: "UI", path: "UI", swiftSettings: xctest),
+        .target(name: "Perf", path: "Perf", swiftSettings: xctest),
+    ],
+    swiftLanguageModes: [.v5]
+)
+''')
+PY
+    info "Проверка компиляции тестов (unit, UI, perf)"
+    set +e
+    (cd "$check" && swift build --build-system native --swift-sdk arm64-apple-ios 2>&1) | tee build/tests-build.log | grep -E "error:|warning:" | grep -v "build-system"
+    status=${PIPESTATUS[0]}
+    set -e
+    [[ $status -eq 0 ]] && ok "Тесты компилируются (запуск — scripts/test.sh на macOS)" || die "Тесты не компилируются (код $status), лог: build/tests-build.log"
+  elif [[ "$app" == true ]]; then
     command -v xtool >/dev/null || die "Нет xtool (https://xtool.sh)"
     info "xtool dev build ($configuration)"
     flag=""

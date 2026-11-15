@@ -22,13 +22,8 @@ let package = Package(
                 .unsafeFlags(["-Xlinker", "-platform_version", "-Xlinker", "ios", "-Xlinker", "26.0", "-Xlinker", "26.0"]),
             ]
         ),
-        // Unit-тесты логики. Запуск — Xcode (scripts/test.sh unit); здесь — для проверки
-        // компиляции тестов из Linux: `swift build --build-tests`.
-        .testTarget(
-            name: "ChatLabTests",
-            dependencies: ["ChatLab"],
-            path: "Tests/ChatLabTests"
-        ),
+        // Тесты здесь не объявлены: их запускает Xcode (project.yml, scripts/test.sh), а
+        // компиляцию из Linux проверяет `scripts/build.sh --tests`.
     ],
     swiftLanguageModes: [.v5]
 )

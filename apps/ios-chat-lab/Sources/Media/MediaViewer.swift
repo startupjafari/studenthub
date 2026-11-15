@@ -9,6 +9,7 @@ extension ChatViewController {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         view.endEditing(true)
         AudioPlayerService.shared.pause()
+        PerformanceMonitor.shared.markActive(for: 1)
         let viewer = MediaViewerController(items: items, startIndex: index, chat: self)
         present(viewer, animated: false)
     }
@@ -618,6 +619,7 @@ final class MediaViewerController: UIViewController, UIScrollViewDelegate, UIGes
     /// с прямым смещением пальца 80 pt гасят фон почти мгновенно, поэтому мягче), подписи —
     /// на 1 − |d|/50, как у Telegram.
     @objc private func handleDismissPan(_ gesture: UIPanGestureRecognizer) {
+        PerformanceMonitor.shared.markActive(for: 0.6)
         guard let page = currentPage else { return }
         let translation = gesture.translation(in: view)
         let distance = translation.y

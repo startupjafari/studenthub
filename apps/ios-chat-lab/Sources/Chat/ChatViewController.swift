@@ -282,6 +282,7 @@ final class ChatViewController: UIViewController {
             return
         }
 
+        PerformanceMonitor.shared.markActive(for: 0.6)
         let wasAtBottom = isAtBottom
         let oldRows = rows
         let newRows = ChatRowBuilder.build(messages: store.messages)
@@ -493,6 +494,7 @@ final class ChatViewController: UIViewController {
         let offset = collectionView.contentOffset
         collectionView.contentInset = insets
         collectionView.verticalScrollIndicatorInsets = UIEdgeInsets(top: bottom, left: 0, bottom: top, right: 0)
+        if abs(delta) > 0.01 { PerformanceMonitor.shared.markActive(for: 0.6) }
         if didInitialScroll, !collectionView.isTracking, abs(delta) > 0.01 {
             collectionView.contentOffset = CGPoint(x: offset.x, y: offset.y - delta)
         }

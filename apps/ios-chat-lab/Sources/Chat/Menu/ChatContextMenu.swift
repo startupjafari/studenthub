@@ -12,6 +12,7 @@ extension ChatViewController {
             return
         }
         view.endEditing(true)
+        PerformanceMonitor.shared.markActive(for: 1)
         let overlay = ContextMenuOverlay(controller: self, cell: cell, message: message, actions: contextActions(for: message))
         overlay.present(in: window)
     }
@@ -477,6 +478,7 @@ final class ContextMenuOverlay: UIView {
     func close(animated: Bool, duration: TimeInterval = 0.2, completion: (() -> Void)? = nil) {
         guard !isClosing else { return }
         isClosing = true
+        PerformanceMonitor.shared.markActive(for: 0.5)
         detachFromLongPress()
         let returnFrame = currentReturnFrame()
         let cellAlive = controller?.cell(for: message.id) != nil
