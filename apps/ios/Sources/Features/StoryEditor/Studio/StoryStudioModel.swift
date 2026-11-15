@@ -100,7 +100,10 @@ final class StoryStudioModel {
         self.gallery = gallery
         self.drafts = drafts
         self.stories = stories
-        StoryWorkspace.removeLeftovers()
+        // Хвосты прошлых запусков — один раз на процесс: SwiftUI создаёт модель заново при
+        // каждом init вида (`State(initialValue:)`), и чистка в init стирала папку живого
+        // редактора — экспорт падал «папка не существует» (CI 15.11).
+        _ = Self.leftoversRemoved
         workspace = (try? StoryWorkspace.make()) ?? StoryWorkspace(directory: FileManager.default.temporaryDirectory)
     }
 
@@ -119,7 +122,11 @@ final class StoryStudioModel {
 
     // MARK: Жизненный цикл
 
+    private static let leftoversRemoved: Void = StoryWorkspace.removeLeftovers()
+
     func appear() async {
+        // Папку могли убрать снаружи (системная чистка tmp) — вернуть до первой записи.
+        try? FileManager.default.createDirectory(at: workspace.directory, withIntermediateDirectories: true)
         refreshDrafts()
         await startCamera()
         await loadLatestThumbnail()

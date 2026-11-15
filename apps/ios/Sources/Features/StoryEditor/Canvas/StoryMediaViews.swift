@@ -53,7 +53,8 @@ final class StoryPhotoView: MTKView {
     /// Уменьшенная копия исходника — ставится один раз при открытии медиа.
     /// Переворот при рендере в текстуру экрана. Закреплён тестом
     /// `StoryEditorRenderTests.testPhotoViewRenderIsUpright`: верх снимка — вверху.
-    static let flipsDestination = false
+    /// CI (15.11): без переворота строка 0 текстуры — низ снимка, фото вверх ногами.
+    static let flipsDestination = true
 
     /// Отрисовать снимок в текстуру тем же путём, что и экран (для теста ориентации).
     static func render(_ image: CIImage, to texture: MTLTexture, commandBuffer: MTLCommandBuffer, context: CIContext) {

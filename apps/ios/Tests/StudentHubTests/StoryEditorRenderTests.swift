@@ -313,13 +313,14 @@ final class StoryEditorRenderTests: XCTestCase {
     func testPlateCoversEveryLine() throws {
         var payload = StoryTextPayload(text: "Короткая\nочень длинная вторая строка\nтри")
         payload.style = .filled
-        let layout = StoryTextLayout(payload: payload, canvasWidth: 390)
+        // Холст шире самой длинной строки: переносов нет, строк ровно три.
+        let layout = StoryTextLayout(payload: payload, canvasWidth: 1080)
         let plate = try XCTUnwrap(layout.platePath())
         XCTAssertEqual(layout.lineRects.count, 3)
         for line in layout.lineRects {
             XCTAssertTrue(plate.contains(CGPoint(x: line.midX, y: line.midY)), "строка вне подложки")
         }
-        XCTAssertLessThanOrEqual(layout.size.width, 390 * StoryTextLayout.maxWidthFraction + 1)
+        XCTAssertLessThanOrEqual(layout.size.width, 1080 * StoryTextLayout.maxWidthFraction + 1)
     }
 
     func testEmptyLineBreaksPlate() throws {

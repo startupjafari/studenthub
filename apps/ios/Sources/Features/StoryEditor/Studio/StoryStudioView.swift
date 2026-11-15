@@ -5,17 +5,39 @@ import SwiftUI
 /// Холст 9:16 стоит в одной и той же рамке на всех шагах: снимок из камеры или
 /// галереи открывается в редакторе ровно там, где был предпросмотр.
 struct StoryStudioView: View {
-    @State private var model: StoryStudioModel
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.scenePhase) private var scenePhase
+    private let stories: StoriesModel?
+    /// Модель создаётся один раз на показ экрана — при первом появлении, а не в `init`:
+    /// SwiftUI вызывает `init` вида на каждой перерисовке родителя, и каждая лишняя модель
+    /// заводила свою камеру и папку.
+    @State private var created: StoryStudioModel?
 
     init(stories: StoriesModel) {
-        _model = State(initialValue: StoryStudioModel.make(stories: stories))
+        self.stories = stories
     }
 
     init(model: StoryStudioModel) {
-        _model = State(initialValue: model)
+        stories = nil
+        _created = State(initialValue: model)
     }
+
+    var body: some View {
+        if let created {
+            StoryStudioContent(model: created)
+        } else {
+            Color.black
+                .ignoresSafeArea()
+                .onAppear {
+                    if created == nil, let stories { created = StoryStudioModel.make(stories: stories) }
+                }
+        }
+    }
+}
+
+/// Экран создания истории с готовой моделью.
+private struct StoryStudioContent: View {
+    let model: StoryStudioModel
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         GeometryReader { proxy in
