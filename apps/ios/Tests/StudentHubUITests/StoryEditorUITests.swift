@@ -350,7 +350,11 @@ final class StoryEditorUITests: MockUITestCase {
         button("story.camera.gallery").tap()
         any("story.gallery.album").tap()
         // Пункт системного меню: идентификатор SwiftUI туда не доходит — ищем по подписи.
-        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Черновики")).firstMatch.tap()
+        // В iOS 26 пункт меню бывает не Button, а MenuItem — ищем любой тип.
+        let drafts = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "Черновики")).firstMatch
+        XCTAssertTrue(drafts.waitForExistence(timeout: timeout), "в меню альбомов нет «Черновики»")
+        drafts.tap()
         let draft = any("story.gallery.draft")
         XCTAssertTrue(draft.waitForExistence(timeout: timeout), "черновика нет в галерее")
         draft.tap()

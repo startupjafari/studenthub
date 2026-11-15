@@ -313,7 +313,9 @@ final class StoryEditorRenderTests: XCTestCase {
     func testPlateCoversEveryLine() throws {
         var payload = StoryTextPayload(text: "Короткая\nочень длинная вторая строка\nтри")
         payload.style = .filled
-        // Холст шире самой длинной строки: переносов нет, строк ровно три.
+        // Кегль — доля ширины холста, поэтому переносов нет только при мелком шрифте:
+        // самая длинная строка (~27 знаков) уже 86 % холста — строк ровно три.
+        payload.fontSize = 0.04
         let layout = StoryTextLayout(payload: payload, canvasWidth: 1080)
         let plate = try XCTUnwrap(layout.platePath())
         XCTAssertEqual(layout.lineRects.count, 3)

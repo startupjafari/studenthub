@@ -360,7 +360,8 @@ final class ChatInteractionsUITests: MockUITestCase {
         any("chat.attach.recent.row.file-doc-2").tap()
         let send = any("chat.attachSend.send")
         XCTAssertTrue(send.waitForExistence(timeout: timeout), "файл не попал в лист отправки")
-        XCTAssertTrue(staticText(containing: "Отчёт по практике").exists, "в листе отправки нет имени файла")
+        // Лист открывается сразу, а файл ещё «готовится» — имя появляется следом.
+        XCTAssertTrue(staticText(containing: "Отчёт по практике").waitForExistence(timeout: timeout), "в листе отправки нет имени файла")
         send.tap()
         XCTAssertTrue(bubble("chat-1-m41").waitForExistence(timeout: timeout), "файл не ушёл")
     }

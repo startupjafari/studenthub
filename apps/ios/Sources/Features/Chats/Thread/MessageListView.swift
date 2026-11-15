@@ -1202,14 +1202,20 @@ final class MessageListViewController: UIViewController {
 
     /// Сообщение, чей пузырь под пальцем; вне пузыря (поля строки, аватар) меню нет.
     private func menuItem(at point: CGPoint) -> MessageTimeline.Item? {
-        guard selection == nil,
-            let indexPath = collectionView.indexPathForItem(at: point),
-            let id = dataSource.itemIdentifier(for: indexPath),
-            let item = itemsByID[id],
-            let bubble = BubbleAnchors.shared.rect(for: id, part: .bubble)
-        else { return nil }
+        guard selection == nil else { UITestProbe.note("menuItem: selection"); return nil }
+        guard let indexPath = collectionView.indexPathForItem(at: point) else {
+            UITestProbe.note("menuItem: no cell at \(point)"); return nil
+        }
+        guard let id = dataSource.itemIdentifier(for: indexPath), let item = itemsByID[id] else {
+            UITestProbe.note("menuItem: no item at \(indexPath)"); return nil
+        }
+        guard let bubble = BubbleAnchors.shared.rect(for: id, part: .bubble) else {
+            UITestProbe.note("menuItem: no anchor \(id)"); return nil
+        }
         let inWindow = collectionView.convert(point, to: nil)
-        return bubble.insetBy(dx: -4, dy: -4).contains(inWindow) ? item : nil
+        let hit = bubble.insetBy(dx: -4, dy: -4).contains(inWindow)
+        if !hit { UITestProbe.note("menuItem: \(id) miss \(inWindow) not in \(bubble)") }
+        return hit ? item : nil
     }
 
     @objc private func handleMenuPress(_ press: UILongPressGestureRecognizer) {
