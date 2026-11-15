@@ -1,0 +1,118 @@
+name: ChatLab
+
+# Проект Xcode генерирует XcodeGen (`scripts/setup.sh`); .xcodeproj в git не коммитится.
+options:
+  bundleIdPrefix: kz.studenthub
+  deploymentTarget:
+    iOS: '26.0'
+  developmentLanguage: ru
+  knownRegions: [ru, Base]
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    SWIFT_STRICT_CONCURRENCY: targeted
+    TARGETED_DEVICE_FAMILY: '1'
+    ENABLE_USER_SCRIPT_SANDBOXING: 'YES'
+    DEAD_CODE_STRIPPING: 'YES'
+    CODE_SIGN_STYLE: Automatic
+
+targets:
+  ChatLab:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    # Команда разработчика — только в Config/Signing.local.xcconfig (не в git), его пишет
+    # scripts/setup.sh из уже настроенной в Xcode/связке ключей команды.
+    configFiles:
+      Debug: Config/App.xcconfig
+      Release: Config/App.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: kz.studenthub.chatlab
+        PRODUCT_NAME: ChatLab
+        INFOPLIST_FILE: Config/Info.plist
+        # Xcode дописывает стандартные ключи (исполняемый файл, идентификатор) к нашему plist.
+        GENERATE_INFOPLIST_FILE: 'YES'
+        MARKETING_VERSION: '1.0'
+        CURRENT_PROJECT_VERSION: '1'
+
+  ChatLabTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/ChatLabTests
+    dependencies:
+      - target: ChatLab
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: kz.studenthub.chatlab.tests
+        GENERATE_INFOPLIST_FILE: 'YES'
+    configFiles:
+      Debug: Config/App.xcconfig
+      Release: Config/App.xcconfig
+
+  ChatLabUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests/ChatLabUITests
+      - path: Tests/Shared
+    dependencies:
+      - target: ChatLab
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: kz.studenthub.chatlab.uitests
+        GENERATE_INFOPLIST_FILE: 'YES'
+        TEST_TARGET_NAME: ChatLab
+    configFiles:
+      Debug: Config/App.xcconfig
+      Release: Config/App.xcconfig
+
+  ChatLabPerfTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests/ChatLabPerfTests
+      - path: Tests/Shared
+    dependencies:
+      - target: ChatLab
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: kz.studenthub.chatlab.perftests
+        GENERATE_INFOPLIST_FILE: 'YES'
+        TEST_TARGET_NAME: ChatLab
+    configFiles:
+      Debug: Config/App.xcconfig
+      Release: Config/App.xcconfig
+
+schemes:
+  ChatLab:
+    build:
+      targets:
+        ChatLab: all
+        ChatLabTests: [test]
+        ChatLabUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - ChatLabTests
+        - ChatLabUITests
+  # Замеры — отдельной схемой и в Release: скорость debug-сборки ничего не говорит.
+  ChatLabPerf:
+    build:
+      targets:
+        ChatLab: all
+        ChatLabPerfTests: [test]
+    run:
+      config: Release
+    test:
+      config: Release
+      targets:
+        - ChatLabPerfTests

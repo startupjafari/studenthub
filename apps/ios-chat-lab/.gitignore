@@ -12,3 +12,8 @@ xcuserdata/
 # Сборка xtool
 /xtool/
 .bsp/
+
+# Подпись — только локально (scripts/setup.sh)
+Config/Signing.local.xcconfig
+# Медиа и результаты тестов
+build/
