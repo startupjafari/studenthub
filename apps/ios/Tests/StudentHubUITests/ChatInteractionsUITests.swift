@@ -87,8 +87,14 @@ final class ChatInteractionsUITests: MockUITestCase {
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
+    /// Элемент любого типа с подстрокой в подписи: тост и слитые строки — не StaticText.
     private func staticText(containing text: String) -> XCUIElement {
-        app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
+        app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
+    }
+
+    /// Что XCUITest видит в строке сообщения — в текст падения, чтобы разбирать по логу.
+    private func rowDump(_ id: String) -> String {
+        String(bubble(id).debugDescription.prefix(1500))
     }
 
     /// Системный запрос (доступ к «Фото») — нажать «Разрешить», если он показан.
@@ -139,7 +145,7 @@ final class ChatInteractionsUITests: MockUITestCase {
         openChat()
         openMenu("chat-1-m40")
         any("message.react.👍").tap()
-        XCTAssertTrue(poll(timeout: timeout) { self.hasReaction("chat-1-m40", "👍") }, "реакция не появилась под сообщением")
+        XCTAssertTrue(poll(timeout: timeout) { self.hasReaction("chat-1-m40", "👍") }, "реакция не появилась под сообщением: \(rowDump("chat-1-m40"))")
 
         // Повторно: моя реакция отмечена, повторное нажатие снимает её.
         openMenu("chat-1-m40")
@@ -229,8 +235,9 @@ final class ChatInteractionsUITests: MockUITestCase {
         XCTAssertEqual(comment.value as? String, "Смотри😀", "эмодзи не в конце комментария")
 
         any("chat.forward.send").tap()
-        XCTAssertTrue(waitForDisappearance(sheet), "лист пересылки не закрылся")
+        // Тост живёт пару секунд — ловим его раньше, чем ждать, пока лист уедет.
         XCTAssertTrue(staticText(containing: "Переслано в 2").waitForExistence(timeout: timeout), "нет итога пересылки")
+        XCTAssertTrue(waitForDisappearance(sheet), "лист пересылки не закрылся")
 
         // У получателя: комментарий, затем десять пересланных по времени, без «Переслано от».
         backButton.tap()
@@ -290,7 +297,7 @@ final class ChatInteractionsUITests: MockUITestCase {
         menuAction("delete").tap()
         XCTAssertTrue(app.buttons["Удалить у всех"].firstMatch.waitForExistence(timeout: timeout), "нет «у всех» для своего")
         app.buttons["Удалить у всех"].firstMatch.tap()
-        XCTAssertTrue(bubble("chat-1-m39", contains: "удален"), "своё не удалилось у всех")
+        XCTAssertTrue(bubble("chat-1-m39", contains: "удален"), "своё не удалилось у всех: \(rowDump("chat-1-m39"))")
     }
 
     // MARK: - 7. Сохранить фото
