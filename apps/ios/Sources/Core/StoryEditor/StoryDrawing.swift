@@ -220,7 +220,7 @@ enum StoryStrokeSmoothing {
     /// Наконечник стрелки: два «уса» от острия назад под углом ±30° к направлению
     /// последнего участка штриха. Направление берётся по точке, отстоящей от конца
     /// хотя бы на `reach` — иначе дрожь последних миллиметров крутит стрелку.
-    static func arrowHead(for points: [StoryPoint], width: Double, aspect: Double = StoryCanvas.aspect) -> (left: StoryPoint, tip: StoryPoint, right: StoryPoint)? {
+    static func arrowHead(for points: [StoryPoint], width: Double, aspect: Double = StoryCanvasGeometry.aspect) -> (left: StoryPoint, tip: StoryPoint, right: StoryPoint)? {
         guard let tip = points.last, points.count > 1 else { return nil }
         let reach = max(width * 3, 0.02)
         // Доли холста по осям не равны (9:16): угол считаем в «квадратных» единицах.

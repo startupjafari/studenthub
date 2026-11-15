@@ -662,14 +662,14 @@ final class StoryDocumentTests: XCTestCase {
     }
 
     func testFittedRectKeepsAspect() {
-        let landscape = StoryCanvas.fittedRect(for: StorySize(width: 4000, height: 3000))
+        let landscape = StoryCanvasGeometry.fittedRect(for: StorySize(width: 4000, height: 3000))
         XCTAssertEqual(landscape.width, 1)
         XCTAssertEqual(landscape.height * 16 / 9, 0.75, accuracy: 1e-9, "в пикселях холста 4:3")
         XCTAssertEqual(landscape.center.y, 0.5, accuracy: 1e-9)
-        let tall = StoryCanvas.fittedRect(for: StorySize(width: 1000, height: 3000))
+        let tall = StoryCanvasGeometry.fittedRect(for: StorySize(width: 1000, height: 3000))
         XCTAssertEqual(tall.height, 1)
-        XCTAssertTrue(StoryCanvas.fillsCanvas(StorySize(width: 1080, height: 1920)))
-        XCTAssertFalse(StoryCanvas.fillsCanvas(StorySize(width: 3024, height: 4032)))
+        XCTAssertTrue(StoryCanvasGeometry.fillsCanvas(StorySize(width: 1080, height: 1920)))
+        XCTAssertFalse(StoryCanvasGeometry.fillsCanvas(StorySize(width: 3024, height: 4032)))
     }
 
     func testRoundVideoScaleRange() {

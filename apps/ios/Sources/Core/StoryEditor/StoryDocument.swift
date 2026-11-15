@@ -146,7 +146,7 @@ enum StoryBackgroundMedia: Codable, Equatable, Sendable {
     var pixelSize: StorySize {
         switch self {
         case let .photo(_, size), let .video(_, size, _): return size
-        case .gradient: return StoryCanvas.exportSize
+        case .gradient: return StoryCanvasGeometry.exportSize
         }
     }
 

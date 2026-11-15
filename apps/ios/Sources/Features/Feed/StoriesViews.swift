@@ -935,18 +935,21 @@ private struct StoryPollView: View {
 enum StoryBackground {
     static let all = ["sunset", "ocean", "forest", "grape", "graphite", "rose"]
 
-    static func gradient(_ key: String?) -> LinearGradient {
-        let colors: [UInt32]
+    /// Цвета градиента (`0xRRGGBB`) — их же рисует редактор историй в экспорт.
+    static func colors(_ key: String?) -> [UInt32] {
         switch key {
-        case "sunset": colors = [0xFB923C, 0xF43F5E, 0xC026D3]
-        case "ocean": colors = [0x38BDF8, 0x3B82F6, 0x4F46E5]
-        case "forest": colors = [0x34D399, 0x22C55E, 0x0D9488]
-        case "grape": colors = [0x8B5CF6, 0x9333EA, 0xA21CAF]
-        case "rose": colors = [0xF472B6, 0xF43F5E, 0xEF4444]
-        default: colors = [0x475569, 0x334155, 0x0F172A]
+        case "sunset": return [0xFB923C, 0xF43F5E, 0xC026D3]
+        case "ocean": return [0x38BDF8, 0x3B82F6, 0x4F46E5]
+        case "forest": return [0x34D399, 0x22C55E, 0x0D9488]
+        case "grape": return [0x8B5CF6, 0x9333EA, 0xA21CAF]
+        case "rose": return [0xF472B6, 0xF43F5E, 0xEF4444]
+        default: return [0x475569, 0x334155, 0x0F172A]
         }
-        return LinearGradient(
-            colors: colors.map(Color.init(rgb:)),
+    }
+
+    static func gradient(_ key: String?) -> LinearGradient {
+        LinearGradient(
+            colors: colors(key).map(Color.init(rgb:)),
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )

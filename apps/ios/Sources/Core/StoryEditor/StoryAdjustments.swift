@@ -96,7 +96,7 @@ struct StoryBlur: Codable, Equatable, Sendable {
 
     /// Доля резкости в точке холста: 1 — резко, 0 — размыто полностью. Та же формула,
     /// что у маски в `StoryImageProcessor` — по ней тест сверяет зону фокуса.
-    func sharpness(at point: StoryPoint, aspect: Double = StoryCanvas.aspect) -> Double {
+    func sharpness(at point: StoryPoint, aspect: Double = StoryCanvasGeometry.aspect) -> Double {
         guard isActive else { return 1 }
         let dx = point.x - center.x
         let dy = (point.y - center.y) / aspect

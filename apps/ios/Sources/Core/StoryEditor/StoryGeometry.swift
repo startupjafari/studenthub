@@ -66,7 +66,7 @@ struct StoryRect: Codable, Hashable, Sendable {
 }
 
 /// Холст истории: 9:16, экспорт 1080×1920 (как у Telegram).
-enum StoryCanvas {
+enum StoryCanvasGeometry {
     static let aspect: Double = 9.0 / 16.0
     static let exportSize = StorySize(width: 1080, height: 1920)
 
