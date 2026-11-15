@@ -32,8 +32,15 @@ final class ChatInteractionsUITests: MockUITestCase {
     private func openMenu(_ id: String, file: StaticString = #filePath, line: UInt = #line) {
         let target = bubble(id)
         XCTAssertTrue(target.waitForExistence(timeout: timeout), "нет сообщения \(id)", file: file, line: line)
-        target.press(forDuration: 0.7)
-        XCTAssertTrue(any("message.menu.select").waitForExistence(timeout: timeout), "меню не открылось", file: file, line: line)
+        // `message.bubble.*` — вся строка во ширину ленты, а меню ловит только касание по
+        // самому пузырю (`menuItem(at:)`): у короткого сообщения центр строки — пустое
+        // место сбоку. Жмём по тексту внутри пузыря (у снимка — время на нём).
+        let content = target.staticTexts.firstMatch
+        (content.exists ? content : target).press(forDuration: 0.7)
+        // Показания зонда ленты (`UITestProbe`): начался ли жест, отказал ли показ.
+        XCTAssertTrue(
+            any("message.menu.select").waitForExistence(timeout: timeout),
+            "меню не открылось; зонд: \(list.value as? String ?? "—")", file: file, line: line)
     }
 
     private func menuAction(_ id: String) -> XCUIElement { any("message.menu.\(id)") }
@@ -250,17 +257,17 @@ final class ChatInteractionsUITests: MockUITestCase {
         // Чужое сообщение: только «у меня».
         openMenu("chat-1-m38")
         menuAction("delete").tap()
-        XCTAssertTrue(app.buttons["Удалить у меня"].waitForExistence(timeout: timeout))
-        XCTAssertFalse(app.buttons["Удалить у всех"].exists, "«у всех» для чужого")
-        app.buttons["Удалить у меня"].tap()
+        XCTAssertTrue(app.buttons["Удалить у меня"].firstMatch.waitForExistence(timeout: timeout))
+        XCTAssertFalse(app.buttons["Удалить у всех"].firstMatch.exists, "«у всех» для чужого")
+        app.buttons["Удалить у меня"].firstMatch.tap()
         XCTAssertTrue(waitForDisappearance(bubble("chat-1-m38")), "сообщение не скрылось у меня")
         XCTAssertTrue(bubble("chat-1-m37").exists, "соседнее сообщение пропало")
 
         // Своё — можно у всех: остаётся «Сообщение удалено».
         openMenu("chat-1-m39")
         menuAction("delete").tap()
-        XCTAssertTrue(app.buttons["Удалить у всех"].waitForExistence(timeout: timeout), "нет «у всех» для своего")
-        app.buttons["Удалить у всех"].tap()
+        XCTAssertTrue(app.buttons["Удалить у всех"].firstMatch.waitForExistence(timeout: timeout), "нет «у всех» для своего")
+        app.buttons["Удалить у всех"].firstMatch.tap()
         XCTAssertTrue(bubble("chat-1-m39", contains: "удален"), "своё не удалилось у всех")
     }
 
@@ -347,7 +354,7 @@ final class ChatInteractionsUITests: MockUITestCase {
             search.typeText("архив")
             XCTAssertTrue(waitForDisappearance(recent), "поиск не отфильтровал")
             XCTAssertTrue(any("chat.attach.recent.row.file-doc-3").waitForExistence(timeout: timeout))
-            search.buttons.firstMatch.tap()
+            search.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 5))
         }
         XCTAssertTrue(any("chat.attach.recent.row.file-doc-2").waitForExistence(timeout: timeout))
         any("chat.attach.recent.row.file-doc-2").tap()
@@ -364,15 +371,14 @@ final class ChatInteractionsUITests: MockUITestCase {
         relaunch(environment: ["SH_UITEST_LOCATION": "denied"])
         openChat()
         openAttachSheet(section: "location")
-        XCTAssertTrue(any("chat.location.denied").waitForExistence(timeout: timeout), "нет экрана отказа")
-        XCTAssertTrue(staticText(containing: "Доступ к геопозиции").exists)
+        XCTAssertTrue(staticText(containing: "Доступ к геопозиции").waitForExistence(timeout: timeout), "нет экрана отказа")
         XCTAssertTrue(any("chat.location.settings").exists, "нет «В настройки»")
         XCTAssertTrue(any("chat.location.sendDisabled").exists, "нет неактивной отправки")
 
         relaunch(environment: ["SH_UITEST_LOCATION": "fixed"])
         openChat()
         openAttachSheet(section: "location")
-        XCTAssertFalse(any("chat.location.denied").exists)
+        XCTAssertFalse(staticText(containing: "Доступ к геопозиции").exists)
         let send = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Отправить моё местоположение")).firstMatch
         XCTAssertTrue(send.waitForExistence(timeout: timeout), "нет отправки своей точки")
         XCTAssertTrue(send.isEnabled, "отправка неактивна при известной точке")

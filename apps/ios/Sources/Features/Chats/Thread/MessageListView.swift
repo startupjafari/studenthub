@@ -1214,6 +1214,8 @@ final class MessageListViewController: UIViewController {
 
     @objc private func handleMenuPress(_ press: UILongPressGestureRecognizer) {
         let touch = MessageMenuTouch.shared
+        UITestProbe.note("menuPress.state=\(press.state.rawValue)")
+        collectionView.accessibilityValue = UITestProbe.summary
         switch press.state {
         case .began:
             guard let item = menuItem(at: press.location(in: collectionView)) else { return }
@@ -1391,7 +1393,10 @@ extension MessageListViewController: UIGestureRecognizerDelegate {
             return reactionItem(at: gestureRecognizer.location(in: collectionView)) != nil
         }
         guard gestureRecognizer === menuPress else { return true }
-        return menuItem(at: gestureRecognizer.location(in: collectionView)) != nil
+        let found = menuItem(at: gestureRecognizer.location(in: collectionView)) != nil
+        UITestProbe.note("menuPress.shouldBegin=\(found)")
+        collectionView.accessibilityValue = UITestProbe.summary
+        return found
     }
 
     /// Двойной тап не спорит с жестами SwiftUI в ячейке: живые элементы он отсекает сам

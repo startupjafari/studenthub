@@ -89,11 +89,11 @@ final class StoryEditorUITests: MockUITestCase {
         openStudio()
         XCTAssertEqual(shutter.value as? String, "photo", "по умолчанию — «Фото»")
 
-        button("story.camera.mode.video").tap()
+        any("story.camera.mode.video").tap()
         XCTAssertTrue(waitForValue(shutter, "video"), "затвор не стал красным в «Видео»")
-        XCTAssertTrue(button("story.camera.mode.video").isSelected)
+        XCTAssertTrue(any("story.camera.mode.video").isSelected)
 
-        button("story.camera.mode.photo").tap()
+        any("story.camera.mode.photo").tap()
         XCTAssertTrue(waitForValue(shutter, "photo"), "затвор не вернулся к «Фото»")
 
         // Смена камеры сохраняет режим.
@@ -106,7 +106,7 @@ final class StoryEditorUITests: MockUITestCase {
 
     func testVideoRecordingOpensVideoEditor() throws {
         openStudio()
-        button("story.camera.mode.video").tap()
+        any("story.camera.mode.video").tap()
         XCTAssertTrue(waitForValue(shutter, "video"))
         shutter.tap()
         XCTAssertTrue(waitForValue(shutter, "recording"), "запись не началась")
@@ -205,7 +205,8 @@ final class StoryEditorUITests: MockUITestCase {
 
     func testMultilineTextWithEmojiFontColorEditsWithoutDuplicates() throws {
         openEditorWithPhoto()
-        addText(["Первая строка", "Вторая строка", "Третья строка"], emoji: "😀", font: "serif", color: "#FF453A")
+        // Цвет — из быстрых на панели над клавиатурой (первые шесть пресетов).
+        addText(["Первая строка", "Вторая строка", "Третья строка"], emoji: "😀", font: "serif", color: "#30D158")
 
         XCTAssertEqual(textEntities.count, 1, "надпись должна быть одна")
         let entity = textEntities.firstMatch
@@ -213,7 +214,7 @@ final class StoryEditorUITests: MockUITestCase {
         XCTAssertTrue(entity.label.contains("\n"), "строки слились")
         let value = entity.value as? String ?? ""
         XCTAssertTrue(value.contains("serif"), "шрифт не применился: \(value)")
-        XCTAssertTrue(value.contains("#FF453A"), "цвет не применился: \(value)")
+        XCTAssertTrue(value.contains("#30D158"), "цвет не применился: \(value)")
 
         // Перетащить надпись.
         let before = entity.frame
@@ -343,7 +344,7 @@ final class StoryEditorUITests: MockUITestCase {
         button("story.editor.close").tap()
         let alert = app.alerts.firstMatch
         XCTAssertTrue(alert.waitForExistence(timeout: timeout), "нет диалога «Сбросить изменения?»")
-        alert.buttons["Сохранить черновик"].tap()
+        alert.buttons["Сохранить черновик"].firstMatch.tap()
         XCTAssertTrue(shutter.waitForExistence(timeout: timeout), "после сохранения черновика не вернулись к камере")
 
         button("story.camera.gallery").tap()
@@ -379,18 +380,18 @@ final class StoryEditorUITests: MockUITestCase {
         let alert = app.alerts.firstMatch
         XCTAssertTrue(alert.waitForExistence(timeout: timeout))
         XCTAssertTrue(alert.staticTexts["Сбросить изменения?"].exists)
-        XCTAssertTrue(alert.buttons["Удалить"].exists)
-        XCTAssertTrue(alert.buttons["Сохранить черновик"].exists)
-        XCTAssertTrue(alert.buttons["Отмена"].exists)
+        XCTAssertTrue(alert.buttons["Удалить"].firstMatch.exists)
+        XCTAssertTrue(alert.buttons["Сохранить черновик"].firstMatch.exists)
+        XCTAssertTrue(alert.buttons["Отмена"].firstMatch.exists)
 
-        alert.buttons["Отмена"].tap()
+        alert.buttons["Отмена"].firstMatch.tap()
         XCTAssertTrue(waitForDisappearance(alert))
         XCTAssertTrue(editorNext.exists, "«Отмена» закрыла редактор")
         XCTAssertEqual(textEntities.count, 1, "«Отмена» потеряла правки")
 
         button("story.editor.close").tap()
         XCTAssertTrue(alert.waitForExistence(timeout: timeout))
-        alert.buttons["Удалить"].tap()
+        alert.buttons["Удалить"].firstMatch.tap()
         XCTAssertTrue(shutter.waitForExistence(timeout: timeout), "после «Удалить» не вернулись к камере")
         XCTAssertFalse(editorNext.exists)
     }

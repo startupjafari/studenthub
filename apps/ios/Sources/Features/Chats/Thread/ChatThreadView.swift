@@ -929,6 +929,7 @@ struct ChatThreadView: View {
 
     /// Долгое нажатие: меню открывается без системной анимации — у него своя, от пузыря.
     private func openMenu(_ item: MessageTimeline.Item, model: ChatThreadModel) {
+        UITestProbe.note("openMenu menu=\(menu != nil) selecting=\(model.isSelecting) row=\(BubbleAnchors.shared.rect(for: item.id, part: .row) != nil) bubble=\(BubbleAnchors.shared.rect(for: item.id, part: .bubble) != nil)")
         guard menu == nil, !model.isSelecting,
             let row = BubbleAnchors.shared.rect(for: item.id, part: .row),
             let bubble = BubbleAnchors.shared.rect(for: item.id, part: .bubble)
