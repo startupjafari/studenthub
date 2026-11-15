@@ -249,7 +249,7 @@ extension StoryDocument {
     /// выбранная кисть или цвет без единого штриха — не повод спрашивать «Сбросить?».
     func isSameContent(as other: StoryDocument) -> Bool {
         var lhs = self
-        var rhs = other
+        let rhs = other
         lhs.updatedAt = rhs.updatedAt
         lhs.drawingTool = rhs.drawingTool
         lhs.textDefaults = rhs.textDefaults

@@ -318,8 +318,9 @@ struct StoryRoundVideoPayload: Codable, Equatable, Sendable {
     /// С какой секунды истории кружок начинает играть.
     var startTime: Double = 0
     var trim: StoryTimeRange?
-    /// Фронтальная камера пишет зеркально — показываем так, как человек видел себя.
-    var mirrored = true
+    /// Дополнительное отражение. Фронтальная камера уже пишет кадр зеркально
+    /// (`isVideoMirrored` у записи) — человек получает то, что видел в кружке.
+    var mirrored = false
 
     var trimmedDuration: Double { trim?.length ?? duration }
 

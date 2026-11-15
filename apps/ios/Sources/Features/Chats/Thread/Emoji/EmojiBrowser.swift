@@ -7,6 +7,9 @@ struct EmojiBrowser: View {
     var columns = 8
     /// Запас снизу под плавающие кнопки панели — последний ряд не прячется под ними.
     var bottomInset: CGFloat = 0
+    /// Поиск над сеткой. Редактор историй показывает панель вместо клавиатуры у поля
+    /// надписи — там поле поиска забрало бы фокус у надписи, поэтому его нет.
+    var showsSearch = true
     let onPick: (String) -> Void
 
     @State private var query = ""
@@ -46,11 +49,13 @@ struct EmojiBrowser: View {
         let sections = sections
         VStack(spacing: Spacing.sm) {
             categoryStrip(sections)
-            ExpressionSearchField(
-                query: $query,
-                prompt: String(localized: "chats.panel.search", defaultValue: "Поиск")
-            )
-            .padding(.horizontal, Spacing.md)
+            if showsSearch {
+                ExpressionSearchField(
+                    query: $query,
+                    prompt: String(localized: "chats.panel.search", defaultValue: "Поиск")
+                )
+                .padding(.horizontal, Spacing.md)
+            }
 
             if query.trimmingCharacters(in: .whitespaces).isEmpty {
                 grid(sections)
