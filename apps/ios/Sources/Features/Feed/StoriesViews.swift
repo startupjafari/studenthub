@@ -36,6 +36,7 @@ struct StoriesRail: View {
                         action: create,
                         addAction: create
                     )
+                    .accessibilityIdentifier("stories.add")
                 }
                 ForEach(model.rings.filter { $0.author.id != viewerID }) { ring in
                     StoryAvatar(

@@ -112,7 +112,9 @@ final class StoryStudioModel {
         let camera: StoryCameraSource = testing || !StoryCaptureController.isAvailable ? StorySimulatedCamera() : StoryCaptureController()
         let gallery: StoryGallerySource = testing ? StorySyntheticGallery() : StoryPhotosGallery()
         let drafts = testing
-            ? StoryDraftStore(root: FileManager.default.temporaryDirectory.appendingPathComponent("UITestStoryDrafts"))
+            // Черновики теста живут один запуск: следующий сценарий начинает с пустого списка.
+            ? StoryDraftStore(root: FileManager.default.temporaryDirectory
+                .appendingPathComponent("UITestStoryDrafts-\(ProcessInfo.processInfo.processIdentifier)"))
             : StoryDraftStore()
         return StoryStudioModel(camera: camera, gallery: gallery, drafts: drafts, stories: stories)
     }
