@@ -448,6 +448,9 @@ extension ChatShareSheet {
             folders.start()
             await load()
         }
+        // Контейнер: без `.contain` идентификатор листа перекрывает идентификаторы
+        // заголовка и строк внутри.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("chat.forward")
     }
 
