@@ -98,7 +98,7 @@ final class InputPanelView: UIView, UITextViewDelegate {
         fieldBackground.backgroundColor = Palette.inputFieldBackground
         fieldBackground.layer.cornerRadius = 18
         fieldBackground.layer.cornerCurve = .continuous
-        fieldBackground.layer.borderWidth = 1 / UIScreen.main.scale
+        fieldBackground.layer.borderWidth = 1 / max(1, traitCollection.displayScale)
         fieldBackground.layer.borderColor = Palette.inputFieldBorder.resolvedColor(with: traitCollection).cgColor
         addSubview(fieldBackground)
 
@@ -250,8 +250,11 @@ final class InputPanelView: UIView, UITextViewDelegate {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        backgroundView.frame = bounds
-        separator.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 1 / UIScreen.main.scale)
+        // Фон уходит под полосу «домой»: панель стоит на `keyboardLayoutGuide`, а под ней
+        // без клавиатуры — безопасная зона, которую Telegram тоже закрывает фоном панели.
+        backgroundView.frame = CGRect(x: 0, y: 0, width: bounds.width, height: bounds.height + 120)
+        fieldBackground.layer.borderWidth = 1 / max(1, traitCollection.displayScale)
+        separator.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 1 / max(1, traitCollection.displayScale))
         var y: CGFloat = 0
         accessoryView.frame = CGRect(x: 0, y: 0, width: bounds.width, height: InputAccessoryBar.height)
         if accessory != nil { y = InputAccessoryBar.height }
