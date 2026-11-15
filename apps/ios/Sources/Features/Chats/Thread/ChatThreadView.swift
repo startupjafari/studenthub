@@ -777,9 +777,11 @@ struct ChatThreadView: View {
         }
         .sheet(item: $forwarding) { batch in
             ChatShareSheet(
-                send: { targets, comment, requestID in
+                send: { targets, comment, hideSender, requestID in
                     guard let model else { return ForwardOutcome() }
-                    let outcome = await model.forward(batch.messages, to: targets, comment: comment, requestID: requestID)
+                    let outcome = await model.forward(
+                        batch.messages, to: targets, comment: comment, hideSender: hideSender, requestID: requestID
+                    )
                     if outcome.isComplete {
                         if batch.fromSelection { endSelection(model) }
                         showToast(ChatPlural.forwardedTo(outcome.delivered.count))
@@ -787,7 +789,8 @@ struct ChatThreadView: View {
                     return outcome
                 },
                 exportFiles: mediaExport(of: batch.messages),
-                shareText: batch.messages.map(\.content).filter { !$0.isEmpty }.joined(separator: "\n\n")
+                shareText: batch.messages.map(\.content).filter { !$0.isEmpty }.joined(separator: "\n\n"),
+                forward: forwardContext(batch.messages)
             )
         }
         .alert(
@@ -1046,6 +1049,24 @@ struct ChatThreadView: View {
         case .saveMedia(let kind): saveMedia(of: message, kind: kind)
         case .saveFile: saveFile(of: message)
         }
+    }
+
+    /// Что пересылаем — для блока «Переслать N сообщений» и предпросмотра параметров.
+    /// Порядок — по времени, как уйдёт на сервер.
+    private func forwardContext(_ messages: [MessageRecord]) -> ChatShareSheet.ForwardContext {
+        let ordered = messages.filter(ChatThreadModel.canForward).sorted { $0.createdAt < $1.createdAt }
+        let preview = ordered.prefix(3).map { message in
+            ChatShareSheet.ForwardContext.Line(
+                id: message.id,
+                sender: message.senderId == viewerID
+                    ? String(localized: "chats.you", defaultValue: "Вы")
+                    : (message.senderName ?? String(localized: "chats.forward.someone", defaultValue: "Участник")),
+                text: message.content.isEmpty
+                    ? String(localized: "chats.forward.attachment", defaultValue: "Вложение")
+                    : MessagePreview.text(message.content)
+            )
+        }
+        return ChatShareSheet.ForwardContext(count: ordered.count, preview: Array(preview))
     }
 
     /// Вложения сообщения из ленты (в записи сообщения их нет — они у элемента ленты).

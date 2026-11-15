@@ -606,7 +606,7 @@ final class ChatThreadModel {
             let updated = try await actions.react(messageID: remoteID, emoji: emoji)
             try await store.save(message: updated)
         } catch {
-            if let previous { try? await store.saveLocalReactions(messageID: message.id, previous) }
+            if let previous { _ = try? await store.saveLocalReactions(messageID: message.id, previous) }
             actionFailure = self.message(for: error)
         }
     }
@@ -998,27 +998,54 @@ final class ChatThreadModel {
     /// ленты: сервер ставит пересланному своё время, и порядок отправки станет порядком
     /// в чате получателя.
     @MainActor
-    func forward(_ messages: [MessageRecord], to chatIDs: [String], comment: String?, requestID: UUID) async -> ForwardOutcome {
+    func forward(
+        _ messages: [MessageRecord], to chatIDs: [String], comment: String?, hideSender: Bool = false, requestID: UUID
+    ) async -> ForwardOutcome {
         // По времени, а не по порядку касаний: у получателя они встанут так же, как здесь.
         let remoteIDs = messages
             .filter(Self.canForward)
             .sorted { $0.createdAt < $1.createdAt }
             .compactMap(\.remoteId)
         guard !remoteIDs.isEmpty, !chatIDs.isEmpty else { return ForwardOutcome() }
+        // Сервер берёт до 100 сообщений за запрос — больше уходит частями, по порядку. У
+        // каждой части свой ключ, выведенный из ключа листа: повтор после сбоя узнаётся
+        // сервером по частям. Комментарий — только с первой, чтобы не задвоить его.
+        let chunks = stride(from: 0, to: remoteIDs.count, by: Self.forwardChunk).map {
+            Array(remoteIDs[$0..<min($0 + Self.forwardChunk, remoteIDs.count)])
+        }
+        var failedChats = Set<String>()
         do {
-            let result = try await actions.forward(
-                messageIDs: Array(remoteIDs.prefix(100)),
-                to: chatIDs,
-                comment: comment,
-                requestID: requestID
-            )
+            for (index, chunk) in chunks.enumerated() {
+                let targets = chatIDs.filter { !failedChats.contains($0) }
+                guard !targets.isEmpty else { break }
+                let result = try await actions.forward(
+                    messageIDs: chunk,
+                    to: targets,
+                    comment: index == 0 ? comment : nil,
+                    hideSender: hideSender,
+                    requestID: Self.chunkKey(requestID, index: index)
+                )
+                failedChats.formUnion(ForwardOutcome(requested: targets, result: result).failed)
+            }
             return ForwardOutcome(
-                delivered: result.results.filter(\.ok).map(\.chatId),
-                failed: result.results.filter { !$0.ok }.map(\.chatId)
+                delivered: chatIDs.filter { !failedChats.contains($0) },
+                failed: chatIDs.filter { failedChats.contains($0) }
             )
         } catch {
             return ForwardOutcome(failure: self.message(for: error))
         }
+    }
+
+    /// Потолок сервера на пересылку за один запрос (`FORWARD_BATCH_LIMITS.MESSAGES`).
+    static let forwardChunk = 100
+
+    /// Ключ части `index`: первая — сам ключ листа, следующие — он же с номером части в
+    /// последнем байте. Детерминированно: повтор той же отправки даёт те же ключи.
+    nonisolated static func chunkKey(_ key: UUID, index: Int) -> UUID {
+        guard index > 0 else { return key }
+        var bytes = key.uuid
+        bytes.15 ^= UInt8(truncatingIfNeeded: index)
+        return UUID(uuid: bytes)
     }
 
     /// Переслать можно только дошедшее до сервера и не удалённое.
