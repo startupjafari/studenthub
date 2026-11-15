@@ -38,3 +38,33 @@ final class ChatForwardOutcomeTests: XCTestCase {
         XCTAssertNotEqual(second, ChatThreadModel.chunkKey(key, index: 2))
     }
 }
+
+/// Лист вложений: текст файлом, разделы контактов, плашка расширения недавнего файла.
+final class ChatAttachSheetTests: XCTestCase {
+    func testTextAttachmentIsUTF8FileNamedByFirstLine() throws {
+        let url = try TextAttachmentEditor.file(for: "Конспект: лекция 3\nвторая строка 🎓")
+        XCTAssertEqual(url.pathExtension, "txt")
+        XCTAssertEqual(url.deletingPathExtension().lastPathComponent, "Конспект лекция 3", "двоеточие из имени убрано")
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "Конспект: лекция 3\nвторая строка 🎓")
+    }
+
+    func testBlankFirstLineFallsBackToDatedName() throws {
+        let url = try TextAttachmentEditor.file(for: "   \nтекст", now: Date(timeIntervalSince1970: 0))
+        XCTAssertTrue(url.lastPathComponent.hasPrefix("   ") == false)
+        XCTAssertFalse(url.deletingPathExtension().lastPathComponent.isEmpty)
+    }
+
+    func testContactSectionsKeepOrderAndPutHashLast() {
+        let names = ["Айгерим", "#1 Деканат", "Болат", "алия", "Zhanna"]
+        let sections = ContactsIndex.sections(names) { ContactsIndex.letter(for: $0) }
+        XCTAssertEqual(sections.map(\.letter), ["А", "Б", "Z", "#"])
+        XCTAssertEqual(sections.first?.rows, ["Айгерим", "алия"])
+    }
+
+    func testRecentFileBadgeUsesExtension() {
+        let file = RecentChatFileDTO(id: "f", chatId: "c", messageId: "m", name: "notes.rar", mime: "application/x-rar", size: 10, durationMs: nil, createdAt: Date())
+        XCTAssertEqual(RecentFilesList.badge(for: file), "RAR")
+        let unnamed = RecentChatFileDTO(id: "f", chatId: "c", messageId: "m", name: nil, mime: "text/plain", size: 1, durationMs: nil, createdAt: Date())
+        XCTAssertEqual(RecentFilesList.badge(for: unnamed), "PLAI")
+    }
+}

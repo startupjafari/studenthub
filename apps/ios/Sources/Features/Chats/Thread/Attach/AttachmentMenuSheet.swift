@@ -18,6 +18,9 @@ enum AttachmentPick {
     case contact
     /// Контакт из списка в листе — сразу на подтверждение.
     case contactCard(ContactCardDraft)
+    /// Готовые файлы на устройстве (недавний файл из чатов, текст из вкладки «Текст») —
+    /// в лист отправки с подписью, как выбранные в «Файлах».
+    case localFiles([URL])
     /// Снимки из сетки с подписью — отправить сразу, как в Telegram, без листа отправки.
     case send(AttachmentSendRequest)
 }
@@ -49,7 +52,7 @@ struct AttachmentSendRequest {
 /// отдельные окна: между ними и остальными переключаются капсулой, набранное остаётся.
 struct AttachmentMenuSheet: View {
     enum Section: String, CaseIterable, Identifiable {
-        case gallery, file, location, poll, checklist, audio, contact
+        case gallery, file, location, poll, checklist, audio, contact, text
 
         var id: String { rawValue }
 
@@ -62,6 +65,7 @@ struct AttachmentMenuSheet: View {
             case .checklist: String(localized: "chats.attach.checklist", defaultValue: "Список")
             case .audio: String(localized: "chats.attach.audio", defaultValue: "Звук")
             case .contact: String(localized: "chats.contact.title", defaultValue: "Контакт")
+            case .text: String(localized: "chats.attach.text", defaultValue: "Текст")
             }
         }
 
@@ -74,6 +78,7 @@ struct AttachmentMenuSheet: View {
             case .checklist: "checkmark.square.fill"
             case .audio: "play.circle.fill"
             case .contact: "person.crop.circle.fill"
+            case .text: "text.alignleft"
             }
         }
     }
@@ -371,6 +376,8 @@ struct AttachmentMenuSheet: View {
             PollForm(draft: poll)
         case .checklist:
             ChecklistForm(draft: checklist)
+        case .text:
+            TextAttachmentEditor { url in pick(.localFiles([url])) }
         }
     }
 
@@ -388,6 +395,11 @@ struct AttachmentMenuSheet: View {
                     .font(Typography.meta)
                     .foregroundStyle(Palette.mutedForeground)
                     .padding(.horizontal, Spacing.xl)
+
+                RecentFilesList(
+                    model: RecentFilesModel(kind: .audio),
+                    title: String(localized: "chats.attach.yourChats", defaultValue: "Ваши чаты")
+                ) { url in pick(.localFiles([url])) }
             }
             .padding(.horizontal, Spacing.lg)
             .padding(.top, Spacing.sm)
@@ -424,6 +436,11 @@ struct AttachmentMenuSheet: View {
                     .font(Typography.meta)
                     .foregroundStyle(Palette.mutedForeground)
                     .padding(.horizontal, Spacing.xl)
+
+                RecentFilesList(
+                    model: RecentFilesModel(kind: .document),
+                    title: String(localized: "chats.attach.recentSent", defaultValue: "Недавно отправленные")
+                ) { url in pick(.localFiles([url])) }
             }
             .padding(.horizontal, Spacing.lg)
             .padding(.top, Spacing.sm)
@@ -447,6 +464,7 @@ struct AttachmentMenuSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("chat.attach.option.\(symbol)")
     }
 
     /// Капсула разделов внизу листа, как в Telegram: значок над подписью, выбранный
@@ -483,6 +501,7 @@ struct AttachmentMenuSheet: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
                 .accessibilityAction { select(item) }
+                .accessibilityIdentifier("chat.attach.section.\(item.rawValue)")
             }
         }
         .padding(Spacing.xs)

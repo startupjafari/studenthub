@@ -535,6 +535,9 @@ struct MessageComposerView: View {
             pickingContact = true
         case .contactCard(let contact):
             contactToSend = contact
+        case .localFiles(let urls):
+            let draft = openDraft()
+            Task { await draft.add(files: urls) }
         case .send(let request):
             Task { await send(request) }
         }
