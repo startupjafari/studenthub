@@ -38,8 +38,10 @@ final class ChatInteractionsUITests: MockUITestCase {
         // Входящий пузырь прижат влево, свой — вправо: жмём у левого края строки,
         // не открылось — у правого.
         let menu = any("message.menu.select")
+        // По высоте — верх строки, строка текста: внизу пузыря капсулы реакций, долгое
+        // нажатие по ним — нажатие капсулы, а не меню.
         for side in [0.1, 0.9] {
-            target.coordinate(withNormalizedOffset: CGVector(dx: side, dy: 0.5)).press(forDuration: 0.7)
+            target.coordinate(withNormalizedOffset: CGVector(dx: side, dy: 0.25)).press(forDuration: 0.7)
             if menu.waitForExistence(timeout: 2) { break }
         }
         // Показания зонда ленты (`UITestProbe`): начался ли жест, отказал ли показ.
@@ -70,19 +72,17 @@ final class ChatInteractionsUITests: MockUITestCase {
             }
     }
 
-    /// Реакция под пузырём. `message.bubble.*` в дереве XCUITest — пустой вид-якорь строки,
-    /// а пузырь слит для VoiceOver в один элемент рядом с ним: ищем по всему окну капсулу
-    /// с идентификатором или слитую подпись с текстом сообщения и эмодзи.
+    /// Реакция под пузырём. Пузырь слит для VoiceOver в один элемент (подпись — текст
+    /// сообщения), реакции у него в значении: «👍 1, ❤️ 2».
     private func hasReaction(_ text: String, _ emoji: String) -> Bool {
-        if app.descendants(matching: .any)["message.reaction.\(emoji)"].exists { return true }
-        return app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", text, emoji)).firstMatch.exists
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH %@ AND value CONTAINS %@", text, emoji)).firstMatch.exists
     }
 
     /// Подписи элементов окна с подстрокой — в текст падения.
     private func labelsDump(containing text: String) -> String {
         app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text))
-            .allElementsBoundByIndex.prefix(6).map { "\($0.elementType.rawValue):\($0.identifier):\($0.label)" }
+            .allElementsBoundByIndex.prefix(6).map { "\($0.elementType.rawValue):\($0.identifier):\($0.label):\($0.value ?? "-")" }
             .joined(separator: " | ")
     }
 
