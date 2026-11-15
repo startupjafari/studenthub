@@ -245,8 +245,15 @@ struct AttachmentMenuSheet: View {
                 }
             }
             Divider()
-            Toggle(isOn: $spoiler) {
-                Label(String(localized: "chats.attach.spoiler", defaultValue: "Скрыть под спойлер"), systemImage: "eye.slash")
+            // Как в Telegram: «Скрыть» и обратное «Отменить скрытие» — отдельными пунктами.
+            Button {
+                spoiler.toggle()
+            } label: {
+                if spoiler {
+                    Label(String(localized: "chats.attach.unspoiler", defaultValue: "Отменить скрытие"), systemImage: "eye")
+                } else {
+                    Label(String(localized: "chats.attach.spoiler", defaultValue: "Скрыть под спойлер"), systemImage: "eye.slash")
+                }
             }
         } label: {
             Image(systemName: "ellipsis")
@@ -257,6 +264,7 @@ struct AttachmentMenuSheet: View {
                 .contentShape(Circle())
         }
         .accessibilityLabel(Text(String(localized: "chats.attach.sendOptions", defaultValue: "Способ отправки")))
+        .accessibilityIdentifier("chat.attach.options")
     }
 
     /// Заголовок «Галереи» — выбор альбома, как в Telegram: «Недавние ⌄», в меню —
@@ -344,7 +352,8 @@ struct AttachmentMenuSheet: View {
                 albums: albums,
                 limit: albumLimit,
                 onCamera: { pick(.camera) },
-                onPicked: { pick(.photos($0)) }
+                onPicked: { pick(.photos($0)) },
+                hidesSelected: spoiler
             )
         case .file:
             fileOptions
@@ -529,6 +538,7 @@ struct AttachmentMenuSheet: View {
                     )
                     .lineLimit(1...6)
                     .focused($captionFocused)
+                    .accessibilityIdentifier("chat.attach.caption")
                     .padding(.leading, Spacing.lg)
                     .padding(.vertical, 10)
                     // Подпись уходит текстом сообщения — тот же лимит 4000, что у поля
@@ -571,6 +581,7 @@ struct AttachmentMenuSheet: View {
                 .disabled(!captionFits)
                 .opacity(captionFits ? 1 : 0.5)
                 .accessibilityLabel(Text(String(localized: "chats.send", defaultValue: "Отправить")))
+                .accessibilityIdentifier("chat.attach.send")
             }
             .padding(.horizontal, Spacing.lg)
 

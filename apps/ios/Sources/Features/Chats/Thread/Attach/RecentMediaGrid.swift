@@ -17,6 +17,8 @@ struct RecentMediaGrid: View {
     let limit: Int
     let onCamera: () -> Void
     let onPicked: ([PhotosPickerItem]) -> Void
+    /// «Скрыть под спойлер» включено: выбранные плитки размыты так же, как увидит получатель.
+    var hidesSelected = false
 
     @State private var status = PhotoAssets.status
     @State private var assets: [PHAsset] = []
@@ -103,7 +105,8 @@ struct RecentMediaGrid: View {
                     AssetTile(
                         asset: asset,
                         thumbnails: thumbnails,
-                        order: order(of: asset)
+                        order: order(of: asset),
+                        isHidden: hidesSelected && order(of: asset) != nil
                     ) {
                         toggle(asset)
                     }
@@ -267,6 +270,7 @@ private struct AssetTile: View {
     let asset: PHAsset
     let thumbnails: PhotoThumbnails
     let order: Int?
+    var isHidden = false
     let onTap: () -> Void
 
     @State private var image: UIImage?
@@ -280,6 +284,7 @@ private struct AssetTile: View {
                         Image(uiImage: image)
                             .resizable()
                             .scaledToFill()
+                            .blur(radius: isHidden ? 14 : 0, opaque: true)
                     } else {
                         Palette.muted
                     }
@@ -320,6 +325,8 @@ private struct AssetTile: View {
             ? String(localized: "chats.attach.video", defaultValue: "Видео")
             : String(localized: "chats.attach.photo", defaultValue: "Фото")))
         .accessibilityAddTraits(order != nil ? .isSelected : [])
+        .accessibilityIdentifier("chat.attach.asset")
+        .accessibilityValue(Text(verbatim: accessibilityState))
         .onAppear { thumbnails.appeared(asset.localIdentifier) }
         .onDisappear { thumbnails.disappeared(asset.localIdentifier) }
         // Снимок отредактировали в «Фото» — миниатюра перечитывается.
@@ -346,6 +353,14 @@ private struct AssetTile: View {
         try? await Task.sleep(for: .milliseconds(400))
         guard !Task.isCancelled, let picture = await thumbnails.cloudImage(for: asset), !Task.isCancelled else { return }
         image = await picture.byPreparingForDisplay() ?? picture
+    }
+
+    /// Номер выбора и «скрыто» — для UI-тестов и VoiceOver.
+    private var accessibilityState: String {
+        var parts: [String] = []
+        if let order { parts.append(String(order)) }
+        if isHidden { parts.append("hidden") }
+        return parts.joined(separator: " ")
     }
 
     static func duration(_ seconds: TimeInterval) -> String {
