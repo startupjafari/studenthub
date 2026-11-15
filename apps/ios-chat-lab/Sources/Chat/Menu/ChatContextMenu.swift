@@ -812,13 +812,10 @@ final class ForwardPickerController: UITableViewController, UISearchResultsUpdat
     init(peer: Peer, onPick: @escaping (ForwardTarget) -> Void) {
         targets = [
             ForwardTarget(id: peer.id, name: peer.displayName, subtitle: "этот чат", isCurrentChat: true),
-            ForwardTarget(id: 1, name: "Избранное", subtitle: "сохранённые сообщения", isCurrentChat: false),
-            ForwardTarget(id: 2, name: "Мама", subtitle: "была недавно", isCurrentChat: false),
-            ForwardTarget(id: 3, name: "Илья Петров", subtitle: "в сети", isCurrentChat: false),
-            ForwardTarget(id: 4, name: "Команда проекта", subtitle: "12 участников", isCurrentChat: false),
-            ForwardTarget(id: 5, name: "Городские новости", subtitle: "канал", isCurrentChat: false),
-            ForwardTarget(id: 6, name: "Дина Ахметова", subtitle: "была вчера", isCurrentChat: false),
-            ForwardTarget(id: 7, name: "Походы выходного дня", subtitle: "48 участников", isCurrentChat: false),
+            // Те же демо-чаты, что в списке чатов: счётчик пересланного виден там.
+        ] + ChatListViewController.demoChats + [
+            ForwardTarget(id: 1006, name: "Дина Ахметова", subtitle: "была вчера", isCurrentChat: false),
+            ForwardTarget(id: 1007, name: "Походы выходного дня", subtitle: "48 участников", isCurrentChat: false),
         ]
         filtered = targets
         self.onPick = onPick
