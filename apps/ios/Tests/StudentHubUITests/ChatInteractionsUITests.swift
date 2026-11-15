@@ -50,22 +50,40 @@ final class ChatInteractionsUITests: MockUITestCase {
 
     private func menuAction(_ id: String) -> XCUIElement { any("message.menu.\(id)") }
 
-    /// В пузыре есть текст с подстрокой. Пузырь для VoiceOver слит в один элемент
-    /// (`.combine`): подпись бывает и у самой строки, и у потомка — смотрим оба.
+    /// В пузыре есть текст с подстрокой.
     private func bubble(_ id: String, contains text: String, timeout: TimeInterval? = nil) -> Bool {
         poll(timeout: timeout ?? self.timeout) { self.bubbleHas(id, text) }
     }
 
+    /// `message.bubble.*` — пустой вид-якорь во всю строку, а содержимое пузыря слито
+    /// для VoiceOver в элемент рядом с ним. Текст относится к строке, если элемент с ним
+    /// стоит в её рамке по вертикали.
     private func bubbleHas(_ id: String, _ text: String) -> Bool {
         let row = bubble(id)
         guard row.exists else { return false }
+        let frame = row.frame
         if row.label.contains(text) { return true }
-        return row.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch.exists
+        return app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text))
+            .allElementsBoundByIndex.contains { element in
+                let mid = element.frame.midY
+                return mid >= frame.minY - 2 && mid <= frame.maxY + 2
+            }
     }
 
-    /// Реакция под пузырём: капсула с идентификатором или эмодзи в слитой подписи.
-    private func hasReaction(_ id: String, _ emoji: String) -> Bool {
-        bubble(id).descendants(matching: .any)["message.reaction.\(emoji)"].exists || bubbleHas(id, emoji)
+    /// Реакция под пузырём. `message.bubble.*` в дереве XCUITest — пустой вид-якорь строки,
+    /// а пузырь слит для VoiceOver в один элемент рядом с ним: ищем по всему окну капсулу
+    /// с идентификатором или слитую подпись с текстом сообщения и эмодзи.
+    private func hasReaction(_ text: String, _ emoji: String) -> Bool {
+        if app.descendants(matching: .any)["message.reaction.\(emoji)"].exists { return true }
+        return app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", text, emoji)).firstMatch.exists
+    }
+
+    /// Подписи элементов окна с подстрокой — в текст падения.
+    private func labelsDump(containing text: String) -> String {
+        app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text))
+            .allElementsBoundByIndex.prefix(6).map { "\($0.elementType.rawValue):\($0.identifier):\($0.label)" }
+            .joined(separator: " | ")
     }
 
     private func poll(timeout: TimeInterval, _ condition: @escaping () -> Bool) -> Bool {
@@ -90,11 +108,6 @@ final class ChatInteractionsUITests: MockUITestCase {
     /// Элемент любого типа с подстрокой в подписи: тост и слитые строки — не StaticText.
     private func staticText(containing text: String) -> XCUIElement {
         app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
-    }
-
-    /// Что XCUITest видит в строке сообщения — в текст падения, чтобы разбирать по логу.
-    private func rowDump(_ id: String) -> String {
-        String(bubble(id).debugDescription.prefix(1500))
     }
 
     /// Системный запрос (доступ к «Фото») — нажать «Разрешить», если он показан.
@@ -144,23 +157,24 @@ final class ChatInteractionsUITests: MockUITestCase {
     func testReactionAddsShowsAndRemoves() throws {
         openChat()
         openMenu("chat-1-m40")
+        let text = "Привет! Ты сегодня на паре"
         any("message.react.👍").tap()
-        XCTAssertTrue(poll(timeout: timeout) { self.hasReaction("chat-1-m40", "👍") }, "реакция не появилась под сообщением: \(rowDump("chat-1-m40"))")
+        XCTAssertTrue(poll(timeout: timeout) { self.hasReaction(text, "👍") }, "реакция не появилась под сообщением: \(labelsDump(containing: text))")
 
         // Повторно: моя реакция отмечена, повторное нажатие снимает её.
         openMenu("chat-1-m40")
         XCTAssertTrue(any("message.react.👍").isSelected, "своя реакция не отмечена в меню")
         any("message.react.👍").tap()
-        XCTAssertTrue(poll(timeout: timeout) { !self.hasReaction("chat-1-m40", "👍") }, "реакция не снялась")
+        XCTAssertTrue(poll(timeout: timeout) { !self.hasReaction(text, "👍") }, "реакция не снялась")
 
         // Другая реакция — заменяет, а не добавляется второй.
         openMenu("chat-1-m40")
         any("message.react.❤️").tap()
-        XCTAssertTrue(poll(timeout: timeout) { self.hasReaction("chat-1-m40", "❤️") }, "❤️ не появилась")
+        XCTAssertTrue(poll(timeout: timeout) { self.hasReaction(text, "❤️") }, "❤️ не появилась")
         openMenu("chat-1-m40")
         any("message.react.👌").tap()
-        XCTAssertTrue(poll(timeout: timeout) { !self.hasReaction("chat-1-m40", "❤️") }, "прежняя реакция не заменилась")
-        XCTAssertTrue(poll(timeout: timeout) { self.hasReaction("chat-1-m40", "👌") }, "👌 не появилась")
+        XCTAssertTrue(poll(timeout: timeout) { !self.hasReaction(text, "❤️") }, "прежняя реакция не заменилась")
+        XCTAssertTrue(poll(timeout: timeout) { self.hasReaction(text, "👌") }, "👌 не появилась")
     }
 
     // MARK: - 3. Множественный выбор
@@ -235,9 +249,10 @@ final class ChatInteractionsUITests: MockUITestCase {
         XCTAssertEqual(comment.value as? String, "Смотри😀", "эмодзи не в конце комментария")
 
         any("chat.forward.send").tap()
-        // Тост живёт пару секунд — ловим его раньше, чем ждать, пока лист уедет.
-        XCTAssertTrue(staticText(containing: "Переслано в 2").waitForExistence(timeout: timeout), "нет итога пересылки")
         XCTAssertTrue(waitForDisappearance(sheet), "лист пересылки не закрылся")
+        // Тост «Переслано в 2 чата» живёт 2 с и в это время закрыт уезжающим листом —
+        // признак полного успеха надёжнее: режим выбора закрывается только при нём.
+        XCTAssertTrue(waitForDisappearance(any("chat.selection.title")), "пересылка не завершилась целиком")
 
         // У получателя: комментарий, затем десять пересланных по времени, без «Переслано от».
         backButton.tap()
@@ -297,7 +312,9 @@ final class ChatInteractionsUITests: MockUITestCase {
         menuAction("delete").tap()
         XCTAssertTrue(app.buttons["Удалить у всех"].firstMatch.waitForExistence(timeout: timeout), "нет «у всех» для своего")
         app.buttons["Удалить у всех"].firstMatch.tap()
-        XCTAssertTrue(bubble("chat-1-m39", contains: "удален"), "своё не удалилось у всех: \(rowDump("chat-1-m39"))")
+        // Пузырь слит в один элемент рядом с пустым якорем строки — ищем по окну.
+        XCTAssertTrue(staticText(containing: "Сообщение удалено").waitForExistence(timeout: timeout),
+                      "своё не удалилось у всех: \(labelsDump(containing: "удален"))")
     }
 
     // MARK: - 7. Сохранить фото
