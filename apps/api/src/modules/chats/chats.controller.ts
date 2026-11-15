@@ -58,6 +58,7 @@ import { CreateChatPollDto } from './dto/create-chat-poll.dto'
 import { PollVoteDto } from './dto/poll-vote.dto'
 import { MuteDto } from './dto/mute.dto'
 import { MessageSearchQueryDto } from './dto/message-search-query.dto'
+import { RecentChatFilesQueryDto } from './dto/recent-chat-files-query.dto'
 import { MessageReactionDto } from './dto/message-reaction.dto'
 import { MessageForwardDto } from './dto/message-forward.dto'
 import { SharePostDto } from './dto/share-post.dto'
@@ -115,6 +116,17 @@ export class ChatsController {
   @ApiResponse({ status: 200, description: 'Страница найденных сообщений (свежие первыми)' })
   search(@CurrentUser() user: CurrentUserData, @Query() query: MessageSearchQueryDto) {
     return this.chats.searchMessages(user, query)
+  }
+
+  @Get('files/recent')
+  @ApiOperation({
+    summary:
+      'Недавние файлы для листа вложений: document — свои отправленные документы, ' +
+      'audio — музыка из всех моих чатов (без голосовых); q — подстрока имени, cursor',
+  })
+  @ApiResponse({ status: 200, description: 'Страница файлов (свежие первыми), у каждого chatId' })
+  recentFiles(@CurrentUser() user: CurrentUserData, @Query() query: RecentChatFilesQueryDto) {
+    return this.chats.listRecentFiles(user, query)
   }
 
   @Get('unread')

@@ -19,6 +19,7 @@ import type {
   MessageSendInput,
   PollVoteInput,
   MessageForwardBatchInput,
+  RecentChatFilesQueryInput,
   ChatPollsQueryInput,
   ChatLocationInput,
   LiveLocationUpdateInput,
@@ -2041,6 +2042,88 @@ export class ChatsService implements OnModuleInit {
       ...viewerWhere(mem, userId),
     }
     return { message: messageWhere, ...mediaMimeWhere(type) }
+  }
+
+  /**
+   * Недавние файлы для листа вложений по всем чатам смотрящего (`GET /chats/files/recent`).
+   * `document` — свои отправленные документы, `audio` — музыка из всех чатов (без голосовых).
+   * Видимость — как у поиска по всем чатам: участник без бана, без скрытого «у себя»; очищенное
+   * «у себя» отсеивается по отметкам чатов страницы (граница своя у каждого чата).
+   */
+  async listRecentFiles(
+    viewer: JwtPayload,
+    query: RecentChatFilesQueryInput,
+  ): Promise<Paginated<ChatMediaRow & { chatId: string }>> {
+    const userId = viewer.sub
+    const message: Prisma.MessageWhereInput = {
+      deletedAt: null,
+      chat: { members: { some: { userId, bannedAt: null } } },
+      hiddenBy: { none: { userId } },
+      ...(query.kind === 'document' ? { senderId: userId } : {}),
+    }
+    const rows = await this.prisma.file.findMany({
+      where: {
+        message,
+        ...mediaMimeWhere(query.kind === 'document' ? 'file' : 'music'),
+        ...(query.q ? { name: { contains: query.q, mode: 'insensitive' } } : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        mime: true,
+        size: true,
+        posterKey: true,
+        width: true,
+        height: true,
+        placeholder: true,
+        durationMs: true,
+        mediaStatus: true,
+        createdAt: true,
+        messageId: true,
+        message: {
+          select: { chatId: true, createdAt: true, senderId: true, sender: SENDER_SELECT },
+        },
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: query.limit + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+    })
+    const hasNext = rows.length > query.limit
+    const page = hasNext ? rows.slice(0, query.limit) : rows
+    // Курсор — по странице до фильтра очищенного, иначе отброшенные строки читались бы снова.
+    const nextCursor = hasNext ? page[page.length - 1]?.id : undefined
+    const chatIds = [...new Set(page.flatMap((row) => (row.message ? [row.message.chatId] : [])))]
+    const cleared =
+      chatIds.length > 0
+        ? await this.prisma.chatMember.findMany({
+            where: { userId, chatId: { in: chatIds } },
+            select: { chatId: true, ...CLEARED_SELECT },
+            take: chatIds.length,
+          })
+        : []
+    const clearedByChat = new Map(cleared.map((mem) => [mem.chatId, mem]))
+    const items = page
+      .filter((f) => {
+        if (!f.message) return false
+        const mem = clearedByChat.get(f.message.chatId)
+        return !mem || !isCleared(f.message.createdAt, mem)
+      })
+      .map((f) => ({
+        id: f.id,
+        chatId: f.message?.chatId ?? '',
+        messageId: f.messageId ?? '',
+        name: f.name,
+        mime: f.mime,
+        size: f.size,
+        hasPoster: !!f.posterKey || (f.mediaStatus === 'READY' && f.mime.startsWith('video/')),
+        width: f.width,
+        height: f.height,
+        placeholder: f.placeholder,
+        durationMs: f.durationMs,
+        createdAt: f.message?.createdAt ?? f.createdAt,
+        sender: f.message?.sender ?? null,
+      }))
+    return new Paginated(items, { cursor: nextCursor, hasNext })
   }
 
   /** Сообщения со ссылками (linkPreview) — вкладка «Ссылки». */
@@ -4203,7 +4286,15 @@ export class ChatsService implements OnModuleInit {
 
     const results: ForwardBatchResult[] = []
     for (const chatId of chatIds) {
-      results.push(await this.forwardIntoChat(userId, chatId, sources, input.comment))
+      results.push(
+        await this.forwardIntoChat(
+          userId,
+          chatId,
+          sources,
+          input.comment,
+          input.hideSender ?? false,
+        ),
+      )
     }
     return { results }
   }
@@ -4222,6 +4313,7 @@ export class ChatsService implements OnModuleInit {
     chatId: string,
     sources: ForwardSource[],
     comment: string | undefined,
+    hideSender = false,
   ): Promise<ForwardBatchResult> {
     const created: MessageRow[] = []
     let failure: string | undefined
@@ -4237,7 +4329,7 @@ export class ChatsService implements OnModuleInit {
         this.realtime.emitToRoom(`chat:${chatId}`, 'message:new', { message, chatId })
       }
       for (const source of sources) {
-        const message = await this.copyForward(userId, chatId, source)
+        const message = await this.copyForward(userId, chatId, source, hideSender)
         created.push(message)
         this.realtime.emitToRoom(`chat:${chatId}`, 'message:new', { message, chatId })
       }
@@ -4285,6 +4377,7 @@ export class ChatsService implements OnModuleInit {
     userId: string,
     targetChatId: string,
     source: ForwardSource,
+    hideSender = false,
   ): Promise<MessageRow> {
     const copies: PendingAttachment[] = []
     let created: { id: string }
@@ -4299,7 +4392,8 @@ export class ChatsService implements OnModuleInit {
           chatId: targetChatId,
           senderId: userId,
           content: source.content,
-          forwardedFromId: source.id,
+          // «Скрыть имя отправителя» — копия без ссылки на оригинал, как своё сообщение.
+          forwardedFromId: hideSender ? undefined : source.id,
           // Превью переносим готовым: ссылка та же, второй поход в сеть за тем же
           // результатом не нужен. Если у оригинала его нет — доберём job'ом ниже.
           linkPreview:
