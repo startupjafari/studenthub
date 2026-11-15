@@ -279,10 +279,15 @@ final class StoryCanvasView: UIView, UIGestureRecognizerDelegate, UIEditMenuInte
     private func layoutMedia() {
         guard let document, bounds.width > 0 else { return }
         let frame = StoryCanvasMetrics(size: bounds.size).mediaFrame(for: document.background.pixelSize, transform: mediaTransform)
+        // Масштаб — трансформом, а не размером вида: текстура Metal остаётся размером
+        // вписанного фото и не пересоздаётся на каждом кадре щипка (×6 на Pro Max —
+        // сотни мегабайт на кадр).
+        let scale = max(CGFloat(mediaTransform.scale), 0.01)
+        let base = CGSize(width: frame.size.width / scale, height: frame.size.height / scale)
         mediaView.transform = .identity
-        mediaView.bounds = CGRect(origin: .zero, size: frame.size)
+        if mediaView.bounds.size != base { mediaView.bounds = CGRect(origin: .zero, size: base) }
         mediaView.center = frame.center
-        mediaView.transform = CGAffineTransform(rotationAngle: CGFloat(mediaTransform.rotation))
+        mediaView.transform = CGAffineTransform(rotationAngle: CGFloat(mediaTransform.rotation)).scaledBy(x: scale, y: scale)
     }
 
     // MARK: Жесты
@@ -339,7 +344,15 @@ final class StoryCanvasView: UIView, UIGestureRecognizerDelegate, UIEditMenuInte
         self.target = nil
         switch target {
         case .entity(let id):
-            guard let view = entityViews[id] else { break }
+            // Объект мог пропасть посреди жеста (отмена, меню) — корзину всё равно убираем.
+            defer {
+                hideTrash()
+                snapLayer.path = nil
+            }
+            guard let view = entityViews[id] else {
+                overTrash = false
+                break
+            }
             view.isGestureActive = false
             if overTrash {
                 overTrash = false
@@ -354,8 +367,6 @@ final class StoryCanvasView: UIView, UIGestureRecognizerDelegate, UIEditMenuInte
                 let metrics = StoryCanvasMetrics(size: bounds.size)
                 callbacks.entityChanged(id, metrics.normalized(view.center), Double(currentScale), Double(displayRotation))
             }
-            hideTrash()
-            snapLayer.path = nil
         case .media:
             callbacks.mediaChanged(mediaTransform)
         case .blur:

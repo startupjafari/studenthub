@@ -67,6 +67,9 @@ struct StoryTextLayout {
 
     /// Самая широкая надпись — 86 % холста, дальше перенос.
     static let maxWidthFraction: CGFloat = 0.86
+    /// Запас ширины при отрисовке строк: раскладка по ровной ширине самой длинной строки
+    /// могла бы перенести её последнее слово, хотя при измерении оно поместилось.
+    static let wrapSlack: CGFloat = 2
 
     init(payload: StoryTextPayload, canvasWidth: CGFloat, text overrideText: String? = nil) {
         self.payload = payload
@@ -208,7 +211,11 @@ struct StoryTextLayout {
         }
         UIGraphicsPushContext(context)
         let origin = CGPoint(x: padding.width, y: padding.height)
-        let rect = CGRect(origin: origin, size: CGSize(width: size.width - padding.width * 2, height: size.height - padding.height * 2 + 1))
+        let slack = Self.wrapSlack
+        let rect = CGRect(
+            origin: CGPoint(x: origin.x - slack / 2, y: origin.y),
+            size: CGSize(width: size.width - padding.width * 2 + slack, height: size.height - padding.height * 2 + 1)
+        )
         attributed.draw(with: rect, options: [.usesLineFragmentOrigin], context: nil)
         UIGraphicsPopContext()
     }

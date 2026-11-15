@@ -39,8 +39,15 @@ enum StoryExporter {
     // MARK: Фото
 
     /// Кадр истории. `videoPoster` — кадр видео-фона для превью (у фото не нужен).
-    static func renderPhoto(_ document: StoryDocument, workspace: StoryWorkspace, size: CGSize = size, videoPoster: UIImage? = nil) -> UIImage {
-        let media = processedMedia(document, workspace: workspace) ?? videoPoster
+    /// `maxMediaSide` — ужать фото до обработки (превью); `nil` — полный размер (экспорт).
+    static func renderPhoto(
+        _ document: StoryDocument,
+        workspace: StoryWorkspace,
+        size: CGSize = size,
+        videoPoster: UIImage? = nil,
+        maxMediaSide: CGFloat? = nil
+    ) -> UIImage {
+        let media = processedMedia(document, workspace: workspace, maxSide: maxMediaSide) ?? videoPoster
         let images = EntityImages(workspace: workspace)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
@@ -70,10 +77,11 @@ enum StoryExporter {
     }
 
     /// Обработанное фото фона в полный размер (до 2560 px по длинной стороне).
-    private static func processedMedia(_ document: StoryDocument, workspace: StoryWorkspace) -> UIImage? {
+    private static func processedMedia(_ document: StoryDocument, workspace: StoryWorkspace, maxSide: CGFloat? = nil) -> UIImage? {
         guard case let .photo(file, _) = document.background,
-              let source = CIImage(contentsOf: workspace.url(for: file), options: [.applyOrientationProperty: true])
+              var source = CIImage(contentsOf: workspace.url(for: file), options: [.applyOrientationProperty: true])
         else { return nil }
+        if let maxSide { source = StoryImageProcessor.proxy(of: source, maxSide: maxSide) }
         let processed = StoryImageProcessor.shared.process(source, StoryProcessing(document))
         guard let cgImage = StoryImageProcessor.shared.render(processed) else { return nil }
         return UIImage(cgImage: cgImage)

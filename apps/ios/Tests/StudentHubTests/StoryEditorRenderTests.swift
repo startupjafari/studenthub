@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreImage
 import CoreImage.CIFilterBuiltins
+import Metal
 import XCTest
 
 @testable import StudentHub
@@ -372,6 +373,29 @@ final class StoryEditorRenderTests: XCTestCase {
         let result = try await StoryExporter.export(document, workspace: workspace)
         let duration = try await AVURLAsset(url: result.url).load(.duration).seconds
         XCTAssertEqual(duration, 1.5, accuracy: 0.3, "обрезка видео не учтена")
+    }
+
+    /// Фото на экране — через `CIRenderDestination` в текстуру Metal. Строка 0 текстуры —
+    /// верх экрана; у Core Image верх — большие y. Верх снимка должен оказаться вверху.
+    func testPhotoViewRenderIsUpright() throws {
+        guard let device = processor.device, let queue = device.makeCommandQueue() else {
+            throw XCTSkip("нет Metal")
+        }
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: 4, height: 8, mipmapped: false)
+        descriptor.usage = [.renderTarget, .shaderWrite, .shaderRead]
+        descriptor.storageMode = .shared
+        let texture = try XCTUnwrap(device.makeTexture(descriptor: descriptor))
+        let top = CIImage(color: CIColor(red: 1, green: 0, blue: 0)).cropped(to: CGRect(x: 0, y: 4, width: 4, height: 4))
+        let bottom = CIImage(color: CIColor(red: 0, green: 0, blue: 1)).cropped(to: CGRect(x: 0, y: 0, width: 4, height: 4))
+        let buffer = try XCTUnwrap(queue.makeCommandBuffer())
+        StoryPhotoView.render(top.composited(over: bottom), to: texture, commandBuffer: buffer, context: processor.context)
+        buffer.commit()
+        buffer.waitUntilCompleted()
+        var row = [UInt8](repeating: 0, count: 4 * 4)
+        texture.getBytes(&row, bytesPerRow: 16, from: MTLRegionMake2D(0, 0, 4, 1), mipmapLevel: 0)
+        // BGRA: красный — третий байт.
+        XCTAssertGreaterThan(row[2], 200, "верх снимка на экране внизу — перевернуть CIRenderDestination")
+        XCTAssertLessThan(row[0], 50)
     }
 
     func testOrientationOfPortraitTrack() {

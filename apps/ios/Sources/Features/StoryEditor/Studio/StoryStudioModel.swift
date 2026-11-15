@@ -198,7 +198,8 @@ final class StoryStudioModel {
 
     /// Нажатие затвора: снимок, запись или её остановка — по режиму.
     func shutterTapped() async {
-        guard state == .camera || state == .recording, !isCapturing, countdown == nil else { return }
+        // Камера не готова (нет разрешения, сессия ещё настраивается) — затвор молчит.
+        guard isCameraReady, state == .camera || state == .recording, !isCapturing, countdown == nil else { return }
         if state == .recording {
             await stopRecording()
             return
@@ -503,6 +504,7 @@ final class StoryStudioModel {
 
     private func openEditor(_ document: StoryDocument, from origin: StoryEditorOrigin) {
         camera.stop()
+        isCameraReady = false
         withAnimation(Motion.snappy) {
             _ = session.open(document, from: origin)
         }
@@ -585,7 +587,8 @@ final class StoryStudioModel {
         if case let .video(file, _, _) = document.background {
             poster = MediaPreparation.thumbnail(ofVideoAt: workspace.url(for: file))
         }
-        return StoryExporter.renderPhoto(document, workspace: workspace, size: size, videoPoster: poster)
+        // Медиа — уменьшенная копия: полный размер на главном потоке дал бы рывок.
+        return StoryExporter.renderPhoto(document, workspace: workspace, size: size, videoPoster: poster, maxMediaSide: width * 2)
     }
 
     // Инструменты.

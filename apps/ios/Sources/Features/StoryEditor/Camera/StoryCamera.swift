@@ -159,7 +159,6 @@ final class StoryCaptureController: NSObject, StoryCameraSource {
             throw StoryCameraError.denied
         }
         guard Self.isAvailable else { throw StoryCameraError.unavailable }
-        self.position = position
         let session = session
         let photoOutput = photoOutput
         let movieOutput = movieOutput
@@ -189,12 +188,39 @@ final class StoryCaptureController: NSObject, StoryCameraSource {
                 continuation.resume(returning: added)
             }
         }
-        if let input { videoInput = input }
-        if videoInput == nil { throw StoryCameraError.unavailable }
-        if needsConfiguration, position != .back || videoInput?.device.position != position.avPosition {
+        if let input {
+            videoInput = input
+            self.position = position
+            resetZoom(input.device)
+        }
+        guard let current = videoInput else { throw StoryCameraError.unavailable }
+        // Сессия уже настроена другой камерой (кружок после съёмки задней) — меняем вход.
+        // Положение меняется только вместе со входом: иначе зеркало включилось бы на
+        // задней камере.
+        if current.device.position != position.avPosition {
             await reconfigure(to: position)
         }
         applyConnections()
+    }
+
+    /// Виртуальная камера с широкоугольником (двойная/тройная) на множителе 1 смотрит
+    /// в сверхширокий объектив (0,5×). Обычный кадр — на первом переключении.
+    private func resetZoom(_ device: AVCaptureDevice) {
+        let hasUltraWide = device.constituentDevices.contains { $0.deviceType == .builtInUltraWideCamera }
+        let base = hasUltraWide ? (device.virtualDeviceSwitchOverVideoZoomFactors.first.map { CGFloat(truncating: $0) } ?? 1) : 1
+        zoomStart = base
+        sessionQueue.async {
+            guard (try? device.lockForConfiguration()) != nil else { return }
+            device.videoZoomFactor = min(max(base, device.minAvailableVideoZoomFactor), device.maxAvailableVideoZoomFactor)
+            device.unlockForConfiguration()
+        }
+    }
+
+    /// Снимать можно, только когда у вывода есть живое видеосоединение: иначе
+    /// AVFoundation бросает исключение (нет разрешения, сессия ещё настраивается).
+    private func hasActiveConnection(_ output: AVCaptureOutput) -> Bool {
+        guard let connection = output.connection(with: .video) else { return false }
+        return connection.isActive && connection.isEnabled && session.isRunning
     }
 
     func stop() {
@@ -230,6 +256,7 @@ final class StoryCaptureController: NSObject, StoryCameraSource {
         if swapped {
             videoInput = input
             position = newPosition
+            resetZoom(device)
             applyConnections()
         }
     }
@@ -283,6 +310,7 @@ final class StoryCaptureController: NSObject, StoryCameraSource {
     }
 
     func capturePhoto() async throws -> UIImage {
+        guard hasActiveConnection(photoOutput) else { throw StoryCameraError.captureFailed }
         let settings = AVCapturePhotoSettings()
         if photoOutput.supportedFlashModes.contains(flash.avMode) { settings.flashMode = flash.avMode }
         let data: Data = try await withCheckedThrowingContinuation { continuation in
@@ -297,6 +325,7 @@ final class StoryCaptureController: NSObject, StoryCameraSource {
 
     func startRecording(to url: URL) async throws {
         await ensureAudio()
+        guard hasActiveConnection(movieOutput), !movieOutput.isRecording else { throw StoryCameraError.captureFailed }
         if flash == .on, let device = videoInput?.device, device.hasTorch {
             sessionQueue.async {
                 guard (try? device.lockForConfiguration()) != nil else { return }

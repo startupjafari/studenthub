@@ -51,6 +51,23 @@ final class StoryPhotoView: MTKView {
     required init(coder: NSCoder) { fatalError("init(coder:) не используется") }
 
     /// Уменьшенная копия исходника — ставится один раз при открытии медиа.
+    /// Переворот при рендере в текстуру экрана. Закреплён тестом
+    /// `StoryEditorRenderTests.testPhotoViewRenderIsUpright`: верх снимка — вверху.
+    static let flipsDestination = false
+
+    /// Отрисовать снимок в текстуру тем же путём, что и экран (для теста ориентации).
+    static func render(_ image: CIImage, to texture: MTLTexture, commandBuffer: MTLCommandBuffer, context: CIContext) {
+        let destination = CIRenderDestination(
+            width: texture.width,
+            height: texture.height,
+            pixelFormat: texture.pixelFormat,
+            commandBuffer: commandBuffer,
+            mtlTextureProvider: { texture }
+        )
+        destination.isFlipped = flipsDestination
+        _ = try? context.startTask(toRender: image, to: destination)
+    }
+
     func setSource(_ image: CIImage?) {
         source = image
         setNeedsDisplay()
@@ -81,7 +98,7 @@ final class StoryPhotoView: MTKView {
             commandBuffer: buffer,
             mtlTextureProvider: { drawable.texture }
         )
-        destination.isFlipped = false
+        destination.isFlipped = Self.flipsDestination
         _ = try? processor.context.startTask(toClear: destination)
         _ = try? processor.context.startTask(toRender: image, to: destination)
         buffer.present(drawable)
@@ -232,7 +249,11 @@ final class StoryMediaView: UIView {
             loadTask = Task { [weak self] in
                 let image = await Task.detached(priority: .userInitiated) { () -> CIImage? in
                     guard let image = CIImage(contentsOf: url, options: [.applyOrientationProperty: true]) else { return nil }
-                    return StoryImageProcessor.proxy(of: image, maxSide: 2048)
+                    // Копия раскодируется и ужимается один раз: ленивый CIImage из файла
+                    // заново читал бы JPEG на каждом сдвиге ползунка.
+                    let proxy = StoryImageProcessor.proxy(of: image, maxSide: 2048)
+                    guard let decoded = StoryImageProcessor.shared.render(proxy) else { return proxy }
+                    return CIImage(cgImage: decoded)
                 }.value
                 guard !Task.isCancelled else { return }
                 self?.photoView.setSource(image)

@@ -70,10 +70,13 @@ final class StoryTextEditingView: UIView, UITextViewDelegate {
         textView.resignFirstResponder()
     }
 
-    /// Новый цвет из большого выбора цвета.
+    /// Новый цвет из большого выбора цвета. Модель его уже знает — обратно не сообщаем:
+    /// вызов приходит из обновления SwiftUI, и правка состояния там запрещена.
     func setColor(_ color: StoryColor) {
         payload.color = color
-        payloadChanged()
+        applyAttributes()
+        formatBar.configure(payload: payload, input: input)
+        relayoutText()
     }
 
     func refocus() {
@@ -96,14 +99,18 @@ final class StoryTextEditingView: UIView, UITextViewDelegate {
         let available = max(bottom - top, 60)
         let height = min(layout.size.height, available)
         let center = CGPoint(x: canvasFrame.midX, y: top + available / 2)
-        let frame = CGRect(x: center.x - layout.size.width / 2, y: center.y - height / 2, width: layout.size.width, height: height)
+        // Поле ввода на 2 pt шире строк: при строке ровно во всю ширину его раскладка
+        // не перенесёт последнее слово иначе, чем рисунок букв (курсор и буквы на разных строках).
+        let slack = StoryTextLayout.wrapSlack
+        let frame = CGRect(x: center.x - layout.size.width / 2 - slack / 2, y: center.y - height / 2, width: layout.size.width + slack, height: height)
         previewView.layout = layout
-        previewView.frame = CGRect(x: frame.minX, y: frame.minY, width: layout.size.width, height: layout.size.height)
+        previewView.frame = CGRect(x: frame.minX + slack / 2, y: frame.minY, width: layout.size.width, height: layout.size.height)
         textView.frame = frame
         textView.textContainerInset = UIEdgeInsets(top: layout.padding.height, left: layout.padding.width, bottom: layout.padding.height, right: layout.padding.width)
         // Длинная надпись выше свободного места — прокрутка внутри поля, подложка едет следом.
         textView.isScrollEnabled = layout.size.height > available
         previewView.frame.origin.y = frame.minY - (textView.isScrollEnabled ? textView.contentOffset.y : 0)
+        previewView.frame.origin.x = frame.minX + slack / 2
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {

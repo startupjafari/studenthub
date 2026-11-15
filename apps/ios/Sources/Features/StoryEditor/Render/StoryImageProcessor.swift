@@ -34,9 +34,6 @@ final class StoryImageProcessor: @unchecked Sendable {
     /// Контекст на Metal: рендер в текстуру экрана без копии через CPU.
     let context: CIContext
     private let workingSpace = CGColorSpace(name: CGColorSpace.sRGB)!
-    private let lock = NSLock()
-    /// Автоулучшение считается один раз на исходник: анализ снимка дорогой.
-    private var enhanceCache: [ObjectIdentifier: [CIFilter]] = [:]
 
     init() {
         device = MTLCreateSystemDefaultDevice()
@@ -59,22 +56,25 @@ final class StoryImageProcessor: @unchecked Sendable {
         let adjustments = processing.adjustments
         var image = input
 
+        // «Улучшить» — постоянная цепочка без анализа снимка: тени приподняты, света
+        // придержаны, цвет живее, чуть больше контраста. Анализ (autoAdjustmentFilters)
+        // на видео шёл бы на каждом кадре и мерцал, а общие фильтры делились бы потоками.
         let enhance = adjustments[.enhance] / 100
         if enhance > 0 {
-            var enhanced = image
-            for filter in autoFilters(for: input) {
-                filter.setValue(enhanced, forKey: kCIInputImageKey)
-                enhanced = filter.outputImage ?? enhanced
-            }
+            let tones = CIFilter.highlightShadowAdjust()
+            tones.inputImage = image
+            tones.shadowAmount = Float(enhance * 0.55)
+            tones.highlightAmount = Float(1 - enhance * 0.25)
+            tones.radius = Float(max(1, extent.width / 1080 * 8))
+            image = tones.outputImage ?? image
             let vibrance = CIFilter.vibrance()
-            vibrance.inputImage = enhanced
-            vibrance.amount = 0.35
-            enhanced = vibrance.outputImage ?? enhanced
-            let mix = CIFilter.dissolveTransition()
-            mix.inputImage = image
-            mix.targetImage = enhanced
-            mix.time = Float(enhance)
-            image = mix.outputImage?.cropped(to: extent) ?? image
+            vibrance.inputImage = image
+            vibrance.amount = Float(enhance * 0.6)
+            image = vibrance.outputImage ?? image
+            let punch = CIFilter.colorControls()
+            punch.inputImage = image
+            punch.contrast = Float(1 + enhance * 0.08)
+            image = punch.outputImage?.cropped(to: extent) ?? image
         }
 
         let exposure = adjustments[.exposure] / 100
@@ -205,22 +205,6 @@ final class StoryImageProcessor: @unchecked Sendable {
         filter.mask = mask
         filter.radius = Float(blur.intensity * 0.02 * extent.width)
         return filter.outputImage?.cropped(to: extent) ?? image
-    }
-
-    private func autoFilters(for image: CIImage) -> [CIFilter] {
-        let key = ObjectIdentifier(image)
-        lock.lock()
-        if let cached = enhanceCache[key] {
-            lock.unlock()
-            return cached
-        }
-        lock.unlock()
-        let filters = image.autoAdjustmentFilters(options: [.redEye: false])
-        lock.lock()
-        if enhanceCache.count > 8 { enhanceCache.removeAll() }
-        enhanceCache[key] = filters
-        lock.unlock()
-        return filters
     }
 
     // MARK: Растр

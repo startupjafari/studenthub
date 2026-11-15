@@ -277,6 +277,7 @@ struct StoryCameraScreen: View {
             ShutterButton(appearance: model.shutter, recordingStart: model.recordingStartedAt, isBusy: model.isCapturing) {
                 Task { await model.shutterTapped() }
             }
+            .disabled(!model.isCameraReady)
 
             Spacer()
 
