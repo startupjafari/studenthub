@@ -60,6 +60,19 @@ struct StoryEditorSession: Sendable {
         return true
     }
 
+    /// Следующий снимок из выбранных в галерее: редактор остаётся открытым, а документ,
+    /// история шагов и исходное состояние — новые.
+    @discardableResult
+    mutating func openNext(_ document: StoryDocument) -> Bool {
+        guard state == .storyEditor else { return false }
+        self.document = document
+        baseline = document
+        toolSnapshots.removeAll()
+        history.removeAll()
+        draftID = nil
+        return true
+    }
+
     // MARK: Инструменты
 
     /// Новая надпись или правка существующей. Новая сразу лежит в документе (её видно
