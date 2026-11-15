@@ -535,6 +535,73 @@ describe('Медиа: позиция и направление', () => {
   })
 })
 
+describe('Недавние файлы листа вложений', () => {
+  const file = (id: string, chatId: string, minutesAgo: number) => ({
+    id,
+    name: `${id}.pdf`,
+    mime: 'application/pdf',
+    size: 10,
+    posterKey: null,
+    width: null,
+    height: null,
+    placeholder: null,
+    durationMs: null,
+    mediaStatus: null,
+    createdAt: new Date(),
+    messageId: `m-${id}`,
+    message: {
+      chatId,
+      createdAt: new Date(Date.UTC(2026, 10, 15, 12, 0) - minutesAgo * 60_000),
+      senderId: 'u1',
+      sender: { id: 'u1', firstName: 'А', lastName: 'Б', avatarUrl: null },
+    },
+  })
+
+  it('document — свои отправленные, по всем чатам без бана и скрытого, поиск по имени', async () => {
+    const { service, prisma } = setup()
+    prisma.file.findMany.mockResolvedValue([file('f1', 'c1', 1)])
+    const page = await service.listRecentFiles(viewer('u1'), {
+      kind: 'document',
+      q: 'отчёт',
+      limit: 20,
+    })
+    const where = prisma.file.findMany.mock.calls[0][0].where
+    expect(where.message).toEqual({
+      deletedAt: null,
+      chat: { members: { some: { userId: 'u1', bannedAt: null } } },
+      hiddenBy: { none: { userId: 'u1' } },
+      senderId: 'u1',
+    })
+    expect(where.name).toEqual({ contains: 'отчёт', mode: 'insensitive' })
+    expect(page.items).toEqual([
+      expect.objectContaining({ id: 'f1', chatId: 'c1', messageId: 'm-f1' }),
+    ])
+  })
+
+  it('audio — из всех чатов (не только свои), без голосовых', async () => {
+    const { service, prisma } = setup()
+    await service.listRecentFiles(viewer('u1'), { kind: 'audio', limit: 20 })
+    const where = prisma.file.findMany.mock.calls[0][0].where
+    expect(where.message.senderId).toBeUndefined()
+    expect(where.mime).toEqual({ startsWith: 'audio/' })
+  })
+
+  it('очищенное «у себя» отсеивается, курсор — по странице до фильтра', async () => {
+    const { service, prisma } = setup()
+    prisma.file.findMany.mockResolvedValue([
+      file('f1', 'c1', 1),
+      file('f2', 'c2', 120),
+      file('f3', 'c2', 200),
+    ])
+    prisma.chatMember.findMany.mockResolvedValue([
+      { chatId: 'c2', clearedAt: new Date(Date.UTC(2026, 10, 15, 11, 0)), clearedRanges: null },
+    ])
+    const page = await service.listRecentFiles(viewer('u1'), { kind: 'document', limit: 2 })
+    expect(page.items.map((i) => i.id)).toEqual(['f1'])
+    expect(page.meta).toEqual({ cursor: 'f2', hasNext: true })
+  })
+})
+
 describe('Отмена многочастной загрузки вложения', () => {
   it('проверку ключа делает FileService по id вызывающего; бакет — чатовый', async () => {
     const { service, files } = setup()

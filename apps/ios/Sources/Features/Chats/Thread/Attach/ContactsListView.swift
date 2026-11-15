@@ -17,6 +17,11 @@ struct ContactsListView: View {
     struct ContactRow: Identifiable, Sendable {
         let id: String
         let draft: ContactCardDraft
+        /// Миниатюра фото из «Контактов» (маленькая, для строки списка).
+        var thumbnail: Data? = nil
+
+        /// Буква раздела: первая буква имени, всё прочее — «#».
+        var letter: String { ContactsIndex.letter(for: draft.name) }
     }
 
     var body: some View {
@@ -70,42 +75,75 @@ struct ContactsListView: View {
                     .foregroundStyle(Palette.mutedForeground)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(shown) { row in
-                            Button {
-                                onPick(row.draft)
-                            } label: {
-                                HStack(spacing: Spacing.lg) {
-                                    AvatarView(url: nil, name: row.draft.name, size: 40)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(row.draft.name)
-                                            .font(Typography.body)
-                                            .foregroundStyle(Palette.foreground)
-                                            .lineLimit(1)
-                                        if let detail = row.draft.phones.first ?? row.draft.emails.first {
-                                            Text(detail)
-                                                .font(Typography.meta)
-                                                .foregroundStyle(Palette.mutedForeground)
-                                                .lineLimit(1)
-                                        }
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                            ForEach(ContactsIndex.sections(shown, letter: \.letter), id: \.letter) { section in
+                                Section {
+                                    ForEach(section.rows) { row in
+                                        contactRow(row)
                                     }
-                                    Spacer(minLength: 0)
+                                } header: {
+                                    Text(section.letter)
+                                        .font(Typography.meta.weight(.semibold))
+                                        .foregroundStyle(Palette.mutedForeground)
+                                        .padding(.horizontal, Spacing.xl)
+                                        .padding(.vertical, Spacing.xs)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .background(Palette.background.opacity(0.95))
                                 }
-                                .padding(.horizontal, Spacing.lg)
-                                .padding(.vertical, Spacing.sm)
-                                .contentShape(Rectangle())
+                                .id(section.letter)
                             }
-                            .buttonStyle(.plain)
                         }
+                        .padding(.trailing, Spacing.xl)
                     }
-                    .background(Palette.secondary, in: RoundedRectangle(cornerRadius: Radius.xxl, style: .continuous))
-                    .padding(.horizontal, Spacing.lg)
+                    .scrollDismissesKeyboard(.immediately)
+                    .overlay(alignment: .trailing) {
+                        AlphabetIndex(letters: ContactsIndex.sections(shown, letter: \.letter).map(\.letter)) { letter in
+                            proxy.scrollTo(letter, anchor: .top)
+                        }
+                        .padding(.trailing, 2)
+                    }
                 }
-                .scrollDismissesKeyboard(.immediately)
             }
         }
         .padding(.top, Spacing.xs)
+    }
+
+    private func contactRow(_ row: ContactRow) -> some View {
+        Button {
+            onPick(row.draft)
+        } label: {
+            HStack(spacing: Spacing.lg) {
+                if let data = row.thumbnail, let image = UIImage(data: data) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 40, height: 40)
+                        .clipShape(Circle())
+                } else {
+                    AvatarView(url: nil, name: row.draft.name, size: 40)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(row.draft.name)
+                        .font(Typography.body)
+                        .foregroundStyle(Palette.foreground)
+                        .lineLimit(1)
+                    if let detail = row.draft.phones.first ?? row.draft.emails.first {
+                        Text(detail)
+                            .font(Typography.meta)
+                            .foregroundStyle(Palette.mutedForeground)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Spacing.lg)
+            .padding(.vertical, Spacing.sm)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("chat.attach.contact.\(row.id)")
     }
 
     private var shown: [ContactRow] {
@@ -152,13 +190,14 @@ struct ContactsListView: View {
             CNContactFormatter.descriptorForRequiredKeys(for: .fullName),
             CNContactPhoneNumbersKey as CNKeyDescriptor,
             CNContactEmailAddressesKey as CNKeyDescriptor,
+            CNContactThumbnailImageDataKey as CNKeyDescriptor,
         ]
         let request = CNContactFetchRequest(keysToFetch: keys)
         request.sortOrder = .userDefault
         var rows: [ContactRow] = []
         try? CNContactStore().enumerateContacts(with: request) { contact, _ in
             if let draft = ContactCardDraft(contact) {
-                rows.append(ContactRow(id: contact.identifier, draft: draft))
+                rows.append(ContactRow(id: contact.identifier, draft: draft, thumbnail: contact.thumbnailImageData))
             }
         }
         return rows
@@ -176,5 +215,69 @@ private enum ContactsAccess {
         if status == .notDetermined { return .undetermined }
         if status == .denied || status == .restricted { return .denied }
         return .allowed
+    }
+}
+
+/// Разделы списка контактов по первой букве — для индекса справа.
+enum ContactsIndex {
+    static func letter(for name: String) -> String {
+        guard let first = name.trimmingCharacters(in: .whitespaces).first, first.isLetter else { return "#" }
+        return String(first).uppercased()
+    }
+
+    /// Строки по разделам: буквы в порядке первого появления (порядок задают «Контакты»),
+    /// «#» — в конце, как в системном списке.
+    static func sections<Row>(_ rows: [Row], letter: (Row) -> String) -> [(letter: String, rows: [Row])] {
+        var order: [String] = []
+        var groups: [String: [Row]] = [:]
+        for row in rows {
+            let key = letter(row)
+            if groups[key] == nil { order.append(key) }
+            groups[key, default: []].append(row)
+        }
+        let letters = order.filter { $0 != "#" } + (order.contains("#") ? ["#"] : [])
+        return letters.map { ($0, groups[$0] ?? []) }
+    }
+}
+
+/// Алфавитный указатель у правого края: касание или ведение пальцем — к разделу.
+struct AlphabetIndex: View {
+    let letters: [String]
+    let onSelect: (String) -> Void
+
+    @State private var current: String?
+
+    var body: some View {
+        if letters.count > 1 {
+            GeometryReader { proxy in
+                VStack(spacing: 0) {
+                    ForEach(letters, id: \.self) { letter in
+                        Text(letter)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(current == letter ? Palette.primaryForeground : Palette.primary)
+                            .frame(width: 16, height: proxy.size.height / CGFloat(letters.count))
+                            .background(Circle().fill(current == letter ? Palette.primary : .clear))
+                    }
+                }
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0)
+                    .onChanged { drag in
+                        let step = proxy.size.height / CGFloat(max(letters.count, 1))
+                        let index = min(max(Int(drag.location.y / step), 0), letters.count - 1)
+                        let letter = letters[index]
+                        if letter != current {
+                            current = letter
+                            Haptics.tap()
+                            onSelect(letter)
+                        }
+                    }
+                    .onEnded { _ in current = nil })
+            }
+            .frame(width: 18, height: min(CGFloat(letters.count) * 16, 420))
+            .accessibilityElement()
+            .accessibilityLabel(Text(String(localized: "chats.contacts.index", defaultValue: "Алфавитный указатель")))
+            .accessibilityIdentifier("chat.attach.contacts.index")
+            .accessibilityAdjustableAction { _ in }
+        }
     }
 }

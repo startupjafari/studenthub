@@ -7,6 +7,31 @@ import Foundation
 /// Сообщение как строка списка (вкладка «Опросы» в информации о чате).
 extension ChatMessageDTO: Identifiable {}
 
+/// Итог пересылки по каждому чату — сервер отвечает за всех сразу, и часть может не
+/// пройти (запрос на переписку не принят, участника исключили).
+struct ForwardOutcome: Equatable {
+    var delivered: [String] = []
+    var failed: [String] = []
+    /// Ошибка всего запроса (нет сети, сервер упал) — повтор с тем же ключом безопасен.
+    var failure: String?
+
+    var isComplete: Bool { failure == nil && failed.isEmpty && !delivered.isEmpty }
+
+    /// Разбор ответа сервера. Чат, о котором ответ молчит, — не доставлен: «всё ушло»
+    /// показывается, только если сервер подтвердил каждого получателя.
+    init(requested: [String], result: ForwardResultDTO) {
+        let delivered = Set(result.results.filter(\.ok).map(\.chatId))
+        self.delivered = requested.filter { delivered.contains($0) }
+        failed = requested.filter { !delivered.contains($0) }
+    }
+
+    init(delivered: [String] = [], failed: [String] = [], failure: String? = nil) {
+        self.delivered = delivered
+        self.failed = failed
+        self.failure = failure
+    }
+}
+
 struct ForwardResultDTO: Decodable, Equatable {
     struct Target: Decodable, Equatable {
         let chatId: String
@@ -94,7 +119,7 @@ protocol ChatMessaging: Sendable {
     /// `FEATURE_DISABLED`.
     func searchGifs(_ query: String, offset: Int) async throws -> ExternalGifPageDTO
     func sendExternalGif(chatID: String, gifID: String, replyToID: String?, nonce: String) async throws -> ChatMessageDTO
-    func forward(messageIDs: [String], to chatIDs: [String], comment: String?, requestID: UUID) async throws -> ForwardResultDTO
+    func forward(messageIDs: [String], to chatIDs: [String], comment: String?, hideSender: Bool, requestID: UUID) async throws -> ForwardResultDTO
     func hide(messageIDs: [String], chatID: String) async throws -> HiddenMessagesDTO
     func deleteForEveryone(messageIDs: [String], chatID: String) async throws -> DeletedMessagesDTO
     func closePoll(id: String) async throws
@@ -152,17 +177,25 @@ extension ChatsAPI: ChatMessaging {
         )
     }
 
-    func forward(messageIDs: [String], to chatIDs: [String], comment: String?, requestID: UUID) async throws -> ForwardResultDTO {
+    func forward(messageIDs: [String], to chatIDs: [String], comment: String?, hideSender: Bool, requestID: UUID) async throws -> ForwardResultDTO {
         struct Body: Encodable {
             let messageIds: [String]
             let chatIds: [String]
             let comment: String?
             let requestId: String
+            /// Только `true`: без флага сервер и старые версии ведут себя как раньше.
+            let hideSender: Bool?
         }
         return try await client.send(
             try .post(
                 "chats/forward",
-                json: Body(messageIds: messageIDs, chatIds: chatIDs, comment: comment, requestId: requestID.uuidString.lowercased())
+                json: Body(
+                    messageIds: messageIDs,
+                    chatIds: chatIDs,
+                    comment: comment,
+                    requestId: requestID.uuidString.lowercased(),
+                    hideSender: hideSender ? true : nil
+                )
             ),
             as: ForwardResultDTO.self
         )

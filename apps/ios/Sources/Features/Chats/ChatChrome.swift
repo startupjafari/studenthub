@@ -166,6 +166,16 @@ enum ChatPlural {
         }
     }
 
+    /// «Переслать 1 сообщение», «…3 сообщения», «…10 сообщений» — заголовок блока пересылки.
+    static func forwardTitle(_ count: Int) -> String {
+        let number = count.formatted()
+        switch form(count) {
+        case .one: return String(localized: "chats.forward.title.one", defaultValue: "Переслать \(number) сообщение")
+        case .few: return String(localized: "chats.forward.title.few", defaultValue: "Переслать \(number) сообщения")
+        case .many: return String(localized: "chats.forward.title.many", defaultValue: "Переслать \(number) сообщений")
+        }
+    }
+
     /// «1 сообщение», «3 сообщения», «12 сообщений» — что пересылаем.
     static func forwardMessages(_ count: Int) -> String {
         let number = count.formatted()

@@ -469,7 +469,7 @@ struct MediaViewer: View {
     /// новым сообщением с этим файлом: пересылка сервера берёт сообщения целиком.
     private func shareSheet(for target: ChatShareTarget) -> some View {
         ChatShareSheet(
-            send: { chatIDs, comment, requestID in
+            send: { chatIDs, comment, _, requestID in
                 guard let gallery else { return ForwardOutcome() }
                 let outcome: ForwardOutcome
                 switch target {

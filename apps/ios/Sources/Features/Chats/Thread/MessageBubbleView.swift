@@ -126,6 +126,7 @@ struct MessageBubbleView: View {
                         ? String(localized: "chats.selection.selected", defaultValue: "Выбрано")
                         : String(localized: "chats.selection.notSelected", defaultValue: "Не выбрано")))
                     .accessibilityAddTraits(isSelected ? .isSelected : [])
+                    .accessibilityIdentifier("message.select.\(message.remoteId ?? message.id)")
                 }
             }
             .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: selecting)
@@ -710,6 +711,7 @@ struct MessageBubbleView: View {
                 )
                 .accessibilityLabel(Text(verbatim: group.emoji))
                 .accessibilityValue(Text(verbatim: group.userIds.count.formatted()))
+                .accessibilityIdentifier("message.reaction.\(group.emoji)")
                 .accessibilityAddTraits(mine ? .isSelected : [])
             }
         }

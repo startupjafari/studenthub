@@ -77,6 +77,39 @@ struct ChatMediaItemDTO: Decodable, Equatable, Identifiable {
     var isVideo: Bool { mime.hasPrefix("video/") }
 }
 
+/// Недавний файл для листа вложений (`GET /chats/files/recent`): свои отправленные
+/// документы («Файл») или музыка из всех чатов («Звук» → «Ваши чаты»).
+struct RecentChatFileDTO: Decodable, Equatable, Identifiable {
+    enum Kind: String {
+        case document
+        case audio
+    }
+
+    let id: String
+    let chatId: String
+    let messageId: String
+    let name: String?
+    let mime: String
+    let size: Int?
+    let durationMs: Int?
+    let createdAt: Date
+    var sender: ChatPersonDTO? = nil
+}
+
+/// Недавние файлы для листа вложений — за протоколом, чтобы список проверялся без сети.
+protocol RecentChatFilesFetching: Sendable {
+    func recentFiles(kind: RecentChatFileDTO.Kind, query: String?, cursor: String?) async throws -> Page<RecentChatFileDTO>
+}
+
+extension ChatsAPI: RecentChatFilesFetching {
+    func recentFiles(kind: RecentChatFileDTO.Kind, query: String?, cursor: String?) async throws -> Page<RecentChatFileDTO> {
+        var items = [URLQueryItem(name: "kind", value: kind.rawValue), URLQueryItem(name: "limit", value: "30")]
+        if let query, !query.isEmpty { items.append(URLQueryItem(name: "q", value: String(query.prefix(100)))) }
+        if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
+        return try await client.page(.get("chats/files/recent", query: items), of: RecentChatFileDTO.self)
+    }
+}
+
 /// Ссылка из раздела «Ссылки».
 struct ChatLinkItemDTO: Decodable, Equatable, Identifiable {
     let messageId: String
@@ -181,7 +214,7 @@ protocol ChatActing: ChatMessaging, ChatThreadTooling {
     func pinned(chatID: String) async throws -> [ChatMessageDTO]
     func forward(messageID: String, to chatID: String) async throws
     func searchMessages(_ query: String, chatID: String?) async throws -> [ChatMessageDTO]
-    func searchInChat(_ query: String, chatID: String, senderID: String?, cursor: String?) async throws -> Page<ChatMessageDTO>
+    func searchInChat(_ query: String, chatID: String, senderID: String?, hasFile: Bool, cursor: String?) async throws -> Page<ChatMessageDTO>
     func around(messageID: String, chatID: String) async throws -> Page<ChatMessageDTO>
     func reads(chatID: String) async throws -> [ChatReadDTO]
     // Чат
@@ -259,13 +292,14 @@ extension ChatsAPI: ChatActing {
 
     /// Поиск внутри одного чата — для поиска прямо в переписке. Свежие первыми, страницы
     /// по курсору: стрелка «вверх» дочитывает следующую, когда дошла до конца загруженного.
-    func searchInChat(_ query: String, chatID: String, senderID: String?, cursor: String?) async throws -> Page<ChatMessageDTO> {
+    func searchInChat(_ query: String, chatID: String, senderID: String?, hasFile: Bool, cursor: String?) async throws -> Page<ChatMessageDTO> {
         var items = [
             URLQueryItem(name: "q", value: query),
             URLQueryItem(name: "chatId", value: chatID),
             URLQueryItem(name: "limit", value: String(ChatsAPI.searchPageLimit)),
         ]
         if let senderID { items.append(URLQueryItem(name: "senderId", value: senderID)) }
+        if hasFile { items.append(URLQueryItem(name: "hasFile", value: "true")) }
         if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
         return try await client.page(.get("chats/search", query: items), of: ChatMessageDTO.self)
     }

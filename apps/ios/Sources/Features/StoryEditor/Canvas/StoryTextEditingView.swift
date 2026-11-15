@@ -23,7 +23,7 @@ final class StoryTextEditingView: UIView, UITextViewDelegate {
     private let previewView = StoryTextPreviewView()
     let textView = StoryTextField()
     private let formatBar = StoryTextFormatBar()
-    private lazy var emojiInput = StoryEmojiInputView { [weak self] emoji in self?.insertEmoji(emoji) }
+    private lazy var emojiInput = EmojiKeyboardInputView { [weak self] emoji in self?.insertEmoji(emoji) }
     private var keyboardTop: CGFloat?
 
     override init(frame: CGRect) {
@@ -429,32 +429,4 @@ extension StoryTextStyle {
         case .shadow: return String(localized: "stories.text.style.shadow", defaultValue: "Тень")
         }
     }
-}
-
-/// Панель эмодзи на месте клавиатуры у поля надписи.
-final class StoryEmojiInputView: UIInputView {
-    private let host: UIHostingController<AnyView>
-
-    init(onPick: @escaping (String) -> Void) {
-        host = UIHostingController(rootView: AnyView(
-            EmojiBrowser(columns: 8, showsSearch: false, onPick: onPick)
-                .environment(\.colorScheme, .dark)
-                .accessibilityIdentifier("story.emoji.panel")
-        ))
-        super.init(frame: CGRect(x: 0, y: 0, width: 390, height: 300), inputViewStyle: .keyboard)
-        allowsSelfSizing = true
-        host.view.backgroundColor = .clear
-        host.view.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(host.view)
-        NSLayoutConstraint.activate([
-            host.view.leadingAnchor.constraint(equalTo: leadingAnchor),
-            host.view.trailingAnchor.constraint(equalTo: trailingAnchor),
-            host.view.topAnchor.constraint(equalTo: topAnchor, constant: 6),
-            host.view.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
-            heightAnchor.constraint(equalToConstant: 300),
-        ])
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) не используется") }
 }

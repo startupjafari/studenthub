@@ -366,6 +366,22 @@ struct MessageStore: Sendable {
         }
     }
 
+    /// Реакции сообщения — сразу, до ответа сервера. Возвращает прежние — для отката, если
+    /// сервер откажет (`nil` — строки нет).
+    @discardableResult
+    func saveLocalReactions(messageID id: String, _ reactions: [MessageExtras.ReactionGroup]) async throws -> [MessageExtras.ReactionGroup]? {
+        try await database.writer.write { db in
+            guard var row = try MessageRecord.fetchOne(db, key: id) else { return nil }
+            var extras = row.extras ?? MessageExtras()
+            let previous = extras.reactions
+            guard previous != reactions else { return previous }
+            extras.reactions = reactions
+            row.extras = extras
+            try row.update(db)
+            return previous
+        }
+    }
+
     /// Пометить сообщение удалённым сразу, не дожидаясь события сервера.
     func markDeleted(messageID id: String) async throws {
         try await database.writer.write { db in

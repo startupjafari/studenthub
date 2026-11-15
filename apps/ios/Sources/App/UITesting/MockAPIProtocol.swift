@@ -1,5 +1,6 @@
 #if DEBUG
     import Foundation
+    import UIKit
 
     /// Перехват запросов к API в режиме UI-тестов: ответ из `MockServer`, без сети.
     ///
@@ -120,6 +121,14 @@
         /// Отправленные в этом процессе сообщения: чат → свежие первыми.
         private var sentMessages: [String: [JSON]] = [:]
         private var sentComments: [String: [JSON]] = [:]
+        /// Правки сообщений: реакции, закрепление, удаление «у всех» (id → поля поверх).
+        private var messagePatches: [String: JSON] = [:]
+        /// Скрытые «у меня» — в выдаче их нет.
+        private var hiddenMessageIDs: Set<String> = []
+        /// Закреплённые, свежие первыми.
+        private var pinnedIDs: [String] = []
+        /// Ответы пересылки по ключу идемпотентности: повтор не шлёт второй раз.
+        private var forwardReplies: [String: JSON] = [:]
         private var nextID = 1
         private var routes: [(method: String, pattern: [String], handler: Handler)] = []
 
@@ -302,16 +311,12 @@
                 if request.query["direction"] == "newer" {
                     return Self.ok([Any](), meta: ["hasPrev": false, "hasNext": false])
                 }
-                let sent = self.sentMessages[id] ?? []
-                let total = sent.count + MockFixtures.messageCount(chatIndex: index)
+                _ = index
+                let all = self.messages(of: id)
                 // Окно вокруг даты — последняя страница: переход по дате в тестах не нужен.
                 var query = request.query
                 if query["aroundDate"] != nil { query["cursor"] = nil }
-                return Self.page(total, query: query, defaultLimit: 50) { position in
-                    position < sent.count
-                        ? sent[position]
-                        : MockFixtures.message(chatIndex: index, position: position - sent.count)
-                }
+                return Self.page(all.count, query: query, defaultLimit: 50) { all[$0] }
             }
 
             route("POST", "chats/:id/messages") { [unowned self] request in
@@ -320,6 +325,7 @@
                     return Self.error(404, code: "NOT_FOUND", message: "Чат не найден")
                 }
                 let fields = Self.multipartFields(request)
+                let files = Self.multipartFiles(request)
                 let sent = self.sentMessages[id] ?? []
                 let seq = MockFixtures.messageCount(chatIndex: index) + sent.count + 1
                 var message: JSON = [
@@ -333,6 +339,21 @@
                     "createdAt": MockFixtures.iso(Date(timeIntervalSince1970: MockFixtures.epoch + TimeInterval(sent.count + 1))),
                 ]
                 if let reply = fields["replyToId"] { message["replyToId"] = reply }
+                if !files.isEmpty {
+                    let hidden = Set((fields["spoilerIndexes"] ?? "").split(separator: ",").compactMap { Int($0) })
+                    let allHidden = fields["spoiler"] == "true"
+                    let asFiles = fields["asFiles"] == "true"
+                    message["media"] = files.enumerated().map { offset, file -> JSON in
+                        [
+                            "id": self.makeID("file"),
+                            "mime": file.mime,
+                            "name": file.name,
+                            "size": file.size,
+                            "spoiler": allHidden || hidden.contains(offset),
+                            "asDocument": asFiles,
+                        ]
+                    }
+                }
                 self.sentMessages[id] = [message] + sent
                 return Self.ok(message)
             }
@@ -346,7 +367,11 @@
                     "created": [Any](), "mutated": [Any](), "deletedIds": [Any](), "latestSeq": latest, "overflow": false,
                 ])
             }
-            route("GET", "chats/:id/pinned") { _ in Self.ok([Any]()) }
+            route("GET", "chats/:id/pinned") { [unowned self] request in
+                let id = request.params["id"] ?? ""
+                let all = self.messages(of: id)
+                return Self.ok(self.pinnedIDs.compactMap { pinned in all.first { $0["id"] as? String == pinned } })
+            }
             route("GET", "chats/:id/presence") { _ in
                 Self.ok([["userId": MockFixtures.people[0].id, "online": true]])
             }
@@ -361,6 +386,176 @@
             for action in ["pin", "archive", "mute"] {
                 route("POST", "chats/:id/\(action)") { _ in Self.empty }
                 route("DELETE", "chats/:id/\(action)") { _ in Self.empty }
+            }
+            registerMessageActionRoutes()
+        }
+
+        // MARK: - Действия с сообщениями (меню, выбор, пересылка, поиск, вложения)
+
+        /// Переписка чата, свежие первыми: отправленное в процессе, затем фикстуры; правки
+        /// поверх, скрытое «у меня» — убрано.
+        private func messages(of chatID: String) -> [JSON] {
+            guard let index = MockFixtures.chatIndex(of: chatID) else { return [] }
+            let sent = sentMessages[chatID] ?? []
+            let fixtures = (0..<MockFixtures.messageCount(chatIndex: index)).map {
+                MockFixtures.message(chatIndex: index, position: $0)
+            }
+            return (sent + fixtures).compactMap { message in
+                guard let id = message["id"] as? String, !hiddenMessageIDs.contains(id) else { return nil }
+                guard let patch = messagePatches[id] else { return message }
+                return message.merging(patch) { $1 }
+            }
+        }
+
+        /// Сообщение по id: чат — часть id до «-m».
+        private func message(id: String) -> JSON? {
+            guard let range = id.range(of: "-m", options: .backwards) else { return nil }
+            let chatID = String(id[..<range.lowerBound])
+            return messages(of: chatID).first { $0["id"] as? String == id }
+        }
+
+        private static var now: String { MockFixtures.iso(Date()) }
+
+        private func registerMessageActionRoutes() {
+            // Реакция: одна на человека, та же снимает, другая заменяет (как сервер).
+            route("POST", "chats/messages/:id/reactions") { [unowned self] request in
+                let id = request.params["id"] ?? ""
+                guard let message = self.message(id: id) else { return Self.error(404, code: "NOT_FOUND", message: "Нет сообщения") }
+                let body = (try? JSONSerialization.jsonObject(with: request.body)) as? JSON
+                let emoji = body?["emoji"] as? String ?? ""
+                var reactions = (message["reactions"] as? [JSON]) ?? []
+                let mine = reactions.first { $0["userId"] as? String == MockFixtures.studentID }?["emoji"] as? String
+                reactions.removeAll { $0["userId"] as? String == MockFixtures.studentID }
+                if mine != emoji {
+                    reactions.append(["emoji": emoji, "userId": MockFixtures.studentID, "user": MockFixtures.student.json])
+                }
+                self.messagePatches[id, default: [:]]["reactions"] = reactions
+                return Self.ok(self.message(id: id) ?? message)
+            }
+            route("POST", "chats/messages/:id/pin") { [unowned self] request in
+                let id = request.params["id"] ?? ""
+                self.messagePatches[id, default: [:]]["pinnedAt"] = Self.now
+                self.pinnedIDs.removeAll { $0 == id }
+                self.pinnedIDs.insert(id, at: 0)
+                return Self.empty
+            }
+            route("DELETE", "chats/messages/:id/pin") { [unowned self] request in
+                let id = request.params["id"] ?? ""
+                self.messagePatches[id, default: [:]]["pinnedAt"] = NSNull()
+                self.pinnedIDs.removeAll { $0 == id }
+                return Self.empty
+            }
+            route("DELETE", "chats/:id/pinned") { [unowned self] request in
+                let chatID = request.params["id"] ?? ""
+                let ids = Set(self.messages(of: chatID).compactMap { $0["id"] as? String })
+                let removed = self.pinnedIDs.filter { ids.contains($0) }
+                for id in removed { self.messagePatches[id, default: [:]]["pinnedAt"] = NSNull() }
+                self.pinnedIDs.removeAll { ids.contains($0) }
+                return Self.ok(["count": removed.count])
+            }
+            route("POST", "chats/:id/messages/hide") { [unowned self] request in
+                let body = (try? JSONSerialization.jsonObject(with: request.body)) as? JSON
+                let ids = body?["messageIds"] as? [String] ?? []
+                self.hiddenMessageIDs.formUnion(ids)
+                return Self.ok(["hiddenIds": ids])
+            }
+            // У всех — только своё, как на сервере.
+            route("POST", "chats/:id/messages/delete") { [unowned self] request in
+                let body = (try? JSONSerialization.jsonObject(with: request.body)) as? JSON
+                let ids = body?["messageIds"] as? [String] ?? []
+                var deleted: [String] = []
+                var skipped: [String] = []
+                for id in ids {
+                    if self.message(id: id)?["senderId"] as? String == MockFixtures.studentID {
+                        self.messagePatches[id, default: [:]]["deletedAt"] = Self.now
+                        self.messagePatches[id, default: [:]]["content"] = ""
+                        deleted.append(id)
+                    } else {
+                        skipped.append(id)
+                    }
+                }
+                return Self.ok(["deletedIds": deleted, "skippedIds": skipped])
+            }
+            route("POST", "chats/forward") { [unowned self] request in
+                let body = (try? JSONSerialization.jsonObject(with: request.body)) as? JSON ?? [:]
+                let key = body["requestId"] as? String ?? UUID().uuidString
+                if let reply = self.forwardReplies[key] { return Self.ok(reply) }
+                let sources = (body["messageIds"] as? [String] ?? []).compactMap { self.message(id: $0) }
+                let hide = body["hideSender"] as? Bool ?? false
+                var results: [JSON] = []
+                for chatID in body["chatIds"] as? [String] ?? [] {
+                    guard let index = MockFixtures.chatIndex(of: chatID) else {
+                        results.append(["chatId": chatID, "ok": false, "messageIds": [String](), "code": "NOT_FOUND"])
+                        continue
+                    }
+                    var created: [String] = []
+                    func append(_ fields: JSON) {
+                        let sent = self.sentMessages[chatID] ?? []
+                        let seq = MockFixtures.messageCount(chatIndex: index) + sent.count + 1
+                        var message: JSON = [
+                            "id": "\(chatID)-m\(seq)",
+                            "chatId": chatID,
+                            "seq": seq,
+                            "senderId": MockFixtures.studentID,
+                            "sender": MockFixtures.student.json,
+                            "content": "",
+                            "createdAt": MockFixtures.iso(Date(timeIntervalSince1970: MockFixtures.epoch + TimeInterval(sent.count + 1))),
+                        ]
+                        message.merge(fields) { $1 }
+                        self.sentMessages[chatID] = [message] + sent
+                        created.append(message["id"] as? String ?? "")
+                    }
+                    if let comment = body["comment"] as? String, !comment.isEmpty { append(["content": comment]) }
+                    for source in sources {
+                        var fields: JSON = ["content": source["content"] ?? ""]
+                        if let media = source["media"] { fields["media"] = media }
+                        if !hide {
+                            fields["forwardedFromId"] = source["id"]
+                            fields["forwardedFrom"] = [
+                                "id": source["id"] ?? "",
+                                "senderId": source["senderId"] ?? "",
+                                "sender": source["sender"] ?? NSNull(),
+                            ]
+                        }
+                        append(fields)
+                    }
+                    results.append(["chatId": chatID, "ok": true, "messageIds": created])
+                }
+                let reply: JSON = ["results": results]
+                self.forwardReplies[key] = reply
+                return Self.ok(reply)
+            }
+            // Поиск по переписке: подстрока без регистра, свежие первыми, `total` — всё.
+            route("GET", "chats/search") { [unowned self] request in
+                let term = (request.query["q"] ?? "").lowercased()
+                let chatID = request.query["chatId"] ?? MockFixtures.chatID(0)
+                let withFiles = request.query["hasFile"] == "true"
+                let sender = request.query["senderId"]
+                let found = self.messages(of: chatID).filter { message in
+                    guard message["deletedAt"] == nil || message["deletedAt"] is NSNull else { return false }
+                    let content = (message["content"] as? String ?? "").lowercased()
+                    let hasMedia = !((message["media"] as? [Any])?.isEmpty ?? true)
+                    return content.contains(term) && (!withFiles || hasMedia)
+                        && (sender == nil || message["senderId"] as? String == sender)
+                }
+                return Self.page(found.count, query: request.query, defaultLimit: 20) { found[$0] }
+            }
+            route("GET", "chats/files/recent") { request in
+                let kind = request.query["kind"] ?? "document"
+                let term = (request.query["q"] ?? "").lowercased()
+                let files = (kind == "audio" ? MockFixtures.recentAudio : MockFixtures.recentDocuments).filter {
+                    term.isEmpty || ($0["name"] as? String ?? "").lowercased().contains(term)
+                }
+                return Self.ok(files, meta: ["hasNext": false])
+            }
+            // Ссылка на вложение — файл на устройстве: «Сохранить фото» и недавние файлы
+            // работают без сети.
+            route("GET", "chats/attachments/:id/url") { request in
+                let id = request.params["id"] ?? "file"
+                guard let url = MockFixtures.localFile(for: id) else {
+                    return Self.error(404, code: "NOT_FOUND", message: "Нет файла")
+                }
+                return Self.ok(["url": url.absoluteString, "expiresAt": MockFixtures.iso(Date().addingTimeInterval(3600))])
             }
         }
 
@@ -413,11 +608,12 @@
             route("POST", "stories/:id/view") { _ in Self.empty }
         }
 
-        /// Поля multipart-формы отправки сообщения: текст и ключ повтора.
+        /// Поля multipart-формы отправки сообщения: текст и ключ повтора. Тело читается с
+        /// заменой нечитаемых байтов: файлы в той же форме бинарные.
         private static func multipartFields(_ request: Request) -> [String: String] {
-            guard let text = String(data: request.body, encoding: .utf8) else { return [:] }
+            let text = String(decoding: request.body, as: UTF8.self)
             var fields: [String: String] = [:]
-            for part in text.components(separatedBy: "\r\n--") {
+            for part in text.components(separatedBy: "\r\n--") where !part.contains("filename=\"") {
                 guard let nameRange = part.range(of: "name=\""),
                     let nameEnd = part[nameRange.upperBound...].firstIndex(of: "\""),
                     let valueStart = part.range(of: "\r\n\r\n")
@@ -428,6 +624,23 @@
                 fields[name] = value
             }
             return fields
+        }
+
+        /// Файлы формы: имя, тип и размер — у сообщения в ответе появятся вложения.
+        private static func multipartFiles(_ request: Request) -> [(name: String, mime: String, size: Int)] {
+            let text = String(decoding: request.body, as: UTF8.self)
+            return text.components(separatedBy: "\r\n--").compactMap { part in
+                guard let start = part.range(of: "filename=\""),
+                    let end = part[start.upperBound...].firstIndex(of: "\""),
+                    let body = part.range(of: "\r\n\r\n")
+                else { return nil }
+                var mime = "application/octet-stream"
+                if let type = part.range(of: "Content-Type: ") {
+                    let line = part[type.upperBound...].prefix { $0 != "\r" && $0 != "\n" }
+                    mime = String(line)
+                }
+                return (String(part[start.upperBound..<end]), mime, part[body.upperBound...].utf8.count)
+            }
         }
     }
 #endif

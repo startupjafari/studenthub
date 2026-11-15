@@ -1,5 +1,6 @@
 #if DEBUG
     import Foundation
+    import UIKit
 
     /// Данные mock API — детерминированные: фиксированные id, даты от одной точки
     /// отсчёта, никакого `Date()` и случайности. Снимок экрана из прогона в прогон один и тот
@@ -192,7 +193,7 @@
                 "Встречаемся в 14:00 у библиотеки.",
                 "Хорошо, договорились 👍",
             ]
-            return [
+            var message: JSON = [
                 "id": "\(chatID(chatIndex))-m\(seq)",
                 "chatId": chatID(chatIndex),
                 "seq": seq,
@@ -201,6 +202,81 @@
                 "content": texts[(seq + chatIndex) % texts.count],
                 "createdAt": date(minutesBefore: chatIndex * 7 + position * 3),
             ]
+            // Снимок без подписи в личном чате — «Сохранить фото» и меню медиа. Не в
+            // первом чате: на нём эталоны снимков ленты.
+            if chatIndex == photoChatIndex, position == photoPosition {
+                message["content"] = ""
+                message["media"] = [[
+                    "id": "file-photo-1",
+                    "mime": "image/png",
+                    "name": "photo.png",
+                    "size": 4096,
+                    "width": 640,
+                    "height": 480,
+                    "spoiler": false,
+                    "asDocument": false,
+                ]]
+            }
+            return message
+        }
+
+        /// Чат и место снимка в фикстурах (`chat-3`, пятое с конца).
+        static let photoChatIndex = 2
+        static let photoPosition = 4
+
+        // MARK: - Недавние файлы листа вложений
+
+        static let recentDocuments: [JSON] = [
+            recentFile("file-doc-1", name: "Конспект лекции.txt", mime: "text/plain", size: 1_200, minutes: 30),
+            recentFile("file-doc-2", name: "Отчёт по практике.pdf", mime: "application/pdf", size: 230_000, minutes: 300),
+            recentFile("file-doc-3", name: "Архив лекций.rar", mime: "application/vnd.rar", size: 5_242_880, minutes: 2_000),
+        ]
+
+        static let recentAudio: [JSON] = [
+            recentFile("file-audio-1", name: "Гимн университета.mp3", mime: "audio/mpeg", size: 3_200_000, minutes: 60, durationMs: 185_000),
+            recentFile("file-audio-2", name: "Лекция 5.m4a", mime: "audio/mp4", size: 8_000_000, minutes: 900, durationMs: 2_700_000),
+        ]
+
+        private static func recentFile(_ id: String, name: String, mime: String, size: Int, minutes: Int, durationMs: Int? = nil) -> JSON {
+            var file: JSON = [
+                "id": id,
+                "chatId": chatID(1),
+                "messageId": "\(chatID(1))-m\(minutes % 12 + 1)",
+                "name": name,
+                "mime": mime,
+                "size": size,
+                "createdAt": date(minutesBefore: minutes),
+                "sender": student.json,
+            ]
+            if let durationMs { file["durationMs"] = durationMs }
+            return file
+        }
+
+        /// Файл на устройстве вместо presigned-ссылки: снимок, текст или короткий звук.
+        static func localFile(for id: String) -> URL? {
+            let folder = FileManager.default.temporaryDirectory.appending(path: "mock-files", directoryHint: .isDirectory)
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            if id.hasPrefix("file-photo") {
+                let url = folder.appending(path: "\(id).png")
+                if !FileManager.default.fileExists(atPath: url.path) {
+                    let image = UIGraphicsImageRenderer(size: CGSize(width: 640, height: 480)).image { context in
+                        UIColor.systemTeal.setFill()
+                        context.fill(CGRect(x: 0, y: 0, width: 640, height: 480))
+                        UIColor.white.setFill()
+                        context.fill(CGRect(x: 220, y: 140, width: 200, height: 200))
+                    }
+                    try? image.pngData()?.write(to: url)
+                }
+                return url
+            }
+            let all = recentDocuments + recentAudio
+            guard let file = all.first(where: { $0["id"] as? String == id }) else { return nil }
+            let name = (file["name"] as? String) ?? id
+            let url = folder.appending(path: "\(id)-\(name)")
+            if !FileManager.default.fileExists(atPath: url.path) {
+                try? Data("StudentHub mock file \(name)\n".utf8).write(to: url)
+            }
+            return url
         }
 
         static let chatMembers: [JSON] = [

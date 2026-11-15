@@ -70,7 +70,8 @@ final class MessageMenuTests: XCTestCase {
     }
 
     func testQuickReactionsMatchTelegramSet() {
-        XCTAssertEqual(EmojiCatalog.quickReactions, ["👍", "❤️", "😂", "🔥", "👎", "🙏"])
+        // Набор и порядок — с записи Telegram из ТЗ (15.11): 👌 🙏 👍 😂 😁 ❤️ 👎.
+        XCTAssertEqual(EmojiCatalog.quickReactions, ["👌", "🙏", "👍", "😂", "😁", "❤️", "👎"])
     }
 
     func testCatalogHasNoDuplicatesAndFlags() {
@@ -107,6 +108,50 @@ final class MessageMenuTests: XCTestCase {
         var checklist = MessageExtras()
         checklist.checklist = .init(id: "c-1", title: "Дела", items: [])
         XCTAssertFalse(ChatThreadModel.isEditableKind(checklist))
+    }
+
+    private func attachment(_ mime: String, name: String? = nil, asDocument: Bool = false) -> AttachmentRecord {
+        AttachmentRecord(id: UUID().uuidString, messageId: "m-1", mime: mime, name: name, asDocument: asDocument)
+    }
+
+    /// Меню по виду вложений: снимок — «Сохранить фото», ролик — «Сохранить видео», альбом
+    /// вперемешку — «Сохранить в «Фото»», файл — «Сохранить файл»; голосовое не сохраняется.
+    func testSaveActionsFollowAttachmentKinds() {
+        func actions(_ files: [AttachmentRecord]) -> [MessageMenuAction] {
+            MessageMenuAction.available(
+                for: message(content: ""), isOwn: false, isGroup: false,
+                capabilities: MessageCapabilities(), readCount: 0, attachments: files
+            )
+        }
+        XCTAssertTrue(actions([attachment("image/jpeg")]).contains(.saveMedia(.photo)))
+        XCTAssertTrue(actions([attachment("video/mp4")]).contains(.saveMedia(.video)))
+        XCTAssertTrue(actions([attachment("image/jpeg"), attachment("video/mp4")]).contains(.saveMedia(.mixed)))
+        let document = actions([attachment("application/pdf", name: "a.pdf")])
+        XCTAssertTrue(document.contains(.saveFile))
+        XCTAssertFalse(document.contains { if case .saveMedia = $0 { return true } else { return false } })
+        // Снимок «как файл» сохраняется файлом, а не в «Фото».
+        XCTAssertEqual(actions([attachment("image/png", asDocument: true)]).filter { $0.id.hasPrefix("save") }, [.saveFile])
+        XCTAssertTrue(actions([attachment("audio/m4a", name: "voice-1.m4a")]).allSatisfy { !$0.id.hasPrefix("save") })
+        XCTAssertTrue(actions([]).allSatisfy { !$0.id.hasPrefix("save") }, "у текста сохранять нечего")
+        // Только у пришедшего с сервера и без «Скопировать» у медиа без подписи.
+        XCTAssertFalse(actions([attachment("image/jpeg")]).contains(.copy))
+    }
+
+    /// Оптимистичная реакция — по правилу сервера: одна на человека, та же снимает,
+    /// другая заменяет, чужие не трогаются, порядок — как в выдаче.
+    func testReactionToggleFollowsServerRule() {
+        let groups = [
+            MessageExtras.ReactionGroup(emoji: "👍", userIds: ["a", "b"]),
+            MessageExtras.ReactionGroup(emoji: "❤️", userIds: ["me"]),
+        ]
+        let replaced = MessageExtras.ReactionGroup.toggled(groups, emoji: "👍", viewerID: "me")
+        XCTAssertEqual(replaced, [MessageExtras.ReactionGroup(emoji: "👍", userIds: ["a", "b", "me"])])
+        let removed = MessageExtras.ReactionGroup.toggled(groups, emoji: "❤️", viewerID: "me")
+        XCTAssertEqual(removed, [MessageExtras.ReactionGroup(emoji: "👍", userIds: ["a", "b"])])
+        let added = MessageExtras.ReactionGroup.toggled([], emoji: "👌", viewerID: "me")
+        XCTAssertEqual(added, [MessageExtras.ReactionGroup(emoji: "👌", userIds: ["me"])])
+        // Повторное нажатие той же — снова пусто: дублей одного человека не бывает.
+        XCTAssertEqual(MessageExtras.ReactionGroup.toggled(added, emoji: "👌", viewerID: "me"), [])
     }
 
     private func message(content: String, pinned: Bool = false) -> MessageRecord {

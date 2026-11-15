@@ -21173,6 +21173,70 @@
         ]
       }
     },
+    "/chats/files/recent": {
+      "get": {
+        "operationId": "ChatsController_recentFiles",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 50,
+              "default": 20
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "document",
+                "audio"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Страница файлов (свежие первыми), у каждого chatId"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Недавние файлы для листа вложений: document — свои отправленные документы, audio — музыка из всех моих чатов (без голосовых); q — подстрока имени, cursor",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
     "/chats/unread": {
       "get": {
         "operationId": "ChatsController_unread",
@@ -36317,6 +36381,9 @@
           "requestId": {
             "type": "string",
             "format": "uuid"
+          },
+          "hideSender": {
+            "type": "boolean"
           }
         },
         "required": [

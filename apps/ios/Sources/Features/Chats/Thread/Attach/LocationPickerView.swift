@@ -13,14 +13,27 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
 
     @ObservationIgnored private let manager = CLLocationManager()
 
+    /// Подмена для UI-тестов: служба не трогается, ответ — заданный.
+    @ObservationIgnored private let override = UITestHooks.locationOverride
+
     override init() {
         status = manager.authorizationStatus
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
+        switch override {
+        case .denied:
+            status = .denied
+        case .fixed:
+            status = .authorizedWhenInUse
+            location = CLLocation(latitude: 43.2389, longitude: 76.8897)
+        case nil:
+            break
+        }
     }
 
     func start() {
+        guard override == nil else { return }
         if status == .notDetermined {
             manager.requestWhenInUseAuthorization()
         } else if isAllowed {
@@ -64,7 +77,19 @@ struct LocationPickerView: View {
     @State private var geocodeTask: Task<Void, Never>?
     @State private var choosingLivePeriod = false
 
+    /// «Выбрать точку вручную» на экране без доступа — карта без своей геопозиции.
+    @State private var manualWithoutAccess = false
+
     var body: some View {
+        if provider.status == .denied || provider.status == .restricted, !manualWithoutAccess {
+            LocationDeniedView(onManual: { manualWithoutAccess = true })
+                .onAppear { provider.start() }
+        } else {
+            picker
+        }
+    }
+
+    private var picker: some View {
         VStack(spacing: 0) {
             ZStack {
                 Map(position: $camera) {
@@ -266,5 +291,56 @@ struct LocationPickerView: View {
 
     static func coordinates(_ coordinate: CLLocationCoordinate2D) -> String {
         String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude)
+    }
+}
+
+/// Геопозиция без разрешения: объяснение, «В настройки» и отправка, которая не делает
+/// вида, что работает, — кнопка неактивна, пока доступа нет. Точку можно выбрать на
+/// карте вручную.
+struct LocationDeniedView: View {
+    let onManual: () -> Void
+
+    var body: some View {
+        VStack(spacing: Spacing.lg) {
+            Spacer()
+            Image(systemName: "location.slash.circle.fill")
+                .font(.system(size: 72))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(Palette.primary)
+                .accessibilityHidden(true)
+            Text(String(localized: "chats.location.deniedTitle", defaultValue: "Доступ к геопозиции"))
+                .font(Typography.sectionTitle)
+                .foregroundStyle(Palette.foreground)
+            Text(String(
+                localized: "chats.location.deniedText",
+                defaultValue: "Разрешите StudentHub доступ к геопозиции в Настройках, чтобы отправлять своё местоположение."
+            ))
+            .font(Typography.body)
+            .foregroundStyle(Palette.mutedForeground)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, Spacing.xxl)
+            Button(String(localized: "chats.location.toSettings", defaultValue: "В настройки")) {
+                if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+            }
+            .glassProminentButton()
+            .accessibilityIdentifier("chat.location.settings")
+            Button(String(localized: "chats.location.manual", defaultValue: "Выбрать точку на карте"), action: onManual)
+                .font(Typography.meta)
+                .accessibilityIdentifier("chat.location.manual")
+            Spacer()
+            Text(String(localized: "chats.location.sendMine", defaultValue: "Отправить геопозицию"))
+                .font(Typography.body.weight(.semibold))
+                .foregroundStyle(Palette.primaryForeground)
+                .frame(maxWidth: .infinity, minHeight: 54)
+                .background(Palette.primary.opacity(0.4), in: Capsule())
+                .padding(.horizontal, Spacing.lg)
+                .padding(.bottom, Spacing.md)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel(Text(String(localized: "chats.location.sendMine", defaultValue: "Отправить геопозицию")))
+                .accessibilityValue(Text(String(localized: "chats.location.unavailable", defaultValue: "Недоступно без разрешения")))
+                .accessibilityIdentifier("chat.location.sendDisabled")
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("chat.location.denied")
     }
 }

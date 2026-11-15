@@ -2,17 +2,6 @@ import Photos
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Итог пересылки по каждому чату — сервер отвечает за всех сразу, и часть может не
-/// пройти (запрос на переписку не принят, участника исключили).
-struct ForwardOutcome: Equatable {
-    var delivered: [String] = []
-    var failed: [String] = []
-    /// Ошибка всего запроса (нет сети, сервер упал) — повтор с тем же ключом безопасен.
-    var failure: String?
-
-    var isComplete: Bool { failure == nil && failed.isEmpty && !delivered.isEmpty }
-}
-
 /// Лист «Поделиться» как в Telegram: сверху — закрыть, заголовок и системное
 /// «Поделиться», под ними — поиск, ниже — сетка чатов с аватарами («Избранное» первым,
 /// дальше по свежести), выбор нескольких галочками. Выбрали — поле «Подпись…» и
@@ -23,11 +12,25 @@ struct ForwardOutcome: Equatable {
 /// Повторное нажатие и сетевой повтор не дублируют сообщения: ключ идемпотентности
 /// создаётся один раз на лист и уходит с каждой попыткой (сервер отдаёт прежний ответ).
 struct ChatShareSheet: View {
-    let send: (_ chatIDs: [String], _ comment: String?, _ requestID: UUID) async -> ForwardOutcome
+    /// Пересылка сообщений: сколько и что именно (для предпросмотра в параметрах).
+    /// `nil` — лист «Поделиться» (медиа из просмотрщика): сетка аватаров без параметров.
+    struct ForwardContext {
+        struct Line: Identifiable {
+            let id: String
+            let sender: String
+            let text: String
+        }
+
+        let count: Int
+        let preview: [Line]
+    }
+
+    let send: (_ chatIDs: [String], _ comment: String?, _ hideSender: Bool, _ requestID: UUID) async -> ForwardOutcome
     /// Файлы для системного «Поделиться» и «Сохранить в галерею»; `nil` — медиа нет.
     var exportFiles: (() async throws -> [URL])?
     /// Текст для системного «Поделиться», когда файлов нет.
     var shareText: String?
+    var forward: ForwardContext?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.motionReduced) private var reduceMotion
@@ -45,8 +48,22 @@ struct ChatShareSheet: View {
     @State private var systemShare: SharePayload?
     /// Один ключ на лист: повтор после сбоя сети сервер узнает и не отправит второй раз.
     @State private var requestID = UUID()
+    // Пересылка: вкладка-папка, имена отправителей, эмодзи в комментарии, параметры.
+    @State private var tab: ChatListTab = .all
+    @State private var folders = ChatFoldersModel()
+    @State private var hideSender = false
+    @State private var showsEmoji = false
+    @State private var showsOptions = false
 
     var body: some View {
+        if let forward {
+            forwardBody(forward)
+        } else {
+            shareBody
+        }
+    }
+
+    private var shareBody: some View {
         VStack(spacing: Spacing.md) {
             header
             ExpressionSearchField(
@@ -224,7 +241,7 @@ struct ChatShareSheet: View {
         isSending = true
         failure = nil
         let trimmed = comment.trimmingCharacters(in: .whitespacesAndNewlines)
-        let outcome = await send(selected, trimmed.isEmpty ? nil : String(trimmed.prefix(4000)), requestID)
+        let outcome = await send(selected, trimmed.isEmpty ? nil : String(trimmed.prefix(4000)), hideSender, requestID)
         isSending = false
         if outcome.isComplete {
             sentTick += 1
@@ -289,7 +306,7 @@ struct ChatShareSheet: View {
 
     /// Список читается из базы: делятся в знакомые чаты, а сеть для выбора не нужна.
     private func load() async {
-        let all = (try? await ChatListQueries(database: AppServices.database).fetchRows(for: .all)) ?? []
+        let all = (try? await ChatListQueries(database: AppServices.database).fetchRows(for: tab)) ?? []
         rows = Self.ordered(all)
         loaded = true
     }
@@ -308,6 +325,344 @@ struct ChatShareSheet: View {
     private struct SharePayload: Identifiable {
         let id = UUID()
         let items: [Any]
+    }
+}
+
+// MARK: - Режим «Переслать»
+
+extension ChatShareSheet {
+    /// Вкладки над списком: все, личные, группы и свои папки пользователя.
+    private var tabs: [ChatListTab] {
+        [.all, .personal, .groups] + folders.folders.map { .folder(id: $0.id, name: $0.name) }
+    }
+
+    private func title(of tab: ChatListTab) -> String {
+        switch tab {
+        case .all: String(localized: "chats.tab.all", defaultValue: "Все")
+        case .personal: String(localized: "chats.tab.personal", defaultValue: "Личные")
+        case .groups: String(localized: "chats.tab.groups", defaultValue: "Группы")
+        case .folder(_, let name): name
+        default: ""
+        }
+    }
+
+    @ViewBuilder
+    fileprivate func forwardBody(_ context: ForwardContext) -> some View {
+        VStack(spacing: Spacing.md) {
+            HStack(spacing: Spacing.md) {
+                GlassCloseButton { dismiss() }
+                    .accessibilityIdentifier("chat.forward.close")
+                VStack(spacing: 0) {
+                    Text(String(localized: "chats.forward", defaultValue: "Переслать"))
+                        .font(Typography.body.weight(.semibold))
+                        .foregroundStyle(Palette.foreground)
+                    Text(subtitle)
+                        .font(Typography.meta)
+                        .foregroundStyle(Palette.mutedForeground)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("chat.forward.title")
+                // Симметрия с крестиком — заголовок по центру.
+                Color.clear.frame(width: ControlHeight.xl, height: ControlHeight.xl)
+            }
+            .padding(.horizontal, Spacing.xl)
+
+            ExpressionSearchField(
+                query: $query,
+                prompt: String(localized: "chats.forward.search", defaultValue: "Поиск")
+            )
+            .padding(.horizontal, Spacing.xl)
+            .accessibilityIdentifier("chat.forward.search")
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Spacing.sm) {
+                    ForEach(tabs, id: \.self) { item in
+                        let active = item == tab
+                        Button {
+                            guard item != tab else { return }
+                            tab = item
+                            Task { await load() }
+                        } label: {
+                            Text(title(of: item))
+                                .font(Typography.meta.weight(active ? .semibold : .regular))
+                                .foregroundStyle(active ? Palette.primaryForeground : Palette.foreground)
+                                .padding(.horizontal, Spacing.lg)
+                                .padding(.vertical, Spacing.sm)
+                                .background(Capsule().fill(active ? Palette.primary : Palette.muted))
+                        }
+                        .buttonStyle(.pressable)
+                        .accessibilityAddTraits(active ? .isSelected : [])
+                        .accessibilityIdentifier("chat.forward.tab.\(title(of: item))")
+                    }
+                }
+                .padding(.horizontal, Spacing.xl)
+            }
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(filtered) { row in
+                        Button {
+                            toggle(row.id)
+                        } label: {
+                            ForwardTargetRow(row: row, isSelected: selected.contains(row.id))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(selected.contains(row.id) ? .isSelected : [])
+                        .accessibilityIdentifier("chat.forward.row.\(row.id)")
+                    }
+                }
+                .padding(.bottom, Spacing.lg)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .overlay {
+                if loaded, filtered.isEmpty {
+                    EmptyStateView(
+                        title: query.trimmingCharacters(in: .whitespaces).isEmpty
+                            ? String(localized: "chats.empty", defaultValue: "Чатов пока нет")
+                            : String(localized: "services.notFound", defaultValue: "Ничего не нашлось"),
+                        symbol: "magnifyingglass"
+                    )
+                }
+            }
+        }
+        .padding(.top, Spacing.lg)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !selected.isEmpty {
+                forwardPanel(context)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion), value: selected.isEmpty)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(isSending)
+        .sensoryFeedback(.success, trigger: sentTick)
+        .sensoryFeedback(.selection, trigger: selected)
+        .sheet(isPresented: $showsOptions) {
+            ForwardOptionsView(context: context, hideSender: $hideSender)
+                .presentationDetents([.medium, .large])
+        }
+        .task {
+            folders.start()
+            await load()
+        }
+        .accessibilityIdentifier("chat.forward")
+    }
+
+    /// Блок над клавиатурой: «Переслать N сообщений» и режим имён, ниже — комментарий.
+    private func forwardPanel(_ context: ForwardContext) -> some View {
+        VStack(spacing: Spacing.sm) {
+            if let failure {
+                Text(failure)
+                    .font(Typography.meta)
+                    .foregroundStyle(Palette.destructive)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("chat.forward.failure")
+            }
+            Button {
+                showsOptions = true
+            } label: {
+                HStack(spacing: Spacing.md) {
+                    Image(systemName: "arrowshape.turn.up.right.fill")
+                        .foregroundStyle(Palette.primary)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(ChatPlural.forwardTitle(context.count))
+                            .font(Typography.meta.weight(.semibold))
+                            .foregroundStyle(Palette.primary)
+                        Text(hideSender
+                            ? String(localized: "chats.forward.namesHidden", defaultValue: "Имена отправителей скрыты")
+                            : String(localized: "chats.forward.namesShown", defaultValue: "Имена отправителей видны"))
+                            .font(Typography.meta)
+                            .foregroundStyle(Palette.mutedForeground)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Palette.mutedForeground)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("chat.forward.options")
+
+            HStack(alignment: .bottom, spacing: Spacing.sm) {
+                HStack(alignment: .bottom, spacing: Spacing.xs) {
+                    EmojiTextField(
+                        text: $comment,
+                        showsEmoji: $showsEmoji,
+                        placeholder: String(localized: "chats.forward.comment", defaultValue: "Добавить комментарий…"),
+                        accessibilityID: "chat.forward.comment"
+                    )
+                    Button {
+                        showsEmoji.toggle()
+                    } label: {
+                        Image(systemName: showsEmoji ? "keyboard" : "face.smiling")
+                            .font(.title3)
+                            .foregroundStyle(Palette.mutedForeground)
+                            .frame(width: 32, height: 36)
+                    }
+                    .accessibilityLabel(Text(showsEmoji
+                        ? String(localized: "chats.keyboard", defaultValue: "Клавиатура")
+                        : String(localized: "chats.emoji", defaultValue: "Эмодзи")))
+                    .accessibilityIdentifier("chat.forward.emoji")
+                }
+                .padding(.leading, Spacing.lg)
+                .padding(.trailing, Spacing.xs)
+                .composerGlass(in: RoundedRectangle(cornerRadius: ControlHeight.lg / 2, style: .continuous))
+
+                Button {
+                    Task { await submit() }
+                } label: {
+                    ZStack {
+                        Circle().fill(Palette.primary)
+                        if isSending {
+                            ProgressView().tint(Palette.primaryForeground)
+                        } else {
+                            Image(systemName: "arrow.up")
+                                .font(.body.weight(.bold))
+                                .foregroundStyle(Palette.primaryForeground)
+                        }
+                    }
+                    .frame(width: ControlHeight.lg, height: ControlHeight.lg)
+                }
+                .buttonStyle(.pressableIcon)
+                .disabled(isSending)
+                .accessibilityLabel(Text(String(localized: "chats.send", defaultValue: "Отправить")))
+                .accessibilityIdentifier("chat.forward.send")
+            }
+        }
+        .padding(.horizontal, Spacing.xl)
+        .padding(.vertical, Spacing.md)
+        .background(.bar)
+    }
+}
+
+/// Получатель пересылки строкой: аватар, имя, вторая строка, круглая отметка справа.
+private struct ForwardTargetRow: View {
+    let row: ChatListRow
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: Spacing.lg) {
+            ChatAvatarView(title: row.title ?? row.displayTitle, kind: row.kind, avatarURL: row.avatarUrl, online: row.online, size: 44)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.displayTitle)
+                    .font(Typography.body.weight(.medium))
+                    .foregroundStyle(Palette.foreground)
+                    .lineLimit(1)
+                if let secondary {
+                    Text(secondary)
+                        .font(Typography.meta)
+                        .foregroundStyle(Palette.mutedForeground)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: Spacing.md)
+            ZStack {
+                Circle().strokeBorder(Palette.border, lineWidth: 1.5).opacity(isSelected ? 0 : 1)
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .resizable()
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(Palette.primaryForeground, Palette.primary)
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
+            .frame(width: 24, height: 24)
+        }
+        .padding(.horizontal, Spacing.xl)
+        .padding(.vertical, Spacing.sm)
+        .contentShape(Rectangle())
+        .animation(Motion.isReducedNow ? nil : Motion.lively, value: isSelected)
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(Text(isSelected ? String(localized: "chats.forward.selected", defaultValue: "Выбран") : ""))
+    }
+
+    /// Вторая строка: «в сети» у собеседника, «Группа» или «Избранное».
+    private var secondary: String? {
+        switch row.kind {
+        case .saved: return String(localized: "chats.saved.subtitle", defaultValue: "Избранное")
+        case .private: return row.online ? String(localized: "chats.online", defaultValue: "в сети") : nil
+        case .group, .groupOfficial, .subject, .faculty, .dean, .event:
+            return String(localized: "chats.forward.kind.group", defaultValue: "Группа")
+        default: return nil
+        }
+    }
+}
+
+/// Параметры пересылки: предпросмотр и «показать / скрыть имя отправителя». Смена сразу
+/// видна в предпросмотре; получатели и комментарий листа не трогаются.
+struct ForwardOptionsView: View {
+    let context: ChatShareSheet.ForwardContext
+    @Binding var hideSender: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    VStack(alignment: .leading, spacing: Spacing.sm) {
+                        ForEach(context.preview.prefix(3)) { line in
+                            VStack(alignment: .leading, spacing: 2) {
+                                if !hideSender {
+                                    Text(String(localized: "chats.forward.from", defaultValue: "Переслано от \(line.sender)"))
+                                        .font(Typography.meta.weight(.semibold))
+                                        .foregroundStyle(Palette.primary)
+                                        .transition(.opacity)
+                                }
+                                Text(line.text)
+                                    .font(Typography.meta)
+                                    .foregroundStyle(Palette.foreground)
+                                    .lineLimit(2)
+                            }
+                            .padding(Spacing.md)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Palette.muted, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+                        }
+                        Text(ChatPlural.forwardMessages(context.count))
+                            .font(Typography.meta)
+                            .foregroundStyle(Palette.mutedForeground)
+                    }
+                    .animation(Motion.isReducedNow ? nil : Motion.lively, value: hideSender)
+                    .accessibilityIdentifier("chat.forward.preview")
+                }
+                Section {
+                    option(String(localized: "chats.forward.showNames", defaultValue: "Показать имя отправителя"), selected: !hideSender, id: "show") {
+                        hideSender = false
+                    }
+                    option(String(localized: "chats.forward.hideNames", defaultValue: "Скрыть имя отправителя"), selected: hideSender, id: "hide") {
+                        hideSender = true
+                    }
+                }
+            }
+            .navigationTitle(Text(String(localized: "chats.forward.options", defaultValue: "Параметры пересылки")))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(String(localized: "common.done", defaultValue: "Готово")) { dismiss() }
+                        .accessibilityIdentifier("chat.forward.options.done")
+                }
+            }
+        }
+    }
+
+    private func option(_ title: String, selected: Bool, id: String, action: @escaping () -> Void) -> some View {
+        Button(action: {
+            Haptics.tap()
+            action()
+        }) {
+            HStack {
+                Text(title).foregroundStyle(Palette.foreground)
+                Spacer()
+                if selected {
+                    Image(systemName: "checkmark").foregroundStyle(Palette.primary).font(.body.weight(.semibold))
+                }
+            }
+        }
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityIdentifier("chat.forward.names.\(id)")
     }
 }
 
