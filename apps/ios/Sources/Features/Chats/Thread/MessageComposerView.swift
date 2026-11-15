@@ -535,6 +535,9 @@ struct MessageComposerView: View {
             pickingContact = true
         case .contactCard(let contact):
             contactToSend = contact
+        case .localFiles(let urls):
+            let draft = openDraft()
+            Task { await draft.add(files: urls) }
         case .send(let request):
             Task { await send(request) }
         }
@@ -779,6 +782,7 @@ struct MessageSelectionBar: View {
         .opacity(enabled ? 1 : 0.5)
         .animation(.easeOut(duration: Motion.Duration.feedback), value: enabled)
         .accessibilityLabel(Text(title))
+        .accessibilityIdentifier("chat.selection.\(symbol)")
     }
 }
 

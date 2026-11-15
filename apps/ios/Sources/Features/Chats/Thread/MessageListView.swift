@@ -397,9 +397,17 @@ final class MessageListViewController: UIViewController {
 
         let itemCount = snapshot.numberOfItems
         ScrollProbe.note("apply items \(previousOrder.count) -> \(itemCount) firstChanged=\(previousOrder.first != snapshot.itemIdentifiers.first) lastChanged=\(previousOrder.last != snapshot.itemIdentifiers.last) reconfigured=\(changed.count) tracking=\(collectionView.isTracking) decelerating=\(collectionView.isDecelerating)")
+        // Только убрали (удаление у себя, очистка): соседи смыкаются анимацией, а не
+        // прыгают на освободившееся место. Под пальцем, при сменённом окне и большом срезе
+        // — по-прежнему без анимации: там анимация лишь мешает держать позицию.
+        let currentOrder = snapshot.itemIdentifiers
+        let removedCount = previousOrder.count - currentOrder.count
+        let removedOnly = !isFirstFill && !replaced && removedCount > 0 && removedCount <= 20
+            && Set(previousOrder).isSuperset(of: currentOrder)
+            && !collectionView.isTracking && !collectionView.isDecelerating && !reduceMotion
         applyingSnapshot = true
         ScrollJankMonitor.shared.measure(.apply) {
-            dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
+            dataSource.apply(snapshot, animatingDifferences: removedOnly) { [weak self] in
                 Signposts.chats.endInterval("SnapshotApply", signpost, "items: \(itemCount)")
                 guard let self else { return }
                 self.applyingSnapshot = false

@@ -510,6 +510,7 @@ struct AttachmentSendSheet: View {
             .disabled(!draft.canSend)
             .opacity(draft.canSend ? 1 : 0.4)
             .accessibilityLabel(Text(String(localized: "chats.send", defaultValue: "Отправить")))
+            .accessibilityIdentifier("chat.attachSend.send")
         }
         .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.md)

@@ -13,6 +13,8 @@ final class ChatThreadSearch {
     var query = ""
     /// Только сообщения этого участника (в группах).
     var sender: ChatMemberDTO?
+    /// Только сообщения с вложениями (фото, видео, файлы) — фильтр сервера `hasFile`.
+    var withFiles = false
     private(set) var results: [ChatMessageDTO] = []
     /// Текущее совпадение в `results`.
     private(set) var index = 0
@@ -47,11 +49,12 @@ final class ChatThreadSearch {
     var canGoNewer: Bool { index > 0 }
 
     /// Ключ запроса: смена текста или автора — новый поиск.
-    var key: Key { Key(term: term, senderID: sender?.id) }
+    var key: Key { Key(term: term, senderID: sender?.id, withFiles: withFiles) }
 
     struct Key: Equatable {
         let term: String
         let senderID: String?
+        let withFiles: Bool
     }
 
     /// Новый поиск с первой страницы. Возвращает самое свежее совпадение — к нему
@@ -77,6 +80,7 @@ final class ChatThreadSearch {
                 String(term.prefix(100)),
                 chatID: chatID,
                 senderID: sender?.id,
+                hasFile: withFiles,
                 cursor: nil
             )
             guard mine == generation else { return nil }
@@ -134,6 +138,7 @@ final class ChatThreadSearch {
                 String(term.prefix(100)),
                 chatID: chatID,
                 senderID: sender?.id,
+                hasFile: withFiles,
                 cursor: cursor
             )
             guard mine == generation else { return }
@@ -177,6 +182,7 @@ struct ChatSearchBar: View {
                         String(localized: "chats.thread.search.prompt", defaultValue: "Искать в чате"),
                         text: $search.query
                     )
+                    .accessibilityIdentifier("chat.search.field")
                     .font(Typography.body)
                     .foregroundStyle(Palette.foreground)
                     .focused($isFocused)
@@ -201,8 +207,29 @@ struct ChatSearchBar: View {
 
                 // Как в Telegram: крестик в стеклянном круге, а не слово «Отмена».
                 GlassCloseButton(action: onCancel)
+                    .accessibilityIdentifier("chat.search.close")
             }
 
+            HStack(spacing: Spacing.sm) {
+                // Фильтр по вложениям: фото, видео и файлы — серверный `hasFile`, по всей
+                // истории, а не по загруженному.
+                Button {
+                    Haptics.tap()
+                    search.withFiles.toggle()
+                } label: {
+                    HStack(spacing: Spacing.xs) {
+                        Image(systemName: "paperclip")
+                        Text(String(localized: "chats.thread.search.files", defaultValue: "С файлами"))
+                    }
+                    .font(Typography.meta)
+                    .foregroundStyle(search.withFiles ? Palette.primaryForeground : Palette.primary)
+                    .padding(.horizontal, Spacing.md)
+                    .padding(.vertical, Spacing.xs)
+                    .background(search.withFiles ? Palette.primary : Palette.primary.opacity(0.12), in: Capsule())
+                }
+                .buttonStyle(.pressable)
+                .accessibilityAddTraits(search.withFiles ? .isSelected : [])
+                .accessibilityIdentifier("chat.search.files")
             if let sender = search.sender {
                 Button {
                     search.sender = nil
@@ -222,6 +249,7 @@ struct ChatSearchBar: View {
                 }
                 .buttonStyle(.pressable)
                 .accessibilityHint(Text(String(localized: "chats.thread.search.clearFrom", defaultValue: "Убрать фильтр по автору")))
+            }
             }
         }
         .padding(.horizontal, Spacing.xl)
@@ -294,10 +322,11 @@ struct ChatSearchPanel: View {
                     )
                 }
                 button(
-                    String(localized: "chats.thread.search.list", defaultValue: "Списком"),
+                    String(localized: "chats.thread.search.showList", defaultValue: "Показать списком"),
                     symbol: "list.bullet",
                     isOn: showsList,
                     enabled: !search.results.isEmpty,
+                    id: "list",
                     action: onList
                 )
                 Spacer(minLength: Spacing.sm)
@@ -307,12 +336,14 @@ struct ChatSearchPanel: View {
                     String(localized: "chats.thread.search.older", defaultValue: "Предыдущее совпадение"),
                     symbol: "chevron.up",
                     enabled: search.canGoOlder,
+                    id: "older",
                     action: onOlder
                 )
                 button(
                     String(localized: "chats.thread.search.newer", defaultValue: "Следующее совпадение"),
                     symbol: "chevron.down",
                     enabled: search.canGoNewer,
+                    id: "newer",
                     action: onNewer
                 )
             }
@@ -360,6 +391,7 @@ struct ChatSearchPanel: View {
         symbol: String,
         isOn: Bool = false,
         enabled: Bool = true,
+        id: String? = nil,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -374,6 +406,7 @@ struct ChatSearchPanel: View {
         .opacity(enabled ? 1 : 0.4)
         .accessibilityLabel(Text(title))
         .accessibilityAddTraits(isOn ? .isSelected : [])
+        .accessibilityIdentifier(id.map { "chat.search.\($0)" } ?? "")
     }
 }
 
@@ -410,6 +443,7 @@ struct ChatSearchResultsList: View {
                 } label: {
                     row(message)
                 }
+                .accessibilityIdentifier("chat.search.result.\(position)")
                 .listRowBackground(position == search.index ? Palette.primary.opacity(0.1) : Palette.plainBackground)
             }
             if search.hasMore {

@@ -57,6 +57,22 @@ struct UITestEnvironment: Sendable {
 /// Точки подключения тестового режима к сборке зависимостей. В Release — настоящие
 /// реализации без единой проверки окружения.
 enum UITestHooks {
+    /// Геопозиция в сценариях на mock API: `SH_UITEST_LOCATION=denied` — доступ запрещён,
+    /// `=fixed` — разрешён, точка в Алматы. Без переменной (и в Release) — настоящая служба.
+    enum LocationOverride: String {
+        case denied
+        case fixed
+    }
+
+    static var locationOverride: LocationOverride? {
+        #if DEBUG
+            guard UITestEnvironment.current.isMock else { return nil }
+            return ProcessInfo.processInfo.environment["SH_UITEST_LOCATION"].flatMap(LocationOverride.init(rawValue:))
+        #else
+            return nil
+        #endif
+    }
+
     /// Подготовить процесс до первого обращения к `AppServices`: стереть следы прошлых
     /// прогонов и подменить сеть. Вызывается из `StudentHubApp.init`.
     static func prepareIfNeeded() {

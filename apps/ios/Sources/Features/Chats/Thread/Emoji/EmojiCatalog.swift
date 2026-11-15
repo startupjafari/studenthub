@@ -16,7 +16,7 @@ enum EmojiCatalog {
     }
 
     /// Быстрые реакции над пузырём — как в Telegram.
-    static let quickReactions = ["👍", "❤️", "😂", "🔥", "👎", "🙏"]
+    static let quickReactions = ["👌", "🙏", "👍", "😂", "😁", "❤️", "👎"]
 
     static let categories: [Category] = unique(build())
 

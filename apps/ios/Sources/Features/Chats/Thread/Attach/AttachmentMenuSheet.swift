@@ -18,6 +18,9 @@ enum AttachmentPick {
     case contact
     /// Контакт из списка в листе — сразу на подтверждение.
     case contactCard(ContactCardDraft)
+    /// Готовые файлы на устройстве (недавний файл из чатов, текст из вкладки «Текст») —
+    /// в лист отправки с подписью, как выбранные в «Файлах».
+    case localFiles([URL])
     /// Снимки из сетки с подписью — отправить сразу, как в Telegram, без листа отправки.
     case send(AttachmentSendRequest)
 }
@@ -49,7 +52,7 @@ struct AttachmentSendRequest {
 /// отдельные окна: между ними и остальными переключаются капсулой, набранное остаётся.
 struct AttachmentMenuSheet: View {
     enum Section: String, CaseIterable, Identifiable {
-        case gallery, file, location, poll, checklist, audio, contact
+        case gallery, file, location, poll, checklist, audio, contact, text
 
         var id: String { rawValue }
 
@@ -62,6 +65,7 @@ struct AttachmentMenuSheet: View {
             case .checklist: String(localized: "chats.attach.checklist", defaultValue: "Список")
             case .audio: String(localized: "chats.attach.audio", defaultValue: "Звук")
             case .contact: String(localized: "chats.contact.title", defaultValue: "Контакт")
+            case .text: String(localized: "chats.attach.text", defaultValue: "Текст")
             }
         }
 
@@ -74,6 +78,7 @@ struct AttachmentMenuSheet: View {
             case .checklist: "checkmark.square.fill"
             case .audio: "play.circle.fill"
             case .contact: "person.crop.circle.fill"
+            case .text: "text.alignleft"
             }
         }
     }
@@ -240,8 +245,15 @@ struct AttachmentMenuSheet: View {
                 }
             }
             Divider()
-            Toggle(isOn: $spoiler) {
-                Label(String(localized: "chats.attach.spoiler", defaultValue: "Скрыть под спойлер"), systemImage: "eye.slash")
+            // Как в Telegram: «Скрыть» и обратное «Отменить скрытие» — отдельными пунктами.
+            Button {
+                spoiler.toggle()
+            } label: {
+                if spoiler {
+                    Label(String(localized: "chats.attach.unspoiler", defaultValue: "Отменить скрытие"), systemImage: "eye")
+                } else {
+                    Label(String(localized: "chats.attach.spoiler", defaultValue: "Скрыть под спойлер"), systemImage: "eye.slash")
+                }
             }
         } label: {
             Image(systemName: "ellipsis")
@@ -252,6 +264,7 @@ struct AttachmentMenuSheet: View {
                 .contentShape(Circle())
         }
         .accessibilityLabel(Text(String(localized: "chats.attach.sendOptions", defaultValue: "Способ отправки")))
+        .accessibilityIdentifier("chat.attach.options")
     }
 
     /// Заголовок «Галереи» — выбор альбома, как в Telegram: «Недавние ⌄», в меню —
@@ -339,7 +352,8 @@ struct AttachmentMenuSheet: View {
                 albums: albums,
                 limit: albumLimit,
                 onCamera: { pick(.camera) },
-                onPicked: { pick(.photos($0)) }
+                onPicked: { pick(.photos($0)) },
+                hidesSelected: spoiler
             )
         case .file:
             fileOptions
@@ -371,6 +385,8 @@ struct AttachmentMenuSheet: View {
             PollForm(draft: poll)
         case .checklist:
             ChecklistForm(draft: checklist)
+        case .text:
+            TextAttachmentEditor { url in pick(.localFiles([url])) }
         }
     }
 
@@ -388,6 +404,11 @@ struct AttachmentMenuSheet: View {
                     .font(Typography.meta)
                     .foregroundStyle(Palette.mutedForeground)
                     .padding(.horizontal, Spacing.xl)
+
+                RecentFilesList(
+                    model: RecentFilesModel(kind: .audio),
+                    title: String(localized: "chats.attach.yourChats", defaultValue: "Ваши чаты")
+                ) { url in pick(.localFiles([url])) }
             }
             .padding(.horizontal, Spacing.lg)
             .padding(.top, Spacing.sm)
@@ -424,6 +445,11 @@ struct AttachmentMenuSheet: View {
                     .font(Typography.meta)
                     .foregroundStyle(Palette.mutedForeground)
                     .padding(.horizontal, Spacing.xl)
+
+                RecentFilesList(
+                    model: RecentFilesModel(kind: .document),
+                    title: String(localized: "chats.attach.recentSent", defaultValue: "Недавно отправленные")
+                ) { url in pick(.localFiles([url])) }
             }
             .padding(.horizontal, Spacing.lg)
             .padding(.top, Spacing.sm)
@@ -447,6 +473,7 @@ struct AttachmentMenuSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("chat.attach.option.\(symbol)")
     }
 
     /// Капсула разделов внизу листа, как в Telegram: значок над подписью, выбранный
@@ -483,6 +510,7 @@ struct AttachmentMenuSheet: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
                 .accessibilityAction { select(item) }
+                .accessibilityIdentifier("chat.attach.section.\(item.rawValue)")
             }
         }
         .padding(Spacing.xs)
@@ -510,6 +538,7 @@ struct AttachmentMenuSheet: View {
                     )
                     .lineLimit(1...6)
                     .focused($captionFocused)
+                    .accessibilityIdentifier("chat.attach.caption")
                     .padding(.leading, Spacing.lg)
                     .padding(.vertical, 10)
                     // Подпись уходит текстом сообщения — тот же лимит 4000, что у поля
@@ -552,6 +581,7 @@ struct AttachmentMenuSheet: View {
                 .disabled(!captionFits)
                 .opacity(captionFits ? 1 : 0.5)
                 .accessibilityLabel(Text(String(localized: "chats.send", defaultValue: "Отправить")))
+                .accessibilityIdentifier("chat.attach.send")
             }
             .padding(.horizontal, Spacing.lg)
 

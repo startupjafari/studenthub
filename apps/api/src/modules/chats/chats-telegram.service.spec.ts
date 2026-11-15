@@ -280,6 +280,23 @@ describe('Пересылка пачкой', () => {
     expect(ctx.redis.incr).toHaveBeenCalledTimes(1)
   })
 
+  it('hideSender — копии без «Переслано от», содержимое то же', async () => {
+    const ctx = setup()
+    withSources(ctx)
+    await ctx.service.forwardBatch(viewer('u1'), { ...input, chatIds: ['c1'], hideSender: true })
+    const created = ctx.prisma.message.create.mock.calls.map(
+      (c: [{ data: { content: string; forwardedFromId?: string } }]) => c[0].data,
+    )
+    expect(created).toHaveLength(3)
+    expect(created[1]?.forwardedFromId).toBeUndefined()
+    expect(created[2]?.forwardedFromId).toBeUndefined()
+    expect(created[1]).toEqual(
+      expect.objectContaining({
+        location: { create: { lat: 43.2, lng: 76.9, title: 'КазНУ', address: null } },
+      }),
+    )
+  })
+
   it('отказ одного чата не роняет другие', async () => {
     const ctx = setup()
     withSources(ctx)

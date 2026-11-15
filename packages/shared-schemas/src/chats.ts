@@ -581,9 +581,23 @@ export const MessageForwardBatchSchema = z
     chatIds: z.array(entityId).min(1).max(FORWARD_BATCH_LIMITS.CHATS),
     comment: messageText().optional(),
     requestId: z.string().uuid(),
+    // «Скрыть имя отправителя»: копии уходят как свои сообщения пересылающего — без
+    // «Переслано от» (forwardedFromId не ставится). Содержимое и вложения те же.
+    hideSender: z.boolean().optional(),
   })
   .strict()
 export type MessageForwardBatchInput = z.infer<typeof MessageForwardBatchSchema>
+
+/**
+ * Недавние файлы для листа вложений (`GET /chats/files/recent`): `document` — документы,
+ * которые человек сам отправлял (вкладка «Файл» → «Недавно отправленные»), `audio` — музыка
+ * из всех его чатов, без голосовых (вкладка «Звук» → «Ваши чаты»). `q` — подстрока имени.
+ */
+export const RecentChatFilesQuerySchema = CursorPaginationSchema.extend({
+  kind: z.enum(['document', 'audio']),
+  q: z.string().trim().min(1).max(100).optional(),
+})
+export type RecentChatFilesQueryInput = z.infer<typeof RecentChatFilesQuerySchema>
 
 /** Сколько сообщений за раз можно скрыть у себя или удалить у всех. */
 export const MESSAGE_BULK_MAX = 100

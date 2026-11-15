@@ -27,6 +27,8 @@ struct ChatThreadView: View {
     /// Действие из меню ждёт, пока меню закроется: лист поверх закрывающегося
     /// полноэкранного слоя не откроется.
     @State private var pendingMenuAction: (MessageMenuAction, MessageRecord)?
+    /// Файлы сообщения для системного листа «Сохранить в Файлы».
+    @State private var sharingFiles: SharedFiles?
     /// Где на экране панели над перепиской (поиск, закреплённое, трансляция): лента
     /// уходит под них, её отступ сверху — до их низа.
     @State private var topBars: CGRect = .zero
@@ -39,6 +41,8 @@ struct ChatThreadView: View {
     @State private var copiedTick = 0
     /// Короткое уведомление сверху: «Переслано», «Скопировано».
     @State private var toast: String?
+    /// Кнопка в тосте («Отменить» после открепления).
+    @State private var toastAction: ToastAction?
     @State private var toastTask: Task<Void, Never>?
     @State private var reported = false
     @State private var pinnedIndex = 0
@@ -120,9 +124,21 @@ struct ChatThreadView: View {
         .toolbar(.hidden, for: .tabBar)
         .overlay(alignment: .top) {
             if let toast {
-                Text(toast)
-                    .font(Typography.meta.weight(.semibold))
-                    .foregroundStyle(Palette.foreground)
+                HStack(spacing: Spacing.lg) {
+                    Text(toast)
+                        .font(Typography.meta.weight(.semibold))
+                        .foregroundStyle(Palette.foreground)
+                    if let toastAction {
+                        Button(toastAction.title) {
+                            let action = toastAction.run
+                            hideToast()
+                            action()
+                        }
+                        .font(Typography.meta.weight(.bold))
+                        .foregroundStyle(Palette.primary)
+                        .accessibilityIdentifier("chat.toast.action")
+                    }
+                }
                     .padding(.horizontal, Spacing.lg)
                     .padding(.vertical, Spacing.sm)
                     .floatingGlass(in: Capsule())
@@ -157,11 +173,13 @@ struct ChatThreadView: View {
             .foregroundStyle(Palette.foreground)
             .contentTransition(.numericText())
             .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("chat.selection.title")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button(String(localized: "common.cancel", defaultValue: "Отмена")) {
                 endSelection(model)
             }
+            .accessibilityIdentifier("chat.selection.cancel")
         }
     }
 
@@ -240,15 +258,38 @@ struct ChatThreadView: View {
         UserDefaults.standard.set(newest, forKey: Self.hiddenPinnedKey(chatID))
     }
 
-    private func showToast(_ text: String) {
+    /// Тост сверху. С кнопкой («Отменить») держится дольше — успеть нажать.
+    private func showToast(_ text: String, action: ToastAction? = nil) {
         toastTask?.cancel()
-        withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) { toast = text }
+        withAnimation(Motion.respecting(Motion.lively, reduceMotion: reduceMotion)) {
+            toast = text
+            toastAction = action
+        }
         UIAccessibility.post(notification: .announcement, argument: text)
         toastTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2))
+            try? await Task.sleep(for: .seconds(action == nil ? 2 : 5))
             guard !Task.isCancelled else { return }
-            withAnimation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion)) { toast = nil }
+            hideToast()
         }
+    }
+
+    private func hideToast() {
+        toastTask?.cancel()
+        withAnimation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion)) {
+            toast = nil
+            toastAction = nil
+        }
+    }
+
+    /// Открепили — тост с «Отменить»: закрепы возвращаются в прежнем порядке.
+    private func offerUndoUnpin(_ remoteIDs: [String], model: ChatThreadModel) {
+        guard !remoteIDs.isEmpty else { return }
+        let text = remoteIDs.count == 1
+            ? String(localized: "chats.pinned.unpinnedOne", defaultValue: "Сообщение откреплено")
+            : String(localized: "chats.pinned.unpinnedAll", defaultValue: "Сообщения откреплены")
+        showToast(text, action: ToastAction(title: String(localized: "chats.undo", defaultValue: "Отменить")) {
+            Task { await model.repin(remoteIDs) }
+        })
     }
 
     private func endSelection(_ model: ChatThreadModel) {
@@ -703,7 +744,12 @@ struct ChatThreadView: View {
                     viewerID: viewerID,
                     isGroup: bubbleContext(model).isGroup,
                     onJump: { id in Task { await model.jump(to: id) } },
-                    onUnpinAll: { await model.unpinAll() }
+                    onUnpinAll: {
+                        let ids = model.pinned.map(\.id)
+                        let ok = await model.unpinAll()
+                        if ok { offerUndoUnpin(ids, model: model) }
+                        return ok
+                    }
                 )
             }
         }
@@ -713,7 +759,11 @@ struct ChatThreadView: View {
             titleVisibility: .visible
         ) {
             Button(String(localized: "chats.pinned.unpinAll", defaultValue: "Открепить все сообщения"), role: .destructive) {
-                Task { await model?.unpinAll() }
+                guard let model else { return }
+                let ids = model.pinned.map(\.id)
+                Task {
+                    if await model.unpinAll() { offerUndoUnpin(ids, model: model) }
+                }
             }
             Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
         }
@@ -729,9 +779,11 @@ struct ChatThreadView: View {
         }
         .sheet(item: $forwarding) { batch in
             ChatShareSheet(
-                send: { targets, comment, requestID in
+                send: { targets, comment, hideSender, requestID in
                     guard let model else { return ForwardOutcome() }
-                    let outcome = await model.forward(batch.messages, to: targets, comment: comment, requestID: requestID)
+                    let outcome = await model.forward(
+                        batch.messages, to: targets, comment: comment, hideSender: hideSender, requestID: requestID
+                    )
                     if outcome.isComplete {
                         if batch.fromSelection { endSelection(model) }
                         showToast(ChatPlural.forwardedTo(outcome.delivered.count))
@@ -739,7 +791,8 @@ struct ChatThreadView: View {
                     return outcome
                 },
                 exportFiles: mediaExport(of: batch.messages),
-                shareText: batch.messages.map(\.content).filter { !$0.isEmpty }.joined(separator: "\n\n")
+                shareText: batch.messages.map(\.content).filter { !$0.isEmpty }.joined(separator: "\n\n"),
+                forward: forwardContext(batch.messages)
             )
         }
         .alert(
@@ -769,6 +822,9 @@ struct ChatThreadView: View {
                 perform(request, forEveryone: false)
             }
             Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
+        }
+        .sheet(item: $sharingFiles) { files in
+            ShareSheet(items: files.urls)
         }
         .fullScreenCover(item: $viewer, onDismiss: runPendingViewerAction) { request in
             MediaViewer(media: request.media, start: request.start, context: viewerContext(request.gallery))
@@ -818,7 +874,15 @@ struct ChatThreadView: View {
                 fromSelection: false
             )
         case .pin:
-            Task { await model.togglePin(message) }
+            let unpinning = message.pinnedAt != nil
+            Task {
+                guard await model.togglePin(message) else { return }
+                if unpinning, let id = message.remoteId {
+                    offerUndoUnpin([id], model: model)
+                } else if !unpinning {
+                    showToast(String(localized: "chats.pinned.pinnedOne", defaultValue: "Сообщение закреплено"))
+                }
+            }
         case .copy:
             MessageClipboard.copy(message.content)
         case .copyText(let text):
@@ -890,7 +954,8 @@ struct ChatThreadView: View {
                 isGroup: context.isGroup,
                 capabilities: capabilities,
                 readCount: readCount,
-                favoriteSticker: message.extras?.sticker.map { StickerCatalog.shared.isFavorite($0.id) }
+                favoriteSticker: message.extras?.sticker.map { StickerCatalog.shared.isFavorite($0.id) },
+                attachments: item.attachments
             ),
             canReact: message.remoteId != nil && message.deletedAt == nil && message.systemType == nil
         )
@@ -983,6 +1048,75 @@ struct ChatThreadView: View {
         case .delete: handle(.delete, message: message, model: model)
         case .select: handle(.select, message: message, model: model)
         case .favoriteSticker(let isFavorite): toggleFavorite(stickerOf: message, isFavorite: isFavorite)
+        case .saveMedia(let kind): saveMedia(of: message, kind: kind)
+        case .saveFile: saveFile(of: message)
+        }
+    }
+
+    /// Что пересылаем — для блока «Переслать N сообщений» и предпросмотра параметров.
+    /// Порядок — по времени, как уйдёт на сервер.
+    private func forwardContext(_ messages: [MessageRecord]) -> ChatShareSheet.ForwardContext {
+        let ordered = messages.filter(ChatThreadModel.canForward).sorted { $0.createdAt < $1.createdAt }
+        let preview = ordered.prefix(3).map { message in
+            ChatShareSheet.ForwardContext.Line(
+                id: message.id,
+                sender: message.senderId == viewerID
+                    ? String(localized: "chats.you", defaultValue: "Вы")
+                    : (message.senderName ?? String(localized: "chats.forward.someone", defaultValue: "Участник")),
+                text: message.content.isEmpty
+                    ? String(localized: "chats.forward.attachment", defaultValue: "Вложение")
+                    : MessagePreview.text(message.content)
+            )
+        }
+        return ChatShareSheet.ForwardContext(count: ordered.count, preview: Array(preview))
+    }
+
+    /// Вложения сообщения из ленты (в записи сообщения их нет — они у элемента ленты).
+    private func attachments(of message: MessageRecord) -> [AttachmentRecord] {
+        model?.days.lazy.flatMap(\.items).first { $0.message.id == message.id }?.attachments ?? []
+    }
+
+    /// «Сохранить фото/видео»: оригиналы скачиваются и уходят в «Фото», итог — тостом, без
+    /// модального окна поверх переписки. Нет доступа — объяснение в общем алерте ошибок.
+    private func saveMedia(of message: MessageRecord, kind: MessageMenuMedia) {
+        let files = attachments(of: message).filter(\.showsAsMedia)
+        guard !files.isEmpty else { return }
+        Task {
+            do {
+                var urls: [URL] = []
+                for file in files {
+                    guard let media = await Self.viewerMedia(file) else { throw URLError(.fileDoesNotExist) }
+                    urls.append(try await MediaDownload.file(for: media))
+                }
+                try await PhotoLibrarySaver.save(urls)
+                Haptics.success()
+                switch kind {
+                case .photo: showToast(String(localized: "chats.saved.photo", defaultValue: "Фото сохранено в «Фото»"))
+                case .video: showToast(String(localized: "chats.saved.video", defaultValue: "Видео сохранено в «Фото»"))
+                case .mixed: showToast(String(localized: "chats.saved.media", defaultValue: "Сохранено в «Фото»"))
+                }
+            } catch {
+                model?.actionFailure = (error as? LocalizedError)?.errorDescription
+                    ?? String(localized: "chats.saved.failed", defaultValue: "Не удалось сохранить")
+            }
+        }
+    }
+
+    /// «Сохранить файл»: скачанный оригинал — в системный лист (там «Сохранить в Файлы»).
+    private func saveFile(of message: MessageRecord) {
+        let files = attachments(of: message).filter { $0.chatKind == .file || $0.chatKind == .audio }
+        guard !files.isEmpty else { return }
+        Task {
+            do {
+                var urls: [URL] = []
+                for file in files {
+                    guard let media = await Self.viewerMedia(file) else { throw URLError(.fileDoesNotExist) }
+                    urls.append(try await MediaDownload.file(for: media))
+                }
+                sharingFiles = SharedFiles(urls: urls)
+            } catch {
+                model?.actionFailure = String(localized: "chats.saved.failed", defaultValue: "Не удалось сохранить")
+            }
         }
     }
 
@@ -1293,6 +1427,7 @@ private struct PinnedBar: View {
             .padding(.top, Spacing.xs)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("chat.pinned.bar")
         .contextMenu {
             Button(action: onShowAll) {
                 Label(
@@ -1504,4 +1639,18 @@ enum AttachmentFileName {
         let ext = UTType(mimeType: mime)?.preferredFilenameExtension ?? "bin"
         return "\(id).\(ext)"
     }
+}
+
+/// Скачанные файлы для системного листа.
+struct SharedFiles: Identifiable {
+    let id = UUID()
+    let urls: [URL]
+}
+
+/// Кнопка в тосте переписки.
+struct ToastAction: Equatable {
+    let title: String
+    let run: () -> Void
+
+    static func == (lhs: ToastAction, rhs: ToastAction) -> Bool { lhs.title == rhs.title }
 }

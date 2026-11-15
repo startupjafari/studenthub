@@ -105,8 +105,8 @@ struct FeedView: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("stories.viewer")
         }
-        .sheet(isPresented: $composingStory) {
-            StoryComposerView(model: stories)
+        .fullScreenCover(isPresented: $composingStory) {
+            StoryStudioView(stories: stories)
         }
         .sheet(isPresented: $composingPost) {
             PostComposerView(feed: feed)

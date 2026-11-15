@@ -234,11 +234,10 @@ final class ChatMediaGallery {
     func forward(messageIDs: [String], to chatIDs: [String], comment: String?, requestID: UUID) async -> ForwardOutcome {
         guard !messageIDs.isEmpty, !chatIDs.isEmpty else { return ForwardOutcome() }
         do {
-            let result = try await api.forward(messageIDs: messageIDs, to: chatIDs, comment: comment, requestID: requestID)
-            return ForwardOutcome(
-                delivered: result.results.filter(\.ok).map(\.chatId),
-                failed: result.results.filter { !$0.ok }.map(\.chatId)
+            let result = try await api.forward(
+                messageIDs: messageIDs, to: chatIDs, comment: comment, hideSender: false, requestID: requestID
             )
+            return ForwardOutcome(requested: chatIDs, result: result)
         } catch {
             return ForwardOutcome(failure: error.userMessage)
         }

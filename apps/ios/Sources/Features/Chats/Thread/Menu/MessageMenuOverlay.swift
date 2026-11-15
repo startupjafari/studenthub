@@ -10,10 +10,16 @@ enum MessageMenuAction: Hashable, Identifiable {
     case report, delete, select
     /// Сообщение-стикер: добавить его в избранные стикеры или убрать оттуда.
     case favoriteSticker(isFavorite: Bool)
+    /// Снимки и ролики сообщения — в «Фото» (оригиналы).
+    case saveMedia(MessageMenuMedia)
+    /// Файл сообщения — системным листом («Сохранить в Файлы», открыть в приложении).
+    case saveFile
 
     var id: String {
         switch self {
         case .favoriteSticker: "favoriteSticker"
+        case .saveMedia: "saveMedia"
+        case .saveFile: "saveFile"
         case .reply: "reply"
         case .copy: "copy"
         case .edit: "edit"
@@ -45,11 +51,20 @@ enum MessageMenuAction: Hashable, Identifiable {
             isFavorite
                 ? String(localized: "chats.stickers.unfavorite", defaultValue: "Удалить из избранного")
                 : String(localized: "chats.stickers.favorite", defaultValue: "Добавить в избранное")
+        case .saveMedia(let kind):
+            switch kind {
+            case .photo: String(localized: "chats.menu.savePhoto", defaultValue: "Сохранить фото")
+            case .video: String(localized: "chats.menu.saveVideo", defaultValue: "Сохранить видео")
+            case .mixed: String(localized: "chats.menu.saveMedia", defaultValue: "Сохранить в «Фото»")
+            }
+        case .saveFile: String(localized: "chats.menu.saveFile", defaultValue: "Сохранить файл")
         }
     }
 
     var symbol: String {
         switch self {
+        case .saveMedia: "square.and.arrow.down"
+        case .saveFile: "arrow.down.doc"
         case .reply: "arrowshape.turn.up.left"
         case .copy: "doc.on.doc"
         case .edit: "square.and.pencil"
@@ -74,7 +89,8 @@ enum MessageMenuAction: Hashable, Identifiable {
         isGroup: Bool,
         capabilities: MessageCapabilities,
         readCount: Int,
-        favoriteSticker: Bool? = nil
+        favoriteSticker: Bool? = nil,
+        attachments: [AttachmentRecord] = []
     ) -> [MessageMenuAction] {
         if message.deletedAt != nil || message.systemType != nil {
             return [.select]
@@ -91,6 +107,9 @@ enum MessageMenuAction: Hashable, Identifiable {
         // Стикер — сразу под «Ответить», как в Telegram.
         if let favoriteSticker { actions.append(.favoriteSticker(isFavorite: favoriteSticker)) }
         if hasText { actions.append(.copy) }
+        // Сохранение — по виду вложений: снимок, ролик, файл. Голосовое не сохраняется.
+        if let media = MessageMenuMedia(attachments) { actions.append(.saveMedia(media)) }
+        if attachments.contains(where: { $0.chatKind == .file || $0.chatKind == .audio }) { actions.append(.saveFile) }
         if capabilities.canEdit { actions.append(.edit) }
         actions.append(.pin(isPinned: message.pinnedAt != nil))
         actions.append(.forward)
@@ -99,6 +118,24 @@ enum MessageMenuAction: Hashable, Identifiable {
         actions.append(.delete)
         actions.append(.select)
         return actions
+    }
+}
+
+/// Что сохранять в «Фото»: только снимки, только ролики или вперемешку (альбом).
+enum MessageMenuMedia: Hashable {
+    case photo
+    case video
+    case mixed
+
+    init?(_ attachments: [AttachmentRecord]) {
+        let photos = attachments.contains { $0.chatKind == .photo }
+        let videos = attachments.contains { $0.chatKind == .video }
+        switch (photos, videos) {
+        case (true, true): self = .mixed
+        case (true, false): self = .photo
+        case (false, true): self = .video
+        case (false, false): return nil
+        }
     }
 }
 
