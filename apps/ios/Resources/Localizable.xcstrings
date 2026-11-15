@@ -12241,23 +12241,6 @@
         }
       }
     },
-    "stories.caption": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Подпись (необязательно)"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Жазу (міндетті емес)"
-          }
-        }
-      }
-    },
     "stories.delete.title": {
       "extractionState": "manual",
       "localizations": {
@@ -12343,23 +12326,6 @@
         }
       }
     },
-    "stories.next": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Следующая история"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Келесі сторис"
-          }
-        }
-      }
-    },
     "stories.nextAuthor": {
       "extractionState": "manual",
       "localizations": {
@@ -12377,23 +12343,6 @@
         }
       }
     },
-    "stories.pickMedia": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Фото или видео"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Фото немесе бейне"
-          }
-        }
-      }
-    },
     "stories.poll.votes": {
       "extractionState": "manual",
       "localizations": {
@@ -12407,23 +12356,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Дауыстар: %lld"
-          }
-        }
-      }
-    },
-    "stories.previous": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Предыдущая история"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Алдыңғы сторис"
           }
         }
       }
@@ -12479,23 +12411,6 @@
         }
       }
     },
-    "stories.replaceMedia": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Заменить"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ауыстыру"
-          }
-        }
-      }
-    },
     "stories.reply": {
       "extractionState": "manual",
       "localizations": {
@@ -12543,23 +12458,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Дыбыс"
-          }
-        }
-      }
-    },
-    "stories.text": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Текст истории"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сторис мәтіні"
           }
         }
       }
@@ -94227,23 +94125,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Барлық қатысушылар"
-          }
-        }
-      }
-    },
-    "chats.thread.search.list": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Списком"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Тізіммен"
           }
         }
       }

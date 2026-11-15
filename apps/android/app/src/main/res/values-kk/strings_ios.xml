@@ -1688,7 +1688,6 @@
     <string name="chats_thread_search_from">Кімнен</string>
     <string name="chats_thread_search_fromAll">Барлық қатысушылар</string>
     <string name="chats_thread_search_fromName">Кімнен: %1$s</string>
-    <string name="chats_thread_search_list">Тізіммен</string>
     <string name="chats_thread_search_newer">Келесі сәйкестік</string>
     <string name="chats_thread_search_older">Алдыңғы сәйкестік</string>
     <string name="chats_thread_search_open">Чаттан іздеу</string>
@@ -4604,7 +4603,6 @@
     <string name="stories_camera_timerOff">Таймер: өшірулі</string>
     <string name="stories_camera_unavailable">Бұл құрылғыда камера қолжетімсіз</string>
     <string name="stories_cancel">Бас тарту</string>
-    <string name="stories_caption">Жазу (міндетті емес)</string>
     <string name="stories_close">Жабу</string>
     <string name="stories_collage_cell">Бос ұяшық</string>
     <string name="stories_collage_dropMessage">Жаңа орналасуға сыймайтын кадрлар жойылады.</string>
@@ -4680,16 +4678,12 @@
     <string name="stories_more">Сторис әрекеттері</string>
     <string name="stories_mute">Автордың сторисін көрсетпеу</string>
     <string name="stories_new">Жаңа сторис</string>
-    <string name="stories_next">Келесі сторис</string>
     <string name="stories_nextAuthor">Келесі автор</string>
-    <string name="stories_pickMedia">Фото немесе бейне</string>
     <string name="stories_poll_votes">Дауыстар: %1$s</string>
     <string name="stories_position">Сторис: %2$s ішінен %1$s</string>
-    <string name="stories_previous">Алдыңғы сторис</string>
     <string name="stories_previousAuthor">Алдыңғы автор</string>
     <string name="stories_publish">Жариялау</string>
     <string name="stories_publish_back">Редакторға оралу</string>
-    <string name="stories_replaceMedia">Ауыстыру</string>
     <string name="stories_reply">Авторға жауап беру</string>
     <string name="stories_report_title">Стористе не дұрыс емес?</string>
     <string name="stories_shape_arrow">Көрсеткі</string>
@@ -4704,7 +4698,6 @@
     <string name="stories_stickers_photo">Фото</string>
     <string name="stories_stickers_pickPhoto">Фото таңдау</string>
     <string name="stories_stickers_shapes">Пішіндер</string>
-    <string name="stories_text">Сторис мәтіні</string>
     <string name="stories_text_alignment">Туралау</string>
     <string name="stories_text_back">Артқа</string>
     <string name="stories_text_emoji">Эмодзи</string>
