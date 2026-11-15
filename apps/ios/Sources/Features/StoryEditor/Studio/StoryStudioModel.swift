@@ -85,8 +85,6 @@ final class StoryStudioModel {
     private(set) var pickerColor = StoryColor.white
     private(set) var roundRecordingStartedAt: Date?
     private(set) var isPreparingRoundCamera = false
-    /// Холст ставит сюда функцию снимка — для превью черновика и пипетки.
-    var snapshotProvider: () -> UIImage? = { nil }
 
     var alert: StoryStudioAlert?
     /// Готовые файлы для экрана публикации.
@@ -234,7 +232,11 @@ final class StoryStudioModel {
         do {
             let shot = try await camera.capturePhoto()
             if var collage {
-                guard let index = collage.activeIndex else { return }
+                guard let index = collage.activeIndex else {
+                    // Все ячейки сняты (вернулись из редактора) — снова в редактор.
+                    await finishCollage()
+                    return
+                }
                 let cell = collage.layout.cells[index]
                 let image = StoryMediaImport.normalized(shot, cropAspect: StoryMediaImport.aspect(of: cell), maxSide: 1920)
                 let file = workspace.newFile(extension: "jpg")
@@ -523,17 +525,19 @@ final class StoryStudioModel {
         if next != .discardConfirmation { await returnToCapture() }
     }
 
-    func discardChanges() async {
+    /// «Удалить» в диалоге. Переход — сразу, в том же такте, что и нажатие: алерт
+    /// закрывается по состоянию, и запоздалый переход не столкнётся с его закрытием.
+    func discardChanges() {
         session.discard()
-        await returnToCapture()
+        Task { await returnToCapture() }
     }
 
     func keepEditing() {
         session.keepEditing()
     }
 
-    func saveDraftAndClose() async {
-        let snapshot = snapshotProvider()
+    func saveDraftAndClose() {
+        let snapshot = previewImage(width: 360)
         let draftID = session.draftID
         guard let document = session.saveDraftAndClose() else { return }
         do {
@@ -542,7 +546,7 @@ final class StoryStudioModel {
         } catch {
             show(error)
         }
-        await returnToCapture()
+        Task { await returnToCapture() }
     }
 
     /// «Сохранить черновик» из меню — редактор остаётся открытым.
@@ -550,7 +554,7 @@ final class StoryStudioModel {
         guard let document else { return }
         do {
             let id = session.draftID ?? document.id
-            try saveDraft(document, replacing: id, thumbnail: snapshotProvider())
+            try saveDraft(document, replacing: id, thumbnail: previewImage(width: 360))
             session.markSaved(draftID: id)
             Haptics.success()
         } catch {
@@ -570,6 +574,18 @@ final class StoryStudioModel {
         queue = []
         finished = []
         if state.isCameraVisible { await startCamera() }
+    }
+
+    /// Кадр истории тем же рендером, что экспорт, — превью черновика и пипетка. Снимок
+    /// экрана не годится: слой Metal с фото в `drawHierarchy` не попадает.
+    func previewImage(width: CGFloat) -> UIImage? {
+        guard let document else { return nil }
+        let size = CGSize(width: width, height: width * 16 / 9)
+        var poster: UIImage?
+        if case let .video(file, _, _) = document.background {
+            poster = MediaPreparation.thumbnail(ofVideoAt: workspace.url(for: file))
+        }
+        return StoryExporter.renderPhoto(document, workspace: workspace, size: size, videoPoster: poster)
     }
 
     // Инструменты.
@@ -783,8 +799,8 @@ final class StoryStudioModel {
         isPreparingRoundCamera = true
         defer { isPreparingRoundCamera = false }
         do {
+            // Кружок — всегда фронтальная; выбор камеры экрана съёмки не меняется.
             try await camera.start(position: .front)
-            cameraPosition = camera.position
         } catch {
             session.cancel()
             show(error)

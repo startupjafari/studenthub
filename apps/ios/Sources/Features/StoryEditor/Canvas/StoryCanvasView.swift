@@ -601,25 +601,6 @@ final class StoryCanvasView: UIView, UIGestureRecognizerDelegate, UIEditMenuInte
         })
         return UIMenu(children: actions)
     }
-
-    /// Снимок холста (без направляющих) — превью черновика.
-    func snapshotImage(maxWidth: CGFloat = 360) -> UIImage? {
-        guard bounds.width > 0 else { return nil }
-        let guidesHidden = guidesView.isHidden
-        guidesView.isHidden = true
-        snapLayer.isHidden = true
-        trashView.isHidden = true
-        defer {
-            guidesView.isHidden = guidesHidden
-            snapLayer.isHidden = false
-            trashView.isHidden = false
-        }
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = maxWidth / bounds.width
-        return UIGraphicsImageRenderer(bounds: bounds, format: format).image { _ in
-            drawHierarchy(in: bounds, afterScreenUpdates: false)
-        }
-    }
 }
 
 /// Направляющие размытия: сплошная — граница резкого, пунктир — конец перехода.

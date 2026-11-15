@@ -95,7 +95,6 @@ struct StoryEditorStage: UIViewRepresentable {
         stage.textEditor.onOpenColorPicker = {
             model.openColorPicker(.text)
         }
-        model.snapshotProvider = { [weak stage] in stage?.canvas.snapshotImage() }
         return stage
     }
 

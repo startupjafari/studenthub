@@ -85,6 +85,9 @@ private struct StoryMainChrome: View {
 
     @State private var photoPick: PhotosPickerItem?
     @FocusState private var captionFocused: Bool
+    /// Верх клавиатуры в координатах экрана. Экран редактора клавиатуру не обходит
+    /// (снимок не должен сжиматься), поэтому подпись поднимаем над ней сами.
+    @State private var keyboardTop: CGFloat?
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -104,15 +107,14 @@ private struct StoryMainChrome: View {
                     .accessibilityIdentifier("story.editor.queue")
             }
 
-            // Подпись поднимается над клавиатурой отдельным слоем — холст стоит на месте.
+            // Подпись поднимается над клавиатурой — холст под ней стоит на месте.
             VStack {
-                Spacer()
-                captionBar
-                    .frame(width: canvas.width)
-                    .padding(.bottom, captionFocused ? Spacing.sm : 0)
+                Spacer(minLength: 0)
+                captionBar.frame(width: canvas.width)
             }
-            .frame(width: canvas.width, height: captionFocused ? nil : canvas.maxY - Spacing.md)
+            .frame(width: canvas.width, height: captionBottom, alignment: .bottom)
             .offset(x: canvas.minX)
+            .animation(.easeOut(duration: Motion.Duration.layer), value: captionBottom)
 
             toolRow
                 .frame(width: canvas.width, height: StoryStageLayout.bottomBar)
@@ -130,11 +132,25 @@ private struct StoryMainChrome: View {
                     .accessibilityIdentifier("story.editor.exporting")
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+            guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+            let screen = UIScreen.main.bounds.height
+            keyboardTop = frame.minY < screen - 1 ? frame.minY : nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            keyboardTop = nil
+        }
         .task(id: photoPick) {
             guard let photoPick, let data = try? await photoPick.loadTransferable(type: Data.self), let image = UIImage(data: data) else { return }
             model.addEntity(photo: image)
             self.photoPick = nil
         }
+    }
+
+    /// Нижний край подписи: над клавиатурой, пока подпись в фокусе, иначе — у низа холста.
+    private var captionBottom: CGFloat {
+        if captionFocused, let keyboardTop { return keyboardTop - Spacing.sm }
+        return canvas.maxY - Spacing.md
     }
 
     private var topBar: some View {

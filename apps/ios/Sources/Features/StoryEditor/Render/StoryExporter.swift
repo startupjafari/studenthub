@@ -38,8 +38,9 @@ enum StoryExporter {
 
     // MARK: Фото
 
-    static func renderPhoto(_ document: StoryDocument, workspace: StoryWorkspace, size: CGSize = size) -> UIImage {
-        let media = processedMedia(document, workspace: workspace)
+    /// Кадр истории. `videoPoster` — кадр видео-фона для превью (у фото не нужен).
+    static func renderPhoto(_ document: StoryDocument, workspace: StoryWorkspace, size: CGSize = size, videoPoster: UIImage? = nil) -> UIImage {
+        let media = processedMedia(document, workspace: workspace) ?? videoPoster
         let images = EntityImages(workspace: workspace)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1

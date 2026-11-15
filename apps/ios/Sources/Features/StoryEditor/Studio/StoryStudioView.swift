@@ -78,15 +78,17 @@ struct StoryStudioView: View {
             String(localized: "stories.discard.title", defaultValue: "Сбросить изменения?"),
             isPresented: Binding(
                 get: { model.state == .discardConfirmation },
-                set: { shown in if !shown, model.state == .discardConfirmation { model.keepEditing() } }
+                // Закрывает диалог смена состояния: кнопки переводят его сразу. Сеттер
+                // ничего не делает — иначе он успел бы вернуть редактор раньше «Удалить».
+                set: { _ in }
             )
         ) {
             Button(String(localized: "stories.discard.delete", defaultValue: "Удалить"), role: .destructive) {
-                Task { await model.discardChanges() }
+                model.discardChanges()
             }
             .accessibilityIdentifier("story.discard.delete")
             Button(String(localized: "stories.discard.saveDraft", defaultValue: "Сохранить черновик")) {
-                Task { await model.saveDraftAndClose() }
+                model.saveDraftAndClose()
             }
             .accessibilityIdentifier("story.discard.save")
             Button(String(localized: "stories.cancel", defaultValue: "Отмена"), role: .cancel) {

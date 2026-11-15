@@ -414,7 +414,7 @@ private struct StoryEyedropper: View {
                     .allowsHitTesting(false)
             }
         }
-        .onAppear { snapshot = model.snapshotProvider() }
+        .onAppear { snapshot = model.previewImage(width: 540) }
     }
 
     private func color(at point: CGPoint) -> StoryColor? {
