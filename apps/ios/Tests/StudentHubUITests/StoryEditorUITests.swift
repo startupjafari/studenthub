@@ -348,7 +348,19 @@ final class StoryEditorUITests: MockUITestCase {
         XCTAssertTrue(shutter.waitForExistence(timeout: timeout), "после сохранения черновика не вернулись к камере")
 
         button("story.camera.gallery").tap()
-        any("story.gallery.album").tap()
+        // Панель галереи выезжает пружиной: тап по ещё едущему меню альбомов попадает
+        // в плитку под ним. Ждём, пока рамка меню перестанет сдвигаться.
+        XCTAssertTrue(any("story.gallery.item.synthetic-1").waitForExistence(timeout: timeout), "галерея не открылась")
+        let album = any("story.gallery.album")
+        XCTAssertTrue(album.waitForExistence(timeout: timeout))
+        var last = album.frame
+        for _ in 0..<20 {
+            Thread.sleep(forTimeInterval: 0.15)
+            let now = album.frame
+            if now == last { break }
+            last = now
+        }
+        album.tap()
         // Пункт системного меню: идентификатор SwiftUI туда не доходит — ищем по подписи.
         // В iOS 26 пункт меню бывает не Button, а MenuItem — ищем любой тип.
         let drafts = app.descendants(matching: .any)

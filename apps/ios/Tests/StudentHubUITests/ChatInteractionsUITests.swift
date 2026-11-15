@@ -34,12 +34,17 @@ final class ChatInteractionsUITests: MockUITestCase {
         XCTAssertTrue(target.waitForExistence(timeout: timeout), "нет сообщения \(id)", file: file, line: line)
         // `message.bubble.*` — вся строка во ширину ленты, а меню ловит только касание по
         // самому пузырю (`menuItem(at:)`): у короткого сообщения центр строки — пустое
-        // место сбоку. Жмём по тексту внутри пузыря (у снимка — время на нём).
-        let content = target.staticTexts.firstMatch
-        (content.exists ? content : target).press(forDuration: 0.7)
+        // место сбоку, а первый текст строки бывает служебной подписью вне пузыря.
+        // Входящий пузырь прижат влево, свой — вправо: жмём у левого края строки,
+        // не открылось — у правого.
+        let menu = any("message.menu.select")
+        for side in [0.1, 0.9] {
+            target.coordinate(withNormalizedOffset: CGVector(dx: side, dy: 0.5)).press(forDuration: 0.7)
+            if menu.waitForExistence(timeout: 2) { break }
+        }
         // Показания зонда ленты (`UITestProbe`): начался ли жест, отказал ли показ.
         XCTAssertTrue(
-            any("message.menu.select").waitForExistence(timeout: timeout),
+            menu.waitForExistence(timeout: timeout),
             "меню не открылось; зонд: \(list.value as? String ?? "—")", file: file, line: line)
     }
 
