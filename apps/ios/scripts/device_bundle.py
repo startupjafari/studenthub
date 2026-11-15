@@ -88,10 +88,10 @@ def info_plist(api_base_url: str, web_base_url: str) -> dict:
         "CFBundleURLTypes": [
             {"CFBundleURLName": "kz.studenthub.app", "CFBundleURLSchemes": ["studenthub"]},
         ],
-        "NSCameraUsageDescription": "Чтобы сфотографировать или отсканировать документ для чата, сфотографироваться для профиля и отсканировать QR-код входа на компьютере.",
-        "NSMicrophoneUsageDescription": "Чтобы записать голосовое сообщение.",
+        "NSCameraUsageDescription": "Чтобы снять фото или видео для истории, сфотографировать или отсканировать документ для чата, сфотографироваться для профиля и отсканировать QR-код входа на компьютере.",
+        "NSMicrophoneUsageDescription": "Чтобы записать голосовое сообщение или видео для истории со звуком.",
         "NSPhotoLibraryAddUsageDescription": "Чтобы сохранить фото и видео из приложения в «Фото».",
-        "NSPhotoLibraryUsageDescription": "Чтобы показать недавние фото и видео при отправке в чат.",
+        "NSPhotoLibraryUsageDescription": "Чтобы показать недавние фото и видео при отправке в чат и при создании истории.",
         "NSLocationWhenInUseUsageDescription": "Чтобы отправить своё местоположение в чат или транслировать его, пока вы сами не остановите трансляцию.",
         # Запрос «Разрешить доступ к локальной сети» iOS показывает при первом обращении
         # к серверу на компьютере. Без «Разрешить» запросы к API не дойдут.
