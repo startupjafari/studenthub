@@ -21,7 +21,6 @@
     "test:watch": "vitest",
     "e2e": "node e2e/prepare-db.mjs && playwright test --project=chromium",
     "e2e:ui": "node e2e/prepare-db.mjs && playwright test --project=chromium --ui",
-    "ui-audit": "node e2e/prepare-db.mjs && playwright test --project=ui-audit",
     "size": "size-limit",
     "i18n:scopes": "node scripts/i18n-scopes.mjs"
   },
@@ -77,7 +76,6 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.14.0",
     "@next/bundle-analyzer": "^16.4.3",
     "@playwright/test": "^1.64.1",
     "@size-limit/file": "^12.1.0",

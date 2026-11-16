@@ -14,6 +14,9 @@
 
 ## Как снято
 
+> Скрипты `scripts/perf-baseline.mjs` и `scripts/perf-explain.mjs` удалены 16.11.2026. Для
+> повторного замера их можно достать из истории: `git show b6809d9a:scripts/perf-baseline.mjs`.
+
 | | |
 |---|---|
 | Стенд | `pnpm db:seed:test` — 1 вуз, 2 факультета, 58 групп, 1450 учащихся |

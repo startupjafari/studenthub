@@ -69,7 +69,6 @@ pnpm --filter web lint
 pnpm --filter web build
 pnpm --filter web test
 pnpm --filter web e2e
-pnpm --filter web ui-audit                  # адаптивный UI-аудит всех экранов (см. /ui-audit)
 
 pnpm --filter mini-app test
 pnpm --filter camera-agent test

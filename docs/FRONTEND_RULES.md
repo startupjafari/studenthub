@@ -296,8 +296,7 @@ interface AuthState {
 | E2E | Playwright (`apps/web/e2e/`) | Логин, регистрация по инвайту, лента, отправка сообщения, создание заявки |
 
 > Фактически (2026-11): MSW в `apps/web` не подключён — тесты мокают модули `api` слайсов
-> через `vi.mock`. E2E запускаются `pnpm --filter web e2e` (Playwright, проект `chromium`);
-> адаптивный UI-аудит — отдельный проект `ui-audit` (`e2e/ui-audit/`).
+> через `vi.mock`. E2E запускаются `pnpm --filter web e2e` (Playwright, проект `chromium`).
 
 - Запрос по роли и label (`getByRole`, `getByLabelText`), не по классам и `data-test-id` без необходимости.
 - Обязательные негативные сценарии: истёкший инвайт, 403 при чужом маршруте, обрыв сокета, ошибка загрузки файла.

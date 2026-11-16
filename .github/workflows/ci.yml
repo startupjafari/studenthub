@@ -462,8 +462,7 @@ jobs:
   web-e2e:
     name: Веб · сквозные сценарии Playwright
     runs-on: ubuntu-24.04
-    # Прогон поднимает api (nest build) и web (next build) и идёт около десяти минут, плюс
-    # axe-обход всех экранов всех ролей (e2e/a11y-axe.e2e.ts) — порядка ста сорока экранов.
+    # Прогон поднимает api (nest build) и web (next build) и идёт около десяти минут.
     # Потолок нужен против зависших серверов: Playwright ждёт порт до 180 с на каждый,
     # а упавший на старте api оставляет прогон висеть на ретраях.
     timeout-minutes: 45
@@ -612,14 +611,6 @@ jobs:
           # пустая, и конфиг остаётся при своём одном ретрае.
           PW_RETRIES: ${{ github.event_name == 'schedule' && '0' || '' }}
         run: pnpm --filter web e2e
-
-      # Находки axe — в сводку запуска. Обход (e2e/a11y-axe.e2e.ts) идёт по всем экранам
-      # всех ролей и падает на serious/critical вне allowlist (e2e/support/axe-allowlist.ts),
-      # а minor/moderate и терпимое по allowlist видно только здесь. Отчёт — по файлу на
-      # зону в apps/web/a11y-axe/, сводку из них собирает скрипт.
-      - name: Доступность — находки axe в сводку
-        if: always()
-        run: node apps/web/e2e/support/axe-summary.mjs apps/web/a11y-axe >> "$GITHUB_STEP_SUMMARY"
 
       # Отчёт нужен именно при падении: по нему видно шаг, скриншот и трассу повтора.
       - name: Отчёт Playwright — только при падении

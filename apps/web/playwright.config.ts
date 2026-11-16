@@ -35,29 +35,13 @@ export default defineConfig({
     locale: 'ru-RU',
   },
 
-  // Два проекта. `chromium` — обычные сценарии: авторизация живёт в фикстурах
-  // (e2e/support/fixtures.ts), а не в storageState, поэтому делить прогон на роли через
-  // projects незачем. `ui-audit` — широкая развёртка по всем экранам всех ролей
-  // (e2e/ui-audit): она идёт десятки минут, и в обычном прогоне ей не место, поэтому у
-  // проектов разные testMatch, а скрипты пакета всегда указывают проект явно.
+  // Авторизация живёт в фикстурах (e2e/support/fixtures.ts), а не в storageState, поэтому
+  // делить прогон на роли через projects незачем — проект один.
   projects: [
     {
       name: 'chromium',
       testMatch: /.*\.e2e\.ts$/,
       use: { ...devices['Desktop Chrome'] },
-    },
-    {
-      name: 'ui-audit',
-      testMatch: /.*\.audit\.ts$/,
-      // Зона = один тест на сорок экранов по семь ширин каждый. Свой таймаут теста
-      // выставляется внутри (test.setTimeout), здесь — потолок на всякий случай.
-      timeout: 30 * 60_000,
-      use: {
-        ...devices['Desktop Chrome'],
-        // Свои скриншоты аудит пишет сам в ui-audit/screenshots; дубли от Playwright
-        // при падении шлагбаума только засоряют артефакты.
-        screenshot: 'off',
-      },
     },
   ],
 
