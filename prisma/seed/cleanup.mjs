@@ -119,6 +119,11 @@ async function deleteUniversity(prisma, universityId, log) {
   await run('bookCopy', prisma.bookCopy.deleteMany({ where: { universityId } }))
   await run('book', prisma.book.deleteMany({ where: { universityId } }))
 
+  // Камеры: агент держит вуз Restrict'ом, камеры уходят с агентом каскадом — отдельно
+  // только ради счётчика. Журналы охраны и просмотров уходят каскадом вместе с вузом.
+  await run('camera', prisma.camera.deleteMany({ where: { universityId } }))
+  await run('cameraAgent', prisma.cameraAgent.deleteMany({ where: { universityId } }))
+
   await run('university', prisma.university.deleteMany({ where: { id: universityId } }))
   return counts
 }
