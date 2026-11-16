@@ -102,6 +102,16 @@ async function deleteUniversity(prisma, universityId, log) {
   await run('group', prisma.group.deleteMany({ where: { id: { in: groupIds } } }))
   await run('subject', prisma.subject.deleteMany({ where: { universityId } }))
   await run('term', prisma.term.deleteMany({ where: { universityId } }))
+  // Кампус — до помещений: индекс пространств ссылается на них SetNull'ом, и без этого
+  // удаление помещений пошло бы лишними апдейтами. Снимки этажей без внешнего ключа —
+  // их находим по этажам кампуса; остальное уходит каскадом с кампусом (вуз — Restrict).
+  const campusFloors = await prisma.campusFloor.findMany({
+    where: { building: { campus: { universityId } } },
+    select: { id: true },
+    take: 10_000,
+  })
+  await run('campusFloorPlanSnapshot', prisma.campusFloorPlanSnapshot.deleteMany({ where: { floorId: { in: campusFloors.map((f) => f.id) } } })) // prettier-ignore
+  await run('campus', prisma.campus.deleteMany({ where: { universityId } }))
   await run('room', prisma.room.deleteMany({ where: { universityId } }))
   await run('specialty', prisma.specialty.deleteMany({ where: { universityId } }))
   await run('faculty', prisma.faculty.deleteMany({ where: { id: { in: facultyIds } } }))

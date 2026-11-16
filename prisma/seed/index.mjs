@@ -28,6 +28,7 @@ import { seedChatExtras } from './steps/62-chat-extras.mjs'
 import { seedServices } from './steps/70-services.mjs'
 import { seedServiceExtras } from './steps/75-extras.mjs'
 import { seedCareer } from './steps/80-career.mjs'
+import { seedCampus } from './steps/85-campus.mjs'
 
 const KATO_PATH = fileURLToPath(new URL('./data/kato.json', import.meta.url))
 
@@ -210,6 +211,9 @@ export async function seedUniversities(prisma, { config, passwordHash, pool, com
     // компании — после карьеры: доступы к профилю выдаются только по откликам.
     await writer.flush()
     await seedServiceExtras(prisma, writer, { ...ctx, structure, people })
+    // Опубликованный кампус: помещения вуза раскладываются по корпусам и этажам.
+    await writer.flush()
+    await seedCampus(prisma, writer, { ...ctx, structure, people })
     // Истории, лайки, закладки, комментарии к событиям, предупреждения — в самом конце:
     // шаг читает из базы посты, статьи, события и жалобы всех предыдущих шагов.
     await writer.flush()
